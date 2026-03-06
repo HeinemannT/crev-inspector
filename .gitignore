@@ -1,0 +1,11 @@
+node_modules/
+dist/
+package-lock.json
+
+# Internal docs
+ARCHITECTURE.md
+
+# Tests and dev config
+src/lib/__tests__/
+vitest.config.ts
+vitest.integration.config.ts
