@@ -118,16 +118,18 @@ export class BmpClient {
     const code = [
       `_o := lookup(${validateRid(rid)})`,
       `_t := _o.linkedTo`,
-      `_t.rid.whenMissing("MISSING") + "|||" + _t.name.whenMissing("") + "|||" + _t.className.whenMissing("")`,
+      `output(_t.rid.whenMissing("MISSING") + "|||" + _t.name.whenMissing("") + "|||" + _t.className.whenMissing(""))`,
+      '0',
     ].join('\n');
     const ecResult = await this.executeEc(code, undefined, false);
     if (!ecResult.ok || !ecResult.log) return { templateRid: null };
 
+    // Find the output line (contains |||) — skip "Result : 0", "Duration" etc.
     const lines = ecResult.log.trim().split('\n');
-    const last = lines[lines.length - 1]?.trim();
-    if (!last || last.startsWith('MISSING')) return { templateRid: null };
+    const match = lines.find(l => l.includes('|||'))?.trim();
+    if (!match || match.startsWith('MISSING')) return { templateRid: null };
 
-    const [tRid, ...rest] = last.split('|||');
+    const [tRid, ...rest] = match.split('|||');
     const tType = rest.pop() ?? '';
     const tName = rest.join('|||');
     if (!tRid || tRid === 'MISSING') return { templateRid: null };
@@ -156,7 +158,8 @@ export class BmpClient {
       `LIST(${lookups}).forEach(_o:`,
       '  _r := _r + _o.rid.whenMissing("SKIP") + _d + _o.id.whenMissing("") + _d + _o.className.whenMissing("") + _d + _o.name.whenMissing("") + "\\n"',
       ')',
-      '_r',
+      'output(_r)',
+      '0',
     ].join('\n');
 
     const result = await this.executeEc(code, undefined, false);

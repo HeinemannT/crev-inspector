@@ -543,8 +543,12 @@ export function parseEcResults(objects: any[]): ParsedEcResult {
 
     if (cls === 'com.corporater.bmp.dto.command.extended.ExtendedExecuteResult') {
       const raw = obj.entries;
-      // entries may be a native array OR a deserialized ArrayList ({$elements: [...]})
-      const entries = Array.isArray(raw) ? raw : raw?.$elements;
+      // entries may be a native array, a deserialized ArrayList ({$elements: [...]}),
+      // or a SeqListImpl ({delegate: {$elements: [...]}}) as seen in BMP 5.6.7.2
+      const entries = Array.isArray(raw) ? raw
+        : raw?.$elements           // plain ArrayList
+        ?? raw?.delegate?.$elements // SeqListImpl → delegate → ArrayList
+        ?? raw?.delegate;           // SeqListImpl → delegate is native array
       if (Array.isArray(entries)) {
         for (const entry of entries) {
           if (!entry) continue;
