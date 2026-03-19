@@ -48,9 +48,6 @@ export interface TemplateResolution {
   templateType?: string;
 }
 
-/**
- * Direct BMP client — facade over BmpAuth + BmpTransport.
- */
 /** Lightweight cache interface — avoids coupling to ObjectCache. */
 export interface IdentityCache {
   get(rid: string): { businessId?: string; type?: string } | undefined;
@@ -121,8 +118,8 @@ export class BmpClient {
     return `t.${identity.businessId}`;
   }
 
-  /** Fetch identity (rid, businessId, type) via binary GetObjectCommand. */
-  private async getObjectIdentity(rid: string): Promise<{ rid: string; businessId?: string; type?: string } | null> {
+  /** Fetch identity (rid, businessId, type, name) via binary GetObjectCommand. */
+  private async getObjectIdentity(rid: string): Promise<{ rid: string; businessId?: string; type?: string; name?: string } | null> {
     try {
       const cmd = makeGetObjectCommand(rid);
       const buffer = await this.transport.sendCommands([cmd]);
@@ -133,7 +130,7 @@ export class BmpClient {
           if (!first?.response) return null;
           const parsed = parseObjectData(first.response);
           if (!parsed?.rid) return null;
-          return { rid: parsed.rid, businessId: parsed.properties.id, type: parsed.type };
+          return { rid: parsed.rid, businessId: parsed.properties.id, type: parsed.type, name: parsed.properties.name };
         }
         if (obj?.$class?.includes('ServerExceptionResponse')) return null;
       }
@@ -244,10 +241,15 @@ export class BmpClient {
     return { results: out };
   }
 
-  /** Lightweight identity fetch for a single RID */
+  /** Lightweight identity fetch for a single RID (version-aware) */
   async lookupIdentity(rid: string): Promise<{ name?: string; type?: string; businessId?: string } | null> {
-    const { results } = await this.batchEnrich([rid]);
-    return results[rid] ?? null;
+    if (this.supportsLookup !== false) {
+      const { results } = await this.batchEnrich([rid]);
+      return results[rid] ?? null;
+    }
+    const identity = await this.getObjectIdentity(rid);
+    if (!identity) return null;
+    return { name: identity.name, type: identity.type, businessId: identity.businessId };
   }
 
   /** Binary fallback: enrich via IntegrationGetObjectCommand (one per RID).
