@@ -151,15 +151,15 @@ export class BmpClient {
     if (valid.length === 0) return { results: {} };
     if (valid.length > BATCH_CHUNK_SIZE) valid = valid.slice(0, BATCH_CHUNK_SIZE);
 
-    const lookups = valid.map(rid => `lookup(${rid})`).join(', ');
-    const code = [
-      '_d := "|||"',
-      '_r := ""',
-      `LIST(${lookups}).forEach(_o:`,
-      '  _r := _r + _o.rid.whenMissing("SKIP") + _d + _o.id.whenMissing("") + _d + _o.className.whenMissing("") + _d + _o.name.whenMissing("") + "\\n"',
-      ')',
-      '_r',
-    ].join('\n');
+    const lines = ['_d := "|||"', '_r := ""'];
+    for (const rid of valid) {
+      lines.push(`_o := lookup(${rid})`);
+      lines.push('IF _o != MISSING THEN');
+      lines.push('  _r := _r + _o.rid.whenMissing("SKIP") + _d + _o.id.whenMissing("") + _d + _o.className.whenMissing("") + _d + _o.name.whenMissing("") + "\\n"');
+      lines.push('ENDIF');
+    }
+    lines.push('_r');
+    const code = lines.join('\n');
 
     const result = await this.executeEc(code, undefined, false);
     if (!result.ok) return { results: {}, error: result.error ?? 'EC execution failed' };
