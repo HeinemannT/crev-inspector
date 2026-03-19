@@ -83,6 +83,13 @@ export async function enrichBadges(rids: string[]) {
     return;
   }
 
+  // Wait for version detection — supportsLookup is null until applyVersionFlags() runs.
+  // RE_ENRICH will re-trigger enrichment after version is detected.
+  if (ctx.client.supportsLookup === null) {
+    ctx.logActivity('info', 'Waiting for version detection\u2026');
+    return;
+  }
+
   // Enrichment mode: EC lookup() on 5.6.3+, binary GetObject on older versions
   const useEc = ctx.client.supportsLookup;
 

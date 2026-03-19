@@ -61,9 +61,9 @@ export class BmpClient {
   private transport: BmpTransport;
   private _cache: IdentityCache | null = null;
 
-  /** True when server is pre-5.6.3 (no lookup(), JWT broken for /cs/command).
-   *  Set once by connection.ts:applyVersionFlags(). */
-  supportsLookup = true;
+  /** Whether server supports EC lookup(). null = unknown (not yet detected).
+   *  Set by applyVersionFlags() after version detection. */
+  supportsLookup: boolean | null = null;
 
   constructor(
     private bmpUrl: string,
@@ -109,7 +109,7 @@ export class BmpClient {
    *  On pre-5.6.3: resolves business ID via cache or binary GetObject, returns "t.{bid}". */
   async resolveRef(rid: string): Promise<string> {
     validateRid(rid);
-    if (this.supportsLookup) return `lookup(${rid})`;
+    if (this.supportsLookup !== false) return `lookup(${rid})`;
 
     // Try enrichment cache first
     const cached = this._cache?.get(rid);

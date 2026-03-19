@@ -34,7 +34,9 @@ export function resetConnectionState() {
   authError = null;
   // Reset version flags — will be re-evaluated when version is detected
   const ctx = getCtx();
-  if (ctx.client) ctx.client.applyVersionFlags('99.99.99'); // assume modern until detected
+  if (ctx.client) {
+    ctx.client.supportsLookup = null;
+  }
 }
 
 export function computeConnectionState(): ConnectionState {
