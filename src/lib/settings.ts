@@ -72,6 +72,7 @@ export function rebuildClient(clearCache = false) {
   if (profile?.bmpUrl && profile?.bmpUser) {
     const bmpUrl = normalizeUrl(profile.bmpUrl);
     ctx.client = new BmpClient(bmpUrl, profile.bmpUser, profile.bmpPass, profile.id);
+    ctx.client.cache = ctx.cache;
     // Transfer auth from old client to avoid unnecessary re-authentication
     if (oldClient?.jwt) {
       ctx.client.absorbAuth(oldClient);

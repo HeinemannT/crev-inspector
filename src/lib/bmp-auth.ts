@@ -10,6 +10,7 @@ export class BmpAuth {
   private _jwt: string | null = null;
   private _refreshToken: string | null = null;
   private _jsessionid: string | null = null;
+  private _loginTicket: string | null = null;
   private _loginPromise: Promise<string> | null = null;
   private _refreshPromise: Promise<string | null> | null = null;
   private _profileId: string;
@@ -187,22 +188,41 @@ export class BmpAuth {
     this._jwt = other._jwt;
     this._refreshToken = other._refreshToken;
     this._jsessionid = other._jsessionid;
+    this._loginTicket = null; // Ticket is derived from JWT — re-derive on demand
     this._persistTokens();
   }
 
-  /** Clear cached JWT */
+  /** Clear cached JWT and ticket */
   logout() {
     this._jwt = null;
     this._refreshToken = null;
     this._jsessionid = null;
+    this._loginTicket = null;
     this._loginPromise = null;
     this._refreshPromise = null;
     this._clearPersistedTokens();
   }
 
-  /** Invalidate current JWT (triggers re-auth on next request) */
+  /** Invalidate current JWT and cached ticket (triggers re-auth on next request) */
   invalidateJwt() {
     this._jwt = null;
+    this._loginTicket = null;
+  }
+
+  /** Exchange JWT for a LoginTicket string (cached — reused until JWT is invalidated).
+   *  Needed for binary commands on BMP < 5.6.3 where JWT auth for /cs/command is broken. */
+  async getLoginTicket(): Promise<string> {
+    if (this._loginTicket) return this._loginTicket;
+    const jwt = await this.ensureAuth();
+    const res = await fetch(`${this.bmpUrl}ticket`, {
+      headers: { 'Authorization': `Bearer ${jwt}` },
+      signal: AbortSignal.timeout(AUTH_TIMEOUT),
+    });
+    if (!res.ok) throw new Error(`Failed to get login ticket: HTTP ${res.status}`);
+    const ticket = await res.text();
+    if (!ticket) throw new Error('Empty login ticket');
+    this._loginTicket = ticket;
+    return ticket;
   }
 
   private _persistTokens() {

@@ -7,12 +7,16 @@ import {
   registerBmpTypes,
   makeUpdateCommand,
   makeExtendedExecuteCommand,
+  makeGetObjectCommand,
   parseEcResults,
+  parseObjectData,
 } from './bmp-types';
+import { deserializeStream } from './java-serial';
 import { log } from './logger';
-import { HEALTH_TIMEOUT, BATCH_CHUNK_SIZE } from './constants';
+import { HEALTH_TIMEOUT, BATCH_CHUNK_SIZE, MAX_PARALLEL } from './constants';
 import { BmpAuth } from './bmp-auth';
 import { BmpTransport } from './bmp-transport';
+import { pMap, compareVersions } from './util';
 import { parsePipeLines, parseSepBlocks, parseSepMultiObject } from './ec-parser';
 
 // Ensure BMP types are registered once
@@ -47,9 +51,19 @@ export interface TemplateResolution {
 /**
  * Direct BMP client — facade over BmpAuth + BmpTransport.
  */
+/** Lightweight cache interface — avoids coupling to ObjectCache. */
+export interface IdentityCache {
+  get(rid: string): { businessId?: string; type?: string } | undefined;
+}
+
 export class BmpClient {
   readonly auth: BmpAuth;
   private transport: BmpTransport;
+  private _cache: IdentityCache | null = null;
+
+  /** True when server is pre-5.6.3 (no lookup(), JWT broken for /cs/command).
+   *  Set once by connection.ts:applyVersionFlags(). */
+  supportsLookup = true;
 
   constructor(
     private bmpUrl: string,
@@ -62,6 +76,17 @@ export class BmpClient {
   }
 
   get jwt(): string | null { return this.auth.jwt; }
+
+  /** Inject enrichment cache for resolveRef lookups. */
+  set cache(c: IdentityCache) { this._cache = c; }
+
+  /** Apply version flags — called once when BMP version is detected. */
+  applyVersionFlags(version: string) {
+    const v = version.replace(/^v\.?/i, '');
+    const isOld = compareVersions(v, '5.6.3.0') < 0;
+    this.transport.useTicketAuth = isOld;
+    this.supportsLookup = !isOld;
+  }
 
   // ── Auth delegation ──────────────────────────────────────────
 
@@ -76,6 +101,45 @@ export class BmpClient {
 
   absorbAuth(other: BmpClient) { this.auth.absorbAuth(other.auth); }
   logout() { this.auth.logout(); }
+
+  // ── Object resolution ────────────────────────────────────────
+
+  /** Resolve a RID to an EC object reference expression.
+   *  On 5.6.3+ (lookup available): returns "lookup(rid)".
+   *  On pre-5.6.3: resolves business ID via cache or binary GetObject, returns "t.{bid}". */
+  async resolveRef(rid: string): Promise<string> {
+    validateRid(rid);
+    if (this.supportsLookup) return `lookup(${rid})`;
+
+    // Try enrichment cache first
+    const cached = this._cache?.get(rid);
+    if (cached?.businessId) return `t.${cached.businessId}`;
+
+    // Binary GetObject fallback
+    const identity = await this.getObjectIdentity(rid);
+    if (!identity?.businessId) throw new Error(`Cannot resolve object ${rid} — not found on server`);
+    return `t.${identity.businessId}`;
+  }
+
+  /** Fetch identity (rid, businessId, type) via binary GetObjectCommand. */
+  private async getObjectIdentity(rid: string): Promise<{ rid: string; businessId?: string; type?: string } | null> {
+    try {
+      const cmd = makeGetObjectCommand(rid);
+      const buffer = await this.transport.sendCommands([cmd]);
+      const objects = deserializeStream(buffer);
+      for (const obj of objects) {
+        if (obj?.$class === 'java.util.ArrayList') {
+          const first = obj.$elements?.[0];
+          if (!first?.response) return null;
+          const parsed = parseObjectData(first.response);
+          if (!parsed?.rid) return null;
+          return { rid: parsed.rid, businessId: parsed.properties.id, type: parsed.type };
+        }
+        if (obj?.$class?.includes('ServerExceptionResponse')) return null;
+      }
+    } catch { /* object not found */ }
+    return null;
+  }
 
   // ── Object operations ────────────────────────────────────────
 
@@ -116,10 +180,11 @@ export class BmpClient {
 
   /** Resolve template for a linked instance (pure EC) */
   async resolveTemplate(rid: string): Promise<TemplateResolution> {
+    const ref = await this.resolveRef(rid);
     const code = [
-      `_o := lookup(${validateRid(rid)})`,
-      `_t := _o.linkedTo`,
-      `_t.rid.whenMissing("MISSING") + "|||" + _t.name.whenMissing("") + "|||" + _t.className.whenMissing("")`,
+      `_o := ${ref}`,
+      '_t := _o.linkedTo',
+      '_t.rid.whenMissing("MISSING") + "|||" + _t.name.whenMissing("") + "|||" + _t.className.whenMissing("")',
     ].join('\n');
     const ecResult = await this.executeEc(code, undefined, false);
     if (!ecResult.ok || !ecResult.log) return { templateRid: null };
@@ -185,12 +250,51 @@ export class BmpClient {
     return results[rid] ?? null;
   }
 
+  /** Binary fallback: enrich via IntegrationGetObjectCommand (one per RID).
+   *  Used on BMP < 5.6.3.0 where EC lookup() is unavailable.
+   *  Relies on transport.useTicketAuth being set by the connection layer. */
+  async batchEnrichBinary(rids: string[]): Promise<{ results: Record<string, { businessId?: string; type?: string; name?: string }>; error?: string }> {
+    let valid = rids.filter(Boolean).filter(rid => /^-?\d+$/.test(rid));
+    if (valid.length === 0) return { results: {} };
+    if (valid.length > BATCH_CHUNK_SIZE) valid = valid.slice(0, BATCH_CHUNK_SIZE);
+
+    const out: Record<string, { businessId?: string; type?: string; name?: string }> = {};
+
+    await pMap(valid, async (rid) => {
+      try {
+        const cmd = makeGetObjectCommand(rid);
+        const buffer = await this.transport.sendCommands([cmd]);
+        const objects = deserializeStream(buffer);
+        for (const obj of objects) {
+          const cls = obj?.$class ?? '';
+          if (cls.includes('ServerExceptionResponse')) return;
+          if (cls === 'java.util.ArrayList') {
+            const first = obj.$elements?.[0];
+            if (!first?.response) return;
+            const parsed = parseObjectData(first.response);
+            if (parsed?.rid) {
+              out[parsed.rid] = {
+                businessId: parsed.properties.id ?? undefined,
+                type: parsed.type ?? undefined,
+                name: parsed.properties.name ?? undefined,
+              };
+            }
+          }
+        }
+      } catch {
+        // Individual RID failed — skip
+      }
+    }, MAX_PARALLEL);
+
+    return { results: out };
+  }
+
   /** Fetch code properties via EC */
   async fetchCodeViaEc(rid: string, properties: string[]): Promise<Record<string, string>> {
     if (properties.length === 0) return {};
     const sep = '<<<CREV_SEP>>>';
-    const lines = [`_o := lookup(${validateRid(rid)})`];
-    lines.push('_r := ""');
+    const ref = await this.resolveRef(rid);
+    const lines = [`_o := ${ref}`, '_r := ""'];
     for (const prop of properties) {
       lines.push(`_r := _r + "${sep}${prop}${sep}" + output(_o.${prop}.whenMissing("")) + "\\n"`);
     }
@@ -213,15 +317,16 @@ export class BmpClient {
     if (valid.length === 0) return result;
 
     const sep = '<<<CREV_SEP>>>';
+    const refs = await Promise.all(valid.map(rid => this.resolveRef(rid).catch(() => null)));
     const lines = [`_sep := "${sep}"`, '_r := ""'];
-    for (const rid of valid) {
-      lines.push(`_o := lookup(${rid})`);
-      lines.push('IF _o != MISSING THEN');
-      lines.push(`  _r := _r + _sep + "OBJ" + _sep + _o.rid.whenMissing("SKIP") + "\\n"`);
+    for (let i = 0; i < valid.length; i++) {
+      const ref = refs[i];
+      if (!ref) continue; // skip unresolvable RIDs
+      lines.push(`_o := ${ref}`);
+      lines.push(`_r := _r + _sep + "OBJ" + _sep + _o.rid.whenMissing("SKIP") + "\\n"`);
       for (const prop of properties) {
-        lines.push(`  _r := _r + "${sep}${prop}${sep}" + output(_o.${prop}.whenMissing("")) + "\\n"`);
+        lines.push(`_r := _r + "${sep}${prop}${sep}" + output(_o.${prop}.whenMissing("")) + "\\n"`);
       }
-      lines.push('ENDIF');
     }
     lines.push(`_r := _r + "${sep}DONE"`);
     lines.push('_r');
@@ -234,14 +339,13 @@ export class BmpClient {
 
   /** Fetch direct children of an object via EC */
   async fetchChildren(rid: string): Promise<Array<{ rid: string; name?: string; type?: string; businessId?: string }>> {
+    const ref = await this.resolveRef(rid);
     const code = [
-      `_o := lookup(${validateRid(rid)})`,
+      `_o := ${ref}`,
       '_r := ""',
-      'IF _o != MISSING THEN',
-      '  _o.children().forEach(_c:',
-      '    _r := _r + _c.rid.whenMissing("SKIP") + "|||" + _c.id.whenMissing("") + "|||" + _c.className.whenMissing("") + "|||" + _c.name.whenMissing("") + "\\n"',
-      '  )',
-      'ENDIF',
+      '_o.children().forEach(_c:',
+      '  _r := _r + _c.rid.whenMissing("SKIP") + "|||" + _c.id.whenMissing("") + "|||" + _c.className.whenMissing("") + "|||" + _c.name.whenMissing("") + "\\n"',
+      ')',
       '_r',
     ].join('\n');
     const result = await this.executeEc(code, undefined, false);
@@ -262,7 +366,8 @@ export class BmpClient {
       .replace(/"/g, '\\"')
       .replace(/\r/g, '\\r')
       .replace(/\n/g, '\\n');
-    const ec = `_o := lookup(${validateRid(rid)})\n_o.change(${property} := "${escaped}")`;
+    const ref = await this.resolveRef(rid);
+    const ec = `_o := ${ref}\n_o.change(${property} := "${escaped}")`;
     const result = await this.executeEc(ec, undefined, true);
     if (!result.ok) {
       return { ok: false, error: result.error ?? result.log ?? 'EC save failed' };

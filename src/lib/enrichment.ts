@@ -83,9 +83,14 @@ export async function enrichBadges(rids: string[]) {
     return;
   }
 
-  ctx.logActivity('info', `Enriching ${uncached.length} from server\u2026`);
+  // Enrichment mode: EC lookup() on 5.6.3+, binary GetObject on older versions
+  const useEc = ctx.client.supportsLookup;
 
-  // Phase 2: Batch EC — chunks of BATCH_CHUNK_SIZE, parallel with concurrency cap
+  ctx.logActivity('info', useEc
+    ? `Enriching ${uncached.length} from server\u2026`
+    : `Enriching ${uncached.length} via binary commands\u2026`);
+
+  // Phase 2: Batch enrich — chunks of BATCH_CHUNK_SIZE, parallel with concurrency cap
   const failedRids: string[] = [];
   const batchFailedChunks: { chunk: string[]; errorMsg?: string }[] = [];
   let total = cacheHitCount;
@@ -94,7 +99,9 @@ export async function enrichBadges(rids: string[]) {
     if (isCancelled()) return { failed: chunk, batchError: false };
     const failed: string[] = [];
     try {
-      const { results: batchResults, error: batchError } = await ctx.client!.batchEnrich(chunk);
+      const { results: batchResults, error: batchError } = useEc
+        ? await ctx.client!.batchEnrich(chunk)
+        : await ctx.client!.batchEnrichBinary(chunk);
       if (isCancelled()) return { failed: chunk, batchError: false };
       if (batchError) {
         return { failed: chunk, batchError: true, errorMsg: batchError };

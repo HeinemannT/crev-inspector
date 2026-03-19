@@ -3,12 +3,6 @@ import { PAINT_STYLE_PROPS } from './types';
 import { getCtx } from './sw-context';
 import { log, errorMessage } from './logger';
 
-/** Validate RID is numeric (prevents EC injection). */
-function validateRid(rid: string): string {
-  if (!/^-?\d+$/.test(rid)) throw new Error(`Invalid RID: ${rid}`);
-  return rid;
-}
-
 let paintPhase: PaintPhase = 'off';
 let paintSourceRid: string | null = null;
 let paintSourceName: string | null = null;
@@ -113,10 +107,14 @@ export async function handlePaintApply(rid: string) {
     // Read style props from both source and target in a single EC call.
     // Each property read is isolated so one failure doesn't kill all reads.
     // Result is the last expression (not output() which silently crashes on Ref properties).
+    const [srcRef, tgtRef] = await Promise.all([
+      ctx.client.resolveRef(paintSourceRid!),
+      ctx.client.resolveRef(rid),
+    ]);
     const codeLines: string[] = [
       '_d := "|||"',
-      `_s := lookup(${validateRid(paintSourceRid!)})`,
-      `_t := lookup(${validateRid(rid)})`,
+      `_s := ${srcRef}`,
+      `_t := ${tgtRef}`,
       '_sr := ""',
       '_tr := ""',
     ];
@@ -186,10 +184,14 @@ async function executePaintApply(rid: string) {
     } catch (e) { log.swallow('paint:resolveTemplate', e); }
   }
 
+  const [srcRef, tgtRef] = await Promise.all([
+    ctx.client.resolveRef(paintSourceRid!),
+    ctx.client.resolveRef(targetRid),
+  ]);
   const propAssignments = PAINT_STYLE_PROPS.map(p => `${p} := _src.${p}.whenMissing("")`).join(', ');
   const code = [
-    `_src := lookup(${validateRid(paintSourceRid!)})`,
-    `_tgt := lookup(${validateRid(targetRid)})`,
+    `_src := ${srcRef}`,
+    `_tgt := ${tgtRef}`,
     `_tgt.change(${propAssignments})`,
   ].join('\n');
 

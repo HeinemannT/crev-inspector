@@ -11,6 +11,13 @@ let authResult: 'pending' | 'ok' | 'failed' = 'pending';
 let authError: string | null = null;
 let healthTimer: ReturnType<typeof setInterval> | null = null;
 
+/** Apply BMP version flags to client (auth mode, lookup support). */
+function applyVersionFlags(version: string | null) {
+  const ctx = getCtx();
+  if (!ctx.client || !version) return;
+  ctx.client.applyVersionFlags(version);
+}
+
 /** Normalize user-entered URL: add scheme if missing, ensure trailing slash */
 export function normalizeUrl(raw: string): string {
   let url = raw.trim();
@@ -25,6 +32,9 @@ export function resetConnectionState() {
   healthResponseMs = null;
   authResult = 'pending';
   authError = null;
+  // Reset version flags — will be re-evaluated when version is detected
+  const ctx = getCtx();
+  if (ctx.client) ctx.client.applyVersionFlags('99.99.99'); // assume modern until detected
 }
 
 export function computeConnectionState(): ConnectionState {
@@ -96,6 +106,7 @@ export async function runAuthTest() {
         authError = null;
         if (!healthVersion) {
           healthVersion = await BmpClient.getBuildNumber(bmpUrl, ctx.client.jwt ?? undefined);
+          applyVersionFlags(healthVersion);
         }
         ctx.logActivity('success', `Connected to ${profile.label}`);
         pushConnectionState();
@@ -122,6 +133,7 @@ export async function runAuthTest() {
     }
     if (result.ok && !healthVersion) {
       healthVersion = await BmpClient.getBuildNumber(bmpUrl, testClient.jwt ?? undefined);
+      applyVersionFlags(healthVersion);
     }
   } catch (e) {
     if (ctx.client !== clientAtStart) return;
@@ -151,6 +163,7 @@ async function pollHealth() {
     if (result.up) {
       if (!healthVersion) {
         healthVersion = await BmpClient.getBuildNumber(bmpUrl, ctx.client?.jwt ?? undefined) ?? '';
+        applyVersionFlags(healthVersion);
       }
       healthUp = 'up';
       healthResponseMs = result.responseMs;

@@ -7,13 +7,44 @@ import { BmpAuth } from './bmp-auth';
 import { AUTH_TIMEOUT, EC_TIMEOUT } from './constants';
 
 export class BmpTransport {
+  /** When true, all commands use LOGIN_TICKET instead of JWT Bearer.
+   *  Set by the connection layer when BMP version < 5.6.3 is detected. */
+  useTicketAuth = false;
+
   constructor(
     private bmpUrl: string,
     private auth: BmpAuth,
   ) {}
 
-  /** Send serialized body with JWT Bearer auth, retry on 401 */
+  /** Send serialized body, using JWT Bearer or LOGIN_TICKET depending on useTicketAuth */
   async sendRequest(body: Uint8Array, timeout: number): Promise<ArrayBuffer> {
+    if (this.useTicketAuth) {
+      const makeTicketReq = async (ticket: string) => {
+        const url = `${this.bmpUrl}cs/command?LOGIN_TICKET=${encodeURIComponent(ticket)}&_noctx=true`;
+        return fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-java-serialized-object' },
+          body: body.buffer as ArrayBuffer,
+          signal: AbortSignal.timeout(timeout),
+        });
+      };
+
+      const ticket = await this.auth.getLoginTicket();
+      const res = await makeTicketReq(ticket);
+
+      if (res.status === 401 || res.status === 403) {
+        // Ticket expired — invalidate cached ticket, get fresh one, retry
+        this.auth.invalidateJwt(); // clears both JWT and cached ticket
+        const freshTicket = await this.auth.getLoginTicket();
+        const retryRes = await makeTicketReq(freshTicket);
+        if (!retryRes.ok) throw new Error(`Command failed: HTTP ${retryRes.status}`);
+        return retryRes.arrayBuffer();
+      }
+
+      if (!res.ok) throw new Error(`Command failed: HTTP ${res.status}`);
+      return res.arrayBuffer();
+    }
+
     const jwt = await this.auth.ensureAuth();
     const url = `${this.bmpUrl}cs/command?_noctx=true`;
 
