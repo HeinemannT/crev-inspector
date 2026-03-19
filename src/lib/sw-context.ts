@@ -1,5 +1,8 @@
 import type { BmpClient } from './bmp-client';
 import type { ObjectCache } from './object-cache';
+import type { HistoryManager } from './history';
+import type { FavoritesManager } from './favorites';
+import type { ScriptHistoryManager } from './script-history';
 import type { InspectorMessage, InspectorSettings, ActivityEntry } from './types';
 
 /** Shared mutable context passed to all service-worker modules. */
@@ -8,8 +11,12 @@ export interface SwContext {
   panelPort: chrome.runtime.Port | null;
   contentPorts: Map<number, chrome.runtime.Port>;
   cache: ObjectCache;
+  history: HistoryManager;
+  favorites: FavoritesManager;
+  scriptHistory: ScriptHistoryManager;
   settings: InspectorSettings;
   inspectActive: boolean;
+  technicalOverlay: boolean;
   settingsReady: Promise<void>;
 
   logActivity(level: ActivityEntry['level'], message: string, detail?: string): void;

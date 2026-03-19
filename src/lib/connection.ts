@@ -66,7 +66,11 @@ export function computeConnectionState(): ConnectionState {
 }
 
 export function pushConnectionState() {
-  getCtx().sendToPanel({ type: 'CONNECTION_STATE', state: computeConnectionState() });
+  const state = computeConnectionState();
+  const ctx = getCtx();
+  ctx.sendToPanel({ type: 'CONNECTION_STATE', state });
+  // Also broadcast to all content scripts for env tag + toasts
+  ctx.broadcastToContent({ type: 'CONNECTION_STATE', state });
 }
 
 export async function runAuthTest() {

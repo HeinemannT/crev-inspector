@@ -1,24 +1,19 @@
 /**
  * MAIN world script — runs in the page's JS context.
  * Extracts BMP objects from React fibers on demand.
- * Communicates with content script via window.postMessage.
+ * Communicates with content script via CustomEvents (no window.postMessage leakage).
  */
 
-import type { BmpObject, InterceptorWindowMessage } from './lib/types';
+import type { BmpObject, InspectorMessage } from './lib/types';
 
-const SOURCE = 'crev-interceptor';
-
-function post(payload: InterceptorWindowMessage['payload']) {
-  window.postMessage({ source: SOURCE, payload } satisfies InterceptorWindowMessage, '*');
+function post(payload: InspectorMessage) {
+  document.dispatchEvent(new CustomEvent('crev-interceptor', { detail: payload }));
 }
 
 // ── Fiber extraction on demand ──────────────────────────────────
 
-window.addEventListener('message', (event) => {
-  if (event.source !== window) return;
-  if (event.data?.source !== 'crev-content') return;
-
-  const msg = event.data.payload;
+document.addEventListener('crev-content', ((event: CustomEvent) => {
+  const msg = event.detail;
   if (msg?.type === 'EXTRACT_FIBERS') {
     const objects = extractAllFiberObjects();
     if (objects.length > 0) {
@@ -32,7 +27,7 @@ window.addEventListener('message', (event) => {
     if ((window as any).__CORPORATER__) signals.push('__CORPORATER__ global');
     post({ type: 'BMP_SIGNALS_RESULT', signals });
   }
-});
+}) as EventListener);
 
 function extractAllFiberObjects(): BmpObject[] {
   const objects: BmpObject[] = [];

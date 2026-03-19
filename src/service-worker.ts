@@ -7,6 +7,9 @@
 import type { InspectorMessage, InspectorSettings } from './lib/types';
 import { DEFAULT_SETTINGS } from './lib/types';
 import { ObjectCache } from './lib/object-cache';
+import { HistoryManager } from './lib/history';
+import { FavoritesManager } from './lib/favorites';
+import { ScriptHistoryManager } from './lib/script-history';
 import type { SwContext } from './lib/sw-context';
 import { setSwContext } from './lib/sw-context';
 import { log } from './lib/logger';
@@ -21,13 +24,19 @@ import { handleContentMessage, handlePanelMessage, handleOneShotMessage, toggleI
 
 // ── State ───────────────────────────────────────────────────────
 
-const cache = new ObjectCache();
+// Cache initialized with default profile; will be switched once settings load
+const cache = new ObjectCache('_default');
+const history = new HistoryManager('_default');
+const favorites = new FavoritesManager('_default');
+const scriptHistory = new ScriptHistoryManager('_default');
 let inspectActive = false;
+let technicalOverlay = false;
 let settings: InspectorSettings = { ...DEFAULT_SETTINGS };
 let client: import('./lib/bmp-client').BmpClient | null = null;
 
 const contentPorts = new Map<number, chrome.runtime.Port>();
 let panelPort: chrome.runtime.Port | null = null;
+const pendingPanelMessages: InspectorMessage[] = [];
 
 // ── Context ─────────────────────────────────────────────────────
 
@@ -40,10 +49,15 @@ const ctx: SwContext = {
   set panelPort(v) { panelPort = v; },
   contentPorts,
   cache,
+  history,
+  favorites,
+  scriptHistory,
   get settings() { return settings; },
   set settings(v) { settings = v; },
   get inspectActive() { return inspectActive; },
   set inspectActive(v) { inspectActive = v; },
+  get technicalOverlay() { return technicalOverlay; },
+  set technicalOverlay(v) { technicalOverlay = v; },
   settingsReady,
   logActivity,
   sendToPanel(msg: InspectorMessage) {
@@ -63,7 +77,7 @@ registerTabListeners();
 
 // ── Boot ────────────────────────────────────────────────────────
 
-cache.load().then(async () => {
+Promise.all([cache.load(), history.load(), favorites.load(), scriptHistory.load()]).then(async () => {
   const stored = await chrome.storage.local.get(['crev_settings', 'crev_inspect_active']).catch(e => { log.swallow('sw:loadStorage', e); return {} as Record<string, unknown>; });
   await loadSettingsFrom((stored as Record<string, unknown>).crev_settings);
   if ((stored as Record<string, unknown>).crev_inspect_active === true) inspectActive = true;
@@ -75,6 +89,71 @@ cache.load().then(async () => {
 });
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(e => log.swallow('sw:sidePanel', e));
+
+// ── Context menus ──────────────────────────────────────────────
+
+chrome.contextMenus.removeAll(() => {
+  const items: Array<chrome.contextMenus.CreateProperties> = [
+    { id: 'crev-copy-rid', title: 'Copy RID' },
+    { id: 'crev-copy-bid', title: 'Copy Business ID' },
+    { id: 'crev-copy-name', title: 'Copy Name' },
+    { id: 'crev-sep-1', type: 'separator' },
+    { id: 'crev-view-props', title: 'View Properties' },
+    { id: 'crev-open-editor', title: 'Open Editor' },
+    { id: 'crev-sep-2', type: 'separator' },
+    { id: 'crev-compare', title: 'Compare with\u2026' },
+    { id: 'crev-search-code', title: 'Search Code' },
+  ];
+  for (const item of items) {
+    chrome.contextMenus.create({ ...item, contexts: ['all'] });
+  }
+});
+
+let compareRid: { rid: string; name?: string } | null = null;
+const contextRidMap = new Map<number, { rid: string; name?: string; type?: string; businessId?: string }>();
+
+// Clean up context menu state when tabs close
+chrome.tabs.onRemoved.addListener((tabId) => { contextRidMap.delete(tabId); });
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  const tabId = tab?.id;
+  if (!tabId) return;
+  const ctxRid = contextRidMap.get(tabId);
+  if (!ctxRid) return;
+
+  const menuId = typeof info.menuItemId === 'string' ? info.menuItemId : '';
+  switch (menuId) {
+    case 'crev-copy-rid':
+      chrome.tabs.sendMessage(tabId, { type: 'COPY_TO_CLIPBOARD', text: ctxRid.rid }).catch(e => log.swallow('ctx:copyRid', e));
+      break;
+    case 'crev-copy-bid':
+      chrome.tabs.sendMessage(tabId, { type: 'COPY_TO_CLIPBOARD', text: ctxRid.businessId ?? ctxRid.rid }).catch(e => log.swallow('ctx:copyBid', e));
+      break;
+    case 'crev-copy-name':
+      chrome.tabs.sendMessage(tabId, { type: 'COPY_TO_CLIPBOARD', text: ctxRid.name ?? '' }).catch(e => log.swallow('ctx:copyName', e));
+      break;
+    case 'crev-view-props':
+      if (tabId) chrome.sidePanel.open({ tabId }).catch(e => log.swallow('ctx:openPanel', e));
+      ctx.sendToPanel({ type: 'SELECT_OBJECT', rid: ctxRid.rid });
+      break;
+    case 'crev-open-editor':
+      import('./lib/editor').then(m => m.openEditorWindow(ctxRid.rid)).catch(e => log.swallow('ctx:openEditor', e));
+      break;
+    case 'crev-search-code':
+      import('./lib/codesearch-launcher').then(m => m.openCodeSearchWindow()).catch(e => log.swallow('ctx:searchCode', e));
+      break;
+    case 'crev-compare':
+      if (!compareRid) {
+        compareRid = { rid: ctxRid.rid, name: ctxRid.name };
+        chrome.contextMenus.update('crev-compare', { title: `Compare with ${ctxRid.name ?? ctxRid.rid}\u2026` });
+      } else {
+        import('./lib/diff-launcher').then(m => m.openDiffWindow(compareRid!.rid, ctxRid.rid)).catch(e => log.swallow('ctx:compare', e));
+        compareRid = null;
+        chrome.contextMenus.update('crev-compare', { title: 'Compare with\u2026' });
+      }
+      break;
+  }
+});
 
 // ── Port connections ────────────────────────────────────────────
 
@@ -94,6 +173,17 @@ chrome.runtime.onConnect.addListener((port) => {
     settingsReady.then(() => {
       port.postMessage({ type: 'ENRICH_MODE', mode: settings.enrichMode } satisfies InspectorMessage);
     });
+
+    // Push cached enrichments so a fresh content script (after F5) has data immediately
+    const enrichments: Record<string, {businessId?: string; type?: string; name?: string}> = {};
+    for (const obj of cache.getAll()) {
+      if (obj.businessId || obj.type || obj.name) {
+        enrichments[obj.rid] = { businessId: obj.businessId, type: obj.type, name: obj.name };
+      }
+    }
+    if (Object.keys(enrichments).length > 0) {
+      port.postMessage({ type: 'BADGE_ENRICHMENT', enrichments } satisfies InspectorMessage);
+    }
 
     if (panelPort && tabId != null) {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -122,18 +212,42 @@ chrome.runtime.onConnect.addListener((port) => {
 
     port.postMessage({ type: 'INSPECT_STATE', active: inspectActive } satisfies InspectorMessage);
     port.postMessage({ type: 'CACHE_STATS', count: cache.size } satisfies InspectorMessage);
+    import('./lib/paint').then(m => m.pushPaintState()).catch(e => log.swallow('sw:pushPaint', e));
+
+    // Flush any messages queued while panel was closed (e.g., switch-profile shortcut)
+    for (const queued of pendingPanelMessages) {
+      port.postMessage(queued);
+    }
+    pendingPanelMessages.length = 0;
   }
 });
 
 // ── Keyboard shortcut ───────────────────────────────────────────
 
+function openPanelForActiveTab() {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (tabs[0]?.id) {
+      chrome.sidePanel.open({ tabId: tabs[0].id }).catch(e => log.swallow('sw:openSidePanel', e));
+    }
+  });
+}
+
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'toggle-inspect') {
     toggleInspect();
+    openPanelForActiveTab();
+  }
+  if (command === 'open-extended') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]?.id) {
-        chrome.sidePanel.open({ tabId: tabs[0].id }).catch(e => log.swallow('sw:openSidePanel', e));
+      const tabUrl = tabs[0]?.url;
+      let pageRid: string | undefined;
+      if (tabUrl) {
+        try {
+          const params = new URL(tabUrl).searchParams;
+          pageRid = params.get('rid') ?? undefined;
+        } catch { /* ignore invalid URLs */ }
       }
+      import('./lib/editor').then(m => m.openExtendedWindow(pageRid)).catch(e => log.swallow('sw:openExtended', e));
     });
   }
 });
@@ -141,5 +255,13 @@ chrome.commands.onCommand.addListener((command) => {
 // ── One-shot message handler ────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg: InspectorMessage, sender, sendResponse) => {
+  // Track last right-clicked RID per tab (from content script)
+  if (msg.type === 'SET_CONTEXT_RID') {
+    const tabId = sender.tab?.id;
+    if (tabId != null) {
+      contextRidMap.set(tabId, { rid: msg.rid, name: msg.name, type: msg.objectType, businessId: msg.businessId });
+    }
+    return false;
+  }
   return handleOneShotMessage(msg, sender, sendResponse);
 });

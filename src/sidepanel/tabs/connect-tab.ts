@@ -1,7 +1,7 @@
 import type { ServerProfile } from '../../lib/types';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
-import { ICON_REFRESH, ICON_PAINT_SM, ICON_EYE_OPEN, ICON_EYE_CLOSED } from '../utils';
+import { ICON_REFRESH, ICON_EYE_OPEN, ICON_EYE_CLOSED } from '../utils';
 import { S, sendMessage } from '../state';
 
 // ── Status helpers ───────────────────────────────────────────────
@@ -180,25 +180,16 @@ export function renderConnectTab() {
       ),
       h('span', { class: 'field-hint' }, 'Faster badges \u2014 only labels widget containers, not individual table row links.'),
     ),
-    h('div', { class: 'field-group' },
-      h('label', { class: 'field-label field-label--inline' },
-        svg(ICON_PAINT_SM), 'Save target',
-      ),
-      h('div', { class: 'save-target-toggle' },
-        h('button', { class: `target-opt${S.settings.saveTarget === 'template' ? ' active' : ''}`, 'data-action': 'save-target', 'data-save-target': 'template' }, 'Template'),
-        h('button', { class: `target-opt${S.settings.saveTarget === 'instance' ? ' active' : ''}`, 'data-action': 'save-target', 'data-save-target': 'instance' }, 'Instance'),
-      ),
-      h('span', { class: 'field-hint' }, 'Applies to Paint Format and Editor. Template edits propagate to all linked copies (widgets, tables).'),
-    ),
     h('div', { class: 'connect-footer' },
       h('span', { class: 'connect-meta' }, `${S.cacheCount} objects cached`),
       h('button', { class: 'btn btn-danger btn-small', 'data-action': 'clear-cache' }, 'Clear'),
     ),
     h('div', { class: 'connect-footer connect-footer--flat' },
-      h('span', { class: 'connect-meta' },
-        `v${chrome.runtime.getManifest().version} \u00b7 `,
-        h('kbd', { class: 'kbd' }, 'Ctrl+Shift+X'),
-      ),
+      h('span', { class: 'connect-meta' }, `v${chrome.runtime.getManifest().version}`),
+    ),
+    h('div', { class: 'shortcut-list' },
+      h('kbd', { class: 'kbd' }, 'Ctrl+Shift+X'), 'Inspect',
+      h('kbd', { class: 'kbd' }, 'Ctrl+Shift+E'), 'Extended Code',
     ),
   );
 
@@ -274,13 +265,6 @@ export function renderConnectTab() {
       if (!S.editingProfile?.id) return;
       sendMessage({ type: 'DELETE_PROFILE', profileId: S.editingProfile.id });
       S.editingProfile = null;
-    },
-    'save-target': (el) => {
-      const target = el.dataset.saveTarget as 'template' | 'instance';
-      if (!target || target === S.settings.saveTarget) return;
-      S.settings = { ...S.settings, saveTarget: target };
-      sendMessage({ type: 'SAVE_SETTINGS', settings: { saveTarget: target } });
-      rerender();
     },
     'clear-cache': () => {
       sendMessage({ type: 'CLEAR_CACHE' });

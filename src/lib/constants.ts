@@ -29,7 +29,24 @@ export const OVERLAY_SYNC_DEBOUNCE = 150;
 // ── Service worker ───────────────────────────────────────────────
 export const MANUAL_OVERRIDE_DURATION = 30_000;
 
+// ── History & Favorites ─────────────────────────────────────────
+export const HISTORY_MAX = 30;
+export const FAVORITES_MAX = 20;
+export const HISTORY_SAVE_DELAY = 1_000;
+
 // ── Side panel ───────────────────────────────────────────────────
 export const DISPLAY_LIMIT_STEP = 200;
 export const SEARCH_DEBOUNCE = 300;
 export const LOOKUP_WATCHDOG_TIMEOUT = 15_000;
+
+// ── Diff ─────────────────────────────────────────────────────────
+export const COMMON_DIFF_PROPS = [
+  'name', 'description', 'sortIndex',
+  'headerColor', 'fontColor', 'transparency', 'shadow', 'headerStyle', 'borderStyle',
+] as const;
+
+// ── Code Search ──────────────────────────────────────────────────
+export const CODE_SEARCH_BATCH_SIZE = 25;
+
+// ── Script History ───────────────────────────────────────────────
+export const SCRIPT_HISTORY_MAX = 10;

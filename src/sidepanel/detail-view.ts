@@ -7,9 +7,10 @@ import type { BmpObject, InspectorMessage } from '../lib/types';
 import { getTypeColor, getTypeAbbr, SCRIPT_PROPS } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
-import { copyBtn, copyText, ICON_ARROW_LEFT } from './utils';
+import { copyBtn, copyText, ICON_ARROW_LEFT, ICON_STAR_FILLED, ICON_STAR_HOLLOW } from './utils';
 import { log } from '../lib/logger';
 import { LOOKUP_WATCHDOG_TIMEOUT } from '../lib/constants';
+import { S } from './state';
 
 // Script property names as Set for fast lookup
 const SCRIPT_PROPS_SET = new Set<string>(SCRIPT_PROPS);
@@ -153,12 +154,16 @@ function renderDetail(panel: HTMLElement): void {
   const color = getTypeColor(obj.type);
   const abbr = getTypeAbbr(obj.type);
 
+  const isFav = S.favoriteEntries.some(f => f.rid === obj.rid);
+
   const children: (HTMLElement | false | null)[] = [
     // Back button
     h('button', { class: 'detail-back', 'data-action': 'back' }, svg(ICON_ARROW_LEFT), ' Back'),
 
     // Identity header
     h('div', { class: 'detail-identity' },
+      h('button', { class: `detail-star${isFav ? ' active' : ''}`, 'data-action': 'toggle-star', title: isFav ? 'Remove from pinned' : 'Pin this object' },
+        svg(isFav ? ICON_STAR_FILLED : ICON_STAR_HOLLOW)),
       h('span', { class: 'type-badge', style: `background:${color}` }, abbr),
       h('span', { class: 'detail-name' }, obj.name ?? 'unnamed'),
     ),
@@ -182,7 +187,7 @@ function renderDetail(panel: HTMLElement): void {
 
   // Loading state
   if (!serverLookupDone) {
-    children.push(h('div', { class: 'detail-loading' }, 'Loading properties\u2026'));
+    children.push(h('div', { class: 'detail-loading' }, h('span', { class: 'detection-spinner' }), ' Loading properties\u2026'));
     render(panel, ...children);
     wireDelegate(panel);
     return;
@@ -235,6 +240,8 @@ function renderDetail(panel: HTMLElement): void {
       h('div', { class: 'detail-hint' }, 'Check the Connect tab if your server is offline.'),
       h('button', { class: 'detail-retry btn btn-small', 'data-action': 'retry' }, 'Retry'),
     );
+  } else if (S.connState.display !== 'connected') {
+    children.push(h('div', { class: 'detail-hint' }, 'Connect to see full properties'));
   } else {
     children.push(h('div', { class: 'detail-hint' }, 'Add a server in Connect tab to view properties'));
   }
@@ -246,6 +253,8 @@ function renderDetail(panel: HTMLElement): void {
 function renderScriptBlock(key: string, code: string): HTMLElement {
   const running = ecRunningProp === key;
   const output = ecOutputs.get(key);
+  const connected = S.connState.display === 'connected';
+  const disabledTitle = connected ? '' : 'Not connected';
 
   const section = h('div', { class: 'script-section' },
     h('div', { class: 'script-header' },
@@ -254,8 +263,8 @@ function renderScriptBlock(key: string, code: string): HTMLElement {
     h('pre', { class: 'script-code' }, code),
     h('div', { class: 'script-actions' },
       h('button', { class: 'btn btn-small', 'data-action': 'copy-script', 'data-prop': key }, 'Copy'),
-      h('button', { class: 'btn btn-small btn-accent', 'data-action': 'preview-script', 'data-prop': key, disabled: running }, running ? 'Running\u2026' : 'Preview'),
-      h('button', { class: 'btn btn-small btn-danger', 'data-action': 'run-script', 'data-prop': key, disabled: running }, 'Run'),
+      h('button', { class: 'btn btn-small btn-accent', 'data-action': 'preview-script', 'data-prop': key, disabled: running || !connected, title: disabledTitle }, running ? 'Running\u2026' : 'Preview'),
+      h('button', { class: 'btn btn-small btn-danger', 'data-action': 'run-script', 'data-prop': key, disabled: running || !connected, title: disabledTitle }, 'Run'),
       h('button', { class: 'btn btn-small', 'data-action': 'open-editor', 'data-prop': key }, 'Editor'),
     ),
   );
@@ -300,6 +309,10 @@ function wireDelegate(panel: HTMLElement): void {
 
   delegate(panel, {
     back: () => { clearDetail(); onBackCb?.(); },
+    'toggle-star': () => {
+      if (!currentObj) return;
+      sendMessageCb?.({ type: 'TOGGLE_FAVORITE', rid: currentObj.rid, name: currentObj.name, objectType: currentObj.type, businessId: currentObj.businessId });
+    },
     retry: () => {
       if (!currentObj) return;
       serverLookupDone = false;

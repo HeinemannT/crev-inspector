@@ -35,61 +35,7 @@ body {
   height: 100%;
 }
 
-/* ── Header ──────────────────────────────────── */
-
-.editor-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: var(--bg-section);
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-  -webkit-app-region: drag;
-}
-
-.editor-header button,
-.editor-header .editor-prop-tab,
-.editor-header .editor-target-btn {
-  -webkit-app-region: no-drag;
-}
-
-.editor-close-btn {
-  -webkit-app-region: no-drag;
-  margin-left: auto;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 14px;
-  cursor: pointer;
-  padding: 0 4px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.editor-close-btn:hover {
-  color: var(--text-primary);
-}
-
-.editor-type-badge {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: 2px;
-  font-size: 9px;
-  font-weight: 600;
-  color: #fff;
-  flex-shrink: 0;
-}
-
-.editor-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
+/* ── Property tabs (in toolbar) ─────────────── */
 
 .editor-prop-tabs {
   display: flex;
@@ -270,6 +216,12 @@ body {
 .editor-toolbar .btn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.editor-toolbar-target {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
 }
 
 .editor-toolbar-spacer { flex: 1; }

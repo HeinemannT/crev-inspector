@@ -553,7 +553,11 @@ export function parseEcResults(objects: any[]): ParsedEcResult {
         for (const entry of entries) {
           if (!entry) continue;
           const logType = entry.logType instanceof JavaEnum ? entry.logType.name : String(entry.logType ?? '');
-          const message = entry.message ?? '';
+          let message = entry.message ?? '';
+          // BMP wraps last-expression output with "Result : " prefix
+          if (message.startsWith('Result : ')) {
+            message = message.slice(9); // 'Result : '.length === 9
+          }
           if (logType === 'ERROR') hasError = true;
           if (logType === 'WARNING') hasWarning = true;
           lines.push(message);

@@ -80,28 +80,18 @@ export async function openEditorWindow(rid: string) {
     codeProps = { ...templateCodeProps, ...codeProps };
   }
 
-  // Store context for editor page
-  await chrome.storage.local.set({
-    crev_editor_context: {
-      rid,
-      type,
-      name,
-      businessId,
-      property,
-      code,
-      codeProps,
-      templateRid,
-      templateName,
-      templateType,
-      templateCodeProps,
-      saveTarget: ctx.settings.saveTarget,
-    },
-  });
-
   // Focus existing editor window for this RID if one is already open
   const existingWinId = openEditorWindows.get(rid);
   if (existingWinId != null) {
     try {
+      // Update context before focusing so editor has latest data
+      await chrome.storage.local.set({
+        [`crev_editor_ctx_${rid}`]: {
+          rid, type, name, businessId, property, code, codeProps,
+          templateRid, templateName, templateType, templateCodeProps,
+          saveTarget: ctx.settings.saveTarget,
+        },
+      });
       await chrome.windows.update(existingWinId, { focused: true });
       return;
     } catch (e) {
@@ -110,13 +100,22 @@ export async function openEditorWindow(rid: string) {
     }
   }
 
-  // Open editor window with remembered bounds
+  // Store context for editor page (per-RID key)
+  await chrome.storage.local.set({
+    [`crev_editor_ctx_${rid}`]: {
+      rid, type, name, businessId, property, code, codeProps,
+      templateRid, templateName, templateType, templateCodeProps,
+      saveTarget: ctx.settings.saveTarget,
+    },
+  });
+
+  // Open editor window with remembered bounds + RID in hash
   const stored = await chrome.storage.local.get('crev_editor_bounds');
   const bounds = (stored.crev_editor_bounds ?? {}) as Record<string, number | undefined>;
 
   const win = await chrome.windows.create({
     type: 'popup',
-    url: chrome.runtime.getURL('editor/editor.html'),
+    url: chrome.runtime.getURL(`editor/editor.html#${rid}`),
     width: bounds.width ?? 720,
     height: bounds.height ?? 540,
     left: bounds.left,
@@ -141,6 +140,103 @@ export async function openEditorWindow(rid: string) {
     const onRemoved = (removedId: number) => {
       if (removedId !== winId) return;
       openEditorWindows.delete(rid);
+      // Clean up per-RID context on window close
+      chrome.storage.local.remove(`crev_editor_ctx_${rid}`).catch(e => log.swallow('editor:cleanupCtx', e));
+      chrome.windows.onBoundsChanged.removeListener(onBoundsChanged);
+      chrome.windows.onRemoved.removeListener(onRemoved);
+    };
+
+    chrome.windows.onBoundsChanged.addListener(onBoundsChanged);
+    chrome.windows.onRemoved.addListener(onRemoved);
+  }
+}
+
+/** Open a standalone Extended Code window with optional page context */
+export async function openExtendedWindow(pageRid?: string) {
+  const ctx = getCtx();
+  await ctx.settingsReady;
+
+  let name = '';
+  let type = '';
+  let objectRid = pageRid;
+
+  // Resolve page object identity for context display
+  if (pageRid && ctx.client) {
+    const identity = await ctx.client.lookupIdentity(pageRid).catch(() => null);
+    if (identity) {
+      name = identity.name ?? '';
+      type = identity.type ?? '';
+    } else {
+      const cached = ctx.cache.get(pageRid);
+      if (cached) {
+        name = cached.name ?? '';
+        type = cached.type ?? '';
+      }
+    }
+  }
+
+  const key = 'extended';
+
+  // Focus existing extended window if open
+  const existingWinId = openEditorWindows.get(key);
+  if (existingWinId != null) {
+    try {
+      await chrome.storage.local.set({
+        crev_editor_ctx_extended: {
+          rid: pageRid ?? '', type, name, businessId: '',
+          property: null, code: '', codeProps: {},
+          objectRid, extended: true,
+          saveTarget: ctx.settings.saveTarget,
+        },
+      });
+      await chrome.windows.update(existingWinId, { focused: true });
+      return;
+    } catch (e) {
+      log.swallow('editor:focusExtended', e);
+      openEditorWindows.delete(key);
+    }
+  }
+
+  await chrome.storage.local.set({
+    crev_editor_ctx_extended: {
+      rid: pageRid ?? '', type, name, businessId: '',
+      property: null, code: '', codeProps: {},
+      objectRid, extended: true,
+      saveTarget: ctx.settings.saveTarget,
+    },
+  });
+
+  const stored = await chrome.storage.local.get('crev_editor_bounds');
+  const bounds = (stored.crev_editor_bounds ?? {}) as Record<string, number | undefined>;
+
+  const win = await chrome.windows.create({
+    type: 'popup',
+    url: chrome.runtime.getURL('editor/editor.html#extended'),
+    width: bounds.width ?? 720,
+    height: bounds.height ?? 540,
+    left: bounds.left,
+    top: bounds.top,
+  }).catch(e => { log.swallow('editor:createExtended', e); return null; });
+
+  if (win?.id != null) {
+    const winId = win.id;
+    openEditorWindows.set(key, winId);
+    let boundsTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const onBoundsChanged = (window: chrome.windows.Window) => {
+      if (window.id !== winId) return;
+      if (boundsTimer) clearTimeout(boundsTimer);
+      boundsTimer = setTimeout(() => {
+        chrome.storage.local.set({
+          crev_editor_bounds: { width: window.width, height: window.height, left: window.left, top: window.top },
+        }).catch(e => log.swallow('editor:persistBounds', e));
+      }, 500);
+    };
+
+    const onRemoved = (removedId: number) => {
+      if (removedId !== winId) return;
+      openEditorWindows.delete(key);
+      chrome.storage.local.remove('crev_editor_ctx_extended').catch(e => log.swallow('editor:cleanupExtended', e));
       chrome.windows.onBoundsChanged.removeListener(onBoundsChanged);
       chrome.windows.onRemoved.removeListener(onRemoved);
     };

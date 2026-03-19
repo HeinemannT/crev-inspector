@@ -70,7 +70,8 @@ export type ProfileMessage =
   | { type: 'SAVE_PROFILE'; profile: ServerProfile }
   | { type: 'DELETE_PROFILE'; profileId: string }
   | { type: 'SET_ACTIVE_PROFILE'; profileId: string }
-  | { type: 'PROFILE_SWITCHED'; profileId: string; label: string };
+  | { type: 'PROFILE_SWITCHED'; profileId: string; label: string }
+  | { type: 'SHOW_PROFILE_SWITCHER' };
 
 // ── EC Execution ─────────────────────────────────────────────────
 export type EcMessage =
@@ -111,11 +112,94 @@ export type ActivityMessage =
   | { type: 'ACTIVITY_LOG'; entries: ActivityEntry[] }
   | { type: 'ACTIVITY_ENTRY'; entry: ActivityEntry };
 
+// ── History ──────────────────────────────────────────────────────
+export interface HistoryEntry {
+  rid: string;
+  name?: string;
+  type?: string;
+  businessId?: string;
+  action: 'viewed' | 'edited' | 'painted' | 'ec-executed';
+  timestamp: number;
+}
+
+export type HistoryMessage =
+  | { type: 'GET_HISTORY' }
+  | { type: 'HISTORY_DATA'; entries: HistoryEntry[] }
+  | { type: 'CLEAR_HISTORY' };
+
+// ── Favorites ────────────────────────────────────────────────────
+export interface FavoriteEntry {
+  rid: string;
+  name?: string;
+  type?: string;
+  businessId?: string;
+  addedAt: number;
+}
+
+export type FavoritesMessage =
+  | { type: 'TOGGLE_FAVORITE'; rid: string; name?: string; objectType?: string; businessId?: string }
+  | { type: 'GET_FAVORITES' }
+  | { type: 'FAVORITES_DATA'; entries: FavoriteEntry[] };
+
+// ── Context Menu ─────────────────────────────────────────────────
+export type ContextMenuAction = 'copy-rid' | 'copy-bid' | 'copy-name' | 'view-props' | 'open-editor' | 'paint-from';
+
+export type ContextMenuMessage =
+  | { type: 'SET_CONTEXT_RID'; rid: string; name?: string; objectType?: string; businessId?: string }
+  | { type: 'CONTEXT_MENU_ACTION'; action: ContextMenuAction; rid: string; tabId: number };
+
+// ── Technical Overlay ────────────────────────────────────────────
+export type OverlayModeMessage =
+  | { type: 'TOGGLE_TECHNICAL_OVERLAY' }
+  | { type: 'TECHNICAL_OVERLAY_STATE'; active: boolean }
+  | { type: 'GET_OVERLAY_PROPS'; rids: string[] }
+  | { type: 'OVERLAY_PROPS_DATA'; props: Record<string, Record<string, string>> };
+
+// ── Object View ──────────────────────────────────────────────────
+export type ObjectViewMessage =
+  | { type: 'OPEN_OBJECT_VIEW'; rid: string }
+  | { type: 'FULL_LOOKUP'; rid: string }
+  | { type: 'FULL_LOOKUP_RESULT'; rid: string; object: BmpObject | null; template?: { rid: string; name: string; type: string }; children?: Array<{ rid: string; name?: string; type?: string; businessId?: string }>; error?: string };
+
+// ── Diff ─────────────────────────────────────────────────────────
+export type DiffMessage =
+  | { type: 'OPEN_DIFF'; leftRid: string; rightRid?: string }
+  | { type: 'OPEN_TEMPLATE_DIFF'; rid: string }
+  | { type: 'FETCH_DIFF_PROPS'; rid: string }
+  | { type: 'DIFF_PROPS_RESULT'; rid: string; props: Record<string, string>; identity: { name?: string; type?: string; businessId?: string }; error?: string }
+  | { type: 'SET_COMPARE_RID'; rid: string; name?: string; objectType?: string };
+
+// ── Code Search ──────────────────────────────────────────────────
+export interface CodeSearchResult {
+  rid: string; name?: string; type?: string; businessId?: string;
+  property: string;
+  matchingLines: Array<{ lineNum: number; text: string }>;
+}
+
+export type CodeSearchMessage =
+  | { type: 'OPEN_CODE_SEARCH' }
+  | { type: 'CODE_SEARCH_START'; query: string; subtreeRid?: string; types?: string[] }
+  | { type: 'CODE_SEARCH_PROGRESS'; results: CodeSearchResult[]; searched: number; total: number }
+  | { type: 'CODE_SEARCH_DONE'; totalResults: number; totalSearched: number }
+  | { type: 'CODE_SEARCH_STOP' };
+
+// ── Script History ───────────────────────────────────────────────
+export interface ScriptHistoryEntry {
+  code: string; timestamp: number; ok: boolean; mode: 'preview' | 'execute';
+}
+
+export type ScriptHistoryMessage =
+  | { type: 'GET_SCRIPT_HISTORY' }
+  | { type: 'SCRIPT_HISTORY_DATA'; entries: ScriptHistoryEntry[] };
+
 // ── Full union (backward-compatible) ─────────────────────────────
 export type InspectorMessage =
   | PageMessage | InspectMessage | CacheMessage | ServerLookupMessage
   | ConnectionMessage | ProfileMessage | EcMessage | EnrichMessage
-  | PaintMessage | DetectionMessage | ActivityMessage;
+  | PaintMessage | DetectionMessage | ActivityMessage
+  | HistoryMessage | FavoritesMessage | ContextMenuMessage
+  | OverlayModeMessage | ObjectViewMessage
+  | DiffMessage | CodeSearchMessage | ScriptHistoryMessage;
 
 export interface WidgetInfo {
   rid: string;
@@ -155,7 +239,7 @@ export const DEFAULT_SETTINGS: InspectorSettings = {
 };
 
 /** Chart types — all share the same color (#33b1ff) */
-const CHART_TYPES = ['BarChart','PieChart','LineChart','AreaChart','WaterfallChart','BubbleChart','RadarChart','TreeChart','GanttChart','NetworkChart','PolarChart','BarLineChart'] as const;
+export const CHART_TYPES = ['BarChart','PieChart','LineChart','AreaChart','WaterfallChart','BubbleChart','RadarChart','TreeChart','GanttChart','NetworkChart','PolarChart','BarLineChart'] as const;
 const CHART_COLOR = '#33b1ff';
 const CHART_ABBREVIATIONS: Record<string, string> = {
   BarChart: 'BAR', PieChart: 'PIE', LineChart: 'LIN', AreaChart: 'ARA',
@@ -244,6 +328,7 @@ export const PAINT_STYLE_PROPS = [
  *  CustomVisualization uses plain String properties 'html' and 'javascript'. */
 export const CODE_PROPS_FOR_TYPE: Record<string, readonly string[]> = {
   ExtendedTable: ['expression'],
+  ExtendedMethodConfig: ['expression'],
   ...Object.fromEntries(CHART_TYPES.map(t => [t, ['expression'] as readonly string[]])),
   CustomVisualization: ['html', 'javascript'],
 };
@@ -251,8 +336,3 @@ export const CODE_PROPS_FOR_TYPE: Record<string, readonly string[]> = {
 /** Types that have viewable/editable code properties */
 export const TYPES_WITH_CODE = new Set(Object.keys(CODE_PROPS_FOR_TYPE));
 
-/** Window message from MAIN world interceptor to ISOLATED content script */
-export interface InterceptorWindowMessage {
-  source: 'crev-interceptor';
-  payload: InspectorMessage;
-}

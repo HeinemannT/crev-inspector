@@ -83,6 +83,13 @@ export function rebuildClient(clearCache = false) {
     ctx.cache.clear();
     ctx.sendToPanel({ type: 'CACHE_STATS', count: 0 });
   }
+  // Switch cache/history/favorites to new profile (no-op if profileId unchanged)
+  const newProfileId = profile?.id ?? '_default';
+  ctx.cache.switchProfile(newProfileId).catch(e => log.swallow('settings:switchCache', e));
+  ctx.history.switchProfile(newProfileId).catch(e => log.swallow('settings:switchHistory', e));
+  ctx.favorites.switchProfile(newProfileId).catch(e => log.swallow('settings:switchFavorites', e));
+  ctx.scriptHistory.switchProfile(newProfileId).catch(e => log.swallow('settings:switchScriptHistory', e));
+
   resetConnectionState();
   pushConnectionState();
   if (ctx.panelPort) {
@@ -90,7 +97,6 @@ export function rebuildClient(clearCache = false) {
     startHealthPolling();
     runAuthTest();
   }
-
 }
 
 export function autoDetectProfile(pageUrl: string) {
@@ -116,6 +122,7 @@ export function autoDetectProfile(pageUrl: string) {
         saveSettings();
         rebuildClient(true);
         ctx.sendToPanel({ type: 'PROFILE_SWITCHED', profileId: p.id, label: p.label });
+        ctx.broadcastToContent({ type: 'PROFILE_SWITCHED', profileId: p.id, label: p.label });
         ctx.sendToPanel({ type: 'SETTINGS_DATA', settings: ctx.settings });
       }
       return;

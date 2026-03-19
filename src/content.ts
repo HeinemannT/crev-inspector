@@ -1,15 +1,19 @@
 /**
  * ISOLATED world content script.
  * Renders outlined elements with corner labels and a hover tooltip on [data-rid] elements.
- * Bridges messages between MAIN world interceptor and service worker.
+ * Bridges messages between MAIN world interceptor and service worker via CustomEvents.
  */
 
-import type { BmpObject, InspectorMessage, InterceptorWindowMessage, WidgetInfo, PaintPhase, EnrichMode } from './lib/types';
+import type { BmpObject, InspectorMessage, ConnectionState, WidgetInfo, PaintPhase, EnrichMode } from './lib/types';
 import { getTypeColor, getTypeAbbr, TYPES_WITH_CODE } from './lib/types';
 import { getAllRidElements, extractUrlRids, scanPageWidgets, detectBmpPage, type DetectionResult } from './lib/dom-scanner';
 import { h, render } from './lib/dom';
 import { log } from './lib/logger';
 import { RECONNECT_INITIAL_DELAY, RECONNECT_MAX_DELAY, OVERLAY_SYNC_DEBOUNCE, DETECTION_DEBOUNCE } from './lib/constants';
+import { initEnvTag, updateEnvTag, destroyEnvTag } from './lib/env-tag';
+import { showToast } from './lib/toast';
+import { showQuickInspector, hideQuickInspector, isQuickInspectorVisible } from './lib/quick-inspector';
+import { broadcast, onSync } from './lib/cross-tab';
 import OVERLAY_CSS from './content-overlay.css';
 
 declare global {
@@ -31,6 +35,9 @@ let styleInjected = false;
 
 // Enrichment data from server (RID → business ID / type / name)
 const enrichments = new Map<string, { businessId?: string; type?: string; name?: string }>();
+
+// Cached properties for richer technical overlay cards
+const overlayProps = new Map<string, Record<string, string>>();
 
 // WeakSet tracks which elements already have overlays attached
 let badgedElements = new WeakSet<Element>();
@@ -59,6 +66,22 @@ let tooltipHideTimer: ReturnType<typeof setTimeout> | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let hoveredOutlineEl: Element | null = null;
 
+// Connection state tracking for env tag + toasts
+let prevConnDisplay: string | null = null;
+
+// Technical overlay state
+let technicalOverlay = false;
+
+// Favorites cache for quick inspector star state
+let favoriteRids = new Set<string>();
+
+// Double-click detection for quick inspector
+let labelClickTimer: ReturnType<typeof setTimeout> | null = null;
+let labelClickRid: string | null = null;
+
+// Cross-tab sync guard
+let fromSync = false;
+
 // ── Service worker connection ───────────────────────────────────
 
 function connectPort() {
@@ -84,6 +107,7 @@ function connectPort() {
     switch (msg.type) {
       case 'INSPECT_STATE':
         setInspectMode(msg.active);
+        if (!fromSync) broadcast('crev_sync_inspect', { active: msg.active });
         break;
       case 'BADGE_ENRICHMENT':
         for (const [rid, data] of Object.entries(msg.enrichments)) {
@@ -95,6 +119,7 @@ function connectPort() {
         paintPhase = msg.phase;
         paintSourceName = msg.sourceName ?? null;
         updatePaintCursors();
+        if (!fromSync) broadcast('crev_sync_paint', { phase: msg.phase, sourceName: msg.sourceName });
         break;
       case 'PAINT_PREVIEW':
         showPaintPreview(msg.rid, msg.diff);
@@ -115,6 +140,18 @@ function connectPort() {
       case 'RE_ENRICH':
         requestedRids.clear();
         if (inspectActive) syncOverlays();
+        break;
+      case 'CONNECTION_STATE':
+        handleConnectionState(msg.state);
+        break;
+      case 'PROFILE_SWITCHED':
+        handleProfileSwitched(msg.label);
+        if (!fromSync) broadcast('crev_sync_profile', { label: msg.label });
+        break;
+      case 'TECHNICAL_OVERLAY_STATE':
+        technicalOverlay = msg.active;
+        applyTechnicalOverlay();
+        if (!fromSync) broadcast('crev_sync_overlay', { active: msg.active });
         break;
     }
   });
@@ -169,6 +206,43 @@ function flushPendingMessages() {
   }
 }
 
+// ── Connection state + env tag + toasts ─────────────────────────
+
+function handleConnectionState(state: ConnectionState) {
+  const prev = prevConnDisplay;
+  prevConnDisplay = state.display;
+
+  // Env tag updates
+  const envState = state.display === 'connected' ? 'connected'
+    : (state.display === 'not-configured' ? 'not-configured' : 'disconnected');
+  const envLabel = state.profileLabel ?? 'CREV';
+
+  if (lastDetection?.isBmp) {
+    initEnvTag(envLabel, envState);
+  }
+
+  // Toasts on transitions
+  if (prev !== null && prev !== state.display) {
+    if (state.display === 'connected' && prev !== 'connected') {
+      showToast(`Connected to ${state.profileLabel ?? 'server'}`, 'success');
+    } else if (state.display === 'auth-failed' && prev !== 'auth-failed') {
+      showToast('Auth failed', 'error');
+    } else if (state.display === 'unreachable' && prev !== 'unreachable') {
+      showToast('Server unreachable', 'error');
+    } else if (state.display === 'server-down' && prev !== 'server-down') {
+      showToast('Server down', 'error');
+    }
+  }
+}
+
+function handleProfileSwitched(label: string) {
+  showToast(`Switched to ${label}`, 'info');
+  overlayProps.clear();
+  if (lastDetection?.isBmp) {
+    updateEnvTag(label, 'connected');
+  }
+}
+
 // ── Inspect mode ────────────────────────────────────────────────
 
 function setInspectMode(active: boolean) {
@@ -180,6 +254,7 @@ function setInspectMode(active: boolean) {
     if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
     removeOverlays();
     requestedRids.clear();
+    hideQuickInspector();
   }
 }
 
@@ -206,7 +281,7 @@ function injectStyles() {
     if (outline) {
       const label = outline.querySelector('[data-crev-label]');
       const rid = label?.getAttribute('data-crev-label');
-      if (rid) showTooltip(outline as HTMLElement, rid);
+      if (rid) showTooltipForElement(outline as HTMLElement, rid);
     } else {
       hideTooltip();
     }
@@ -259,14 +334,6 @@ function syncOverlays() {
   // Filter to new elements only
   const newElements = elements.filter(({ element }) => !badgedElements.has(element));
 
-  // Pre-pass: read computed positions (batch read avoids layout thrashing)
-  const needsReposition = new Set<Element>();
-  for (const { element } of newElements) {
-    if (window.getComputedStyle(element).position === 'static') {
-      needsReposition.add(element);
-    }
-  }
-
   // Write pass: apply DOM changes
   for (const { element, rid } of newElements) {
     const enrichment = enrichments.get(rid);
@@ -274,11 +341,6 @@ function syncOverlays() {
 
     element.classList.add('crev-outline');
     (element as HTMLElement).style.setProperty('--crev-color', color);
-
-    if (needsReposition.has(element)) {
-      (element as HTMLElement).style.position = 'relative';
-      element.setAttribute('data-crev-repositioned', 'true');
-    }
 
     // Create corner label (flex container: text + optional code button)
     const label = document.createElement('span');
@@ -291,14 +353,13 @@ function syncOverlays() {
     labelText.textContent = enrichment?.businessId ?? enrichment?.name ?? getTypeAbbr(enrichment?.type);
     label.appendChild(labelText);
 
-    // Click text → paint pick/apply if in paint mode, otherwise copy
+    // Click text → paint pick/apply if in paint mode, otherwise copy (with dblclick → quick inspector)
     labelText.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
 
       if (paintPhase === 'picking') {
         sendToSW({ type: 'PAINT_PICK', rid });
-        // Flash orange to confirm pick
         label.classList.add('crev-label-flash-pick');
         setTimeout(() => { label.classList.remove('crev-label-flash-pick'); }, 400);
         return;
@@ -306,22 +367,37 @@ function syncOverlays() {
 
       if (paintPhase === 'applying') {
         sendToSW({ type: 'PAINT_APPLY', rid });
-        // Visual feedback handled by PAINT_APPLY_RESULT
         return;
       }
 
-      // Default: copy business ID (or RID if no ID)
-      const enriched = enrichments.get(rid);
-      const text = enriched?.businessId ?? rid;
-      navigator.clipboard.writeText(text).then(() => {
-        const original = labelText.textContent;
-        labelText.textContent = '\u2713';
-        label.classList.add('crev-label-flash-ok');
-        setTimeout(() => {
-          labelText.textContent = original;
-          label.classList.remove('crev-label-flash-ok');
-        }, 600);
-      }).catch(e => log.swallow('content:clipboard', e));
+      // Double-click detection: 250ms window
+      if (labelClickRid === rid && labelClickTimer) {
+        // Second click → cancel copy, open quick inspector
+        clearTimeout(labelClickTimer);
+        labelClickTimer = null;
+        labelClickRid = null;
+        openQuickInspector(label, rid);
+        return;
+      }
+
+      // First click → set timer for single-click (copy BID)
+      labelClickRid = rid;
+      labelClickTimer = setTimeout(() => {
+        labelClickTimer = null;
+        labelClickRid = null;
+        // Execute single-click: copy business ID
+        const enriched = enrichments.get(rid);
+        const text = enriched?.businessId ?? rid;
+        navigator.clipboard.writeText(text).then(() => {
+          const original = labelText.textContent;
+          labelText.textContent = '\u2713';
+          label.classList.add('crev-label-flash-ok');
+          setTimeout(() => {
+            labelText.textContent = original;
+            label.classList.remove('crev-label-flash-ok');
+          }, 600);
+        }).catch(e => log.swallow('content:clipboard', e));
+      }, 250);
     });
 
     // Add code button for types with viewable code
@@ -359,26 +435,18 @@ function syncOverlays() {
 }
 
 function removeOverlays() {
-  // Remove all labels
   for (const label of document.querySelectorAll('.crev-label')) {
     label.remove();
   }
-  // Remove outline class and CSS var from all elements
   for (const el of document.querySelectorAll('.crev-outline')) {
     el.classList.remove('crev-outline');
     (el as HTMLElement).style.removeProperty('--crev-color');
   }
-  // Restore repositioned elements
-  for (const el of document.querySelectorAll('[data-crev-repositioned]')) {
-    (el as HTMLElement).style.position = '';
-    el.removeAttribute('data-crev-repositioned');
-  }
-  // Hide tooltip
   const tooltip = document.getElementById('crev-tooltip');
   if (tooltip) tooltip.style.display = 'none';
   hoveredOutlineEl = null;
-  // Reset WeakSet so overlays can be recreated on next toggle-on
   badgedElements = new WeakSet();
+  overlayProps.clear();
 }
 
 function updateLabels() {
@@ -387,25 +455,62 @@ function updateLabels() {
     if (!rid) continue;
     const enrichment = enrichments.get(rid);
     if (enrichment) {
-      // Update text span
       const textSpan = label.querySelector('.crev-label-text');
       if (textSpan) {
         textSpan.textContent = enrichment.businessId ?? enrichment.name ?? getTypeAbbr(enrichment.type);
       }
       label.classList.remove('crev-label-loading');
-      // Update outline color on parent
       const parent = label.parentElement;
       if (parent) {
         const color = getTypeColor(enrichment.type);
         parent.style.setProperty('--crev-color', color);
       }
-      // Add code button if type has code and button doesn't exist yet
       if (enrichment.type && TYPES_WITH_CODE.has(enrichment.type) && !label.querySelector('.crev-ec-btn')) {
         label.appendChild(createCodeButton(rid, enrichment.type));
       }
     }
   }
 }
+
+// ── Quick Inspector ─────────────────────────────────────────────
+
+function openQuickInspector(labelEl: HTMLElement, rid: string) {
+  const enrichment = enrichments.get(rid);
+  // Fetch current favorites for star state
+  chrome.runtime.sendMessage({ type: 'GET_FAVORITES' }, (response: any) => {
+    if (response?.entries) {
+      favoriteRids = new Set(response.entries.map((e: any) => e.rid));
+    }
+    showQuickInspector(labelEl, {
+      rid,
+      businessId: enrichment?.businessId,
+      type: enrichment?.type,
+      name: enrichment?.name,
+      isFavorite: favoriteRids.has(rid),
+    }, (editorRid) => {
+      chrome.runtime.sendMessage({ type: 'OPEN_EDITOR', rid: editorRid });
+    }, (favRid) => {
+      chrome.runtime.sendMessage({ type: 'TOGGLE_FAVORITE', rid: favRid, name: enrichment?.name, objectType: enrichment?.type, businessId: enrichment?.businessId });
+    }, (viewRid) => {
+      chrome.runtime.sendMessage({ type: 'OPEN_OBJECT_VIEW', rid: viewRid });
+    });
+  });
+}
+
+// Escape key dismisses quick inspector
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && isQuickInspectorVisible()) {
+    hideQuickInspector();
+  }
+});
+
+// Click outside dismisses quick inspector
+document.addEventListener('click', (e) => {
+  if (!isQuickInspectorVisible()) return;
+  const target = e.target as HTMLElement;
+  if (target.closest('#crev-quick-inspector')) return;
+  hideQuickInspector();
+}, true);
 
 // ── Paint Format helpers ─────────────────────────────────────
 
@@ -443,7 +548,6 @@ function updatePaintCursors() {
 }
 
 function flashApplyResult(rid: string, ok: boolean, error?: string) {
-  // Flash the label
   const label = document.querySelector<HTMLElement>(`[data-crev-label="${rid}"]`);
   if (label) {
     const flashClass = ok ? 'crev-label-flash-ok' : 'crev-label-flash-error';
@@ -451,7 +555,6 @@ function flashApplyResult(rid: string, ok: boolean, error?: string) {
     setTimeout(() => { label.classList.remove(flashClass); }, 600);
   }
 
-  // Update the banner with feedback
   const banner = document.getElementById('crev-paint-banner');
   if (!banner) return;
 
@@ -508,7 +611,7 @@ function showPaintPreview(rid: string, diff: Array<{ prop: string; from: string;
 
 // ── Tooltip system ──────────────────────────────────────────────
 
-function showTooltip(el: HTMLElement, rid: string) {
+function showTooltipForElement(el: HTMLElement, rid: string) {
   if (tooltipHideTimer) {
     clearTimeout(tooltipHideTimer);
     tooltipHideTimer = null;
@@ -530,7 +633,6 @@ function showTooltip(el: HTMLElement, rid: string) {
     enrichment?.businessId && h('div', { class: 'crev-tt-row' }, `ID: ${enrichment.businessId}`),
     h('div', { class: 'crev-tt-row' }, `RID: ${rid}`),
   );
-  // Position offscreen first, then measure both rects in a single layout pass
   tooltip.style.top = '-9999px';
   tooltip.style.left = '-9999px';
   tooltip.style.display = 'block';
@@ -540,7 +642,6 @@ function showTooltip(el: HTMLElement, rid: string) {
   let top = rect.bottom + 4;
   let left = rect.left;
 
-  // Clamp to viewport
   if (top + ttRect.height > window.innerHeight) {
     top = rect.top - ttRect.height - 4;
   }
@@ -561,6 +662,165 @@ function hideTooltip() {
     if (tooltip) tooltip.style.display = 'none';
     tooltipHideTimer = null;
   }, 50);
+}
+
+// ── Cross-tab sync ──────────────────────────────────────────────
+
+onSync('crev_sync_inspect', (data) => {
+  const d = data as { active: boolean };
+  if (d.active !== inspectActive) {
+    fromSync = true;
+    setInspectMode(d.active);
+    fromSync = false;
+  }
+});
+
+onSync('crev_sync_paint', (data) => {
+  const d = data as { phase: PaintPhase; sourceName?: string };
+  fromSync = true;
+  paintPhase = d.phase;
+  paintSourceName = d.sourceName ?? null;
+  updatePaintCursors();
+  fromSync = false;
+});
+
+onSync('crev_sync_overlay', (data) => {
+  const d = data as { active: boolean };
+  if (d.active !== technicalOverlay) {
+    fromSync = true;
+    technicalOverlay = d.active;
+    applyTechnicalOverlay();
+    fromSync = false;
+  }
+});
+
+onSync('crev_sync_profile', (data) => {
+  const d = data as { label: string; connected?: boolean };
+  fromSync = true;
+  if (lastDetection?.isBmp) {
+    updateEnvTag(d.label, d.connected !== false ? 'connected' : 'disconnected');
+  }
+  fromSync = false;
+});
+
+// ── Context menu RID tracking ────────────────────────────────────
+
+document.body.addEventListener('contextmenu', (e) => {
+  const ridEl = (e.target as HTMLElement).closest?.('[data-rid]');
+  if (ridEl) {
+    const rid = ridEl.getAttribute('data-rid');
+    if (rid) {
+      const enrichment = enrichments.get(rid);
+      try {
+        chrome.runtime.sendMessage({
+          type: 'SET_CONTEXT_RID',
+          rid,
+          name: enrichment?.name,
+          objectType: enrichment?.type,
+          businessId: enrichment?.businessId,
+        });
+      } catch (e) { log.swallow('content:contextmenu', e); }
+    }
+  }
+}, true);
+
+// ── Technical Overlay ───────────────────────────────────────────
+
+const OVERLAY_SKIP_PROPS = new Set(['rid', 'id', 'name', 'type', '__typename', 'typename',
+  'source', 'discoveredAt', 'updatedAt', 'treePath', 'webParentRid', 'hasChildren']);
+const OVERLAY_CODE_PROPS = new Set(['expression', 'html', 'javascript']);
+const OVERLAY_MAX_PROP_LINES = 6;
+
+function applyTechnicalOverlay() {
+  if (technicalOverlay) {
+    // Request cached properties from service worker for visible RIDs
+    const visibleRids: string[] = [];
+    for (const label of document.querySelectorAll<HTMLElement>('[data-crev-label]')) {
+      const rid = label.getAttribute('data-crev-label');
+      if (rid && !overlayProps.has(rid)) visibleRids.push(rid);
+    }
+    if (visibleRids.length > 0) {
+      try {
+        chrome.runtime.sendMessage(
+          { type: 'GET_OVERLAY_PROPS', rids: visibleRids },
+          (response: any) => {
+            if (chrome.runtime.lastError) return;
+            if (response?.type === 'OVERLAY_PROPS_DATA' && response.props) {
+              for (const [rid, props] of Object.entries(response.props)) {
+                overlayProps.set(rid, props as Record<string, string>);
+              }
+              renderOverlayCards();
+            }
+          },
+        );
+      } catch (e) { log.swallow('content:getOverlayProps', e); }
+    }
+  }
+  renderOverlayCards();
+}
+
+function renderOverlayCards() {
+  for (const label of document.querySelectorAll<HTMLElement>('[data-crev-label]')) {
+    const rid = label.getAttribute('data-crev-label');
+    if (!rid) continue;
+    const enrichment = enrichments.get(rid);
+    const textSpan = label.querySelector('.crev-label-text');
+    if (!textSpan) continue;
+
+    if (technicalOverlay) {
+      label.classList.add('crev-label--card');
+      const typeName = enrichment?.type ?? 'Unknown';
+      const bid = enrichment?.businessId ?? '';
+      const name = enrichment?.name ?? 'unnamed';
+      const truncatedRid = rid.length > 12 ? rid.slice(0, 6) + '\u2026' + rid.slice(-4) : rid;
+      textSpan.innerHTML = '';
+
+      // Identity lines (existing 3 lines)
+      const line1 = document.createElement('span');
+      line1.className = 'crev-card-line crev-card-type';
+      line1.textContent = bid ? `${typeName} | ${bid}` : typeName;
+      const line2 = document.createElement('span');
+      line2.className = 'crev-card-line';
+      line2.textContent = name;
+      const line3 = document.createElement('span');
+      line3.className = 'crev-card-line crev-card-rid';
+      line3.textContent = truncatedRid;
+      textSpan.appendChild(line1);
+      textSpan.appendChild(line2);
+      textSpan.appendChild(line3);
+
+      // Property lines (new — only if cached)
+      const props = overlayProps.get(rid);
+      if (props) {
+        const entries = Object.entries(props).filter(([k]) => !OVERLAY_SKIP_PROPS.has(k));
+        if (entries.length > 0) {
+          const sep = document.createElement('span');
+          sep.className = 'crev-card-sep';
+          textSpan.appendChild(sep);
+
+          let count = 0;
+          for (const [key, value] of entries) {
+            if (count >= OVERLAY_MAX_PROP_LINES) break;
+            const line = document.createElement('span');
+            line.className = 'crev-card-line crev-card-prop';
+            if (OVERLAY_CODE_PROPS.has(key)) {
+              const lineCount = value.split('\n').length;
+              line.textContent = `${key}: ${lineCount} line${lineCount !== 1 ? 's' : ''}`;
+            } else {
+              const display = value.length > 30 ? value.slice(0, 27) + '\u2026' : value;
+              line.textContent = `${key}: ${display}`;
+            }
+            textSpan.appendChild(line);
+            count++;
+          }
+        }
+      }
+    } else {
+      label.classList.remove('crev-label--card');
+      textSpan.innerHTML = '';
+      textSpan.textContent = enrichment?.businessId ?? enrichment?.name ?? getTypeAbbr(enrichment?.type);
+    }
+  }
 }
 
 // ── MutationObserver for SPA re-renders ─────────────────────────
@@ -613,18 +873,14 @@ function runDetection() {
   const result = detectBmpPage();
   lastDetection = result;
   sendToSW({ type: 'DETECTION_RESULT', confidence: result.confidence, signals: result.signals, isBmp: result.isBmp });
-  // Request additional signals from MAIN world
-  window.postMessage({ source: 'crev-content', payload: { type: 'CHECK_BMP_SIGNALS' } }, '*');
+  // Request additional signals from MAIN world via CustomEvent
+  document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'CHECK_BMP_SIGNALS' } }));
 }
 
-// ── Messages from MAIN world interceptor ────────────────────────
+// ── Messages from MAIN world interceptor (via CustomEvent) ──────
 
-window.addEventListener('message', (event) => {
-  if (event.source !== window) return;
-  const data = event.data as InterceptorWindowMessage;
-  if (data?.source !== 'crev-interceptor') return;
-
-  const msg = data.payload;
+document.addEventListener('crev-interceptor', ((event: CustomEvent) => {
+  const msg = event.detail;
   if (msg.type === 'OBJECTS_DISCOVERED') {
     sendToSW(msg);
   }
@@ -639,7 +895,7 @@ window.addEventListener('message', (event) => {
       sendToSW({ type: 'DETECTION_RESULT', confidence, signals: allSignals, isBmp });
     }
   }
-});
+}) as EventListener);
 
 // ── Page info for side panel ────────────────────────────────────
 
@@ -648,9 +904,9 @@ function handlePageInfoRequest(): { url: string; rid?: string; tabRid?: string; 
   const det = lastDetection ?? detectBmpPage();
   const widgets = det.isBmp ? scanPageWidgets() : [];
 
-  // Trigger fiber extraction in MAIN world
+  // Trigger fiber extraction in MAIN world via CustomEvent
   if (det.isBmp) {
-    window.postMessage({ source: 'crev-content', payload: { type: 'EXTRACT_FIBERS' } }, '*');
+    document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'EXTRACT_FIBERS' } }));
   }
 
   return {
@@ -683,21 +939,20 @@ chrome.runtime.onMessage.addListener((msg: InspectorMessage, _sender, sendRespon
 
 // ── Init — always connect (port is cheap, overlays gated by inspect mode) ──
 
-/** Clean up all DOM artifacts and reset state — used on double-injection and could be
- *  called for teardown. Calls removeOverlays() for the shared cleanup, then removes
- *  singleton elements (tooltip, banner, style) that removeOverlays() doesn't touch. */
+/** Clean up all DOM artifacts and reset state */
 function resetContentState() {
   window.__crev_observer?.disconnect();
   removeOverlays();
+  hideQuickInspector();
+  destroyEnvTag();
   document.getElementById('crev-inspector-styles')?.remove();
   document.getElementById('crev-tooltip')?.remove();
   document.getElementById('crev-paint-banner')?.remove();
+  document.getElementById('crev-toast-container')?.remove();
   styleInjected = false;
 }
 
-// Guard against double injection (programmatic re-injection on existing tabs after
-// extension reload). Clean up stale DOM artifacts from the previous instance.
-// The old instance's port is dead and its MutationObserver is harmless (can't reach SW).
+// Guard against double injection
 if (window.__crev_content_loaded) {
   resetContentState();
 }

@@ -40,6 +40,11 @@ export function copyText(text: string): void {
   navigator.clipboard.writeText(text).catch(e => log.swallow('clipboard:write', e));
 }
 
+/** SVG icons — star (12×12) */
+export const ICON_STAR_FILLED = '<svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M234.29,114.85l-45,38.83L203,211.75a16.4,16.4,0,0,1-24.5,17.82L128,198.49,77.47,229.57A16.4,16.4,0,0,1,53,211.75l13.76-58.07-45-38.83A16.46,16.46,0,0,1,31.08,91l59.46-5.15,23.21-55.36a16.4,16.4,0,0,1,30.5,0l23.21,55.36L226.92,91a16.46,16.46,0,0,1,7.37,23.85Z"/></svg>';
+export const ICON_STAR_HOLLOW = '<svg width="12" height="12" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="16"><path d="M128,189.09l54.72,33.65a8.4,8.4,0,0,0,12.52-9.17l-14.88-62.79,48.7-42A8.46,8.46,0,0,0,224.27,95L159.36,89.4,135,29.94a8.36,8.36,0,0,0-15.56,0L96.64,89.4,31.73,95a8.46,8.46,0,0,0-4.79,14.83l48.7,42L60.76,214.57a8.4,8.4,0,0,0,12.52,9.17Z"/></svg>';
+
+
 /** Format relative time (e.g. "2s ago", "1m ago") */
 export function relativeTime(ts: number): string {
   const diff = Math.max(0, Math.floor((Date.now() - ts) / 1000));

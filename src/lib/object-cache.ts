@@ -3,21 +3,44 @@ import { mergeBmpObject } from './merge';
 import { log } from './logger';
 import { CACHE_MAX_SIZE, CACHE_SAVE_DELAY } from './constants';
 
-const STORAGE_KEY = 'crev_object_cache';
-
 /**
  * In-memory object cache backed by chrome.storage.local.
  * RID → BmpObject, merges metadata from multiple sources.
+ * Per-profile isolation with day-based invalidation.
  */
 export class ObjectCache {
   private cache = new Map<string, BmpObject>();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private cachedValues: BmpObject[] | null = null;
+  private profileId: string;
+
+  constructor(profileId = '_default') {
+    this.profileId = profileId;
+  }
+
+  private get storageKey() { return `crev_${this.profileId}_cache`; }
+  private get dateKey() { return `crev_${this.profileId}_cache_date`; }
 
   async load(): Promise<void> {
     try {
-      const result = await chrome.storage.local.get(STORAGE_KEY);
-      const data = result[STORAGE_KEY] as Record<string, BmpObject> | undefined;
+      // Migration: move old global cache to active profile key
+      const oldResult = await chrome.storage.local.get('crev_object_cache');
+      if (oldResult.crev_object_cache) {
+        await chrome.storage.local.set({ [this.storageKey]: oldResult.crev_object_cache });
+        await chrome.storage.local.remove('crev_object_cache');
+      }
+
+      const result = await chrome.storage.local.get([this.storageKey, this.dateKey]);
+      const storedDate = result[this.dateKey] as string | undefined;
+      const today = new Date().toDateString();
+
+      // Day-based invalidation: clear if cache is from a different day
+      if (storedDate && storedDate !== today) {
+        await chrome.storage.local.remove([this.storageKey, this.dateKey]);
+        return;
+      }
+
+      const data = result[this.storageKey] as Record<string, BmpObject> | undefined;
       if (data) {
         for (const [rid, obj] of Object.entries(data)) {
           this.cache.set(rid, obj);
@@ -26,6 +49,18 @@ export class ObjectCache {
     } catch (e) {
       log.swallow('cache:load', e);
     }
+  }
+
+  /** Switch to a different profile's cache — persist current, load new */
+  async switchProfile(newProfileId: string): Promise<void> {
+    if (newProfileId === this.profileId) return;
+    // Persist current profile's cache
+    await this.persist();
+    // Switch to new profile
+    this.profileId = newProfileId;
+    this.cache.clear();
+    this.cachedValues = null;
+    await this.load();
   }
 
   /** Merge an object into the cache, enriching existing entries */
@@ -108,7 +143,10 @@ export class ObjectCache {
 
   private async persist() {
     try {
-      await chrome.storage.local.set({ [STORAGE_KEY]: Object.fromEntries(this.cache) });
+      await chrome.storage.local.set({
+        [this.storageKey]: Object.fromEntries(this.cache),
+        [this.dateKey]: new Date().toDateString(),
+      });
     } catch (e) {
       log.swallow('cache:persist', e);
     }

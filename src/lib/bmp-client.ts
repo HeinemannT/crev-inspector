@@ -13,6 +13,7 @@ import { log } from './logger';
 import { HEALTH_TIMEOUT, BATCH_CHUNK_SIZE } from './constants';
 import { BmpAuth } from './bmp-auth';
 import { BmpTransport } from './bmp-transport';
+import { parsePipeLines, parseSepBlocks, parseSepMultiObject } from './ec-parser';
 
 // Ensure BMP types are registered once
 registerBmpTypes();
@@ -118,8 +119,7 @@ export class BmpClient {
     const code = [
       `_o := lookup(${validateRid(rid)})`,
       `_t := _o.linkedTo`,
-      `output(_t.rid.whenMissing("MISSING") + "|||" + _t.name.whenMissing("") + "|||" + _t.className.whenMissing(""))`,
-      '0',
+      `_t.rid.whenMissing("MISSING") + "|||" + _t.name.whenMissing("") + "|||" + _t.className.whenMissing("")`,
     ].join('\n');
     const ecResult = await this.executeEc(code, undefined, false);
     if (!ecResult.ok || !ecResult.log) return { templateRid: null };
@@ -158,8 +158,7 @@ export class BmpClient {
       `LIST(${lookups}).forEach(_o:`,
       '  _r := _r + _o.rid.whenMissing("SKIP") + _d + _o.id.whenMissing("") + _d + _o.className.whenMissing("") + _d + _o.name.whenMissing("") + "\\n"',
       ')',
-      'output(_r)',
-      '0',
+      '_r',
     ].join('\n');
 
     const result = await this.executeEc(code, undefined, false);
@@ -168,18 +167,14 @@ export class BmpClient {
     if (result.log.trim() === '') return { results: {} };
 
     const out: Record<string, { businessId?: string; type?: string; name?: string }> = {};
-    for (const line of result.log.trim().split('\n')) {
-      const parts = line.split('|||');
-      if (parts.length < 4) continue;
+    for (const parts of parsePipeLines(result.log, 4)) {
       const [rid, bid, typ, ...rest] = parts;
-      const name = rest.join('|||');
-      if (rid && rid !== 'MISSING' && rid !== 'SKIP') {
-        out[rid.trim()] = {
-          businessId: bid?.trim() || undefined,
-          type: typ?.trim() || undefined,
-          name: name?.trim() || undefined,
-        };
-      }
+      const name = rest.join('|||').trim();
+      out[rid] = {
+        businessId: bid || undefined,
+        type: typ || undefined,
+        name: name || undefined,
+      };
     }
     return { results: out };
   }
@@ -195,24 +190,68 @@ export class BmpClient {
     if (properties.length === 0) return {};
     const sep = '<<<CREV_SEP>>>';
     const lines = [`_o := lookup(${validateRid(rid)})`];
+    lines.push('_r := ""');
     for (const prop of properties) {
-      lines.push(`output("${sep}${prop}${sep}")`);
-      lines.push(`output(_o.${prop}.whenMissing(""))`);
+      lines.push(`_r := _r + "${sep}${prop}${sep}" + output(_o.${prop}.whenMissing("")) + "\\n"`);
     }
-    lines.push(`output("${sep}DONE")`);
-    lines.push('0');
+    lines.push(`_r := _r + "${sep}DONE"`);
+    lines.push('_r');
     const result = await this.executeEc(lines.join('\n'));
     if (!result.ok || !result.log) return {};
+    return parseSepBlocks(result.log, sep);
+  }
 
-    const out: Record<string, string> = {};
-    const parts = result.log.split(sep);
-    for (let i = 1; i < parts.length; i += 2) {
-      const propName = parts[i];
-      if (propName === 'DONE') break;
-      const value = (parts[i + 1] ?? '').replace(/^\n/, '').replace(/\n$/, '');
-      if (value) out[propName] = value;
-    }
-    return out;
+  /** Batch fetch code properties for multiple objects in a single EC call */
+  async batchFetchCode(
+    rids: string[],
+    properties: string[],
+  ): Promise<Map<string, Record<string, string>>> {
+    const result = new Map<string, Record<string, string>>();
+    if (rids.length === 0 || properties.length === 0) return result;
+
+    const valid = rids.filter(rid => /^-?\d+$/.test(rid));
+    if (valid.length === 0) return result;
+
+    const sep = '<<<CREV_SEP>>>';
+    const lookups = valid.map(rid => `lookup(${rid})`).join(', ');
+    const propLines = properties.map(
+      prop => `  _r := _r + "${sep}${prop}${sep}" + output(_o.${prop}.whenMissing("")) + "\\n"`,
+    );
+    const code = [
+      `_sep := "${sep}"`,
+      '_r := ""',
+      `LIST(${lookups}).forEach(_o:`,
+      `  _r := _r + _sep + "OBJ" + _sep + _o.rid.whenMissing("SKIP") + "\\n"`,
+      ...propLines,
+      ')',
+      `_r := _r + "${sep}DONE"`,
+      '_r',
+    ].join('\n');
+
+    const ecResult = await this.executeEc(code);
+    if (!ecResult.ok || !ecResult.log) return result;
+    return parseSepMultiObject(ecResult.log, sep);
+  }
+
+  /** Fetch direct children of an object via EC */
+  async fetchChildren(rid: string): Promise<Array<{ rid: string; name?: string; type?: string; businessId?: string }>> {
+    const code = [
+      `_o := lookup(${validateRid(rid)})`,
+      '_r := ""',
+      '_o.children().forEach(_c:',
+      '  _r := _r + _c.rid.whenMissing("SKIP") + "|||" + _c.id.whenMissing("") + "|||" + _c.className.whenMissing("") + "|||" + _c.name.whenMissing("") + "\\n"',
+      ')',
+      '_r',
+    ].join('\n');
+    const result = await this.executeEc(code, undefined, false);
+    if (!result.ok || !result.log) return [];
+
+    return parsePipeLines(result.log, 4).map(([cRid, bid, typ, ...rest]) => ({
+      rid: cRid,
+      businessId: bid || undefined,
+      type: typ || undefined,
+      name: rest.join('|||').trim() || undefined,
+    }));
   }
 
   /** Save a code property via EC */

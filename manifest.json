@@ -13,7 +13,9 @@
     "activeTab",
     "scripting",
     "tabs",
-    "sidePanel"
+    "sidePanel",
+    "cookies",
+    "contextMenus"
   ],
   "host_permissions": [
     "http://*/*",
@@ -53,6 +55,13 @@
         "mac": "Command+Shift+X"
       },
       "description": "Toggle inspect mode"
+    },
+    "open-extended": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+E",
+        "mac": "Command+Shift+E"
+      },
+      "description": "Open Extended Code window"
     }
   }
 }

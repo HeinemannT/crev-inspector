@@ -87,6 +87,45 @@ function extensionPlugin(): Plugin {
         writeFileSync(editorDestHtml, html);
       }
 
+      // Move objectview HTML from src/objectview/ to objectview/
+      const ovSrcHtml = resolve(dist, 'src/objectview/objectview.html');
+      const ovDestDir = resolve(dist, 'objectview');
+      const ovDestHtml = resolve(ovDestDir, 'objectview.html');
+      if (existsSync(ovSrcHtml)) {
+        if (!existsSync(ovDestDir)) mkdirSync(ovDestDir, { recursive: true });
+        let html = readFileSync(ovSrcHtml, 'utf-8');
+        html = html.replace(/\.\.\/\.\.\/objectview\//g, './');
+        html = html.replace(/\.\.\/\.\.\/chunks\//g, '../chunks/');
+        html = html.replace(/\.\.\/\.\.\/assets\//g, '../assets/');
+        writeFileSync(ovDestHtml, html);
+      }
+
+      // Move diff HTML from src/diff/ to diff/
+      const diffSrcHtml = resolve(dist, 'src/diff/diff.html');
+      const diffDestDir = resolve(dist, 'diff');
+      const diffDestHtml = resolve(diffDestDir, 'diff.html');
+      if (existsSync(diffSrcHtml)) {
+        if (!existsSync(diffDestDir)) mkdirSync(diffDestDir, { recursive: true });
+        let html = readFileSync(diffSrcHtml, 'utf-8');
+        html = html.replace(/\.\.\/\.\.\/diff\//g, './');
+        html = html.replace(/\.\.\/\.\.\/chunks\//g, '../chunks/');
+        html = html.replace(/\.\.\/\.\.\/assets\//g, '../assets/');
+        writeFileSync(diffDestHtml, html);
+      }
+
+      // Move codesearch HTML from src/codesearch/ to codesearch/
+      const csSrcHtml = resolve(dist, 'src/codesearch/codesearch.html');
+      const csDestDir = resolve(dist, 'codesearch');
+      const csDestHtml = resolve(csDestDir, 'codesearch.html');
+      if (existsSync(csSrcHtml)) {
+        if (!existsSync(csDestDir)) mkdirSync(csDestDir, { recursive: true });
+        let html = readFileSync(csSrcHtml, 'utf-8');
+        html = html.replace(/\.\.\/\.\.\/codesearch\//g, './');
+        html = html.replace(/\.\.\/\.\.\/chunks\//g, '../chunks/');
+        html = html.replace(/\.\.\/\.\.\/assets\//g, '../assets/');
+        writeFileSync(csDestHtml, html);
+      }
+
       // Clean up src/ directory in dist
       if (existsSync(resolve(dist, 'src'))) {
         rmSync(resolve(dist, 'src'), { recursive: true, force: true });
@@ -100,8 +139,8 @@ function extensionPlugin(): Plugin {
         if (existsSync(src)) copyFileSync(src, resolve(root, file));
       }
 
-      // Directories: chunks/, assets/, sidepanel/, editor/
-      for (const dir of ['chunks', 'assets', 'sidepanel', 'editor']) {
+      // Directories: chunks/, assets/, sidepanel/, editor/, objectview/
+      for (const dir of ['chunks', 'assets', 'sidepanel', 'editor', 'objectview', 'diff', 'codesearch']) {
         const src = resolve(dist, dir);
         if (existsSync(src)) copyDirSync(src, resolve(root, dir));
       }
@@ -127,6 +166,9 @@ export default defineConfig({
         content: resolve(__dirname, 'src/content.ts'),
         'sidepanel/sidepanel': resolve(__dirname, 'src/sidepanel/sidepanel.html'),
         'editor/editor': resolve(__dirname, 'src/editor/editor.html'),
+        'objectview/objectview': resolve(__dirname, 'src/objectview/objectview.html'),
+        'diff/diff': resolve(__dirname, 'src/diff/diff.html'),
+        'codesearch/codesearch': resolve(__dirname, 'src/codesearch/codesearch.html'),
       },
       output: {
         entryFileNames: '[name].js',

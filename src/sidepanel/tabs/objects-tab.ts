@@ -1,7 +1,7 @@
 import { getTypeColor, getTypeAbbr } from '../../lib/types';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
-import { truncRid, copyText, ICON_COPY } from '../utils';
+import { truncRid, copyText, relativeTime, ICON_COPY, ICON_STAR_FILLED } from '../utils';
 import { S, sendMessage } from '../state';
 import { DISPLAY_LIMIT_STEP, SEARCH_DEBOUNCE } from '../../lib/constants';
 
@@ -18,7 +18,51 @@ export function renderObjectsTab(navigateToDetail: (rid: string) => void) {
     value: S.cacheFilter,
   }) as HTMLInputElement;
 
-  const children: (HTMLElement | false | null)[] = [searchInput];
+  const children: (HTMLElement | false | null)[] = [];
+
+  // ── Pinned (favorites) section ──────────────────────────────
+  if (S.favoriteEntries.length > 0) {
+    children.push(
+      h('div', { class: 'pinned-section' },
+        h('div', { class: 'section-title section-title--flush' }, `\u2605 Pinned`),
+        ...S.favoriteEntries.map(fav =>
+          h('div', { class: 'pinned-row', 'data-action': 'pinned-click', 'data-rid': fav.rid },
+            h('span', { class: 'type-badge', style: `background:${getTypeColor(fav.type)}` }, getTypeAbbr(fav.type)),
+            h('span', { class: 'pinned-name' }, fav.name ?? 'unnamed'),
+            h('span', { class: 'pinned-bid' }, fav.businessId ?? truncRid(fav.rid)),
+            h('button', { class: 'pinned-remove', 'data-action': 'unpin', 'data-rid': fav.rid, title: 'Remove from pinned' }, '\u2715'),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Recent (history) section ────────────────────────────────
+  if (S.historyEntries.length > 0) {
+    const actionIcons: Record<string, string> = { viewed: '\u{1F441}', edited: '\u270F', painted: '\u{1F3A8}', 'ec-executed': '\u25B6' };
+    const headerLabel = `\u25B8 Recent (${S.historyEntries.length})`;
+    const expandedLabel = `\u25BE Recent (${S.historyEntries.length})`;
+
+    children.push(
+      h('div', { class: `recent-section${S.historyExpanded ? ' expanded' : ''}` },
+        h('div', { class: 'section-title section-title--flush recent-header', 'data-action': 'toggle-history' },
+          S.historyExpanded ? expandedLabel : headerLabel,
+        ),
+        S.historyExpanded && h('div', { class: 'recent-list' },
+          ...S.historyEntries.map(entry =>
+            h('div', { class: 'recent-row', 'data-action': 'recent-click', 'data-rid': entry.rid },
+              h('span', { class: 'recent-action' }, actionIcons[entry.action] ?? '?'),
+              h('span', { class: 'type-badge', style: `background:${getTypeColor(entry.type)}` }, getTypeAbbr(entry.type)),
+              h('span', { class: 'recent-name' }, entry.name ?? 'unnamed'),
+              h('span', { class: 'recent-time' }, relativeTime(entry.timestamp)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  children.push(searchInput);
 
   // Type filter chips
   const types = [...new Set(S.cacheObjects.map(o => o.type).filter(Boolean))] as string[];
@@ -126,6 +170,24 @@ export function renderObjectsTab(navigateToDetail: (rid: string) => void) {
   const rerender = () => renderObjectsTab(navigateToDetail);
 
   delegate(panel, {
+    'pinned-click': (el, e) => {
+      if ((e.target as HTMLElement).closest('[data-action="unpin"]')) return;
+      const rid = el.dataset.rid;
+      if (rid) navigateToDetail(rid);
+    },
+    unpin: (el, e) => {
+      e.stopPropagation();
+      const rid = el.dataset.rid;
+      if (rid) sendMessage({ type: 'TOGGLE_FAVORITE', rid });
+    },
+    'toggle-history': () => {
+      S.historyExpanded = !S.historyExpanded;
+      rerender();
+    },
+    'recent-click': (el) => {
+      const rid = el.dataset.rid;
+      if (rid) navigateToDetail(rid);
+    },
     'row-click': (el, e) => {
       if ((e.target as HTMLElement).closest('[data-action="copy"]')) return;
       const rid = el.dataset.rid;

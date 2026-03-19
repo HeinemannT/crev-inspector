@@ -8,10 +8,13 @@ import { getTabDetection, setTabDetection, deleteTabDetection, updateBadge } fro
 import { autoDetectProfile } from './settings';
 import { log } from './logger';
 import { handleContentMessage } from './message-router';
+import { cancelPaint } from './paint';
+import { checkBmpCookie } from './cookie-gate';
 
 export function registerTabListeners() {
   chrome.tabs.onActivated.addListener((activeInfo) => {
     const ctx = getCtx();
+    cancelPaint();
 
     chrome.tabs.get(activeInfo.tabId, (tab) => {
       if (chrome.runtime.lastError) return;
@@ -36,8 +39,30 @@ export function registerTabListeners() {
     }
   });
 
-  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     const ctx = getCtx();
+    // Cancel paint on navigation or refresh (only for the active tab)
+    if (changeInfo.url || changeInfo.status === 'loading') {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id === tabId) cancelPaint();
+      });
+    }
+
+    // Cookie-based fast gate: early BMP detection on page load
+    if (changeInfo.status === 'loading' && tab?.url && /^https?:/.test(tab.url)) {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id === tabId) {
+          checkBmpCookie(tab.url!).then((hasCookie) => {
+            if (hasCookie && !getTabDetection(tabId)) {
+              const entry = { phase: 'detected' as DetectionPhase, confidence: 0.7, signals: ['JSESSIONID'] };
+              setTabDetection(tabId, entry);
+              updateBadge(tabId, true);
+              ctx.sendToPanel({ type: 'DETECTION_STATE', ...entry });
+            }
+          });
+        }
+      });
+    }
     if (changeInfo.url) {
       deleteTabDetection(tabId);
 

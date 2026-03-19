@@ -89,17 +89,6 @@ port.onMessage.addListener((msg: InspectorMessage) => {
       updateStatusBar();
       break;
 
-    case 'PAINT_STATE':
-      S.paintPhase = msg.phase;
-      S.paintSourceName = msg.sourceName ?? null;
-      updatePaintButton();
-      break;
-
-    case 'PAINT_APPLY_RESULT':
-      updatePaintButton();
-      if (!msg.ok && msg.error) showPaintError(msg.error);
-      break;
-
     case 'DETECTION_STATE':
       S.detection = { phase: msg.phase, confidence: msg.confidence, signals: msg.signals };
       if (S.activeTab === 'page' && !S.detailRid) renderPageTab(navigateToDetail);
@@ -122,6 +111,41 @@ port.onMessage.addListener((msg: InspectorMessage) => {
         updateStatusBar();
       }, 3000);
       break;
+
+    case 'HISTORY_DATA':
+      S.historyEntries = msg.entries;
+      if (S.activeTab === 'objects' && !S.detailRid) renderObjectsTab(navigateToDetail);
+      break;
+
+    case 'FAVORITES_DATA':
+      S.favoriteEntries = msg.entries;
+      if (S.activeTab === 'objects' && !S.detailRid) renderObjectsTab(navigateToDetail);
+      // Re-render detail view star if open
+      if (S.detailRid && isDetailActive()) {
+        const panel = getActivePanel();
+        if (panel) renderActiveTab();
+      }
+      break;
+
+    case 'SCRIPT_HISTORY_DATA':
+      S.scriptHistory = msg.entries;
+      if (S.activeTab === 'script' && !S.detailRid) renderScriptTab();
+      break;
+
+    case 'PAINT_STATE':
+      S.paintPhase = msg.phase;
+      S.paintSourceName = msg.sourceName ?? null;
+      updatePaintButton();
+      break;
+
+    case 'PAINT_APPLY_RESULT':
+      updatePaintButton();
+      if (!msg.ok && msg.error) showPaintError(msg.error);
+      break;
+
+    case 'SELECT_OBJECT':
+      if ('rid' in msg) navigateToDetail(msg.rid);
+      break;
   }
 });
 
@@ -133,7 +157,7 @@ function buildApp(): void {
   const header = h('div', { class: 'header' },
     h('div', { class: 'header-status', id: 'header-status' },
       h('span', { class: `status-dot ${statusDotClass()}` }),
-      h('span', null, statusText()),
+      h('span', { class: 'header-label' }, statusText()),
     ),
     h('button', {
       class: `paint-btn ${S.paintPhase !== 'off' ? 'active' : ''}`,
@@ -148,17 +172,37 @@ function buildApp(): void {
   );
 
   const tabBar = h('div', { class: 'tab-bar' },
-    ...TABS.map(t =>
-      h('button', {
+    ...TABS.map(t => {
+      const label = t.charAt(0).toUpperCase() + t.slice(1);
+      const badges: (HTMLElement | string | false | null)[] = [label];
+
+      if (t === 'objects') {
+        badges.push(h('span', { class: 'badge', id: 'objects-badge' }, String(S.cacheCount)));
+      }
+      if (t === 'connect') {
+        badges.push(h('span', { class: `tab-dot ${connectDotClass()}`, id: 'connect-tab-dot' }));
+      }
+      if (t === 'log') {
+        const errCount = S.activityEntries.filter(e => e.level === 'error').length;
+        if (errCount > 0) {
+          badges.push(h('span', { class: 'badge badge--error', id: 'log-badge' }, String(errCount)));
+        }
+      }
+      if (t === 'page' && S.pageInfo?.widgets?.length) {
+        badges.push(h('span', { class: 'badge', id: 'page-badge' }, String(S.pageInfo.widgets.length)));
+      }
+
+      const TAB_TITLES: Record<string, string> = {
+        connect: 'Server profiles', objects: 'Discovered objects', page: 'Current BMP page',
+        script: 'Extended Code console', log: 'Activity feed',
+      };
+      return h('button', {
         class: `tab ${S.activeTab === t ? 'active' : ''}`,
         'data-action': 'tab',
         'data-tab': t,
-      },
-        t === 'objects'
-          ? [t.charAt(0).toUpperCase() + t.slice(1), h('span', { class: 'badge', id: 'objects-badge' }, String(S.cacheCount))]
-          : t.charAt(0).toUpperCase() + t.slice(1),
-      ),
-    ),
+        title: TAB_TITLES[t] ?? '',
+      }, ...badges);
+    }),
   );
 
   const paintStatus = S.paintPhase !== 'off'
@@ -225,9 +269,12 @@ function switchTab(tab: string) {
       break;
     case 'script':
       sendMessage({ type: 'GET_PAGE_INFO' });
+      sendMessage({ type: 'GET_SCRIPT_HISTORY' });
       break;
     case 'objects':
       sendMessage({ type: 'GET_CACHE', filter: S.cacheFilter });
+      sendMessage({ type: 'GET_HISTORY' });
+      sendMessage({ type: 'GET_FAVORITES' });
       break;
     case 'connect':
       sendMessage({ type: 'GET_SETTINGS' });
@@ -277,6 +324,53 @@ function updateToggle() {
   }
 }
 
+function updateObjectsBadge() {
+  const badge = document.getElementById('objects-badge');
+  if (badge) badge.textContent = String(S.cacheCount);
+}
+
+function statusDotClass(): string {
+  switch (S.connState.display) {
+    case 'connected': return 'ok';
+    case 'online': return 'online';
+    case 'unreachable': case 'server-down': case 'auth-failed': return 'fail';
+    default: return '';
+  }
+}
+
+function statusText(): string {
+  switch (S.connState.display) {
+    case 'not-configured': return 'No server';
+    case 'checking': return 'Checking\u2026';
+    case 'connected': return S.connState.profileLabel ?? 'Connected';
+    case 'online': return 'Online';
+    case 'auth-failed': return 'Auth failed';
+    case 'server-down': return 'Server down';
+    case 'unreachable': return 'Unreachable';
+  }
+}
+
+function statusBarText(): string {
+  const d = S.connState.display;
+  if (d === 'connected') return 'Connected';
+  if (d === 'server-down') return 'Down';
+  return statusText();
+}
+
+function connectDotClass(): string {
+  switch (S.connState.display) {
+    case 'connected': return 'tab-dot--ok';
+    case 'online': return 'tab-dot--ok tab-dot--dim';
+    case 'unreachable': case 'server-down': case 'auth-failed': return 'tab-dot--fail';
+    default: return 'tab-dot--gray';
+  }
+}
+
+/** Check if the extension is connected to a BMP server */
+export function isConnected(): boolean {
+  return S.connState.display === 'connected';
+}
+
 function showPaintError(error: string) {
   const tabBar = app.querySelector('.tab-bar');
   if (!tabBar) return;
@@ -311,46 +405,13 @@ function updatePaintButton() {
   }
 }
 
-function updateObjectsBadge() {
-  const badge = document.getElementById('objects-badge');
-  if (badge) badge.textContent = String(S.cacheCount);
-}
-
-function statusDotClass(): string {
-  switch (S.connState.display) {
-    case 'connected': return 'ok';
-    case 'online': return 'online';
-    case 'unreachable': case 'server-down': case 'auth-failed': return 'fail';
-    default: return '';
-  }
-}
-
-function statusText(): string {
-  switch (S.connState.display) {
-    case 'not-configured': return 'No server';
-    case 'checking': return 'Checking\u2026';
-    case 'connected': return S.connState.profileLabel ?? 'Connected';
-    case 'online': return 'Online';
-    case 'auth-failed': return 'Auth failed';
-    case 'server-down': return 'Server down';
-    case 'unreachable': return 'Unreachable';
-  }
-}
-
-function statusBarText(): string {
-  const d = S.connState.display;
-  if (d === 'connected') return 'Connected';
-  if (d === 'server-down') return 'Down';
-  return statusText();
-}
-
 function updateHeaderStatus() {
   const container = document.getElementById('header-status');
   if (container) {
     const dot = container.querySelector('.status-dot');
-    const text = container.querySelector('span:last-child');
+    const label = container.querySelector('.header-label');
     if (dot) dot.className = `status-dot ${statusDotClass()}`;
-    if (text) text.textContent = statusText();
+    if (label) label.textContent = statusText();
   }
 }
 
@@ -385,5 +446,8 @@ chrome.storage.session.get('crev_active_tab', (result) => {
   sendMessage({ type: 'GET_SETTINGS' });
   sendMessage({ type: 'GET_CONNECTION_STATE' });
   sendMessage({ type: 'GET_PAGE_INFO' });
+  sendMessage({ type: 'GET_FAVORITES' });
   if (S.activeTab === 'log') sendMessage({ type: 'GET_ACTIVITY' });
+  if (S.activeTab === 'objects') sendMessage({ type: 'GET_HISTORY' });
+  if (S.activeTab === 'script') sendMessage({ type: 'GET_SCRIPT_HISTORY' });
 });
