@@ -213,20 +213,19 @@ export class BmpClient {
     if (valid.length === 0) return result;
 
     const sep = '<<<CREV_SEP>>>';
-    const lookups = valid.map(rid => `lookup(${rid})`).join(', ');
-    const propLines = properties.map(
-      prop => `  _r := _r + "${sep}${prop}${sep}" + output(_o.${prop}.whenMissing("")) + "\\n"`,
-    );
-    const code = [
-      `_sep := "${sep}"`,
-      '_r := ""',
-      `LIST(${lookups}).forEach(_o:`,
-      `  _r := _r + _sep + "OBJ" + _sep + _o.rid.whenMissing("SKIP") + "\\n"`,
-      ...propLines,
-      ')',
-      `_r := _r + "${sep}DONE"`,
-      '_r',
-    ].join('\n');
+    const lines = [`_sep := "${sep}"`, '_r := ""'];
+    for (const rid of valid) {
+      lines.push(`_o := lookup(${rid})`);
+      lines.push('IF _o != MISSING THEN');
+      lines.push(`  _r := _r + _sep + "OBJ" + _sep + _o.rid.whenMissing("SKIP") + "\\n"`);
+      for (const prop of properties) {
+        lines.push(`  _r := _r + "${sep}${prop}${sep}" + output(_o.${prop}.whenMissing("")) + "\\n"`);
+      }
+      lines.push('ENDIF');
+    }
+    lines.push(`_r := _r + "${sep}DONE"`);
+    lines.push('_r');
+    const code = lines.join('\n');
 
     const ecResult = await this.executeEc(code);
     if (!ecResult.ok || !ecResult.log) return result;
@@ -238,9 +237,11 @@ export class BmpClient {
     const code = [
       `_o := lookup(${validateRid(rid)})`,
       '_r := ""',
-      '_o.children().forEach(_c:',
-      '  _r := _r + _c.rid.whenMissing("SKIP") + "|||" + _c.id.whenMissing("") + "|||" + _c.className.whenMissing("") + "|||" + _c.name.whenMissing("") + "\\n"',
-      ')',
+      'IF _o != MISSING THEN',
+      '  _o.children().forEach(_c:',
+      '    _r := _r + _c.rid.whenMissing("SKIP") + "|||" + _c.id.whenMissing("") + "|||" + _c.className.whenMissing("") + "|||" + _c.name.whenMissing("") + "\\n"',
+      '  )',
+      'ENDIF',
       '_r',
     ].join('\n');
     const result = await this.executeEc(code, undefined, false);

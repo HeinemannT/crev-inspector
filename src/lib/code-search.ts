@@ -129,13 +129,19 @@ async function enumerateType(
   subtreeRid?: string,
 ): Promise<SearchTarget[]> {
   const rootExpr = subtreeRid ? `lookup(${subtreeRid})` : 'root';
-  const ec = [
-    '_r := ""',
-    `${rootExpr}.allDescendants().filter(_o: _o.className == "${typeName}").forEach(_o:`,
-    `  _r := _r + _o.rid.whenMissing("SKIP") + "|||" + _o.id.whenMissing("") + "|||" + _o.name.whenMissing("") + "\\n"`,
-    ')',
-    '_r',
-  ].join('\n');
+  const lines = ['_r := ""'];
+  if (subtreeRid) {
+    lines.push(`_root := ${rootExpr}`);
+    lines.push('IF _root != MISSING THEN');
+    lines.push(`  _root.allDescendants().filter(_o: _o.className == "${typeName}").forEach(_o:`);
+  } else {
+    lines.push(`${rootExpr}.allDescendants().filter(_o: _o.className == "${typeName}").forEach(_o:`);
+  }
+  lines.push(`  _r := _r + _o.rid.whenMissing("SKIP") + "|||" + _o.id.whenMissing("") + "|||" + _o.name.whenMissing("") + "\\n"`);
+  lines.push(')');
+  if (subtreeRid) lines.push('ENDIF');
+  lines.push('_r');
+  const ec = lines.join('\n');
 
   try {
     const result = await client.executeEc(ec);
