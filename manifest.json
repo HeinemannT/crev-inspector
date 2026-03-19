@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CREV Inspector",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Overlay technical metadata on the Corporater BMP web portal",
   "icons": {
     "16": "icons/icon-16.png",
@@ -51,14 +51,14 @@
   "commands": {
     "toggle-inspect": {
       "suggested_key": {
-        "default": "Ctrl+Shift+X",
+        "default": "Alt+Shift+X",
         "mac": "Command+Shift+X"
       },
       "description": "Toggle inspect mode"
     },
     "open-extended": {
       "suggested_key": {
-        "default": "Ctrl+Shift+E",
+        "default": "Alt+Shift+E",
         "mac": "Command+Shift+E"
       },
       "description": "Open Extended Code window"

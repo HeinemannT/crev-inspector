@@ -7,6 +7,7 @@ export interface ConnectionState {
   user: string | null;
   workspace: string | null;
   authError: string | null;
+  networkOffline: boolean;
   lastUpdate: number;
 }
 

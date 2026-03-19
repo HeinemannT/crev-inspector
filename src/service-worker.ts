@@ -16,7 +16,7 @@ import { log } from './lib/logger';
 
 // Modules
 import { loadTabDetection, getTabDetection } from './lib/detection';
-import { startHealthPolling, runAuthTest, stopHealthPolling } from './lib/connection';
+import { startHealthPolling, runAuthTest, stopHealthPolling, pollHealth } from './lib/connection';
 import { restoreActivity, logActivity } from './lib/activity';
 import { createSettingsReady, loadSettingsFrom } from './lib/settings';
 import { registerTabListeners, sendPageInfoToPanel } from './lib/tab-awareness';
@@ -233,6 +233,7 @@ function openPanelForActiveTab() {
 }
 
 chrome.commands.onCommand.addListener((command) => {
+  log.info('sw:command', command);
   if (command === 'toggle-inspect') {
     toggleInspect();
     openPanelForActiveTab();
@@ -251,6 +252,11 @@ chrome.commands.onCommand.addListener((command) => {
     });
   }
 });
+
+// ── Network state change → immediate re-poll ────────────────────
+
+self.addEventListener('online', () => { pollHealth(); });
+self.addEventListener('offline', () => { pollHealth(); });
 
 // ── One-shot message handler ────────────────────────────────────
 

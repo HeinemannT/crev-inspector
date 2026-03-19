@@ -3,6 +3,7 @@ import { getCtx } from './sw-context';
 import { BmpClient } from './bmp-client';
 import { log, errorMessage } from './logger';
 import { HEALTH_POLL_INTERVAL } from './constants';
+import { updateBadge } from './badge';
 
 let healthUp: 'unknown' | 'up' | 'down' | 'unreachable' = 'unknown';
 let healthVersion: string | null = null;
@@ -10,6 +11,7 @@ let healthResponseMs: number | null = null;
 let authResult: 'pending' | 'ok' | 'failed' = 'pending';
 let authError: string | null = null;
 let healthTimer: ReturnType<typeof setInterval> | null = null;
+let networkOffline = false;
 
 /** Apply BMP version flags to client (auth mode, lookup support). */
 function applyVersionFlags(version: string | null) {
@@ -43,7 +45,7 @@ export function computeConnectionState(): ConnectionState {
   const ctx = getCtx();
   const profile = ctx.settings.profiles.find(p => p.id === ctx.settings.activeProfileId);
   if (!profile?.bmpUser) {
-    return { display: 'not-configured', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, lastUpdate: Date.now() };
+    return { display: 'not-configured', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, networkOffline: false, lastUpdate: Date.now() };
   }
 
   let display: ConnectionState['display'];
@@ -73,12 +75,14 @@ export function computeConnectionState(): ConnectionState {
     user: authResult === 'ok' ? profile.bmpUser : null,
     workspace,
     authError: authResult === 'failed' ? authError : null,
+    networkOffline,
     lastUpdate: Date.now(),
   };
 }
 
 export function pushConnectionState() {
   const state = computeConnectionState();
+  updateBadge(state.display);
   const ctx = getCtx();
   ctx.sendToPanel({ type: 'CONNECTION_STATE', state });
   // Also broadcast to all content scripts for env tag + toasts
@@ -148,7 +152,7 @@ export async function runAuthTest() {
   }
 }
 
-async function pollHealth() {
+export async function pollHealth() {
   const ctx = getCtx();
   const profile = ctx.settings.profiles.find(p => p.id === ctx.settings.activeProfileId);
   if (!profile?.bmpUrl) {
@@ -158,6 +162,16 @@ async function pollHealth() {
     pushConnectionState();
     return;
   }
+
+  // Check browser network state before attempting fetch
+  if (!navigator.onLine) {
+    healthUp = 'unreachable';
+    healthResponseMs = null;
+    networkOffline = true;
+    pushConnectionState();
+    return;
+  }
+  networkOffline = false;
 
   const bmpUrl = normalizeUrl(profile.bmpUrl);
   try {

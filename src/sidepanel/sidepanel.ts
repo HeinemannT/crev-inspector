@@ -6,13 +6,12 @@ import type { InspectorMessage, DetectionPhase } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
 import { log } from '../lib/logger';
-import { ICON_PAINT } from './utils';
+import { ICON_PAINT, ICON_REFRESH } from './utils';
 import { initDetailView, showDetail, handleDetailMessage, isDetailActive, clearDetail } from './detail-view';
 import { S, pushActivityEntry, sendMessage, getActivePanel, port } from './state';
 import { renderConnectTab } from './tabs/connect-tab';
 import { renderObjectsTab } from './tabs/objects-tab';
 import { renderPageTab } from './tabs/page-tab';
-import { renderScriptTab, updateScriptOutput } from './tabs/script-tab';
 import { renderLogTab, renderActivityFeed } from './tabs/log-tab';
 
 // ── Init ────────────────────────────────────────────────────────
@@ -27,17 +26,6 @@ initDetailView(
 // ── Message routing ──────────────────────────────────────────────
 
 port.onMessage.addListener((msg: InspectorMessage) => {
-  // Route EC_RESULT to console when waiting
-  if (msg.type === 'EC_RESULT' && S.ecConsoleWaiting && !S.detailRid) {
-    S.ecConsoleWaiting = false;
-    S.ecConsoleOk = msg.ok;
-    S.ecConsoleHasWarning = msg.hasWarning ?? false;
-    S.ecConsoleDurationMs = S.ecConsoleStartTime ? Date.now() - S.ecConsoleStartTime : null;
-    S.ecConsoleOutput = msg.ok ? (msg.log ?? '(no output)') : (msg.error ?? 'Unknown error');
-    if (S.activeTab === 'script') updateScriptOutput();
-    return;
-  }
-
   // Route detail-relevant messages when in detail view
   if (S.detailRid && (msg.type === 'SERVER_LOOKUP_RESULT' || msg.type === 'EC_RESULT')) {
     const panel = getActivePanel();
@@ -63,7 +51,6 @@ port.onMessage.addListener((msg: InspectorMessage) => {
         S.detection = { phase, confidence: msg.detection.confidence, signals: msg.detection.signals };
       }
       if (S.activeTab === 'page' && !S.detailRid) renderPageTab(navigateToDetail);
-      if (S.activeTab === 'script' && !S.detailRid) renderScriptTab();
       break;
 
     case 'CACHE_DATA':
@@ -80,12 +67,14 @@ port.onMessage.addListener((msg: InspectorMessage) => {
       S.connState = msg.state;
       if (S.activeTab === 'connect' && !S.editingProfile) renderConnectTab();
       updateHeaderStatus();
+      refreshStatusStrip();
       updateStatusBar();
       break;
 
     case 'PROFILE_SWITCHED':
       if (S.activeTab === 'connect' && !S.editingProfile) renderConnectTab();
       updateHeaderStatus();
+      refreshStatusStrip();
       updateStatusBar();
       break;
 
@@ -127,11 +116,6 @@ port.onMessage.addListener((msg: InspectorMessage) => {
       }
       break;
 
-    case 'SCRIPT_HISTORY_DATA':
-      S.scriptHistory = msg.entries;
-      if (S.activeTab === 'script' && !S.detailRid) renderScriptTab();
-      break;
-
     case 'PAINT_STATE':
       S.paintPhase = msg.phase;
       S.paintSourceName = msg.sourceName ?? null;
@@ -151,7 +135,7 @@ port.onMessage.addListener((msg: InspectorMessage) => {
 
 // ── Render ───────────────────────────────────────────────────────
 
-const TABS = ['connect', 'objects', 'page', 'script', 'log'] as const;
+const TABS = ['connect', 'objects', 'page', 'log'] as const;
 
 function buildApp(): void {
   const header = h('div', { class: 'header' },
@@ -194,7 +178,7 @@ function buildApp(): void {
 
       const TAB_TITLES: Record<string, string> = {
         connect: 'Server profiles', objects: 'Discovered objects', page: 'Current BMP page',
-        script: 'Extended Code console', log: 'Activity feed',
+        log: 'Activity feed',
       };
       return h('button', {
         class: `tab ${S.activeTab === t ? 'active' : ''}`,
@@ -203,6 +187,18 @@ function buildApp(): void {
         title: TAB_TITLES[t] ?? '',
       }, ...badges);
     }),
+  );
+
+  const isError = ['unreachable', 'server-down', 'auth-failed'].includes(S.connState.display);
+  const statusStrip = h('div', { class: `status-strip ${statusStripClass()}`, id: 'status-strip' },
+    h('span', { class: `status-dot ${statusDotClass()}`, id: 'strip-dot' }),
+    h('span', { class: 'status-strip-text', id: 'strip-text' }, statusStripText()),
+    h('button', {
+      class: `status-strip-reconnect ${isError ? '' : 'hidden'}`,
+      id: 'strip-reconnect',
+      'data-action': 'reconnect',
+    }, 'Reconnect'),
+    h('button', { class: 'status-strip-btn', 'data-action': 'test', title: 'Test connection' }, svg(ICON_REFRESH)),
   );
 
   const paintStatus = S.paintPhase !== 'off'
@@ -228,12 +224,20 @@ function buildApp(): void {
     h('div', { class: 'status-bar-count' }, String(S.cacheCount)),
   );
 
-  render(app, header, tabBar, paintStatus, tabContent, statusBar);
+  render(app, header, tabBar, statusStrip, paintStatus, tabContent, statusBar);
 
   delegate(app, {
     tab: (el) => {
       const tabName = el.dataset.tab;
       if (tabName) switchTab(tabName);
+    },
+    test: () => {
+      const btn = document.querySelector('#status-strip .status-strip-btn');
+      if (btn) btn.classList.add('spinning');
+      sendMessage({ type: 'CONNECTION_TEST' });
+    },
+    reconnect: () => {
+      sendMessage({ type: 'CONNECTION_TEST' });
     },
   });
 
@@ -267,10 +271,6 @@ function switchTab(tab: string) {
     case 'page':
       sendMessage({ type: 'GET_PAGE_INFO' });
       break;
-    case 'script':
-      sendMessage({ type: 'GET_PAGE_INFO' });
-      sendMessage({ type: 'GET_SCRIPT_HISTORY' });
-      break;
     case 'objects':
       sendMessage({ type: 'GET_CACHE', filter: S.cacheFilter });
       sendMessage({ type: 'GET_HISTORY' });
@@ -289,7 +289,6 @@ function renderActiveTab() {
   if (S.detailRid && isDetailActive()) return;
   switch (S.activeTab) {
     case 'page': renderPageTab(navigateToDetail); break;
-    case 'script': renderScriptTab(); break;
     case 'objects': renderObjectsTab(navigateToDetail); break;
     case 'connect': renderConnectTab(); break;
     case 'log': renderLogTab(); break;
@@ -333,7 +332,8 @@ function statusDotClass(): string {
   switch (S.connState.display) {
     case 'connected': return 'ok';
     case 'online': return 'online';
-    case 'unreachable': case 'server-down': case 'auth-failed': return 'fail';
+    case 'unreachable': return S.connState.networkOffline ? 'warn' : 'fail';
+    case 'server-down': case 'auth-failed': return 'fail';
     default: return '';
   }
 }
@@ -346,7 +346,7 @@ function statusText(): string {
     case 'online': return 'Online';
     case 'auth-failed': return 'Auth failed';
     case 'server-down': return 'Server down';
-    case 'unreachable': return 'Unreachable';
+    case 'unreachable': return S.connState.networkOffline ? 'No network' : 'Unreachable';
   }
 }
 
@@ -361,7 +361,8 @@ function connectDotClass(): string {
   switch (S.connState.display) {
     case 'connected': return 'tab-dot--ok';
     case 'online': return 'tab-dot--ok tab-dot--dim';
-    case 'unreachable': case 'server-down': case 'auth-failed': return 'tab-dot--fail';
+    case 'unreachable': return S.connState.networkOffline ? 'tab-dot--warn' : 'tab-dot--fail';
+    case 'server-down': case 'auth-failed': return 'tab-dot--fail';
     default: return 'tab-dot--gray';
   }
 }
@@ -405,6 +406,53 @@ function updatePaintButton() {
   }
 }
 
+function statusStripClass(): string {
+  switch (S.connState.display) {
+    case 'connected': return 'ok';
+    case 'online': return 'online';
+    case 'unreachable': return S.connState.networkOffline ? 'offline' : 'fail';
+    case 'server-down': case 'auth-failed': return 'fail';
+    default: return '';
+  }
+}
+
+function statusStripText(): string {
+  const s = S.connState;
+  switch (s.display) {
+    case 'not-configured': return 'No server configured';
+    case 'checking': return 'Checking\u2026';
+    case 'connected': {
+      const parts: string[] = ['Connected'];
+      if (s.profileLabel) parts[0] = s.profileLabel;
+      if (s.workspace) parts.push(s.workspace);
+      if (s.version) parts.push(`BMP ${s.version}`);
+      return parts.join(' \u00b7 ');
+    }
+    case 'online': return 'Online (not authenticated)';
+    case 'auth-failed': return 'Auth failed';
+    case 'server-down': return 'Server down';
+    case 'unreachable': return s.networkOffline ? 'No network' : 'Unreachable';
+  }
+}
+
+function refreshStatusStrip() {
+  const strip = document.getElementById('status-strip');
+  if (!strip) return;
+  strip.className = `status-strip ${statusStripClass()}`;
+  const dot = document.getElementById('strip-dot');
+  if (dot) dot.className = `status-dot ${statusDotClass()}`;
+  const text = document.getElementById('strip-text');
+  if (text) text.textContent = statusStripText();
+  const reconnect = document.getElementById('strip-reconnect');
+  if (reconnect) {
+    const isError = ['unreachable', 'server-down', 'auth-failed'].includes(S.connState.display);
+    reconnect.classList.toggle('hidden', !isError);
+  }
+  // Stop refresh spinner once state arrives
+  const btn = strip.querySelector('.status-strip-btn');
+  if (btn) btn.classList.remove('spinning');
+}
+
 function updateHeaderStatus() {
   const container = document.getElementById('header-status');
   if (container) {
@@ -440,7 +488,6 @@ chrome.storage.session.get('crev_active_tab', (result) => {
   if (result.crev_active_tab && typeof result.crev_active_tab === 'string') {
     S.activeTab = result.crev_active_tab;
   }
-  S.ecConsoleWaiting = false;
   buildApp();
   sendMessage({ type: 'GET_CACHE' });
   sendMessage({ type: 'GET_SETTINGS' });
@@ -449,5 +496,4 @@ chrome.storage.session.get('crev_active_tab', (result) => {
   sendMessage({ type: 'GET_FAVORITES' });
   if (S.activeTab === 'log') sendMessage({ type: 'GET_ACTIVITY' });
   if (S.activeTab === 'objects') sendMessage({ type: 'GET_HISTORY' });
-  if (S.activeTab === 'script') sendMessage({ type: 'GET_SCRIPT_HISTORY' });
 });

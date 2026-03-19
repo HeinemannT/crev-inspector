@@ -2,7 +2,7 @@
  * Shared sidepanel state — single mutable object, single source of truth for all tabs.
  */
 
-import type { BmpObject, InspectorMessage, InspectorSettings, ConnectionState, WidgetInfo, ActivityEntry, DetectionPhase, HistoryEntry, FavoriteEntry, ScriptHistoryEntry, PaintPhase } from '../lib/types';
+import type { BmpObject, InspectorMessage, InspectorSettings, ConnectionState, WidgetInfo, ActivityEntry, DetectionPhase, HistoryEntry, FavoriteEntry, PaintPhase } from '../lib/types';
 import { DEFAULT_SETTINGS } from '../lib/types';
 import { log } from '../lib/logger';
 import { ACTIVITY_MAX } from '../lib/constants';
@@ -17,7 +17,7 @@ export const S = {
   cacheObjects: [] as BmpObject[],
   cacheFilter: '',
   settings: { ...DEFAULT_SETTINGS } as InspectorSettings,
-  connState: { display: 'checking', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, lastUpdate: 0 } as ConnectionState,
+  connState: { display: 'checking', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, networkOffline: false, lastUpdate: 0 } as ConnectionState,
   detailRid: null as string | null,
   editingProfile: null as { id: string | null; label: string; bmpUrl: string; bmpUser: string; bmpPass: string } | null,
   sortColumn: null as 'type' | 'name' | 'id' | null,
@@ -27,32 +27,14 @@ export const S = {
   // Detection — single source of truth, never null
   detection: { phase: 'unknown' as DetectionPhase, confidence: 0, signals: [] as string[] },
 
-  // EC Console state
-  ecConsoleCode: '',
-  ecConsoleOutput: null as string | null,
-  ecConsoleOk: true,
-  ecConsoleHasWarning: false,
-  ecConsoleWaiting: false,
-  ecConsoleStartTime: 0,
-  ecConsoleDurationMs: null as number | null,
-  ecConsoleMode: null as 'preview' | 'execute' | null,
-  ecConsoleExpanded: false,
-
   // History & Favorites
   historyEntries: [] as HistoryEntry[],
   favoriteEntries: [] as FavoriteEntry[],
   historyExpanded: false,
 
-  // Script History
-  scriptHistory: [] as ScriptHistoryEntry[],
-  scriptHistoryExpanded: false,
-
   // Paint Format
   paintPhase: 'off' as PaintPhase,
   paintSourceName: null as string | null,
-
-  // Snippet popover
-  snippetPopoverOpen: false,
 
   // Activity
   activityEntries: [] as ActivityEntry[],
@@ -79,7 +61,6 @@ export function sendMessage(msg: InspectorMessage) {
 export function getActivePanel(): HTMLElement | null {
   switch (S.activeTab) {
     case 'page': return document.getElementById('panel-page');
-    case 'script': return document.getElementById('panel-script');
     case 'objects': return document.getElementById('panel-objects');
     case 'log': return document.getElementById('panel-log');
     case 'connect': return document.getElementById('panel-connect');

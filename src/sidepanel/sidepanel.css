@@ -327,7 +327,88 @@ body {
 .tab-dot--ok { background: var(--md-success); }
 .tab-dot--ok.tab-dot--dim { opacity: 0.6; }
 .tab-dot--fail { background: var(--md-error); }
+.tab-dot--warn { background: var(--md-warning); }
 .tab-dot--gray { background: var(--md-outline); }
+
+/* ── Status strip ─────────────────────────────── */
+
+.status-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  background: var(--md-surface-container);
+  border-bottom: 1px solid var(--md-outline-variant);
+  font-size: 10px;
+  color: var(--md-on-surface-variant);
+  flex-shrink: 0;
+}
+
+.status-strip.ok { color: var(--md-success); }
+.status-strip.fail { color: var(--md-error); }
+.status-strip.offline { color: var(--md-warning); }
+.status-strip.online { color: var(--md-on-surface-variant); }
+
+.status-strip-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-strip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  border-radius: var(--md-shape-xs);
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.status-strip-btn:hover {
+  opacity: 1;
+  background: var(--md-elevation-2);
+}
+
+.status-strip-btn.spinning svg {
+  animation: detection-spin 0.8s linear infinite;
+}
+
+.status-strip-reconnect {
+  padding: 2px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--md-error);
+  background: color-mix(in srgb, var(--md-surface-container), var(--md-error) 12%);
+  color: var(--md-error);
+  font-family: var(--md-font);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.status-strip-reconnect:hover {
+  background: color-mix(in srgb, var(--md-surface-container), var(--md-error) 22%);
+}
+
+.status-strip.offline .status-strip-reconnect {
+  border-color: var(--md-warning);
+  color: var(--md-warning);
+  background: color-mix(in srgb, var(--md-surface-container), var(--md-warning) 12%);
+}
+
+.status-strip.offline .status-strip-reconnect:hover {
+  background: color-mix(in srgb, var(--md-surface-container), var(--md-warning) 22%);
+}
+
+.status-strip-reconnect.hidden { display: none; }
 
 /* ── Tab content ───────────────────────────────── */
 
@@ -335,7 +416,7 @@ body {
 
 .tab-panel { display: none; padding: 12px; }
 .tab-panel.active { display: block; }
-#panel-script.tab-panel.active { display: flex; flex-direction: column; overflow: hidden; }
+
 
 /* ── Detection card ────────────────────────────── */
 
@@ -1160,28 +1241,7 @@ body {
   overflow: hidden;
 }
 
-/* ── Script tab ────────────────────────────────── */
-
-.script-editor { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.script-cm-host { flex: 1; min-height: 0; overflow: hidden; }
-.script-cm-container { height: 100%; }
-
-.script-hint {
-  font-size: 10px;
-  color: var(--md-on-surface-variant);
-  line-height: 1.4;
-}
-
-.script-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.script-toolbar-right {
-  display: flex;
-  gap: 4px;
-}
+/* ── Script result (used by detail-view) ──────── */
 
 .script-result {
   padding: 8px;
@@ -1418,61 +1478,6 @@ body {
   font-size: 10px;
   color: var(--md-on-surface-variant);
   margin-top: 8px;
-}
-
-/* ── Script history ───────────────────────────── */
-
-.sh-code {
-  flex: 1;
-  font-family: var(--md-font-mono);
-  font-size: 10px;
-  color: var(--md-on-surface);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sh-status {
-  font-size: 10px;
-  flex-shrink: 0;
-  width: 14px;
-  text-align: center;
-}
-
-.sh-status--ok { color: var(--md-success); }
-.sh-status--fail { color: var(--md-error); }
-
-/* ── Snippet popover ──────────────────────────── */
-
-.snippet-anchor {
-  position: relative;
-}
-
-.snippet-popover {
-  position: absolute;
-  right: 0;
-  bottom: 100%;
-  z-index: 100;
-  background: var(--md-surface-container-highest);
-  border: 1px solid var(--md-outline-variant);
-  border-radius: var(--md-shape-sm);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  padding: 4px 0;
-  min-width: 180px;
-  margin-bottom: 4px;
-  animation: ps-slide-down 0.15s ease;
-}
-
-.snippet-item {
-  padding: 5px 12px;
-  font-size: 11px;
-  font-family: var(--md-font-mono);
-  color: var(--md-on-surface);
-  cursor: pointer;
-}
-
-.snippet-item:hover {
-  background: var(--md-elevation-2);
 }
 
 /* ── Scrollbar ─────────────────────────────────── */
