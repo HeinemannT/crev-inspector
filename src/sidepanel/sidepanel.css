@@ -1480,6 +1480,13 @@ body {
   margin-top: 8px;
 }
 
+.shortcut-hint {
+  grid-column: 1 / -1;
+  color: var(--md-outline);
+  cursor: help;
+  margin-top: 2px;
+}
+
 /* ── Scrollbar ─────────────────────────────────── */
 
 ::-webkit-scrollbar { width: 6px; }

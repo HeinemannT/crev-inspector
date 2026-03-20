@@ -1,6 +1,6 @@
 /**
  * Selection wrap helpers for Extended Code.
- * Ctrl+Shift+I → wrap in IF/THEN/ELSE/ENDIF
+ * Ctrl+Shift+X → wrap in IF/THEN/ELSE/ENDIF
  * Ctrl+Shift+E → wrap in forEach
  */
 import { EditorView } from '@codemirror/view'

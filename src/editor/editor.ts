@@ -293,7 +293,7 @@ function createEditor(code: string) {
       ...foldKeymap,
       indentWithTab,
       // EC-specific
-      { key: 'Ctrl-Shift-i', run: wrapInIf },
+      { key: 'Ctrl-Shift-x', run: wrapInIf },
       { key: 'Ctrl-Shift-e', run: wrapInForEach },
       { key: 'F2', run: renameAllOccurrences },
       { key: 'Ctrl-d', run: selectNextOccurrence },

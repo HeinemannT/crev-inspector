@@ -178,8 +178,9 @@ export function renderConnectTab() {
       h('span', { class: 'connect-meta' }, `v${chrome.runtime.getManifest().version}`),
     ),
     h('div', { class: 'shortcut-list' },
-      h('kbd', { class: 'kbd' }, 'Alt+Shift+X'), 'Inspect',
-      h('kbd', { class: 'kbd' }, 'Alt+Shift+E'), 'Extended Code',
+      h('kbd', { class: 'kbd' }, 'Ctrl+Shift+X'), 'Inspect',
+      h('kbd', { class: 'kbd' }, 'Ctrl+Shift+E'), 'Extended Code',
+      h('span', { class: 'shortcut-hint', title: 'If a shortcut is not recognized, reassign it at chrome://extensions/shortcuts' }, '(?)'),
     ),
   );
 
