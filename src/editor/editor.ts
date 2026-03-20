@@ -517,15 +517,15 @@ function renderBottomContent() {
       </div>
       <div class="editor-snippet-item" data-snippet="children">
         <div class="editor-snippet-desc">Walk children</div>
-        <code>lookup(${escHtml(ridStr)}).children().forEach(_c: output(...))</code>
+        <code>lookup(${escHtml(ridStr)}).children().forEach(_c: ...)</code>
       </div>
       <div class="editor-snippet-item" data-snippet="change">
         <div class="editor-snippet-desc">Change property</div>
-        <code>TRANSACTIONAL  lookup(${escHtml(ridStr)}).change(...)</code>
+        <code>lookup(${escHtml(ridStr)}).change("property", "value")</code>
       </div>
       <div class="editor-snippet-item" data-snippet="search">
         <div class="editor-snippet-desc">Search descendants</div>
-        <code>SELECT * FROM lookup(${escHtml(ridStr)}).descendants() WHERE ...</code>
+        <code>SELECT * FROM lookup(${escHtml(ridStr)}) WHERE ...</code>
       </div>
     </div>`
     for (const item of container.querySelectorAll<HTMLElement>('.editor-snippet-item')) {
@@ -563,9 +563,9 @@ function insertSnippet(id: string, rid: string) {
   let code = ''
   switch (id) {
     case 'genedit': code = `lookup(${rid}).genEdit(*)`; break
-    case 'children': code = `_o := lookup(${rid})\n_o.children().forEach(_c:\n  output(_c.businessIdentifier + " | " + _c.name)\n)`; break
-    case 'change': code = `TRANSACTIONAL\n_o := lookup(${rid})\n_o.change("description", "new value")`; break
-    case 'search': code = `SELECT * FROM lookup(${rid}).descendants() WHERE name CONTAINS "..."`; break
+    case 'children': code = `_o := lookup(${rid})\n_o.children().forEach(_c:\n  _c.businessIdentifier + " | " + _c.name\n)`; break
+    case 'change': code = `_o := lookup(${rid})\n_o.change("description", "new value")`; break
+    case 'search': code = `SELECT * FROM lookup(${rid}) WHERE name CONTAINS "..."`; break
   }
   if (code) {
     editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: code } })
