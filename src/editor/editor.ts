@@ -3,7 +3,7 @@
  * CodeMirror 6 editor for Extended Code, HTML, and JavaScript properties.
  * Communicates with service worker for preview/save operations.
  */
-import { EditorState } from '@codemirror/state'
+import { EditorState, Compartment } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection } from '@codemirror/view'
 import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirror/commands'
 import { bracketMatching, foldGutter, indentOnInput, foldKeymap } from '@codemirror/language'
@@ -60,6 +60,8 @@ let lastDuration: number | null = null
 let lastOutputText = ''
 let lastOutputOk = true
 let historyEntries: ScriptHistoryEntry[] = []
+const wrapCompartment = new Compartment()
+let wrapLines = false
 
 // ── Init ─────────────────────────────────────────────────────────
 
@@ -194,7 +196,8 @@ function renderShell() {
       <div id="bottom-panel-content"></div>
     </div>
     <div class="editor-bottom-bar" id="bottom-bar">
-      <button class="btn-bottom" id="btn-clear" title="Clear output">\u2715 Clear</button>
+      <button class="btn-bottom" id="btn-clear" title="Clear editor and output">\u2715 Clear</button>
+      <button class="btn-bottom" id="btn-wrap" title="Toggle line wrapping">\u21a9 Wrap</button>
       <div class="editor-bottom-spacer"></div>
       <button class="btn-bottom" id="btn-snippets">{ } Snippets</button>
       <button class="btn-bottom" id="btn-history">\u25d4 History</button>
@@ -208,6 +211,7 @@ function renderShell() {
   document.getElementById('btn-clear')?.addEventListener('click', doClear)
   document.getElementById('btn-snippets')?.addEventListener('click', toggleSnippets)
   document.getElementById('btn-history')?.addEventListener('click', toggleHistory)
+  document.getElementById('btn-wrap')?.addEventListener('click', toggleWrap)
   wireDragHandle()
 
   // Wire template/instance toggle
@@ -278,6 +282,7 @@ function createEditor(code: string) {
     highlightSelectionMatches(),
     autocompletion({ override: isEc ? [extendedCompletions] : undefined }),
     oneDark,
+    wrapCompartment.of(wrapLines ? EditorView.lineWrapping : []),
 
     // Keymaps
     keymap.of([
@@ -506,17 +511,21 @@ function renderBottomContent() {
     const rid = ctx?.extended ? ctx.objectRid : ctx?.rid
     const ridStr = rid ?? 'RID'
     container.innerHTML = `<div class="editor-snippet-list">
-      <div class="editor-snippet-item" data-snippet="lookup">
-        <div class="editor-snippet-desc">Lookup name</div>
-        <code>lookup(${escHtml(ridStr)}).name</code>
+      <div class="editor-snippet-item" data-snippet="genedit">
+        <div class="editor-snippet-desc">GenEdit (full object)</div>
+        <code>lookup(${escHtml(ridStr)}).genEdit(*)</code>
       </div>
       <div class="editor-snippet-item" data-snippet="children">
-        <div class="editor-snippet-desc">List children</div>
-        <code>lookup(${escHtml(ridStr)}).children().forEach(_c: ...)</code>
+        <div class="editor-snippet-desc">Walk children</div>
+        <code>lookup(${escHtml(ridStr)}).children().forEach(_c: output(...))</code>
       </div>
-      <div class="editor-snippet-item" data-snippet="find">
-        <div class="editor-snippet-desc">Find by business ID</div>
-        <code>root.allDescendants().filter(_o: _o.id == "...").first().name</code>
+      <div class="editor-snippet-item" data-snippet="change">
+        <div class="editor-snippet-desc">Change property</div>
+        <code>TRANSACTIONAL  lookup(${escHtml(ridStr)}).change(...)</code>
+      </div>
+      <div class="editor-snippet-item" data-snippet="search">
+        <div class="editor-snippet-desc">Search descendants</div>
+        <code>SELECT * FROM lookup(${escHtml(ridStr)}).descendants() WHERE ...</code>
       </div>
     </div>`
     for (const item of container.querySelectorAll<HTMLElement>('.editor-snippet-item')) {
@@ -553,9 +562,10 @@ function insertSnippet(id: string, rid: string) {
   if (!editorView) return
   let code = ''
   switch (id) {
-    case 'lookup': code = `lookup(${rid}).name`; break
-    case 'children': code = `lookup(${rid}).children().forEach(_c:\n  output(_c.name)\n)`; break
-    case 'find': code = 'root.allDescendants().filter(_o: _o.id == "...").first().name'; break
+    case 'genedit': code = `lookup(${rid}).genEdit(*)`; break
+    case 'children': code = `_o := lookup(${rid})\n_o.children().forEach(_c:\n  output(_c.businessIdentifier + " | " + _c.name)\n)`; break
+    case 'change': code = `TRANSACTIONAL\n_o := lookup(${rid})\n_o.change("description", "new value")`; break
+    case 'search': code = `SELECT * FROM lookup(${rid}).descendants() WHERE name CONTAINS "..."`; break
   }
   if (code) {
     editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: code } })
@@ -564,13 +574,19 @@ function insertSnippet(id: string, rid: string) {
 }
 
 function doClear() {
+  // Clear output state
   lastOutputText = ''
   lastOutputOk = true
   lastMode = null
   lastDuration = null
-  const content = document.getElementById('bottom-panel-content')
-  if (content) content.innerHTML = ''
+  // Clear editor
+  if (editorView) {
+    editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: '' } })
+    editorView.focus()
+  }
+  // Hide bottom panel
   hideBottomPanel()
+  dirty = false
 }
 
 function toggleSnippets() {
@@ -593,6 +609,15 @@ function toggleHistory() {
     openBottomPanel()
     loadHistory()
   }
+}
+
+function toggleWrap() {
+  wrapLines = !wrapLines
+  if (editorView) {
+    editorView.dispatch({ effects: wrapCompartment.reconfigure(wrapLines ? EditorView.lineWrapping : []) })
+  }
+  const btn = document.getElementById('btn-wrap')
+  if (btn) btn.className = `btn-bottom${wrapLines ? ' active' : ''}`
 }
 
 function loadHistory() {
