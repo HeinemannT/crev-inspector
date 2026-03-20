@@ -4,6 +4,7 @@ import { BmpClient } from './bmp-client';
 import { log, errorMessage } from './logger';
 import { HEALTH_POLL_INTERVAL } from './constants';
 import { updateBadge } from './badge';
+import { incrementGeneration } from './enrichment';
 
 let healthUp: 'unknown' | 'up' | 'down' | 'unreachable' = 'unknown';
 let healthVersion: string | null = null;
@@ -13,10 +14,18 @@ let authError: string | null = null;
 let healthTimer: ReturnType<typeof setInterval> | null = null;
 let networkOffline = false;
 
-/** Apply BMP version flags to client (auth mode, lookup support). */
+/** Apply BMP version flags to client (auth mode, lookup support).
+ *  When version is null (e.g. /buildNum returned 401), assume old BMP —
+ *  binary mode with ticket auth is the safe fallback that works on all versions. */
 function applyVersionFlags(version: string | null) {
   const ctx = getCtx();
-  if (!ctx.client || !version) return;
+  if (!ctx.client) return;
+  if (!version) {
+    // Version detection failed — assume old BMP (safe default)
+    ctx.client.assumeOldBmp();
+    log.info('connection:versionFlags', 'Version detection failed — assuming old BMP (binary + ticket auth)');
+    return;
+  }
   ctx.client.applyVersionFlags(version);
 }
 
@@ -116,6 +125,7 @@ export async function runAuthTest() {
         }
         ctx.logActivity('success', `Connected to ${profile.label}`);
         pushConnectionState();
+        incrementGeneration(); // clear enrichedRids + permanentlyFailed from any pre-auth attempts
         ctx.broadcastToContent({ type: 'RE_ENRICH' });
         return;
       }
@@ -148,6 +158,7 @@ export async function runAuthTest() {
   }
   pushConnectionState();
   if (authResult === 'ok' && ctx.client) {
+    incrementGeneration(); // clear enrichedRids + permanentlyFailed from any pre-auth attempts
     ctx.broadcastToContent({ type: 'RE_ENRICH' });
   }
 }

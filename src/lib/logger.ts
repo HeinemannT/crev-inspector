@@ -4,9 +4,9 @@ const PREFIX = '[CREV]';
 
 export const log = {
   debug(ctx: string, ...args: unknown[]): void {
-    // No-op in production. Uncomment for debugging:
-    // console.debug(`${PREFIX}:${ctx}`, ...args);
-    void ctx; void args;
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('crev_debug')) {
+      console.debug(`${PREFIX}:${ctx}`, ...args);
+    }
   },
 
   info(ctx: string, ...args: unknown[]): void {
@@ -23,9 +23,9 @@ export const log = {
 
   /** Swallow an error — logs at debug level for tracing, silent in normal operation */
   swallow(ctx: string, error: unknown): void {
-    // Uncomment for debugging swallowed errors:
-    // console.debug(`${PREFIX}:${ctx} [swallowed]`, error);
-    void ctx; void error;
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('crev_debug')) {
+      console.debug(`${PREFIX}:${ctx} [swallowed]`, error);
+    }
   },
 };
 

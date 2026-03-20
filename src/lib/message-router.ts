@@ -396,6 +396,10 @@ export function handleOneShotMessage(
     openEditorWindow(msg.rid);
     return false;
   }
+  if (msg.type === 'GET_SCRIPT_HISTORY') {
+    sendResponse({ type: 'SCRIPT_HISTORY_DATA', entries: getCtx().scriptHistory.getAll() });
+    return true;
+  }
   if (msg.type === 'GET_FAVORITES') {
     sendResponse({ type: 'FAVORITES_DATA', entries: getCtx().favorites.getAll() });
     return true;

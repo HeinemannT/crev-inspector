@@ -236,7 +236,7 @@ export const DEFAULT_SETTINGS: InspectorSettings = {
   activeProfileId: '',
   autoDetect: true,
   saveTarget: 'template',
-  enrichMode: 'widgets',
+  enrichMode: 'all',
 };
 
 /** Chart types — all share the same color (#33b1ff) */

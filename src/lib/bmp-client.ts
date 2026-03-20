@@ -7,9 +7,9 @@ import {
   registerBmpTypes,
   makeUpdateCommand,
   makeExtendedExecuteCommand,
-  makeGetObjectCommand,
+  makeTreeItemCommand,
   parseEcResults,
-  parseObjectData,
+  parseTreeNodeInfo,
 } from './bmp-types';
 import { deserializeStream } from './java-serial';
 import { log } from './logger';
@@ -85,6 +85,13 @@ export class BmpClient {
     this.supportsLookup = !isOld;
   }
 
+  /** Safe fallback when version detection fails — assume old BMP.
+   *  Binary mode with ticket auth works on all BMP versions. */
+  assumeOldBmp() {
+    this.transport.useTicketAuth = true;
+    this.supportsLookup = false;
+  }
+
   // ── Auth delegation ──────────────────────────────────────────
 
   async testConnection(): Promise<ConnectionResult> {
@@ -118,24 +125,30 @@ export class BmpClient {
     return `t.${identity.businessId}`;
   }
 
-  /** Fetch identity (rid, businessId, type, name) via binary GetObjectCommand. */
-  private async getObjectIdentity(rid: string): Promise<{ rid: string; businessId?: string; type?: string; name?: string } | null> {
-    try {
-      const cmd = makeGetObjectCommand(rid);
-      const buffer = await this.transport.sendCommands([cmd]);
-      const objects = deserializeStream(buffer);
-      for (const obj of objects) {
-        if (obj?.$class === 'java.util.ArrayList') {
-          const first = obj.$elements?.[0];
-          if (!first?.response) return null;
-          const parsed = parseObjectData(first.response);
-          if (!parsed?.rid) return null;
-          return { rid: parsed.rid, businessId: parsed.properties.id, type: parsed.type, name: parsed.properties.name };
+  /** Send a TreeItemCommand and extract the TreeNodeInformationDto from the response.
+   *  Response format: ArrayList<IntegrationObjectResponse> where .response = TreeNodeInformationDto. */
+  private async fetchTreeItem(rid: string): Promise<ReturnType<typeof parseTreeNodeInfo>> {
+    const cmd = makeTreeItemCommand(rid);
+    const buffer = await this.transport.sendCommands([cmd]);
+    const objects = deserializeStream(buffer);
+    for (const obj of objects) {
+      const cls = obj?.$class ?? '';
+      if (cls.includes('ServerExceptionResponse')) continue;
+      if (cls === 'java.util.ArrayList') {
+        const dto = obj.$elements?.[0]?.response;
+        if (dto?.$class?.includes('TreeNodeInformationDto')) {
+          return parseTreeNodeInfo(dto);
         }
-        if (obj?.$class?.includes('ServerExceptionResponse')) return null;
       }
-    } catch { /* object not found */ }
+    }
     return null;
+  }
+
+  /** Fetch identity (rid, businessId, type, name) via TreeItemCommand.
+   *  Lighter than GetObjectCommand — avoids NullPointerException on old BMP. */
+  private async getObjectIdentity(rid: string): Promise<{ rid: string; businessId?: string; type?: string; name?: string } | null> {
+    try { return await this.fetchTreeItem(rid); }
+    catch { return null; }
   }
 
   // ── Object operations ────────────────────────────────────────
@@ -204,12 +217,7 @@ export class BmpClient {
 
   /** Batch enrich: get businessId, type, name for multiple RIDs in a single EC call */
   async batchEnrich(rids: string[]): Promise<{ results: Record<string, { businessId?: string; type?: string; name?: string }>; error?: string }> {
-    if (rids.length === 0) return { results: {} };
-
-    const trimmed = rids.filter(Boolean);
-    if (trimmed.length === 0) return { results: {} };
-
-    let valid = trimmed.filter(rid => /^-?\d+$/.test(rid));
+    let valid = rids.filter(Boolean).filter(rid => /^-?\d+$/.test(rid));
     if (valid.length === 0) return { results: {} };
     if (valid.length > BATCH_CHUNK_SIZE) valid = valid.slice(0, BATCH_CHUNK_SIZE);
 
@@ -224,9 +232,9 @@ export class BmpClient {
     const code = lines.join('\n');
 
     const result = await this.executeEc(code, undefined, false);
-    if (!result.ok) return { results: {}, error: result.error ?? 'EC execution failed' };
-    if (result.log == null) return { results: {}, error: 'EC returned null output' };
-    if (result.log.trim() === '') return { results: {} };
+    if (!result.ok) { log.debug('batchEnrich', `EC failed for ${valid.length} RIDs:`, result.error); return { results: {}, error: result.error ?? 'EC execution failed' }; }
+    if (result.log == null) { log.debug('batchEnrich', 'EC returned null output'); return { results: {}, error: 'EC returned null output' }; }
+    if (result.log.trim() === '') { log.debug('batchEnrich', `EC returned empty for ${valid.length} RIDs:`, valid); return { results: {} }; }
 
     const out: Record<string, { businessId?: string; type?: string; name?: string }> = {};
     for (const parts of parsePipeLines(result.log, 4)) {
@@ -238,6 +246,8 @@ export class BmpClient {
         name: name || undefined,
       };
     }
+    const missed = valid.filter(r => !(r in out));
+    if (missed.length > 0) log.debug('batchEnrich', `${missed.length}/${valid.length} RIDs not found by lookup():`, missed);
     return { results: out };
   }
 
@@ -252,9 +262,9 @@ export class BmpClient {
     return { name: identity.name, type: identity.type, businessId: identity.businessId };
   }
 
-  /** Binary fallback: enrich via IntegrationGetObjectCommand (one per RID).
-   *  Used on BMP < 5.6.3.0 where EC lookup() is unavailable.
-   *  Relies on transport.useTicketAuth being set by the connection layer. */
+  /** Binary fallback: enrich via TreeItemCommand (one per RID, parallel).
+   *  Uses lightweight tree node metadata — avoids the NullPointerException
+   *  that GetObjectCommand hits on some old BMP objects. */
   async batchEnrichBinary(rids: string[]): Promise<{ results: Record<string, { businessId?: string; type?: string; name?: string }>; error?: string }> {
     let valid = rids.filter(Boolean).filter(rid => /^-?\d+$/.test(rid));
     if (valid.length === 0) return { results: {} };
@@ -264,24 +274,9 @@ export class BmpClient {
 
     await pMap(valid, async (rid) => {
       try {
-        const cmd = makeGetObjectCommand(rid);
-        const buffer = await this.transport.sendCommands([cmd]);
-        const objects = deserializeStream(buffer);
-        for (const obj of objects) {
-          const cls = obj?.$class ?? '';
-          if (cls.includes('ServerExceptionResponse')) return;
-          if (cls === 'java.util.ArrayList') {
-            const first = obj.$elements?.[0];
-            if (!first?.response) return;
-            const parsed = parseObjectData(first.response);
-            if (parsed?.rid) {
-              out[parsed.rid] = {
-                businessId: parsed.properties.id ?? undefined,
-                type: parsed.type ?? undefined,
-                name: parsed.properties.name ?? undefined,
-              };
-            }
-          }
+        const parsed = await this.fetchTreeItem(rid);
+        if (parsed) {
+          out[rid] = { businessId: parsed.businessId, type: parsed.type, name: parsed.name };
         }
       } catch {
         // Individual RID failed — skip

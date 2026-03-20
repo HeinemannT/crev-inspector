@@ -164,6 +164,31 @@ const TYPE_KEY: JavaClassDesc = {
   parent: null,
 };
 
+// java.lang.Long/Number — needed for TreeItemCommand's boxed Long rid field
+const JAVA_LANG_NUMBER: JavaClassDesc = {
+  name: 'java.lang.Number',
+  uid: -8742448824652078965n,
+  flags: SC_SERIALIZABLE,
+  fields: [],
+  parent: null,
+};
+
+const JAVA_LANG_LONG: JavaClassDesc = {
+  name: 'java.lang.Long',
+  uid: 4290774380558885855n,
+  flags: SC_SERIALIZABLE,
+  fields: [{ name: 'value', type: 'J' }],
+  parent: JAVA_LANG_NUMBER,
+};
+
+const TREE_ITEM_COMMAND: JavaClassDesc = {
+  name: 'com.corporater.bmp.dto.command.tree.TreeItemCommand',
+  uid: -4494633739301165944n,
+  flags: SC_SERIALIZABLE,
+  fields: [{ name: 'rid', type: 'L', className: 'Ljava/lang/Long;' }],
+  parent: null,
+};
+
 const SIMPLE_CALCULATION_CONTEXT: JavaClassDesc = {
   name: 'com.corporater.bmp.base.context.SimpleCalculationContext',
   uid: 0n,
@@ -407,6 +432,29 @@ export function makeGetObjectCommand(rid: string): any {
   };
 }
 
+/** Build a TreeItemCommand — lightweight tree node fetch by RID.
+ *  Returns TreeNodeInformationDto (id, type, text) without full property serialization.
+ *  Avoids the NullPointerException that GetObjectCommand hits on some old BMP objects. */
+export function makeTreeItemCommand(rid: string): any {
+  return {
+    $type: 'com.corporater.bmp.dto.command.tree.TreeItemCommand',
+    rid: { $type: 'java.lang.Long', value: BigInt(rid) },
+  };
+}
+
+/** Parse a deserialized TreeNodeInformationDto into enrichment fields */
+export function parseTreeNodeInfo(obj: any): { rid: string; businessId?: string; type?: string; name?: string } | null {
+  if (!obj) return null;
+  const rid = obj.rid?.identifier != null ? String(obj.rid.identifier) : undefined;
+  if (!rid) return null;
+  return {
+    rid,
+    businessId: obj.id != null ? String(obj.id) : undefined,
+    type: (obj.type?.typeId ?? '') || undefined,
+    name: obj.text != null ? String(obj.text) : undefined,
+  };
+}
+
 /** Properties that require CorpoExtendedExpression wrapping in binary serialization.
  *  CVO html/javascript are plain Strings — no wrapping needed. */
 const EXPRESSION_PROPS = new Set(['expression']);
@@ -626,6 +674,10 @@ export function registerBmpTypes() {
     objectBuilder: (fields) => fields,
   });
 
+  // java.lang.Long/Number — for TreeItemCommand's boxed Long field
+  registerType({ desc: JAVA_LANG_NUMBER });
+  registerType({ desc: JAVA_LANG_LONG });
+
   // Commands — no fieldExtractors needed; obj properties match field names directly
   registerType({ desc: INTEGRATION_GET_OBJECT_COMMAND });
   registerType({ desc: CONTEXT_INTEGRATION_COMMAND });
@@ -633,6 +685,7 @@ export function registerBmpTypes() {
   registerType({ desc: INTEGRATION_UPDATE_COMMAND });
   registerType({ desc: GET_BY_SPACE_AND_BID_COMMAND });
   registerType({ desc: EXTENDED_EXECUTE_COMMAND });
+  registerType({ desc: TREE_ITEM_COMMAND });
 
   // Responses
   registerType({

@@ -25,6 +25,7 @@ export const RECONNECT_INITIAL_DELAY = 200;
 export const RECONNECT_MAX_DELAY = 10_000;
 export const DETECTION_DEBOUNCE = 2_000;
 export const OVERLAY_SYNC_DEBOUNCE = 150;
+export const DISCOVERED_RIDS_CAP = 5_000;
 
 // ── Service worker ───────────────────────────────────────────────
 export const MANUAL_OVERRIDE_DURATION = 30_000;

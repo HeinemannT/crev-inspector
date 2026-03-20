@@ -13,6 +13,7 @@ export class ObjectCache {
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private cachedValues: BmpObject[] | null = null;
   private profileId: string;
+  private persistWarnLogged = false;
 
   constructor(profileId = '_default') {
     this.profileId = profileId;
@@ -147,8 +148,29 @@ export class ObjectCache {
         [this.storageKey]: Object.fromEntries(this.cache),
         [this.dateKey]: new Date().toDateString(),
       });
+      this.persistWarnLogged = false;
     } catch (e) {
-      log.swallow('cache:persist', e);
+      if (!this.persistWarnLogged) {
+        log.warn('cache:persist', e, '— evicting LRU entries to recover');
+        this.persistWarnLogged = true;
+      }
+      // Evict 20% of entries (LRU — oldest in Map insertion order) and retry once
+      const evictCount = Math.max(1, Math.floor(this.cache.size * 0.2));
+      let count = 0;
+      for (const rid of this.cache.keys()) {
+        if (count >= evictCount) break;
+        this.cache.delete(rid);
+        count++;
+      }
+      this.cachedValues = null;
+      try {
+        await chrome.storage.local.set({
+          [this.storageKey]: Object.fromEntries(this.cache),
+          [this.dateKey]: new Date().toDateString(),
+        });
+      } catch (e2) {
+        log.swallow('cache:persist:retry', e2);
+      }
     }
   }
 }

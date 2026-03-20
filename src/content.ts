@@ -9,7 +9,7 @@ import { getTypeColor, getTypeAbbr, TYPES_WITH_CODE } from './lib/types';
 import { getAllRidElements, extractUrlRids, scanPageWidgets, detectBmpPage, type DetectionResult } from './lib/dom-scanner';
 import { h, render } from './lib/dom';
 import { log } from './lib/logger';
-import { RECONNECT_INITIAL_DELAY, RECONNECT_MAX_DELAY, OVERLAY_SYNC_DEBOUNCE, DETECTION_DEBOUNCE } from './lib/constants';
+import { RECONNECT_INITIAL_DELAY, RECONNECT_MAX_DELAY, OVERLAY_SYNC_DEBOUNCE, DETECTION_DEBOUNCE, DISCOVERED_RIDS_CAP } from './lib/constants';
 import { initEnvTag, updateEnvTag, destroyEnvTag } from './lib/env-tag';
 import { showToast } from './lib/toast';
 import { showQuickInspector, hideQuickInspector, isQuickInspectorVisible } from './lib/quick-inspector';
@@ -26,7 +26,7 @@ declare global {
 // ── State ───────────────────────────────────────────────────────
 
 let inspectActive = false;
-let enrichMode: EnrichMode = 'widgets';
+let enrichMode: EnrichMode = 'all';
 let paintPhase: PaintPhase = 'off';
 let paintSourceName: string | null = null;
 let port: chrome.runtime.Port | null = null;
@@ -328,7 +328,10 @@ function syncOverlays() {
     }
   }
 
-  const elements = getAllRidElements(enrichMode === 'all');
+  const includeLinks = enrichMode === 'all';
+  const elements = getAllRidElements(includeLinks);
+  const linkCount = includeLinks ? elements.filter(({ element }) => element.tagName === 'A').length : 0;
+  log.debug('sync', `syncOverlays: ${elements.length} elements (${linkCount} links), enrichMode=${enrichMode}`);
   const ridsToEnrich: string[] = [];
 
   // Filter to new elements only
@@ -415,8 +418,18 @@ function syncOverlays() {
     }
   }
 
+  // Also check already-badged elements whose enrichment was never completed
+  // (e.g. after RE_ENRICH when version detection finishes on older BMP servers)
+  for (const { rid } of elements) {
+    if (!enrichments.has(rid) && !requestedRids.has(rid)) {
+      ridsToEnrich.push(rid);
+      requestedRids.add(rid);
+    }
+  }
+
   // Request enrichment for unknown RIDs
   if (ridsToEnrich.length > 0) {
+    log.debug('sync', `ENRICH_BADGES: sending ${ridsToEnrich.length} RIDs`, ridsToEnrich);
     sendToSW({ type: 'ENRICH_BADGES', rids: ridsToEnrich });
   }
 
@@ -424,7 +437,7 @@ function syncOverlays() {
   const now = Date.now();
   const newDiscovered: BmpObject[] = [];
   for (const { rid } of elements) {
-    if (!discoveredRids.has(rid)) {
+    if (!discoveredRids.has(rid) && discoveredRids.size < DISCOVERED_RIDS_CAP) {
       discoveredRids.add(rid);
       newDiscovered.push({ rid, source: 'dom' as const, discoveredAt: now, updatedAt: now });
     }

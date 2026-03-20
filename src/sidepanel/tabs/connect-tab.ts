@@ -109,16 +109,6 @@ export function renderConnectTab() {
   const status = connectStatusState();
 
   const children: (HTMLElement | false | null)[] = [
-    // Status banner
-    h('div', { class: `connect-status ${status.cls}` },
-      h('div', { class: 'connect-status-dot' }),
-      h('div', { class: 'connect-status-text' },
-        h('div', { class: 'connect-status-title' }, status.title),
-        h('div', { class: 'connect-status-detail' }, status.detail),
-      ),
-      h('button', { class: 'connect-test-btn', 'data-action': 'test', title: 'Test connection' }, svg(ICON_REFRESH)),
-    ),
-
     // Section header
     h('div', { class: 'section-header' },
       h('span', { class: 'section-title section-title--flush' }, 'Servers'),
@@ -175,10 +165,10 @@ export function renderConnectTab() {
     ),
     h('div', { class: 'field-group' },
       h('label', { class: 'field-label field-label--inline' },
-        h('input', { type: 'checkbox', class: 'checkbox-accent', id: 'enrich-widgets-only', checked: S.settings.enrichMode === 'widgets' }),
-        'Widgets only (skip table rows)',
+        h('input', { type: 'checkbox', class: 'checkbox-accent', id: 'enrich-all', checked: S.settings.enrichMode === 'all' }),
+        'Include non-widget objects',
       ),
-      h('span', { class: 'field-hint' }, 'Faster badges \u2014 only labels widget containers, not individual table row links.'),
+      h('span', { class: 'field-hint' }, 'Labels all findable RID objects, including table row links and other non-widget elements.'),
     ),
     h('div', { class: 'connect-footer' },
       h('span', { class: 'connect-meta' }, `${S.cacheCount} objects cached`),
@@ -188,8 +178,8 @@ export function renderConnectTab() {
       h('span', { class: 'connect-meta' }, `v${chrome.runtime.getManifest().version}`),
     ),
     h('div', { class: 'shortcut-list' },
-      h('kbd', { class: 'kbd' }, 'Ctrl+Shift+X'), 'Inspect',
-      h('kbd', { class: 'kbd' }, 'Ctrl+Shift+E'), 'Extended Code',
+      h('kbd', { class: 'kbd' }, 'Alt+Shift+X'), 'Inspect',
+      h('kbd', { class: 'kbd' }, 'Alt+Shift+E'), 'Extended Code',
     ),
   );
 
@@ -202,8 +192,8 @@ export function renderConnectTab() {
     sendMessage({ type: 'SAVE_SETTINGS', settings: { autoDetect } });
   });
 
-  panel.querySelector('#enrich-widgets-only')?.addEventListener('change', (e) => {
-    const enrichMode = (e.target as HTMLInputElement).checked ? 'widgets' as const : 'all' as const;
+  panel.querySelector('#enrich-all')?.addEventListener('change', (e) => {
+    const enrichMode = (e.target as HTMLInputElement).checked ? 'all' as const : 'widgets' as const;
     S.settings = { ...S.settings, enrichMode };
     sendMessage({ type: 'SAVE_SETTINGS', settings: { enrichMode } });
   });

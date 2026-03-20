@@ -36,6 +36,7 @@ let client: import('./lib/bmp-client').BmpClient | null = null;
 
 const contentPorts = new Map<number, chrome.runtime.Port>();
 let panelPort: chrome.runtime.Port | null = null;
+const PANEL_MSG_CAP = 100;
 const pendingPanelMessages: InspectorMessage[] = [];
 
 // ── Context ─────────────────────────────────────────────────────
@@ -61,7 +62,12 @@ const ctx: SwContext = {
   settingsReady,
   logActivity,
   sendToPanel(msg: InspectorMessage) {
-    panelPort?.postMessage(msg);
+    if (panelPort) {
+      panelPort.postMessage(msg);
+    } else {
+      pendingPanelMessages.push(msg);
+      while (pendingPanelMessages.length > PANEL_MSG_CAP) pendingPanelMessages.shift();
+    }
   },
   broadcastToContent(msg: InspectorMessage) {
     for (const port of contentPorts.values()) {
@@ -236,7 +242,6 @@ chrome.commands.onCommand.addListener((command) => {
   log.info('sw:command', command);
   if (command === 'toggle-inspect') {
     toggleInspect();
-    openPanelForActiveTab();
   }
   if (command === 'open-extended') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {

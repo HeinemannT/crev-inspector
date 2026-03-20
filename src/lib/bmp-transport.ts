@@ -20,7 +20,7 @@ export class BmpTransport {
   async sendRequest(body: Uint8Array, timeout: number): Promise<ArrayBuffer> {
     if (this.useTicketAuth) {
       const makeTicketReq = async (ticket: string) => {
-        const url = `${this.bmpUrl}cs/command?LOGIN_TICKET=${encodeURIComponent(ticket)}&_noctx=true`;
+        const url = `${this.bmpUrl}cs/command?LOGIN_TICKET=${encodeURIComponent(ticket)}`;
         return fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-java-serialized-object' },
@@ -46,7 +46,7 @@ export class BmpTransport {
     }
 
     const jwt = await this.auth.ensureAuth();
-    const url = `${this.bmpUrl}cs/command?_noctx=true`;
+    const url = `${this.bmpUrl}cs/command`;
 
     const makeOpts = (token: string): RequestInit => ({
       method: 'POST',

@@ -13,7 +13,7 @@ import { lintGutter } from '@codemirror/lint'
 import { oneDark } from '@codemirror/theme-one-dark'
 
 // Shared
-import { type SaveTarget } from '../lib/types'
+import { type SaveTarget, type ScriptHistoryEntry } from '../lib/types'
 import { escHtml, escAttr } from '../lib/html'
 
 // EC-specific extensions
@@ -51,11 +51,15 @@ interface EditorContext {
 let ctx: EditorContext | null = null
 let editorView: EditorView | null = null
 let activeProperty = ''
-let outputVisible = false
+let bottomPanelOpen = false
+let bottomMode: 'output' | 'snippets' | 'history' = 'output'
 let dirty = false
 let outputHeight = 160 // default px, persisted
 let lastMode: 'preview' | 'save' | null = null
 let lastDuration: number | null = null
+let lastOutputText = ''
+let lastOutputOk = true
+let historyEntries: ScriptHistoryEntry[] = []
 
 // ── Init ─────────────────────────────────────────────────────────
 
@@ -105,10 +109,6 @@ async function init() {
     createEditor(activeProps[activeProperty] ?? ctx.code)
   }
 
-  // Warn on unload if dirty
-  window.addEventListener('beforeunload', (e) => {
-    if (dirty) { e.preventDefault() }
-  })
 }
 
 // ── Window title ────────────────────────────────────────────────
@@ -190,13 +190,14 @@ function renderShell() {
       <span class="editor-status" id="status-bar">Ln 1, Col 1</span>
     </div>
     <div class="editor-drag-handle" id="drag-handle" style="display:none"></div>
-    <div class="editor-output" id="output-panel" style="display:none;height:${outputHeight}px">
-      <div class="editor-output-header" id="output-header">
-        <span class="editor-output-mode" id="output-mode">Output</span>
-        <span class="editor-output-duration" id="output-duration"></span>
-        <span class="editor-output-close" id="output-close">\u2715</span>
-      </div>
-      <div class="editor-output-content" id="output-content"></div>
+    <div class="editor-output" id="bottom-panel" style="display:none;height:${outputHeight}px">
+      <div id="bottom-panel-content"></div>
+    </div>
+    <div class="editor-bottom-bar" id="bottom-bar">
+      <button class="btn-bottom" id="btn-clear" title="Clear output">\u2715 Clear</button>
+      <div class="editor-bottom-spacer"></div>
+      <button class="btn-bottom" id="btn-snippets">{ } Snippets</button>
+      <button class="btn-bottom" id="btn-history">\u25d4 History</button>
     </div>
   `
 
@@ -204,7 +205,9 @@ function renderShell() {
   document.getElementById('btn-preview')?.addEventListener('click', doPreview)
   document.getElementById('btn-save')?.addEventListener('click', doSave)
   document.getElementById('btn-copy')?.addEventListener('click', doCopy)
-  document.getElementById('output-close')?.addEventListener('click', hideOutput)
+  document.getElementById('btn-clear')?.addEventListener('click', doClear)
+  document.getElementById('btn-snippets')?.addEventListener('click', toggleSnippets)
+  document.getElementById('btn-history')?.addEventListener('click', toggleHistory)
   wireDragHandle()
 
   // Wire template/instance toggle
@@ -383,6 +386,11 @@ async function doPreview() {
     lastDuration = Date.now() - startTime
     showOutput(String(e), false)
   }
+
+  // Refresh history in background
+  chrome.runtime.sendMessage({ type: 'GET_SCRIPT_HISTORY' }).then((r: any) => {
+    if (r?.entries) historyEntries = r.entries
+  }).catch(() => {})
 }
 
 async function doSave() {
@@ -438,42 +446,172 @@ function doCopy() {
   }
 }
 
-// ── Output panel ─────────────────────────────────────────────────
+// ── Bottom panel (output / snippets / history) ──────────────────
 
 function showOutput(text: string, ok: boolean) {
-  outputVisible = true
-
-  const panel = document.getElementById('output-panel')
-  const handle = document.getElementById('drag-handle')
-  const content = document.getElementById('output-content')
-  const modeEl = document.getElementById('output-mode')
-  const durationEl = document.getElementById('output-duration')
-
-  if (panel) { panel.style.display = ''; panel.style.height = `${outputHeight}px` }
-  if (handle) handle.style.display = ''
-  if (content) {
-    content.textContent = text
-    content.className = `editor-output-content ${ok ? 'ok' : 'error'}`
-  }
-
-  // Update mode/duration header
-  if (modeEl) {
-    const label = lastMode === 'save' ? 'Saved' : 'Preview'
-    const cls = ok ? 'ok' : 'error'
-    modeEl.textContent = label
-    modeEl.className = `editor-output-mode ${cls}`
-  }
-  if (durationEl) {
-    durationEl.textContent = lastDuration != null ? `\u00b7 ${lastDuration}ms` : ''
-  }
+  lastOutputText = text
+  lastOutputOk = ok
+  bottomMode = 'output'
+  bottomPanelOpen = true
+  openBottomPanel()
+  renderBottomContent()
 }
 
-function hideOutput() {
-  outputVisible = false
-  const panel = document.getElementById('output-panel')
+function openBottomPanel() {
+  const panel = document.getElementById('bottom-panel')
+  const handle = document.getElementById('drag-handle')
+  if (panel) { panel.style.display = ''; panel.style.height = `${outputHeight}px` }
+  if (handle) handle.style.display = ''
+  updateBottomBar()
+}
+
+function hideBottomPanel() {
+  bottomPanelOpen = false
+  const panel = document.getElementById('bottom-panel')
   const handle = document.getElementById('drag-handle')
   if (panel) panel.style.display = 'none'
   if (handle) handle.style.display = 'none'
+  updateBottomBar()
+}
+
+function updateBottomBar() {
+  const snippetsBtn = document.getElementById('btn-snippets')
+  const historyBtn = document.getElementById('btn-history')
+  if (snippetsBtn) snippetsBtn.className = `btn-bottom${bottomPanelOpen && bottomMode === 'snippets' ? ' active' : ''}`
+  if (historyBtn) historyBtn.className = `btn-bottom${bottomPanelOpen && bottomMode === 'history' ? ' active' : ''}`
+}
+
+function renderBottomContent() {
+  const container = document.getElementById('bottom-panel-content')
+  if (!container) return
+
+  if (bottomMode === 'output') {
+    const modeLabel = lastMode === 'save' ? 'Saved' : 'Preview'
+    const cls = lastOutputOk ? 'ok' : 'error'
+    const durationText = lastDuration != null ? `\u00b7 ${lastDuration}ms` : ''
+    container.innerHTML = `
+      <div class="editor-output-header">
+        <span class="editor-output-mode ${cls}">${modeLabel}</span>
+        <span class="editor-output-duration">${durationText}</span>
+        <span class="editor-output-close" id="output-close">\u2715</span>
+      </div>
+      <div class="editor-output-content ${cls}"></div>`
+    const contentEl = container.querySelector('.editor-output-content')
+    if (contentEl) contentEl.textContent = lastOutputText
+    document.getElementById('output-close')?.addEventListener('click', hideBottomPanel)
+    return
+  }
+
+  if (bottomMode === 'snippets') {
+    const rid = ctx?.extended ? ctx.objectRid : ctx?.rid
+    const ridStr = rid ?? 'RID'
+    container.innerHTML = `<div class="editor-snippet-list">
+      <div class="editor-snippet-item" data-snippet="lookup">
+        <div class="editor-snippet-desc">Lookup name</div>
+        <code>lookup(${escHtml(ridStr)}).name</code>
+      </div>
+      <div class="editor-snippet-item" data-snippet="children">
+        <div class="editor-snippet-desc">List children</div>
+        <code>lookup(${escHtml(ridStr)}).children().forEach(_c: ...)</code>
+      </div>
+      <div class="editor-snippet-item" data-snippet="find">
+        <div class="editor-snippet-desc">Find by business ID</div>
+        <code>root.allDescendants().filter(_o: _o.id == "...").first().name</code>
+      </div>
+    </div>`
+    for (const item of container.querySelectorAll<HTMLElement>('.editor-snippet-item')) {
+      item.addEventListener('click', () => insertSnippet(item.dataset.snippet!, ridStr))
+    }
+    return
+  }
+
+  if (bottomMode === 'history') {
+    if (historyEntries.length === 0) {
+      container.innerHTML = '<div class="editor-history-empty">No history yet</div>'
+      return
+    }
+    container.innerHTML = `<div class="editor-history-list">${historyEntries.map((e, i) => `
+      <div class="editor-history-item" data-idx="${i}">
+        <span class="editor-history-icon">${e.mode === 'execute' ? '\u26A1' : '\u25B6'}</span>
+        <span class="editor-history-status ${e.ok ? 'ok' : 'fail'}">${e.ok ? '\u2713' : '\u2717'}</span>
+        <span class="editor-history-code">${escHtml(e.code.split('\n')[0].slice(0, 60))}</span>
+        <span class="editor-history-time">${relativeTime(e.timestamp)}</span>
+      </div>`).join('')}</div>`
+    for (const item of container.querySelectorAll<HTMLElement>('.editor-history-item')) {
+      item.addEventListener('click', () => {
+        const idx = parseInt(item.dataset.idx!, 10)
+        if (historyEntries[idx] && editorView) {
+          editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: historyEntries[idx].code } })
+          editorView.focus()
+        }
+      })
+    }
+  }
+}
+
+function insertSnippet(id: string, rid: string) {
+  if (!editorView) return
+  let code = ''
+  switch (id) {
+    case 'lookup': code = `lookup(${rid}).name`; break
+    case 'children': code = `lookup(${rid}).children().forEach(_c:\n  output(_c.name)\n)`; break
+    case 'find': code = 'root.allDescendants().filter(_o: _o.id == "...").first().name'; break
+  }
+  if (code) {
+    editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: code } })
+    editorView.focus()
+  }
+}
+
+function doClear() {
+  lastOutputText = ''
+  lastOutputOk = true
+  lastMode = null
+  lastDuration = null
+  const content = document.getElementById('bottom-panel-content')
+  if (content) content.innerHTML = ''
+  hideBottomPanel()
+}
+
+function toggleSnippets() {
+  if (bottomPanelOpen && bottomMode === 'snippets') {
+    hideBottomPanel()
+  } else {
+    bottomMode = 'snippets'
+    bottomPanelOpen = true
+    openBottomPanel()
+    renderBottomContent()
+  }
+}
+
+function toggleHistory() {
+  if (bottomPanelOpen && bottomMode === 'history') {
+    hideBottomPanel()
+  } else {
+    bottomMode = 'history'
+    bottomPanelOpen = true
+    openBottomPanel()
+    loadHistory()
+  }
+}
+
+function loadHistory() {
+  chrome.runtime.sendMessage({ type: 'GET_SCRIPT_HISTORY' }).then((response: any) => {
+    if (response?.entries) historyEntries = response.entries
+    renderBottomContent()
+  }).catch(() => {
+    renderBottomContent()
+  })
+}
+
+function relativeTime(ts: number): string {
+  const seconds = Math.floor((Date.now() - ts) / 1000)
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
 }
 
 // ── Drag handle for resizable output ──────────────────────────────

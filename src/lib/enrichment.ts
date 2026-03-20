@@ -1,7 +1,7 @@
 import type { BmpObject } from './types';
 import { getCtx } from './sw-context';
 import { pMap } from './util';
-import { errorMessage } from './logger';
+import { errorMessage, log } from './logger';
 import { BATCH_CHUNK_SIZE, MAX_PARALLEL, ENRICHMENT_RETRY_DELAY, MAX_PERMANENTLY_FAILED } from './constants';
 
 const enrichedRids = new Set<string>();
@@ -44,6 +44,7 @@ export async function enrichBadges(rids: string[]) {
   const cancelled = () => gen !== enrichmentGeneration;
 
   const newRids = rids.map(r => r.trim()).filter(rid => rid && !enrichedRids.has(rid));
+  log.debug('enrich', `enrichBadges: ${rids.length} incoming, ${newRids.length} new, ${permanentlyFailed.size} permanently failed`);
   if (newRids.length === 0) return;
 
   // Immediately broadcast empty enrichment for permanently-failed RIDs (so labels don't stay "loading")
@@ -83,15 +84,9 @@ export async function enrichBadges(rids: string[]) {
     return;
   }
 
-  // Wait for version detection — supportsLookup is null until applyVersionFlags() runs.
-  // RE_ENRICH will re-trigger enrichment after version is detected.
-  if (ctx.client.supportsLookup === null) {
-    ctx.logActivity('info', 'Waiting for version detection\u2026');
-    return;
-  }
-
-  // Enrichment mode: EC lookup() on 5.6.3+, binary GetObject on older versions
-  const useEc = ctx.client.supportsLookup;
+  // Enrichment mode: EC lookup() on 5.6.3+, binary GetObject on older versions.
+  // If version is unknown (null), fall back to binary — works on all versions.
+  const useEc = ctx.client.supportsLookup === true;
 
   ctx.logActivity('info', useEc
     ? `Enriching ${uncached.length} from server\u2026`
