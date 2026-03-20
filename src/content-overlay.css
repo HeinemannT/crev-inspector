@@ -176,6 +176,26 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.crev-env-tag--edge-left {
+  writing-mode: vertical-lr;
+  left: 0 !important;
+  right: auto !important;
+  border-radius: 0 6px 6px 0;
+}
+.crev-env-tag--edge-right {
+  writing-mode: vertical-rl;
+  right: 0 !important;
+  left: auto !important;
+  border-radius: 6px 0 0 6px;
+}
+.crev-env-tag--edge-left,
+.crev-env-tag--edge-right {
+  padding: 10px 4px;
+}
+.crev-env-tag--edge-left .crev-env-label,
+.crev-env-tag--edge-right .crev-env-label {
+  white-space: nowrap;
+}
 
 /* ── Connection Toasts ─────────────────────────────────── */
 

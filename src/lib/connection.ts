@@ -4,7 +4,10 @@ import { BmpClient } from './bmp-client';
 import { log, errorMessage } from './logger';
 import { HEALTH_POLL_INTERVAL } from './constants';
 import { updateBadge } from './badge';
-import { incrementGeneration } from './enrichment';
+import { incrementGeneration, registerConnectionDisplayFn } from './enrichment';
+
+// Register connection display accessor for enrichment module (breaks circular dependency)
+registerConnectionDisplayFn(() => computeConnectionState().display);
 
 let healthUp: 'unknown' | 'up' | 'down' | 'unreachable' = 'unknown';
 let healthVersion: string | null = null;
@@ -13,6 +16,8 @@ let authResult: 'pending' | 'ok' | 'failed' = 'pending';
 let authError: string | null = null;
 let healthTimer: ReturnType<typeof setInterval> | null = null;
 let networkOffline = false;
+let lastPollTime = 0;
+let lastBroadcastDisplay: string | null = null;
 
 /** Apply BMP version flags to client (auth mode, lookup support).
  *  When version is null (e.g. /buildNum returned 401), assume old BMP —
@@ -43,6 +48,8 @@ export function resetConnectionState() {
   healthResponseMs = null;
   authResult = 'pending';
   authError = null;
+  lastBroadcastDisplay = null;
+  lastPollTime = 0;
   // Reset version flags — will be re-evaluated when version is detected
   const ctx = getCtx();
   if (ctx.client) {
@@ -94,8 +101,12 @@ export function pushConnectionState() {
   updateBadge(state.display);
   const ctx = getCtx();
   ctx.sendToPanel({ type: 'CONNECTION_STATE', state });
-  // Also broadcast to all content scripts for env tag + toasts
-  ctx.broadcastToContent({ type: 'CONNECTION_STATE', state });
+  // Only broadcast to content scripts when display actually changes
+  // (content only uses it for env tag state + transition toasts)
+  if (state.display !== lastBroadcastDisplay) {
+    lastBroadcastDisplay = state.display;
+    ctx.broadcastToContent({ type: 'CONNECTION_STATE', state });
+  }
 }
 
 export async function runAuthTest() {
@@ -164,6 +175,11 @@ export async function runAuthTest() {
 }
 
 export async function pollHealth() {
+  // Skip if recently polled (prevents double-polls from online event + timer)
+  const now = Date.now();
+  if (now - lastPollTime < HEALTH_POLL_INTERVAL * 0.8) return;
+  lastPollTime = now;
+
   const ctx = getCtx();
   const profile = ctx.settings.profiles.find(p => p.id === ctx.settings.activeProfileId);
   if (!profile?.bmpUrl) {

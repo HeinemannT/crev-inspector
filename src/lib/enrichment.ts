@@ -4,6 +4,16 @@ import { pMap } from './util';
 import { errorMessage, log } from './logger';
 import { BATCH_CHUNK_SIZE, MAX_PARALLEL, ENRICHMENT_RETRY_DELAY, MAX_PERMANENTLY_FAILED } from './constants';
 
+/** Registered by connection.ts at init to break circular dependency.
+ *  Returns 'checking' before registration — safe default (won't skip enrichment). */
+let _getConnectionDisplay: (() => string) | null = null;
+export function registerConnectionDisplayFn(fn: () => string): void {
+  _getConnectionDisplay = fn;
+}
+function getConnectionDisplay(): string {
+  return _getConnectionDisplay?.() ?? 'checking';
+}
+
 const enrichedRids = new Set<string>();
 const permanentlyFailed = new Set<string>();
 let enrichmentGeneration = 0;
@@ -40,6 +50,18 @@ export async function enrichBadges(rids: string[]) {
   const ctx = getCtx();
   if (!ctx.client) {
     ctx.logActivity('warn', 'Enrichment skipped — not connected');
+    return;
+  }
+
+  // Skip enrichment when server is known-unreachable.
+  // We call getConnectionDisplay() (lazy import) to avoid circular dependency
+  // since connection.ts imports incrementGeneration from this module.
+  const connDisplay = getConnectionDisplay();
+  if (connDisplay === 'unreachable' || connDisplay === 'server-down') {
+    const empty: Record<string, EnrichmentData> = {};
+    for (const rid of rids) empty[rid] = {};
+    ctx.broadcastToContent({ type: 'BADGE_ENRICHMENT', enrichments: empty });
+    ctx.logActivity('info', 'Enrichment skipped — server unreachable');
     return;
   }
 

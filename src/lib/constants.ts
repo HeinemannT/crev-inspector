@@ -1,7 +1,7 @@
 /** Centralized constants — no more magic numbers scattered across the codebase */
 
 // ── Network timeouts ─────────────────────────────────────────────
-export const HEALTH_POLL_INTERVAL = 10_000;
+export const HEALTH_POLL_INTERVAL = 30_000;
 export const HEALTH_TIMEOUT = 5_000;
 export const AUTH_TIMEOUT = 10_000;
 export const EC_TIMEOUT = 30_000;
@@ -23,7 +23,6 @@ export const ACTIVITY_PERSIST_DELAY = 500;
 // ── Content script ───────────────────────────────────────────────
 export const RECONNECT_INITIAL_DELAY = 200;
 export const RECONNECT_MAX_DELAY = 10_000;
-export const DETECTION_DEBOUNCE = 2_000;
 export const OVERLAY_SYNC_DEBOUNCE = 150;
 export const DISCOVERED_RIDS_CAP = 5_000;
 

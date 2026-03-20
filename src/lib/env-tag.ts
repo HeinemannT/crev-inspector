@@ -31,14 +31,24 @@ export function initEnvTag(label: string, state: 'connected' | 'disconnected' | 
 
   updateEnvTag(label, state);
 
-  // Restore saved position
+  // Restore saved position + snap state
   chrome.storage.local.get(POS_KEY, (result) => {
-    const pos = result[POS_KEY] as { right?: number; bottom?: number } | undefined;
+    const pos = result[POS_KEY] as { right?: number; bottom?: number; snap?: string } | undefined;
     if (pos && tagEl) {
-      tagEl.style.right = `${pos.right ?? 12}px`;
       tagEl.style.bottom = `${pos.bottom ?? 12}px`;
-      tagEl.style.left = 'auto';
       tagEl.style.top = 'auto';
+      if (pos.snap === 'left') {
+        tagEl.classList.add('crev-env-tag--edge-left');
+        tagEl.style.left = '0';
+        tagEl.style.right = 'auto';
+      } else if (pos.snap === 'right') {
+        tagEl.classList.add('crev-env-tag--edge-right');
+        tagEl.style.right = '0';
+        tagEl.style.left = 'auto';
+      } else {
+        tagEl.style.right = `${pos.right ?? 12}px`;
+        tagEl.style.left = 'auto';
+      }
     }
   });
 
@@ -56,9 +66,15 @@ export function initEnvTag(label: string, state: 'connected' | 'disconnected' | 
     startX = e.clientX;
     startY = e.clientY;
     if (tagEl) {
+      // Clear snap before computing start position so right/bottom are consistent
+      tagEl.classList.remove('crev-env-tag--edge-left', 'crev-env-tag--edge-right');
       const rect = tagEl.getBoundingClientRect();
       startRight = window.innerWidth - rect.right;
       startBottom = window.innerHeight - rect.bottom;
+      tagEl.style.right = `${startRight}px`;
+      tagEl.style.bottom = `${startBottom}px`;
+      tagEl.style.left = 'auto';
+      tagEl.style.top = 'auto';
     }
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
@@ -80,15 +96,36 @@ export function initEnvTag(label: string, state: 'connected' | 'disconnected' | 
     dragging = false;
     document.removeEventListener('mousemove', onMouseMove);
     document.removeEventListener('mouseup', onMouseUp);
-    // Persist position
-    if (tagEl) {
-      const rect = tagEl.getBoundingClientRect();
-      const pos = {
-        right: Math.round(window.innerWidth - rect.right),
-        bottom: Math.round(window.innerHeight - rect.bottom),
-      };
-      chrome.storage.local.set({ [POS_KEY]: pos }).catch(() => {});
+    if (!tagEl) return;
+
+    const rect = tagEl.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const vw = window.innerWidth;
+
+    // Edge snapping: snap to left/right edge if tag center is near viewport edges
+    tagEl.classList.remove('crev-env-tag--edge-left', 'crev-env-tag--edge-right');
+    let snap: 'left' | 'right' | null = null;
+
+    if (centerX < vw * 0.15) {
+      snap = 'left';
+      tagEl.classList.add('crev-env-tag--edge-left');
+      tagEl.style.left = '0';
+      tagEl.style.right = 'auto';
+    } else if (centerX > vw * 0.85) {
+      snap = 'right';
+      tagEl.classList.add('crev-env-tag--edge-right');
+      tagEl.style.right = '0';
+      tagEl.style.left = 'auto';
     }
+
+    // Persist position + snap state
+    const updatedRect = tagEl.getBoundingClientRect();
+    const pos: { right: number; bottom: number; snap?: string } = {
+      right: Math.round(window.innerWidth - updatedRect.right),
+      bottom: Math.round(window.innerHeight - updatedRect.bottom),
+    };
+    if (snap) pos.snap = snap;
+    chrome.storage.local.set({ [POS_KEY]: pos }).catch(() => {});
   }
 }
 

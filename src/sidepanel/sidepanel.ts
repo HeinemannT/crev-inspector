@@ -489,11 +489,9 @@ chrome.storage.session.get('crev_active_tab', (result) => {
     S.activeTab = result.crev_active_tab;
   }
   buildApp();
-  sendMessage({ type: 'GET_CACHE' });
-  sendMessage({ type: 'GET_SETTINGS' });
+  // Essential for header/status — always fetch
   sendMessage({ type: 'GET_CONNECTION_STATE' });
-  sendMessage({ type: 'GET_PAGE_INFO' });
-  sendMessage({ type: 'GET_FAVORITES' });
-  if (S.activeTab === 'log') sendMessage({ type: 'GET_ACTIVITY' });
-  if (S.activeTab === 'objects') sendMessage({ type: 'GET_HISTORY' });
+  sendMessage({ type: 'GET_SETTINGS' });
+  // Tab-specific data deferred to switchTab()
+  switchTab(S.activeTab);
 });

@@ -9,7 +9,8 @@ import { getTypeColor, getTypeAbbr, TYPES_WITH_CODE } from './lib/types';
 import { getAllRidElements, extractUrlRids, scanPageWidgets, detectBmpPage, type DetectionResult } from './lib/dom-scanner';
 import { h, render } from './lib/dom';
 import { log } from './lib/logger';
-import { RECONNECT_INITIAL_DELAY, RECONNECT_MAX_DELAY, OVERLAY_SYNC_DEBOUNCE, DETECTION_DEBOUNCE, DISCOVERED_RIDS_CAP } from './lib/constants';
+import { OVERLAY_SYNC_DEBOUNCE, DISCOVERED_RIDS_CAP } from './lib/constants';
+import { connectPort, sendToSW, onPortMessage, onReconnect } from './lib/content-port';
 import { initEnvTag, updateEnvTag, destroyEnvTag } from './lib/env-tag';
 import { showToast } from './lib/toast';
 import { showQuickInspector, hideQuickInspector, isQuickInspectorVisible } from './lib/quick-inspector';
@@ -29,7 +30,6 @@ let inspectActive = false;
 let enrichMode: EnrichMode = 'all';
 let paintPhase: PaintPhase = 'off';
 let paintSourceName: string | null = null;
-let port: chrome.runtime.Port | null = null;
 let observer: MutationObserver | null = null;
 let styleInjected = false;
 
@@ -53,13 +53,6 @@ let lastUrl = window.location.href;
 
 // Detection state
 let lastDetection: DetectionResult | null = null;
-let detectionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-// Port reconnection backoff
-let reconnectDelay = RECONNECT_INITIAL_DELAY;
-
-// Pending messages queued while port is disconnected
-const pendingMessages: InspectorMessage[] = [];
 
 // Tooltip hide timer
 let tooltipHideTimer: ReturnType<typeof setTimeout> | null = null;
@@ -82,144 +75,73 @@ let labelClickRid: string | null = null;
 // Cross-tab sync guard
 let fromSync = false;
 
-// ── Service worker connection ───────────────────────────────────
+// ── Service worker message handling ──────────────────────────────
 
-function connectPort() {
-  try {
-    port = chrome.runtime.connect({ name: 'content' });
-    reconnectDelay = RECONNECT_INITIAL_DELAY;
-  } catch (e) {
-    log.swallow('content:connectPort', e);
-    return;
+onPortMessage((msg: InspectorMessage) => {
+  switch (msg.type) {
+    case 'INSPECT_STATE':
+      setInspectMode(msg.active);
+      if (!fromSync) broadcast('crev_sync_inspect', { active: msg.active });
+      break;
+    case 'BADGE_ENRICHMENT':
+      for (const [rid, data] of Object.entries(msg.enrichments)) {
+        enrichments.set(rid, data);
+      }
+      if (inspectActive) updateLabels();
+      break;
+    case 'PAINT_STATE':
+      paintPhase = msg.phase;
+      paintSourceName = msg.sourceName ?? null;
+      updatePaintCursors();
+      if (!fromSync) broadcast('crev_sync_paint', { phase: msg.phase, sourceName: msg.sourceName });
+      break;
+    case 'PAINT_PREVIEW':
+      showPaintPreview(msg.rid, msg.diff);
+      break;
+    case 'PAINT_APPLY_RESULT':
+      flashApplyResult(msg.rid, msg.ok, msg.error);
+      break;
+    case 'ENRICH_MODE':
+      if (msg.mode !== enrichMode) {
+        enrichMode = msg.mode;
+        if (inspectActive) {
+          requestedRids.clear();
+          removeOverlays();
+          syncOverlays();
+        }
+      }
+      break;
+    case 'RE_ENRICH':
+      requestedRids.clear();
+      if (inspectActive) syncOverlays();
+      break;
+    case 'CONNECTION_STATE':
+      handleConnectionState(msg.state);
+      break;
+    case 'PROFILE_SWITCHED':
+      handleProfileSwitched(msg.label);
+      if (!fromSync) broadcast('crev_sync_profile', { label: msg.label });
+      break;
+    case 'TECHNICAL_OVERLAY_STATE':
+      technicalOverlay = msg.active;
+      applyTechnicalOverlay();
+      if (!fromSync) broadcast('crev_sync_overlay', { active: msg.active });
+      break;
   }
+});
 
-  flushPendingMessages();
-  // Re-send last detection on reconnect so SW has current state
-  if (lastDetection && pendingMessages.length === 0) {
+onReconnect(() => {
+  requestedRids.clear();
+  // Re-send last detection so SW has current state
+  if (lastDetection) {
     const det = lastDetection;
     queueMicrotask(() => {
       sendToSW({ type: 'DETECTION_RESULT', confidence: det.confidence,
                  signals: det.signals, isBmp: det.isBmp });
     });
   }
-
-  port.onMessage.addListener((msg: InspectorMessage) => {
-    switch (msg.type) {
-      case 'INSPECT_STATE':
-        setInspectMode(msg.active);
-        if (!fromSync) broadcast('crev_sync_inspect', { active: msg.active });
-        break;
-      case 'BADGE_ENRICHMENT':
-        for (const [rid, data] of Object.entries(msg.enrichments)) {
-          enrichments.set(rid, data);
-        }
-        if (inspectActive) updateLabels();
-        break;
-      case 'PAINT_STATE':
-        paintPhase = msg.phase;
-        paintSourceName = msg.sourceName ?? null;
-        updatePaintCursors();
-        if (!fromSync) broadcast('crev_sync_paint', { phase: msg.phase, sourceName: msg.sourceName });
-        break;
-      case 'PAINT_PREVIEW':
-        showPaintPreview(msg.rid, msg.diff);
-        break;
-      case 'PAINT_APPLY_RESULT':
-        flashApplyResult(msg.rid, msg.ok, msg.error);
-        break;
-      case 'ENRICH_MODE':
-        if (msg.mode !== enrichMode) {
-          enrichMode = msg.mode;
-          if (inspectActive) {
-            requestedRids.clear();
-            removeOverlays();
-            syncOverlays();
-          }
-        }
-        break;
-      case 'RE_ENRICH':
-        requestedRids.clear();
-        if (inspectActive) syncOverlays();
-        break;
-      case 'CONNECTION_STATE':
-        handleConnectionState(msg.state);
-        break;
-      case 'PROFILE_SWITCHED':
-        handleProfileSwitched(msg.label);
-        if (!fromSync) broadcast('crev_sync_profile', { label: msg.label });
-        break;
-      case 'TECHNICAL_OVERLAY_STATE':
-        technicalOverlay = msg.active;
-        applyTechnicalOverlay();
-        if (!fromSync) broadcast('crev_sync_overlay', { active: msg.active });
-        break;
-    }
-  });
-
-  port.onDisconnect.addListener(() => {
-    port = null;
-    requestedRids.clear();
-    // Only retry if extension context is still valid
-    try {
-      chrome.runtime.getURL('');
-      const wasDelayed = reconnectDelay > RECONNECT_INITIAL_DELAY;
-      setTimeout(() => {
-        connectPort();
-        // Only fade labels on slow reconnects (not the initial quick one)
-        if (wasDelayed) {
-          for (const label of document.querySelectorAll<HTMLElement>('.crev-label')) {
-            label.style.opacity = '0.4';
-            setTimeout(() => { label.style.opacity = ''; }, 800);
-          }
-        }
-        if (inspectActive) syncOverlays();
-      }, reconnectDelay);
-      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_DELAY);
-    } catch (e) {
-      log.swallow('content:reconnectCheck', e);
-    }
-  });
-}
-
-function sendToSW(msg: InspectorMessage) {
-  if (port) {
-    try { port.postMessage(msg); return; }
-    catch (e) { log.swallow('content:sendToSW', e); port = null; }
-  }
-  // One-shot fallback for detection (works without port)
-  if (msg.type === 'DETECTION_RESULT') {
-    try { chrome.runtime.sendMessage(msg).catch(e => log.swallow('content:oneShot', e)); } catch (e) { log.swallow('content:oneShotOuter', e); }
-  }
-  // Queue critical messages for port-based delivery on reconnect
-  if (msg.type === 'DETECTION_RESULT' || msg.type === 'OBJECTS_DISCOVERED') {
-    // Keep only latest detection (replace older)
-    if (msg.type === 'DETECTION_RESULT') {
-      const idx = pendingMessages.findIndex(m => m.type === 'DETECTION_RESULT');
-      if (idx >= 0) pendingMessages.splice(idx, 1);
-    }
-    // Merge consecutive OBJECTS_DISCOVERED by deduping RIDs
-    if (msg.type === 'OBJECTS_DISCOVERED') {
-      const last = pendingMessages[pendingMessages.length - 1];
-      if (last?.type === 'OBJECTS_DISCOVERED') {
-        const existing = new Set((last as any).objects.map((o: any) => o.rid));
-        for (const obj of (msg as any).objects) {
-          if (!existing.has(obj.rid)) (last as any).objects.push(obj);
-        }
-        return;
-      }
-    }
-    pendingMessages.push(msg);
-    // Cap queue to prevent unbounded growth
-    while (pendingMessages.length > 20) pendingMessages.shift();
-  }
-}
-
-function flushPendingMessages() {
-  while (pendingMessages.length > 0) {
-    const msg = pendingMessages.shift();
-    try { port?.postMessage(msg); } catch (e) { log.swallow('content:flushPending', e); break; }
-  }
-}
+  if (inspectActive) syncOverlays();
+});
 
 // ── Connection state + env tag + toasts ─────────────────────────
 
@@ -873,12 +795,13 @@ function startObserver() {
     });
     if (onlySelf) return;
 
-    // Check for URL change (SPA navigation)
+    // Check for URL change (SPA navigation) — re-detect + reset dedup
     if (window.location.href !== lastUrl) {
       lastUrl = window.location.href;
       requestedRids.clear();
       discoveredRids.clear();
       if (labelClickTimer) { clearTimeout(labelClickTimer); labelClickTimer = null; labelClickRid = null; }
+      runDetection();
     }
 
     // Overlay sync (150ms debounce, only when inspect active)
@@ -886,16 +809,6 @@ function startObserver() {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => syncOverlays(), OVERLAY_SYNC_DEBOUNCE);
     }
-
-    // Detection update (2000ms debounce, always)
-    if (detectionDebounceTimer) clearTimeout(detectionDebounceTimer);
-    detectionDebounceTimer = setTimeout(() => {
-      const result = detectBmpPage();
-      if (!lastDetection || result.confidence !== lastDetection.confidence || result.isBmp !== lastDetection.isBmp) {
-        lastDetection = result;
-        sendToSW({ type: 'DETECTION_RESULT', confidence: result.confidence, signals: result.signals, isBmp: result.isBmp });
-      }
-    }, DETECTION_DEBOUNCE);
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
