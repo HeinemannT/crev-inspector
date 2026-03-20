@@ -162,11 +162,15 @@ function connectPort() {
     // Only retry if extension context is still valid
     try {
       chrome.runtime.getURL('');
+      const wasDelayed = reconnectDelay > RECONNECT_INITIAL_DELAY;
       setTimeout(() => {
         connectPort();
-        for (const label of document.querySelectorAll<HTMLElement>('.crev-label')) {
-          label.style.opacity = '0.4';
-          setTimeout(() => { label.style.opacity = ''; }, 800);
+        // Only fade labels on slow reconnects (not the initial quick one)
+        if (wasDelayed) {
+          for (const label of document.querySelectorAll<HTMLElement>('.crev-label')) {
+            label.style.opacity = '0.4';
+            setTimeout(() => { label.style.opacity = ''; }, 800);
+          }
         }
         if (inspectActive) syncOverlays();
       }, reconnectDelay);
@@ -192,6 +196,17 @@ function sendToSW(msg: InspectorMessage) {
     if (msg.type === 'DETECTION_RESULT') {
       const idx = pendingMessages.findIndex(m => m.type === 'DETECTION_RESULT');
       if (idx >= 0) pendingMessages.splice(idx, 1);
+    }
+    // Merge consecutive OBJECTS_DISCOVERED by deduping RIDs
+    if (msg.type === 'OBJECTS_DISCOVERED') {
+      const last = pendingMessages[pendingMessages.length - 1];
+      if (last?.type === 'OBJECTS_DISCOVERED') {
+        const existing = new Set((last as any).objects.map((o: any) => o.rid));
+        for (const obj of (msg as any).objects) {
+          if (!existing.has(obj.rid)) (last as any).objects.push(obj);
+        }
+        return;
+      }
     }
     pendingMessages.push(msg);
     // Cap queue to prevent unbounded growth
@@ -238,6 +253,8 @@ function handleConnectionState(state: ConnectionState) {
 function handleProfileSwitched(label: string) {
   showToast(`Switched to ${label}`, 'info');
   overlayProps.clear();
+  renderOverlayCards();
+  if (technicalOverlay) applyTechnicalOverlay();
   if (lastDetection?.isBmp) {
     updateEnvTag(label, 'connected');
   }
@@ -504,6 +521,9 @@ function openQuickInspector(labelEl: HTMLElement, rid: string) {
       chrome.runtime.sendMessage({ type: 'OPEN_EDITOR', rid: editorRid });
     }, (favRid) => {
       chrome.runtime.sendMessage({ type: 'TOGGLE_FAVORITE', rid: favRid, name: enrichment?.name, objectType: enrichment?.type, businessId: enrichment?.businessId });
+      // Optimistic toggle
+      if (favoriteRids.has(favRid)) favoriteRids.delete(favRid);
+      else favoriteRids.add(favRid);
     }, (viewRid) => {
       chrome.runtime.sendMessage({ type: 'OPEN_OBJECT_VIEW', rid: viewRid });
     });
@@ -683,27 +703,28 @@ onSync('crev_sync_inspect', (data) => {
   const d = data as { active: boolean };
   if (d.active !== inspectActive) {
     fromSync = true;
-    setInspectMode(d.active);
-    fromSync = false;
+    try { setInspectMode(d.active); } finally { fromSync = false; }
   }
 });
 
 onSync('crev_sync_paint', (data) => {
   const d = data as { phase: PaintPhase; sourceName?: string };
   fromSync = true;
-  paintPhase = d.phase;
-  paintSourceName = d.sourceName ?? null;
-  updatePaintCursors();
-  fromSync = false;
+  try {
+    paintPhase = d.phase;
+    paintSourceName = d.sourceName ?? null;
+    updatePaintCursors();
+  } finally { fromSync = false; }
 });
 
 onSync('crev_sync_overlay', (data) => {
   const d = data as { active: boolean };
   if (d.active !== technicalOverlay) {
     fromSync = true;
-    technicalOverlay = d.active;
-    applyTechnicalOverlay();
-    fromSync = false;
+    try {
+      technicalOverlay = d.active;
+      applyTechnicalOverlay();
+    } finally { fromSync = false; }
   }
 });
 
@@ -857,6 +878,7 @@ function startObserver() {
       lastUrl = window.location.href;
       requestedRids.clear();
       discoveredRids.clear();
+      if (labelClickTimer) { clearTimeout(labelClickTimer); labelClickTimer = null; labelClickRid = null; }
     }
 
     // Overlay sync (150ms debounce, only when inspect active)

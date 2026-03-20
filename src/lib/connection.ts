@@ -211,12 +211,16 @@ export async function pollHealth() {
 
 export function startHealthPolling() {
   if (healthTimer) return;
-  pollHealth();
-  healthTimer = setInterval(pollHealth, HEALTH_POLL_INTERVAL);
+  // Delay first poll so runAuthTest() completes first
+  healthTimer = setTimeout(() => {
+    pollHealth();
+    healthTimer = setInterval(pollHealth, HEALTH_POLL_INTERVAL);
+  }, 500);
 }
 
 export function stopHealthPolling() {
   if (healthTimer) {
+    clearTimeout(healthTimer);
     clearInterval(healthTimer);
     healthTimer = null;
   }

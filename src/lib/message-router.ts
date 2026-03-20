@@ -95,8 +95,12 @@ async function lookupObject(rid: string): Promise<import('./types').BmpObject> {
   const type = identity.type ?? '';
   const propsToFetch = CODE_PROPS_FOR_TYPE[type];
   if (propsToFetch) {
-    const codeProps = await ctx.client.fetchCodeViaEc(rid, [...propsToFetch]);
-    Object.assign(properties, codeProps);
+    try {
+      const codeProps = await ctx.client.fetchCodeViaEc(rid, [...propsToFetch]);
+      Object.assign(properties, codeProps);
+    } catch (e) {
+      log.swallow('router:fetchCodeProps', e);
+    }
   }
 
   const obj: import('./types').BmpObject = {

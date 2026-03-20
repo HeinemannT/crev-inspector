@@ -73,8 +73,8 @@ export function rebuildClient(clearCache = false) {
     const bmpUrl = normalizeUrl(profile.bmpUrl);
     ctx.client = new BmpClient(bmpUrl, profile.bmpUser, profile.bmpPass, profile.id);
     ctx.client.cache = ctx.cache;
-    // Transfer auth from old client to avoid unnecessary re-authentication
-    if (oldClient?.jwt) {
+    // Transfer auth from old client to avoid unnecessary re-authentication (same server only)
+    if (oldClient?.jwt && oldClient.serverUrl === bmpUrl) {
       ctx.client.absorbAuth(oldClient);
     }
   } else {
@@ -92,11 +92,12 @@ export function rebuildClient(clearCache = false) {
   ctx.scriptHistory.switchProfile(newProfileId).catch(e => log.swallow('settings:switchScriptHistory', e));
 
   resetConnectionState();
-  pushConnectionState();
   if (ctx.panelPort) {
     stopHealthPolling();
     startHealthPolling();
-    runAuthTest();
+    runAuthTest(); // pushes CONNECTION_STATE on completion
+  } else {
+    pushConnectionState(); // no panel = no runAuthTest, push once for content scripts
   }
 }
 

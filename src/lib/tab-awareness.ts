@@ -11,9 +11,12 @@ import { handleContentMessage } from './message-router';
 import { cancelPaint } from './paint';
 import { checkBmpCookie } from './cookie-gate';
 
+let activeTabId: number | null = null;
+
 export function registerTabListeners() {
   chrome.tabs.onActivated.addListener((activeInfo) => {
     const ctx = getCtx();
+    activeTabId = activeInfo.tabId;
     cancelPaint();
 
     chrome.tabs.get(activeInfo.tabId, (tab) => {
@@ -43,52 +46,45 @@ export function registerTabListeners() {
     const ctx = getCtx();
     // Cancel paint on navigation or refresh (only for the active tab)
     if (changeInfo.url || changeInfo.status === 'loading') {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]?.id === tabId) cancelPaint();
-      });
+      if (activeTabId === tabId) cancelPaint();
     }
 
     // Cookie-based fast gate: early BMP detection on page load
     if (changeInfo.status === 'loading' && tab?.url && /^https?:/.test(tab.url)) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]?.id === tabId) {
-          checkBmpCookie(tab.url!).then((hasCookie) => {
-            if (hasCookie && !getTabDetection(tabId)) {
-              const entry = { phase: 'detected' as DetectionPhase, confidence: 0.7, signals: ['JSESSIONID'] };
-              setTabDetection(tabId, entry);
-              updateBadge(tabId, true);
-              ctx.sendToPanel({ type: 'DETECTION_STATE', ...entry });
-            }
-          });
-        }
-      });
+      if (activeTabId === tabId) {
+        checkBmpCookie(tab.url!).then((hasCookie) => {
+          if (hasCookie && !getTabDetection(tabId)) {
+            const entry = { phase: 'detected' as DetectionPhase, confidence: 0.7, signals: ['JSESSIONID'] };
+            setTabDetection(tabId, entry);
+            updateBadge(tabId, true);
+            ctx.sendToPanel({ type: 'DETECTION_STATE', ...entry });
+          }
+        });
+      }
     }
     if (changeInfo.url) {
       deleteTabDetection(tabId);
 
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]?.id === tabId) {
-          autoDetectProfile(changeInfo.url!);
-          ctx.sendToPanel({ type: 'DETECTION_STATE', phase: 'checking' as DetectionPhase, confidence: 0, signals: [] });
-        }
-      });
+      if (activeTabId === tabId) {
+        autoDetectProfile(changeInfo.url!);
+        ctx.sendToPanel({ type: 'DETECTION_STATE', phase: 'checking' as DetectionPhase, confidence: 0, signals: [] });
+      }
     }
 
     if (!ctx.panelPort) return;
     if (changeInfo.status !== 'complete' && !changeInfo.url) return;
 
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]?.id === tabId) {
-        sendPageInfoToPanel(tabId);
-        const det = getTabDetection(tabId);
-        if (det) {
-          ctx.sendToPanel({ type: 'DETECTION_STATE', ...det });
-        }
+    if (activeTabId === tabId) {
+      sendPageInfoToPanel(tabId);
+      const det = getTabDetection(tabId);
+      if (det) {
+        ctx.sendToPanel({ type: 'DETECTION_STATE', ...det });
       }
-    });
+    }
   });
 
   chrome.tabs.onRemoved.addListener((tabId) => {
+    if (activeTabId === tabId) activeTabId = null;
     deleteTabDetection(tabId);
     getCtx().contentPorts.delete(tabId);
   });

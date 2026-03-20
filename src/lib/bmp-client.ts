@@ -73,6 +73,7 @@ export class BmpClient {
   }
 
   get jwt(): string | null { return this.auth.jwt; }
+  get serverUrl(): string { return this.bmpUrl; }
 
   /** Inject enrichment cache for resolveRef lookups. */
   set cache(c: IdentityCache) { this._cache = c; }
@@ -127,9 +128,9 @@ export class BmpClient {
 
   /** Send a TreeItemCommand and extract the TreeNodeInformationDto from the response.
    *  Response format: ArrayList<IntegrationObjectResponse> where .response = TreeNodeInformationDto. */
-  private async fetchTreeItem(rid: string): Promise<ReturnType<typeof parseTreeNodeInfo>> {
+  private async fetchTreeItem(rid: string, signal?: AbortSignal): Promise<ReturnType<typeof parseTreeNodeInfo>> {
     const cmd = makeTreeItemCommand(rid);
-    const buffer = await this.transport.sendCommands([cmd]);
+    const buffer = await this.transport.sendCommands([cmd], signal);
     const objects = deserializeStream(buffer);
     for (const obj of objects) {
       const cls = obj?.$class ?? '';
@@ -172,13 +173,13 @@ export class BmpClient {
   // ── EC operations ────────────────────────────────────────────
 
   /** Execute Extended Code */
-  async executeEc(code: string, objectRid?: string, transactional = false): Promise<EcResult> {
+  async executeEc(code: string, objectRid?: string, transactional = false, signal?: AbortSignal): Promise<EcResult> {
     try {
       const cmd = makeExtendedExecuteCommand(code, {
         objectRid: objectRid ? BigInt(objectRid) : undefined,
         transactional,
       });
-      const objects = await this.transport.sendStreamingCommand(cmd);
+      const objects = await this.transport.sendStreamingCommand(cmd, signal);
       return parseEcResults(objects);
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -216,7 +217,7 @@ export class BmpClient {
   }
 
   /** Batch enrich: get businessId, type, name for multiple RIDs in a single EC call */
-  async batchEnrich(rids: string[]): Promise<{ results: Record<string, { businessId?: string; type?: string; name?: string }>; error?: string }> {
+  async batchEnrich(rids: string[], signal?: AbortSignal): Promise<{ results: Record<string, { businessId?: string; type?: string; name?: string }>; error?: string }> {
     let valid = rids.filter(Boolean).filter(rid => /^-?\d+$/.test(rid));
     if (valid.length === 0) return { results: {} };
     if (valid.length > BATCH_CHUNK_SIZE) valid = valid.slice(0, BATCH_CHUNK_SIZE);
@@ -231,7 +232,7 @@ export class BmpClient {
     lines.push('_r');
     const code = lines.join('\n');
 
-    const result = await this.executeEc(code, undefined, false);
+    const result = await this.executeEc(code, undefined, false, signal);
     if (!result.ok) { log.debug('batchEnrich', `EC failed for ${valid.length} RIDs:`, result.error); return { results: {}, error: result.error ?? 'EC execution failed' }; }
     if (result.log == null) { log.debug('batchEnrich', 'EC returned null output'); return { results: {}, error: 'EC returned null output' }; }
     if (result.log.trim() === '') { log.debug('batchEnrich', `EC returned empty for ${valid.length} RIDs:`, valid); return { results: {} }; }
@@ -265,7 +266,7 @@ export class BmpClient {
   /** Binary fallback: enrich via TreeItemCommand (one per RID, parallel).
    *  Uses lightweight tree node metadata — avoids the NullPointerException
    *  that GetObjectCommand hits on some old BMP objects. */
-  async batchEnrichBinary(rids: string[]): Promise<{ results: Record<string, { businessId?: string; type?: string; name?: string }>; error?: string }> {
+  async batchEnrichBinary(rids: string[], signal?: AbortSignal): Promise<{ results: Record<string, { businessId?: string; type?: string; name?: string }>; error?: string }> {
     let valid = rids.filter(Boolean).filter(rid => /^-?\d+$/.test(rid));
     if (valid.length === 0) return { results: {} };
     if (valid.length > BATCH_CHUNK_SIZE) valid = valid.slice(0, BATCH_CHUNK_SIZE);
@@ -274,7 +275,7 @@ export class BmpClient {
 
     await pMap(valid, async (rid) => {
       try {
-        const parsed = await this.fetchTreeItem(rid);
+        const parsed = await this.fetchTreeItem(rid, signal);
         if (parsed) {
           out[rid] = { businessId: parsed.businessId, type: parsed.type, name: parsed.name };
         }

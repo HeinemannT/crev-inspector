@@ -17,7 +17,10 @@ export class BmpTransport {
   ) {}
 
   /** Send serialized body, using JWT Bearer or LOGIN_TICKET depending on useTicketAuth */
-  async sendRequest(body: Uint8Array, timeout: number): Promise<ArrayBuffer> {
+  async sendRequest(body: Uint8Array, timeout: number, signal?: AbortSignal): Promise<ArrayBuffer> {
+    const timeoutSignal = AbortSignal.timeout(timeout);
+    const effectiveSignal = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal;
+
     if (this.useTicketAuth) {
       const makeTicketReq = async (ticket: string) => {
         const url = `${this.bmpUrl}cs/command?LOGIN_TICKET=${encodeURIComponent(ticket)}`;
@@ -25,7 +28,7 @@ export class BmpTransport {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-java-serialized-object' },
           body: body.buffer as ArrayBuffer,
-          signal: AbortSignal.timeout(timeout),
+          signal: effectiveSignal,
         });
       };
 
@@ -55,7 +58,7 @@ export class BmpTransport {
         'Authorization': `Bearer ${token}`,
       },
       body: body.buffer as ArrayBuffer,
-      signal: AbortSignal.timeout(timeout),
+      signal: effectiveSignal,
     });
 
     const res = await fetch(url, makeOpts(jwt));
@@ -78,13 +81,13 @@ export class BmpTransport {
   }
 
   /** Send one or more serialized commands */
-  async sendCommands(commands: any[]): Promise<ArrayBuffer> {
-    return this.sendRequest(serializeCommands(commands), AUTH_TIMEOUT);
+  async sendCommands(commands: any[], signal?: AbortSignal): Promise<ArrayBuffer> {
+    return this.sendRequest(serializeCommands(commands), AUTH_TIMEOUT, signal);
   }
 
   /** Send a streaming command (e.g. ExtendedExecuteCommand) */
-  async sendStreamingCommand(command: any): Promise<any[]> {
-    const buffer = await this.sendRequest(serializeCommands([command]), EC_TIMEOUT);
+  async sendStreamingCommand(command: any, signal?: AbortSignal): Promise<any[]> {
+    const buffer = await this.sendRequest(serializeCommands([command]), EC_TIMEOUT, signal);
     return deserializeStream(buffer);
   }
 

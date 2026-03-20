@@ -65,6 +65,11 @@ const ctx: SwContext = {
     if (panelPort) {
       panelPort.postMessage(msg);
     } else {
+      // Dedup CONNECTION_STATE — only keep the latest
+      if (msg.type === 'CONNECTION_STATE') {
+        const idx = pendingPanelMessages.findIndex(m => m.type === 'CONNECTION_STATE');
+        if (idx >= 0) pendingPanelMessages.splice(idx, 1);
+      }
       pendingPanelMessages.push(msg);
       while (pendingPanelMessages.length > PANEL_MSG_CAP) pendingPanelMessages.shift();
     }

@@ -7,6 +7,7 @@ import { BATCH_CHUNK_SIZE, MAX_PARALLEL, ENRICHMENT_RETRY_DELAY, MAX_PERMANENTLY
 const enrichedRids = new Set<string>();
 const permanentlyFailed = new Set<string>();
 let enrichmentGeneration = 0;
+let enrichAbort: AbortController | null = null;
 
 type EnrichmentData = { businessId?: string; type?: string; name?: string };
 
@@ -31,6 +32,8 @@ export function incrementGeneration() {
   enrichmentGeneration++;
   enrichedRids.clear();
   permanentlyFailed.clear();
+  enrichAbort?.abort();
+  enrichAbort = null;
 }
 
 export async function enrichBadges(rids: string[]) {
@@ -41,6 +44,8 @@ export async function enrichBadges(rids: string[]) {
   }
 
   const gen = enrichmentGeneration;
+  enrichAbort = new AbortController();
+  const signal = enrichAbort.signal;
   const cancelled = () => gen !== enrichmentGeneration;
 
   const newRids = rids.map(r => r.trim()).filter(rid => rid && !enrichedRids.has(rid));
@@ -77,6 +82,7 @@ export async function enrichBadges(rids: string[]) {
   }
 
   if (uncached.length === 0) {
+    enrichAbort = null; // nothing in-flight to abort
     if (cacheHitCount > 0 || alreadyFailed.length > 0) {
       if (cacheHitCount > 0) ctx.logActivity('success', `Enriched ${cacheHitCount} (cached)`);
       ctx.sendToPanel({ type: 'CACHE_STATS', count: ctx.cache.size });
@@ -97,13 +103,13 @@ export async function enrichBadges(rids: string[]) {
   const batchFailedChunks: { chunk: string[]; errorMsg?: string }[] = [];
   let total = cacheHitCount;
 
-  async function processChunk(chunk: string[], isCancelled: () => boolean): Promise<{ failed: string[]; batchError: boolean; errorMsg?: string }> {
+  async function processChunk(chunk: string[], isCancelled: () => boolean, abortSignal: AbortSignal): Promise<{ failed: string[]; batchError: boolean; errorMsg?: string }> {
     if (isCancelled()) return { failed: chunk, batchError: false };
     const failed: string[] = [];
     try {
       const { results: batchResults, error: batchError } = useEc
-        ? await ctx.client!.batchEnrich(chunk)
-        : await ctx.client!.batchEnrichBinary(chunk);
+        ? await ctx.client!.batchEnrich(chunk, abortSignal)
+        : await ctx.client!.batchEnrichBinary(chunk, abortSignal);
       if (isCancelled()) return { failed: chunk, batchError: false };
       if (batchError) {
         return { failed: chunk, batchError: true, errorMsg: batchError };
@@ -138,7 +144,7 @@ export async function enrichBadges(rids: string[]) {
   }
 
   if (cancelled()) { ctx.logActivity('info', 'Enrichment cancelled (profile changed)'); return; }
-  const chunkResults = await pMap(chunks, chunk => processChunk(chunk, cancelled), MAX_PARALLEL);
+  const chunkResults = await pMap(chunks, chunk => processChunk(chunk, cancelled, signal), MAX_PARALLEL);
 
   for (let i = 0; i < chunkResults.length; i++) {
     const result = chunkResults[i];
@@ -159,7 +165,7 @@ export async function enrichBadges(rids: string[]) {
     if (cancelled()) { ctx.logActivity('info', 'Enrichment cancelled (profile changed)'); return; }
     const retryResults = await pMap(
       batchFailedChunks,
-      ({ chunk }) => processChunk(chunk, cancelled),
+      ({ chunk }) => processChunk(chunk, cancelled, signal),
       MAX_PARALLEL,
     );
     for (let i = 0; i < retryResults.length; i++) {
