@@ -90,14 +90,17 @@ export async function enrichBadges(rids: string[]) {
   log.debug('enrich', `enrichBadges: ${rids.length} incoming, ${newRids.length} new, ${permanentlyFailed.size} permanently failed`);
   if (newRids.length === 0) return;
 
-  // Immediately broadcast empty enrichment for permanently-failed RIDs (so labels don't stay "loading")
-  const alreadyFailed = newRids.filter(rid => isStillFailed(rid));
+  // Partition: still-failed RIDs get empty broadcast, the rest proceed to enrichment
+  const alreadyFailed: string[] = [];
+  const toProcess: string[] = [];
+  for (const rid of newRids) {
+    (isStillFailed(rid) ? alreadyFailed : toProcess).push(rid);
+  }
   if (alreadyFailed.length > 0) {
     const fail: Record<string, EnrichmentData> = {};
     for (const rid of alreadyFailed) fail[rid] = {};
     ctx.broadcastToContent({ type: 'BADGE_ENRICHMENT', enrichments: fail });
   }
-  const toProcess = newRids.filter(rid => !isStillFailed(rid));
 
   // Phase 1: Send cache hits immediately (zero latency)
   const cacheHits: Record<string, EnrichmentData> = {};
