@@ -1,6 +1,6 @@
 /**
  * Quick Profile Switcher — floating overlay for instant profile switching.
- * Triggered by Ctrl+Shift+S or clicking the header status area.
+ * Triggered by clicking the header status area.
  * Number keys 1-9 for instant selection, Escape to dismiss.
  */
 
@@ -10,10 +10,13 @@ import { S, sendMessage } from './state';
 let overlayEl: HTMLElement | null = null;
 let dismissTimer: ReturnType<typeof setTimeout> | null = null;
 let keyHandler: ((e: KeyboardEvent) => void) | null = null;
+let hideTime = 0; // prevent open-after-close on same click (capture vs bubble race)
 
 export function showProfileSwitcher(): void {
   // Already visible → dismiss
   if (overlayEl) { hideProfileSwitcher(); return; }
+  // Guard: don't reopen if just closed on the same event cycle
+  if (Date.now() - hideTime < 50) return;
 
   const profiles = S.settings.profiles;
   if (profiles.length === 0) {
@@ -82,6 +85,7 @@ export function hideProfileSwitcher(): void {
   if (overlayEl) {
     overlayEl.remove();
     overlayEl = null;
+    hideTime = Date.now();
   }
   if (keyHandler) {
     document.removeEventListener('keydown', keyHandler, true);
