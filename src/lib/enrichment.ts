@@ -15,18 +15,30 @@ function getConnectionDisplay(): string {
 }
 
 const enrichedRids = new Set<string>();
-const permanentlyFailed = new Set<string>();
+const permanentlyFailed = new Map<string, number>(); // RID → failure timestamp
+const FAILED_TTL = 60_000; // re-allow enrichment after 60s
 let enrichmentGeneration = 0;
 let enrichAbort: AbortController | null = null;
 
 type EnrichmentData = { businessId?: string; type?: string; name?: string };
+
+/** Check if a RID is still within its failure TTL */
+function isStillFailed(rid: string): boolean {
+  const failedAt = permanentlyFailed.get(rid);
+  if (!failedAt) return false;
+  if (Date.now() - failedAt > FAILED_TTL) {
+    permanentlyFailed.delete(rid);
+    return false;
+  }
+  return true;
+}
 
 /** Evict oldest entries from permanentlyFailed if over cap */
 function capPermanentlyFailed() {
   if (permanentlyFailed.size <= MAX_PERMANENTLY_FAILED) return;
   const excess = permanentlyFailed.size - MAX_PERMANENTLY_FAILED;
   let count = 0;
-  for (const rid of permanentlyFailed) {
+  for (const rid of permanentlyFailed.keys()) {
     if (count >= excess) break;
     permanentlyFailed.delete(rid);
     count++;
@@ -79,13 +91,13 @@ export async function enrichBadges(rids: string[]) {
   if (newRids.length === 0) return;
 
   // Immediately broadcast empty enrichment for permanently-failed RIDs (so labels don't stay "loading")
-  const alreadyFailed = newRids.filter(rid => permanentlyFailed.has(rid));
+  const alreadyFailed = newRids.filter(rid => isStillFailed(rid));
   if (alreadyFailed.length > 0) {
     const fail: Record<string, EnrichmentData> = {};
     for (const rid of alreadyFailed) fail[rid] = {};
     ctx.broadcastToContent({ type: 'BADGE_ENRICHMENT', enrichments: fail });
   }
-  const toProcess = newRids.filter(rid => !permanentlyFailed.has(rid));
+  const toProcess = newRids.filter(rid => !isStillFailed(rid));
 
   // Phase 1: Send cache hits immediately (zero latency)
   const cacheHits: Record<string, EnrichmentData> = {};
@@ -93,7 +105,7 @@ export async function enrichBadges(rids: string[]) {
 
   for (const rid of toProcess) {
     const cached = ctx.cache.get(rid);
-    if (cached?.businessId) {
+    if (cached?.businessId || cached?.type || cached?.name) {
       cacheHits[rid] = { businessId: cached.businessId, type: cached.type, name: cached.name };
       enrichedRids.add(rid);
     } else {
@@ -197,7 +209,7 @@ export async function enrichBadges(rids: string[]) {
     for (let i = 0; i < retryResults.length; i++) {
       const result = retryResults[i];
       if (result.batchError) {
-        for (const rid of batchFailedChunks[i].chunk) permanentlyFailed.add(rid);
+        for (const rid of batchFailedChunks[i].chunk) permanentlyFailed.set(rid, Date.now());
         ctx.logActivity('warn', `Batch retry failed (${result.errorMsg ?? 'unknown'}) — ${batchFailedChunks[i].chunk.length} RIDs skipped`);
       } else {
         failedRids.push(...result.failed);
@@ -208,7 +220,7 @@ export async function enrichBadges(rids: string[]) {
   if (cancelled()) { ctx.logActivity('info', 'Enrichment cancelled (profile changed)'); return; }
 
   // Mark remaining failures as permanently failed (no Phase 3 binary fallback)
-  for (const rid of failedRids) permanentlyFailed.add(rid);
+  for (const rid of failedRids) permanentlyFailed.set(rid, Date.now());
   capPermanentlyFailed();
 
   // Broadcast empty enrichment for failed RIDs so content removes loading state

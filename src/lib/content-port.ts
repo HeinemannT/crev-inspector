@@ -76,7 +76,7 @@ export function sendToSW(msg: InspectorMessage): void {
     catch (e) { log.swallow('port:oneShotOuter', e); }
   }
   // Queue critical messages for port-based delivery on reconnect
-  if (msg.type === 'DETECTION_RESULT' || msg.type === 'OBJECTS_DISCOVERED') {
+  if (msg.type === 'DETECTION_RESULT' || msg.type === 'OBJECTS_DISCOVERED' || msg.type === 'ENRICH_BADGES') {
     // Keep only latest detection (replace older)
     if (msg.type === 'DETECTION_RESULT') {
       const idx = pendingMessages.findIndex(m => m.type === 'DETECTION_RESULT');
@@ -89,6 +89,17 @@ export function sendToSW(msg: InspectorMessage): void {
         const existing = new Set((last as any).objects.map((o: any) => o.rid));
         for (const obj of (msg as any).objects) {
           if (!existing.has(obj.rid)) (last as any).objects.push(obj);
+        }
+        return;
+      }
+    }
+    // Merge ENRICH_BADGES by combining RID arrays
+    if (msg.type === 'ENRICH_BADGES') {
+      const last = pendingMessages[pendingMessages.length - 1];
+      if (last?.type === 'ENRICH_BADGES') {
+        const existing = new Set((last as any).rids as string[]);
+        for (const rid of (msg as any).rids) {
+          if (!existing.has(rid)) (last as any).rids.push(rid);
         }
         return;
       }
