@@ -7,5 +7,8 @@ ARCHITECTURE.md
 
 # Tests and dev config
 src/lib/__tests__/
+vite.config.ts
 vitest.config.ts
 vitest.integration.config.ts
+tsconfig.json
+tsconfig.node.json
