@@ -88,7 +88,13 @@ registerTabListeners();
 
 // ── Boot ────────────────────────────────────────────────────────
 
-Promise.all([cache.load(), history.load(), favorites.load(), scriptHistory.load()]).then(async () => {
+// Boot: load state managers independently (one failure must not block the rest)
+Promise.all([
+  cache.load().catch(e => log.swallow('sw:cache', e)),
+  history.load().catch(e => log.swallow('sw:history', e)),
+  favorites.load().catch(e => log.swallow('sw:favorites', e)),
+  scriptHistory.load().catch(e => log.swallow('sw:scriptHistory', e)),
+]).then(async () => {
   const stored = await chrome.storage.local.get(['crev_settings', 'crev_inspect_active']).catch(e => { log.swallow('sw:loadStorage', e); return {} as Record<string, unknown>; });
   await loadSettingsFrom((stored as Record<string, unknown>).crev_settings);
   if ((stored as Record<string, unknown>).crev_inspect_active === true) inspectActive = true;
@@ -96,7 +102,7 @@ Promise.all([cache.load(), history.load(), favorites.load(), scriptHistory.load(
   await restoreActivity();
 }).catch(e => {
   log.swallow('sw:init', e);
-  resolveSettings();
+  resolveSettings(); // ensure settingsReady resolves even on catastrophic failure
 });
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(e => log.swallow('sw:sidePanel', e));

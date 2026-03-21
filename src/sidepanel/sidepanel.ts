@@ -13,6 +13,7 @@ import { renderConnectTab } from './tabs/connect-tab';
 import { renderObjectsTab } from './tabs/objects-tab';
 import { renderPageTab } from './tabs/page-tab';
 import { renderLogTab, renderActivityFeed } from './tabs/log-tab';
+import { showProfileSwitcher } from './profile-switcher';
 
 // ── Init ────────────────────────────────────────────────────────
 
@@ -243,6 +244,7 @@ function buildApp(): void {
 
   app.querySelector('#toggle-paint')?.addEventListener('click', () => sendMessage({ type: 'TOGGLE_PAINT' }));
   app.querySelector('#toggle-inspect')?.addEventListener('click', () => sendMessage({ type: 'TOGGLE_INSPECT' }));
+  app.querySelector('#header-status')?.addEventListener('click', () => showProfileSwitcher());
 
   renderActiveTab();
 }

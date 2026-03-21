@@ -510,25 +510,14 @@ function flashApplyResult(rid: string, ok: boolean, error?: string) {
     setTimeout(() => { label.classList.remove(flashClass); }, 600);
   }
 
-  const banner = document.getElementById('crev-paint-banner');
-  if (!banner) return;
-
+  // Use toast for feedback — keeps banner in sync with paint state
   if (ok) {
-    updatePaintBanner('Applied style \u2014 ', h('b', null, 'refresh page to see changes'));
-    setTimeout(() => updatePaintBanner(), 3000);
+    showToast('Applied \u2014 refresh page to see changes', 'success');
   } else {
-    banner.style.background = '#da1e28';
-    const bannerText = document.getElementById('crev-paint-text');
-    if (bannerText) {
-      const msg = error === 'No source selected'
-        ? 'Not connected \u2014 add a server in Connect tab'
-        : `Error: ${error ?? 'unknown'}`;
-      render(bannerText, msg);
-    }
-    setTimeout(() => {
-      banner.style.background = '#ff832b';
-      updatePaintBanner();
-    }, 4000);
+    const msg = error === 'No source selected'
+      ? 'Not connected \u2014 add a server in Connect tab'
+      : `Paint error: ${error ?? 'unknown'}`;
+    showToast(msg, 'error');
   }
 }
 

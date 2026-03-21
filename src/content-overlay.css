@@ -104,7 +104,7 @@
 #crev-paint-banner .crev-paint-close:hover { opacity: 1; }
 #crev-tooltip {
   position: fixed;
-  z-index: 2147483647;
+  z-index: 2147483646;
   padding: 8px 12px;
   border-radius: 8px;
   font: 11px/1.4 'Segoe UI', Roboto, system-ui, sans-serif;

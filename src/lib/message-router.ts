@@ -244,14 +244,19 @@ export function handlePanelMessage(msg: InspectorMessage) {
     }
 
     case 'DELETE_PROFILE': {
-      const profiles = ctx.settings.profiles.filter(p => p.id !== msg.profileId);
+      const deletedId = msg.profileId;
+      const profiles = ctx.settings.profiles.filter(p => p.id !== deletedId);
       let activeId = ctx.settings.activeProfileId;
-      if (activeId === msg.profileId) {
+      if (activeId === deletedId) {
         activeId = profiles[0]?.id ?? '';
       }
       ctx.settings = { ...ctx.settings, profiles, activeProfileId: activeId };
       saveSettings();
       rebuildClient(true);
+      // Clean up orphaned storage keys for deleted profile
+      const orphanKeys = ['cache', 'cache_date', 'history', 'favorites', 'script_history']
+        .map(k => `crev_${deletedId}_${k}`);
+      chrome.storage.local.remove(orphanKeys).catch(e => log.swallow('settings:cleanupProfile', e));
       ctx.sendToPanel({ type: 'SETTINGS_DATA', settings: ctx.settings });
       break;
     }

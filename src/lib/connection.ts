@@ -20,15 +20,16 @@ let lastPollTime = 0;
 let lastBroadcastDisplay: string | null = null;
 
 /** Apply BMP version flags to client (auth mode, lookup support).
- *  When version is null (e.g. /buildNum returned 401), assume old BMP —
- *  binary mode with ticket auth is the safe fallback that works on all versions. */
-function applyVersionFlags(version: string | null) {
+ *  When version is null, assume old BMP — binary mode with ticket auth
+ *  is the safe fallback that works on all versions. */
+function applyVersionFlags(version: string | null, reason?: string) {
   const ctx = getCtx();
   if (!ctx.client) return;
   if (!version) {
-    // Version detection failed — assume old BMP (safe default)
     ctx.client.assumeOldBmp();
-    log.info('connection:versionFlags', 'Version detection failed — assuming old BMP (binary + ticket auth)');
+    log.info('connection:versionFlags', reason
+      ? `Version detection: ${reason} — assuming old BMP (binary + ticket auth)`
+      : 'Version detection failed — assuming old BMP (binary + ticket auth)');
     return;
   }
   ctx.client.applyVersionFlags(version);
@@ -132,7 +133,7 @@ export async function runAuthTest() {
         authError = null;
         if (!healthVersion) {
           healthVersion = await BmpClient.getBuildNumber(bmpUrl, ctx.client.jwt ?? undefined);
-          applyVersionFlags(healthVersion);
+          applyVersionFlags(healthVersion, healthVersion ? undefined : '/buildNum not available (likely old BMP)');
         }
         ctx.logActivity('success', `Connected to ${profile.label}`);
         pushConnectionState();
@@ -160,7 +161,7 @@ export async function runAuthTest() {
     }
     if (result.ok && !healthVersion) {
       healthVersion = await BmpClient.getBuildNumber(bmpUrl, testClient.jwt ?? undefined);
-      applyVersionFlags(healthVersion);
+      applyVersionFlags(healthVersion, healthVersion ? undefined : '/buildNum not available (likely old BMP)');
     }
   } catch (e) {
     if (ctx.client !== clientAtStart) return;
@@ -206,7 +207,7 @@ export async function pollHealth() {
     if (result.up) {
       if (!healthVersion) {
         healthVersion = await BmpClient.getBuildNumber(bmpUrl, ctx.client?.jwt ?? undefined) ?? '';
-        applyVersionFlags(healthVersion);
+        applyVersionFlags(healthVersion || null, healthVersion ? undefined : '/buildNum not available (likely old BMP)');
       }
       healthUp = 'up';
       healthResponseMs = result.responseMs;

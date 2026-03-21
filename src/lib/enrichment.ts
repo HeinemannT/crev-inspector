@@ -49,6 +49,10 @@ export function incrementGeneration() {
 export async function enrichBadges(rids: string[]) {
   const ctx = getCtx();
   if (!ctx.client) {
+    // Broadcast empty enrichments so content labels stop shimmer-loading
+    const empty: Record<string, EnrichmentData> = {};
+    for (const rid of rids) empty[rid] = {};
+    ctx.broadcastToContent({ type: 'BADGE_ENRICHMENT', enrichments: empty });
     ctx.logActivity('warn', 'Enrichment skipped — not connected');
     return;
   }
