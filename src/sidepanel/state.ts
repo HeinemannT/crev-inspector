@@ -5,7 +5,7 @@
 import type { BmpObject, InspectorMessage, InspectorSettings, ConnectionState, WidgetInfo, ActivityEntry, DetectionPhase, HistoryEntry, FavoriteEntry, PaintPhase } from '../lib/types';
 import { DEFAULT_SETTINGS } from '../lib/types';
 import { log } from '../lib/logger';
-import { ACTIVITY_MAX } from '../lib/constants';
+import { ACTIVITY_MAX, RECONNECT_INITIAL_DELAY, RECONNECT_MAX_DELAY } from '../lib/constants';
 
 // ── State ───────────────────────────────────────────────────────
 
@@ -50,10 +50,55 @@ export function pushActivityEntry(v: ActivityEntry) {
 
 // ── Port + messaging ─────────────────────────────────────────────
 
-export const port = chrome.runtime.connect({ name: 'panel' });
+let port: chrome.runtime.Port | null = null;
+let reconnectDelay = RECONNECT_INITIAL_DELAY;
+let messageHandler: ((msg: InspectorMessage) => void) | null = null;
+let reconnectHandler: (() => void) | null = null;
+
+/** Register handler for incoming SW messages (called once at init) */
+export function onPortMessage(handler: (msg: InspectorMessage) => void): void {
+  messageHandler = handler;
+}
+
+/** Register handler called after successful reconnect (for re-sync) */
+export function onReconnect(handler: () => void): void {
+  reconnectHandler = handler;
+}
+
+/** Connect (or reconnect) the panel port to the service worker */
+export function connectPanel(): void {
+  try {
+    port = chrome.runtime.connect({ name: 'panel' });
+    reconnectDelay = RECONNECT_INITIAL_DELAY;
+  } catch (e) {
+    log.swallow('panel:connect', e);
+    return;
+  }
+
+  port.onMessage.addListener((msg: InspectorMessage) => {
+    messageHandler?.(msg);
+  });
+
+  port.onDisconnect.addListener(() => {
+    port = null;
+    // Only retry if extension context is still valid
+    try {
+      chrome.runtime.getURL('');
+      setTimeout(() => {
+        connectPanel();
+        reconnectHandler?.();
+      }, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_DELAY);
+    } catch (e) {
+      log.swallow('panel:reconnectCheck', e);
+    }
+  });
+}
 
 export function sendMessage(msg: InspectorMessage) {
-  try { port.postMessage(msg); } catch (e) { log.swallow('panel:sendMessage', e); }
+  if (!port) { log.debug('panel', 'sendMessage: port is null, message dropped:', msg.type); return; }
+  try { port.postMessage(msg); }
+  catch (e) { log.swallow('panel:sendMessage', e); port = null; }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────

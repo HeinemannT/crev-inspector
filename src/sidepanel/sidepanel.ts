@@ -7,8 +7,8 @@ import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
 import { log } from '../lib/logger';
 import { ICON_PAINT, ICON_REFRESH } from './utils';
-import { initDetailView, showDetail, handleDetailMessage, isDetailActive, clearDetail } from './detail-view';
-import { S, pushActivityEntry, sendMessage, getActivePanel, port } from './state';
+import { initDetailView, showDetail, handleDetailMessage, isDetailActive } from './detail-view';
+import { S, pushActivityEntry, sendMessage, getActivePanel, onPortMessage, onReconnect, connectPanel } from './state';
 import { renderConnectTab } from './tabs/connect-tab';
 import { renderObjectsTab } from './tabs/objects-tab';
 import { renderPageTab } from './tabs/page-tab';
@@ -26,7 +26,7 @@ initDetailView(
 
 // ── Message routing ──────────────────────────────────────────────
 
-port.onMessage.addListener((msg: InspectorMessage) => {
+onPortMessage((msg: InspectorMessage) => {
   // Route detail-relevant messages when in detail view
   if (S.detailRid && (msg.type === 'SERVER_LOOKUP_RESULT' || msg.type === 'EC_RESULT')) {
     const panel = getActivePanel();
@@ -133,6 +133,16 @@ port.onMessage.addListener((msg: InspectorMessage) => {
       break;
   }
 });
+
+// On reconnect after SW restart: re-request all state (SW lost everything in memory)
+onReconnect(() => {
+  sendMessage({ type: 'GET_CONNECTION_STATE' });
+  sendMessage({ type: 'GET_SETTINGS' });
+  switchTab(S.activeTab);
+});
+
+// Initial connection
+connectPanel();
 
 // ── Render ───────────────────────────────────────────────────────
 
@@ -369,10 +379,6 @@ function connectDotClass(): string {
   }
 }
 
-/** Check if the extension is connected to a BMP server */
-export function isConnected(): boolean {
-  return S.connState.display === 'connected';
-}
 
 function showPaintError(error: string) {
   const tabBar = app.querySelector('.tab-bar');

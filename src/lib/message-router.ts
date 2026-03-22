@@ -478,16 +478,6 @@ export function handleOneShotMessage(
   return false;
 }
 
-// ── Technical Overlay toggle ─────────────────────────────────────
-
-export function toggleTechnicalOverlay() {
-  const ctx = getCtx();
-  ctx.technicalOverlay = !ctx.technicalOverlay;
-  const msg: InspectorMessage = { type: 'TECHNICAL_OVERLAY_STATE', active: ctx.technicalOverlay };
-  ctx.broadcastToContent(msg);
-  ctx.sendToPanel(msg);
-  ctx.logActivity('info', ctx.technicalOverlay ? 'Technical overlay ON' : 'Technical overlay OFF');
-}
 
 // ── Object View launcher (lazy-loaded) ──────────────────────────
 

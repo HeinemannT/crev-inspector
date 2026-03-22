@@ -1,7 +1,7 @@
 import type { BmpObject } from './types';
 
 /** Compare source priority: server > fiber > dom. */
-export function prioritySource(a: BmpObject['source'], b: BmpObject['source']): BmpObject['source'] {
+function prioritySource(a: BmpObject['source'], b: BmpObject['source']): BmpObject['source'] {
   const order: Record<string, number> = { server: 3, fiber: 1, dom: 0 };
   return (order[a] ?? 0) >= (order[b] ?? 0) ? a : b;
 }

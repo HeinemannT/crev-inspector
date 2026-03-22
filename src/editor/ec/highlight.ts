@@ -42,22 +42,4 @@ const extendedHighlightStyle = HighlightStyle.define([
 /** Extension to apply to an EditorView for Extended Code highlighting (dark). */
 export const extendedHighlighting = syntaxHighlighting(extendedHighlightStyle)
 
-/** Light theme highlight style — higher contrast colors for white backgrounds. */
-const extendedHighlightStyleLight = HighlightStyle.define([
-  { tag: tags.keyword, color: '#1d4ed8' },
-  { tag: tags.special(tags.name), color: '#b45309', fontWeight: 'bold' },
-  { tag: tags.function(tags.name), color: '#7c3aed' },
-  { tag: tags.propertyName, color: '#15803d' },
-  { tag: tags.constant(tags.name), color: '#92400e' },
-  { tag: tags.bool, color: '#be185d' },
-  { tag: tags.null, color: '#64748b', fontStyle: 'italic' },
-  { tag: tags.string, color: '#a16207' },
-  { tag: tags.comment, color: '#94a3b8', fontStyle: 'italic' },
-  { tag: tags.number, color: '#6d28d9' },
-  { tag: tags.operator, color: '#64748b' },
-  { tag: tags.function(tags.variableName), color: '#0d9488' },
-  { tag: tags.special(tags.variableName), color: '#c2410c' },
-])
 
-/** Extension for light theme. */
-const extendedHighlightingLight = syntaxHighlighting(extendedHighlightStyleLight)

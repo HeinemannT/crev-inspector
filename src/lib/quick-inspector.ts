@@ -170,6 +170,6 @@ export function isQuickInspectorVisible(): boolean {
   return panelEl != null;
 }
 
-export function getQuickInspectorRid(): string | null {
+function getQuickInspectorRid(): string | null {
   return currentRid;
 }
