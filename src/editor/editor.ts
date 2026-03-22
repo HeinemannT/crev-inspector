@@ -12,9 +12,17 @@ import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
 import { lintGutter } from '@codemirror/lint'
 import { oneDark } from '@codemirror/theme-one-dark'
 
-// Shared
+// Shared types + context helpers
 import { type SaveTarget, type ScriptHistoryEntry } from '../lib/types'
 import { escHtml, escAttr } from '../lib/html'
+import {
+  type EditorContext,
+  formatLabel,
+  getActiveCode,
+  getActiveIdentity,
+  getExecutionRid,
+  getSaveTarget,
+} from './editor-types'
 
 // EC-specific extensions
 import { extendedLanguage } from './ec/language'
@@ -26,25 +34,6 @@ import { ecBlockMatching } from './ec/blockMatching'
 import { ecFoldService } from './ec/foldRegions'
 import { wrapInIf, wrapInForEach } from './ec/wrapCommands'
 import { renameAllOccurrences, selectNextOccurrence } from './ec/renameVariable'
-
-// ── Types ────────────────────────────────────────────────────────
-
-interface EditorContext {
-  rid: string
-  type: string
-  name: string
-  businessId: string
-  property: string | null
-  code: string
-  codeProps: Record<string, string>
-  templateRid?: string
-  templateName?: string
-  templateType?: string
-  templateCodeProps?: Record<string, string>
-  saveTarget: SaveTarget
-  objectRid?: string
-  extended?: boolean
-}
 
 // ── State ────────────────────────────────────────────────────────
 
@@ -70,16 +59,14 @@ const root = document.getElementById('editor-root')!
 async function init() {
   root.innerHTML = '<div class="editor-loading">Loading\u2026</div>'
 
-  // Load context from per-RID key (hash = RID), fallback to old global key for migration
+  // Load context from per-RID key (hash = RID)
   try {
     const rid = location.hash.slice(1)
     const perRidKey = rid ? `crev_editor_ctx_${rid}` : null
     const keys = ['crev_editor_output_height']
     if (perRidKey) keys.push(perRidKey)
-    keys.push('crev_editor_context') // fallback for migration
     const result = await chrome.storage.local.get(keys)
-    ctx = (perRidKey && result[perRidKey] as EditorContext | null)
-      ?? (result.crev_editor_context as EditorContext | null)
+    ctx = perRidKey ? (result[perRidKey] as EditorContext | null) : null
     if (typeof result.crev_editor_output_height === 'number') {
       outputHeight = result.crev_editor_output_height
     }
@@ -94,23 +81,20 @@ async function init() {
   }
 
   if (ctx.extended) {
-    // Extended mode: no property tabs, just a blank editor with page context
     activeProperty = ''
     updateWindowTitle()
     renderShell()
-    createEditor(ctx.code || '')
+    createEditor('')
   } else {
-    activeProperty = ctx.property ?? 'expression'
-    // If in template mode and template code is available, show template code
-    const activeProps = getActiveCodeProps()
-    if (!activeProps[activeProperty]) {
-      activeProperty = Object.keys(activeProps)[0] ?? ctx.property ?? 'expression'
+    const activeCode = getActiveCode(ctx)
+    activeProperty = ctx.property ?? Object.keys(activeCode)[0] ?? 'expression'
+    if (!activeCode[activeProperty]) {
+      activeProperty = Object.keys(activeCode)[0] ?? 'expression'
     }
     updateWindowTitle()
     renderShell()
-    createEditor(activeProps[activeProperty] ?? ctx.code)
+    createEditor(activeCode[activeProperty] ?? '')
   }
-
 }
 
 // ── Window title ────────────────────────────────────────────────
@@ -118,63 +102,73 @@ async function init() {
 function updateWindowTitle() {
   if (!ctx) return
   if (ctx.extended) {
-    document.title = ctx.name ? `Extended Code \u2014 ${ctx.name}` : 'Extended Code'
+    const name = ctx.instance.name
+    document.title = name ? `Extended Code \u2014 ${name}` : 'Extended Code'
     return
   }
-  const isTemplateMode = ctx.saveTarget === 'template' && !!ctx.templateRid
-  const effectiveType = isTemplateMode ? (ctx.templateType ?? ctx.type) : ctx.type
-  const name = isTemplateMode ? (ctx.templateName ?? ctx.name) : ctx.name
-  const label = name || ctx.businessId || ctx.rid
-  document.title = `${effectiveType} · ${label}`
+  const identity = getActiveIdentity(ctx)
+  document.title = `${identity.type || 'Object'} \u00b7 ${formatLabel(identity, 'full')}`
 }
 
 // ── Shell layout ─────────────────────────────────────────────────
-
-/** Get the active code props based on current save target */
-function getActiveCodeProps(): Record<string, string> {
-  if (!ctx) return {}
-  if (ctx.saveTarget === 'template' && ctx.templateRid && ctx.templateCodeProps) {
-    return ctx.templateCodeProps
-  }
-  return ctx.codeProps
-}
 
 function renderShell() {
   if (!ctx) return
 
   const isExtended = !!ctx.extended
-  const isTemplateMode = !isExtended && ctx.saveTarget === 'template' && !!ctx.templateRid
-  const activeCodeProps = getActiveCodeProps()
-  const propKeys = Object.keys(activeCodeProps)
+  const activeCode = getActiveCode(ctx)
+  const propKeys = Object.keys(activeCode)
 
+  // Property tabs with override indicators
   let propTabsHtml = ''
   if (!isExtended && propKeys.length > 1) {
     propTabsHtml = '<div class="editor-prop-tabs">'
     for (const key of propKeys) {
-      const cls = key === activeProperty ? 'editor-prop-tab active' : 'editor-prop-tab'
-      propTabsHtml += `<button class="${cls}" data-prop="${escAttr(key)}">${escHtml(key)}</button>`
+      const active = key === activeProperty ? ' active' : ''
+      const overridden = ctx.overrides[key] ? ' editor-prop-tab--overridden' : ''
+      propTabsHtml += `<button class="editor-prop-tab${active}${overridden}" data-prop="${escAttr(key)}" title="${ctx.overrides[key] ? 'Instance differs from template' : ''}">${escHtml(key)}</button>`
     }
     propTabsHtml += '</div>'
   }
 
-  // Template/instance toggle — only shown when a template exists (not in extended mode)
+  // Template/instance toggle with identity labels
   let toggleHtml = ''
-  if (!isExtended && ctx.templateRid) {
+  if (!isExtended && ctx.template) {
     const tmplCls = ctx.saveTarget === 'template' ? 'editor-target-btn active' : 'editor-target-btn'
     const instCls = ctx.saveTarget === 'instance' ? 'editor-target-btn active' : 'editor-target-btn'
+    const tmplShort = formatLabel(ctx.template, 'short')
+    const instShort = formatLabel(ctx.instance, 'short')
+    const tmplFull = formatLabel(ctx.template, 'full')
+    const instFull = formatLabel(ctx.instance, 'full')
     toggleHtml = `<div class="editor-target-toggle">
-      <button class="${tmplCls}" data-target="template" title="Edit template — changes propagate to all linked copies">Template</button>
-      <button class="${instCls}" data-target="instance" title="Edit this instance only">Instance</button>
+      <button class="${tmplCls}" data-target="template" title="${escAttr(tmplFull)} \u2014 changes propagate">${escHtml(tmplShort)}</button>
+      <button class="${instCls}" data-target="instance" title="${escAttr(instFull)}">${escHtml(instShort)}</button>
     </div>`
   }
 
+  // Target label
   let targetLabel: string
   if (isExtended) {
-    targetLabel = ctx.name ? `${escHtml(ctx.type || 'Page')} \u00b7 ${escHtml(ctx.name)}` : 'Extended Code'
-  } else if (isTemplateMode) {
-    targetLabel = `template: ${escHtml(ctx.templateName ?? '?')}`
+    const inst = ctx.instance
+    targetLabel = inst.name
+      ? `${escHtml(inst.type || 'Page')} \u00b7 ${escHtml(inst.name)}`
+      : 'Extended Code'
   } else {
-    targetLabel = escHtml(activeProperty)
+    const identity = getActiveIdentity(ctx)
+    const bid = identity.businessId || identity.type || identity.rid
+    const isTemplateMode = ctx.saveTarget === 'template' && ctx.template
+    if (isTemplateMode) {
+      targetLabel = `template: ${escHtml(bid)}`
+    } else {
+      targetLabel = escHtml(bid)
+      if (propKeys.length <= 1) {
+        targetLabel += ` \u00b7 ${escHtml(activeProperty)}`
+      }
+    }
+    // Single-property override dot
+    if (!isTemplateMode && propKeys.length <= 1 && ctx.overrides[activeProperty]) {
+      targetLabel += ' <span class="editor-override-dot" title="Instance differs from template"></span>'
+    }
   }
 
   const saveBtn = isExtended ? '' : '<button class="btn btn-success" id="btn-save">Save</button>'
@@ -219,20 +213,20 @@ function renderShell() {
     btn.addEventListener('click', () => {
       const target = btn.dataset.target as SaveTarget
       if (!target || !ctx || target === ctx.saveTarget) return
-      // Save current code to the current target's codeProps
+      // Save current code to the current target's code
       if (editorView) {
-        const currentProps = getActiveCodeProps()
-        currentProps[activeProperty] = editorView.state.doc.toString()
+        const currentCode = getActiveCode(ctx)
+        currentCode[activeProperty] = editorView.state.doc.toString()
       }
       ctx.saveTarget = target
-      // Re-determine active property from new target's code props
-      const newProps = getActiveCodeProps()
-      if (!newProps[activeProperty]) {
-        activeProperty = Object.keys(newProps)[0] ?? activeProperty
+      // Re-determine active property from new target's code
+      const newCode = getActiveCode(ctx)
+      if (!newCode[activeProperty]) {
+        activeProperty = Object.keys(newCode)[0] ?? activeProperty
       }
       updateWindowTitle()
       renderShell()
-      createEditor(newProps[activeProperty] ?? '')
+      createEditor(newCode[activeProperty] ?? '')
     })
   }
 
@@ -241,15 +235,15 @@ function renderShell() {
     tab.addEventListener('click', () => {
       const prop = tab.dataset.prop
       if (!prop || prop === activeProperty || !ctx) return
-      // Save current code to codeProps
+      // Save current code
       if (editorView) {
-        const currentProps = getActiveCodeProps()
-        currentProps[activeProperty] = editorView.state.doc.toString()
+        const currentCode = getActiveCode(ctx)
+        currentCode[activeProperty] = editorView.state.doc.toString()
       }
       activeProperty = prop
       renderShell()
-      const cProps = getActiveCodeProps()
-      createEditor(cProps[prop] ?? '')
+      const code = getActiveCode(ctx)
+      createEditor(code[prop] ?? '')
     })
   }
 }
@@ -307,10 +301,9 @@ function createEditor(code: string) {
     EditorView.updateListener.of(update => {
       if (update.selectionSet || update.docChanged) {
         updateStatusBar(update.view)
-        // Update Run button label based on selection
         const { from, to } = update.state.selection.main
         const btn = document.getElementById('btn-preview')
-        if (btn) btn.textContent = from !== to ? 'Run \u25B6 sel' : 'Run \u25B6'
+        if (btn) btn.textContent = from !== to ? 'Run \u25B6 \u00b7' : 'Run \u25B6'
       }
       if (update.docChanged) {
         dirty = true
@@ -379,7 +372,7 @@ async function doPreview() {
     const response = await chrome.runtime.sendMessage({
       type: 'EC_EXECUTE',
       code,
-      objectRid: ctx.extended ? ctx.objectRid : ctx.rid,
+      objectRid: getExecutionRid(ctx),
     })
     lastDuration = Date.now() - startTime
     if (response?.ok !== false) {
@@ -402,11 +395,10 @@ async function doSave() {
   if (!editorView || !ctx) return
   const code = editorView.state.doc.toString()
 
-  // Determine save target
-  const isTemplateMode = ctx.saveTarget === 'template' && !!ctx.templateRid
-  const targetRid = isTemplateMode ? ctx.templateRid! : ctx.rid
-  const targetType = isTemplateMode ? (ctx.templateType ?? ctx.type) : ctx.type
-  const targetLabel = isTemplateMode ? `template "${ctx.templateName}"` : 'instance'
+  const target = getSaveTarget(ctx)
+  const targetLabel = ctx.saveTarget === 'template' && ctx.template
+    ? `template "${formatLabel(target.identity, 'full')}"`
+    : `instance "${formatLabel(target.identity, 'full')}"`
 
   if (!confirm(`Save ${activeProperty} to ${targetLabel}?`)) return
 
@@ -418,18 +410,22 @@ async function doSave() {
   try {
     const response = await chrome.runtime.sendMessage({
       type: 'SAVE_PROPERTY',
-      rid: targetRid,
-      objectType: targetType,
+      rid: target.rid,
+      objectType: target.type,
       property: activeProperty,
       value: code,
     })
     if (response?.ok) {
       showOutput(`Saved to ${targetLabel}`, true)
       dirty = false
-      // Update stored context
-      const cProps = getActiveCodeProps()
-      cProps[activeProperty] = code
-      await chrome.storage.local.set({ crev_editor_context: ctx })
+      // Update in-memory code
+      const activeCodeMap = getActiveCode(ctx)
+      activeCodeMap[activeProperty] = code
+      // Persist updated context
+      const rid = location.hash.slice(1)
+      if (rid) {
+        await chrome.storage.local.set({ [`crev_editor_ctx_${rid}`]: ctx })
+      }
     } else {
       showOutput(response?.error ?? 'Save failed', false)
     }
@@ -508,8 +504,7 @@ function renderBottomContent() {
   }
 
   if (bottomMode === 'snippets') {
-    const rid = ctx?.extended ? ctx.objectRid : ctx?.rid
-    const ridStr = rid ?? 'RID'
+    const ridStr = ctx ? (ctx.extended ? ctx.executionContextRid ?? 'RID' : ctx.instance.rid) : 'RID'
     container.innerHTML = `<div class="editor-snippet-list">
       <div class="editor-snippet-item" data-snippet="genedit">
         <div class="editor-snippet-desc">GenEdit (full object)</div>
@@ -574,17 +569,14 @@ function insertSnippet(id: string, rid: string) {
 }
 
 function doClear() {
-  // Clear output state
   lastOutputText = ''
   lastOutputOk = true
   lastMode = null
   lastDuration = null
-  // Clear editor
   if (editorView) {
     editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: '' } })
     editorView.focus()
   }
-  // Hide bottom panel
   hideBottomPanel()
   dirty = false
 }
@@ -652,7 +644,7 @@ function wireDragHandle() {
     const delta = startY - e.clientY
     const newHeight = Math.max(60, Math.min(window.innerHeight * 0.8, startHeight + delta))
     outputHeight = newHeight
-    const panel = document.getElementById('output-panel')
+    const panel = document.getElementById('bottom-panel')
     if (panel) panel.style.height = `${newHeight}px`
   }
 
@@ -662,14 +654,13 @@ function wireDragHandle() {
     document.removeEventListener('mouseup', onMouseUp)
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
-    // Persist
     chrome.storage.local.set({ crev_editor_output_height: outputHeight }).catch(() => {})
   }
 
   handle.addEventListener('mousedown', (e) => {
     e.preventDefault()
     startY = e.clientY
-    const panel = document.getElementById('output-panel')
+    const panel = document.getElementById('bottom-panel')
     startHeight = panel ? panel.offsetHeight : outputHeight
     handle.classList.add('dragging')
     document.body.style.cursor = 'row-resize'

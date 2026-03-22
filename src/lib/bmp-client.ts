@@ -48,6 +48,15 @@ export interface TemplateResolution {
   templateType?: string;
 }
 
+/** Structured editor context returned by fetchEditorContext() — single EC call. */
+export interface EditorContextData {
+  instance: { rid: string; businessId: string; type: string; name: string };
+  template: { rid: string; businessId: string; type: string; name: string } | null;
+  instanceCode: Record<string, string>;
+  templateCode: Record<string, string>;
+  locationRid?: string;
+}
+
 /** Lightweight cache interface — avoids coupling to ObjectCache. */
 export interface IdentityCache {
   get(rid: string): { businessId?: string; type?: string } | undefined;
@@ -355,6 +364,71 @@ export class BmpClient {
       type: typ || undefined,
       name: rest.join('|||').trim() || undefined,
     }));
+  }
+
+  /** Fetch full editor context in a single EC call: identity, template, code props for both.
+   *  Replaces separate lookupIdentity + resolveTemplate + 2× fetchCodeViaEc round-trips. */
+  async fetchEditorContext(rid: string): Promise<EditorContextData | null> {
+    const ref = await this.resolveRef(rid);
+    const sep = '<<<CREV_SEP>>>';
+    // Fetch all possible code properties — empty ones filtered out after parsing.
+    const codeProps = ['expression', 'html', 'javascript'];
+    const lines = [
+      `_sep := "${sep}"`,
+      `_inst := ${ref}`,
+      '_r := ""',
+      `_r := _r + _sep + "instRid" + _sep + _inst.rid.whenMissing("MISSING") + "\\n"`,
+      `_r := _r + _sep + "instId" + _sep + _inst.id.whenMissing("") + "\\n"`,
+      `_r := _r + _sep + "instName" + _sep + _inst.name.whenMissing("") + "\\n"`,
+      `_r := _r + _sep + "instType" + _sep + _inst.className.whenMissing("") + "\\n"`,
+      '_tmpl := _inst.linkedTo',
+      `_r := _r + _sep + "tmplRid" + _sep + _tmpl.rid.whenMissing("MISSING") + "\\n"`,
+      `_r := _r + _sep + "tmplId" + _sep + _tmpl.id.whenMissing("") + "\\n"`,
+      `_r := _r + _sep + "tmplName" + _sep + _tmpl.name.whenMissing("") + "\\n"`,
+      `_r := _r + _sep + "tmplType" + _sep + _tmpl.className.whenMissing("") + "\\n"`,
+      '_loc := _inst.location',
+      `_r := _r + _sep + "locRid" + _sep + _loc.rid.whenMissing("MISSING") + "\\n"`,
+    ];
+    for (const prop of codeProps) {
+      lines.push(`_r := _r + _sep + "inst_${prop}" + _sep + output(_inst.${prop}.whenMissing("")) + "\\n"`);
+      lines.push(`_r := _r + _sep + "tmpl_${prop}" + _sep + output(_tmpl.${prop}.whenMissing("")) + "\\n"`);
+    }
+    lines.push(`_r := _r + _sep + "DONE"`);
+    lines.push('_r');
+
+    const result = await this.executeEc(lines.join('\n'));
+    if (!result.ok || !result.log) return null;
+
+    const data = parseSepBlocks(result.log, sep);
+    if (!data.instRid || data.instRid === 'MISSING') return null;
+
+    const instance = {
+      rid: data.instRid,
+      businessId: data.instId ?? '',
+      type: data.instType ?? '',
+      name: data.instName ?? '',
+    };
+
+    const hasTemplate = !!data.tmplRid && data.tmplRid !== 'MISSING';
+    const template = hasTemplate ? {
+      rid: data.tmplRid!,
+      businessId: data.tmplId ?? '',
+      type: data.tmplType ?? '',
+      name: data.tmplName ?? '',
+    } : null;
+
+    // Extract code props, filtering empty values
+    const instanceCode: Record<string, string> = {};
+    const templateCode: Record<string, string> = {};
+    for (const prop of codeProps) {
+      const instVal = data[`inst_${prop}`];
+      const tmplVal = data[`tmpl_${prop}`];
+      if (instVal) instanceCode[prop] = instVal;
+      if (tmplVal) templateCode[prop] = tmplVal;
+    }
+
+    const locationRid = data.locRid && data.locRid !== 'MISSING' ? data.locRid : undefined;
+    return { instance, template, instanceCode, templateCode, locationRid };
   }
 
   /** Save a code property via EC */
