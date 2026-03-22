@@ -59,6 +59,27 @@ body {
   color: var(--accent);
 }
 
+.editor-prop-tab--overridden::after {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #4589ff;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.editor-override-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #4589ff;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
 /* ── Target toggle (template/instance) ───────── */
 
 .editor-target-toggle {
@@ -75,9 +96,13 @@ body {
   border: none;
   background: none;
   color: var(--text-muted);
-  font-family: var(--font);
+  font-family: var(--font-mono);
   font-size: 10px;
   cursor: pointer;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .editor-target-btn + .editor-target-btn {
