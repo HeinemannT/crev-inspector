@@ -132,44 +132,73 @@ export function handleServerLookup(rid: string) {
   });
 }
 
-export function handleInputsetLookup(rid: string) {
+// ── Linked object definitions ────────────────────────────────────
+// Each entry declares: for a given parent type, what linked object to fetch via EC.
+// `ecProperty` is the EC property accessor on the parent (no parens — EC property, not method).
+// `label` is the human-readable type shown in the badge.
+
+interface LinkedObjectDef {
+  key: string;         // unique key for this link (used in state tracking)
+  label: string;       // display label (e.g., "InputSet", "EditPage")
+  ecProperty: string;  // EC property path from parent (e.g., "inputset", "editPage")
+}
+
+const LINKED_OBJECTS: Record<string, LinkedObjectDef[]> = {
+  InputView: [
+    { key: 'inputset', label: 'InputSet', ecProperty: 'inputset' },
+  ],
+  CreateObjectView: [
+    { key: 'editpage', label: 'EditPage', ecProperty: 'editPage' },
+  ],
+};
+
+export function getLinkedDefs(objectType: string): LinkedObjectDef[] {
+  return LINKED_OBJECTS[objectType] ?? [];
+}
+
+export function handleLinkedLookup(rid: string, objectType: string) {
   const ctx = getCtx();
+  const defs = getLinkedDefs(objectType);
+  if (defs.length === 0) return;
+
   ctx.settingsReady.then(async () => {
     if (!ctx.client) {
-      ctx.sendToPanel({ type: 'INPUTSET_LOOKUP_RESULT', rid, error: 'Not connected' });
+      for (const def of defs) {
+        ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid, key: def.key, label: def.label, error: 'Not connected' });
+      }
       return;
     }
-    try {
-      const ref = await ctx.client.resolveRef(rid);
-      const code = [
-        `_iv := ${ref}`,
-        '_is := _iv.inputset',
-        'IF _is != MISSING THEN',
-        '  _is.id.whenMissing("") + "|||" + _is.name.whenMissing("") + "|||" + _is.rid.whenMissing("")',
-        'ELSE',
-        '  ""',
-        'ENDIF',
-      ].join('\n');
-      const result = await ctx.client.executeEc(code, undefined, false);
-      if (!result.ok || !result.log?.includes('|||')) {
-        ctx.sendToPanel({ type: 'INPUTSET_LOOKUP_RESULT', rid });
-        return;
+
+    for (const def of defs) {
+      try {
+        const ref = await ctx.client.resolveRef(rid);
+        const code = [
+          `_p := ${ref}`,
+          `_l := _p.${def.ecProperty}`,
+          'IF _l != MISSING THEN',
+          '  _l.id.whenMissing("") + "|||" + _l.name.whenMissing("") + "|||" + _l.rid.whenMissing("")',
+          'ELSE',
+          '  ""',
+          'ENDIF',
+        ].join('\n');
+        const result = await ctx.client.executeEc(code, undefined, false);
+        if (!result.ok || !result.log?.includes('|||')) {
+          ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid, key: def.key, label: def.label });
+          continue;
+        }
+        const line = result.log.trim().split('\n').find(l => l.includes('|||'));
+        if (!line) {
+          ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid, key: def.key, label: def.label });
+          continue;
+        }
+        const [lId, lName, lRid] = line.split('|||').map(s => s.trim());
+        ctx.sendToPanel({
+          type: 'LINKED_LOOKUP_RESULT', rid, key: def.key, label: def.label,
+          linkedId: lId || undefined, linkedName: lName || undefined, linkedRid: lRid || undefined,
+        });
+      } catch (e) {
+        ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid, key: def.key, label: def.label, error: errorMessage(e) });
       }
-      const line = result.log.trim().split('\n').find(l => l.includes('|||'));
-      if (!line) {
-        ctx.sendToPanel({ type: 'INPUTSET_LOOKUP_RESULT', rid });
-        return;
-      }
-      const [isId, isName, isRid] = line.split('|||').map(s => s.trim());
-      ctx.sendToPanel({
-        type: 'INPUTSET_LOOKUP_RESULT',
-        rid,
-        inputsetId: isId || undefined,
-        inputsetName: isName || undefined,
-        inputsetRid: isRid || undefined,
-      });
-    } catch (e) {
-      ctx.sendToPanel({ type: 'INPUTSET_LOOKUP_RESULT', rid, error: errorMessage(e) });
     }
   });
 }
@@ -326,8 +355,8 @@ export function handlePanelMessage(msg: InspectorMessage) {
       handleServerLookup(msg.rid);
       break;
 
-    case 'INPUTSET_LOOKUP':
-      handleInputsetLookup(msg.rid);
+    case 'LINKED_LOOKUP':
+      handleLinkedLookup(msg.rid, msg.objectType);
       break;
 
     case 'EC_EXECUTE':

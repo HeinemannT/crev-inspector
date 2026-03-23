@@ -57,8 +57,8 @@ export type CacheMessage =
 export type ServerLookupMessage =
   | { type: 'SERVER_LOOKUP'; rid: string }
   | { type: 'SERVER_LOOKUP_RESULT'; rid: string; object: BmpObject | null; error?: string }
-  | { type: 'INPUTSET_LOOKUP'; rid: string }
-  | { type: 'INPUTSET_LOOKUP_RESULT'; rid: string; inputsetId?: string; inputsetName?: string; inputsetRid?: string; error?: string };
+  | { type: 'LINKED_LOOKUP'; rid: string; objectType: string }
+  | { type: 'LINKED_LOOKUP_RESULT'; rid: string; key: string; label: string; linkedId?: string; linkedName?: string; linkedRid?: string; error?: string };
 
 // ── Connection & Settings ────────────────────────────────────────
 export type ConnectionMessage =

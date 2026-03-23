@@ -44,11 +44,21 @@ let ecStartTime = 0;
 let expandedOutputs = new Set<string>();
 let lookupTimeout: ReturnType<typeof setTimeout> | null = null;
 
-// InputSet state (for InputView objects)
-interface InputSetData { id?: string; name?: string; rid?: string }
-let inputsetData: InputSetData | null = null;
-let inputsetLoading = false;
-let inputsetError: string | null = null;
+// Linked objects state (InputView→InputSet, CreateObjectView→EditPage, etc.)
+interface LinkedState {
+  label: string;
+  loading: boolean;
+  data: { id?: string; name?: string; rid?: string } | null;
+  error: string | null;
+}
+let linkedObjects = new Map<string, LinkedState>();
+
+/** Trigger linked object lookups if the type has any configured. */
+function triggerLinkedLookups(obj: BmpObject): void {
+  if (!obj.type) return;
+  // Send a single LINKED_LOOKUP — the service worker knows which links exist for this type
+  sendMessageCb?.({ type: 'LINKED_LOOKUP', rid: obj.rid, objectType: obj.type });
+}
 
 /** Initialize the detail view module */
 export function initDetailView(
@@ -85,9 +95,7 @@ export function showDetail(obj: BmpObject, panel: HTMLElement): void {
   ecRunningProp = null;
   ecStartTime = 0;
   expandedOutputs = new Set();
-  inputsetData = null;
-  inputsetLoading = false;
-  inputsetError = null;
+  linkedObjects = new Map();
   renderDetail(panel);
 
   if (!obj.properties) {
@@ -95,11 +103,7 @@ export function showDetail(obj: BmpObject, panel: HTMLElement): void {
     startLookupWatchdog(obj.rid, panel);
   } else {
     serverLookupDone = true;
-    // Trigger InputSet lookup for InputView objects
-    if (obj.type === 'InputView') {
-      inputsetLoading = true;
-      sendMessageCb?.({ type: 'INPUTSET_LOOKUP', rid: obj.rid });
-    }
+    triggerLinkedLookups(obj);
   }
 }
 
@@ -120,25 +124,23 @@ export function handleDetailMessage(msg: InspectorMessage, panel: HTMLElement): 
         templateBusinessId: msg.object.templateBusinessId ?? currentObj.templateBusinessId,
         properties: msg.object.properties ?? currentObj.properties,
       };
-      // Trigger InputSet lookup for InputView objects
-      const objType = currentObj.type ?? msg.object.type;
-      if (objType === 'InputView' && !inputsetLoading && !inputsetData) {
-        inputsetLoading = true;
-        sendMessageCb?.({ type: 'INPUTSET_LOOKUP', rid: currentObj.rid });
+      // Trigger linked object lookups if not already done
+      if (linkedObjects.size === 0) {
+        triggerLinkedLookups(currentObj);
       }
     }
     renderDetail(panel);
     return true;
   }
 
-  if (msg.type === 'INPUTSET_LOOKUP_RESULT' && 'rid' in msg && msg.rid === currentObj.rid) {
-    inputsetLoading = false;
-    if (msg.inputsetId || msg.inputsetRid) {
-      inputsetData = { id: msg.inputsetId, name: msg.inputsetName, rid: msg.inputsetRid };
-    }
-    if ('error' in msg && msg.error) {
-      inputsetError = msg.error;
-    }
+  if (msg.type === 'LINKED_LOOKUP_RESULT' && 'rid' in msg && msg.rid === currentObj.rid) {
+    const state: LinkedState = {
+      label: msg.label,
+      loading: false,
+      data: (msg.linkedId || msg.linkedRid) ? { id: msg.linkedId, name: msg.linkedName, rid: msg.linkedRid } : null,
+      error: msg.error ?? null,
+    };
+    linkedObjects.set(msg.key, state);
     renderDetail(panel);
     return true;
   }
@@ -177,9 +179,7 @@ export function clearDetail(): void {
   ecOutputs = new Map();
   ecRunningProp = null;
   ecStartTime = 0;
-  inputsetData = null;
-  inputsetLoading = false;
-  inputsetError = null;
+  linkedObjects = new Map();
 }
 
 // ── Rendering ────────────────────────────────────────────────────
@@ -235,43 +235,10 @@ function renderDetail(panel: HTMLElement): void {
     ),
   ];
 
-  // Linked InputSet badge for InputView objects — shown as secondary badge below identity
-  if (obj.type === 'InputView') {
-    if (inputsetLoading) {
-      children.push(h('div', { class: 'detail-linked' },
-        h('div', { class: 'detail-linked-line' }),
-        h('div', { class: 'detail-linked-badge' },
-          h('span', { class: 'detail-linked-type' }, 'InputSet'),
-          h('span', { class: 'detection-spinner' }),
-        ),
-      ));
-    } else if (inputsetData) {
-      const displayId = inputsetData.id || inputsetData.name || inputsetData.rid || '\u2014';
-      const copyValue = inputsetData.id || inputsetData.rid;
-      children.push(h('div', { class: 'detail-linked' },
-        h('div', { class: 'detail-linked-line' }),
-        h('div', { class: 'detail-linked-badge' },
-          h('span', { class: 'detail-linked-type' }, 'InputSet'),
-          h('span', { class: 'detail-linked-id mono' }, displayId),
-          copyValue ? copyBtn(copyValue) : false,
-        ),
-      ));
-    } else if (inputsetError) {
-      children.push(h('div', { class: 'detail-linked' },
-        h('div', { class: 'detail-linked-line' }),
-        h('div', { class: 'detail-linked-badge detail-linked--dim' },
-          h('span', { class: 'detail-linked-type' }, 'InputSet'),
-          h('span', null, 'unavailable'),
-        ),
-      ));
-    } else if (serverLookupDone) {
-      children.push(h('div', { class: 'detail-linked' },
-        h('div', { class: 'detail-linked-line' }),
-        h('div', { class: 'detail-linked-badge detail-linked--dim' },
-          h('span', { class: 'detail-linked-type' }, 'InputSet'),
-          h('span', null, 'none'),
-        ),
-      ));
+  // Linked object badges (InputView→InputSet, CreateObjectView→EditPage, etc.)
+  if (linkedObjects.size > 0 || serverLookupDone) {
+    for (const [, link] of linkedObjects) {
+      children.push(renderLinkedBadge(link));
     }
   }
 
@@ -338,6 +305,31 @@ function renderDetail(panel: HTMLElement): void {
 
   render(panel, ...children);
   wireDelegate(panel);
+}
+
+function renderLinkedBadge(link: LinkedState): HTMLElement {
+  const inner: (HTMLElement | false | null)[] = [
+    h('span', { class: 'detail-linked-type' }, link.label),
+  ];
+
+  if (link.loading) {
+    inner.push(h('span', { class: 'detection-spinner' }));
+  } else if (link.data) {
+    const displayId = link.data.id || link.data.name || link.data.rid || '\u2014';
+    const copyValue = link.data.id || link.data.rid;
+    inner.push(h('span', { class: 'detail-linked-id mono' }, displayId));
+    if (copyValue) inner.push(copyBtn(copyValue));
+  } else if (link.error) {
+    inner.push(h('span', { class: 'detail-linked-dim' }, 'unavailable'));
+  } else {
+    inner.push(h('span', { class: 'detail-linked-dim' }, 'none'));
+  }
+
+  const dimClass = (!link.loading && !link.data) ? ' detail-linked--dim' : '';
+  return h('div', { class: 'detail-linked' },
+    h('div', { class: 'detail-linked-line' }),
+    h('div', { class: `detail-linked-badge${dimClass}` }, ...inner),
+  );
 }
 
 function renderScriptBlock(key: string, code: string): HTMLElement {
