@@ -492,12 +492,15 @@ function updateStatusBar() {
 
 // ── Boot ─────────────────────────────────────────────────────────
 
-chrome.storage.session.get('crev_active_tab', (result) => {
+chrome.storage.session.get(['crev_active_tab', 'crev_settings_snapshot', 'crev_conn_snapshot'], (result) => {
   if (result.crev_active_tab && typeof result.crev_active_tab === 'string') {
     S.activeTab = result.crev_active_tab;
   }
+  // Restore snapshots for instant first render (no SW round-trip needed)
+  if (result.crev_settings_snapshot) S.settings = result.crev_settings_snapshot;
+  if (result.crev_conn_snapshot) S.connState = result.crev_conn_snapshot;
   buildApp();
-  // Essential for header/status — always fetch
+  // Still fetch authoritative copy from SW (updates if anything changed)
   sendMessage({ type: 'GET_CONNECTION_STATE' });
   sendMessage({ type: 'GET_SETTINGS' });
   // Tab-specific data deferred to switchTab()

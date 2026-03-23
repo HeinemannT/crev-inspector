@@ -45,7 +45,7 @@ export async function loadSettingsFrom(stored: unknown): Promise<void> {
       if (!s.schemaVersion) s.schemaVersion = 1;
       ctx.settings = { ...ctx.settings, ...s } as InspectorSettings;
     }
-    rebuildClient();
+    await rebuildClient();
   } catch (e) {
     log.swallow('settings:load', e);
   }
@@ -58,12 +58,17 @@ export async function saveSettings(): Promise<void> {
   } catch (e) { log.swallow('settings:save', e); }
 }
 
+/** Snapshot settings to session storage for instant panel boot */
+export function snapshotSettings(): void {
+  chrome.storage.session.set({ crev_settings_snapshot: getCtx().settings }).catch(e => log.swallow('settings:snapshot', e));
+}
+
 export function getActiveProfile() {
   const ctx = getCtx();
   return ctx.settings.profiles.find(p => p.id === ctx.settings.activeProfileId);
 }
 
-export function rebuildClient(clearCache = false) {
+export async function rebuildClient(clearCache = false) {
   const ctx = getCtx();
   incrementGeneration(); // bumps generation (cancels in-flight enrichment) + clears enrichedRids/permanentlyFailed
   const profile = getActiveProfile();
@@ -84,24 +89,27 @@ export function rebuildClient(clearCache = false) {
     ctx.cache.clear();
     ctx.sendToPanel({ type: 'CACHE_STATS', count: 0 });
   }
-  // Switch cache/history/favorites to new profile (no-op if profileId unchanged)
+  // Switch cache/history/favorites to new profile — await so settingsReady
+  // doesn't resolve until storage is pointing at the correct profile
   const newProfileId = profile?.id ?? '_default';
-  ctx.cache.switchProfile(newProfileId).catch(e => log.swallow('settings:switchCache', e));
-  ctx.history.switchProfile(newProfileId).catch(e => log.swallow('settings:switchHistory', e));
-  ctx.favorites.switchProfile(newProfileId).catch(e => log.swallow('settings:switchFavorites', e));
-  ctx.scriptHistory.switchProfile(newProfileId).catch(e => log.swallow('settings:switchScriptHistory', e));
+  await Promise.all([
+    ctx.cache.switchProfile(newProfileId).catch(e => log.swallow('settings:switchCache', e)),
+    ctx.history.switchProfile(newProfileId).catch(e => log.swallow('settings:switchHistory', e)),
+    ctx.favorites.switchProfile(newProfileId).catch(e => log.swallow('settings:switchFavorites', e)),
+    ctx.scriptHistory.switchProfile(newProfileId).catch(e => log.swallow('settings:switchScriptHistory', e)),
+  ]);
 
   resetConnectionState();
   if (ctx.panelPort) {
     stopHealthPolling();
     startHealthPolling();
-    runAuthTest(); // pushes CONNECTION_STATE on completion
+    runAuthTest(); // pushes CONNECTION_STATE on completion — intentionally not awaited
   } else {
     pushConnectionState(); // no panel = no runAuthTest, push once for content scripts
   }
 }
 
-export function autoDetectProfile(pageUrl: string) {
+export async function autoDetectProfile(pageUrl: string) {
   const ctx = getCtx();
   if (!ctx.settings.autoDetect || ctx.settings.profiles.length === 0) return;
 
@@ -122,10 +130,11 @@ export function autoDetectProfile(pageUrl: string) {
       if (p.id !== ctx.settings.activeProfileId) {
         ctx.settings = { ...ctx.settings, activeProfileId: p.id };
         saveSettings();
-        rebuildClient(true);
+        await rebuildClient(true);
         ctx.sendToPanel({ type: 'PROFILE_SWITCHED', profileId: p.id, label: p.label });
         ctx.broadcastToContent({ type: 'PROFILE_SWITCHED', profileId: p.id, label: p.label });
         ctx.sendToPanel({ type: 'SETTINGS_DATA', settings: ctx.settings });
+        snapshotSettings();
       }
       return;
     }

@@ -245,8 +245,14 @@ export function renderConnectTab() {
         id: S.editingProfile.id ?? crypto.randomUUID(),
         label, bmpUrl, bmpUser, bmpPass,
       };
+      // Optimistic local update — SETTINGS_DATA from SW will confirm
+      const profiles = [...S.settings.profiles];
+      const idx = profiles.findIndex(p => p.id === profile.id);
+      if (idx >= 0) profiles[idx] = profile; else profiles.push(profile);
+      S.settings = { ...S.settings, profiles, activeProfileId: S.settings.activeProfileId || profile.id };
       sendMessage({ type: 'SAVE_PROFILE', profile });
       S.editingProfile = null;
+      rerender();
     },
     'pf-cancel': () => {
       S.editingProfile = null;
@@ -254,8 +260,14 @@ export function renderConnectTab() {
     },
     'pf-delete': () => {
       if (!S.editingProfile?.id) return;
-      sendMessage({ type: 'DELETE_PROFILE', profileId: S.editingProfile.id });
+      const deletedId = S.editingProfile.id;
+      // Optimistic local update
+      const profiles = S.settings.profiles.filter(p => p.id !== deletedId);
+      const activeId = S.settings.activeProfileId === deletedId ? (profiles[0]?.id ?? '') : S.settings.activeProfileId;
+      S.settings = { ...S.settings, profiles, activeProfileId: activeId };
+      sendMessage({ type: 'DELETE_PROFILE', profileId: deletedId });
       S.editingProfile = null;
+      rerender();
     },
     'clear-cache': () => {
       sendMessage({ type: 'CLEAR_CACHE' });

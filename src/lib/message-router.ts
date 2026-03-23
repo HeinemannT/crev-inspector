@@ -9,7 +9,7 @@ import { enrichBadges, resetEnrichment, refreshEnrichment, incrementGeneration }
 import { openEditorWindow } from './editor';
 import { runAuthTest, pushConnectionState } from './connection';
 import { getTabDetection, setTabDetection, updateBadge } from './detection';
-import { saveSettings, rebuildClient, setManualOverride } from './settings';
+import { saveSettings, rebuildClient, setManualOverride, snapshotSettings } from './settings';
 import { sendPageInfoToPanel, handleGetDetection, ensureContentScript } from './tab-awareness';
 import { togglePaint, handlePaintPick, handlePaintApply, handlePaintConfirm } from './paint';
 import { getActivityLog } from './activity';
@@ -265,7 +265,7 @@ export function handleContentMessage(msg: InspectorMessage, senderTabId?: number
 
 // ── Panel message handler ────────────────────────────────────────
 
-export function handlePanelMessage(msg: InspectorMessage) {
+export async function handlePanelMessage(msg: InspectorMessage) {
   const ctx = getCtx();
   switch (msg.type) {
     case 'TOGGLE_INSPECT':
@@ -282,6 +282,7 @@ export function handlePanelMessage(msg: InspectorMessage) {
 
     case 'GET_SETTINGS':
       ctx.sendToPanel({ type: 'SETTINGS_DATA', settings: ctx.settings });
+      snapshotSettings();
       break;
 
     case 'SAVE_SETTINGS': {
@@ -292,7 +293,7 @@ export function handlePanelMessage(msg: InspectorMessage) {
       if (ctx.settings.enrichMode !== prevMode) {
         ctx.broadcastToContent({ type: 'ENRICH_MODE', mode: ctx.settings.enrichMode });
       }
-      if (!onlyEnrichMode) rebuildClient();
+      if (!onlyEnrichMode) await rebuildClient();
       break;
     }
 
@@ -310,8 +311,9 @@ export function handlePanelMessage(msg: InspectorMessage) {
       }
       ctx.settings = { ...ctx.settings, profiles, activeProfileId: activeId };
       saveSettings();
-      rebuildClient(true);
+      await rebuildClient(true);
       ctx.sendToPanel({ type: 'SETTINGS_DATA', settings: ctx.settings });
+      snapshotSettings();
       break;
     }
 
@@ -324,12 +326,13 @@ export function handlePanelMessage(msg: InspectorMessage) {
       }
       ctx.settings = { ...ctx.settings, profiles, activeProfileId: activeId };
       saveSettings();
-      rebuildClient(true);
+      await rebuildClient(true);
       // Clean up orphaned storage keys for deleted profile
       const orphanKeys = ['cache', 'cache_date', 'history', 'favorites', 'script_history']
         .map(k => `crev_${deletedId}_${k}`);
       chrome.storage.local.remove(orphanKeys).catch(e => log.swallow('settings:cleanupProfile', e));
       ctx.sendToPanel({ type: 'SETTINGS_DATA', settings: ctx.settings });
+      snapshotSettings();
       break;
     }
 
@@ -339,7 +342,9 @@ export function handlePanelMessage(msg: InspectorMessage) {
         ctx.settings = { ...ctx.settings, activeProfileId: msg.profileId };
         setManualOverride();
         saveSettings();
-        rebuildClient(true);
+        await rebuildClient(true);
+        ctx.sendToPanel({ type: 'SETTINGS_DATA', settings: ctx.settings });
+        snapshotSettings();
         if (profile) {
           ctx.broadcastToContent({ type: 'PROFILE_SWITCHED', profileId: msg.profileId, label: profile.label });
         }
