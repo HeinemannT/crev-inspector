@@ -323,6 +323,9 @@
   font-size: 10px;
   color: #cac4d0;
 }
+.crev-qi-template {
+  color: #a89db8;
+}
 .crev-qi-rid {
   font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
   word-break: break-all;

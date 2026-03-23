@@ -371,74 +371,44 @@ function getRunCode(): string {
   return editorView.state.doc.toString()
 }
 
-async function doPreview() {
+async function doPreview() { await executeEc(false) }
+async function doRun() { if (previewDone) await executeEc(true) }
+
+async function executeEc(transactional: boolean) {
   if (!editorView || !ctx) return
   const code = getRunCode()
   const startTime = Date.now()
 
-  lastMode = 'preview'
+  lastMode = transactional ? 'execute' : 'preview'
   lastDuration = null
-  showOutput('Previewing\u2026', true)
+  showOutput(transactional ? 'Executing\u2026' : 'Previewing\u2026', true)
 
+  let ok = false
   try {
     const response = await chrome.runtime.sendMessage({
       type: 'EC_EXECUTE',
       code,
       objectRid: getExecutionRid(ctx),
+      ...(transactional ? { transactional: true } : {}),
     })
     lastDuration = Date.now() - startTime
-    if (response?.ok !== false) {
+    ok = response?.ok !== false
+    if (ok) {
       showOutput(response?.log ?? 'No output', true)
-      // Unlock Run button on successful preview
-      previewDone = true
-      updateRunButton()
     } else {
       showOutput(response?.error ?? response?.log ?? 'Execution failed', false)
-      previewDone = false
-      updateRunButton()
     }
   } catch (e) {
     lastDuration = Date.now() - startTime
     showOutput(String(e), false)
+  }
+
+  // Preview gate: successful preview unlocks Run; Run always re-locks
+  if (transactional) {
     previewDone = false
-    updateRunButton()
+  } else {
+    previewDone = ok
   }
-
-  // Refresh history in background
-  chrome.runtime.sendMessage({ type: 'GET_SCRIPT_HISTORY' }).then((r: any) => {
-    if (r?.entries) historyEntries = r.entries
-  }).catch(() => {})
-}
-
-async function doRun() {
-  if (!editorView || !ctx || !previewDone) return
-  const code = getRunCode()
-  const startTime = Date.now()
-
-  lastMode = 'execute'
-  lastDuration = null
-  showOutput('Executing\u2026', true)
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'EC_EXECUTE',
-      code,
-      objectRid: getExecutionRid(ctx),
-      transactional: true,
-    })
-    lastDuration = Date.now() - startTime
-    if (response?.ok !== false) {
-      showOutput(response?.log ?? 'No output', true)
-    } else {
-      showOutput(response?.error ?? response?.log ?? 'Execution failed', false)
-    }
-  } catch (e) {
-    lastDuration = Date.now() - startTime
-    showOutput(String(e), false)
-  }
-
-  // Reset preview gate after execution
-  previewDone = false
   updateRunButton()
 
   // Refresh history in background

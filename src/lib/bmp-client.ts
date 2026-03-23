@@ -254,16 +254,13 @@ export class BmpClient {
 
     const out: Record<string, { businessId?: string; type?: string; name?: string; templateBusinessId?: string }> = {};
     for (const parts of parsePipeLines(result.log, 4)) {
-      const [rid, bid, typ, ...rest] = parts;
-      // 5th field (index 4) is template businessId — may be absent on older cache data
-      const tbid = parts.length >= 5 ? (rest.pop()?.trim() || undefined) : undefined;
-      const name = rest.join('|||').trim();
-      out[rid] = {
-        businessId: bid || undefined,
-        type: typ || undefined,
-        name: name || undefined,
-        templateBusinessId: tbid || undefined,
-      };
+      // Format: rid|||bid|||type|||name|||templateBid (5th field optional)
+      const rid = parts[0];
+      const bid = parts[1] || undefined;
+      const typ = parts[2] || undefined;
+      const name = parts[3] || undefined;
+      const tbid = parts[4] || undefined;
+      out[rid] = { businessId: bid, type: typ, name, templateBusinessId: tbid };
     }
     const missed = valid.filter(r => !(r in out));
     if (missed.length > 0) log.debug('batchEnrich', `${missed.length}/${valid.length} RIDs not found by lookup():`, missed);

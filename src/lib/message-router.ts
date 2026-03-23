@@ -169,9 +169,18 @@ export function handleLinkedLookup(rid: string, objectType: string) {
       return;
     }
 
+    let ref: string;
+    try {
+      ref = await ctx.client.resolveRef(rid);
+    } catch (e) {
+      for (const def of defs) {
+        ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid, key: def.key, label: def.label, error: errorMessage(e) });
+      }
+      return;
+    }
+
     for (const def of defs) {
       try {
-        const ref = await ctx.client.resolveRef(rid);
         const code = [
           `_p := ${ref}`,
           `_l := _p.${def.ecProperty}`,

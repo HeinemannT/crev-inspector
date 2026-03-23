@@ -47,7 +47,6 @@ let lookupTimeout: ReturnType<typeof setTimeout> | null = null;
 // Linked objects state (InputView→InputSet, CreateObjectView→EditPage, etc.)
 interface LinkedState {
   label: string;
-  loading: boolean;
   data: { id?: string; name?: string; rid?: string } | null;
   error: string | null;
 }
@@ -136,7 +135,6 @@ export function handleDetailMessage(msg: InspectorMessage, panel: HTMLElement): 
   if (msg.type === 'LINKED_LOOKUP_RESULT' && 'rid' in msg && msg.rid === currentObj.rid) {
     const state: LinkedState = {
       label: msg.label,
-      loading: false,
       data: (msg.linkedId || msg.linkedRid) ? { id: msg.linkedId, name: msg.linkedName, rid: msg.linkedRid } : null,
       error: msg.error ?? null,
     };
@@ -236,10 +234,8 @@ function renderDetail(panel: HTMLElement): void {
   ];
 
   // Linked object badges (InputView→InputSet, CreateObjectView→EditPage, etc.)
-  if (linkedObjects.size > 0 || serverLookupDone) {
-    for (const [, link] of linkedObjects) {
-      children.push(renderLinkedBadge(link));
-    }
+  for (const [, link] of linkedObjects) {
+    children.push(renderLinkedBadge(link));
   }
 
   // Loading state
@@ -308,27 +304,23 @@ function renderDetail(panel: HTMLElement): void {
 }
 
 function renderLinkedBadge(link: LinkedState): HTMLElement {
-  const inner: (HTMLElement | false | null)[] = [
+  const dim = !link.data;
+  const inner: (HTMLElement | false)[] = [
     h('span', { class: 'detail-linked-type' }, link.label),
   ];
 
-  if (link.loading) {
-    inner.push(h('span', { class: 'detection-spinner' }));
-  } else if (link.data) {
+  if (link.data) {
     const displayId = link.data.id || link.data.name || link.data.rid || '\u2014';
     const copyValue = link.data.id || link.data.rid;
     inner.push(h('span', { class: 'detail-linked-id mono' }, displayId));
     if (copyValue) inner.push(copyBtn(copyValue));
-  } else if (link.error) {
-    inner.push(h('span', { class: 'detail-linked-dim' }, 'unavailable'));
   } else {
-    inner.push(h('span', { class: 'detail-linked-dim' }, 'none'));
+    inner.push(h('span', { class: 'detail-linked-dim' }, link.error ? 'unavailable' : 'none'));
   }
 
-  const dimClass = (!link.loading && !link.data) ? ' detail-linked--dim' : '';
   return h('div', { class: 'detail-linked' },
     h('div', { class: 'detail-linked-line' }),
-    h('div', { class: `detail-linked-badge${dimClass}` }, ...inner),
+    h('div', { class: `detail-linked-badge${dim ? ' detail-linked--dim' : ''}` }, ...inner),
   );
 }
 
