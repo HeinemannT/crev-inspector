@@ -59,7 +59,7 @@ function renderError(error: string) {
 
 function renderObject(
   obj: BmpObject | null,
-  template?: { rid: string; name: string; type: string },
+  template?: { rid: string; name: string; type: string; businessId?: string },
   children?: Array<{ rid: string; name?: string; type?: string; businessId?: string }>,
 ) {
   if (!obj) {
@@ -158,6 +158,9 @@ function renderObject(
         h('div', { class: 'ov-template-link', 'data-open-rid': template.rid },
           h('span', { class: 'ov-type-badge', style: `background:${tmplColor}` }, getTypeAbbr(template.type)),
           h('span', { style: 'font-size:11px;font-weight:500;color:var(--md-on-surface)' }, template.name || 'unnamed'),
+          template.businessId
+            ? h('span', { class: 'ov-id-value', 'data-copy': template.businessId, style: 'font-size:10px;margin-left:8px' }, template.businessId)
+            : false,
           h('span', { style: 'font-size:10px;font-family:var(--md-font-mono);color:var(--md-on-surface-variant);margin-left:auto' }, template.rid),
         ),
         h('button', { class: 'ov-btn', 'data-action': 'template-diff', style: 'margin-top:6px' }, 'Compare to Template'),

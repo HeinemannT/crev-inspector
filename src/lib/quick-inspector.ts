@@ -11,6 +11,7 @@ let currentRid: string | null = null;
 interface QuickInspectorData {
   rid: string;
   businessId?: string;
+  templateBusinessId?: string;
   type?: string;
   name?: string;
   isFavorite?: boolean;
@@ -51,6 +52,14 @@ export function showQuickInspector(
     bid.className = 'crev-qi-row';
     bid.textContent = `ID: ${data.businessId}`;
     panelEl.appendChild(bid);
+  }
+
+  // Template BID
+  if (data.templateBusinessId) {
+    const tbid = document.createElement('div');
+    tbid.className = 'crev-qi-row crev-qi-template';
+    tbid.textContent = `Template: ${data.templateBusinessId}`;
+    panelEl.appendChild(tbid);
   }
 
   // RID

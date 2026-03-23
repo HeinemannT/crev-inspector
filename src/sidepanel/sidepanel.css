@@ -1024,6 +1024,25 @@ body {
   min-width: 80px;
 }
 
+.detail-inputset {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  margin: 2px 8px 4px;
+  background: var(--md-surface-variant);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--md-on-surface);
+}
+.detail-inputset-label {
+  font-weight: 600;
+  color: var(--md-on-surface-variant);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .detail-loading {
   display: flex;
   align-items: center;

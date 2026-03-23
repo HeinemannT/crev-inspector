@@ -20,7 +20,7 @@ const FAILED_TTL = 60_000; // re-allow enrichment after 60s
 let enrichmentGeneration = 0;
 let enrichAbort: AbortController | null = null;
 
-type EnrichmentData = { businessId?: string; type?: string; name?: string };
+type EnrichmentData = { businessId?: string; type?: string; name?: string; templateBusinessId?: string };
 
 /** Check if a RID is still within its failure TTL */
 function isStillFailed(rid: string): boolean {
@@ -109,7 +109,7 @@ export async function enrichBadges(rids: string[]) {
   for (const rid of toProcess) {
     const cached = ctx.cache.get(rid);
     if (cached?.businessId || cached?.type || cached?.name) {
-      cacheHits[rid] = { businessId: cached.businessId, type: cached.type, name: cached.name };
+      cacheHits[rid] = { businessId: cached.businessId, type: cached.type, name: cached.name, templateBusinessId: cached.templateBusinessId };
       enrichedRids.add(rid);
     } else {
       uncached.push(rid);
@@ -163,7 +163,7 @@ export async function enrichBadges(rids: string[]) {
         if (data) {
           chunkHits[rid] = data;
           enrichedRids.add(rid);
-          cacheObjs.push({ rid, businessId: data.businessId, type: data.type, name: data.name, source: 'server', discoveredAt: now, updatedAt: now });
+          cacheObjs.push({ rid, businessId: data.businessId, type: data.type, name: data.name, templateBusinessId: data.templateBusinessId, source: 'server', discoveredAt: now, updatedAt: now });
           total++;
         } else {
           failed.push(rid);

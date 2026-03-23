@@ -34,7 +34,7 @@ let observer: MutationObserver | null = null;
 let styleInjected = false;
 
 // Enrichment data from server (RID → business ID / type / name)
-const enrichments = new Map<string, { businessId?: string; type?: string; name?: string }>();
+const enrichments = new Map<string, { businessId?: string; type?: string; name?: string; templateBusinessId?: string }>();
 
 // Cached properties for richer technical overlay cards
 const overlayProps = new Map<string, Record<string, string>>();
@@ -322,17 +322,21 @@ function syncOverlays() {
         return;
       }
 
-      // First click → set timer for single-click (copy BID)
+      // First click → set timer for single-click (copy BID or template BID on shift)
+      const isShift = e.shiftKey;
       labelClickRid = rid;
       labelClickTimer = setTimeout(() => {
         labelClickTimer = null;
         labelClickRid = null;
-        // Execute single-click: copy business ID
         const enriched = enrichments.get(rid);
-        const text = enriched?.businessId ?? rid;
+        const hasTemplate = !!enriched?.templateBusinessId;
+        const text = isShift && hasTemplate
+          ? enriched!.templateBusinessId!
+          : (enriched?.businessId ?? rid);
+        const flashText = isShift && hasTemplate ? '\u2713 Tmpl' : '\u2713';
         navigator.clipboard.writeText(text).then(() => {
           const original = labelText.textContent;
-          labelText.textContent = '\u2713';
+          labelText.textContent = flashText;
           label.classList.add('crev-label-flash-ok');
           setTimeout(() => {
             labelText.textContent = original;
@@ -436,6 +440,7 @@ function openQuickInspector(labelEl: HTMLElement, rid: string) {
     showQuickInspector(labelEl, {
       rid,
       businessId: enrichment?.businessId,
+      templateBusinessId: enrichment?.templateBusinessId,
       type: enrichment?.type,
       name: enrichment?.name,
       isFavorite: favoriteRids.has(rid),

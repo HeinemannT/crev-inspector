@@ -18,6 +18,7 @@ export interface BmpObject {
   type?: string;
   typename?: string;
   businessId?: string;
+  templateBusinessId?: string;
   webParentRid?: string;
   hasChildren?: boolean;
   properties?: Record<string, unknown>;
@@ -55,7 +56,9 @@ export type CacheMessage =
 // ── Server Lookup (detail view) ──────────────────────────────────
 export type ServerLookupMessage =
   | { type: 'SERVER_LOOKUP'; rid: string }
-  | { type: 'SERVER_LOOKUP_RESULT'; rid: string; object: BmpObject | null; error?: string };
+  | { type: 'SERVER_LOOKUP_RESULT'; rid: string; object: BmpObject | null; error?: string }
+  | { type: 'INPUTSET_LOOKUP'; rid: string }
+  | { type: 'INPUTSET_LOOKUP_RESULT'; rid: string; inputsetId?: string; inputsetName?: string; inputsetRid?: string; error?: string };
 
 // ── Connection & Settings ────────────────────────────────────────
 export type ConnectionMessage =
@@ -85,7 +88,7 @@ export type EcMessage =
 // ── Enrichment ───────────────────────────────────────────────────
 export type EnrichMessage =
   | { type: 'ENRICH_BADGES'; rids: string[] }
-  | { type: 'BADGE_ENRICHMENT'; enrichments: Record<string, { businessId?: string; type?: string; name?: string }> }
+  | { type: 'BADGE_ENRICHMENT'; enrichments: Record<string, { businessId?: string; type?: string; name?: string; templateBusinessId?: string }> }
   | { type: 'ENRICH_MODE'; mode: EnrichMode }
   | { type: 'RE_ENRICH' }
   | { type: 'REFRESH_ENRICHMENT' };
@@ -160,7 +163,7 @@ export type OverlayModeMessage =
 export type ObjectViewMessage =
   | { type: 'OPEN_OBJECT_VIEW'; rid: string }
   | { type: 'FULL_LOOKUP'; rid: string }
-  | { type: 'FULL_LOOKUP_RESULT'; rid: string; object: BmpObject | null; template?: { rid: string; name: string; type: string }; children?: Array<{ rid: string; name?: string; type?: string; businessId?: string }>; error?: string };
+  | { type: 'FULL_LOOKUP_RESULT'; rid: string; object: BmpObject | null; template?: { rid: string; name: string; type: string; businessId?: string }; children?: Array<{ rid: string; name?: string; type?: string; businessId?: string }>; error?: string };
 
 // ── Diff ─────────────────────────────────────────────────────────
 export type DiffMessage =

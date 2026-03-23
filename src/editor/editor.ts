@@ -44,7 +44,8 @@ let bottomPanelOpen = false
 let bottomMode: 'output' | 'snippets' | 'history' = 'output'
 let dirty = false
 let outputHeight = 160 // default px, persisted
-let lastMode: 'preview' | 'save' | null = null
+let previewDone = false // gating: Run unlocked only after successful preview
+let lastMode: 'preview' | 'execute' | 'save' | null = null
 let lastDuration: number | null = null
 let lastOutputText = ''
 let lastOutputOk = true
@@ -172,11 +173,13 @@ function renderShell() {
   }
 
   const saveBtn = isExtended ? '' : '<button class="btn btn-success" id="btn-save">Save</button>'
+  const runBtnDisabled = previewDone ? '' : 'disabled'
 
   root.innerHTML = `
     <div class="editor-cm-wrap" id="cm-container"></div>
     <div class="editor-toolbar">
-      <button class="btn btn-accent" id="btn-preview">Run \u25B6</button>
+      <button class="btn btn-accent" id="btn-preview">Preview \u25B6</button>
+      <button class="btn btn-danger" id="btn-run" ${runBtnDisabled} title="${previewDone ? 'Execute transactionally' : 'Preview first to unlock'}">Run \u25B6</button>
       ${saveBtn}
       <button class="btn" id="btn-copy">Copy</button>
       ${propTabsHtml}
@@ -200,6 +203,7 @@ function renderShell() {
 
   // Wire toolbar
   document.getElementById('btn-preview')?.addEventListener('click', doPreview)
+  document.getElementById('btn-run')?.addEventListener('click', doRun)
   document.getElementById('btn-save')?.addEventListener('click', doSave)
   document.getElementById('btn-copy')?.addEventListener('click', doCopy)
   document.getElementById('btn-clear')?.addEventListener('click', doClear)
@@ -219,6 +223,7 @@ function renderShell() {
         currentCode[activeProperty] = editorView.state.doc.toString()
       }
       ctx.saveTarget = target
+      previewDone = false
       // Re-determine active property from new target's code
       const newCode = getActiveCode(ctx)
       if (!newCode[activeProperty]) {
@@ -241,6 +246,7 @@ function renderShell() {
         currentCode[activeProperty] = editorView.state.doc.toString()
       }
       activeProperty = prop
+      previewDone = false
       renderShell()
       const code = getActiveCode(ctx)
       createEditor(code[prop] ?? '')
@@ -291,22 +297,28 @@ function createEditor(code: string) {
       { key: 'Ctrl-Shift-e', run: wrapInForEach },
       { key: 'F2', run: renameAllOccurrences },
       { key: 'Ctrl-d', run: selectNextOccurrence },
-      // Preview / Save shortcuts
+      // Preview / Run / Save shortcuts
       { key: 'Ctrl-Enter', run: () => { doPreview(); return true } },
       { key: 'F5', run: () => { doPreview(); return true }, preventDefault: true },
+      { key: 'Ctrl-Shift-Enter', run: () => { doRun(); return true } },
       { key: 'Ctrl-s', run: () => { doSave(); return true } },
     ]),
 
-    // Cursor position + selection tracking
+    // Cursor position + selection tracking + previewDone gating
     EditorView.updateListener.of(update => {
       if (update.selectionSet || update.docChanged) {
         updateStatusBar(update.view)
         const { from, to } = update.state.selection.main
         const btn = document.getElementById('btn-preview')
-        if (btn) btn.textContent = from !== to ? 'Run \u25B6 \u00b7' : 'Run \u25B6'
+        if (btn) btn.textContent = from !== to ? 'Preview \u25B6 \u00b7' : 'Preview \u25B6'
       }
       if (update.docChanged) {
         dirty = true
+        // Reset preview gate when code changes
+        if (previewDone) {
+          previewDone = false
+          updateRunButton()
+        }
       }
     }),
   ]
@@ -366,6 +378,45 @@ async function doPreview() {
 
   lastMode = 'preview'
   lastDuration = null
+  showOutput('Previewing\u2026', true)
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'EC_EXECUTE',
+      code,
+      objectRid: getExecutionRid(ctx),
+    })
+    lastDuration = Date.now() - startTime
+    if (response?.ok !== false) {
+      showOutput(response?.log ?? 'No output', true)
+      // Unlock Run button on successful preview
+      previewDone = true
+      updateRunButton()
+    } else {
+      showOutput(response?.error ?? response?.log ?? 'Execution failed', false)
+      previewDone = false
+      updateRunButton()
+    }
+  } catch (e) {
+    lastDuration = Date.now() - startTime
+    showOutput(String(e), false)
+    previewDone = false
+    updateRunButton()
+  }
+
+  // Refresh history in background
+  chrome.runtime.sendMessage({ type: 'GET_SCRIPT_HISTORY' }).then((r: any) => {
+    if (r?.entries) historyEntries = r.entries
+  }).catch(() => {})
+}
+
+async function doRun() {
+  if (!editorView || !ctx || !previewDone) return
+  const code = getRunCode()
+  const startTime = Date.now()
+
+  lastMode = 'execute'
+  lastDuration = null
   showOutput('Executing\u2026', true)
 
   try {
@@ -373,6 +424,7 @@ async function doPreview() {
       type: 'EC_EXECUTE',
       code,
       objectRid: getExecutionRid(ctx),
+      transactional: true,
     })
     lastDuration = Date.now() - startTime
     if (response?.ok !== false) {
@@ -385,10 +437,22 @@ async function doPreview() {
     showOutput(String(e), false)
   }
 
+  // Reset preview gate after execution
+  previewDone = false
+  updateRunButton()
+
   // Refresh history in background
   chrome.runtime.sendMessage({ type: 'GET_SCRIPT_HISTORY' }).then((r: any) => {
     if (r?.entries) historyEntries = r.entries
   }).catch(() => {})
+}
+
+/** Update Run button disabled state and tooltip */
+function updateRunButton() {
+  const btn = document.getElementById('btn-run') as HTMLButtonElement | null
+  if (!btn) return
+  btn.disabled = !previewDone
+  btn.title = previewDone ? 'Execute transactionally (Ctrl+Shift+Enter)' : 'Preview first to unlock'
 }
 
 async function doSave() {
@@ -487,7 +551,7 @@ function renderBottomContent() {
   if (!container) return
 
   if (bottomMode === 'output') {
-    const modeLabel = lastMode === 'save' ? 'Saved' : 'Preview'
+    const modeLabel = lastMode === 'save' ? 'Saved' : lastMode === 'execute' ? 'Executed' : 'Preview'
     const cls = lastOutputOk ? 'ok' : 'error'
     const durationText = lastDuration != null ? `\u00b7 ${lastDuration}ms` : ''
     container.innerHTML = `
@@ -573,6 +637,8 @@ function doClear() {
   lastOutputOk = true
   lastMode = null
   lastDuration = null
+  previewDone = false
+  updateRunButton()
   if (editorView) {
     editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: '' } })
     editorView.focus()

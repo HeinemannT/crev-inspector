@@ -7,7 +7,7 @@ import type { BmpObject, InspectorMessage } from '../lib/types';
 import { getTypeColor, getTypeAbbr, SCRIPT_PROPS } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
-import { copyBtn, copyText, ICON_ARROW_LEFT, ICON_STAR_FILLED, ICON_STAR_HOLLOW } from './utils';
+import { copyBtn, copyBtnDual, copyText, ICON_ARROW_LEFT, ICON_STAR_FILLED, ICON_STAR_HOLLOW } from './utils';
 import { log } from '../lib/logger';
 import { LOOKUP_WATCHDOG_TIMEOUT } from '../lib/constants';
 import { S } from './state';
@@ -44,6 +44,11 @@ let ecStartTime = 0;
 let expandedOutputs = new Set<string>();
 let lookupTimeout: ReturnType<typeof setTimeout> | null = null;
 
+// InputSet state (for InputView objects)
+interface InputSetData { id?: string; name?: string; rid?: string }
+let inputsetData: InputSetData | null = null;
+let inputsetLoading = false;
+
 /** Initialize the detail view module */
 export function initDetailView(
   onBack: () => void,
@@ -79,6 +84,8 @@ export function showDetail(obj: BmpObject, panel: HTMLElement): void {
   ecRunningProp = null;
   ecStartTime = 0;
   expandedOutputs = new Set();
+  inputsetData = null;
+  inputsetLoading = false;
   renderDetail(panel);
 
   if (!obj.properties) {
@@ -86,6 +93,11 @@ export function showDetail(obj: BmpObject, panel: HTMLElement): void {
     startLookupWatchdog(obj.rid, panel);
   } else {
     serverLookupDone = true;
+    // Trigger InputSet lookup for InputView objects
+    if (obj.type === 'InputView') {
+      inputsetLoading = true;
+      sendMessageCb?.({ type: 'INPUTSET_LOOKUP', rid: obj.rid });
+    }
   }
 }
 
@@ -103,8 +115,24 @@ export function handleDetailMessage(msg: InspectorMessage, panel: HTMLElement): 
         name: msg.object.name ?? currentObj.name,
         type: msg.object.type ?? currentObj.type,
         businessId: msg.object.businessId ?? currentObj.businessId,
+        templateBusinessId: msg.object.templateBusinessId ?? currentObj.templateBusinessId,
         properties: msg.object.properties ?? currentObj.properties,
       };
+      // Trigger InputSet lookup for InputView objects
+      const objType = currentObj.type ?? msg.object.type;
+      if (objType === 'InputView' && !inputsetLoading && !inputsetData) {
+        inputsetLoading = true;
+        sendMessageCb?.({ type: 'INPUTSET_LOOKUP', rid: currentObj.rid });
+      }
+    }
+    renderDetail(panel);
+    return true;
+  }
+
+  if (msg.type === 'INPUTSET_LOOKUP_RESULT' && 'rid' in msg && msg.rid === currentObj.rid) {
+    inputsetLoading = false;
+    if (msg.inputsetId || msg.inputsetRid) {
+      inputsetData = { id: msg.inputsetId, name: msg.inputsetName, rid: msg.inputsetRid };
     }
     renderDetail(panel);
     return true;
@@ -144,6 +172,8 @@ export function clearDetail(): void {
   ecOutputs = new Map();
   ecRunningProp = null;
   ecStartTime = 0;
+  inputsetData = null;
+  inputsetLoading = false;
 }
 
 // ── Rendering ────────────────────────────────────────────────────
@@ -176,7 +206,21 @@ function renderDetail(panel: HTMLElement): void {
       ),
       obj.businessId && h('tr', null,
         h('td', { class: 'prop-key' }, 'ID'),
-        h('td', { class: 'prop-value has-copy' }, h('span', { class: 'mono' }, obj.businessId), copyBtn(obj.businessId)),
+        h('td', { class: 'prop-value has-copy' },
+          h('span', { class: 'mono' }, obj.businessId),
+          obj.templateBusinessId
+            ? copyBtnDual(obj.businessId, obj.templateBusinessId, 'ID', 'Template ID')
+            : copyBtn(obj.businessId),
+        ),
+      ),
+      obj.templateBusinessId && h('tr', null,
+        h('td', { class: 'prop-key' }, 'Template ID'),
+        h('td', { class: 'prop-value has-copy' },
+          h('span', { class: 'mono' }, obj.templateBusinessId),
+          obj.businessId
+            ? copyBtnDual(obj.templateBusinessId, obj.businessId, 'Template ID', 'ID')
+            : copyBtn(obj.templateBusinessId),
+        ),
       ),
       obj.type && h('tr', null,
         h('td', { class: 'prop-key' }, 'Type'),
@@ -184,6 +228,22 @@ function renderDetail(panel: HTMLElement): void {
       ),
     ),
   ];
+
+  // InputSet badge for InputView objects
+  if (obj.type === 'InputView') {
+    if (inputsetLoading) {
+      children.push(h('div', { class: 'detail-inputset' }, h('span', { class: 'detection-spinner' }), ' Loading InputSet\u2026'));
+    } else if (inputsetData) {
+      const label = inputsetData.id || inputsetData.name || inputsetData.rid || 'unknown';
+      children.push(
+        h('div', { class: 'detail-inputset' },
+          h('span', { class: 'detail-inputset-label' }, 'InputSet'),
+          h('span', { class: 'mono' }, label),
+          inputsetData.id ? copyBtn(inputsetData.id) : false,
+        ),
+      );
+    }
+  }
 
   // Loading state
   if (!serverLookupDone) {

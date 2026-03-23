@@ -108,6 +108,7 @@ async function lookupObject(rid: string): Promise<import('./types').BmpObject> {
     name: identity.name,
     type: identity.type,
     businessId: identity.businessId,
+    templateBusinessId: identity.templateBusinessId,
     properties,
     source: 'server',
     discoveredAt: now,
@@ -127,6 +128,48 @@ export function handleServerLookup(rid: string) {
       ctx.sendToPanel({ type: 'SERVER_LOOKUP_RESULT', rid, object: obj });
     } catch (e) {
       ctx.sendToPanel({ type: 'SERVER_LOOKUP_RESULT', rid, object: null, error: errorMessage(e) });
+    }
+  });
+}
+
+export function handleInputsetLookup(rid: string) {
+  const ctx = getCtx();
+  ctx.settingsReady.then(async () => {
+    if (!ctx.client) {
+      ctx.sendToPanel({ type: 'INPUTSET_LOOKUP_RESULT', rid, error: 'Not connected' });
+      return;
+    }
+    try {
+      const ref = await ctx.client.resolveRef(rid);
+      const code = [
+        `_iv := ${ref}`,
+        '_is := _iv.inputset',
+        'IF _is != MISSING THEN',
+        '  _is.id.whenMissing("") + "|||" + _is.name.whenMissing("") + "|||" + _is.rid.whenMissing("")',
+        'ELSE',
+        '  ""',
+        'ENDIF',
+      ].join('\n');
+      const result = await ctx.client.executeEc(code, undefined, false);
+      if (!result.ok || !result.log?.includes('|||')) {
+        ctx.sendToPanel({ type: 'INPUTSET_LOOKUP_RESULT', rid });
+        return;
+      }
+      const line = result.log.trim().split('\n').find(l => l.includes('|||'));
+      if (!line) {
+        ctx.sendToPanel({ type: 'INPUTSET_LOOKUP_RESULT', rid });
+        return;
+      }
+      const [isId, isName, isRid] = line.split('|||').map(s => s.trim());
+      ctx.sendToPanel({
+        type: 'INPUTSET_LOOKUP_RESULT',
+        rid,
+        inputsetId: isId || undefined,
+        inputsetName: isName || undefined,
+        inputsetRid: isRid || undefined,
+      });
+    } catch (e) {
+      ctx.sendToPanel({ type: 'INPUTSET_LOOKUP_RESULT', rid, error: errorMessage(e) });
     }
   });
 }
@@ -281,6 +324,10 @@ export function handlePanelMessage(msg: InspectorMessage) {
 
     case 'SERVER_LOOKUP':
       handleServerLookup(msg.rid);
+      break;
+
+    case 'INPUTSET_LOOKUP':
+      handleInputsetLookup(msg.rid);
       break;
 
     case 'EC_EXECUTE':
@@ -514,11 +561,11 @@ async function handleFullLookup(rid: string, sendResponse: (r: any) => void) {
     const obj = await lookupObject(rid);
 
     // Resolve template + children (full lookup extras)
-    let template: { rid: string; name: string; type: string } | undefined;
+    let template: { rid: string; name: string; type: string; businessId?: string } | undefined;
     if (ctx.client) {
       const tmpl = await ctx.client.resolveTemplate(rid);
       if (tmpl.templateRid) {
-        template = { rid: tmpl.templateRid, name: tmpl.templateName ?? '', type: tmpl.templateType ?? '' };
+        template = { rid: tmpl.templateRid, name: tmpl.templateName ?? '', type: tmpl.templateType ?? '', businessId: tmpl.templateBusinessId };
       }
     }
     const children = ctx.client ? await ctx.client.fetchChildren(rid) : [];

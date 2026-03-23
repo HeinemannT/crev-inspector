@@ -238,6 +238,16 @@ body {
   color: #fff;
 }
 
+.editor-toolbar .btn-danger {
+  border-color: #fa4d56;
+  color: #fa4d56;
+}
+
+.editor-toolbar .btn-danger:hover:not(:disabled) {
+  background: #fa4d56;
+  color: #fff;
+}
+
 .editor-toolbar .btn:disabled {
   opacity: 0.4;
   cursor: default;

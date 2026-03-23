@@ -46,6 +46,7 @@ export interface TemplateResolution {
   templateRid: string | null;
   templateName?: string;
   templateType?: string;
+  templateBusinessId?: string;
 }
 
 /** Structured editor context returned by fetchEditorContext() — single EC call. */
@@ -204,7 +205,7 @@ export class BmpClient {
     const code = [
       `_o := ${ref}`,
       '_t := _o.linkedTo',
-      '_t.rid.whenMissing("MISSING") + "|||" + _t.name.whenMissing("") + "|||" + _t.className.whenMissing("")',
+      '_t.rid.whenMissing("MISSING") + "|||" + _t.name.whenMissing("") + "|||" + _t.className.whenMissing("") + "|||" + _t.id.whenMissing("")',
     ].join('\n');
     const ecResult = await this.executeEc(code, undefined, false);
     if (!ecResult.ok || !ecResult.log) return { templateRid: null };
@@ -214,19 +215,22 @@ export class BmpClient {
     const match = lines.find(l => l.includes('|||'))?.trim();
     if (!match || match.startsWith('MISSING')) return { templateRid: null };
 
-    const [tRid, ...rest] = match.split('|||');
-    const tType = rest.pop() ?? '';
-    const tName = rest.join('|||');
+    const parts = match.split('|||');
+    const tRid = parts[0]?.trim();
+    const tName = parts[1]?.trim();
+    const tType = parts[2]?.trim();
+    const tBid = parts[3]?.trim();
     if (!tRid || tRid === 'MISSING') return { templateRid: null };
     return {
-      templateRid: tRid.trim(),
-      templateName: tName?.trim() || undefined,
-      templateType: tType?.trim() || undefined,
+      templateRid: tRid,
+      templateName: tName || undefined,
+      templateType: tType || undefined,
+      templateBusinessId: tBid || undefined,
     };
   }
 
   /** Batch enrich: get businessId, type, name for multiple RIDs in a single EC call */
-  async batchEnrich(rids: string[], signal?: AbortSignal): Promise<{ results: Record<string, { businessId?: string; type?: string; name?: string }>; error?: string }> {
+  async batchEnrich(rids: string[], signal?: AbortSignal): Promise<{ results: Record<string, { businessId?: string; type?: string; name?: string; templateBusinessId?: string }>; error?: string }> {
     let valid = rids.filter(Boolean).filter(rid => /^-?\d+$/.test(rid));
     if (valid.length === 0) return { results: {} };
     if (valid.length > BATCH_CHUNK_SIZE) valid = valid.slice(0, BATCH_CHUNK_SIZE);
@@ -235,7 +239,9 @@ export class BmpClient {
     for (const rid of valid) {
       lines.push(`_o := lookup(${rid})`);
       lines.push('IF _o != MISSING THEN');
-      lines.push('  _r := _r + _o.rid.whenMissing("SKIP") + _d + _o.id.whenMissing("") + _d + _o.className.whenMissing("") + _d + _o.name.whenMissing("") + "\\n"');
+      lines.push('  _t := _o.linkedTo');
+      lines.push('  _tid := IF _t != MISSING THEN _t.id.whenMissing("") ELSE "" ENDIF');
+      lines.push('  _r := _r + _o.rid.whenMissing("SKIP") + _d + _o.id.whenMissing("") + _d + _o.className.whenMissing("") + _d + _o.name.whenMissing("") + _d + _tid + "\\n"');
       lines.push('ENDIF');
     }
     lines.push('_r');
@@ -246,14 +252,17 @@ export class BmpClient {
     if (result.log == null) { log.debug('batchEnrich', 'EC returned null output'); return { results: {}, error: 'EC returned null output' }; }
     if (result.log.trim() === '') { log.debug('batchEnrich', `EC returned empty for ${valid.length} RIDs:`, valid); return { results: {} }; }
 
-    const out: Record<string, { businessId?: string; type?: string; name?: string }> = {};
+    const out: Record<string, { businessId?: string; type?: string; name?: string; templateBusinessId?: string }> = {};
     for (const parts of parsePipeLines(result.log, 4)) {
       const [rid, bid, typ, ...rest] = parts;
+      // 5th field (index 4) is template businessId — may be absent on older cache data
+      const tbid = parts.length >= 5 ? (rest.pop()?.trim() || undefined) : undefined;
       const name = rest.join('|||').trim();
       out[rid] = {
         businessId: bid || undefined,
         type: typ || undefined,
         name: name || undefined,
+        templateBusinessId: tbid || undefined,
       };
     }
     const missed = valid.filter(r => !(r in out));
@@ -262,7 +271,7 @@ export class BmpClient {
   }
 
   /** Lightweight identity fetch for a single RID (version-aware) */
-  async lookupIdentity(rid: string): Promise<{ name?: string; type?: string; businessId?: string } | null> {
+  async lookupIdentity(rid: string): Promise<{ name?: string; type?: string; businessId?: string; templateBusinessId?: string } | null> {
     if (this.supportsLookup !== false) {
       const { results } = await this.batchEnrich([rid]);
       return results[rid] ?? null;
