@@ -235,35 +235,43 @@ function renderDetail(panel: HTMLElement): void {
     ),
   ];
 
-  // InputSet badge for InputView objects
+  // Linked InputSet badge for InputView objects — shown as secondary badge below identity
   if (obj.type === 'InputView') {
     if (inputsetLoading) {
-      children.push(h('div', { class: 'detail-inputset' }, h('span', { class: 'detection-spinner' }), ' Loading InputSet\u2026'));
+      children.push(h('div', { class: 'detail-linked' },
+        h('div', { class: 'detail-linked-line' }),
+        h('div', { class: 'detail-linked-badge' },
+          h('span', { class: 'detail-linked-type' }, 'InputSet'),
+          h('span', { class: 'detection-spinner' }),
+        ),
+      ));
     } else if (inputsetData) {
-      const label = inputsetData.id || inputsetData.name || inputsetData.rid || 'unknown';
+      const displayId = inputsetData.id || inputsetData.name || inputsetData.rid || '\u2014';
       const copyValue = inputsetData.id || inputsetData.rid;
-      children.push(
-        h('div', { class: 'detail-inputset' },
-          h('span', { class: 'detail-inputset-label' }, 'InputSet'),
-          h('span', { class: 'mono' }, label),
+      children.push(h('div', { class: 'detail-linked' },
+        h('div', { class: 'detail-linked-line' }),
+        h('div', { class: 'detail-linked-badge' },
+          h('span', { class: 'detail-linked-type' }, 'InputSet'),
+          h('span', { class: 'detail-linked-id mono' }, displayId),
           copyValue ? copyBtn(copyValue) : false,
         ),
-      );
+      ));
     } else if (inputsetError) {
-      children.push(
-        h('div', { class: 'detail-inputset detail-inputset--dim' },
-          h('span', { class: 'detail-inputset-label' }, 'InputSet'),
+      children.push(h('div', { class: 'detail-linked' },
+        h('div', { class: 'detail-linked-line' }),
+        h('div', { class: 'detail-linked-badge detail-linked--dim' },
+          h('span', { class: 'detail-linked-type' }, 'InputSet'),
           h('span', null, 'unavailable'),
         ),
-      );
+      ));
     } else if (serverLookupDone) {
-      // Lookup completed but no InputSet found — show "none" so user knows we checked
-      children.push(
-        h('div', { class: 'detail-inputset detail-inputset--dim' },
-          h('span', { class: 'detail-inputset-label' }, 'InputSet'),
+      children.push(h('div', { class: 'detail-linked' },
+        h('div', { class: 'detail-linked-line' }),
+        h('div', { class: 'detail-linked-badge detail-linked--dim' },
+          h('span', { class: 'detail-linked-type' }, 'InputSet'),
           h('span', null, 'none'),
         ),
-      );
+      ));
     }
   }
 

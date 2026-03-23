@@ -1024,25 +1024,42 @@ body {
   min-width: 80px;
 }
 
-.detail-inputset {
+/* Linked object badge (e.g., InputView → InputSet) */
+.detail-linked {
+  display: flex;
+  align-items: stretch;
+  margin: -4px 0 6px 20px;
+}
+.detail-linked-line {
+  width: 1px;
+  min-height: 14px;
+  background: var(--md-outline-variant, #c4c4c4);
+  margin: 0 11px;
+  flex-shrink: 0;
+}
+.detail-linked-badge {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
-  margin: 2px 8px 4px;
+  padding: 3px 8px;
   background: var(--md-surface-variant);
-  border-radius: 4px;
+  border-radius: var(--md-shape-xs, 3px);
   font-size: 11px;
   color: var(--md-on-surface);
+  border-left: 2px solid var(--md-outline-variant, #c4c4c4);
 }
-.detail-inputset-label {
+.detail-linked-type {
   font-weight: 600;
-  color: var(--md-on-surface-variant);
   font-size: 10px;
+  color: var(--md-on-surface-variant);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
 }
-.detail-inputset--dim {
+.detail-linked-id {
+  color: var(--md-on-surface);
+}
+.detail-linked--dim {
   opacity: 0.5;
   font-style: italic;
 }
