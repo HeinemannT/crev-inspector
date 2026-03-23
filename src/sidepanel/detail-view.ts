@@ -48,6 +48,7 @@ let lookupTimeout: ReturnType<typeof setTimeout> | null = null;
 interface InputSetData { id?: string; name?: string; rid?: string }
 let inputsetData: InputSetData | null = null;
 let inputsetLoading = false;
+let inputsetError: string | null = null;
 
 /** Initialize the detail view module */
 export function initDetailView(
@@ -86,6 +87,7 @@ export function showDetail(obj: BmpObject, panel: HTMLElement): void {
   expandedOutputs = new Set();
   inputsetData = null;
   inputsetLoading = false;
+  inputsetError = null;
   renderDetail(panel);
 
   if (!obj.properties) {
@@ -134,6 +136,9 @@ export function handleDetailMessage(msg: InspectorMessage, panel: HTMLElement): 
     if (msg.inputsetId || msg.inputsetRid) {
       inputsetData = { id: msg.inputsetId, name: msg.inputsetName, rid: msg.inputsetRid };
     }
+    if ('error' in msg && msg.error) {
+      inputsetError = msg.error;
+    }
     renderDetail(panel);
     return true;
   }
@@ -174,6 +179,7 @@ export function clearDetail(): void {
   ecStartTime = 0;
   inputsetData = null;
   inputsetLoading = false;
+  inputsetError = null;
 }
 
 // ── Rendering ────────────────────────────────────────────────────
@@ -235,11 +241,27 @@ function renderDetail(panel: HTMLElement): void {
       children.push(h('div', { class: 'detail-inputset' }, h('span', { class: 'detection-spinner' }), ' Loading InputSet\u2026'));
     } else if (inputsetData) {
       const label = inputsetData.id || inputsetData.name || inputsetData.rid || 'unknown';
+      const copyValue = inputsetData.id || inputsetData.rid;
       children.push(
         h('div', { class: 'detail-inputset' },
           h('span', { class: 'detail-inputset-label' }, 'InputSet'),
           h('span', { class: 'mono' }, label),
-          inputsetData.id ? copyBtn(inputsetData.id) : false,
+          copyValue ? copyBtn(copyValue) : false,
+        ),
+      );
+    } else if (inputsetError) {
+      children.push(
+        h('div', { class: 'detail-inputset detail-inputset--dim' },
+          h('span', { class: 'detail-inputset-label' }, 'InputSet'),
+          h('span', null, 'unavailable'),
+        ),
+      );
+    } else if (serverLookupDone) {
+      // Lookup completed but no InputSet found — show "none" so user knows we checked
+      children.push(
+        h('div', { class: 'detail-inputset detail-inputset--dim' },
+          h('span', { class: 'detail-inputset-label' }, 'InputSet'),
+          h('span', null, 'none'),
         ),
       );
     }
