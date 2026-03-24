@@ -2,6 +2,10 @@
  * Password encryption at rest — uses Web Crypto with a key derived from the extension ID.
  * Prevents plaintext passwords in chrome.storage.local exports/dumps.
  * Not a substitute for OS-level credential management — defense in depth.
+ *
+ * Note: session snapshots (snapshotSettings) write plaintext to chrome.storage.session
+ * for instant panel boot. Session storage is not persisted to disk and clears on browser
+ * close — same security boundary as process memory.
  */
 
 const ALGO = 'AES-GCM';
