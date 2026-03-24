@@ -48,6 +48,12 @@ export class PageTab implements Tab {
 
   deactivate() {}
 
+  findObject(rid: string) {
+    const w = this.pageInfo?.widgets.find(w => w.rid === rid);
+    if (!w) return null;
+    return { rid: w.rid, name: w.name, type: w.type, source: 'dom' as const, discoveredAt: Date.now(), updatedAt: Date.now() };
+  }
+
   handleMessage(msg: InspectorMessage): boolean {
     switch (msg.type) {
       case 'PAGE_INFO':

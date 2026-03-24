@@ -13,6 +13,7 @@ export class LogTab implements Tab {
   private latestMsg: string | null = null;
   private latestTimer: ReturnType<typeof setTimeout> | null = null;
   private send: SendFn;
+  private onStatusChange: (() => void) | null = null;
 
   /** Latest activity message (read by status bar in sidepanel) */
   get latestActivityMsg() { return this.latestMsg; }
@@ -20,6 +21,9 @@ export class LogTab implements Tab {
   constructor(send: SendFn) {
     this.send = send;
   }
+
+  /** Register callback for when activity status changes (message arrives or 3s timeout clears it) */
+  onActivityChange(cb: () => void) { this.onStatusChange = cb; }
 
   activate() {
     this.send({ type: 'GET_ACTIVITY' });
@@ -39,7 +43,10 @@ export class LogTab implements Tab {
         if (this.entries.length > ACTIVITY_MAX) this.entries.shift();
         this.latestMsg = msg.entry.message;
         if (this.latestTimer) clearTimeout(this.latestTimer);
-        this.latestTimer = setTimeout(() => { this.latestMsg = null; }, 3000);
+        this.latestTimer = setTimeout(() => {
+          this.latestMsg = null;
+          this.onStatusChange?.();
+        }, 3000);
         return true;
       default:
         return false;
@@ -64,25 +71,4 @@ export class LogTab implements Tab {
     feed.scrollTop = feed.scrollHeight;
   }
 
-  /** Incremental feed update (appends without full re-render) */
-  renderFeed() {
-    const feed = document.getElementById('activity-feed');
-    if (!feed) return;
-
-    const entries = this.entries.slice(-30);
-    if (entries.length === 0) {
-      render(feed, h('div', { class: 'activity-empty' }, 'No activity yet'));
-      return;
-    }
-
-    render(feed, ...entries.map(entry =>
-      h('div', { class: `activity-entry ${entry.level}` },
-        h('span', { class: 'activity-msg' }, entry.message),
-        h('span', { class: 'activity-time' }, relativeTime(entry.time)),
-      )
-    ));
-
-    const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
-    if (atBottom) feed.scrollTop = feed.scrollHeight;
-  }
 }

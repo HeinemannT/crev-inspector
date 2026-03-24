@@ -36,6 +36,10 @@ export class ObjectsTab implements Tab {
 
   deactivate() {}
 
+  findObject(rid: string) {
+    return this.objects.find(o => o.rid === rid) ?? null;
+  }
+
   handleMessage(msg: InspectorMessage): boolean {
     switch (msg.type) {
       case 'CACHE_DATA':
@@ -45,8 +49,7 @@ export class ObjectsTab implements Tab {
         this.history = msg.entries;
         return true;
       case 'FAVORITES_DATA':
-        // Favorites live in shared (detail view star needs them)
-        shared.favoriteEntries = msg.entries;
+        // Shared state — orchestrator writes S.favoriteEntries, we just re-render
         return true;
       default:
         return false;

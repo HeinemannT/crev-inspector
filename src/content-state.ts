@@ -69,11 +69,15 @@ export class ContentState {
   /** Full reset for re-injection guard */
   resetAll() {
     this.inspectActive = false;
+    this.enrichMode = 'all';
     this.paintPhase = 'off';
     this.paintSourceName = null;
+    this.styleInjected = false;
     this.technicalOverlay = false;
     this.fromSync = false;
     this.prevConnDisplay = null;
+    this.lastUrl = window.location.href;
+    this.lastDetection = null;
     this.enrichments.clear();
     this.resetOverlays();
     this.resetDiscovery();

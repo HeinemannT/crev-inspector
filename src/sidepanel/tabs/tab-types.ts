@@ -3,18 +3,7 @@
  * Each tab owns its state, handles its messages, and renders independently.
  */
 
-import type { InspectorMessage, InspectorSettings, ConnectionState, FavoriteEntry, PaintPhase } from '../../lib/types';
-
-/** Read-only shared state accessible to all tabs */
-export interface SharedCtx {
-  readonly settings: InspectorSettings;
-  readonly connState: ConnectionState;
-  readonly inspectActive: boolean;
-  readonly paintPhase: PaintPhase;
-  readonly paintSourceName: string | null;
-  readonly cacheCount: number;
-  readonly favoriteEntries: readonly FavoriteEntry[];
-}
+import type { InspectorMessage } from '../../lib/types';
 
 export type SendFn = (msg: InspectorMessage) => void;
 
@@ -30,4 +19,7 @@ export interface Tab {
 
   /** Called when tab is deactivated — cleanup timers, etc. */
   deactivate(): void;
+
+  /** Find a cached object by RID. Used by detail navigation to avoid redundant SERVER_LOOKUP. */
+  findObject?(rid: string): import('../../lib/types').BmpObject | null;
 }

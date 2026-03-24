@@ -26,8 +26,15 @@ const app = document.getElementById('app')!;
 
 function navigateToDetail(rid: string) {
   S.detailRid = rid;
-  // Try to find the object in the objects tab's cache
-  const obj = { rid, source: 'dom' as const, discoveredAt: Date.now(), updatedAt: Date.now() };
+  // Ask each tab for a cached object — avoids redundant SERVER_LOOKUP
+  let obj = null;
+  for (const tab of Object.values(tabs)) {
+    obj = tab.findObject?.(rid) ?? null;
+    if (obj) break;
+  }
+  if (!obj) {
+    obj = { rid, source: 'dom' as const, discoveredAt: Date.now(), updatedAt: Date.now() };
+  }
   const panel = getActivePanel();
   if (panel) showDetail(obj, panel);
 }
@@ -40,6 +47,7 @@ const tabs: Record<string, Tab> = {
 };
 
 const logTab = tabs.log as LogTab;
+logTab.onActivityChange(() => updateStatusBar());
 
 initDetailView(
   () => { S.detailRid = null; renderActiveTab(); },
@@ -111,6 +119,11 @@ onPortMessage((msg: InspectorMessage) => {
   if (headerChanged) {
     updateHeaderStatus();
     refreshStatusStrip();
+    updateStatusBar();
+  }
+
+  // Status bar: activity text + cache count (updated after tab processes the message)
+  if (msg.type === 'ACTIVITY_ENTRY' || msg.type === 'CACHE_STATS') {
     updateStatusBar();
   }
 });

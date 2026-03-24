@@ -24,9 +24,8 @@ export function startObserver(s: ContentState, onUrlChange: () => void) {
     // Check for URL change (SPA navigation) — re-detect + reset dedup
     if (window.location.href !== s.lastUrl) {
       s.lastUrl = window.location.href;
-      s.requestedRids.clear();
-      s.discoveredRids.clear();
-      if (s.labelClickTimer) { clearTimeout(s.labelClickTimer); s.labelClickTimer = null; s.labelClickRid = null; }
+      s.resetOverlays();
+      s.resetDiscovery();
       onUrlChange();
     }
 
