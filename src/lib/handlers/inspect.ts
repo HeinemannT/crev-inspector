@@ -34,3 +34,10 @@ register('TOGGLE_INSPECT', () => toggleInspect());
 register('TOGGLE_PAINT', () => {
   togglePaint(ensureContentScript);
 });
+
+register('TOGGLE_TECHNICAL_OVERLAY', () => {
+  const ctx = getCtx();
+  ctx.technicalOverlay = !ctx.technicalOverlay;
+  ctx.logActivity('info', ctx.technicalOverlay ? 'Technical overlay ON' : 'Technical overlay OFF');
+  ctx.broadcastToContent({ type: 'TECHNICAL_OVERLAY_STATE', active: ctx.technicalOverlay });
+});

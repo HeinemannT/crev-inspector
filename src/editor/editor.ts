@@ -14,7 +14,7 @@ import { oneDark } from '@codemirror/theme-one-dark'
 
 // Shared types + context helpers
 import { type SaveTarget, type ScriptHistoryEntry } from '../lib/types'
-import { escHtml, escAttr } from '../lib/html'
+import { h, render as renderDom } from '../lib/dom'
 import {
   type EditorContext,
   formatLabel,
@@ -58,7 +58,7 @@ let wrapLines = false
 const root = document.getElementById('editor-root')!
 
 async function init() {
-  root.innerHTML = '<div class="editor-loading">Loading\u2026</div>'
+  renderDom(root, h('div', { class: 'editor-loading' }, 'Loading\u2026'))
 
   // Load context from per-RID key (hash = RID)
   try {
@@ -72,12 +72,12 @@ async function init() {
       outputHeight = result.crev_editor_output_height
     }
   } catch {
-    root.innerHTML = '<div class="editor-loading">Failed to load context</div>'
+    renderDom(root, h('div', { class: 'editor-loading' }, 'Failed to load context'))
     return
   }
 
   if (!ctx) {
-    root.innerHTML = '<div class="editor-loading">No editor context found</div>'
+    renderDom(root, h('div', { class: 'editor-loading' }, 'No editor context found'))
     return
   }
 
@@ -121,85 +121,78 @@ function renderShell() {
   const propKeys = Object.keys(activeCode)
 
   // Property tabs with override indicators
-  let propTabsHtml = ''
-  if (!isExtended && propKeys.length > 1) {
-    propTabsHtml = '<div class="editor-prop-tabs">'
-    for (const key of propKeys) {
-      const active = key === activeProperty ? ' active' : ''
-      const overridden = ctx.overrides[key] ? ' editor-prop-tab--overridden' : ''
-      propTabsHtml += `<button class="editor-prop-tab${active}${overridden}" data-prop="${escAttr(key)}" title="${ctx.overrides[key] ? 'Instance differs from template' : ''}">${escHtml(key)}</button>`
-    }
-    propTabsHtml += '</div>'
-  }
+  const propTabs = (!isExtended && propKeys.length > 1)
+    ? h('div', { class: 'editor-prop-tabs' },
+        ...propKeys.map(key =>
+          h('button', {
+            class: `editor-prop-tab${key === activeProperty ? ' active' : ''}${ctx!.overrides[key] ? ' editor-prop-tab--overridden' : ''}`,
+            'data-prop': key,
+            title: ctx!.overrides[key] ? 'Instance differs from template' : '',
+          }, key),
+        ),
+      )
+    : false
 
   // Template/instance toggle with identity labels
-  let toggleHtml = ''
-  if (!isExtended && ctx.template) {
-    const tmplCls = ctx.saveTarget === 'template' ? 'editor-target-btn active' : 'editor-target-btn'
-    const instCls = ctx.saveTarget === 'instance' ? 'editor-target-btn active' : 'editor-target-btn'
-    const tmplShort = formatLabel(ctx.template, 'short')
-    const instShort = formatLabel(ctx.instance, 'short')
-    const tmplFull = formatLabel(ctx.template, 'full')
-    const instFull = formatLabel(ctx.instance, 'full')
-    toggleHtml = `<div class="editor-target-toggle">
-      <button class="${tmplCls}" data-target="template" title="${escAttr(tmplFull)} \u2014 changes propagate">${escHtml(tmplShort)}</button>
-      <button class="${instCls}" data-target="instance" title="${escAttr(instFull)}">${escHtml(instShort)}</button>
-    </div>`
-  }
+  const toggle = (!isExtended && ctx.template)
+    ? h('div', { class: 'editor-target-toggle' },
+        h('button', {
+          class: `editor-target-btn${ctx.saveTarget === 'template' ? ' active' : ''}`,
+          'data-target': 'template',
+          title: `${formatLabel(ctx.template!, 'full')} \u2014 changes propagate`,
+        }, formatLabel(ctx.template!, 'short')),
+        h('button', {
+          class: `editor-target-btn${ctx.saveTarget === 'instance' ? ' active' : ''}`,
+          'data-target': 'instance',
+          title: formatLabel(ctx.instance, 'full'),
+        }, formatLabel(ctx.instance, 'short')),
+      )
+    : false
 
   // Target label
-  let targetLabel: string
+  const targetChildren: (HTMLElement | string)[] = []
   if (isExtended) {
     const inst = ctx.instance
-    targetLabel = inst.name
-      ? `${escHtml(inst.type || 'Page')} \u00b7 ${escHtml(inst.name)}`
-      : 'Extended Code'
+    targetChildren.push(inst.name ? `${inst.type || 'Page'} \u00b7 ${inst.name}` : 'Extended Code')
   } else {
     const identity = getActiveIdentity(ctx)
     const bid = identity.businessId || identity.type || identity.rid
     const isTemplateMode = ctx.saveTarget === 'template' && ctx.template
     if (isTemplateMode) {
-      targetLabel = `template: ${escHtml(bid)}`
+      targetChildren.push(`template: ${bid}`)
     } else {
-      targetLabel = escHtml(bid)
-      if (propKeys.length <= 1) {
-        targetLabel += ` \u00b7 ${escHtml(activeProperty)}`
-      }
+      targetChildren.push(propKeys.length <= 1 ? `${bid} \u00b7 ${activeProperty}` : bid)
     }
-    // Single-property override dot
     if (!isTemplateMode && propKeys.length <= 1 && ctx.overrides[activeProperty]) {
-      targetLabel += ' <span class="editor-override-dot" title="Instance differs from template"></span>'
+      targetChildren.push(h('span', { class: 'editor-override-dot', title: 'Instance differs from template' }))
     }
   }
 
-  const saveBtn = isExtended ? '' : '<button class="btn btn-success" id="btn-save">Save</button>'
-  const runBtnDisabled = previewDone ? '' : 'disabled'
-
-  root.innerHTML = `
-    <div class="editor-cm-wrap" id="cm-container"></div>
-    <div class="editor-toolbar">
-      <button class="btn btn-accent" id="btn-preview">Preview \u25B6</button>
-      <button class="btn btn-danger" id="btn-run" ${runBtnDisabled} title="${previewDone ? 'Execute transactionally' : 'Preview first to unlock'}">Run \u25B6</button>
-      ${saveBtn}
-      <button class="btn" id="btn-copy">Copy</button>
-      ${propTabsHtml}
-      ${toggleHtml}
-      <span class="editor-toolbar-target">${targetLabel}</span>
-      <div class="editor-toolbar-spacer"></div>
-      <span class="editor-status" id="status-bar">Ln 1, Col 1</span>
-    </div>
-    <div class="editor-drag-handle" id="drag-handle" style="display:none"></div>
-    <div class="editor-output" id="bottom-panel" style="display:none;height:${outputHeight}px">
-      <div id="bottom-panel-content"></div>
-    </div>
-    <div class="editor-bottom-bar" id="bottom-bar">
-      <button class="btn-bottom" id="btn-clear" title="Clear editor and output">\u2715 Clear</button>
-      <button class="btn-bottom" id="btn-wrap" title="Toggle line wrapping">\u21a9 Wrap</button>
-      <div class="editor-bottom-spacer"></div>
-      <button class="btn-bottom" id="btn-snippets">{ } Snippets</button>
-      <button class="btn-bottom" id="btn-history">\u25d4 History</button>
-    </div>
-  `
+  renderDom(root,
+    h('div', { class: 'editor-cm-wrap', id: 'cm-container' }),
+    h('div', { class: 'editor-toolbar' },
+      h('button', { class: 'btn btn-accent', id: 'btn-preview' }, 'Preview \u25B6'),
+      h('button', { class: 'btn btn-danger', id: 'btn-run', disabled: !previewDone, title: previewDone ? 'Execute transactionally' : 'Preview first to unlock' }, 'Run \u25B6'),
+      !isExtended && h('button', { class: 'btn btn-success', id: 'btn-save' }, 'Save'),
+      h('button', { class: 'btn', id: 'btn-copy' }, 'Copy'),
+      propTabs,
+      toggle,
+      h('span', { class: 'editor-toolbar-target' }, ...targetChildren),
+      h('div', { class: 'editor-toolbar-spacer' }),
+      h('span', { class: 'editor-status', id: 'status-bar' }, 'Ln 1, Col 1'),
+    ),
+    h('div', { class: 'editor-drag-handle', id: 'drag-handle', style: 'display:none' }),
+    h('div', { class: 'editor-output', id: 'bottom-panel', style: `display:none;height:${outputHeight}px` },
+      h('div', { id: 'bottom-panel-content' }),
+    ),
+    h('div', { class: 'editor-bottom-bar', id: 'bottom-bar' },
+      h('button', { class: 'btn-bottom', id: 'btn-clear', title: 'Clear editor and output' }, '\u2715 Clear'),
+      h('button', { class: 'btn-bottom', id: 'btn-wrap', title: 'Toggle line wrapping' }, '\u21a9 Wrap'),
+      h('div', { class: 'editor-bottom-spacer' }),
+      h('button', { class: 'btn-bottom', id: 'btn-snippets' }, '{ } Snippets'),
+      h('button', { class: 'btn-bottom', id: 'btn-history' }, '\u25d4 History'),
+    ),
+  )
 
   // Wire toolbar
   document.getElementById('btn-preview')?.addEventListener('click', doPreview)
@@ -524,66 +517,65 @@ function renderBottomContent() {
     const modeLabel = lastMode === 'save' ? 'Saved' : lastMode === 'execute' ? 'Executed' : 'Preview'
     const cls = lastOutputOk ? 'ok' : 'error'
     const durationText = lastDuration != null ? `\u00b7 ${lastDuration}ms` : ''
-    container.innerHTML = `
-      <div class="editor-output-header">
-        <span class="editor-output-mode ${cls}">${modeLabel}</span>
-        <span class="editor-output-duration">${durationText}</span>
-        <span class="editor-output-close" id="output-close">\u2715</span>
-      </div>
-      <div class="editor-output-content ${cls}"></div>`
-    const contentEl = container.querySelector('.editor-output-content')
-    if (contentEl) contentEl.textContent = lastOutputText
-    document.getElementById('output-close')?.addEventListener('click', hideBottomPanel)
+    const contentDiv = h('div', { class: `editor-output-content ${cls}` })
+    renderDom(container,
+      h('div', { class: 'editor-output-header' },
+        h('span', { class: `editor-output-mode ${cls}` }, modeLabel),
+        h('span', { class: 'editor-output-duration' }, durationText),
+        h('span', { class: 'editor-output-close', onClick: hideBottomPanel }, '\u2715'),
+      ),
+      contentDiv,
+    )
+    contentDiv.textContent = lastOutputText
     return
   }
 
   if (bottomMode === 'snippets') {
     const ridStr = ctx ? (ctx.extended ? ctx.executionContextRid ?? 'RID' : ctx.instance.rid) : 'RID'
-    container.innerHTML = `<div class="editor-snippet-list">
-      <div class="editor-snippet-item" data-snippet="genedit">
-        <div class="editor-snippet-desc">GenEdit (full object)</div>
-        <code>lookup(${escHtml(ridStr)}).genEdit(*)</code>
-      </div>
-      <div class="editor-snippet-item" data-snippet="children">
-        <div class="editor-snippet-desc">Walk children</div>
-        <code>lookup(${escHtml(ridStr)}).children().forEach(_c: ...)</code>
-      </div>
-      <div class="editor-snippet-item" data-snippet="change">
-        <div class="editor-snippet-desc">Change property</div>
-        <code>lookup(${escHtml(ridStr)}).change("property", "value")</code>
-      </div>
-      <div class="editor-snippet-item" data-snippet="search">
-        <div class="editor-snippet-desc">Search descendants</div>
-        <code>SELECT * FROM lookup(${escHtml(ridStr)}) WHERE ...</code>
-      </div>
-    </div>`
-    for (const item of container.querySelectorAll<HTMLElement>('.editor-snippet-item')) {
-      item.addEventListener('click', () => insertSnippet(item.dataset.snippet!, ridStr))
-    }
+    const snippets = [
+      { id: 'genedit', desc: 'GenEdit (full object)', code: `lookup(${ridStr}).genEdit(*)` },
+      { id: 'children', desc: 'Walk children', code: `lookup(${ridStr}).children().forEach(_c: ...)` },
+      { id: 'change', desc: 'Change property', code: `lookup(${ridStr}).change("property", "value")` },
+      { id: 'search', desc: 'Search descendants', code: `SELECT * FROM lookup(${ridStr}) WHERE ...` },
+    ]
+    renderDom(container,
+      h('div', { class: 'editor-snippet-list' },
+        ...snippets.map(s =>
+          h('div', { class: 'editor-snippet-item', onClick: () => insertSnippet(s.id, ridStr) },
+            h('div', { class: 'editor-snippet-desc' }, s.desc),
+            h('code', null, s.code),
+          ),
+        ),
+      ),
+    )
     return
   }
 
   if (bottomMode === 'history') {
     if (historyEntries.length === 0) {
-      container.innerHTML = '<div class="editor-history-empty">No history yet</div>'
+      renderDom(container, h('div', { class: 'editor-history-empty' }, 'No history yet'))
       return
     }
-    container.innerHTML = `<div class="editor-history-list">${historyEntries.map((e, i) => `
-      <div class="editor-history-item" data-idx="${i}">
-        <span class="editor-history-icon">${e.mode === 'execute' ? '\u26A1' : '\u25B6'}</span>
-        <span class="editor-history-status ${e.ok ? 'ok' : 'fail'}">${e.ok ? '\u2713' : '\u2717'}</span>
-        <span class="editor-history-code">${escHtml(e.code.split('\n')[0].slice(0, 60))}</span>
-        <span class="editor-history-time">${relativeTime(e.timestamp)}</span>
-      </div>`).join('')}</div>`
-    for (const item of container.querySelectorAll<HTMLElement>('.editor-history-item')) {
-      item.addEventListener('click', () => {
-        const idx = parseInt(item.dataset.idx!, 10)
-        if (historyEntries[idx] && editorView) {
-          editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: historyEntries[idx].code } })
-          editorView.focus()
-        }
-      })
-    }
+    renderDom(container,
+      h('div', { class: 'editor-history-list' },
+        ...historyEntries.map((e, i) =>
+          h('div', {
+            class: 'editor-history-item',
+            onClick: () => {
+              if (editorView) {
+                editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: e.code } })
+                editorView.focus()
+              }
+            },
+          },
+            h('span', { class: 'editor-history-icon' }, e.mode === 'execute' ? '\u26A1' : '\u25B6'),
+            h('span', { class: `editor-history-status ${e.ok ? 'ok' : 'fail'}` }, e.ok ? '\u2713' : '\u2717'),
+            h('span', { class: 'editor-history-code' }, e.code.split('\n')[0].slice(0, 60)),
+            h('span', { class: 'editor-history-time' }, relativeTime(e.timestamp)),
+          ),
+        ),
+      ),
+    )
   }
 }
 

@@ -7,6 +7,7 @@ import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { ICON_REFRESH, ICON_EYE_OPEN, ICON_EYE_CLOSED } from '../utils';
 import { S as shared } from '../state';
+import { FLASH_INVALID_DURATION } from '../../lib/constants';
 import type { Tab, SendFn } from './tab-types';
 
 type EditingProfile = { id: string | null; label: string; bmpUrl: string; bmpUser: string; bmpPass: string };
@@ -278,6 +279,6 @@ export class ConnectTab implements Tab {
 
 function flashInvalid(input: HTMLInputElement) {
   input.classList.add('field-input--invalid');
-  setTimeout(() => { input.classList.remove('field-input--invalid'); }, 1500);
+  setTimeout(() => { input.classList.remove('field-input--invalid'); }, FLASH_INVALID_DURATION);
   input.focus();
 }

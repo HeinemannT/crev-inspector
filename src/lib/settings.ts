@@ -2,7 +2,7 @@
  * Settings & profile management — extracted from service-worker.
  */
 
-import type { InspectorSettings } from './types';
+import type { InspectorSettings, ServerProfile } from './types';
 import { getCtx } from './sw-context';
 import { DEFAULT_SETTINGS } from './types';
 import { BmpClient } from './bmp-client';
@@ -10,6 +10,7 @@ import { normalizeUrl, resetConnectionState, pushConnectionState, runAuthTest, s
 import { incrementGeneration } from './enrichment';
 import { log } from './logger';
 import { MANUAL_OVERRIDE_DURATION } from './constants';
+import { encrypt, decrypt } from './crypto';
 
 let resolveSettings: () => void;
 let settingsReadyPromise: Promise<void>;
@@ -44,6 +45,11 @@ export async function loadSettingsFrom(stored: unknown): Promise<void> {
       }
       if (!s.schemaVersion) s.schemaVersion = 1;
       ctx.settings = { ...ctx.settings, ...s } as InspectorSettings;
+      // Decrypt passwords after loading from storage
+      ctx.settings.profiles = await Promise.all(ctx.settings.profiles.map(async p => ({
+        ...p,
+        bmpPass: p.bmpPass ? await decrypt(p.bmpPass) : '',
+      })));
     }
     await rebuildClient();
   } catch (e) {
@@ -54,7 +60,13 @@ export async function loadSettingsFrom(stored: unknown): Promise<void> {
 
 export async function saveSettings(): Promise<void> {
   try {
-    await chrome.storage.local.set({ crev_settings: getCtx().settings });
+    const settings = getCtx().settings;
+    // Encrypt passwords before writing to storage
+    const profiles = await Promise.all(settings.profiles.map(async p => ({
+      ...p,
+      bmpPass: p.bmpPass ? await encrypt(p.bmpPass) : '',
+    })));
+    await chrome.storage.local.set({ crev_settings: { ...settings, profiles } });
   } catch (e) { log.swallow('settings:save', e); }
 }
 

@@ -5,7 +5,7 @@
 import type { InspectorMessage, ActivityEntry } from '../../lib/types';
 import { h, render } from '../../lib/dom';
 import { relativeTime } from '../utils';
-import { ACTIVITY_MAX } from '../../lib/constants';
+import { ACTIVITY_MAX, ACTIVITY_DISPLAY_TIMEOUT } from '../../lib/constants';
 import type { Tab, SendFn } from './tab-types';
 
 export class LogTab implements Tab {
@@ -46,7 +46,7 @@ export class LogTab implements Tab {
         this.latestTimer = setTimeout(() => {
           this.latestMsg = null;
           this.onStatusChange?.();
-        }, 3000);
+        }, ACTIVITY_DISPLAY_TIMEOUT);
         return true;
       default:
         return false;

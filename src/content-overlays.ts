@@ -7,7 +7,7 @@ import type { BmpObject, InspectorMessage, PaintPhase } from './lib/types';
 import { getTypeColor, getTypeAbbr, TYPES_WITH_CODE } from './lib/types';
 import { getAllRidElements } from './lib/dom-scanner';
 import { log } from './lib/logger';
-import { DISCOVERED_RIDS_CAP } from './lib/constants';
+import { DISCOVERED_RIDS_CAP, LABEL_DBLCLICK_WINDOW } from './lib/constants';
 import { sendToSW } from './lib/content-port';
 import { showQuickInspector, hideQuickInspector } from './lib/quick-inspector';
 import type { ContentState } from './content-state';
@@ -111,7 +111,7 @@ export function syncOverlays(s: ContentState) {
             label.classList.remove('crev-label-flash-ok');
           }, 600);
         }).catch(e => log.swallow('content:clipboard', e));
-      }, 250);
+      }, LABEL_DBLCLICK_WINDOW);
     });
 
     // Add code button for types with viewable code

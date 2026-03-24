@@ -25,6 +25,9 @@ export const RECONNECT_INITIAL_DELAY = 200;
 export const RECONNECT_MAX_DELAY = 10_000;
 export const OVERLAY_SYNC_DEBOUNCE = 150;
 export const DISCOVERED_RIDS_CAP = 5_000;
+export const LABEL_DBLCLICK_WINDOW = 250;
+export const ACTIVITY_DISPLAY_TIMEOUT = 3_000;
+export const FLASH_INVALID_DURATION = 1_500;
 
 // ── Service worker ───────────────────────────────────────────────
 export const MANUAL_OVERRIDE_DURATION = 30_000;
