@@ -1,23 +1,45 @@
 /**
- * Side panel orchestrator — render, tab switching, message routing, header/status.
+ * Side panel orchestrator — boot, tab routing, header/status rendering.
+ * Tabs are self-contained components (Tab interface). This module:
+ * - Updates shared state (S.connState, S.settings, etc.)
+ * - Routes messages to active tab's handleMessage()
+ * - Manages header, status strip, status bar, paint button
  */
 
-import type { InspectorMessage, DetectionPhase } from '../lib/types';
+import type { InspectorMessage } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
 import { log } from '../lib/logger';
 import { ICON_PAINT, ICON_REFRESH } from './utils';
 import { initDetailView, showDetail, handleDetailMessage, isDetailActive } from './detail-view';
-import { S, pushActivityEntry, sendMessage, getActivePanel, onPortMessage, onReconnect, connectPanel } from './state';
-import { renderConnectTab } from './tabs/connect-tab';
-import { renderObjectsTab } from './tabs/objects-tab';
-import { renderPageTab } from './tabs/page-tab';
-import { renderLogTab, renderActivityFeed } from './tabs/log-tab';
+import { S, sendMessage, getActivePanel, onPortMessage, onReconnect, connectPanel } from './state';
 import { showProfileSwitcher } from './profile-switcher';
+import type { Tab } from './tabs/tab-types';
+import { ConnectTab } from './tabs/connect-tab';
+import { ObjectsTab } from './tabs/objects-tab';
+import { PageTab } from './tabs/page-tab';
+import { LogTab } from './tabs/log-tab';
 
-// ── Init ────────────────────────────────────────────────────────
+// ── Tab instances ────────────────────────────────────────────────
 
 const app = document.getElementById('app')!;
+
+function navigateToDetail(rid: string) {
+  S.detailRid = rid;
+  // Try to find the object in the objects tab's cache
+  const obj = { rid, source: 'dom' as const, discoveredAt: Date.now(), updatedAt: Date.now() };
+  const panel = getActivePanel();
+  if (panel) showDetail(obj, panel);
+}
+
+const tabs: Record<string, Tab> = {
+  connect: new ConnectTab(sendMessage),
+  objects: new ObjectsTab(sendMessage, navigateToDetail),
+  page: new PageTab(sendMessage, navigateToDetail),
+  log: new LogTab(sendMessage),
+};
+
+const logTab = tabs.log as LogTab;
 
 initDetailView(
   () => { S.detailRid = null; renderActiveTab(); },
@@ -27,126 +49,84 @@ initDetailView(
 // ── Message routing ──────────────────────────────────────────────
 
 onPortMessage((msg: InspectorMessage) => {
-  // Route detail-relevant messages when in detail view
-  if (S.detailRid && (msg.type === 'SERVER_LOOKUP_RESULT' || msg.type === 'EC_RESULT')) {
+  // Detail view gets first crack
+  if (S.detailRid) {
     const panel = getActivePanel();
     if (panel && handleDetailMessage(msg, panel)) return;
   }
 
+  // Shared state updates
+  let headerChanged = false;
   switch (msg.type) {
     case 'INSPECT_STATE':
       S.inspectActive = msg.active;
       updateToggle();
       break;
-
     case 'CACHE_STATS':
       S.cacheCount = msg.count;
       updateObjectsBadge();
-      updateStatusBar();
       break;
-
-    case 'PAGE_INFO':
-      S.pageInfo = { url: msg.url, rid: msg.rid, tabRid: msg.tabRid, widgets: msg.widgets };
-      if (msg.detection) {
-        const phase: DetectionPhase = msg.detection.isBmp ? 'detected' : 'not-detected';
-        S.detection = { phase, confidence: msg.detection.confidence, signals: msg.detection.signals };
-      }
-      if (S.activeTab === 'page' && !S.detailRid) renderPageTab(navigateToDetail);
-      break;
-
-    case 'CACHE_DATA':
-      S.cacheObjects = msg.objects;
-      if (S.activeTab === 'objects' && !S.detailRid) renderObjectsTab(navigateToDetail);
-      break;
-
     case 'SETTINGS_DATA':
       S.settings = msg.settings;
-      if (S.activeTab === 'connect' && !S.editingProfile) renderConnectTab();
+      headerChanged = true;
       break;
-
     case 'CONNECTION_STATE':
       S.connState = msg.state;
-      if (S.activeTab === 'connect' && !S.editingProfile) renderConnectTab();
-      updateHeaderStatus();
-      refreshStatusStrip();
-      updateStatusBar();
+      headerChanged = true;
       break;
-
     case 'PROFILE_SWITCHED':
-      if (S.activeTab === 'connect' && !S.editingProfile) renderConnectTab();
-      updateHeaderStatus();
-      refreshStatusStrip();
-      updateStatusBar();
+      headerChanged = true;
       break;
-
-    case 'DETECTION_STATE':
-      S.detection = { phase: msg.phase, confidence: msg.confidence, signals: msg.signals };
-      if (S.activeTab === 'page' && !S.detailRid) renderPageTab(navigateToDetail);
-      break;
-
-    case 'ACTIVITY_LOG':
-      S.activityEntries = msg.entries;
-      if (S.activeTab === 'log') renderLogTab();
-      updateStatusBar();
-      break;
-
-    case 'ACTIVITY_ENTRY':
-      pushActivityEntry(msg.entry);
-      if (S.activeTab === 'log') renderActivityFeed();
-      S.latestActivityMsg = msg.entry.message;
-      updateStatusBar();
-      if (S.latestActivityTimer) clearTimeout(S.latestActivityTimer);
-      S.latestActivityTimer = setTimeout(() => {
-        S.latestActivityMsg = null;
-        updateStatusBar();
-      }, 3000);
-      break;
-
-    case 'HISTORY_DATA':
-      S.historyEntries = msg.entries;
-      if (S.activeTab === 'objects' && !S.detailRid) renderObjectsTab(navigateToDetail);
-      break;
-
     case 'FAVORITES_DATA':
       S.favoriteEntries = msg.entries;
-      if (S.activeTab === 'objects' && !S.detailRid) renderObjectsTab(navigateToDetail);
       // Re-render detail view star if open
       if (S.detailRid && isDetailActive()) {
-        const panel = getActivePanel();
-        if (panel) renderActiveTab();
+        renderActiveTab();
       }
       break;
-
     case 'PAINT_STATE':
       S.paintPhase = msg.phase;
       S.paintSourceName = msg.sourceName ?? null;
       updatePaintButton();
       break;
-
     case 'PAINT_APPLY_RESULT':
       updatePaintButton();
       if (!msg.ok && msg.error) showPaintError(msg.error);
       break;
-
     case 'SELECT_OBJECT':
       if ('rid' in msg) navigateToDetail(msg.rid);
       break;
   }
+
+  // Forward to active tab
+  const activeTab = tabs[S.activeTab];
+  if (activeTab && !S.detailRid) {
+    const changed = activeTab.handleMessage(msg);
+    if (changed) {
+      const panel = getActivePanel();
+      if (panel) activeTab.render(panel);
+    }
+  }
+
+  if (headerChanged) {
+    updateHeaderStatus();
+    refreshStatusStrip();
+    updateStatusBar();
+  }
 });
 
-// On reconnect after SW restart: re-request all state (SW lost everything in memory)
+// On reconnect: re-request shared state, activate active tab
 onReconnect(() => {
   sendMessage({ type: 'GET_CONNECTION_STATE' });
   sendMessage({ type: 'GET_SETTINGS' });
-  switchTab(S.activeTab);
+  tabs[S.activeTab]?.activate();
 });
 
-// Initial connection
 connectPanel();
 
 // ── Render ───────────────────────────────────────────────────────
 
-const TABS = ['connect', 'objects', 'page', 'log'] as const;
+const TAB_NAMES = ['connect', 'objects', 'page', 'log'] as const;
 
 function buildApp(): void {
   const header = h('div', { class: 'header' },
@@ -167,7 +147,7 @@ function buildApp(): void {
   );
 
   const tabBar = h('div', { class: 'tab-bar' },
-    ...TABS.map(t => {
+    ...TAB_NAMES.map(t => {
       const label = t.charAt(0).toUpperCase() + t.slice(1);
       const badges: (HTMLElement | string | false | null)[] = [label];
 
@@ -176,15 +156,6 @@ function buildApp(): void {
       }
       if (t === 'connect') {
         badges.push(h('span', { class: `tab-dot ${connectDotClass()}`, id: 'connect-tab-dot' }));
-      }
-      if (t === 'log') {
-        const errCount = S.activityEntries.filter(e => e.level === 'error').length;
-        if (errCount > 0) {
-          badges.push(h('span', { class: 'badge badge--error', id: 'log-badge' }, String(errCount)));
-        }
-      }
-      if (t === 'page' && S.pageInfo?.widgets?.length) {
-        badges.push(h('span', { class: 'badge', id: 'page-badge' }, String(S.pageInfo.widgets.length)));
       }
 
       const TAB_TITLES: Record<string, string> = {
@@ -221,7 +192,7 @@ function buildApp(): void {
     : null;
 
   const tabContent = h('div', { class: 'tab-content' },
-    ...TABS.map(t =>
+    ...TAB_NAMES.map(t =>
       h('div', { class: `tab-panel ${S.activeTab === t ? 'active' : ''}`, id: `panel-${t}` }),
     ),
   );
@@ -231,7 +202,7 @@ function buildApp(): void {
       h('span', { class: `status-dot ${statusDotClass()}` }),
       h('span', null, statusBarText()),
     ),
-    h('div', { class: 'status-bar-activity' }, S.latestActivityMsg ?? ''),
+    h('div', { class: 'status-bar-activity' }, logTab.latestActivityMsg ?? ''),
     h('div', { class: 'status-bar-count' }, String(S.cacheCount)),
   );
 
@@ -247,9 +218,7 @@ function buildApp(): void {
       if (btn) btn.classList.add('spinning');
       sendMessage({ type: 'CONNECTION_TEST' });
     },
-    reconnect: () => {
-      sendMessage({ type: 'CONNECTION_TEST' });
-    },
+    reconnect: () => sendMessage({ type: 'CONNECTION_TEST' }),
   });
 
   app.querySelector('#toggle-paint')?.addEventListener('click', () => sendMessage({ type: 'TOGGLE_PAINT' }));
@@ -260,15 +229,15 @@ function buildApp(): void {
 }
 
 function switchTab(tab: string) {
+  const prev = S.activeTab;
   S.activeTab = tab;
   chrome.storage.session.set({ crev_active_tab: tab }).catch(e => log.swallow('panel:persistTab', e));
 
-  if (tab === 'page') {
-    S.detection = { phase: 'unknown', confidence: 0, signals: [] };
-    S.pageInfo = null;
-  }
+  // Deactivate previous, activate new
+  tabs[prev]?.deactivate();
+  tabs[tab]?.activate();
 
-  // Update tab bar classes + panel visibility without rebuilding the entire DOM
+  // Update tab bar + panel visibility
   for (const btn of app.querySelectorAll<HTMLElement>('.tab[data-tab]')) {
     btn.classList.toggle('active', btn.dataset.tab === tab);
   }
@@ -278,51 +247,13 @@ function switchTab(tab: string) {
   }
 
   renderActiveTab();
-
-  switch (tab) {
-    case 'page':
-      sendMessage({ type: 'GET_PAGE_INFO' });
-      break;
-    case 'objects':
-      sendMessage({ type: 'GET_CACHE', filter: S.cacheFilter });
-      sendMessage({ type: 'GET_HISTORY' });
-      sendMessage({ type: 'GET_FAVORITES' });
-      break;
-    case 'connect':
-      sendMessage({ type: 'GET_SETTINGS' });
-      break;
-    case 'log':
-      sendMessage({ type: 'GET_ACTIVITY' });
-      break;
-  }
 }
 
 function renderActiveTab() {
   if (S.detailRid && isDetailActive()) return;
-  switch (S.activeTab) {
-    case 'page': renderPageTab(navigateToDetail); break;
-    case 'objects': renderObjectsTab(navigateToDetail); break;
-    case 'connect': renderConnectTab(); break;
-    case 'log': renderLogTab(); break;
-  }
-}
-
-// ── Detail navigation ────────────────────────────────────────────
-
-function navigateToDetail(rid: string) {
-  S.detailRid = rid;
-  let obj = S.cacheObjects.find(o => o.rid === rid);
-  if (!obj && S.pageInfo) {
-    const widget = S.pageInfo.widgets.find(w => w.rid === rid);
-    if (widget) {
-      obj = { rid: widget.rid, name: widget.name, type: widget.type, source: 'dom', discoveredAt: Date.now(), updatedAt: Date.now() };
-    }
-  }
-  if (!obj) {
-    obj = { rid, source: 'dom', discoveredAt: Date.now(), updatedAt: Date.now() };
-  }
+  const tab = tabs[S.activeTab];
   const panel = getActivePanel();
-  if (panel) showDetail(obj, panel);
+  if (tab && panel) tab.render(panel);
 }
 
 // ── Header/Status helpers ────────────────────────────────────────
@@ -378,7 +309,6 @@ function connectDotClass(): string {
     default: return 'tab-dot--gray';
   }
 }
-
 
 function showPaintError(error: string) {
   const tabBar = app.querySelector('.tab-bar');
@@ -456,7 +386,6 @@ function refreshStatusStrip() {
     const isError = ['unreachable', 'server-down', 'auth-failed'].includes(S.connState.display);
     reconnect.classList.toggle('hidden', !isError);
   }
-  // Stop refresh spinner once state arrives
   const btn = strip.querySelector('.status-strip-btn');
   if (btn) btn.classList.remove('spinning');
 }
@@ -484,7 +413,7 @@ function updateStatusBar() {
   }
 
   const activity = bar.querySelector('.status-bar-activity');
-  if (activity) activity.textContent = S.latestActivityMsg ?? '';
+  if (activity) activity.textContent = logTab.latestActivityMsg ?? '';
 
   const count = bar.querySelector('.status-bar-count');
   if (count) count.textContent = String(S.cacheCount);
@@ -496,13 +425,10 @@ chrome.storage.session.get(['crev_active_tab', 'crev_settings_snapshot', 'crev_c
   if (result.crev_active_tab && typeof result.crev_active_tab === 'string') {
     S.activeTab = result.crev_active_tab;
   }
-  // Restore snapshots for instant first render (no SW round-trip needed)
   if (result.crev_settings_snapshot) S.settings = result.crev_settings_snapshot;
   if (result.crev_conn_snapshot) S.connState = result.crev_conn_snapshot;
   buildApp();
-  // Still fetch authoritative copy from SW (updates if anything changed)
   sendMessage({ type: 'GET_CONNECTION_STATE' });
   sendMessage({ type: 'GET_SETTINGS' });
-  // Tab-specific data deferred to switchTab()
   switchTab(S.activeTab);
 });

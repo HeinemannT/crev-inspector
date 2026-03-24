@@ -1,45 +1,88 @@
-import { relativeTime } from '../utils';
+/**
+ * Log tab — activity feed. Self-contained component with own state.
+ */
+
+import type { InspectorMessage, ActivityEntry } from '../../lib/types';
 import { h, render } from '../../lib/dom';
-import { S } from '../state';
+import { relativeTime } from '../utils';
+import { ACTIVITY_MAX } from '../../lib/constants';
+import type { Tab, SendFn } from './tab-types';
 
-export function renderActivityFeed() {
-  const feed = document.getElementById('activity-feed');
-  if (!feed) return;
+export class LogTab implements Tab {
+  private entries: ActivityEntry[] = [];
+  private latestMsg: string | null = null;
+  private latestTimer: ReturnType<typeof setTimeout> | null = null;
+  private send: SendFn;
 
-  const entries = S.activityEntries.slice(-30);
-  if (entries.length === 0) {
-    render(feed, h('div', { class: 'activity-empty' }, 'No activity yet'));
-    return;
+  /** Latest activity message (read by status bar in sidepanel) */
+  get latestActivityMsg() { return this.latestMsg; }
+
+  constructor(send: SendFn) {
+    this.send = send;
   }
 
-  render(feed, ...entries.map(entry =>
-    h('div', { class: `activity-entry ${entry.level}` },
-      h('span', { class: 'activity-msg' }, entry.message),
-      h('span', { class: 'activity-time' }, relativeTime(entry.time)),
-    )
-  ));
+  activate() {
+    this.send({ type: 'GET_ACTIVITY' });
+  }
 
-  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
-  if (atBottom) feed.scrollTop = feed.scrollHeight;
-}
+  deactivate() {
+    // no cleanup needed
+  }
 
-export function renderLogTab() {
-  const panel = document.getElementById('panel-log');
-  if (!panel) return;
+  handleMessage(msg: InspectorMessage): boolean {
+    switch (msg.type) {
+      case 'ACTIVITY_LOG':
+        this.entries = msg.entries;
+        return true;
+      case 'ACTIVITY_ENTRY':
+        this.entries.push(msg.entry);
+        if (this.entries.length > ACTIVITY_MAX) this.entries.shift();
+        this.latestMsg = msg.entry.message;
+        if (this.latestTimer) clearTimeout(this.latestTimer);
+        this.latestTimer = setTimeout(() => { this.latestMsg = null; }, 3000);
+        return true;
+      default:
+        return false;
+    }
+  }
 
-  const entries = S.activityEntries.slice(-30);
+  render(container: HTMLElement) {
+    const entries = this.entries.slice(-30);
 
-  const feed = h('div', { class: 'activity-feed', id: 'activity-feed' },
-    entries.length === 0
-      ? h('div', { class: 'activity-empty' }, 'No activity yet')
-      : entries.map(entry =>
-          h('div', { class: `activity-entry ${entry.level}` },
-            h('span', { class: 'activity-msg' }, entry.message),
-            h('span', { class: 'activity-time' }, relativeTime(entry.time)),
-          )
-        ),
-  );
+    const feed = h('div', { class: 'activity-feed', id: 'activity-feed' },
+      entries.length === 0
+        ? h('div', { class: 'activity-empty' }, 'No activity yet')
+        : entries.map(entry =>
+            h('div', { class: `activity-entry ${entry.level}` },
+              h('span', { class: 'activity-msg' }, entry.message),
+              h('span', { class: 'activity-time' }, relativeTime(entry.time)),
+            )
+          ),
+    );
 
-  render(panel, feed);
-  feed.scrollTop = feed.scrollHeight;
+    render(container, feed);
+    feed.scrollTop = feed.scrollHeight;
+  }
+
+  /** Incremental feed update (appends without full re-render) */
+  renderFeed() {
+    const feed = document.getElementById('activity-feed');
+    if (!feed) return;
+
+    const entries = this.entries.slice(-30);
+    if (entries.length === 0) {
+      render(feed, h('div', { class: 'activity-empty' }, 'No activity yet'));
+      return;
+    }
+
+    render(feed, ...entries.map(entry =>
+      h('div', { class: `activity-entry ${entry.level}` },
+        h('span', { class: 'activity-msg' }, entry.message),
+        h('span', { class: 'activity-time' }, relativeTime(entry.time)),
+      )
+    ));
+
+    const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
+    if (atBottom) feed.scrollTop = feed.scrollHeight;
+  }
 }
