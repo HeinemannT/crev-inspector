@@ -76,7 +76,7 @@ export class ContentState {
     this.technicalOverlay = false;
     this.fromSync = false;
     this.prevConnDisplay = null;
-    this.lastUrl = window.location.href;
+    this.lastUrl = typeof window !== 'undefined' ? window.location.href : '';
     this.lastDetection = null;
     this.enrichments.clear();
     this.resetOverlays();
