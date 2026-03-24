@@ -72,8 +72,10 @@ export function getLinkedDefs(objectType: string): LinkedObjectDef[] {
 
 register('GET_CACHE', (msg, respond) => {
   const ctx = getCtx();
-  const objects = msg.filter ? ctx.cache.search(msg.filter) : ctx.cache.getAll();
-  respond({ type: 'CACHE_DATA', objects });
+  ctx.settingsReady.then(() => {
+    const objects = msg.filter ? ctx.cache.search(msg.filter) : ctx.cache.getAll();
+    respond({ type: 'CACHE_DATA', objects });
+  });
 }, true);
 
 register('CLEAR_CACHE', (msg, respond) => {

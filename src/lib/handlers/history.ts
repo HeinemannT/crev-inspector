@@ -7,28 +7,44 @@ import { getCtx } from '../sw-context';
 import { getActivityLog } from '../activity';
 
 register('GET_HISTORY', (msg, respond) => {
-  respond({ type: 'HISTORY_DATA', entries: getCtx().history.getAll() });
+  const ctx = getCtx();
+  ctx.settingsReady.then(() => {
+    respond({ type: 'HISTORY_DATA', entries: ctx.history.getAll() });
+  });
 }, true);
 
 register('CLEAR_HISTORY', (msg, respond) => {
-  getCtx().history.clear();
-  respond({ type: 'HISTORY_DATA', entries: [] });
+  const ctx = getCtx();
+  ctx.settingsReady.then(() => {
+    ctx.history.clear();
+    respond({ type: 'HISTORY_DATA', entries: [] });
+  });
 }, true);
 
 register('TOGGLE_FAVORITE', (msg, respond) => {
   const ctx = getCtx();
-  ctx.favorites.toggle(msg.rid, { name: msg.name, type: msg.objectType, businessId: msg.businessId });
-  respond({ type: 'FAVORITES_DATA', entries: ctx.favorites.getAll() });
+  ctx.settingsReady.then(() => {
+    ctx.favorites.toggle(msg.rid, { name: msg.name, type: msg.objectType, businessId: msg.businessId });
+    respond({ type: 'FAVORITES_DATA', entries: ctx.favorites.getAll() });
+  });
 }, true);
 
 register('GET_FAVORITES', (msg, respond) => {
-  respond({ type: 'FAVORITES_DATA', entries: getCtx().favorites.getAll() });
+  const ctx = getCtx();
+  ctx.settingsReady.then(() => {
+    respond({ type: 'FAVORITES_DATA', entries: ctx.favorites.getAll() });
+  });
 }, true);
 
 register('GET_ACTIVITY', (msg, respond) => {
-  respond({ type: 'ACTIVITY_LOG', entries: getActivityLog() });
+  getCtx().settingsReady.then(() => {
+    respond({ type: 'ACTIVITY_LOG', entries: getActivityLog() });
+  });
 }, true);
 
 register('GET_SCRIPT_HISTORY', (msg, respond) => {
-  respond({ type: 'SCRIPT_HISTORY_DATA', entries: getCtx().scriptHistory.getAll() });
+  const ctx = getCtx();
+  ctx.settingsReady.then(() => {
+    respond({ type: 'SCRIPT_HISTORY_DATA', entries: ctx.scriptHistory.getAll() });
+  });
 }, true);

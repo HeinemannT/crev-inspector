@@ -10,8 +10,10 @@ import { log } from '../logger';
 
 register('GET_SETTINGS', (msg, respond) => {
   const ctx = getCtx();
-  respond({ type: 'SETTINGS_DATA', settings: ctx.settings });
-  snapshotSettings();
+  ctx.settingsReady.then(() => {
+    respond({ type: 'SETTINGS_DATA', settings: ctx.settings });
+    snapshotSettings();
+  });
 }, true);
 
 register('SAVE_SETTINGS', async (msg) => {
