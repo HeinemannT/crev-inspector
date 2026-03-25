@@ -51,6 +51,44 @@ VALID_PREFIXES.add('u');   // user space
 VALID_PREFIXES.add('s');   // scorecard space
 VALID_PREFIXES.add('p');   // legacy property space
 
+// ── Copy strategy (shared across all copy surfaces) ──────────
+
+export interface CopyableIdentity {
+  rid: string;
+  businessId?: string;
+  type?: string;
+  templateBusinessId?: string;
+}
+
+export type CopyModifier = 'plain' | 'shift' | 'ctrl';
+
+/** Resolve what to copy based on modifier key. Used by overlay badges, detail view, quick inspector. */
+export function resolveCopyText(
+  identity: CopyableIdentity,
+  modifier: CopyModifier,
+): { text: string; label: string } {
+  if (modifier === 'ctrl' && identity.businessId) {
+    const ns = resolveNamespace(identity.type ?? '');
+    return { text: `${ns}.${identity.businessId}`, label: 'ref' };
+  }
+  if (modifier === 'shift' && identity.templateBusinessId) {
+    return { text: identity.templateBusinessId, label: 'Template ID' };
+  }
+  return { text: identity.businessId ?? identity.rid, label: 'ID' };
+}
+
+/** Extract copy modifier from a mouse event. */
+export function getModifier(e: MouseEvent): CopyModifier {
+  if (e.ctrlKey || e.metaKey) return 'ctrl';
+  if (e.shiftKey) return 'shift';
+  return 'plain';
+}
+
+/** Standard tooltip text for copy buttons with modifier support. */
+export const COPY_TOOLTIP = 'Copy ID \u00b7 Shift \u2192 Template \u00b7 Ctrl \u2192 Reference';
+
+// ── Namespace validation ─────────────────────────────────────
+
 /** Check if a prefix is a valid BMP namespace. */
 export function isValidNamespace(prefix: string): boolean {
   return VALID_PREFIXES.has(prefix);

@@ -6,6 +6,7 @@
 import type { InspectorMessage, BmpObject } from '../lib/types';
 import { getTypeColor, getTypeAbbr, SCRIPT_PROPS } from '../lib/types';
 import { h, render } from '../lib/dom';
+import { resolveCopyText, getModifier } from '../lib/namespace';
 
 const SCRIPT_PROPS_SET = new Set<string>(SCRIPT_PROPS);
 const IDENTITY_KEYS = new Set(['rid', 'id', 'name', 'type', '__typename', 'typename']);
@@ -92,7 +93,13 @@ function renderObject(
   if (obj.businessId) {
     identityRows.push(
       h('span', { class: 'ov-id-label' }, 'ID'),
-      h('span', { class: 'ov-id-value', 'data-copy': obj.businessId }, obj.businessId),
+      h('span', {
+        class: 'ov-id-value',
+        'data-copy': obj.businessId,
+        'data-copy-rid': obj.rid,
+        'data-copy-type': obj.type ?? '',
+        'data-copy-tmpl': obj.templateBusinessId ?? '',
+      }, obj.businessId),
     );
   }
   if (obj.type) {
@@ -202,10 +209,15 @@ function renderObject(
       return;
     }
 
-    // Copy on click for identity values
+    // Copy on click for identity values (supports modifiers: shift=template, ctrl=reference)
     const copyEl = target.closest<HTMLElement>('[data-copy]');
     if (copyEl) {
-      const text = copyEl.dataset.copy;
+      const { text } = resolveCopyText({
+        rid: copyEl.dataset.copyRid ?? copyEl.dataset.copy ?? '',
+        businessId: copyEl.dataset.copy,
+        type: copyEl.dataset.copyType,
+        templateBusinessId: copyEl.dataset.copyTmpl,
+      }, getModifier(e as MouseEvent));
       if (text) {
         navigator.clipboard.writeText(text).then(() => {
           copyEl.classList.add('copied');

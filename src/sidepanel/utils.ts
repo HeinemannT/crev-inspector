@@ -2,6 +2,7 @@
 
 import { log } from '../lib/logger';
 import { h, svg } from '../lib/dom';
+import { type CopyableIdentity, resolveCopyText, getModifier, COPY_TOOLTIP } from '../lib/namespace';
 
 /** SVG icons (12×12) */
 export const ICON_COPY = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
@@ -29,24 +30,22 @@ export function copyBtn(text: string, tooltip?: string): HTMLElement {
   }, svg(ICON_COPY));
 }
 
-/** Dual copy button — click copies primary, shift+click copies alternate.
- *  Shows a brief label flash to confirm what was copied. */
-export function copyBtnDual(primary: string, alternate: string, primaryLabel: string, altLabel: string): HTMLElement {
+/** Identity-aware copy button — click=ID, shift=Template ID, ctrl=ns.ref.
+ *  Uses the shared resolveCopyText strategy from namespace.ts. */
+export function copyBtnIdentity(identity: CopyableIdentity): HTMLElement {
   return h('button', {
     class: 'copy-btn',
-    title: `Copy ${primaryLabel} · Shift+click → ${altLabel}`,
+    title: COPY_TOOLTIP,
     onClick: (e: Event) => {
       e.stopPropagation();
-      const me = e as MouseEvent;
-      const value = me.shiftKey ? alternate : primary;
-      const label = me.shiftKey ? altLabel : primaryLabel;
-      copyText(value);
+      const { text, label } = resolveCopyText(identity, getModifier(e as MouseEvent));
+      copyText(text);
       const el = e.currentTarget as HTMLElement;
       el.style.color = 'var(--md-primary)';
       el.title = `Copied ${label}`;
       setTimeout(() => {
         el.style.color = '';
-        el.title = `Copy ${primaryLabel} · Shift+click → ${altLabel}`;
+        el.title = COPY_TOOLTIP;
       }, 1200);
     },
   }, svg(ICON_COPY));

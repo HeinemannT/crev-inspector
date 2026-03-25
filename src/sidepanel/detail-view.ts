@@ -7,7 +7,7 @@ import type { BmpObject, InspectorMessage } from '../lib/types';
 import { getTypeColor, getTypeAbbr, SCRIPT_PROPS } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
-import { copyBtn, copyBtnDual, copyText, ICON_ARROW_LEFT, ICON_STAR_FILLED, ICON_STAR_HOLLOW } from './utils';
+import { copyBtn, copyBtnIdentity, copyText, ICON_ARROW_LEFT, ICON_STAR_FILLED, ICON_STAR_HOLLOW } from './utils';
 import { log } from '../lib/logger';
 import { LOOKUP_WATCHDOG_TIMEOUT } from '../lib/constants';
 import { S } from './state';
@@ -212,18 +212,14 @@ function renderDetail(panel: HTMLElement): void {
         h('td', { class: 'prop-key' }, 'ID'),
         h('td', { class: 'prop-value has-copy' },
           h('span', { class: 'mono' }, obj.businessId),
-          obj.templateBusinessId
-            ? copyBtnDual(obj.businessId, obj.templateBusinessId, 'ID', 'Template ID')
-            : copyBtn(obj.businessId),
+          copyBtnIdentity({ rid: obj.rid, businessId: obj.businessId, type: obj.type, templateBusinessId: obj.templateBusinessId }),
         ),
       ),
       obj.templateBusinessId && h('tr', null,
         h('td', { class: 'prop-key' }, 'Template ID'),
         h('td', { class: 'prop-value has-copy' },
           h('span', { class: 'mono' }, obj.templateBusinessId),
-          obj.businessId
-            ? copyBtnDual(obj.templateBusinessId, obj.businessId, 'Template ID', 'ID')
-            : copyBtn(obj.templateBusinessId),
+          copyBtn(obj.templateBusinessId),
         ),
       ),
       obj.type && h('tr', null,
