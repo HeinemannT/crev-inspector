@@ -7,8 +7,8 @@ html, body {
 }
 
 body {
-  background: var(--md-surface);
-  color: var(--md-on-surface);
+  background: var(--surface-0);
+  color: var(--text-1);
   font-family: var(--font-body);
   font-size: var(--text-lg);
   line-height: var(--leading-normal);
@@ -25,33 +25,41 @@ body {
 .header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: var(--md-surface-container);
-  border-bottom: 1px solid var(--md-outline-variant);
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--surface-4);
+  flex-shrink: 0;
+}
+
+.header-brand {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  color: var(--text-3);
+  letter-spacing: 0.5px;
   flex-shrink: 0;
 }
 
 .header-status {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   flex: 1;
   min-width: 0;
   cursor: pointer;
-  padding: 2px 6px;
-  margin: -2px -6px;
-  border-radius: 6px;
-  transition: background 150ms ease;
+  padding: 2px var(--space-1);
+  margin: -2px calc(-1 * var(--space-1));
+  border-radius: var(--radius-md);
+  transition: background var(--duration-fast) var(--ease-default);
 }
 .header-status:hover {
-  background: var(--md-surface-container-high);
+  background: var(--surface-2);
 }
 
 .header-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--md-on-surface);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semi);
+  color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -221,36 +229,37 @@ body {
 .tab-bar {
   display: flex;
   gap: 0;
-  padding: 0 12px;
-  background: var(--md-surface-container);
-  border-bottom: 2px solid var(--md-outline-variant);
+  padding: 0 var(--space-3);
+  background: var(--surface-0);
+  border-bottom: 1px solid var(--surface-4);
   flex-shrink: 0;
 }
 
 .tab {
-  padding: 8px 14px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--md-on-surface-variant);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-3);
   cursor: pointer;
   border: none;
   border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
+  margin-bottom: -1px;
   border-radius: 0;
   background: none;
-  font-family: var(--md-font);
+  font-family: var(--font-body);
   white-space: nowrap;
+  transition: color var(--duration-fast) var(--ease-default),
+              border-color var(--duration-fast) var(--ease-default);
 }
 
 .tab:hover {
-  background: var(--md-elevation-1);
-  color: var(--md-on-surface);
+  color: var(--text-1);
 }
 
 .tab.active {
-  color: var(--md-primary);
-  border-bottom-color: var(--md-primary);
-  font-weight: 600;
+  color: var(--text-1);
+  border-bottom-color: var(--accent);
+  font-weight: var(--weight-semi);
 }
 
 .tab .badge {
@@ -296,19 +305,19 @@ body {
 .status-strip {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 14px;
-  background: var(--md-surface-container);
-  border-bottom: 1px solid var(--md-outline-variant);
-  font-size: 10px;
-  color: var(--md-on-surface-variant);
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--surface-4);
+  font-size: var(--text-xs);
+  color: var(--text-2);
   flex-shrink: 0;
 }
 
-.status-strip.ok { color: var(--md-success); }
-.status-strip.fail { color: var(--md-error); }
-.status-strip.offline { color: var(--md-warning); }
-.status-strip.online { color: var(--md-on-surface-variant); }
+.status-strip.ok { color: var(--success); }
+.status-strip.fail { color: var(--danger); }
+.status-strip.offline { color: var(--warning); }
+.status-strip.online { color: var(--text-2); }
 
 .status-strip-text {
   flex: 1;
@@ -1103,20 +1112,20 @@ body {
 .status-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
-  background: var(--md-surface-container-high);
-  border-top: 1px solid var(--md-outline-variant);
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-1);
+  border-top: 1px solid var(--surface-4);
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--text-xs);
   min-height: 28px;
 }
 
 .status-bar-connection {
   display: flex;
   align-items: center;
-  gap: 4px;
-  color: var(--md-on-surface-variant);
+  gap: var(--space-1);
+  color: var(--text-3);
   flex-shrink: 0;
 }
 

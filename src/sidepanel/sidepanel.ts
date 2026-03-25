@@ -163,6 +163,7 @@ const TAB_NAMES = ['connect', 'objects', 'page', 'log'] as const;
 
 function buildApp(): void {
   const header = h('div', { class: 'header' },
+    h('span', { class: 'header-brand' }, 'CREV'),
     h('div', { class: 'header-status', id: 'header-status' },
       h('span', { class: `status-dot ${statusDotClass()}` }),
       h('span', { class: 'header-label' }, statusText()),
