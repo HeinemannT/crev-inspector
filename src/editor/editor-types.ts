@@ -23,6 +23,8 @@ export interface EditorContext {
   property: string | null
   extended?: boolean
   executionContextRid?: string
+  /** Whether BMP supports EC lookup(). False on pre-5.6.3. */
+  useLookup?: boolean
 }
 
 // ── Label formatting ─────────────────────────────────────────────

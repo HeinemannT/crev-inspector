@@ -114,6 +114,7 @@ export async function openEditorWindow(rid: string) {
     saveTarget: swCtx.settings.saveTarget,
     property,
     executionContextRid: editorData.locationRid,
+    useLookup: swCtx.client?.supportsLookup !== false,
   };
 
   const storageKey = `crev_editor_ctx_${rid}`;
@@ -156,6 +157,7 @@ export async function openExtendedWindow(pageRid?: string) {
     property: null,
     extended: true,
     executionContextRid: pageRid,
+    useLookup: swCtx.client?.supportsLookup !== false,
   };
 
   const storageKey = 'crev_editor_ctx_extended';

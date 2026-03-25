@@ -540,11 +540,15 @@ function renderBottomContent() {
 
   if (bottomMode === 'snippets') {
     const ridStr = ctx ? (ctx.extended ? ctx.executionContextRid ?? 'RID' : ctx.instance.rid) : 'RID'
+    // Version-aware object reference: lookup(RID) on 5.6.3+, t.{bid} on older
+    const useLookup = ctx?.useLookup !== false
+    const bid = ctx?.instance.businessId
+    const ref = useLookup ? `lookup(${ridStr})` : (bid ? `t.${bid}` : `lookup(${ridStr})`)
     const snippets = [
-      { id: 'genedit', desc: 'GenEdit (full object)', code: `lookup(${ridStr}).genEdit(*)` },
-      { id: 'children', desc: 'Walk children', code: `lookup(${ridStr}).children().forEach(_c: ...)` },
-      { id: 'change', desc: 'Change property', code: `lookup(${ridStr}).change("property", "value")` },
-      { id: 'search', desc: 'Search descendants', code: `SELECT * FROM lookup(${ridStr}) WHERE ...` },
+      { id: 'genedit', desc: 'GenEdit (full object)', code: `${ref}.genEdit(*)` },
+      { id: 'children', desc: 'Walk children', code: `${ref}.children().forEach(_c: ...)` },
+      { id: 'change', desc: 'Change property', code: `${ref}.change("property", "value")` },
+      { id: 'search', desc: 'Search descendants', code: `SELECT * FROM ${ref} WHERE ...` },
     ]
     renderDom(container,
       h('div', { class: 'editor-snippet-list' },
@@ -635,12 +639,16 @@ function renderBottomContent() {
 
 function insertSnippet(id: string, rid: string) {
   if (!editorView) return
+  // Version-aware reference (same logic as snippet panel)
+  const useLookup = ctx?.useLookup !== false
+  const bid = ctx?.instance.businessId
+  const ref = useLookup ? `lookup(${rid})` : (bid ? `t.${bid}` : `lookup(${rid})`)
   let code = ''
   switch (id) {
-    case 'genedit': code = `lookup(${rid}).genEdit(*)`; break
-    case 'children': code = `_o := lookup(${rid})\n_o.children().forEach(_c:\n  _c.businessIdentifier + " | " + _c.name\n)`; break
-    case 'change': code = `_o := lookup(${rid})\n_o.change("description", "new value")`; break
-    case 'search': code = `SELECT * FROM lookup(${rid}) WHERE name CONTAINS "..."`; break
+    case 'genedit': code = `${ref}.genEdit(*)`; break
+    case 'children': code = `_o := ${ref}\n_o.children().forEach(_c:\n  _c.businessIdentifier + " | " + _c.name\n)`; break
+    case 'change': code = `_o := ${ref}\n_o.change("description", "new value")`; break
+    case 'search': code = `SELECT * FROM ${ref} WHERE name CONTAINS "..."`; break
   }
   if (code) {
     editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: code } })
