@@ -1,44 +1,78 @@
 /**
  * BMP object preview on hover — shows type badge + name + RID
- * when hovering over patterns that reference BMP objects in EC code.
+ * when hovering over BMP object references in EC code.
  *
- * Matched patterns:
- *   lookup(DIGITS)   — EC lookup() calls
- *   t.DIGITS / o.DIGITS — ID-space references
- *   rid=DIGITS / rid:DIGITS — RID references in output
+ * Two lookup paths:
+ *   lookup(RID), rid=DIGITS  → resolved via HOVER_LOOKUP (cache + lookupIdentity)
+ *   t.122, ceiss.45, k.myProp → resolved via HOVER_RESOLVE (EC namespace.bid reference)
  *
- * Lookups go through chrome.runtime.sendMessage (async, ~5ms cache hit).
- * Local tooltip cache avoids repeated SW round-trips for the same RID.
+ * Namespace prefixes validated against BMP's ID-space map.
+ * Local tooltip cache avoids repeated SW round-trips.
  */
 import { hoverTooltip } from '@codemirror/view'
+import { isValidNamespace } from '../../lib/namespace'
 
-// Local cache: RID → identity (persists for editor window lifetime)
-const tooltipCache = new Map<string, { name?: string; type?: string; businessId?: string } | null>();
+interface HoverInfo { name?: string; type?: string; rid?: string; businessId?: string }
 
-const PATTERNS = [
-  /\blookup\((\d{5,})\)/g,     // lookup(12345...)
-  /\b[to]\.(\d{5,})\b/g,       // t.12345 or o.12345
-  /\brid[=:](\d{5,})\b/gi,     // rid=12345 or rid:12345
+// Local cache: key → identity (persists for editor window lifetime)
+const tooltipCache = new Map<string, HoverInfo | null>();
+
+// Pattern definitions with lookup type
+const PATTERNS: Array<{ re: RegExp; extract: (m: RegExpExecArray) => { key: string; lookup: 'rid' | 'ref' } | null }> = [
+  {
+    // lookup(DIGITS) — raw RID
+    re: /\blookup\((\d{5,})\)/g,
+    extract: (m) => ({ key: m[1], lookup: 'rid' }),
+  },
+  {
+    // rid=DIGITS / rid:DIGITS — raw RID in output
+    re: /\brid[=:](\d{5,})\b/gi,
+    extract: (m) => ({ key: m[1], lookup: 'rid' }),
+  },
+  {
+    // namespace.bid — validate prefix against known namespaces
+    re: /\b([a-z]{1,5})\.(\w+)\b/g,
+    extract: (m) => {
+      const prefix = m[1];
+      const bid = m[2];
+      // Skip if not a known BMP namespace or if bid is purely numeric and short
+      if (!isValidNamespace(prefix)) return null;
+      // Skip common false positives: e.g., "e.g.", method chains like "s.name"
+      if (bid.length < 2) return null;
+      return { key: `${prefix}.${bid}`, lookup: 'ref' };
+    },
+  },
 ];
 
-async function lookupRid(rid: string): Promise<{ name?: string; type?: string; businessId?: string } | null> {
-  // Check local cache first (instant)
+async function lookupRid(rid: string): Promise<HoverInfo | null> {
   if (tooltipCache.has(rid)) return tooltipCache.get(rid)!;
-
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'HOVER_LOOKUP', rid });
-    if (response?.type === 'HOVER_LOOKUP_RESULT' && (response.name || response.type)) {
-      const result = { name: response.name, type: response.type, businessId: response.businessId };
-      tooltipCache.set(rid, result);
-      return result;
+    const r = await chrome.runtime.sendMessage({ type: 'HOVER_LOOKUP', rid });
+    if (r?.type === 'HOVER_LOOKUP_RESULT' && (r.name || r.type)) {
+      const info: HoverInfo = { name: r.name, type: r.type, rid, businessId: r.businessId };
+      tooltipCache.set(rid, info);
+      return info;
     }
-  } catch { /* extension context invalid or SW not responding */ }
-
-  tooltipCache.set(rid, null); // cache negative results too (avoid re-fetching)
+  } catch { /* extension context invalid */ }
+  tooltipCache.set(rid, null);
   return null;
 }
 
-function buildTooltipDom(info: { name?: string; type?: string; businessId?: string }, rid: string): HTMLElement {
+async function resolveRef(ref: string): Promise<HoverInfo | null> {
+  if (tooltipCache.has(ref)) return tooltipCache.get(ref)!;
+  try {
+    const r = await chrome.runtime.sendMessage({ type: 'HOVER_RESOLVE', ref });
+    if (r?.type === 'HOVER_RESOLVE_RESULT' && (r.name || r.type)) {
+      const info: HoverInfo = { name: r.name, type: r.type, rid: r.rid, businessId: r.businessId };
+      tooltipCache.set(ref, info);
+      return info;
+    }
+  } catch { /* extension context invalid */ }
+  tooltipCache.set(ref, null);
+  return null;
+}
+
+function buildTooltipDom(info: HoverInfo, label: string): HTMLElement {
   const el = document.createElement('div');
   el.style.cssText =
     'padding:6px 10px; font-size:11px; line-height:1.5; max-width:280px; ' +
@@ -68,10 +102,12 @@ function buildTooltipDom(info: { name?: string; type?: string; businessId?: stri
     el.appendChild(bidEl);
   }
 
-  const ridEl = document.createElement('div');
-  ridEl.style.cssText = 'font-size:10px; color:#6f6f6f; font-family:"SF Mono","Cascadia Code",Consolas,monospace;';
-  ridEl.textContent = `RID: ${rid}`;
-  el.appendChild(ridEl);
+  if (info.rid) {
+    const ridEl = document.createElement('div');
+    ridEl.style.cssText = 'font-size:10px; color:#6f6f6f; font-family:"SF Mono","Cascadia Code",Consolas,monospace;';
+    ridEl.textContent = `RID: ${info.rid}`;
+    el.appendChild(ridEl);
+  }
 
   return el;
 }
@@ -82,7 +118,7 @@ export const bmpObjectHover = hoverTooltip(
     const text = line.text;
     const offset = pos - line.from;
 
-    for (const re of PATTERNS) {
+    for (const { re, extract } of PATTERNS) {
       re.lastIndex = 0;
       let match;
       while ((match = re.exec(text)) !== null) {
@@ -90,15 +126,19 @@ export const bmpObjectHover = hoverTooltip(
         const end = start + match[0].length;
         if (offset < start || offset > end) continue;
 
-        const rid = match[1];
-        const info = await lookupRid(rid);
+        const parsed = extract(match);
+        if (!parsed) continue;
+
+        const info = parsed.lookup === 'rid'
+          ? await lookupRid(parsed.key)
+          : await resolveRef(parsed.key);
         if (!info) continue;
 
         return {
           pos: line.from + start,
           end: line.from + end,
           above: true,
-          create: () => ({ dom: buildTooltipDom(info, rid) }),
+          create: () => ({ dom: buildTooltipDom(info, parsed.key) }),
         };
       }
     }

@@ -1,0 +1,67 @@
+/**
+ * BMP namespace resolution — maps className to ID-space prefix.
+ *
+ * A reference like "k.pMyProp" resolves to the property object with businessId "pMyProp"
+ * under root.PROPERTY in any BMP workspace.
+ *
+ * Ported from cortex/src/tools/transport-tool/lib/namespace.ts.
+ * Used by: BMP object hover (pattern validation), future transport features.
+ */
+
+/** className → namespace prefix */
+const NAMESPACE_MAP: Record<string, string> = {
+  // Groups / Access / Roles
+  Group: 'g', ROLE: 'role', ACCESSPROFILE: 'ap', DEFAULTS: 'd',
+
+  // Resources
+  FileResource: 'r', TranslationFile: 'r', APIResource: 'r', RemoteResource: 'r',
+  APIEndpoint: 'r', APIClientAuthentication: 'r', EndpointParameter: 'r',
+  LogFolder: 'r', CorpoLog: 'r', SqlResource: 'r', PowerBiResource: 'r',
+
+  // Properties
+  TextMethodConfig: 'k', ListMethodConfig: 'k', HistoricalListMethodConfig: 'k',
+  HistoricalReferenceMethodConfig: 'k', HistoricalTextMethodConfig: 'k',
+  RichTextMethodConfig: 'k', ExtendedMethodConfig: 'k', TokenMethodConfig: 'k',
+  HistoricalRichTextMethodConfig: 'k', HistoricalDateMethodConfig: 'k',
+  BooleanMethodConfig: 'k', ReferenceMethodConfig: 'k', UrlMethodConfig: 'k',
+  FunctionMethodConfig: 'k', HistoricalNumberMethodConfig: 'k', NumberMethodConfig: 'k',
+  DateMethodConfig: 'k', TagMethodConfig: 'k', HistoricalBooleanMethodConfig: 'k',
+  ListPropertySet: 'k', ListPropertySetItem: 'k',
+
+  // Categories / Templates / Portal
+  Category: 't', ExtendedExpression: 't', ProcessDefinition: 't', ClassConfig: 't', Transformer: 't',
+
+  // Enterprise objects
+  CEVENDOR: 'ceven', CETASK: 'cetas', CECOMMENT: 'cecom', CEINCIDENT: 'ceinc',
+  CEPROCEDURE: 'cepro', CEPOLICY: 'cepol', CECONTROLMEASURE: 'cecme',
+  CEISSUE: 'ceiss', CEASSET: 'ceass', CESERVICE: 'ceser', CECONTRACT: 'cecot',
+  CEPROJECT: 'ceprj', CEREGULATION: 'cereg', CECOMPLIANCEREQUIREMENT: 'cecor',
+  CEINDICATOR: 'ceind', CEATTACHMENT: 'ceatt', CERISKASSESSMENT: 'ceras',
+  CEPRODUCT: 'ceprd', CEPRESCREENING: 'cepsc', CEPRIVACY: 'ceprv',
+  CEWORKFLOW: 'cewfl', CEDISTRIBUTION: 'cedis', CEINQUIRY: 'ceinq',
+  CEQUESTIONNAIRE: 'ceqst', CEDPIA: 'cedpi', CETIA: 'cetia', CEASSURANCEACTIVITY: 'ceasa',
+};
+
+/** All valid namespace prefixes (for hover pattern validation) */
+const VALID_PREFIXES = new Set(Object.values(NAMESPACE_MAP));
+// Add prefixes that aren't derivable from the map
+VALID_PREFIXES.add('t');   // default for most portal objects
+VALID_PREFIXES.add('o');   // organisation space
+VALID_PREFIXES.add('u');   // user space
+VALID_PREFIXES.add('s');   // scorecard space
+VALID_PREFIXES.add('p');   // legacy property space
+
+/** Check if a prefix is a valid BMP namespace. */
+export function isValidNamespace(prefix: string): boolean {
+  return VALID_PREFIXES.has(prefix);
+}
+
+/** Resolve a className to its namespace prefix. */
+export function resolveNamespace(className: string): string {
+  return NAMESPACE_MAP[className] ?? 't';
+}
+
+/** Get the full namespace map. */
+export function getNamespaceMap(): Record<string, string> {
+  return { ...NAMESPACE_MAP };
+}

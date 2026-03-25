@@ -101,6 +101,32 @@ register('HOVER_LOOKUP', (msg, respond) => {
   });
 }, true);
 
+register('HOVER_RESOLVE', (msg, respond) => {
+  const ctx = getCtx();
+  ctx.settingsReady.then(async () => {
+    if (!ctx.client) { respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref }); return; }
+    try {
+      // EC: resolve namespace.bid reference to identity fields
+      const code = `_o := ${msg.ref}\n_o.name.whenMissing("") + "|||" + _o.className.whenMissing("") + "|||" + _o.rid.whenMissing("") + "|||" + _o.id.whenMissing("")`;
+      const result = await ctx.client.executeEc(code, undefined, false);
+      if (!result.ok || !result.log?.includes('|||')) {
+        respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref });
+        return;
+      }
+      const line = result.log.trim().split('\n').find(l => l.includes('|||'));
+      if (!line) { respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref }); return; }
+      const [name, type, rid, bid] = line.split('|||').map(s => s.trim());
+      respond({
+        type: 'HOVER_RESOLVE_RESULT', ref: msg.ref,
+        name: name || undefined, type: type || undefined,
+        rid: rid || undefined, businessId: bid || undefined,
+      });
+    } catch {
+      respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref });
+    }
+  });
+}, true);
+
 register('CLEAR_CACHE', (msg, respond) => {
   const ctx = getCtx();
   ctx.cache.clear();
