@@ -2,9 +2,9 @@
 
 ## Identity
 
-**ctools-inspired minimal.** Dark only. Inter (body) + Geist Mono (code). Purple accent `#ba0ffe` used sparingly — for primary actions and active states, never for decoration. Information-dense, compact, professional.
+**ctools-inspired minimal.** Dark only. Inter (body) + Geist Mono (code). Catppuccin Mocha for the EC editor. Purple accent `#ba0ffe` sparingly — primary actions, active states, never decoration. Phosphor icons. Comfortable density with generous spacing.
 
-The extension is a power tool for BMP developers/admins. Every pixel serves a purpose. No visual filler.
+A branded utility tool — professional, breathable, premium. Not a debug tool, not a prototype.
 
 ## Foundations
 
@@ -207,22 +207,27 @@ Sticky headers. Horizontal scroll on overflow.
 ### Side Panel
 
 ```
-┌─ Header ─────────────────────────────────┐  surface-1, border-bottom
-│ [status dot] Profile Name    [🎨] [Inspect]│
-├─ Tabs ───────────────────────────────────┤  surface-0, border-bottom
-│ Connect  Objects  Page  Log              │  text-sm, active=accent underline
-├─ Status Strip ───────────────────────────┤  conditional (surface-2 or tinted)
-│ Connected · Steadfast · BMP 5.6.7       │  text-xs, text-3
-├─ Content ────────────────────────────────┤  surface-0, scrollable
-│                                          │
-│  (tab content or detail view)            │
-│                                          │
-├─ Status Bar ─────────────────────────────┤  surface-1, border-top
-│ ● Connected    Latest activity    [123]  │  text-xs, text-3
+┌─ Header ─────────────────────────────────┐
+│ ◈ CREV  ● Steadfast         [🎨] [▣]   │  surface-1, branded
+├─ Tabs ───────────────────────────────────┤
+│ Connect   Objects   Page   Log           │  horizontal, underline indicator
+│              ━━━━━━━                     │  2px accent on active
+├─ Status Strip ───────────────────────────┤
+│ Connected · BMP 5.6.7 · 14ms            │  conditional, text-xs
+├─ Content ────────────────────────────────┤
+│                                          │  surface-0, scrollable
+│  (tab content or detail view)            │  comfortable density
+│                                          │  8-12px padding per row
+├─ Status Bar ─────────────────────────────┤
+│ ● Connected    Latest activity    [123]  │  surface-1, text-xs
 └──────────────────────────────────────────┘
 ```
 
-Tab underline indicator: 2px accent bar on active tab (not full background fill). Tabs are text-sm, uppercase, letter-spacing 0.5px.
+**Header:** `◈ CREV` tiny logo mark (12px icon) + brand text in text-3 (muted). Status dot + profile name in text-1. Paint and Inspect icon buttons right-aligned. Surface-1 bg, 1px border-bottom.
+
+**Tabs:** Horizontal text tabs, full panel width. Active tab: text-1 color + 2px accent underline. Inactive: text-3 color. Font: text-sm, no uppercase (clean, not shouty). Phosphor icons inline at 12px for each tab (optional — text-only is cleaner at this width).
+
+**Density:** Comfortable. 13px base text. 8-12px row padding. Generous gaps between sections. Breathable, premium feel.
 
 ### Overlay Badges (injected into BMP page)
 
@@ -246,33 +251,46 @@ Action strip:
 
 ### EC Editor Window
 
+**Theme:** Catppuccin Mocha — warm dark with pastel syntax. Matches Cortex editor. The editor is the one surface that intentionally differs from the panel (slightly warmer, richer).
+
 ```
-┌─ CM Container ───────────────────────────┐  CodeMirror, surface-0 bg
-│                                          │
-│  (editor)                                │
-│                                          │
+┌─ CM Container ───────────────────────────┐  Catppuccin Mocha: #1e1e2e bg
+│                                          │  Keywords: #cba6f7 (mauve)
+│  (editor with Catppuccin Mocha theme)    │  Strings: #f9e2af (yellow)
+│                                          │  Methods: #89b4fa (blue)
 ├─ Toolbar ────────────────────────────────┤  surface-1, border-top
-│ [Preview ▶] [Run ▶] [Save]  t.122·expr  │
+│ [Preview ▶] [Run ▶] [Save]  t.122·expr  │  Phosphor icons in buttons
 │                          Ln 1, Col 1     │
 ├─ Drag Handle ────────────────────────────┤  surface-3, 2px height
 ├─ Bottom Panel ───────────────────────────┤  surface-1
 │  (output / vars / snippets / history)    │
 ├─ Bottom Bar ─────────────────────────────┤  surface-0, border-top
-│ ✕ Clear  ↩ Wrap    𝑥 Vars  {} Snip  ◔ H │  ghost buttons
+│ ✕ Clear  ↩ Wrap    𝑥 Vars  {} Snip  ◔ H │  ghost buttons, Phosphor icons
 └──────────────────────────────────────────┘
 ```
 
-### Quick Inspector Popup
+Toolbar and bottom panels use the panel token system (surface-0/1), not Catppuccin. Only the CodeMirror editing area uses Catppuccin. This creates a subtle visual distinction: "this is where you write code" vs "this is the tool chrome."
+
+### Quick Inspector Popup (contextual mini-panel)
+
+Double-click a badge → a preview card appears near the badge, showing identity + first properties + actions.
 
 ```
 ┌───────────────────────────────────────┐  surface-2, shadow-3, radius-lg
-│ ★  [TBL] Revenue Table               │
-│ ID: t.122      Template: t.100       │  text-xs, mono
-│ RID: 8639152947620                   │  text-xs, text-3
-├───────────────────────────────────────┤  border, surface-4
-│ [Copy ID]  [Editor]  [Full View]     │  btn--ghost, text-xs
+│ [TBL] Revenue Table              [★] │  type badge + name + star
+│ t.122  →  tmpl t.100                 │  text-sm, mono, text-2
+│ description: Revenue by region...    │  text-sm, text-3, truncated
+├───────────────────────────────────────┤  1px border, surface-4
+│ [⧉ Copy]   [✎ Editor]   [↗ View]   │  Phosphor icons + text, ghost buttons
 └───────────────────────────────────────┘
 ```
+
+Key differences from current:
+- Shows 1-2 properties below identity (a preview, not just name/ID)
+- Copy button uses unified copy strategy (shift/ctrl modifiers)
+- Phosphor icons for actions instead of text-only buttons
+- Star button moved to top-right (less prominent)
+- Wider card: max-width 340px (from 320px)
 
 ---
 
@@ -364,26 +382,46 @@ el.style.setProperty('--type-color', getTypeColor(obj.type));
 
 ### Before → After
 
+**Side panel header:**
+- Before: Anonymous `[dot] Profile Name [paint] [inspect]` — could be any tool
+- After: `◈ CREV ● Steadfast [🎨][▣]` — branded utility, small logo mark, Phosphor icon buttons
+
 **Side panel tabs:**
-- Before: Full background fill on active tab, mixed padding
-- After: Clean underline indicator (2px accent), uppercase labels, consistent spacing
+- Before: Full background fill on active tab, mixed padding, no clear hierarchy
+- After: 2px accent underline, text-1/text-3 contrast, breathable spacing. Active state is subtle but clear.
 
 **Overlay badges:**
-- Before: Full type-colored background, loud
-- After: Glass background + type-colored left border accent. Subtle but informative.
+- Before: Full type-colored opaque background — loud, dominates the page
+- After: Glass `rgba(0,0,0,0.6)` + `backdrop-filter: blur(8px)` + 2px left border in type color. Subtle presence, the color accent tells the type without shouting.
+
+**Quick inspector:**
+- Before: Dark card with text buttons, just identity
+- After: Contextual mini-panel: identity + 1-2 property previews + Phosphor icon action buttons. A real preview, not just a label.
 
 **Buttons:**
-- Before: 13+ variants, inconsistent padding/hover
-- After: 6 variants from one base, consistent sizing
+- Before: 13+ variants, inconsistent padding and hover behaviors
+- After: 6 variants from one base, Phosphor icons, consistent hover transitions, focus-visible rings
 
 **Typography:**
-- Before: 10-13px mixed, system-ui everywhere
-- After: Inter for body, Geist Mono for code, defined scale
+- Before: 10-13px mixed, system-ui, no hierarchy
+- After: Inter 13px comfortable base, Geist Mono for code, defined xs/sm/base/lg/xl scale
+
+**Editor:**
+- Before: One Dark theme (blue-tinted grays), inconsistent with panel
+- After: Catppuccin Mocha (warm pastels), panel chrome stays in tool tokens. The editing area feels distinct — "this is where you write."
 
 **Colors:**
-- Before: M3 tokens + hardcoded hex + inline styles
-- After: Single token file, zero hardcoded colors, zero inline styles
+- Before: M3 tokens defined 4 times + hardcoded hex + inline styles
+- After: Single `tokens.css`, zero inline styles, zero hardcoded colors
+
+**Density:**
+- Before: Mixed — some areas cramped (10px), others spacious (14px). No system.
+- After: Comfortable throughout — 13px base, 8-12px row padding, generous gaps. Breathable, premium.
+
+**Icons:**
+- Before: Unicode emoji (⭐, ✕, ⟳), system text, inconsistent sizes
+- After: Phosphor icons — fill ≤12px, regular ≥13px. Consistent visual weight across all surfaces.
 
 **Overall feel:**
-- Before: "Dark theme, 2023 prototype"
-- After: "Precision tool, 2026 — information-dense, intentional, fast"
+- Before: "Dark theme prototype, 2023 — grew organically"
+- After: "Branded precision tool, 2026 — comfortable, intentional, polished"
