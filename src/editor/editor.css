@@ -1,20 +1,4 @@
-:root {
-  --bg-page: #161616;
-  --bg-section: #262626;
-  --bg-elevated: #393939;
-  --text-primary: #f4f4f4;
-  --text-secondary: #c6c6c6;
-  --text-muted: #8d8d8d;
-  --border-subtle: #393939;
-  --accent: #ba0ffe;
-  --danger: #fa4d56;
-  --success: #42be65;
-  --warning: #f1c21b;
-  --font: system-ui, -apple-system, sans-serif;
-  --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-}
-
-* { margin: 0; padding: 0; box-sizing: border-box; }
+/* Tokens + base imported via HTML. Local overrides only. */
 
 html, body {
   width: 100%;
@@ -25,8 +9,8 @@ html, body {
 body {
   background: var(--bg-page);
   color: var(--text-primary);
-  font-family: var(--font);
-  font-size: 12px;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
 }
 
 #editor-root {
@@ -584,9 +568,4 @@ body {
   align-self: center;
 }
 
-/* ── Scrollbar ────────────────────────────────── */
-
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: var(--bg-page); }
-::-webkit-scrollbar-thumb { background: var(--bg-elevated); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #6f6f6f; }
+/* Scrollbars defined in base.css */

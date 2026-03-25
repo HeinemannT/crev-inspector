@@ -1,51 +1,4 @@
-/* M3 Dark Theme tokens */
-:root {
-  /* Surface */
-  --md-surface: #1c1b1f;
-  --md-surface-container: #211f26;
-  --md-surface-container-high: #2b2930;
-  --md-surface-container-highest: #36343b;
-  --md-surface-variant: #49454f;
-
-  /* Primary */
-  --md-primary: #ba88ff;
-  --md-on-primary: #1a0036;
-  --md-primary-container: #5a2d91;
-  --md-on-primary-container: #e8d5ff;
-
-  /* Secondary */
-  --md-secondary-container: #4a4458;
-  --md-on-secondary-container: #e8def8;
-
-  /* Error */
-  --md-error: #f2b8b5;
-
-  /* Text */
-  --md-on-surface: #e6e1e5;
-  --md-on-surface-variant: #cac4d0;
-  --md-outline: #938f99;
-  --md-outline-variant: #49454f;
-
-  /* Semantic */
-  --md-success: #7dd392;
-  --md-warning: #f1c21b;
-
-  /* Shape */
-  --md-shape-xs: 4px;
-  --md-shape-sm: 8px;
-  --md-shape-md: 12px;
-  --md-shape-lg: 16px;
-
-  /* Elevation (surface tint) */
-  --md-elevation-1: rgba(138, 63, 252, 0.05);
-  --md-elevation-2: rgba(138, 63, 252, 0.08);
-
-  /* Typography */
-  --md-font: 'Segoe UI', Roboto, system-ui, sans-serif;
-  --md-font-mono: 'Cascadia Code', 'Fira Code', 'SF Mono', Consolas, monospace;
-}
-
-* { margin: 0; padding: 0; box-sizing: border-box; }
+/* Tokens + base imported via HTML. Local overrides only. */
 
 html, body {
   width: 100%;
@@ -56,9 +9,9 @@ html, body {
 body {
   background: var(--md-surface);
   color: var(--md-on-surface);
-  font-family: var(--md-font);
-  font-size: 13px;
-  line-height: 1.5;
+  font-family: var(--font-body);
+  font-size: var(--text-lg);
+  line-height: var(--leading-normal);
 }
 
 #app {
@@ -1557,7 +1510,4 @@ body {
 
 /* ── Scrollbar ─────────────────────────────────── */
 
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--md-surface-variant); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--md-outline); }
+/* Scrollbars defined in base.css */
