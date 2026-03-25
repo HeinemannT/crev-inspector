@@ -8,6 +8,7 @@ import { getTypeColor, getTypeAbbr, TYPES_WITH_CODE } from './lib/types';
 import { getAllRidElements } from './lib/dom-scanner';
 import { log } from './lib/logger';
 import { DISCOVERED_RIDS_CAP, LABEL_DBLCLICK_WINDOW } from './lib/constants';
+import { resolveNamespace } from './lib/namespace';
 import { sendToSW } from './lib/content-port';
 import { showQuickInspector, hideQuickInspector } from './lib/quick-inspector';
 import type { ContentState } from './content-state';
@@ -109,18 +110,29 @@ export function syncOverlays(s: ContentState) {
         return;
       }
 
-      // First click → set timer for single-click (copy BID or template BID on shift)
+      // First click → set timer for single-click
+      // Plain click: copy businessId. Shift+click: copy template businessId. Ctrl+click: copy ns.bid reference.
       const isShift = e.shiftKey;
+      const isCtrl = e.ctrlKey || e.metaKey;
       s.labelClickRid = rid;
       s.labelClickTimer = setTimeout(() => {
         s.labelClickTimer = null;
         s.labelClickRid = null;
         const enriched = s.enrichments.get(rid);
         const hasTemplate = !!enriched?.templateBusinessId;
-        const text = isShift && hasTemplate
-          ? enriched!.templateBusinessId!
-          : (enriched?.businessId ?? rid);
-        const flashText = isShift && hasTemplate ? '\u2713 Tmpl' : '\u2713';
+        let text: string;
+        let flashText: string;
+        if (isCtrl && enriched?.businessId) {
+          const ns = resolveNamespace(enriched.type ?? '');
+          text = `${ns}.${enriched.businessId}`;
+          flashText = '\u2713 ref';
+        } else if (isShift && hasTemplate) {
+          text = enriched!.templateBusinessId!;
+          flashText = '\u2713 Tmpl';
+        } else {
+          text = enriched?.businessId ?? rid;
+          flashText = '\u2713';
+        }
         navigator.clipboard.writeText(text).then(() => {
           const original = labelText.textContent;
           labelText.textContent = flashText;
