@@ -58,7 +58,9 @@ export type ServerLookupMessage =
   | { type: 'SERVER_LOOKUP'; rid: string }
   | { type: 'SERVER_LOOKUP_RESULT'; rid: string; object: BmpObject | null; error?: string }
   | { type: 'LINKED_LOOKUP'; rid: string; objectType: string }
-  | { type: 'LINKED_LOOKUP_RESULT'; rid: string; key: string; label: string; linkedId?: string; linkedName?: string; linkedRid?: string; error?: string };
+  | { type: 'LINKED_LOOKUP_RESULT'; rid: string; key: string; label: string; linkedId?: string; linkedName?: string; linkedRid?: string; error?: string }
+  | { type: 'HOVER_LOOKUP'; rid: string }
+  | { type: 'HOVER_LOOKUP_RESULT'; rid: string; name?: string; type?: string; businessId?: string };
 
 // ── Connection & Settings ────────────────────────────────────────
 export type ConnectionMessage =

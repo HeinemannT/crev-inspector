@@ -78,6 +78,29 @@ register('GET_CACHE', (msg, respond) => {
   });
 }, true);
 
+register('HOVER_LOOKUP', (msg, respond) => {
+  const ctx = getCtx();
+  ctx.settingsReady.then(async () => {
+    // Fast path: check cache
+    const cached = ctx.cache.get(msg.rid);
+    if (cached?.name || cached?.type) {
+      respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid, name: cached.name, type: cached.type, businessId: cached.businessId });
+      return;
+    }
+    // Slow path: EC lookup
+    if (!ctx.client) { respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid }); return; }
+    try {
+      const identity = await ctx.client.lookupIdentity(msg.rid);
+      respond({
+        type: 'HOVER_LOOKUP_RESULT', rid: msg.rid,
+        name: identity?.name, type: identity?.type, businessId: identity?.businessId,
+      });
+    } catch {
+      respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid });
+    }
+  });
+}, true);
+
 register('CLEAR_CACHE', (msg, respond) => {
   const ctx = getCtx();
   ctx.cache.clear();

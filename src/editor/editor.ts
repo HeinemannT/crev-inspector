@@ -30,6 +30,7 @@ import { extendedLanguage } from './ec/language'
 import { extendedHighlighting } from './ec/highlight'
 import { extendedCompletions, variableTracker, getTrackedVariables } from './ec/completions'
 import { extendedHoverDocs } from './ec/hoverDocs'
+import { bmpObjectHover } from './ec/bmpObjectHover'
 import { extendedLinter } from './ec/diagnostics'
 import { ecBlockMatching } from './ec/blockMatching'
 import { ecFoldService } from './ec/foldRegions'
@@ -326,6 +327,7 @@ function createEditor(code: string) {
       extendedHighlighting,
       variableTracker,
       extendedHoverDocs,
+      bmpObjectHover,
       extendedLinter,
       ecBlockMatching,
       ecFoldService,
