@@ -12,18 +12,37 @@ import { sendToSW } from './lib/content-port';
 import { showQuickInspector, hideQuickInspector } from './lib/quick-inspector';
 import type { ContentState } from './content-state';
 
-/** Create a code button (EC / </>) for types with viewable code */
-function createCodeButton(rid: string, type: string): HTMLButtonElement {
-  const btn = document.createElement('button');
-  btn.className = 'crev-ec-btn';
-  btn.textContent = type === 'CustomVisualization' ? '</>' : 'EC';
-  btn.title = 'Open in editor';
-  btn.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    chrome.runtime.sendMessage({ type: 'OPEN_EDITOR', rid });
+/** Create the action strip below a badge (EC button + search references) */
+function createActionStrip(rid: string, enrichment: { businessId?: string; type?: string; name?: string }): HTMLSpanElement {
+  const actions = document.createElement('span');
+  actions.className = 'crev-actions';
+
+  if (enrichment.type && TYPES_WITH_CODE.has(enrichment.type)) {
+    const ecBtn = document.createElement('button');
+    ecBtn.className = 'crev-ec-btn';
+    ecBtn.textContent = enrichment.type === 'CustomVisualization' ? '</>' : 'EC';
+    ecBtn.title = 'Open in editor';
+    ecBtn.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      chrome.runtime.sendMessage({ type: 'OPEN_EDITOR', rid });
+    });
+    actions.appendChild(ecBtn);
+  }
+
+  const searchBtn = document.createElement('button');
+  searchBtn.className = 'crev-action-btn';
+  searchBtn.textContent = '\u2315';
+  searchBtn.title = 'Find references';
+  searchBtn.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    chrome.runtime.sendMessage({
+      type: 'SEARCH_REFERENCES', rid,
+      businessId: enrichment.businessId, objectType: enrichment.type, name: enrichment.name,
+    });
   });
-  return btn;
+  actions.appendChild(searchBtn);
+
+  return actions;
 }
 
 /** Incremental overlay sync: clean stale, add new badges, request enrichment. */
@@ -118,31 +137,7 @@ export function syncOverlays(s: ContentState) {
 
     // Action strip below badge (EC button + search references)
     if (enrichment) {
-      const actions = document.createElement('span');
-      actions.className = 'crev-actions';
-
-      if (enrichment.type && TYPES_WITH_CODE.has(enrichment.type)) {
-        actions.appendChild(createCodeButton(rid, enrichment.type));
-      }
-
-      const searchBtn = document.createElement('button');
-      searchBtn.className = 'crev-action-btn';
-      searchBtn.textContent = '\u2315';
-      searchBtn.title = 'Find references';
-      searchBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        chrome.runtime.sendMessage({
-          type: 'SEARCH_REFERENCES',
-          rid,
-          businessId: enrichment.businessId,
-          objectType: enrichment.type,
-          name: enrichment.name,
-        });
-      });
-      actions.appendChild(searchBtn);
-
-      element.appendChild(actions);
+      element.appendChild(createActionStrip(rid, enrichment));
     }
     s.badgedElements.add(element);
 
@@ -186,6 +181,9 @@ export function removeOverlays(s: ContentState) {
   for (const label of document.querySelectorAll('.crev-label')) {
     label.remove();
   }
+  for (const strip of document.querySelectorAll('.crev-actions')) {
+    strip.remove();
+  }
   for (const el of document.querySelectorAll('.crev-outline')) {
     el.classList.remove('crev-outline');
     (el as HTMLElement).style.removeProperty('--crev-color');
@@ -216,24 +214,7 @@ export function updateLabels(s: ContentState) {
       }
       // Add action strip if not already present (enrichment arrived after initial badge render)
       if (parent && !parent.querySelector('.crev-actions')) {
-        const actions = document.createElement('span');
-        actions.className = 'crev-actions';
-        if (enrichment.type && TYPES_WITH_CODE.has(enrichment.type)) {
-          actions.appendChild(createCodeButton(rid, enrichment.type));
-        }
-        const searchBtn = document.createElement('button');
-        searchBtn.className = 'crev-action-btn';
-        searchBtn.textContent = '\u2315';
-        searchBtn.title = 'Find references';
-        searchBtn.addEventListener('click', (ev) => {
-          ev.preventDefault(); ev.stopPropagation();
-          chrome.runtime.sendMessage({
-            type: 'SEARCH_REFERENCES', rid,
-            businessId: enrichment.businessId, objectType: enrichment.type, name: enrichment.name,
-          });
-        });
-        actions.appendChild(searchBtn);
-        parent.appendChild(actions);
+        parent.appendChild(createActionStrip(rid, enrichment));
       }
     }
   }

@@ -12,7 +12,7 @@ function classifyLine(line: string): LineType {
   if (trimmed.startsWith('Result : ') || trimmed.startsWith('Result: ')) return 'result';
   if (trimmed.startsWith('Duration : ') || trimmed.startsWith('Duration: ')) return 'duration';
   if (trimmed.startsWith('Warning : ') || trimmed.startsWith('Warning: ')) return 'warning';
-  if (trimmed.startsWith('Error : ') || trimmed.startsWith('Error: ') || trimmed.includes('Exception')) return 'error';
+  if (trimmed.startsWith('Error : ') || trimmed.startsWith('Error: ') || /Exception[:\s]/.test(trimmed)) return 'error';
   if (line.includes('|||')) return 'data';
   return 'text';
 }
@@ -72,9 +72,9 @@ export function renderEcOutput(text: string): HTMLElement {
       // Pipe-separated → render as inline fields
       const parts = line.split('|||').map(p => p.trim());
       const row = h('div', { class: 'ec-out-line ec-out-data' },
-        ...parts.map((p, i) =>
-          h('span', { class: i === 0 ? 'ec-out-data-key' : 'ec-out-data-val' },
-            i > 0 ? ' · ' : '', p),
+        ...parts.flatMap((p, i) => i === 0
+          ? [h('span', { class: 'ec-out-data-key' }, p)]
+          : [h('span', { class: 'ec-out-data-sep' }, ' \u00b7 '), h('span', { class: 'ec-out-data-val' }, p)],
         ),
       );
       container.appendChild(row);

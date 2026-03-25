@@ -58,6 +58,7 @@ initDetailView(
 initReferenceView(
   () => renderActiveTab(),
   navigateToDetail,
+  sendMessage,
 );
 
 // ── Message routing ──────────────────────────────────────────────

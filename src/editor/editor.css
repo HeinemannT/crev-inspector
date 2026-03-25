@@ -518,6 +518,7 @@ body {
 .ec-out-error { color: var(--danger); font-weight: 600; }
 .ec-out-data { display: flex; gap: 0; flex-wrap: wrap; }
 .ec-out-data-key { color: var(--text-primary); font-weight: 600; }
+.ec-out-data-sep { color: var(--text-muted); }
 .ec-out-data-val { color: var(--text-secondary); }
 .ec-out-table {
   width: 100%;

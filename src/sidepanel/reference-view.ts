@@ -6,90 +6,97 @@
 import type { InspectorMessage, CodeSearchResult } from '../lib/types';
 import { getTypeColor, getTypeAbbr } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
+import { ICON_ARROW_LEFT } from './utils';
 
-let active = false;
-let query = '';
-let targetName = '';
-let targetType = '';
-let results: CodeSearchResult[] = [];
-let searched = 0;
-let total = 0;
-let done = false;
+const s = {
+  active: false,
+  query: '',
+  targetName: '',
+  targetType: '',
+  results: [] as CodeSearchResult[],
+  searched: 0,
+  total: 0,
+  done: false,
+};
+
 let onBackCb: (() => void) | null = null;
 let onNavigateCb: ((rid: string) => void) | null = null;
+let sendCb: ((msg: InspectorMessage) => void) | null = null;
 
-const ICON_BACK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>';
-
-export function initReferenceView(onBack: () => void, onNavigate: (rid: string) => void) {
+export function initReferenceView(onBack: () => void, onNavigate: (rid: string) => void, send: (msg: InspectorMessage) => void) {
   onBackCb = onBack;
   onNavigateCb = onNavigate;
+  sendCb = send;
 }
 
 export function showReferenceView(msg: InspectorMessage & { type: 'SEARCH_REFERENCES' }, panel: HTMLElement) {
-  active = true;
-  query = msg.businessId || msg.rid;
-  targetName = msg.name || query;
-  targetType = msg.objectType || '';
-  results = [];
-  searched = 0;
-  total = 0;
-  done = false;
+  s.active = true;
+  s.query = msg.businessId || msg.rid;
+  s.targetName = msg.name || s.query;
+  s.targetType = msg.objectType || '';
+  s.results = [];
+  s.searched = 0;
+  s.total = 0;
+  s.done = false;
   renderRefs(panel);
 }
 
 export function handleReferenceMessage(msg: InspectorMessage, panel: HTMLElement): boolean {
-  if (!active) return false;
+  if (!s.active) return false;
 
   if (msg.type === 'CODE_SEARCH_PROGRESS') {
-    results = msg.results;
-    searched = msg.searched;
-    total = msg.total;
+    s.results = msg.results;
+    s.searched = msg.searched;
+    s.total = msg.total;
     renderRefs(panel);
     return true;
   }
   if (msg.type === 'CODE_SEARCH_DONE') {
-    done = true;
+    s.done = true;
     renderRefs(panel);
     return true;
   }
   return false;
 }
 
-export function isReferenceActive(): boolean { return active; }
+export function isReferenceActive(): boolean { return s.active; }
 
 export function clearReferenceView() {
-  active = false;
-  results = [];
+  if (s.active) {
+    sendCb?.({ type: 'CODE_SEARCH_STOP' });
+  }
+  s.active = false;
+  s.results = [];
 }
 
 function renderRefs(panel: HTMLElement) {
-  const color = getTypeColor(targetType);
-  const abbr = getTypeAbbr(targetType);
+  const color = getTypeColor(s.targetType);
+  const abbr = getTypeAbbr(s.targetType);
 
   const children: (HTMLElement | false | null)[] = [
-    h('button', { class: 'detail-back', onClick: () => { clearReferenceView(); onBackCb?.(); } }, svg(ICON_BACK), ' Back'),
+    h('button', { class: 'detail-back', onClick: () => { clearReferenceView(); onBackCb?.(); } }, svg(ICON_ARROW_LEFT), ' Back'),
 
     h('div', { class: 'ref-header' },
-      targetType && h('span', { class: 'type-badge', style: `background:${color}` }, abbr),
-      h('span', { class: 'ref-title' }, `References to ${targetName}`),
+      s.targetType && h('span', { class: 'type-badge', style: `background:${color}` }, abbr),
+      h('span', { class: 'ref-title' }, `References to ${s.targetName}`),
     ),
 
     // Progress
-    !done && h('div', { class: 'ref-progress' },
+    !s.done && h('div', { class: 'ref-progress' },
       h('div', { class: 'ref-progress-bar' },
-        h('div', { class: 'ref-progress-fill', style: `width:${total > 0 ? Math.round(searched / total * 100) : 0}%` }),
+        h('div', { class: 'ref-progress-fill', style: `width:${s.total > 0 ? Math.round(s.searched / s.total * 100) : 0}%` }),
       ),
-      h('span', { class: 'ref-progress-text' }, `${searched} / ${total} searched`),
+      h('span', { class: 'ref-progress-text' }, `${s.searched} / ${s.total} searched`),
     ),
   ];
 
-  if (results.length === 0 && done) {
+  if (s.results.length === 0 && s.done) {
     children.push(h('div', { class: 'ref-empty' }, 'No references found'));
   }
 
   // Group results by RID
   const grouped = new Map<string, CodeSearchResult[]>();
-  for (const r of results) {
+  for (const r of s.results) {
     const existing = grouped.get(r.rid) ?? [];
     existing.push(r);
     grouped.set(r.rid, existing);
@@ -119,8 +126,8 @@ function renderRefs(panel: HTMLElement) {
     );
   }
 
-  if (done && results.length > 0) {
-    children.push(h('div', { class: 'ref-footer' }, `${results.length} match${results.length !== 1 ? 'es' : ''} in ${grouped.size} object${grouped.size !== 1 ? 's' : ''}`));
+  if (s.done && s.results.length > 0) {
+    children.push(h('div', { class: 'ref-footer' }, `${s.results.length} match${s.results.length !== 1 ? 'es' : ''} in ${grouped.size} object${grouped.size !== 1 ? 's' : ''}`));
   }
 
   render(panel, ...children);
