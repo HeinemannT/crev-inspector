@@ -3,7 +3,7 @@
  * Singleton panel, positioned near element, dismissed on click-outside / Escape / inspect off.
  */
 
-import { resolveCopyText, getModifier } from './namespace';
+import { resolveCopyText, getModifier, COPY_TOOLTIP } from './namespace';
 
 const PANEL_ID = 'crev-quick-inspector';
 
@@ -102,7 +102,7 @@ export function showQuickInspector(
   const copyBidBtn = document.createElement('button');
   copyBidBtn.className = 'crev-qi-btn';
   copyBidBtn.textContent = 'Copy ID';
-  copyBidBtn.title = 'Shift \u2192 Template \u00b7 Ctrl \u2192 Reference';
+  copyBidBtn.title = COPY_TOOLTIP;
   copyBidBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     const { text, label } = resolveCopyText(

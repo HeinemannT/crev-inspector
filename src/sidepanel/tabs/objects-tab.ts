@@ -7,6 +7,7 @@ import { getTypeColor, getTypeAbbr } from '../../lib/types';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { truncRid, copyText, relativeTime, ICON_COPY } from '../utils';
+import { resolveCopyText, getModifier, COPY_TOOLTIP } from '../../lib/namespace';
 import { DISPLAY_LIMIT_STEP, SEARCH_DEBOUNCE } from '../../lib/constants';
 import { S as shared } from '../state';
 import type { Tab, SendFn } from './tab-types';
@@ -179,7 +180,10 @@ export class ObjectsTab implements Tab {
                     class: 'copy-btn',
                     'data-action': 'copy',
                     'data-copy': obj.businessId ?? obj.rid,
-                    title: 'Copy',
+                    'data-copy-rid': obj.rid,
+                    'data-copy-type': obj.type ?? '',
+                    'data-copy-tmpl': obj.templateBusinessId ?? '',
+                    title: COPY_TOOLTIP,
                   }, svg(ICON_COPY)),
                 ),
               );
@@ -230,7 +234,12 @@ export class ObjectsTab implements Tab {
       },
       copy: (el, e) => {
         e.stopPropagation();
-        const text = el.dataset.copy;
+        const { text } = resolveCopyText({
+          rid: el.dataset.copyRid ?? el.dataset.copy ?? '',
+          businessId: el.dataset.copy,
+          type: el.dataset.copyType,
+          templateBusinessId: el.dataset.copyTmpl,
+        }, getModifier(e as MouseEvent));
         if (text) {
           copyText(text);
           el.style.color = 'var(--md-primary)';
