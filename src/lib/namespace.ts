@@ -61,7 +61,35 @@ export function resolveNamespace(className: string): string {
   return NAMESPACE_MAP[className] ?? 't';
 }
 
+/** Parse a reference string "prefix.bid" into parts. */
+export function parseRef(ref: string): { namespace: string; id: string } | null {
+  const dot = ref.indexOf('.');
+  if (dot < 0) return null;
+  return { namespace: ref.substring(0, dot), id: ref.substring(dot + 1) };
+}
+
 /** Get the full namespace map. */
 export function getNamespaceMap(): Record<string, string> {
   return { ...NAMESPACE_MAP };
 }
+
+/** Namespace roots — which BMP root each prefix resolves under. */
+export const NAMESPACE_ROOTS: Record<string, string> = {
+  t: 'root.TEMPLATECATEGORY',
+  k: 'root.PROPERTY',
+  u: 'root.USER',
+  g: 'root.GROUP',
+  r: 'root.EXTERNALRESOURCE',
+  d: 'root.DEFAULTS',
+  o: 'root.ORGANISATION',
+  s: 'root.SCORECARD',
+  role: 'root.ROLE',
+  ap: 'root.ACCESSPROFILE',
+};
+
+/** ClassNames that carry code properties (expression, html, javascript). */
+export const CODE_BEARING_TYPES = new Set([
+  'ExtendedMethodConfig', 'ExtendedTable', 'ExtendedExpression',
+  'ReferenceMethodConfig', 'HistoricalReferenceMethodConfig',
+  'CustomVisualization', 'DashboardHTML',
+]);

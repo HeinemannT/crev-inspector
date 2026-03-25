@@ -7,6 +7,7 @@ import { getCtx } from '../sw-context';
 import { CODE_PROPS_FOR_TYPE } from '../types';
 import { resetEnrichment } from '../enrichment';
 import { errorMessage, log } from '../logger';
+import { CODE_BEARING_TYPES } from '../namespace';
 import type { BmpObject } from '../types';
 
 // ── Shared lookup utility ────────────────────────────────────────
@@ -81,13 +82,14 @@ register('GET_CACHE', (msg, respond) => {
 register('HOVER_LOOKUP', (msg, respond) => {
   const ctx = getCtx();
   ctx.settingsReady.then(async () => {
-    // Fast path: check cache
+    // Fast path: check cache (includes code preview if properties were fetched)
     const cached = ctx.cache.get(msg.rid);
     if (cached?.name || cached?.type) {
-      respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid, name: cached.name, type: cached.type, businessId: cached.businessId });
+      const codePreview = extractCachedCode(cached);
+      respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid, name: cached.name, type: cached.type, businessId: cached.businessId, codePreview });
       return;
     }
-    // Slow path: EC lookup
+    // Slow path: EC lookup (identity only — no code fetch for RID lookups)
     if (!ctx.client) { respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid }); return; }
     try {
       const identity = await ctx.client.lookupIdentity(msg.rid);
@@ -101,25 +103,45 @@ register('HOVER_LOOKUP', (msg, respond) => {
   });
 }, true);
 
+/** Extract code preview from a cached object's properties (if code-bearing type). */
+function extractCachedCode(obj: BmpObject): string | undefined {
+  if (!obj.type || !obj.properties || !CODE_BEARING_TYPES.has(obj.type)) return undefined;
+  const props = obj.properties as Record<string, unknown>;
+  const code = (props.expression ?? props.html ?? props.javascript) as string | undefined;
+  if (!code || typeof code !== 'string') return undefined;
+  return code.length > 500 ? code.slice(0, 500) : code;
+}
+
 register('HOVER_RESOLVE', (msg, respond) => {
   const ctx = getCtx();
   ctx.settingsReady.then(async () => {
     if (!ctx.client) { respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref }); return; }
     try {
-      // EC: resolve namespace.bid reference to identity fields
-      const code = `_o := ${msg.ref}\n_o.name.whenMissing("") + "|||" + _o.className.whenMissing("") + "|||" + _o.rid.whenMissing("") + "|||" + _o.id.whenMissing("")`;
-      const result = await ctx.client.executeEc(code, undefined, false);
+      // EC: resolve namespace.bid reference to identity + code preview in one call.
+      // output() returns raw text without evaluating the expression.
+      // Code is only fetched for known code-bearing types (IF/ELSE guards).
+      const codeBearingCheck = [...CODE_BEARING_TYPES].map(t => `_cls = "${t}"`).join(' OR ');
+      const ec = [
+        `_o := ${msg.ref}`,
+        '_cls := _o.className.whenMissing("")',
+        `_code := IF ${codeBearingCheck} THEN output(_o.expression.whenMissing("")) ELSE "" ENDIF`,
+        '_o.name.whenMissing("") + "|||" + _cls + "|||" + _o.rid.whenMissing("") + "|||" + _o.id.whenMissing("") + "|||" + _code',
+      ].join('\n');
+      const result = await ctx.client.executeEc(ec, undefined, false);
       if (!result.ok || !result.log?.includes('|||')) {
         respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref });
         return;
       }
       const line = result.log.trim().split('\n').find(l => l.includes('|||'));
       if (!line) { respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref }); return; }
-      const [name, type, rid, bid] = line.split('|||').map(s => s.trim());
+      const parts = line.split('|||').map(s => s.trim());
+      const codeRaw = parts.slice(4).join('|||').trim(); // code may contain ||| inside
+      const codePreview = codeRaw && codeRaw.length > 500 ? codeRaw.slice(0, 500) : (codeRaw || undefined);
       respond({
         type: 'HOVER_RESOLVE_RESULT', ref: msg.ref,
-        name: name || undefined, type: type || undefined,
-        rid: rid || undefined, businessId: bid || undefined,
+        name: parts[0] || undefined, type: parts[1] || undefined,
+        rid: parts[2] || undefined, businessId: parts[3] || undefined,
+        codePreview,
       });
     } catch {
       respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref });

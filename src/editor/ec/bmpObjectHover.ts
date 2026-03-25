@@ -12,7 +12,7 @@
 import { hoverTooltip } from '@codemirror/view'
 import { isValidNamespace } from '../../lib/namespace'
 
-interface HoverInfo { name?: string; type?: string; rid?: string; businessId?: string }
+interface HoverInfo { name?: string; type?: string; rid?: string; businessId?: string; codePreview?: string }
 
 // Local cache: key → identity (persists for editor window lifetime)
 const tooltipCache = new Map<string, HoverInfo | null>();
@@ -49,7 +49,7 @@ async function lookupRid(rid: string): Promise<HoverInfo | null> {
   try {
     const r = await chrome.runtime.sendMessage({ type: 'HOVER_LOOKUP', rid });
     if (r?.type === 'HOVER_LOOKUP_RESULT' && (r.name || r.type)) {
-      const info: HoverInfo = { name: r.name, type: r.type, rid, businessId: r.businessId };
+      const info: HoverInfo = { name: r.name, type: r.type, rid, businessId: r.businessId, codePreview: r.codePreview };
       tooltipCache.set(rid, info);
       return info;
     }
@@ -63,7 +63,7 @@ async function resolveRef(ref: string): Promise<HoverInfo | null> {
   try {
     const r = await chrome.runtime.sendMessage({ type: 'HOVER_RESOLVE', ref });
     if (r?.type === 'HOVER_RESOLVE_RESULT' && (r.name || r.type)) {
-      const info: HoverInfo = { name: r.name, type: r.type, rid: r.rid, businessId: r.businessId };
+      const info: HoverInfo = { name: r.name, type: r.type, rid: r.rid, businessId: r.businessId, codePreview: r.codePreview };
       tooltipCache.set(ref, info);
       return info;
     }
@@ -72,10 +72,10 @@ async function resolveRef(ref: string): Promise<HoverInfo | null> {
   return null;
 }
 
-function buildTooltipDom(info: HoverInfo, label: string): HTMLElement {
+function buildTooltipDom(info: HoverInfo): HTMLElement {
   const el = document.createElement('div');
   el.style.cssText =
-    'padding:6px 10px; font-size:11px; line-height:1.5; max-width:280px; ' +
+    'padding:6px 10px; font-size:11px; line-height:1.5; max-width:340px; ' +
     'background:#262626; border:1px solid #393939; border-radius:2px; ' +
     'box-shadow:0 4px 12px rgba(0,0,0,0.4); font-family:system-ui,sans-serif;';
 
@@ -109,6 +109,35 @@ function buildTooltipDom(info: HoverInfo, label: string): HTMLElement {
     el.appendChild(ridEl);
   }
 
+  // Code preview section (for code-bearing types)
+  if (info.codePreview) {
+    const sep = document.createElement('div');
+    sep.style.cssText = 'border-top:1px solid #393939; margin:4px 0;';
+    el.appendChild(sep);
+
+    const codeEl = document.createElement('pre');
+    codeEl.style.cssText =
+      'margin:0; font:10px/1.4 "SF Mono","Cascadia Code",Consolas,monospace; ' +
+      'color:#c6c6c6; max-height:48px; overflow:hidden; white-space:pre-wrap; word-break:break-word;';
+    codeEl.textContent = info.codePreview;
+    el.appendChild(codeEl);
+
+    // "[Open EC ▸]" button
+    if (info.rid) {
+      const openBtn = document.createElement('div');
+      openBtn.style.cssText = 'text-align:right; margin-top:3px;';
+      const link = document.createElement('span');
+      link.style.cssText = 'font-size:10px; color:#a78bfa; cursor:pointer;';
+      link.textContent = 'Open EC \u25B8';
+      link.addEventListener('click', (e) => {
+        e.stopPropagation();
+        chrome.runtime.sendMessage({ type: 'OPEN_EDITOR', rid: info.rid });
+      });
+      openBtn.appendChild(link);
+      el.appendChild(openBtn);
+    }
+  }
+
   return el;
 }
 
@@ -138,7 +167,7 @@ export const bmpObjectHover = hoverTooltip(
           pos: line.from + start,
           end: line.from + end,
           above: true,
-          create: () => ({ dom: buildTooltipDom(info, parsed.key) }),
+          create: () => ({ dom: buildTooltipDom(info) }),
         };
       }
     }
