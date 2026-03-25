@@ -77,7 +77,7 @@ function renderRefs(panel: HTMLElement) {
     h('button', { class: 'detail-back', onClick: () => { clearReferenceView(); onBackCb?.(); } }, svg(ICON_ARROW_LEFT), ' Back'),
 
     h('div', { class: 'ref-header' },
-      s.targetType && h('span', { class: 'type-badge', style: `background:${color}` }, abbr),
+      s.targetType && h('span', { class: 'type-badge', style: `--type-color:${color}` }, abbr),
       h('span', { class: 'ref-title' }, `References to ${s.targetName}`),
     ),
 
@@ -108,7 +108,7 @@ function renderRefs(panel: HTMLElement) {
     children.push(
       h('div', { class: 'ref-group' },
         h('div', { class: 'ref-group-header', onClick: () => onNavigateCb?.(rid) },
-          h('span', { class: 'type-badge', style: `background:${matchColor}` }, getTypeAbbr(first.type)),
+          h('span', { class: 'type-badge', style: `--type-color:${matchColor}` }, getTypeAbbr(first.type)),
           h('span', { class: 'ref-group-name' }, first.name ?? 'unnamed'),
           h('span', { class: 'ref-group-bid' }, first.businessId ?? ''),
           h('span', { class: 'ref-group-count' }, `${matches.length}`),

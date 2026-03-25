@@ -102,7 +102,7 @@ function renderUI() {
       const expanded = expandedGroups.has(rid);
 
       const header = h('div', { class: 'cs-result-header', 'data-rid': rid, 'data-toggle': 'true' },
-        h('span', { class: 'cs-type-badge', style: `background:${color}` }, abbr),
+        h('span', { class: 'cs-type-badge', style: `--type-color:${color}` }, abbr),
         h('span', { class: 'cs-result-name' }, first.name ?? 'unnamed'),
         h('span', { class: 'cs-result-bid' }, first.businessId ?? ''),
         h('span', { style: 'font-size:10px;color:var(--md-on-surface-variant)' }, `${group.length} match${group.length !== 1 ? 'es' : ''}`),

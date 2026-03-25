@@ -198,7 +198,7 @@ function renderDetail(panel: HTMLElement): void {
     h('div', { class: 'detail-identity' },
       h('button', { class: `detail-star${isFav ? ' active' : ''}`, 'data-action': 'toggle-star', title: isFav ? 'Remove from pinned' : 'Pin this object' },
         svg(isFav ? ICON_STAR_FILLED : ICON_STAR_HOLLOW)),
-      h('span', { class: 'type-badge', style: `background:${color}` }, abbr),
+      h('span', { class: 'type-badge', style: `--type-color:${color}` }, abbr),
       h('span', { class: 'detail-name' }, obj.name ?? 'unnamed'),
     ),
 

@@ -76,7 +76,7 @@ export const extendedHoverDocs = hoverTooltip((view, pos) => {
     above: true,
     create() {
       const el = document.createElement('div')
-      el.style.cssText = 'padding:6px 10px;font-size:11px;line-height:1.4;max-width:280px;border-radius:2px;background:#262626;border:1px solid #393939;color:#f4f4f4;font-family:system-ui,sans-serif;'
+      el.className = 'hover-tooltip'
       el.textContent = doc
       return { dom: el }
     },

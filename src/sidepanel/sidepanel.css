@@ -533,6 +533,7 @@ body {
   font-size: 10px;
   font-weight: 600;
   color: #fff;
+  background: var(--type-color, #8d8d8d);
 }
 
 /* ── Widget list ───────────────────────────────── */
@@ -560,6 +561,7 @@ body {
   border-radius: var(--md-shape-xs);
   color: #fff;
   font-weight: 600;
+  background: var(--type-color, #8d8d8d);
   flex-shrink: 0;
 }
 
@@ -1252,6 +1254,7 @@ body {
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
+  background: var(--type-color, #8d8d8d);
 }
 
 /* ── Log tab flex fill ─────────────────────────── */

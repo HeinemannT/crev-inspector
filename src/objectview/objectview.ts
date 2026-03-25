@@ -78,7 +78,7 @@ function renderObject(
   // Header
   elements.push(
     h('div', { class: 'ov-header' },
-      h('span', { class: 'ov-type-badge', style: `background:${color}` }, abbr),
+      h('span', { class: 'ov-type-badge', style: `--type-color:${color}` }, abbr),
       h('span', { class: 'ov-name' }, obj.name ?? 'unnamed'),
       h('button', { class: 'ov-btn', 'data-action': 'diff' }, 'Diff'),
     ),
@@ -163,7 +163,7 @@ function renderObject(
       h('div', { class: 'ov-section' },
         h('div', { class: 'ov-section-title' }, 'Template'),
         h('div', { class: 'ov-template-link', 'data-open-rid': template.rid },
-          h('span', { class: 'ov-type-badge', style: `background:${tmplColor}` }, getTypeAbbr(template.type)),
+          h('span', { class: 'ov-type-badge', style: `--type-color:${tmplColor}` }, getTypeAbbr(template.type)),
           h('span', { style: 'font-size:11px;font-weight:500;color:var(--md-on-surface)' }, template.name || 'unnamed'),
           template.businessId
             ? h('span', { class: 'ov-id-value', 'data-copy': template.businessId, style: 'font-size:10px;margin-left:8px' }, template.businessId)
@@ -182,7 +182,7 @@ function renderObject(
         h('div', { class: 'ov-section-title' }, `Children (${children.length})`),
         ...children.map(child =>
           h('div', { class: 'ov-child-row', 'data-open-rid': child.rid },
-            h('span', { class: 'ov-type-badge', style: `background:${getTypeColor(child.type)}` }, getTypeAbbr(child.type)),
+            h('span', { class: 'ov-type-badge', style: `--type-color:${getTypeColor(child.type)}` }, getTypeAbbr(child.type)),
             h('span', { class: 'ov-child-name' }, child.name ?? 'unnamed'),
             h('span', { class: 'ov-child-bid' }, child.businessId ?? ''),
           ),

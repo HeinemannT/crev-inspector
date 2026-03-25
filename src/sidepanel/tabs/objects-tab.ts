@@ -76,7 +76,7 @@ export class ObjectsTab implements Tab {
           h('div', { class: 'section-title section-title--flush' }, '\u2605 Pinned'),
           ...shared.favoriteEntries.map(fav =>
             h('div', { class: 'pinned-row', 'data-action': 'pinned-click', 'data-rid': fav.rid },
-              h('span', { class: 'type-badge', style: `background:${getTypeColor(fav.type)}` }, getTypeAbbr(fav.type)),
+              h('span', { class: 'type-badge', style: `--type-color:${getTypeColor(fav.type)}` }, getTypeAbbr(fav.type)),
               h('span', { class: 'pinned-name' }, fav.name ?? 'unnamed'),
               h('span', { class: 'pinned-bid' }, fav.businessId ?? truncRid(fav.rid)),
               h('button', { class: 'pinned-remove', 'data-action': 'unpin', 'data-rid': fav.rid, title: 'Remove from pinned' }, '\u2715'),
@@ -98,7 +98,7 @@ export class ObjectsTab implements Tab {
             ...this.history.map(entry =>
               h('div', { class: 'recent-row', 'data-action': 'recent-click', 'data-rid': entry.rid },
                 h('span', { class: 'recent-action' }, actionIcons[entry.action] ?? '?'),
-                h('span', { class: 'type-badge', style: `background:${getTypeColor(entry.type)}` }, getTypeAbbr(entry.type)),
+                h('span', { class: 'type-badge', style: `--type-color:${getTypeColor(entry.type)}` }, getTypeAbbr(entry.type)),
                 h('span', { class: 'recent-name' }, entry.name ?? 'unnamed'),
                 h('span', { class: 'recent-time' }, relativeTime(entry.timestamp)),
               ),
@@ -123,7 +123,7 @@ export class ObjectsTab implements Tab {
               'data-action': 'type-filter',
               'data-type': t,
             },
-              h('span', { class: 'chip-dot', style: `background:${getTypeColor(t)}` }),
+              h('span', { class: 'chip-dot', style: `--type-color:${getTypeColor(t)}` }),
               getTypeAbbr(t),
             ),
           ),
@@ -172,7 +172,7 @@ export class ObjectsTab implements Tab {
               const color = getTypeColor(obj.type);
               const display = obj.businessId ?? truncRid(obj.rid);
               return h('tr', { class: 'obj-row', 'data-action': 'row-click', 'data-rid': obj.rid },
-                h('td', null, h('span', { class: 'type-badge', style: `background:${color}` }, getTypeAbbr(obj.type))),
+                h('td', null, h('span', { class: 'type-badge', style: `--type-color:${color}` }, getTypeAbbr(obj.type))),
                 h('td', { class: 'col-name' }, obj.name ?? ''),
                 h('td', { class: 'col-id' }, display),
                 h('td', null,

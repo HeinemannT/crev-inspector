@@ -568,4 +568,52 @@ body {
   align-self: center;
 }
 
+/* ── BMP Object Hover Tooltip ─────────────────── */
+
+.hover-tooltip {
+  padding: 6px 10px;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  max-width: 340px;
+  background: var(--bg-section);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-2);
+  font-family: var(--font-body);
+}
+.hover-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-right: 8px;
+  font-size: var(--text-xs);
+  border-radius: 3px;
+  background: var(--accent-bg);
+  color: var(--accent-dim);
+  font-weight: var(--weight-semi);
+}
+.hover-name { color: var(--text-primary); }
+.hover-meta {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.hover-meta--dim { color: var(--text-disabled); }
+.hover-sep { border-top: 1px solid var(--border-subtle); margin: 4px 0; }
+.hover-code {
+  margin: 0;
+  font: var(--text-xs)/var(--leading-normal) var(--font-mono);
+  color: var(--text-secondary);
+  max-height: 48px;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.hover-action { text-align: right; margin-top: 3px; }
+.hover-action-link {
+  font-size: var(--text-xs);
+  color: var(--accent-dim);
+  cursor: pointer;
+}
+.hover-action-link:hover { color: var(--accent); }
+
 /* Scrollbars defined in base.css */

@@ -145,7 +145,7 @@ function renderIdentityChip(identity: { name?: string; type?: string; businessId
   const color = getTypeColor(identity.type);
   const abbr = getTypeAbbr(identity.type);
   return h('span', { class: 'diff-identity' },
-    h('span', { class: 'diff-type-badge', style: `background:${color}` }, abbr),
+    h('span', { class: 'diff-type-badge', style: `--type-color:${color}` }, abbr),
     ' ', identity.name ?? 'unnamed',
   );
 }

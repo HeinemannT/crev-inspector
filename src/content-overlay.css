@@ -135,7 +135,12 @@
   font-size: 10px;
   font-weight: 600;
   color: #fff;
+  background: var(--type-color, #8d8d8d);
   margin-bottom: 3px;
+}
+#crev-tooltip .crev-tt-typename {
+  color: #8d8d8d;
+  font-size: 10px;
 }
 #crev-tooltip .crev-tt-name {
   font-weight: 600;

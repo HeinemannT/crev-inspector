@@ -74,60 +74,51 @@ async function resolveRef(ref: string): Promise<HoverInfo | null> {
 
 function buildTooltipDom(info: HoverInfo): HTMLElement {
   const el = document.createElement('div');
-  el.style.cssText =
-    'padding:6px 10px; font-size:11px; line-height:1.5; max-width:340px; ' +
-    'background:#262626; border:1px solid #393939; border-radius:2px; ' +
-    'box-shadow:0 4px 12px rgba(0,0,0,0.4); font-family:system-ui,sans-serif;';
+  el.className = 'hover-tooltip';
 
   if (info.type) {
     const badge = document.createElement('span');
-    badge.style.cssText =
-      'display:inline-block; padding:1px 6px; margin-right:8px; font-size:10px; ' +
-      'border-radius:3px; background:#2a2a4a; color:#a78bfa; font-weight:600;';
+    badge.className = 'hover-badge';
     badge.textContent = info.type;
     el.appendChild(badge);
   }
 
   if (info.name) {
     const nameEl = document.createElement('span');
-    nameEl.style.cssText = 'color:#f4f4f4;';
+    nameEl.className = 'hover-name';
     nameEl.textContent = info.name;
     el.appendChild(nameEl);
   }
 
   if (info.businessId) {
     const bidEl = document.createElement('div');
-    bidEl.style.cssText = 'margin-top:3px; font-size:10px; color:#8d8d8d; font-family:"SF Mono","Cascadia Code",Consolas,monospace;';
+    bidEl.className = 'hover-meta';
     bidEl.textContent = `ID: ${info.businessId}`;
     el.appendChild(bidEl);
   }
 
   if (info.rid) {
     const ridEl = document.createElement('div');
-    ridEl.style.cssText = 'font-size:10px; color:#6f6f6f; font-family:"SF Mono","Cascadia Code",Consolas,monospace;';
+    ridEl.className = 'hover-meta hover-meta--dim';
     ridEl.textContent = `RID: ${info.rid}`;
     el.appendChild(ridEl);
   }
 
-  // Code preview section (for code-bearing types)
   if (info.codePreview) {
     const sep = document.createElement('div');
-    sep.style.cssText = 'border-top:1px solid #393939; margin:4px 0;';
+    sep.className = 'hover-sep';
     el.appendChild(sep);
 
     const codeEl = document.createElement('pre');
-    codeEl.style.cssText =
-      'margin:0; font:10px/1.4 "SF Mono","Cascadia Code",Consolas,monospace; ' +
-      'color:#c6c6c6; max-height:48px; overflow:hidden; white-space:pre-wrap; word-break:break-word;';
+    codeEl.className = 'hover-code';
     codeEl.textContent = info.codePreview;
     el.appendChild(codeEl);
 
-    // "[Open EC ▸]" button
     if (info.rid) {
       const openBtn = document.createElement('div');
-      openBtn.style.cssText = 'text-align:right; margin-top:3px;';
+      openBtn.className = 'hover-action';
       const link = document.createElement('span');
-      link.style.cssText = 'font-size:10px; color:#a78bfa; cursor:pointer;';
+      link.className = 'hover-action-link';
       link.textContent = 'Open EC \u25B8';
       link.addEventListener('click', (e) => {
         e.stopPropagation();

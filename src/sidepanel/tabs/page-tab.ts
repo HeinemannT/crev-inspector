@@ -118,7 +118,7 @@ export class PageTab implements Tab {
               'data-rid': w.rid,
               title: 'Click for details',
             },
-              h('span', { class: 'widget-type', style: `background:${getTypeColor(w.type)}` }, getTypeAbbr(w.type)),
+              h('span', { class: 'widget-type', style: `--type-color:${getTypeColor(w.type)}` }, getTypeAbbr(w.type)),
               h('span', { class: 'widget-name' }, w.name ?? 'unnamed'),
               h('span', { class: 'widget-rid' }, truncRid(w.rid)),
             ),

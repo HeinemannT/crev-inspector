@@ -26,9 +26,9 @@ export function showTooltipForElement(s: ContentState, el: HTMLElement, rid: str
   const typeName = enrichment?.type ?? (s.requestedRids.has(rid) ? 'Loading\u2026' : 'Unknown');
 
   render(tooltip,
-    h('div', { class: 'crev-tt-type', style: `background:${color}` }, typeAbbr),
+    h('div', { class: 'crev-tt-type', style: `--type-color:${color}` }, typeAbbr),
     ' ',
-    h('span', { style: 'color:#8d8d8d;font-size:10px' }, typeName),
+    h('span', { class: 'crev-tt-typename' }, typeName),
     enrichment?.name && h('div', { class: 'crev-tt-name' }, enrichment.name),
     enrichment?.businessId && h('div', { class: 'crev-tt-row' }, `ID: ${enrichment.businessId}`),
     h('div', { class: 'crev-tt-row' }, `RID: ${rid}`),
