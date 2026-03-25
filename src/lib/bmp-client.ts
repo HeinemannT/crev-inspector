@@ -18,6 +18,7 @@ import { BmpAuth } from './bmp-auth';
 import { BmpTransport } from './bmp-transport';
 import { pMap, compareVersions } from './util';
 import { parsePipeLines, parseSepBlocks, parseSepMultiObject } from './ec-parser';
+import { resolveNamespace } from './namespace';
 
 // Ensure BMP types are registered once
 registerBmpTypes();
@@ -128,12 +129,12 @@ export class BmpClient {
 
     // Try enrichment cache first
     const cached = this._cache?.get(rid);
-    if (cached?.businessId) return `t.${cached.businessId}`;
+    if (cached?.businessId) return `${resolveNamespace(cached.type ?? '')}.${cached.businessId}`;
 
     // Binary GetObject fallback
     const identity = await this.getObjectIdentity(rid);
     if (!identity?.businessId) throw new Error(`Cannot resolve object ${rid} — not found on server`);
-    return `t.${identity.businessId}`;
+    return `${resolveNamespace(identity.type ?? '')}.${identity.businessId}`;
   }
 
   /** Send a TreeItemCommand and extract the TreeNodeInformationDto from the response.
