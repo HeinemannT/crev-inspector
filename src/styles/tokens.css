@@ -4,6 +4,8 @@
  * See DESIGN.md for the full design system specification.
  */
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 :root {
   /* ── Surfaces (darkest → lightest) ────────────────── */
   --surface-0: #111111;
@@ -85,6 +87,11 @@
   --md-surface-container-highest: var(--surface-3);
   --md-surface-variant: var(--surface-3);
   --md-primary: var(--accent);
+  --md-on-primary: #1a0036;
+  --md-primary-container: #5a2d91;
+  --md-on-primary-container: #e8d5ff;
+  --md-secondary-container: #4a4458;
+  --md-on-secondary-container: #e8def8;
   --md-on-surface: var(--text-1);
   --md-on-surface-variant: var(--text-2);
   --md-outline: var(--text-3);
@@ -92,10 +99,14 @@
   --md-error: var(--danger);
   --md-success: var(--success);
   --md-warning: var(--warning);
+  --md-font: var(--font-body);
   --md-font-mono: var(--font-mono);
   --md-shape-xs: var(--radius-sm);
   --md-shape-sm: var(--radius-md);
   --md-shape-md: var(--radius-lg);
+
+  --md-elevation-1: rgba(138, 63, 252, 0.05);
+  --md-elevation-2: rgba(138, 63, 252, 0.08);
 
   --bg-page: var(--surface-0);
   --bg-section: var(--surface-1);
