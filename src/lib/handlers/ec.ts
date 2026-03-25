@@ -14,12 +14,14 @@ register('EC_EXECUTE', (msg, respond) => {
   const ctx = getCtx();
   ctx.settingsReady.then(() => {
     if (!ctx.client) { respond({ type: 'EC_RESULT', ok: false, error: 'Not connected' }); return; }
+    const startTime = Date.now();
     ctx.client.executeEc(msg.code, msg.objectRid, msg.transactional ?? false)
       .then(result => {
+        const durationMs = Date.now() - startTime;
         respond({ type: 'EC_RESULT', ...result });
         ctx.scriptHistory.record({
           code: msg.code, timestamp: Date.now(), ok: result.ok,
-          mode: msg.transactional ? 'execute' : 'preview',
+          mode: msg.transactional ? 'execute' : 'preview', durationMs,
         });
         if (msg.objectRid && result.ok) {
           const cached = ctx.cache.get(msg.objectRid);

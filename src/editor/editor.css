@@ -474,6 +474,13 @@ body {
   text-overflow: ellipsis;
 }
 
+.editor-history-dur {
+  flex-shrink: 0;
+  font: 10px var(--font-mono);
+  color: var(--text-muted);
+  min-width: 48px;
+  text-align: right;
+}
 .editor-history-time {
   flex-shrink: 0;
   font-size: 10px;
@@ -496,6 +503,84 @@ body {
   height: 100%;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+/* ── Structured EC Output ─────────────────────── */
+
+.ec-output-parsed {
+  font: 11px/1.5 var(--font-mono);
+  color: var(--text-primary);
+  padding: 6px 10px;
+}
+.ec-out-line { white-space: pre-wrap; word-break: break-word; }
+.ec-out-meta { color: var(--text-muted); font-style: italic; }
+.ec-out-warn { color: var(--warning); }
+.ec-out-error { color: var(--danger); font-weight: 600; }
+.ec-out-data { display: flex; gap: 0; flex-wrap: wrap; }
+.ec-out-data-key { color: var(--text-primary); font-weight: 600; }
+.ec-out-data-val { color: var(--text-secondary); }
+.ec-out-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  margin: 4px 0;
+}
+.ec-out-table th {
+  text-align: left;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.ec-out-table td {
+  padding: 1px 6px;
+  color: var(--text-secondary);
+}
+.ec-out-table tr:nth-child(even) td { background: rgba(255,255,255,0.03); }
+
+/* ── Variables Panel ──────────────────────────── */
+
+.editor-vars-list { padding: 4px 0; }
+.editor-vars-item {
+  display: flex;
+  gap: 6px;
+  padding: 3px 12px;
+  cursor: pointer;
+  font: 11px var(--font-mono);
+  align-items: baseline;
+}
+.editor-vars-item:hover { background: var(--bg-elevated); }
+.editor-vars-name { color: var(--text-primary); font-weight: 600; flex-shrink: 0; }
+.editor-vars-assign { color: var(--text-muted); flex-shrink: 0; }
+.editor-vars-rhs {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Sparkline ───────────────────────────────── */
+
+.ec-sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 16px;
+  padding: 4px 12px 2px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ec-sparkline-bar {
+  width: 3px;
+  border-radius: 1px 1px 0 0;
+  min-height: 2px;
+}
+.ec-sparkline-bar.ok { background: var(--success); }
+.ec-sparkline-bar.fail { background: var(--danger); }
+.ec-sparkline-label {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--text-muted);
+  align-self: center;
 }
 
 /* ── Scrollbar ────────────────────────────────── */

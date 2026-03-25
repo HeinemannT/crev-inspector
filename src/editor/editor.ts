@@ -15,6 +15,7 @@ import { oneDark } from '@codemirror/theme-one-dark'
 // Shared types + context helpers
 import { type SaveTarget, type ScriptHistoryEntry } from '../lib/types'
 import { h, render as renderDom } from '../lib/dom'
+import { renderEcOutput } from './ec-output'
 import {
   type EditorContext,
   formatLabel,
@@ -27,7 +28,7 @@ import {
 // EC-specific extensions
 import { extendedLanguage } from './ec/language'
 import { extendedHighlighting } from './ec/highlight'
-import { extendedCompletions, variableTracker } from './ec/completions'
+import { extendedCompletions, variableTracker, getTrackedVariables } from './ec/completions'
 import { extendedHoverDocs } from './ec/hoverDocs'
 import { extendedLinter } from './ec/diagnostics'
 import { ecBlockMatching } from './ec/blockMatching'
@@ -41,7 +42,7 @@ let ctx: EditorContext | null = null
 let editorView: EditorView | null = null
 let activeProperty = ''
 let bottomPanelOpen = false
-let bottomMode: 'output' | 'snippets' | 'history' = 'output'
+let bottomMode: 'output' | 'snippets' | 'history' | 'vars' = 'output'
 let dirty = false
 let outputHeight = 160 // default px, persisted
 let previewDone = false // gating: Run unlocked only after successful preview
@@ -189,6 +190,7 @@ function renderShell() {
       h('button', { class: 'btn-bottom', id: 'btn-clear', title: 'Clear editor and output' }, '\u2715 Clear'),
       h('button', { class: 'btn-bottom', id: 'btn-wrap', title: 'Toggle line wrapping' }, '\u21a9 Wrap'),
       h('div', { class: 'editor-bottom-spacer' }),
+      h('button', { class: 'btn-bottom', id: 'btn-vars' }, '\u{1D465} Vars'),
       h('button', { class: 'btn-bottom', id: 'btn-snippets' }, '{ } Snippets'),
       h('button', { class: 'btn-bottom', id: 'btn-history' }, '\u25d4 History'),
     ),
@@ -200,6 +202,7 @@ function renderShell() {
   document.getElementById('btn-save')?.addEventListener('click', doSave)
   document.getElementById('btn-copy')?.addEventListener('click', doCopy)
   document.getElementById('btn-clear')?.addEventListener('click', doClear)
+  document.getElementById('btn-vars')?.addEventListener('click', toggleVars)
   document.getElementById('btn-snippets')?.addEventListener('click', toggleSnippets)
   document.getElementById('btn-history')?.addEventListener('click', toggleHistory)
   document.getElementById('btn-wrap')?.addEventListener('click', toggleWrap)
@@ -503,8 +506,10 @@ function hideBottomPanel() {
 }
 
 function updateBottomBar() {
+  const varsBtn = document.getElementById('btn-vars')
   const snippetsBtn = document.getElementById('btn-snippets')
   const historyBtn = document.getElementById('btn-history')
+  if (varsBtn) varsBtn.className = `btn-bottom${bottomPanelOpen && bottomMode === 'vars' ? ' active' : ''}`
   if (snippetsBtn) snippetsBtn.className = `btn-bottom${bottomPanelOpen && bottomMode === 'snippets' ? ' active' : ''}`
   if (historyBtn) historyBtn.className = `btn-bottom${bottomPanelOpen && bottomMode === 'history' ? ' active' : ''}`
 }
@@ -517,16 +522,17 @@ function renderBottomContent() {
     const modeLabel = lastMode === 'save' ? 'Saved' : lastMode === 'execute' ? 'Executed' : 'Preview'
     const cls = lastOutputOk ? 'ok' : 'error'
     const durationText = lastDuration != null ? `\u00b7 ${lastDuration}ms` : ''
-    const contentDiv = h('div', { class: `editor-output-content ${cls}` })
+    const outputContent = lastOutputOk
+      ? renderEcOutput(lastOutputText)
+      : h('div', { class: 'editor-output-content error' }, lastOutputText)
     renderDom(container,
       h('div', { class: 'editor-output-header' },
         h('span', { class: `editor-output-mode ${cls}` }, modeLabel),
         h('span', { class: 'editor-output-duration' }, durationText),
         h('span', { class: 'editor-output-close', onClick: hideBottomPanel }, '\u2715'),
       ),
-      contentDiv,
+      outputContent,
     )
-    contentDiv.textContent = lastOutputText
     return
   }
 
@@ -556,9 +562,26 @@ function renderBottomContent() {
       renderDom(container, h('div', { class: 'editor-history-empty' }, 'No history yet'))
       return
     }
+
+    // Sparkline: last 10 runs
+    const spark = historyEntries.slice(-10)
+    const maxDur = Math.max(...spark.map(e => e.durationMs ?? 0), 1)
+    const sparkline = h('div', { class: 'ec-sparkline' },
+      ...spark.map(e => {
+        const pct = Math.max(2, Math.round(((e.durationMs ?? 0) / maxDur) * 14))
+        return h('div', {
+          class: `ec-sparkline-bar ${e.ok ? 'ok' : 'fail'}`,
+          style: `height:${pct}px`,
+          title: `${e.durationMs ?? '?'}ms · ${e.ok ? 'ok' : 'error'} · ${e.mode}`,
+        })
+      }),
+      h('span', { class: 'ec-sparkline-label' }, `last ${spark.length}`),
+    )
+
     renderDom(container,
+      sparkline,
       h('div', { class: 'editor-history-list' },
-        ...historyEntries.map((e, i) =>
+        ...historyEntries.map(e =>
           h('div', {
             class: 'editor-history-item',
             onClick: () => {
@@ -570,8 +593,37 @@ function renderBottomContent() {
           },
             h('span', { class: 'editor-history-icon' }, e.mode === 'execute' ? '\u26A1' : '\u25B6'),
             h('span', { class: `editor-history-status ${e.ok ? 'ok' : 'fail'}` }, e.ok ? '\u2713' : '\u2717'),
-            h('span', { class: 'editor-history-code' }, e.code.split('\n')[0].slice(0, 60)),
+            h('span', { class: 'editor-history-dur' }, e.durationMs != null ? `${e.durationMs}ms` : ''),
+            h('span', { class: 'editor-history-code' }, e.code.split('\n')[0].slice(0, 50)),
             h('span', { class: 'editor-history-time' }, relativeTime(e.timestamp)),
+          ),
+        ),
+      ),
+    )
+  }
+
+  if (bottomMode === 'vars') {
+    const vars = getTrackedVariables()
+    if (vars.length === 0) {
+      renderDom(container, h('div', { class: 'editor-history-empty' }, 'No variables \u2014 use _name := expression'))
+      return
+    }
+    renderDom(container,
+      h('div', { class: 'editor-vars-list' },
+        ...vars.map(v =>
+          h('div', {
+            class: 'editor-vars-item',
+            onClick: () => {
+              if (editorView) {
+                const line = editorView.state.doc.line(Math.min(v.line, editorView.state.doc.lines))
+                editorView.dispatch({ selection: { anchor: line.from }, scrollIntoView: true })
+                editorView.focus()
+              }
+            },
+          },
+            h('span', { class: 'editor-vars-name' }, v.name),
+            h('span', { class: 'editor-vars-assign' }, ':='),
+            h('span', { class: 'editor-vars-rhs' }, v.rhs || '\u2026'),
           ),
         ),
       ),
@@ -607,6 +659,17 @@ function doClear() {
   }
   hideBottomPanel()
   dirty = false
+}
+
+function toggleVars() {
+  if (bottomPanelOpen && bottomMode === 'vars') {
+    hideBottomPanel()
+  } else {
+    bottomMode = 'vars'
+    bottomPanelOpen = true
+    openBottomPanel()
+    renderBottomContent()
+  }
 }
 
 function toggleSnippets() {

@@ -189,7 +189,7 @@ export type CodeSearchMessage =
 
 // ── Script History ───────────────────────────────────────────────
 export interface ScriptHistoryEntry {
-  code: string; timestamp: number; ok: boolean; mode: 'preview' | 'execute';
+  code: string; timestamp: number; ok: boolean; mode: 'preview' | 'execute'; durationMs?: number;
 }
 
 export type ScriptHistoryMessage =

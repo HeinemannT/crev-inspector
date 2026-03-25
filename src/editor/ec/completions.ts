@@ -127,18 +127,33 @@ const GLOBAL_FUNCS: CompletionDef[] = [
 ]
 
 // --- Variable tracking ---
+export interface TrackedVar { name: string; line: number; rhs: string }
 let trackedVariables = new Set<string>()
+let trackedVarDetails: TrackedVar[] = []
+
+/** Get rich variable info for the variables panel. */
+export function getTrackedVariables(): TrackedVar[] { return trackedVarDetails; }
 
 export const variableTracker = EditorView.updateListener.of((update: ViewUpdate) => {
   if (!update.docChanged) return
-  const text = update.state.doc.toString()
+  const doc = update.state.doc
   const newVars = new Set<string>()
-  const re = /\b(_\w+)\s*:=/g
-  let m
-  while ((m = re.exec(text)) !== null) {
-    newVars.add(m[1])
+  const details: TrackedVar[] = []
+  const re = /\b(_\w+)\s*:=\s*(.*)/
+
+  for (let i = 1; i <= doc.lines; i++) {
+    const lineText = doc.line(i).text
+    const m = re.exec(lineText)
+    if (m) {
+      const name = m[1]
+      if (!newVars.has(name)) { // first assignment wins
+        newVars.add(name)
+        details.push({ name, line: i, rhs: m[2].trim().slice(0, 60) })
+      }
+    }
   }
   trackedVariables = newVars
+  trackedVarDetails = details
 })
 
 // --- Block scaffolding snippets ---
