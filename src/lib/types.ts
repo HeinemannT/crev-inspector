@@ -185,7 +185,8 @@ export type CodeSearchMessage =
   | { type: 'CODE_SEARCH_START'; query: string; subtreeRid?: string; types?: string[] }
   | { type: 'CODE_SEARCH_PROGRESS'; results: CodeSearchResult[]; searched: number; total: number }
   | { type: 'CODE_SEARCH_DONE'; totalResults: number; totalSearched: number }
-  | { type: 'CODE_SEARCH_STOP' };
+  | { type: 'CODE_SEARCH_STOP' }
+  | { type: 'SEARCH_REFERENCES'; rid: string; businessId?: string; objectType?: string; name?: string };
 
 // ── Script History ───────────────────────────────────────────────
 export interface ScriptHistoryEntry {

@@ -114,12 +114,36 @@ export function syncOverlays(s: ContentState) {
       }, LABEL_DBLCLICK_WINDOW);
     });
 
-    // Add code button for types with viewable code
-    if (enrichment?.type && TYPES_WITH_CODE.has(enrichment.type)) {
-      label.appendChild(createCodeButton(rid, enrichment.type));
-    }
-
     element.appendChild(label);
+
+    // Action strip below badge (EC button + search references)
+    if (enrichment) {
+      const actions = document.createElement('span');
+      actions.className = 'crev-actions';
+
+      if (enrichment.type && TYPES_WITH_CODE.has(enrichment.type)) {
+        actions.appendChild(createCodeButton(rid, enrichment.type));
+      }
+
+      const searchBtn = document.createElement('button');
+      searchBtn.className = 'crev-action-btn';
+      searchBtn.textContent = '\u2315';
+      searchBtn.title = 'Find references';
+      searchBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        chrome.runtime.sendMessage({
+          type: 'SEARCH_REFERENCES',
+          rid,
+          businessId: enrichment.businessId,
+          objectType: enrichment.type,
+          name: enrichment.name,
+        });
+      });
+      actions.appendChild(searchBtn);
+
+      element.appendChild(actions);
+    }
     s.badgedElements.add(element);
 
     // Track RIDs that need enrichment (with dedup)
@@ -190,8 +214,26 @@ export function updateLabels(s: ContentState) {
         const color = getTypeColor(enrichment.type);
         parent.style.setProperty('--crev-color', color);
       }
-      if (enrichment.type && TYPES_WITH_CODE.has(enrichment.type) && !label.querySelector('.crev-ec-btn')) {
-        label.appendChild(createCodeButton(rid, enrichment.type));
+      // Add action strip if not already present (enrichment arrived after initial badge render)
+      if (parent && !parent.querySelector('.crev-actions')) {
+        const actions = document.createElement('span');
+        actions.className = 'crev-actions';
+        if (enrichment.type && TYPES_WITH_CODE.has(enrichment.type)) {
+          actions.appendChild(createCodeButton(rid, enrichment.type));
+        }
+        const searchBtn = document.createElement('button');
+        searchBtn.className = 'crev-action-btn';
+        searchBtn.textContent = '\u2315';
+        searchBtn.title = 'Find references';
+        searchBtn.addEventListener('click', (ev) => {
+          ev.preventDefault(); ev.stopPropagation();
+          chrome.runtime.sendMessage({
+            type: 'SEARCH_REFERENCES', rid,
+            businessId: enrichment.businessId, objectType: enrichment.type, name: enrichment.name,
+          });
+        });
+        actions.appendChild(searchBtn);
+        parent.appendChild(actions);
       }
     }
   }

@@ -12,6 +12,7 @@ import { delegate } from './delegate';
 import { log } from '../lib/logger';
 import { ICON_PAINT, ICON_REFRESH } from './utils';
 import { initDetailView, showDetail, handleDetailMessage, isDetailActive } from './detail-view';
+import { initReferenceView, showReferenceView, handleReferenceMessage, isReferenceActive, clearReferenceView } from './reference-view';
 import { S, sendMessage, getActivePanel, onPortMessage, onReconnect, connectPanel } from './state';
 import { showProfileSwitcher } from './profile-switcher';
 import type { Tab } from './tabs/tab-types';
@@ -54,10 +55,28 @@ initDetailView(
   sendMessage,
 );
 
+initReferenceView(
+  () => renderActiveTab(),
+  navigateToDetail,
+);
+
 // ── Message routing ──────────────────────────────────────────────
 
 onPortMessage((msg: InspectorMessage) => {
-  // Detail view gets first crack
+  // Reference view gets first crack (code search results)
+  if (isReferenceActive()) {
+    const panel = getActivePanel();
+    if (panel && handleReferenceMessage(msg, panel)) return;
+  }
+
+  // Open reference view on SEARCH_REFERENCES
+  if (msg.type === 'SEARCH_REFERENCES') {
+    const panel = getActivePanel();
+    if (panel) showReferenceView(msg, panel);
+    return;
+  }
+
+  // Detail view gets second crack
   if (S.detailRid) {
     const panel = getActivePanel();
     if (panel && handleDetailMessage(msg, panel)) return;

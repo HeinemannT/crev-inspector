@@ -59,6 +59,18 @@ register('CODE_SEARCH_START', (msg) => {
   loadCodeSearch().then(m => m.startCodeSearch(msg.query, msg.subtreeRid, msg.types)).catch(e => log.swallow('handler:codeSearch', e));
 });
 
+register('SEARCH_REFERENCES', (msg) => {
+  // Search for references to this object's businessId across all code
+  const query = msg.businessId || msg.rid;
+  if (!query) return;
+  const ctx = getCtx();
+  ctx.logActivity('info', `Searching references for ${query}\u2026`);
+  // Route results to panel (CODE_SEARCH_PROGRESS / DONE messages go to panel automatically)
+  loadCodeSearch().then(m => m.startCodeSearch(query)).catch(e => log.swallow('handler:searchRefs', e));
+  // Tell panel to show reference results view
+  ctx.sendToPanel({ type: 'SEARCH_REFERENCES', rid: msg.rid, businessId: msg.businessId, objectType: msg.objectType, name: msg.name });
+});
+
 register('CODE_SEARCH_STOP', () => {
   loadCodeSearch().then(m => m.stopCodeSearch()).catch(e => log.swallow('handler:codeSearchStop', e));
 });
