@@ -1,0 +1,118 @@
+/**
+ * Design tokens — single source of truth for the entire extension.
+ * Imported by all HTML entry points. Content overlay uses derived values.
+ * See DESIGN.md for the full design system specification.
+ */
+
+:root {
+  /* ── Surfaces (darkest → lightest) ────────────────── */
+  --surface-0: #111111;
+  --surface-1: #1a1a1a;
+  --surface-2: #252525;
+  --surface-3: #333333;
+  --surface-4: #444444;
+
+  /* ── Text ─────────────────────────────────────────── */
+  --text-1: #f0f0f0;
+  --text-2: #b0b0b0;
+  --text-3: #707070;
+  --text-disabled: #505050;
+
+  /* ── Accent ───────────────────────────────────────── */
+  --accent: #ba0ffe;
+  --accent-dim: #8a3ffc;
+  --accent-bg: #2a1a3e;
+
+  /* ── Semantic ─────────────────────────────────────── */
+  --success: #42be65;
+  --warning: #f1c21b;
+  --danger: #fa4d56;
+  --info: #78a9ff;
+
+  /* ── Typography ───────────────────────────────────── */
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Geist Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+
+  --text-xs: 10px;
+  --text-sm: 11px;
+  --text-base: 12px;
+  --text-lg: 13px;
+  --text-xl: 14px;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semi: 600;
+  --weight-bold: 700;
+
+  --leading-tight: 1.2;
+  --leading-normal: 1.4;
+  --leading-relaxed: 1.6;
+
+  /* ── Spacing (4px grid) ───────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* ── Radius ───────────────────────────────────────── */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+
+  /* ── Elevation ────────────────────────────────────── */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-3: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-4: 0 8px 32px rgba(0, 0, 0, 0.6);
+
+  /* ── Transitions ──────────────────────────────────── */
+  --duration-fast: 100ms;
+  --duration-normal: 150ms;
+  --duration-slow: 250ms;
+
+  --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
+
+  /* ── Legacy aliases (for gradual migration) ───────── */
+  /* These map old M3/editor token names to new tokens   */
+  /* Remove these after all CSS files are migrated       */
+  --md-surface: var(--surface-1);
+  --md-surface-container: var(--surface-1);
+  --md-surface-container-high: var(--surface-2);
+  --md-surface-container-highest: var(--surface-3);
+  --md-surface-variant: var(--surface-3);
+  --md-primary: var(--accent);
+  --md-on-surface: var(--text-1);
+  --md-on-surface-variant: var(--text-2);
+  --md-outline: var(--text-3);
+  --md-outline-variant: var(--surface-4);
+  --md-error: var(--danger);
+  --md-success: var(--success);
+  --md-warning: var(--warning);
+  --md-font-mono: var(--font-mono);
+  --md-shape-xs: var(--radius-sm);
+  --md-shape-sm: var(--radius-md);
+  --md-shape-md: var(--radius-lg);
+
+  --bg-page: var(--surface-0);
+  --bg-section: var(--surface-1);
+  --bg-elevated: var(--surface-2);
+  --text-primary: var(--text-1);
+  --text-secondary: var(--text-2);
+  --text-muted: var(--text-3);
+  --border-subtle: var(--surface-4);
+}
+
+/* ── Reduced motion ──────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
