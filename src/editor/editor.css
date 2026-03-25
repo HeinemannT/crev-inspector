@@ -186,56 +186,14 @@ body {
   flex-shrink: 0;
 }
 
-.editor-toolbar .btn {
-  padding: 3px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 2px;
-  background: var(--bg-section);
-  color: var(--text-secondary);
-  font-family: var(--font);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.editor-toolbar .btn:hover {
-  border-color: #6f6f6f;
-  color: var(--text-primary);
-}
-
-.editor-toolbar .btn-accent {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.editor-toolbar .btn-accent:hover {
-  background: var(--accent);
-  color: #fff;
-}
-
-.editor-toolbar .btn-success {
-  border-color: var(--success);
-  color: var(--success);
-}
-
-.editor-toolbar .btn-success:hover {
-  background: var(--success);
-  color: #fff;
-}
-
-.editor-toolbar .btn-danger {
-  border-color: #fa4d56;
-  color: #fa4d56;
-}
-
-.editor-toolbar .btn-danger:hover:not(:disabled) {
-  background: #fa4d56;
-  color: #fff;
-}
-
-.editor-toolbar .btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
+/* .btn base defined in components.css. Editor toolbar overrides for compact layout: */
+.editor-toolbar .btn { padding: 3px 10px; font-size: var(--text-sm); border-radius: var(--radius-sm); }
+.editor-toolbar .btn-accent { border-color: var(--accent); color: var(--accent); }
+.editor-toolbar .btn-accent:hover { background: var(--accent); color: #fff; }
+.editor-toolbar .btn-success { border-color: var(--success); color: var(--success); }
+.editor-toolbar .btn-success:hover { background: var(--success); color: #fff; }
+.editor-toolbar .btn-danger { border-color: var(--danger); color: var(--danger); }
+.editor-toolbar .btn-danger:hover:not(:disabled) { background: var(--danger); color: #fff; }
 
 .editor-toolbar-target {
   font-size: 10px;

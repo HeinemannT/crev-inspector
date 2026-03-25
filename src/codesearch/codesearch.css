@@ -78,22 +78,11 @@ body {
 
 .cs-type-check input { accent-color: var(--md-primary); }
 
-.btn {
-  background: var(--md-surface-container-high);
-  border: 1px solid var(--md-outline-variant);
-  border-radius: var(--md-shape-xs);
-  color: var(--md-on-surface);
-  font-size: 11px;
-  padding: 6px 14px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.btn:hover { background: var(--md-surface-container-highest); }
-.btn:disabled { opacity: 0.4; cursor: default; }
-.btn-accent { background: var(--md-primary-container); color: var(--md-on-primary-container); border-color: var(--md-primary-container); }
-.btn-accent:hover { filter: brightness(1.1); }
-.btn-danger { background: #93000a; color: #ffdad6; border-color: #93000a; }
-.btn-danger:hover { filter: brightness(1.2); }
+/* .btn defined in components.css. Local overrides: */
+.btn-accent { border-color: var(--accent-dim); color: var(--accent-dim); }
+.btn-accent:hover { background: var(--accent); color: #fff; }
+.btn-danger { border-color: var(--danger); color: var(--danger); }
+.btn-danger:hover { background: var(--danger); color: #fff; }
 
 /* Progress bar */
 .cs-progress {

@@ -80,7 +80,7 @@ function renderObject(
     h('div', { class: 'ov-header' },
       h('span', { class: 'ov-type-badge', style: `--type-color:${color}` }, abbr),
       h('span', { class: 'ov-name' }, obj.name ?? 'unnamed'),
-      h('button', { class: 'ov-btn', 'data-action': 'diff' }, 'Diff'),
+      h('button', { class: 'btn btn--sm', 'data-action': 'diff' }, 'Diff'),
     ),
   );
 
@@ -170,7 +170,7 @@ function renderObject(
             : false,
           h('span', { style: 'font-size:10px;font-family:var(--md-font-mono);color:var(--md-on-surface-variant);margin-left:auto' }, template.rid),
         ),
-        h('button', { class: 'ov-btn', 'data-action': 'template-diff', style: 'margin-top:6px' }, 'Compare to Template'),
+        h('button', { class: 'btn btn--sm', 'data-action': 'template-diff', style: 'margin-top:6px' }, 'Compare to Template'),
       ),
     );
   }

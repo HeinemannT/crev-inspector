@@ -50,17 +50,7 @@ body {
   flex: 1;
 }
 
-.ov-btn {
-  background: var(--md-surface-container-high);
-  border: 1px solid var(--md-outline-variant);
-  border-radius: var(--md-shape-xs);
-  color: var(--md-on-surface);
-  font-size: 10px;
-  padding: 2px 8px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.ov-btn:hover { background: var(--md-surface-container-highest); }
+/* Buttons use .btn + .btn--sm from components.css */
 
 /* ── Identity fields ───────────────────────────── */
 

@@ -502,39 +502,7 @@ body {
   gap: 4px;
 }
 
-/* ── Copy button ───────────────────────────────── */
-
-.copy-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border: none;
-  background: none;
-  color: var(--md-on-surface-variant);
-  cursor: pointer;
-  font-size: 10px;
-  border-radius: var(--md-shape-xs);
-  flex-shrink: 0;
-}
-
-.copy-btn:hover {
-  color: var(--md-primary);
-  background: var(--md-elevation-2);
-}
-
-/* ── Type badge ────────────────────────────────── */
-
-.type-badge {
-  display: inline-block;
-  padding: 1px 5px;
-  border-radius: var(--md-shape-xs);
-  font-size: 10px;
-  font-weight: 600;
-  color: #fff;
-  background: var(--type-color, #8d8d8d);
-}
+/* .copy-btn and .type-badge defined in components.css */
 
 /* ── Widget list ───────────────────────────────── */
 
@@ -656,55 +624,14 @@ body {
 
 /* ── Buttons ───────────────────────────────────── */
 
-.btn {
-  padding: 5px 14px;
-  border: 1px solid var(--md-outline);
-  border-radius: var(--md-shape-sm);
-  background: transparent;
-  color: var(--md-on-surface);
-  font-family: var(--md-font);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.btn:hover {
-  background: var(--md-elevation-2);
-}
-
-.btn-accent {
-  border-color: var(--md-primary);
-  color: var(--md-primary);
-}
-
-.btn-accent:hover {
-  background: var(--md-primary);
-  color: var(--md-on-primary);
-}
-
-.btn-danger {
-  border-color: var(--md-error);
-  color: var(--md-error);
-}
-
-.btn-danger:hover {
-  background: var(--md-error);
-  color: #1c1b1f;
-}
-
-.btn-small {
-  padding: 4px 10px;
-  font-size: 11px;
-}
-
-.btn-wide {
-  width: 100%;
-  padding: 8px 12px;
-}
-
-.btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
+/* .btn base + variants defined in components.css */
+/* Legacy class aliases for gradual migration */
+.btn-accent { border-color: var(--accent-dim); color: var(--accent-dim); }
+.btn-accent:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-danger { border-color: var(--danger); color: var(--danger); }
+.btn-danger:hover { background: var(--danger); color: #fff; }
+.btn-small { padding: 2px var(--space-2); font-size: var(--text-xs); }
+.btn-wide { width: 100%; padding: var(--space-2) var(--space-3); }
 
 /* ── Connect tab ───────────────────────────────── */
 

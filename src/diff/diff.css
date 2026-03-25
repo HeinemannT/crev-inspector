@@ -93,20 +93,9 @@ body {
   flex-shrink: 0;
 }
 
-/* Buttons */
-.btn {
-  background: var(--md-surface-container-high);
-  border: 1px solid var(--md-outline-variant);
-  border-radius: var(--md-shape-xs);
-  color: var(--md-on-surface);
-  font-size: 11px;
-  padding: 4px 10px;
-  cursor: pointer;
-}
-.btn:hover { background: var(--md-surface-container-highest); }
-.btn:disabled { opacity: 0.4; cursor: default; }
-.btn-accent { background: var(--md-primary-container); color: var(--md-on-primary-container); border-color: var(--md-primary-container); }
-.btn-accent:hover { filter: brightness(1.1); }
+/* .btn defined in components.css. Local overrides: */
+.btn-accent { border-color: var(--accent-dim); color: var(--accent-dim); }
+.btn-accent:hover { background: var(--accent); color: #fff; }
 
 /* Merge view container */
 .diff-merge-container {
