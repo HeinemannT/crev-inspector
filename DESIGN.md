@@ -1,0 +1,389 @@
+# CREV Inspector — Design System
+
+## Identity
+
+**ctools-inspired minimal.** Dark only. Inter (body) + Geist Mono (code). Purple accent `#ba0ffe` used sparingly — for primary actions and active states, never for decoration. Information-dense, compact, professional.
+
+The extension is a power tool for BMP developers/admins. Every pixel serves a purpose. No visual filler.
+
+## Foundations
+
+### Color Tokens
+
+Single file: `src/styles/tokens.css`. No duplication. Every color referenced by variable, never hardcoded.
+
+```
+Surface scale (darkest → lightest):
+  --surface-0:    #111111    page background
+  --surface-1:    #1a1a1a    panels, sidepanel body
+  --surface-2:    #252525    cards, elevated containers
+  --surface-3:    #333333    hover states, active surfaces
+  --surface-4:    #444444    borders, dividers (subtle)
+
+Text scale:
+  --text-1:       #f0f0f0    primary text
+  --text-2:       #b0b0b0    secondary text, labels
+  --text-3:       #707070    muted text, hints, timestamps
+  --text-disabled:#505050    disabled text
+
+Accent:
+  --accent:       #ba0ffe    primary purple (buttons, active states, links)
+  --accent-dim:   #8a3ffc    muted purple (badges, subtle indicators)
+  --accent-bg:    #2a1a3e    purple background tint (selected rows, active tabs)
+
+Semantic:
+  --success:      #42be65    green (connected, ok, passed)
+  --warning:      #f1c21b    yellow (warnings, caution)
+  --danger:       #fa4d56    red (errors, destructive actions, failed)
+  --info:         #78a9ff    blue (informational)
+
+Type badge colors (kept from BMP type system):
+  --type-org:     #4589ff
+  --type-sc:      #08bdba
+  --type-tbl:     #33b1ff
+  --type-cvo:     #be95ff
+  --type-page:    #42be65
+  --type-risk:    #fa4d56
+  etc. (existing TYPE_COLORS in types.ts — these stay)
+
+Overlay-specific (for content injection):
+  --overlay-bg:   rgba(0, 0, 0, 0.6)     badge background
+  --overlay-glass:rgba(255, 255, 255, 0.08) glass tint
+  --overlay-border:rgba(255, 255, 255, 0.12) subtle border
+```
+
+### Typography
+
+```
+Font stacks:
+  --font-body:    'Inter', system-ui, -apple-system, sans-serif
+  --font-mono:    'Geist Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace
+  --font-heading: 'Inter', system-ui, sans-serif  (same as body, weight differentiates)
+
+Size scale (4px-based):
+  --text-xs:      10px    badges, timestamps, meta
+  --text-sm:      11px    secondary labels, table cells
+  --text-base:    12px    body text, inputs, buttons
+  --text-lg:      13px    section titles, toolbar labels
+  --text-xl:      14px    page headings
+
+Weight:
+  --weight-normal:  400
+  --weight-medium:  500
+  --weight-semi:    600
+  --weight-bold:    700
+
+Line height:
+  --leading-tight:  1.2    badges, compact rows
+  --leading-normal: 1.4    body text
+  --leading-relaxed:1.6    paragraphs, descriptions
+```
+
+### Spacing Scale (4px grid)
+
+```
+  --space-1:  4px     micro gaps (badge padding, icon margins)
+  --space-2:  8px     standard gap (between elements, card padding)
+  --space-3:  12px    section padding, group margins
+  --space-4:  16px    panel padding, large gaps
+  --space-5:  20px    page margins
+  --space-6:  24px    section separators
+```
+
+### Border Radius
+
+```
+  --radius-sm:  2px     micro (tags, chips, inline badges)
+  --radius-md:  4px     standard (buttons, inputs, cards)
+  --radius-lg:  8px     containers (panels, tooltips, popovers)
+```
+
+2px is the signature radius — sharp but not harsh. Matches ctools.
+
+### Elevation (Shadows)
+
+```
+  --shadow-1:   0 1px 2px rgba(0,0,0,0.3)                 badges, chips
+  --shadow-2:   0 2px 8px rgba(0,0,0,0.4)                 dropdowns, tooltips
+  --shadow-3:   0 4px 16px rgba(0,0,0,0.5)                popovers, modals
+  --shadow-4:   0 8px 32px rgba(0,0,0,0.6)                windows, dialogs
+```
+
+### Transitions
+
+```
+  --duration-fast:    100ms    micro interactions (hover, focus)
+  --duration-normal:  150ms    state changes (tab switch, toggle)
+  --duration-slow:    250ms    entrance/exit (panels, toasts)
+
+  --ease-default:     cubic-bezier(0.4, 0, 0.2, 1)  standard
+  --ease-decelerate:  cubic-bezier(0, 0, 0.2, 1)    entrance
+  --ease-accelerate:  cubic-bezier(0.4, 0, 1, 1)    exit
+```
+
+All animations respect `prefers-reduced-motion`:
+```css
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+```
+
+---
+
+## Components
+
+### Buttons
+
+One base class, modifiers for variant and size.
+
+```
+.btn                    base: transparent bg, border, text-2 color
+.btn--primary           accent bg, white text (rare — only primary CTAs)
+.btn--outline           accent border, accent text (default for actions)
+.btn--danger            danger border + text, fills on hover
+.btn--ghost             no border, just text + hover bg
+.btn--sm                text-xs, compact padding
+.btn--icon              square, icon-only, no text
+```
+
+All buttons: `border-radius: var(--radius-md)`, `transition: var(--duration-fast)`, `:focus-visible` ring.
+
+### Inputs
+
+```
+.input                  surface-2 bg, surface-4 border, text-1 color
+.input:focus            accent border, subtle accent glow
+.input--invalid         danger border
+.input--sm              text-sm, compact
+```
+
+Checkboxes: custom styled (not just `accent-color`). Toggle switches for boolean settings.
+
+### Badges / Type Tags
+
+```
+.badge                  inline-flex, radius-sm, text-xs, weight-semi
+.badge--type            colored bg from type system (existing colors)
+.badge--status          success/warning/danger bg
+.badge--count           surface-3 bg, text-3 color (numeric counts)
+```
+
+### Tables
+
+```
+.table                  full width, border-collapse
+.table th               text-3, weight-semi, uppercase tracking
+.table tr:hover         surface-3 bg
+.table tr:nth-child(even) surface-1 bg (stripe)
+.table td               text-base, text-2 color
+```
+
+Sticky headers. Horizontal scroll on overflow.
+
+### Cards
+
+```
+.card                   surface-2 bg, surface-4 border, radius-md, space-2 padding
+.card--elevated         shadow-2
+.card--interactive      hover → surface-3, cursor pointer
+```
+
+### Toolbar
+
+```
+.toolbar                surface-1 bg, surface-4 border-bottom, space-2 padding
+.toolbar__group         flex, gap space-1
+.toolbar__spacer        flex: 1
+.toolbar__label         text-sm, text-3, uppercase tracking
+```
+
+---
+
+## Surfaces
+
+### Side Panel
+
+```
+┌─ Header ─────────────────────────────────┐  surface-1, border-bottom
+│ [status dot] Profile Name    [🎨] [Inspect]│
+├─ Tabs ───────────────────────────────────┤  surface-0, border-bottom
+│ Connect  Objects  Page  Log              │  text-sm, active=accent underline
+├─ Status Strip ───────────────────────────┤  conditional (surface-2 or tinted)
+│ Connected · Steadfast · BMP 5.6.7       │  text-xs, text-3
+├─ Content ────────────────────────────────┤  surface-0, scrollable
+│                                          │
+│  (tab content or detail view)            │
+│                                          │
+├─ Status Bar ─────────────────────────────┤  surface-1, border-top
+│ ● Connected    Latest activity    [123]  │  text-xs, text-3
+└──────────────────────────────────────────┘
+```
+
+Tab underline indicator: 2px accent bar on active tab (not full background fill). Tabs are text-sm, uppercase, letter-spacing 0.5px.
+
+### Overlay Badges (injected into BMP page)
+
+```
+  ┌──────────┐
+  │  t.122   │  ← ID badge: glass bg, type-colored left border, text-xs
+  └──────────┘
+  [EC] [⌕]     ← action strip: surface-0/0.6 bg, radius-sm, micro buttons
+```
+
+Badge design:
+- Background: `rgba(0,0,0,0.6)` with `backdrop-filter: blur(8px)` — glass effect
+- Left border: 2px solid type-color (instead of full background fill)
+- Text: white, text-xs, weight-semi
+- No full-color background — too loud. The left border communicates type.
+
+Action strip:
+- Same glass bg, slightly darker
+- Micro buttons (text-xs, 1px border, radius-sm)
+- Visible but not prominent
+
+### EC Editor Window
+
+```
+┌─ CM Container ───────────────────────────┐  CodeMirror, surface-0 bg
+│                                          │
+│  (editor)                                │
+│                                          │
+├─ Toolbar ────────────────────────────────┤  surface-1, border-top
+│ [Preview ▶] [Run ▶] [Save]  t.122·expr  │
+│                          Ln 1, Col 1     │
+├─ Drag Handle ────────────────────────────┤  surface-3, 2px height
+├─ Bottom Panel ───────────────────────────┤  surface-1
+│  (output / vars / snippets / history)    │
+├─ Bottom Bar ─────────────────────────────┤  surface-0, border-top
+│ ✕ Clear  ↩ Wrap    𝑥 Vars  {} Snip  ◔ H │  ghost buttons
+└──────────────────────────────────────────┘
+```
+
+### Quick Inspector Popup
+
+```
+┌───────────────────────────────────────┐  surface-2, shadow-3, radius-lg
+│ ★  [TBL] Revenue Table               │
+│ ID: t.122      Template: t.100       │  text-xs, mono
+│ RID: 8639152947620                   │  text-xs, text-3
+├───────────────────────────────────────┤  border, surface-4
+│ [Copy ID]  [Editor]  [Full View]     │  btn--ghost, text-xs
+└───────────────────────────────────────┘
+```
+
+---
+
+## Implementation Architecture
+
+### File Structure
+
+```
+src/styles/
+  tokens.css          ← single source of truth for ALL tokens
+  base.css            ← reset, typography, scrollbars, reduced-motion
+  components.css      ← buttons, inputs, badges, tables, cards, toolbar
+
+src/sidepanel/
+  sidepanel.css       ← imports tokens + base + components, adds layout-specific styles
+
+src/editor/
+  editor.css          ← imports tokens + base + components, adds editor-specific styles
+
+src/content-overlay.css ← imports tokens (via build), adds overlay-specific styles
+
+src/objectview/objectview.css  ← imports tokens + components
+src/diff/diff.css              ← imports tokens + components
+src/codesearch/codesearch.css  ← imports tokens + components
+```
+
+Each page CSS file:
+1. `@import` shared tokens + base + components
+2. Add only layout-specific and page-specific rules
+3. Zero token re-definitions
+4. Zero inline styles in corresponding JS
+
+### Migration Rules
+
+1. **No `style.cssText` in TypeScript.** Use CSS classes + `setProperty('--var', value)` for dynamic values (type colors).
+2. **No hardcoded hex colors in CSS.** Everything via `var()`.
+3. **No `!important`.** Fix cascade with proper specificity or `:where()`.
+4. **No duplicate token definitions.** One file, imported everywhere.
+5. **Every interactive element gets `:focus-visible`.** Ring: `2px solid var(--accent)`, offset 2px.
+6. **Every animation respects `prefers-reduced-motion`.**
+
+### Inline Style Elimination
+
+Current inline styles and their CSS replacements:
+
+| File | Inline style | Replace with |
+|------|-------------|--------------|
+| `bmpObjectHover.ts` | 9× `style.cssText` | `.hover-tooltip`, `.hover-badge`, `.hover-rid` classes |
+| `content-tooltip.ts` | `style: \`background:${color}\`` | `style.setProperty('--type-color', color)` + CSS `.crev-tt-type { background: var(--type-color); }` |
+| `detail-view.ts` | `style: \`background:${color}\`` | Same pattern: CSS var for dynamic type color |
+| `objectview.ts` | `style: \`background:${color}\`` | Same pattern |
+| `quick-inspector.ts` | Hardcoded colors in `style.cssText` | CSS classes |
+
+Dynamic type colors (which vary per object) use a single pattern:
+```typescript
+el.style.setProperty('--type-color', getTypeColor(obj.type));
+```
+```css
+.type-badge { background: var(--type-color); }
+```
+
+---
+
+## Accessibility
+
+### Focus Management
+- All interactive elements: `:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }`
+- Tab order follows visual order
+- Escape closes popovers/modals
+
+### Reduced Motion
+- Global rule disables animations when `prefers-reduced-motion: reduce`
+- Shimmer loading replaced with static dim state
+- Toast entrance/exit instant
+
+### Contrast
+- All text on surfaces meets WCAG AA (4.5:1 for normal text, 3:1 for large)
+- `--text-3` (#707070) on `--surface-0` (#111111) = 4.7:1 ✓
+- Danger/success/warning colors pass on dark surfaces
+
+### Screen Reader
+- Icon-only buttons get `aria-label`
+- Status indicators get `aria-live="polite"`
+- Tab bar uses `role="tablist"` / `role="tab"`
+
+---
+
+## What Changes Visually
+
+### Before → After
+
+**Side panel tabs:**
+- Before: Full background fill on active tab, mixed padding
+- After: Clean underline indicator (2px accent), uppercase labels, consistent spacing
+
+**Overlay badges:**
+- Before: Full type-colored background, loud
+- After: Glass background + type-colored left border accent. Subtle but informative.
+
+**Buttons:**
+- Before: 13+ variants, inconsistent padding/hover
+- After: 6 variants from one base, consistent sizing
+
+**Typography:**
+- Before: 10-13px mixed, system-ui everywhere
+- After: Inter for body, Geist Mono for code, defined scale
+
+**Colors:**
+- Before: M3 tokens + hardcoded hex + inline styles
+- After: Single token file, zero hardcoded colors, zero inline styles
+
+**Overall feel:**
+- Before: "Dark theme, 2023 prototype"
+- After: "Precision tool, 2026 — information-dense, intentional, fast"
