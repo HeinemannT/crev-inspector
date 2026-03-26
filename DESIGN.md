@@ -2,7 +2,7 @@
 
 ## Identity
 
-**ctools-inspired minimal.** Dark only. Inter (body) + Geist Mono (code). Catppuccin Mocha for the EC editor. Purple accent `#ba0ffe` sparingly — primary actions, active states, never decoration. Phosphor icons. Comfortable density with generous spacing.
+**ctools-inspired minimal.** Dark only. Self-hosted Inter (body) + system monospace (code). Catppuccin Mocha for the EC editor (base aligned to extension surfaces). Purple accent `#ba0ffe` sparingly — primary actions, active states, never decoration. Phosphor Bold icons (12px). Comfortable density.
 
 A branded utility tool — professional, breathable, premium. Not a debug tool, not a prototype.
 
@@ -21,7 +21,7 @@ Surface scale (darkest → lightest):
   --surface-4:    #444444    borders, dividers (subtle)
 
 Text scale:
-  --text-1:       #f0f0f0    primary text
+  --text-1:       #e4e4e4    primary text (softened for reduced eye strain)
   --text-2:       #b0b0b0    secondary text, labels
   --text-3:       #707070    muted text, hints, timestamps
   --text-disabled:#505050    disabled text
@@ -56,9 +56,11 @@ Overlay-specific (for content injection):
 
 ```
 Font stacks:
-  --font-body:    'Inter', system-ui, -apple-system, sans-serif
-  --font-mono:    'Geist Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace
-  --font-heading: 'Inter', system-ui, sans-serif  (same as body, weight differentiates)
+  --font-body:    'Inter', system-ui, -apple-system, sans-serif  (self-hosted woff2, 4 weights)
+  --font-mono:    'SF Mono', 'Cascadia Code', Consolas, ui-monospace, monospace  (system only)
+
+Inter is self-hosted (src/assets/fonts/, 96KB total for 400/500/600/700).
+No CDN dependency — works offline. No custom mono font — system fonts are excellent at 10-11px.
 
 Size scale (4px-based):
   --text-xs:      10px    badges, timestamps, meta
@@ -141,12 +143,11 @@ One base class, modifiers for variant and size.
 
 ```
 .btn                    base: transparent bg, border, text-2 color
-.btn--primary           accent bg, white text (rare — only primary CTAs)
-.btn--outline           accent border, accent text (default for actions)
-.btn--danger            danger border + text, fills on hover
-.btn--ghost             no border, just text + hover bg
-.btn--sm                text-xs, compact padding
-.btn--icon              square, icon-only, no text
+.btn-accent             accent border + text, fills accent on hover
+.btn-danger             danger border + text, fills on hover
+.btn-success            success border + text, fills on hover
+.btn-small              text-xs, compact padding
+.btn-wide               full-width, generous padding
 ```
 
 All buttons: `border-radius: var(--radius-md)`, `transition: var(--duration-fast)`, `:focus-visible` ring.
