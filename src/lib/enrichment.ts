@@ -69,7 +69,7 @@ export async function enrichBadges(rids: string[]) {
     return;
   }
 
-  // Skip enrichment when server is known-unreachable.
+  // Skip enrichment when server is known-unreachable or still authenticating.
   // We call getConnectionDisplay() (lazy import) to avoid circular dependency
   // since connection.ts imports incrementGeneration from this module.
   const connDisplay = getConnectionDisplay();
