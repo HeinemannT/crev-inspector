@@ -249,7 +249,7 @@ export class BmpClient {
       lines.push('  IF _t = MISSING THEN');
       lines.push('    _t := _o.template');
       lines.push('  ENDIF');
-      lines.push('  _tid := IF _t != MISSING THEN _t.id.whenMissing("") ELSE "" ENDIF');
+      lines.push('  _tid := (IF _t != MISSING THEN _t.id.whenMissing("") ELSE "" ENDIF)');
       lines.push('  _r := _r + _o.rid.whenMissing("SKIP") + _d + _o.id.whenMissing("") + _d + _o.className.whenMissing("") + _d + _o.name.whenMissing("") + _d + _tid + "\\n"');
       lines.push('ENDIF');
     }

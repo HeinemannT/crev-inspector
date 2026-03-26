@@ -5,7 +5,7 @@
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import { CODE_PROPS_FOR_TYPE } from '../types';
-import { resetEnrichment } from '../enrichment';
+import { resetEnrichment, incrementGeneration } from '../enrichment';
 import { errorMessage, log } from '../logger';
 import { CODE_BEARING_TYPES } from '../namespace';
 import type { BmpObject } from '../types';
@@ -146,8 +146,9 @@ register('HOVER_RESOLVE', async (msg, respond) => {
 register('CLEAR_CACHE', (msg, respond) => {
   const ctx = getCtx();
   ctx.cache.clear();
-  resetEnrichment();
+  incrementGeneration(); // resets enrichedRids + permanentlyFailed + aborts in-flight
   respond({ type: 'CACHE_STATS', count: 0 });
+  ctx.broadcastToContent({ type: 'RE_ENRICH' });
 });
 
 register('OBJECTS_DISCOVERED', (msg) => {
