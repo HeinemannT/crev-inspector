@@ -5,9 +5,11 @@
   content: '';
   position: absolute;
   inset: 0;
-  border: 2px solid var(--crev-color, #707070);
+  border: 1px solid var(--crev-color, #707070);
+  opacity: 0.35;
   pointer-events: none;
   z-index: 9999;
+  border-radius: 2px;
 }
 .crev-label {
   position: absolute;
@@ -18,18 +20,15 @@
   gap: 5px;
   padding: 2px 8px;
   border-radius: 2px;
-  border-left: 2px solid var(--crev-color, #707070);
   font: 600 11px/1.3 'Inter', system-ui, sans-serif;
   color: #fff;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+  background: var(--crev-color, #707070);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
   pointer-events: auto;
   user-select: none;
   white-space: nowrap;
 }
-.crev-label:hover { background: rgba(0, 0, 0, 0.75); animation: none; }
+.crev-label:hover { filter: brightness(1.15); }
 .crev-label-flash-pick { background: #ff832b !important; }
 .crev-label-flash-ok { background: #42be65 !important; }
 .crev-label-flash-error { background: #fa4d56 !important; }
@@ -60,15 +59,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 1px 5px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(0,0,0,0.5);
-  color: rgba(255,255,255,0.8);
+  padding: 2px 4px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(0,0,0,0.6);
+  color: rgba(255,255,255,0.9);
   font: 600 9px/1.2 'Inter', system-ui, sans-serif;
   border-radius: 2px;
   cursor: pointer;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+}
+.crev-ec-btn svg, .crev-action-btn svg {
+  width: 10px;
+  height: 10px;
 }
 .crev-ec-btn:hover, .crev-action-btn:hover {
   background: rgba(0,0,0,0.7);
