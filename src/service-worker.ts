@@ -186,16 +186,18 @@ chrome.runtime.onConnect.addListener((port) => {
       handleContentMessage(msg, tabId ?? undefined);
     });
 
-    port.postMessage({ type: 'INSPECT_STATE', active: inspectActive } satisfies InspectorMessage);
     settingsReady.then(() => {
-      port.postMessage({ type: 'ENRICH_MODE', mode: settings.enrichMode } satisfies InspectorMessage);
+      try {
+        port.postMessage({ type: 'INSPECT_STATE', active: inspectActive } satisfies InspectorMessage);
+        port.postMessage({ type: 'ENRICH_MODE', mode: settings.enrichMode } satisfies InspectorMessage);
+      } catch { /* port may have disconnected */ }
     });
 
     // Push cached enrichments so a fresh content script (after F5) has data immediately
-    const enrichments: Record<string, {businessId?: string; type?: string; name?: string}> = {};
+    const enrichments: Record<string, {businessId?: string; type?: string; name?: string; templateBusinessId?: string}> = {};
     for (const obj of cache.getAll()) {
       if (obj.businessId || obj.type || obj.name) {
-        enrichments[obj.rid] = { businessId: obj.businessId, type: obj.type, name: obj.name };
+        enrichments[obj.rid] = { businessId: obj.businessId, type: obj.type, name: obj.name, templateBusinessId: obj.templateBusinessId };
       }
     }
     if (Object.keys(enrichments).length > 0) {
@@ -227,8 +229,12 @@ chrome.runtime.onConnect.addListener((port) => {
       handlePanelMessage(msg);
     });
 
-    port.postMessage({ type: 'INSPECT_STATE', active: inspectActive } satisfies InspectorMessage);
-    port.postMessage({ type: 'CACHE_STATS', count: cache.size } satisfies InspectorMessage);
+    settingsReady.then(() => {
+      try {
+        port.postMessage({ type: 'INSPECT_STATE', active: inspectActive } satisfies InspectorMessage);
+        port.postMessage({ type: 'CACHE_STATS', count: cache.size } satisfies InspectorMessage);
+      } catch { /* port may have disconnected */ }
+    });
     import('./lib/paint').then(m => m.pushPaintState()).catch(e => log.swallow('sw:pushPaint', e));
 
     // Flush any messages queued while panel was closed (e.g., switch-profile shortcut)

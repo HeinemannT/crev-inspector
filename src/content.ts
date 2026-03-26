@@ -219,7 +219,9 @@ onReconnect(() => {
                  signals: det.signals, isBmp: det.isBmp });
     });
   }
-  if (s.inspectActive) syncOverlays(s);
+  // Don't syncOverlays here — the SW sends INSPECT_STATE on port connect,
+  // which triggers setInspectMode() → syncOverlays(). Calling it here
+  // would race against the message and run with stale s.inspectActive.
 });
 
 // ── Cross-tab sync ───────────────────────────────────────────────
