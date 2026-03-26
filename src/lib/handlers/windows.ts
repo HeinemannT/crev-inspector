@@ -39,16 +39,14 @@ register('OPEN_DIFF', (msg) => {
   loadDiffLauncher().then(m => m.openDiffWindow(msg.leftRid, msg.rightRid)).catch(e => log.swallow('handler:openDiff', e));
 });
 
-register('OPEN_TEMPLATE_DIFF', (msg) => {
+register('OPEN_TEMPLATE_DIFF', async (msg) => {
   const ctx = getCtx();
-  ctx.settingsReady.then(async () => {
-    if (!ctx.client) return;
-    const tmpl = await ctx.client.resolveTemplate(msg.rid);
-    if (tmpl.templateRid) {
-      const m = await loadDiffLauncher();
-      m.openDiffWindow(tmpl.templateRid, msg.rid, 'template');
-    }
-  });
+  if (!ctx.client) return;
+  const tmpl = await ctx.client.resolveTemplate(msg.rid);
+  if (tmpl.templateRid) {
+    const m = await loadDiffLauncher();
+    m.openDiffWindow(tmpl.templateRid, msg.rid, 'template');
+  }
 });
 
 register('OPEN_CODE_SEARCH', () => {
@@ -77,7 +75,6 @@ register('CODE_SEARCH_STOP', () => {
 
 register('FETCH_DIFF_PROPS', async (msg, respond) => {
   const ctx = getCtx();
-  await ctx.settingsReady;
   if (!ctx.client) {
     respond({ type: 'DIFF_PROPS_RESULT', rid: msg.rid, props: {}, identity: {}, error: 'Not connected' });
     return;

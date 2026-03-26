@@ -55,23 +55,41 @@ export function connectPanel(): void {
 
   port.onDisconnect.addListener(() => {
     port = null;
-    try {
-      chrome.runtime.getURL('');
-      setTimeout(() => {
-        connectPanel();
-        reconnectHandler?.();
-      }, reconnectDelay);
-      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_DELAY);
-    } catch (e) {
-      log.swallow('panel:reconnectCheck', e);
-    }
+    // Reconnect with backoff — no SW-alive check needed. chrome.runtime.connect()
+    // will wake the SW if suspended. The old getURL() check would silently abort
+    // reconnection if the SW happened to be suspended at that moment.
+    setTimeout(() => {
+      connectPanel();
+      flushPendingMessages();
+      reconnectHandler?.();
+    }, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_DELAY);
   });
 }
 
+/** Messages queued while port is disconnected (flushed on reconnect). */
+const QUEUE_TYPES = new Set([
+  'TOGGLE_INSPECT', 'TOGGLE_PAINT', 'CONNECTION_TEST',
+  'GET_CONNECTION_STATE', 'GET_SETTINGS', 'GET_CACHE',
+]);
+const pendingMessages: InspectorMessage[] = [];
+
 export function sendMessage(msg: InspectorMessage) {
-  if (!port) { log.debug('panel', 'sendMessage: port is null, message dropped:', msg.type); return; }
+  if (!port) {
+    if (QUEUE_TYPES.has(msg.type)) pendingMessages.push(msg);
+    else log.debug('panel', 'sendMessage: port is null, message dropped:', msg.type);
+    return;
+  }
   try { port.postMessage(msg); }
   catch (e) { log.swallow('panel:sendMessage', e); port = null; }
+}
+
+function flushPendingMessages() {
+  while (pendingMessages.length > 0 && port) {
+    const msg = pendingMessages.shift()!;
+    try { port.postMessage(msg); }
+    catch (e) { log.swallow('panel:flushPending', e); port = null; break; }
+  }
 }
 
 export function getActivePanel(): HTMLElement | null {

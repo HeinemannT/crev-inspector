@@ -5,7 +5,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  border: 2px solid var(--crev-color, #8d8d8d);
+  border: 2px solid var(--crev-color, #707070);
   pointer-events: none;
   z-index: 9999;
 }
@@ -18,7 +18,7 @@
   gap: 5px;
   padding: 2px 8px;
   border-radius: 2px;
-  border-left: 2px solid var(--crev-color, #8d8d8d);
+  border-left: 2px solid var(--crev-color, #707070);
   font: 600 11px/1.3 'Inter', system-ui, sans-serif;
   color: #fff;
   background: rgba(0, 0, 0, 0.6);
@@ -79,7 +79,7 @@
   background: #fff;
   color: #ff832b;
   border: none;
-  border-radius: 3px;
+  border-radius: 4px;
   padding: 2px 10px;
   font-weight: 700;
   cursor: pointer;
@@ -89,7 +89,7 @@
   background: rgba(255,255,255,0.2);
   color: #fff;
   border: 1px solid rgba(255,255,255,0.4);
-  border-radius: 3px;
+  border-radius: 4px;
   padding: 2px 10px;
   cursor: pointer;
 }
@@ -124,7 +124,7 @@
   padding: 8px 12px;
   border-radius: 4px;
   font: 11px/1.4 'Inter', system-ui, sans-serif;
-  color: #f0f0f0;
+  color: #e4e4e4;
   background: #1a1a1a;
   border: 1px solid #333333;
   box-shadow: 0 4px 16px rgba(0,0,0,0.5);
@@ -135,15 +135,15 @@
 #crev-tooltip .crev-tt-type {
   display: inline-block;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: 2px;
   font-size: 10px;
   font-weight: 600;
   color: #fff;
-  background: var(--type-color, #8d8d8d);
+  background: var(--type-color, #707070);
   margin-bottom: 3px;
 }
 #crev-tooltip .crev-tt-typename {
-  color: #8d8d8d;
+  color: #707070;
   font-size: 10px;
 }
 #crev-tooltip .crev-tt-name {
@@ -151,9 +151,9 @@
   margin-bottom: 2px;
 }
 #crev-tooltip .crev-tt-row {
-  color: #c6c6c6;
+  color: #b0b0b0;
   font-size: 10px;
-  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  font-family: 'SF Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
   word-break: break-all;
 }
 
@@ -168,11 +168,11 @@
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  border-radius: 6px;
-  background: rgba(28, 27, 31, 0.85);
-  border: 1px solid rgba(73, 69, 79, 0.6);
-  font: 500 10px/1.3 'Segoe UI', Roboto, system-ui, sans-serif;
-  color: #cac4d0;
+  border-radius: 4px;
+  background: rgba(17, 17, 17, 0.85);
+  border: 1px solid rgba(68, 68, 68, 0.6);
+  font: 500 10px/1.3 'Inter', system-ui, sans-serif;
+  color: #b0b0b0;
   cursor: move;
   user-select: none;
   opacity: 0.25;
@@ -254,10 +254,10 @@
   background: rgba(66, 190, 101, 0.92);
 }
 .crev-toast--error {
-  background: rgba(218, 30, 40, 0.92);
+  background: rgba(250, 77, 86, 0.92);
 }
 .crev-toast--info {
-  background: rgba(69, 137, 255, 0.92);
+  background: rgba(120, 169, 255, 0.92);
 }
 
 /* ── Technical Overlay Cards ───────────────────────────── */
@@ -277,7 +277,7 @@
 }
 .crev-card-line { display: block; }
 .crev-card-type { font-weight: 700; }
-.crev-card-rid { font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace; font-size: 9px; opacity: 0.8; }
+.crev-card-rid { font-family: 'SF Mono', 'Cascadia Code', Consolas, ui-monospace, monospace; font-size: 9px; opacity: 0.8; }
 .crev-card-sep {
   display: block;
   height: 1px;
@@ -287,7 +287,7 @@
 .crev-card-prop {
   font-size: 9px;
   opacity: 0.7;
-  font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  font-family: 'SF Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
 }
 
 /* ── Quick Inspector Star ─────────────────────────────── */
@@ -300,7 +300,7 @@
   border: none;
   font-size: 16px;
   cursor: pointer;
-  color: #938f99;
+  color: #707070;
   padding: 0;
   line-height: 1;
 }
@@ -318,7 +318,7 @@
   border: 1px solid #333333;
   box-shadow: 0 8px 32px rgba(0,0,0,0.6);
   font: 12px/1.5 'Inter', system-ui, sans-serif;
-  color: #f0f0f0;
+  color: #e4e4e4;
   min-width: 220px;
   max-width: 340px;
 }
@@ -349,10 +349,25 @@
   color: #707070;
 }
 .crev-qi-rid {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'SF Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
   word-break: break-all;
   margin-bottom: 8px;
   color: #707070;
+}
+.crev-qi-code {
+  font-family: 'SF Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
+  font-size: 9px;
+  line-height: 1.3;
+  color: #707070;
+  max-height: 28px;
+  overflow: hidden;
+  white-space: pre;
+  margin-top: 4px;
+  padding: 4px 6px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 2px;
+  -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent);
+  mask-image: linear-gradient(to bottom, black 50%, transparent);
 }
 .crev-qi-actions {
   display: flex;
@@ -366,7 +381,7 @@
   border: 1px solid #444444;
   border-radius: 4px;
   background: #252525;
-  color: #f0f0f0;
+  color: #e4e4e4;
   font: 500 10px/1.2 'Inter', system-ui, sans-serif;
   cursor: pointer;
   white-space: nowrap;
@@ -374,7 +389,7 @@
 }
 .crev-qi-btn:hover {
   background: #333333;
-  border-color: #555555;
+  border-color: #444444;
 }
 .crev-qi-btn--accent {
   border-color: #ba0ffe;
@@ -383,4 +398,22 @@
 .crev-qi-btn--accent:hover {
   background: #ba0ffe;
   color: #fff;
+}
+
+/* ── Focus States (content overlay can't use base.css) ── */
+
+.crev-ec-btn:focus-visible,
+.crev-action-btn:focus-visible,
+.crev-qi-btn:focus-visible,
+.crev-qi-star:focus-visible,
+.crev-paint-apply-btn:focus-visible,
+.crev-paint-cancel-btn:focus-visible,
+#crev-paint-banner .crev-paint-close:focus-visible {
+  outline: 2px solid #ba0ffe;
+  outline-offset: 2px;
+}
+
+.crev-label-text:focus-visible {
+  outline: 2px solid #ba0ffe;
+  outline-offset: 1px;
 }

@@ -9,12 +9,9 @@ import { pushConnectionState, runAuthTest } from '../connection';
 import { log } from '../logger';
 
 register('GET_SETTINGS', (msg, respond) => {
-  const ctx = getCtx();
-  ctx.settingsReady.then(() => {
-    respond({ type: 'SETTINGS_DATA', settings: ctx.settings });
-    snapshotSettings();
-  });
-}, true);
+  respond({ type: 'SETTINGS_DATA', settings: getCtx().settings });
+  snapshotSettings();
+});
 
 register('SAVE_SETTINGS', async (msg) => {
   const ctx = getCtx();

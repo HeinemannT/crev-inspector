@@ -48,8 +48,8 @@ async function lookupRid(rid: string): Promise<HoverInfo | null> {
   if (tooltipCache.has(rid)) return tooltipCache.get(rid)!;
   try {
     const r = await chrome.runtime.sendMessage({ type: 'HOVER_LOOKUP', rid });
-    if (r?.type === 'HOVER_LOOKUP_RESULT' && (r.name || r.type)) {
-      const info: HoverInfo = { name: r.name, type: r.type, rid, businessId: r.businessId, codePreview: r.codePreview };
+    if (r?.type === 'HOVER_LOOKUP_RESULT' && (r.name || r.objectType)) {
+      const info: HoverInfo = { name: r.name, type: r.objectType, rid, businessId: r.businessId, codePreview: r.codePreview };
       tooltipCache.set(rid, info);
       return info;
     }
@@ -62,8 +62,8 @@ async function resolveRef(ref: string): Promise<HoverInfo | null> {
   if (tooltipCache.has(ref)) return tooltipCache.get(ref)!;
   try {
     const r = await chrome.runtime.sendMessage({ type: 'HOVER_RESOLVE', ref });
-    if (r?.type === 'HOVER_RESOLVE_RESULT' && (r.name || r.type)) {
-      const info: HoverInfo = { name: r.name, type: r.type, rid: r.rid, businessId: r.businessId, codePreview: r.codePreview };
+    if (r?.type === 'HOVER_RESOLVE_RESULT' && (r.name || r.objectType)) {
+      const info: HoverInfo = { name: r.name, type: r.objectType, rid: r.rid, businessId: r.businessId, codePreview: r.codePreview };
       tooltipCache.set(ref, info);
       return info;
     }

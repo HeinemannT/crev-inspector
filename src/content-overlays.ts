@@ -7,6 +7,7 @@ import type { BmpObject, InspectorMessage, PaintPhase } from './lib/types';
 import { getTypeColor, getTypeAbbr, TYPES_WITH_CODE } from './lib/types';
 import { getAllRidElements } from './lib/dom-scanner';
 import { log } from './lib/logger';
+import { ICON_CODE, ICON_SEARCH } from './lib/icons';
 import { DISCOVERED_RIDS_CAP, LABEL_DBLCLICK_WINDOW } from './lib/constants';
 import { resolveCopyText, getModifier } from './lib/namespace';
 import { sendToSW } from './lib/content-port';
@@ -21,8 +22,9 @@ function createActionStrip(rid: string, enrichment: { businessId?: string; type?
   if (enrichment.type && TYPES_WITH_CODE.has(enrichment.type)) {
     const ecBtn = document.createElement('button');
     ecBtn.className = 'crev-ec-btn';
-    ecBtn.textContent = enrichment.type === 'CustomVisualization' ? '</>' : 'EC';
+    ecBtn.innerHTML = ICON_CODE;
     ecBtn.title = 'Open in editor';
+    ecBtn.setAttribute('aria-label', 'Open in editor');
     ecBtn.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation();
       chrome.runtime.sendMessage({ type: 'OPEN_EDITOR', rid });
@@ -32,8 +34,9 @@ function createActionStrip(rid: string, enrichment: { businessId?: string; type?
 
   const searchBtn = document.createElement('button');
   searchBtn.className = 'crev-action-btn';
-  searchBtn.textContent = '\u2315';
+  searchBtn.innerHTML = ICON_SEARCH;
   searchBtn.title = 'Find references';
+  searchBtn.setAttribute('aria-label', 'Find references');
   searchBtn.addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation();
     chrome.runtime.sendMessage({
@@ -117,8 +120,8 @@ export function syncOverlays(s: ContentState) {
         s.labelClickTimer = null;
         s.labelClickRid = null;
         const enriched = s.enrichments.get(rid);
-        const { text, label } = resolveCopyText({ rid, ...enriched }, mod);
-        const flashText = label === 'ID' ? '\u2713' : `\u2713 ${label}`;
+        const { text, label: copyLabel } = resolveCopyText({ rid, ...enriched }, mod);
+        const flashText = copyLabel === 'ID' ? '\u2713' : `\u2713 ${copyLabel}`;
         navigator.clipboard.writeText(text).then(() => {
           const original = labelText.textContent;
           labelText.textContent = flashText;
@@ -221,10 +224,12 @@ export function updateLabels(s: ContentState) {
 /** Open quick inspector popup for a badge */
 function openQuickInspector(s: ContentState, labelEl: HTMLElement, rid: string) {
   const enrichment = s.enrichments.get(rid);
-  chrome.runtime.sendMessage({ type: 'GET_FAVORITES' }, (response: any) => {
-    if (response?.entries) {
-      s.favoriteRids = new Set(response.entries.map((e: any) => e.rid));
-    }
+  // Fire both requests in parallel — favorites + code preview from cache
+  let favDone = false, hoverDone = false;
+  let codePreview: string | undefined;
+
+  const tryShow = () => {
+    if (!favDone || !hoverDone) return;
     showQuickInspector(labelEl, {
       rid,
       businessId: enrichment?.businessId,
@@ -232,6 +237,7 @@ function openQuickInspector(s: ContentState, labelEl: HTMLElement, rid: string) 
       type: enrichment?.type,
       name: enrichment?.name,
       isFavorite: s.favoriteRids.has(rid),
+      codePreview,
     }, (editorRid) => {
       chrome.runtime.sendMessage({ type: 'OPEN_EDITOR', rid: editorRid });
     }, (favRid) => {
@@ -241,5 +247,21 @@ function openQuickInspector(s: ContentState, labelEl: HTMLElement, rid: string) 
     }, (viewRid) => {
       chrome.runtime.sendMessage({ type: 'OPEN_OBJECT_VIEW', rid: viewRid });
     });
+  };
+
+  chrome.runtime.sendMessage({ type: 'GET_FAVORITES' }, (response: any) => {
+    if (response?.entries) {
+      s.favoriteRids = new Set(response.entries.map((e: any) => e.rid));
+    }
+    favDone = true;
+    tryShow();
+  });
+
+  chrome.runtime.sendMessage({ type: 'HOVER_LOOKUP', rid }, (response: any) => {
+    if (response?.codePreview) {
+      codePreview = response.codePreview.split('\n').slice(0, 2).join('\n');
+    }
+    hoverDone = true;
+    tryShow();
   });
 }

@@ -10,11 +10,12 @@ import { bracketMatching, foldGutter, indentOnInput, foldKeymap } from '@codemir
 import { closeBrackets, closeBracketsKeymap, autocompletion } from '@codemirror/autocomplete'
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
 import { lintGutter } from '@codemirror/lint'
-import { oneDark } from '@codemirror/theme-one-dark'
+import { catppuccinMocha } from './catppuccin-theme'
 
 // Shared types + context helpers
 import { type SaveTarget, type ScriptHistoryEntry } from '../lib/types'
-import { h, render as renderDom } from '../lib/dom'
+import { h, svg, render as renderDom } from '../lib/dom'
+import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_BRACKETS, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING } from '../lib/icons'
 import { renderEcOutput } from './ec-output'
 import {
   type EditorContext,
@@ -173,8 +174,8 @@ function renderShell() {
   renderDom(root,
     h('div', { class: 'editor-cm-wrap', id: 'cm-container' }),
     h('div', { class: 'editor-toolbar' },
-      h('button', { class: 'btn btn-accent', id: 'btn-preview' }, 'Preview \u25B6'),
-      h('button', { class: 'btn btn-danger', id: 'btn-run', disabled: !previewDone, title: previewDone ? 'Execute transactionally' : 'Preview first to unlock' }, 'Run \u25B6'),
+      h('button', { class: 'btn btn-accent', id: 'btn-preview' }, svg(ICON_PLAY), ' Preview'),
+      h('button', { class: 'btn btn-danger', id: 'btn-run', disabled: !previewDone, title: previewDone ? 'Execute transactionally' : 'Preview first to unlock' }, svg(ICON_PLAY), ' Run'),
       !isExtended && h('button', { class: 'btn btn-success', id: 'btn-save' }, 'Save'),
       h('button', { class: 'btn', id: 'btn-copy' }, 'Copy'),
       propTabs,
@@ -188,12 +189,12 @@ function renderShell() {
       h('div', { id: 'bottom-panel-content' }),
     ),
     h('div', { class: 'editor-bottom-bar', id: 'bottom-bar' },
-      h('button', { class: 'btn-bottom', id: 'btn-clear', title: 'Clear editor and output' }, '\u2715 Clear'),
-      h('button', { class: 'btn-bottom', id: 'btn-wrap', title: 'Toggle line wrapping' }, '\u21a9 Wrap'),
+      h('button', { class: 'btn-bottom', id: 'btn-clear', title: 'Clear editor and output' }, svg(ICON_X), ' Clear'),
+      h('button', { class: 'btn-bottom', id: 'btn-wrap', title: 'Toggle line wrapping' }, svg(ICON_WRAP), ' Wrap'),
       h('div', { class: 'editor-bottom-spacer' }),
-      h('button', { class: 'btn-bottom', id: 'btn-vars' }, '\u{1D465} Vars'),
-      h('button', { class: 'btn-bottom', id: 'btn-snippets' }, '{ } Snippets'),
-      h('button', { class: 'btn-bottom', id: 'btn-history' }, '\u25d4 History'),
+      h('button', { class: 'btn-bottom', id: 'btn-vars' }, svg(ICON_VARIABLE), ' Vars'),
+      h('button', { class: 'btn-bottom', id: 'btn-snippets' }, svg(ICON_BRACKETS), ' Snippets'),
+      h('button', { class: 'btn-bottom', id: 'btn-history' }, svg(ICON_CLOCK), ' History'),
     ),
   )
 
@@ -278,7 +279,7 @@ function createEditor(code: string) {
     foldGutter(),
     highlightSelectionMatches(),
     autocompletion({ override: isEc ? [extendedCompletions] : undefined }),
-    oneDark,
+    catppuccinMocha,
     wrapCompartment.of(wrapLines ? EditorView.lineWrapping : []),
 
     // Keymaps
@@ -307,7 +308,7 @@ function createEditor(code: string) {
         updateStatusBar(update.view)
         const { from, to } = update.state.selection.main
         const btn = document.getElementById('btn-preview')
-        if (btn) btn.textContent = from !== to ? 'Preview \u25B6 \u00b7' : 'Preview \u25B6'
+        if (btn) { btn.innerHTML = ''; btn.append(svg(ICON_PLAY), from !== to ? ' Preview \u00b7' : ' Preview'); }
       }
       if (update.docChanged) {
         dirty = true
@@ -474,7 +475,7 @@ function doCopy() {
   navigator.clipboard.writeText(code)
   const btn = document.getElementById('btn-copy')
   if (btn) {
-    btn.textContent = '\u2713 Copied'
+    btn.innerHTML = ''; btn.append(svg(ICON_CHECK), ' Copied');
     setTimeout(() => { btn.textContent = 'Copy' }, 1000)
   }
 }
@@ -531,7 +532,7 @@ function renderBottomContent() {
       h('div', { class: 'editor-output-header' },
         h('span', { class: `editor-output-mode ${cls}` }, modeLabel),
         h('span', { class: 'editor-output-duration' }, durationText),
-        h('span', { class: 'editor-output-close', onClick: hideBottomPanel }, '\u2715'),
+        h('span', { class: 'editor-output-close', onClick: hideBottomPanel }, svg(ICON_X)),
       ),
       outputContent,
     )
@@ -597,8 +598,8 @@ function renderBottomContent() {
               }
             },
           },
-            h('span', { class: 'editor-history-icon' }, e.mode === 'execute' ? '\u26A1' : '\u25B6'),
-            h('span', { class: `editor-history-status ${e.ok ? 'ok' : 'fail'}` }, e.ok ? '\u2713' : '\u2717'),
+            h('span', { class: 'editor-history-icon' }, svg(e.mode === 'execute' ? ICON_LIGHTNING : ICON_PLAY)),
+            h('span', { class: `editor-history-status ${e.ok ? 'ok' : 'fail'}` }, svg(e.ok ? ICON_CHECK : ICON_X)),
             h('span', { class: 'editor-history-dur' }, e.durationMs != null ? `${e.durationMs}ms` : ''),
             h('span', { class: 'editor-history-code' }, e.code.split('\n')[0].slice(0, 50)),
             h('span', { class: 'editor-history-time' }, relativeTime(e.timestamp)),

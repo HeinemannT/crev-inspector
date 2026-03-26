@@ -242,7 +242,7 @@ export class ObjectsTab implements Tab {
         }, getModifier(e as MouseEvent));
         if (text) {
           copyText(text);
-          el.style.color = 'var(--md-primary)';
+          el.style.color = 'var(--accent)';
           setTimeout(() => { el.style.color = ''; }, 1200);
         }
       },

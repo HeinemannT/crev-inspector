@@ -235,6 +235,9 @@ export async function enrichBadges(rids: string[]) {
 
   ctx.logActivity('success', `Enriched ${total} object${total !== 1 ? 's' : ''}`);
   ctx.sendToPanel({ type: 'CACHE_STATS', count: ctx.cache.size });
+  // Flush cache to storage immediately — setTimeout-based batching won't
+  // survive SW suspension, and enrichment is the main cache write path.
+  ctx.cache.flush().catch(e => log.swallow('enrich:cacheFlush', e));
 }
 
 /** Clear enrichment state and trigger re-enrichment on all connected tabs */

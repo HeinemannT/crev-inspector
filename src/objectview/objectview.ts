@@ -80,7 +80,7 @@ function renderObject(
     h('div', { class: 'ov-header' },
       h('span', { class: 'ov-type-badge', style: `--type-color:${color}` }, abbr),
       h('span', { class: 'ov-name' }, obj.name ?? 'unnamed'),
-      h('button', { class: 'btn btn--sm', 'data-action': 'diff' }, 'Diff'),
+      h('button', { class: 'btn btn-small', 'data-action': 'diff' }, 'Diff'),
     ),
   );
 
@@ -147,7 +147,7 @@ function renderObject(
           h('div', { class: 'ov-section-title' }, 'Scripts'),
           ...scriptEntries.map(([key, code]) =>
             h('div', null,
-              h('div', { style: 'font-size:10px;font-weight:600;color:var(--md-on-surface-variant);margin-bottom:2px' }, key),
+              h('div', { style: 'font-size:10px;font-weight:600;color:var(--text-2);margin-bottom:2px' }, key),
               h('pre', { class: 'ov-code-block' }, code),
             ),
           ),
@@ -164,13 +164,13 @@ function renderObject(
         h('div', { class: 'ov-section-title' }, 'Template'),
         h('div', { class: 'ov-template-link', 'data-open-rid': template.rid },
           h('span', { class: 'ov-type-badge', style: `--type-color:${tmplColor}` }, getTypeAbbr(template.type)),
-          h('span', { style: 'font-size:11px;font-weight:500;color:var(--md-on-surface)' }, template.name || 'unnamed'),
+          h('span', { style: 'font-size:11px;font-weight:500;color:var(--text-1)' }, template.name || 'unnamed'),
           template.businessId
             ? h('span', { class: 'ov-id-value', 'data-copy': template.businessId, style: 'font-size:10px;margin-left:8px' }, template.businessId)
             : false,
-          h('span', { style: 'font-size:10px;font-family:var(--md-font-mono);color:var(--md-on-surface-variant);margin-left:auto' }, template.rid),
+          h('span', { style: 'font-size:10px;font-family:var(--font-mono);color:var(--text-2);margin-left:auto' }, template.rid),
         ),
-        h('button', { class: 'btn btn--sm', 'data-action': 'template-diff', style: 'margin-top:6px' }, 'Compare to Template'),
+        h('button', { class: 'btn btn-small', 'data-action': 'template-diff', style: 'margin-top:6px' }, 'Compare to Template'),
       ),
     );
   }

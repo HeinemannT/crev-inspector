@@ -164,13 +164,14 @@ const TAB_NAMES = ['connect', 'objects', 'page', 'log'] as const;
 function buildApp(): void {
   const header = h('div', { class: 'header' },
     h('span', { class: 'header-brand' }, 'CREV'),
-    h('div', { class: 'header-status', id: 'header-status' },
+    h('div', { class: 'header-status', id: 'header-status', 'aria-live': 'polite' },
       h('span', { class: `status-dot ${statusDotClass()}` }),
       h('span', { class: 'header-label' }, statusText()),
     ),
     h('button', {
       class: `paint-btn ${S.paintPhase !== 'off' ? 'active' : ''}`,
       id: 'toggle-paint',
+      'aria-label': 'Paint Format',
       title: 'Paint Format: copy visual style between objects.\nApplies: headerColor, fontColor, transparency, shadow, headerStyle, borderStyle.\nPick a source widget, then click targets to apply.',
     }, svg(ICON_PAINT)),
     h('button', {
@@ -180,7 +181,7 @@ function buildApp(): void {
     }, 'Inspect'),
   );
 
-  const tabBar = h('div', { class: 'tab-bar' },
+  const tabBar = h('div', { class: 'tab-bar', role: 'tablist' },
     ...TAB_NAMES.map(t => {
       const label = t.charAt(0).toUpperCase() + t.slice(1);
       const badges: (HTMLElement | string | false | null)[] = [label];
@@ -198,6 +199,8 @@ function buildApp(): void {
       };
       return h('button', {
         class: `tab ${S.activeTab === t ? 'active' : ''}`,
+        role: 'tab',
+        'aria-selected': S.activeTab === t ? 'true' : 'false',
         'data-action': 'tab',
         'data-tab': t,
         title: TAB_TITLES[t] ?? '',
@@ -227,11 +230,11 @@ function buildApp(): void {
 
   const tabContent = h('div', { class: 'tab-content' },
     ...TAB_NAMES.map(t =>
-      h('div', { class: `tab-panel ${S.activeTab === t ? 'active' : ''}`, id: `panel-${t}` }),
+      h('div', { class: `tab-panel ${S.activeTab === t ? 'active' : ''}`, id: `panel-${t}`, role: 'tabpanel' }),
     ),
   );
 
-  const statusBar = h('div', { class: 'status-bar', id: 'status-bar' },
+  const statusBar = h('div', { class: 'status-bar', id: 'status-bar', 'aria-live': 'polite' },
     h('div', { class: 'status-bar-connection' },
       h('span', { class: `status-dot ${statusDotClass()}` }),
       h('span', null, statusBarText()),
@@ -273,7 +276,9 @@ function switchTab(tab: string) {
 
   // Update tab bar + panel visibility
   for (const btn of app.querySelectorAll<HTMLElement>('.tab[data-tab]')) {
-    btn.classList.toggle('active', btn.dataset.tab === tab);
+    const isActive = btn.dataset.tab === tab;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-selected', String(isActive));
   }
   for (const panel of app.querySelectorAll<HTMLElement>('.tab-panel')) {
     const panelTab = panel.id.replace('panel-', '');

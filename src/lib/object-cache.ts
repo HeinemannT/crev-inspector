@@ -52,20 +52,28 @@ export class ObjectCache {
     }
   }
 
+  private switching = false;
+
   /** Switch to a different profile's cache — persist current, load new */
   async switchProfile(newProfileId: string): Promise<void> {
     if (newProfileId === this.profileId) return;
-    // Persist current profile's cache
-    await this.persist();
-    // Switch to new profile
-    this.profileId = newProfileId;
-    this.cache.clear();
-    this.cachedValues = null;
-    await this.load();
+    this.switching = true;
+    try {
+      // Persist current profile's cache, then swap
+      await this.persist();
+      this.profileId = newProfileId;
+      this.cache.clear();
+      this.cachedValues = null;
+      if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+      await this.load();
+    } finally {
+      this.switching = false;
+    }
   }
 
   /** Merge an object into the cache, enriching existing entries */
   put(obj: BmpObject): void {
+    if (this.switching) return; // profile switch in progress — discard stale writes
     this.mergeObject(obj);
     this.scheduleSave();
     this.evictIfNeeded();
@@ -73,6 +81,7 @@ export class ObjectCache {
 
   /** Merge multiple objects (batched: single save + evict) */
   putAll(objects: BmpObject[]): void {
+    if (this.switching) return;
     for (const obj of objects) this.mergeObject(obj);
     if (objects.length > 0) {
       this.scheduleSave();
@@ -140,6 +149,15 @@ export class ObjectCache {
       this.saveTimer = null;
       this.persist();
     }, CACHE_SAVE_DELAY);
+  }
+
+  /** Flush pending writes immediately (call before SW may suspend). */
+  async flush(): Promise<void> {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+      await this.persist();
+    }
   }
 
   private async persist() {

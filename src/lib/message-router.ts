@@ -30,9 +30,17 @@ export { getLinkedDefs } from './handlers/objects';
 
 // ── Entry points ─────────────────────────────────────────────────
 
+/**
+ * All handlers are gated on settingsReady.  When the SW wakes from
+ * suspension, chrome.storage.local.get runs before any handler fires.
+ * This eliminates per-handler settingsReady.then() wrappers and
+ * prevents stale DEFAULT_SETTINGS reads on wake.
+ */
+
 /** Handle a message from the panel port (persistent connection). */
 export async function handlePanelMessage(msg: InspectorMessage) {
   const ctx = getCtx();
+  await ctx.settingsReady;
   const entry = getHandler(msg.type);
   if (entry) {
     await entry.handler(msg, r => ctx.sendToPanel(r), { isOneShot: false });
@@ -40,8 +48,9 @@ export async function handlePanelMessage(msg: InspectorMessage) {
 }
 
 /** Handle a message from a content script port. */
-export function handleContentMessage(msg: InspectorMessage, senderTabId?: number) {
+export async function handleContentMessage(msg: InspectorMessage, senderTabId?: number) {
   const ctx = getCtx();
+  await ctx.settingsReady;
   const entry = getHandler(msg.type);
   if (entry) {
     entry.handler(msg, r => ctx.sendToPanel(r), { senderTabId, isOneShot: false });
@@ -56,8 +65,12 @@ export function handleOneShotMessage(
 ): boolean {
   const entry = getHandler(msg.type);
   if (!entry) return false;
-  entry.handler(msg, sendResponse, { senderTabId: sender.tab?.id, isOneShot: true });
-  return entry.async;
+  // Gate on settingsReady — handler calls sendResponse async after settings load
+  const ctx = getCtx();
+  ctx.settingsReady.then(() => {
+    entry.handler(msg, sendResponse, { senderTabId: sender.tab?.id, isOneShot: true });
+  });
+  return true; // always async — settingsReady may not be resolved yet
 }
 
 // ── Legacy exports (used by service-worker.ts) ───────────────────

@@ -229,7 +229,8 @@ export async function pollHealth() {
 }
 
 export function startHealthPolling() {
-  if (healthTimer) return;
+  // Always clear first — timer IDs become stale after SW suspension
+  stopHealthPolling();
   // Delay first poll so runAuthTest() completes first
   healthTimer = setTimeout(() => {
     pollHealth();

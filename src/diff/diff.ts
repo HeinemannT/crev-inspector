@@ -14,7 +14,7 @@ import { CODE_PROPS_FOR_TYPE } from '../lib/types';
 let MergeView: typeof import('@codemirror/merge').MergeView | null = null;
 let EditorState: typeof import('@codemirror/state').EditorState | null = null;
 let EditorView: typeof import('@codemirror/view').EditorView | null = null;
-let oneDark: typeof import('@codemirror/theme-one-dark').oneDark | null = null;
+let catppuccinMocha: typeof import('../editor/catppuccin-theme').catppuccinMocha | null = null;
 
 const root = document.getElementById('diff-root')!;
 
@@ -210,12 +210,12 @@ async function updateMergeView() {
       import('@codemirror/merge'),
       import('@codemirror/state'),
       import('@codemirror/view'),
-      import('@codemirror/theme-one-dark'),
+      import('../editor/catppuccin-theme'),
     ]);
     MergeView = mergeModule.MergeView;
     EditorState = stateModule.EditorState;
     EditorView = viewModule.EditorView;
-    oneDark = themeModule.oneDark;
+    catppuccinMocha = themeModule.catppuccinMocha;
   }
 
   const container = document.getElementById('merge-container');
@@ -235,7 +235,7 @@ async function updateMergeView() {
       extensions: [
         EditorView!.editable.of(false),
         EditorState!.readOnly.of(true),
-        oneDark!,
+        catppuccinMocha!,
       ],
     },
     b: {
@@ -243,7 +243,7 @@ async function updateMergeView() {
       extensions: [
         EditorView!.editable.of(false),
         EditorState!.readOnly.of(true),
-        oneDark!,
+        catppuccinMocha!,
       ],
     },
     parent: container,

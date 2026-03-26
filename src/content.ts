@@ -80,6 +80,7 @@ function injectStyles() {
     h('button', {
       class: 'crev-paint-close',
       id: 'crev-paint-close',
+      'aria-label': 'Close paint mode',
       onClick: () => sendToSW({ type: 'TOGGLE_PAINT' } as InspectorMessage),
     }, '\u2715'),
   );

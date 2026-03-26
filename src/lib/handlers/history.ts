@@ -1,5 +1,8 @@
 /**
  * History, favorites, and activity handlers.
+ *
+ * All handlers are gated on settingsReady at the router level —
+ * no per-handler .then() wrappers needed.
  */
 
 import { register } from '../handler-registry';
@@ -7,44 +10,29 @@ import { getCtx } from '../sw-context';
 import { getActivityLog } from '../activity';
 
 register('GET_HISTORY', (msg, respond) => {
-  const ctx = getCtx();
-  ctx.settingsReady.then(() => {
-    respond({ type: 'HISTORY_DATA', entries: ctx.history.getAll() });
-  });
-}, true);
+  respond({ type: 'HISTORY_DATA', entries: getCtx().history.getAll() });
+});
 
 register('CLEAR_HISTORY', (msg, respond) => {
   const ctx = getCtx();
-  ctx.settingsReady.then(() => {
-    ctx.history.clear();
-    respond({ type: 'HISTORY_DATA', entries: [] });
-  });
-}, true);
+  ctx.history.clear();
+  respond({ type: 'HISTORY_DATA', entries: [] });
+});
 
 register('TOGGLE_FAVORITE', (msg, respond) => {
   const ctx = getCtx();
-  ctx.settingsReady.then(() => {
-    ctx.favorites.toggle(msg.rid, { name: msg.name, type: msg.objectType, businessId: msg.businessId });
-    respond({ type: 'FAVORITES_DATA', entries: ctx.favorites.getAll() });
-  });
-}, true);
+  ctx.favorites.toggle(msg.rid, { name: msg.name, type: msg.objectType, businessId: msg.businessId });
+  respond({ type: 'FAVORITES_DATA', entries: ctx.favorites.getAll() });
+});
 
 register('GET_FAVORITES', (msg, respond) => {
-  const ctx = getCtx();
-  ctx.settingsReady.then(() => {
-    respond({ type: 'FAVORITES_DATA', entries: ctx.favorites.getAll() });
-  });
-}, true);
+  respond({ type: 'FAVORITES_DATA', entries: getCtx().favorites.getAll() });
+});
 
 register('GET_ACTIVITY', (msg, respond) => {
-  getCtx().settingsReady.then(() => {
-    respond({ type: 'ACTIVITY_LOG', entries: getActivityLog() });
-  });
-}, true);
+  respond({ type: 'ACTIVITY_LOG', entries: getActivityLog() });
+});
 
 register('GET_SCRIPT_HISTORY', (msg, respond) => {
-  const ctx = getCtx();
-  ctx.settingsReady.then(() => {
-    respond({ type: 'SCRIPT_HISTORY_DATA', entries: ctx.scriptHistory.getAll() });
-  });
-}, true);
+  respond({ type: 'SCRIPT_HISTORY_DATA', entries: getCtx().scriptHistory.getAll() });
+});

@@ -58,16 +58,21 @@ export async function loadSettingsFrom(stored: unknown): Promise<void> {
   resolveSettings();
 }
 
-export async function saveSettings(): Promise<void> {
-  try {
-    const settings = getCtx().settings;
-    // Encrypt passwords before writing to storage
-    const profiles = await Promise.all(settings.profiles.map(async p => ({
-      ...p,
-      bmpPass: p.bmpPass ? await encrypt(p.bmpPass) : '',
-    })));
-    await chrome.storage.local.set({ crev_settings: { ...settings, profiles } });
-  } catch (e) { log.swallow('settings:save', e); }
+let saveChain: Promise<void> = Promise.resolve();
+
+export function saveSettings(): Promise<void> {
+  // Serialize — concurrent saves must not interleave encrypt/write
+  saveChain = saveChain.then(async () => {
+    try {
+      const settings = getCtx().settings;
+      const profiles = await Promise.all(settings.profiles.map(async p => ({
+        ...p,
+        bmpPass: p.bmpPass ? await encrypt(p.bmpPass) : '',
+      })));
+      await chrome.storage.local.set({ crev_settings: { ...settings, profiles } });
+    } catch (e) { log.swallow('settings:save', e); }
+  });
+  return saveChain;
 }
 
 /** Snapshot settings to session storage for instant panel boot */
@@ -80,9 +85,18 @@ export function getActiveProfile() {
   return ctx.settings.profiles.find(p => p.id === ctx.settings.activeProfileId);
 }
 
+let rebuildInFlight: Promise<void> | null = null;
+
 export async function rebuildClient(clearCache = false) {
+  // Serialize — rapid profile switches must not overlap
+  if (rebuildInFlight) await rebuildInFlight;
+  const p = rebuildClientInternal(clearCache);
+  rebuildInFlight = p;
+  try { await p; } finally { rebuildInFlight = null; }
+}
+
+async function rebuildClientInternal(clearCache: boolean) {
   const ctx = getCtx();
-  incrementGeneration(); // bumps generation (cancels in-flight enrichment) + clears enrichedRids/permanentlyFailed
   const profile = getActiveProfile();
   const oldClient = ctx.client;
 
@@ -101,8 +115,8 @@ export async function rebuildClient(clearCache = false) {
     ctx.cache.clear();
     ctx.sendToPanel({ type: 'CACHE_STATS', count: 0 });
   }
-  // Switch cache/history/favorites to new profile — await so settingsReady
-  // doesn't resolve until storage is pointing at the correct profile
+  // Switch storage FIRST — cache must point to new profile before
+  // incrementGeneration() allows new enrichment to write to it.
   const newProfileId = profile?.id ?? '_default';
   await Promise.all([
     ctx.cache.switchProfile(newProfileId).catch(e => log.swallow('settings:switchCache', e)),
@@ -110,6 +124,8 @@ export async function rebuildClient(clearCache = false) {
     ctx.favorites.switchProfile(newProfileId).catch(e => log.swallow('settings:switchFavorites', e)),
     ctx.scriptHistory.switchProfile(newProfileId).catch(e => log.swallow('settings:switchScriptHistory', e)),
   ]);
+  // NOW safe to open the gate for new enrichment
+  incrementGeneration();
 
   resetConnectionState();
   if (ctx.panelPort) {

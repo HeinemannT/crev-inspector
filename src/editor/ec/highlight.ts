@@ -4,7 +4,7 @@
  * Design principles:
  * - No red for non-error tokens (red = error only)
  * - Each token category has a unique hue
- * - Higher contrast on dark #161616 background
+ * - Higher contrast on Catppuccin Mocha base (#1e1e2e)
  * - Strings own amber exclusively; no other category shares it
  */
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
@@ -27,8 +27,8 @@ const extendedHighlightStyle = HighlightStyle.define([
   { tag: tags.null, color: '#94a3b8', fontStyle: 'italic' },
   // Strings — amber (exclusive owner of this hue)
   { tag: tags.string, color: '#fbbf24' },
-  // Comments — dark grey, italic
-  { tag: tags.comment, color: '#555', fontStyle: 'italic' },
+  // Comments — muted, italic (tuned for Catppuccin Mocha #1e1e2e background)
+  { tag: tags.comment, color: '#6c7086', fontStyle: 'italic' },
   // Numbers — soft lavender
   { tag: tags.number, color: '#c4b5fd' },
   // Operators (:=, =, <, >, + …) — muted slate

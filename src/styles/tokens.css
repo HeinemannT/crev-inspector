@@ -4,7 +4,11 @@
  * See DESIGN.md for the full design system specification.
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* ── Self-hosted Inter (latin, 4 weights, ~96KB total) ── */
+@font-face { font-family: 'Inter'; font-weight: 400; font-style: normal; font-display: swap; src: url('../assets/fonts/inter-400.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 500; font-style: normal; font-display: swap; src: url('../assets/fonts/inter-500.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 600; font-style: normal; font-display: swap; src: url('../assets/fonts/inter-600.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 700; font-style: normal; font-display: swap; src: url('../assets/fonts/inter-700.woff2') format('woff2'); }
 
 :root {
   /* ── Surfaces (darkest → lightest) ────────────────── */
@@ -15,7 +19,7 @@
   --surface-4: #444444;
 
   /* ── Text ─────────────────────────────────────────── */
-  --text-1: #f0f0f0;
+  --text-1: #e4e4e4;
   --text-2: #b0b0b0;
   --text-3: #707070;
   --text-disabled: #505050;
@@ -33,7 +37,7 @@
 
   /* ── Typography ───────────────────────────────────── */
   --font-body: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'Geist Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  --font-mono: 'SF Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
 
   --text-xs: 10px;
   --text-sm: 11px;
@@ -78,36 +82,7 @@
   --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
   --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
 
-  /* ── Legacy aliases (for gradual migration) ───────── */
-  /* These map old M3/editor token names to new tokens   */
-  /* Remove these after all CSS files are migrated       */
-  --md-surface: var(--surface-1);
-  --md-surface-container: var(--surface-1);
-  --md-surface-container-high: var(--surface-2);
-  --md-surface-container-highest: var(--surface-3);
-  --md-surface-variant: var(--surface-3);
-  --md-primary: var(--accent);
-  --md-on-primary: #1a0036;
-  --md-primary-container: #5a2d91;
-  --md-on-primary-container: #e8d5ff;
-  --md-secondary-container: #4a4458;
-  --md-on-secondary-container: #e8def8;
-  --md-on-surface: var(--text-1);
-  --md-on-surface-variant: var(--text-2);
-  --md-outline: var(--text-3);
-  --md-outline-variant: var(--surface-4);
-  --md-error: var(--danger);
-  --md-success: var(--success);
-  --md-warning: var(--warning);
-  --md-font: var(--font-body);
-  --md-font-mono: var(--font-mono);
-  --md-shape-xs: var(--radius-sm);
-  --md-shape-sm: var(--radius-md);
-  --md-shape-md: var(--radius-lg);
-
-  --md-elevation-1: rgba(138, 63, 252, 0.05);
-  --md-elevation-2: rgba(138, 63, 252, 0.08);
-
+  /* ── Editor aliases ─────────────────────────────────── */
   --bg-page: var(--surface-0);
   --bg-section: var(--surface-1);
   --bg-elevated: var(--surface-2);

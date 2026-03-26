@@ -4,6 +4,7 @@
  */
 
 import { resolveCopyText, getModifier, COPY_TOOLTIP } from './namespace';
+import { ICON_PENCIL, ICON_ARROW_OUT, ICON_CHECK } from './icons';
 
 const PANEL_ID = 'crev-quick-inspector';
 
@@ -17,6 +18,7 @@ interface QuickInspectorData {
   type?: string;
   name?: string;
   isFavorite?: boolean;
+  codePreview?: string;
 }
 
 export function showQuickInspector(
@@ -70,17 +72,28 @@ export function showQuickInspector(
   ridRow.textContent = `RID: ${data.rid}`;
   panelEl.appendChild(ridRow);
 
+  // Code preview (first 2 lines, faded)
+  if (data.codePreview) {
+    const codeEl = document.createElement('div');
+    codeEl.className = 'crev-qi-code';
+    codeEl.textContent = data.codePreview;
+    panelEl.appendChild(codeEl);
+  }
+
   // Star button
   const starBtn = document.createElement('button');
   starBtn.className = `crev-qi-star${data.isFavorite ? ' active' : ''}`;
   starBtn.textContent = data.isFavorite ? '\u2605' : '\u2606';
   starBtn.title = data.isFavorite ? 'Remove from pinned' : 'Pin this object';
+  starBtn.setAttribute('aria-label', starBtn.title);
   starBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     onToggleFavorite?.(data.rid);
     // Toggle visual state immediately
     const isNowFav = starBtn.classList.toggle('active');
     starBtn.textContent = isNowFav ? '\u2605' : '\u2606';
+    starBtn.title = isNowFav ? 'Remove from pinned' : 'Pin this object';
+    starBtn.setAttribute('aria-label', starBtn.title);
   });
   panelEl.appendChild(starBtn);
 
@@ -94,7 +107,7 @@ export function showQuickInspector(
   copyRidBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     navigator.clipboard.writeText(data.rid).then(() => {
-      copyRidBtn.textContent = '\u2713';
+      copyRidBtn.innerHTML = ICON_CHECK;
       setTimeout(() => { copyRidBtn.textContent = 'Copy RID'; }, 600);
     }).catch(() => {});
   });
@@ -110,14 +123,14 @@ export function showQuickInspector(
       getModifier(e as MouseEvent),
     );
     navigator.clipboard.writeText(text).then(() => {
-      copyBidBtn.textContent = `\u2713 ${label}`;
+      copyBidBtn.innerHTML = `${ICON_CHECK} ${label}`;
       setTimeout(() => { copyBidBtn.textContent = 'Copy ID'; }, 600);
     }).catch(() => {});
   });
 
   const editorBtn = document.createElement('button');
   editorBtn.className = 'crev-qi-btn crev-qi-btn--accent';
-  editorBtn.textContent = 'Editor';
+  editorBtn.innerHTML = `${ICON_PENCIL} Editor`;
   editorBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     onOpenEditor(data.rid);
@@ -126,7 +139,7 @@ export function showQuickInspector(
 
   const fullViewBtn = document.createElement('button');
   fullViewBtn.className = 'crev-qi-btn';
-  fullViewBtn.textContent = 'Full View';
+  fullViewBtn.innerHTML = `${ICON_ARROW_OUT} Full View`;
   fullViewBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     onOpenObjectView?.(data.rid);

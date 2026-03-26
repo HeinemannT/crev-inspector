@@ -73,34 +73,30 @@ export function getLinkedDefs(objectType: string): LinkedObjectDef[] {
 
 register('GET_CACHE', (msg, respond) => {
   const ctx = getCtx();
-  ctx.settingsReady.then(() => {
-    const objects = msg.filter ? ctx.cache.search(msg.filter) : ctx.cache.getAll();
-    respond({ type: 'CACHE_DATA', objects });
-  });
-}, true);
+  const objects = msg.filter ? ctx.cache.search(msg.filter) : ctx.cache.getAll();
+  respond({ type: 'CACHE_DATA', objects });
+});
 
-register('HOVER_LOOKUP', (msg, respond) => {
+register('HOVER_LOOKUP', async (msg, respond) => {
   const ctx = getCtx();
-  ctx.settingsReady.then(async () => {
-    // Fast path: check cache (includes code preview if properties were fetched)
-    const cached = ctx.cache.get(msg.rid);
-    if (cached?.name || cached?.type) {
-      const codePreview = extractCachedCode(cached);
-      respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid, name: cached.name, type: cached.type, businessId: cached.businessId, codePreview });
-      return;
-    }
-    // Slow path: EC lookup (identity only — no code fetch for RID lookups)
-    if (!ctx.client) { respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid }); return; }
-    try {
-      const identity = await ctx.client.lookupIdentity(msg.rid);
-      respond({
-        type: 'HOVER_LOOKUP_RESULT', rid: msg.rid,
-        name: identity?.name, type: identity?.type, businessId: identity?.businessId,
-      });
-    } catch {
-      respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid });
-    }
-  });
+  // Fast path: check cache (includes code preview if properties were fetched)
+  const cached = ctx.cache.get(msg.rid);
+  if (cached?.name || cached?.type) {
+    const codePreview = extractCachedCode(cached);
+    respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid, name: cached.name, objectType: cached.type, businessId: cached.businessId, codePreview });
+    return;
+  }
+  // Slow path: EC lookup (identity only — no code fetch for RID lookups)
+  if (!ctx.client) { respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid }); return; }
+  try {
+    const identity = await ctx.client.lookupIdentity(msg.rid);
+    respond({
+      type: 'HOVER_LOOKUP_RESULT', rid: msg.rid,
+      name: identity?.name, objectType: identity?.type, businessId: identity?.businessId,
+    });
+  } catch {
+    respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid });
+  }
 }, true);
 
 /** Extract code preview from a cached object's properties (if code-bearing type). */
@@ -112,10 +108,9 @@ function extractCachedCode(obj: BmpObject): string | undefined {
   return code.length > 500 ? code.slice(0, 500) : code;
 }
 
-register('HOVER_RESOLVE', (msg, respond) => {
+register('HOVER_RESOLVE', async (msg, respond) => {
   const ctx = getCtx();
-  ctx.settingsReady.then(async () => {
-    if (!ctx.client) { respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref }); return; }
+  if (!ctx.client) { respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref }); return; }
     try {
       // EC: resolve namespace.bid reference to identity + code preview in one call.
       // output() returns raw text without evaluating the expression.
@@ -139,14 +134,13 @@ register('HOVER_RESOLVE', (msg, respond) => {
       const codePreview = codeRaw && codeRaw.length > 500 ? codeRaw.slice(0, 500) : (codeRaw || undefined);
       respond({
         type: 'HOVER_RESOLVE_RESULT', ref: msg.ref,
-        name: parts[0] || undefined, type: parts[1] || undefined,
+        name: parts[0] || undefined, objectType: parts[1] || undefined,
         rid: parts[2] || undefined, businessId: parts[3] || undefined,
         codePreview,
       });
     } catch {
       respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref });
     }
-  });
 }, true);
 
 register('CLEAR_CACHE', (msg, respond) => {
@@ -163,78 +157,73 @@ register('OBJECTS_DISCOVERED', (msg) => {
   ctx.sendToPanel({ type: 'CACHE_STATS', count: ctx.cache.size });
 });
 
-register('SERVER_LOOKUP', (msg) => {
+register('SERVER_LOOKUP', async (msg) => {
   const ctx = getCtx();
-  ctx.settingsReady.then(async () => {
-    try {
-      const obj = await lookupObject(msg.rid);
-      ctx.history.record({ rid: msg.rid, name: obj.name, type: obj.type, businessId: obj.businessId, action: 'viewed', timestamp: Date.now() });
-      ctx.sendToPanel({ type: 'SERVER_LOOKUP_RESULT', rid: msg.rid, object: obj });
-    } catch (e) {
-      ctx.sendToPanel({ type: 'SERVER_LOOKUP_RESULT', rid: msg.rid, object: null, error: errorMessage(e) });
-    }
-  });
+  try {
+    const obj = await lookupObject(msg.rid);
+    ctx.history.record({ rid: msg.rid, name: obj.name, type: obj.type, businessId: obj.businessId, action: 'viewed', timestamp: Date.now() });
+    ctx.sendToPanel({ type: 'SERVER_LOOKUP_RESULT', rid: msg.rid, object: obj });
+  } catch (e) {
+    ctx.sendToPanel({ type: 'SERVER_LOOKUP_RESULT', rid: msg.rid, object: null, error: errorMessage(e) });
+  }
 });
 
-register('LINKED_LOOKUP', (msg) => {
+register('LINKED_LOOKUP', async (msg) => {
   const ctx = getCtx();
   const defs = getLinkedDefs(msg.objectType);
   if (defs.length === 0) return;
 
-  ctx.settingsReady.then(async () => {
-    if (!ctx.client) {
-      for (const def of defs) {
-        ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label, error: 'Not connected' });
-      }
-      return;
-    }
-
-    let ref: string;
-    try {
-      ref = await ctx.client.resolveRef(msg.rid);
-    } catch (e) {
-      for (const def of defs) {
-        ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label, error: errorMessage(e) });
-      }
-      return;
-    }
-
+  if (!ctx.client) {
     for (const def of defs) {
-      try {
-        const code = [
-          `_p := ${ref}`,
-          `_l := _p.${def.ecProperty}`,
-          'IF _l != MISSING THEN',
-          '  _l.id.whenMissing("") + "|||" + _l.name.whenMissing("") + "|||" + _l.rid.whenMissing("")',
-          'ELSE',
-          '  ""',
-          'ENDIF',
-        ].join('\n');
-        const result = await ctx.client.executeEc(code, undefined, false);
-        if (!result.ok || !result.log?.includes('|||')) {
-          ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label });
-          continue;
-        }
-        const line = result.log.trim().split('\n').find(l => l.includes('|||'));
-        if (!line) {
-          ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label });
-          continue;
-        }
-        const [lId, lName, lRid] = line.split('|||').map(s => s.trim());
-        ctx.sendToPanel({
-          type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label,
-          linkedId: lId || undefined, linkedName: lName || undefined, linkedRid: lRid || undefined,
-        });
-      } catch (e) {
-        ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label, error: errorMessage(e) });
-      }
+      ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label, error: 'Not connected' });
     }
-  });
+    return;
+  }
+
+  let ref: string;
+  try {
+    ref = await ctx.client.resolveRef(msg.rid);
+  } catch (e) {
+    for (const def of defs) {
+      ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label, error: errorMessage(e) });
+    }
+    return;
+  }
+
+  for (const def of defs) {
+    try {
+      const code = [
+        `_p := ${ref}`,
+        `_l := _p.${def.ecProperty}`,
+        'IF _l != MISSING THEN',
+        '  _l.id.whenMissing("") + "|||" + _l.name.whenMissing("") + "|||" + _l.rid.whenMissing("")',
+        'ELSE',
+        '  ""',
+        'ENDIF',
+      ].join('\n');
+      const result = await ctx.client.executeEc(code, undefined, false);
+      if (!result.ok || !result.log?.includes('|||')) {
+        ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label });
+        continue;
+      }
+      const line = result.log.trim().split('\n').find(l => l.includes('|||'));
+      if (!line) {
+        ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label });
+        continue;
+      }
+      const [lId, lName, lRid] = line.split('|||').map(s => s.trim());
+      ctx.sendToPanel({
+        type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label,
+        linkedId: lId || undefined, linkedName: lName || undefined, linkedRid: lRid || undefined,
+      });
+    } catch (e) {
+      ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label, error: errorMessage(e) });
+    }
+  }
 });
 
 register('FULL_LOOKUP', async (msg, respond) => {
   const ctx = getCtx();
-  await ctx.settingsReady;
   try {
     const obj = await lookupObject(msg.rid);
     let template: { rid: string; name: string; type: string; businessId?: string } | undefined;

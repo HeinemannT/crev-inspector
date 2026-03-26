@@ -105,7 +105,7 @@ function renderUI() {
         h('span', { class: 'cs-type-badge', style: `--type-color:${color}` }, abbr),
         h('span', { class: 'cs-result-name' }, first.name ?? 'unnamed'),
         h('span', { class: 'cs-result-bid' }, first.businessId ?? ''),
-        h('span', { style: 'font-size:10px;color:var(--md-on-surface-variant)' }, `${group.length} match${group.length !== 1 ? 'es' : ''}`),
+        h('span', { style: 'font-size:10px;color:var(--text-2)' }, `${group.length} match${group.length !== 1 ? 'es' : ''}`),
       );
 
       const groupEl = h('div', { class: 'cs-result-group' }, header);
