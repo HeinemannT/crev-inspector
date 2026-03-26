@@ -174,6 +174,72 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 // ── Port connections ────────────────────────────────────────────
 
+/** Safe postMessage — swallows errors from disconnected ports. */
+function safeSend(port: chrome.runtime.Port, msg: InspectorMessage) {
+  try { port.postMessage(msg); }
+  catch (e) { log.swallow('sw:safeSend', e); }
+}
+
+/** Push initial state to a newly connected content port (after settingsReady). */
+function initContentPort(port: chrome.runtime.Port, tabId: number | undefined) {
+  port.onMessage.addListener((msg: InspectorMessage) => {
+    handleContentMessage(msg, tabId ?? undefined);
+  });
+
+  // All initial pushes gated on settingsReady — inspectActive and cache
+  // are only valid after boot completes (restored from storage).
+  settingsReady.then(() => {
+    safeSend(port, { type: 'INSPECT_STATE', active: inspectActive });
+    safeSend(port, { type: 'ENRICH_MODE', mode: settings.enrichMode });
+
+    // Push cached enrichments so a fresh content script (after F5) has data immediately
+    const enrichments: Record<string, { businessId?: string; type?: string; name?: string; templateBusinessId?: string }> = {};
+    for (const obj of cache.getAll()) {
+      if (obj.businessId || obj.type || obj.name) {
+        enrichments[obj.rid] = { businessId: obj.businessId, type: obj.type, name: obj.name, templateBusinessId: obj.templateBusinessId };
+      }
+    }
+    if (Object.keys(enrichments).length > 0) {
+      safeSend(port, { type: 'BADGE_ENRICHMENT', enrichments });
+    }
+  });
+
+  if (panelPort && tabId != null) {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]?.id === tabId) {
+        logActivity('info', 'Content script connected');
+        sendPageInfoToPanel(tabId);
+        const det = getTabDetection(tabId);
+        panelPort?.postMessage({
+          type: 'DETECTION_STATE',
+          ...(det ?? { phase: 'checking' as import('./lib/types').DetectionPhase, confidence: 0, signals: [] }),
+        } satisfies InspectorMessage);
+      }
+    });
+  }
+}
+
+/** Push initial state to a newly connected panel port. */
+function initPanelPort(port: chrome.runtime.Port) {
+  port.onMessage.addListener((msg: InspectorMessage) => {
+    handlePanelMessage(msg);
+  });
+
+  startHealthPolling();
+  runAuthTest();
+
+  settingsReady.then(() => {
+    safeSend(port, { type: 'INSPECT_STATE', active: inspectActive });
+    safeSend(port, { type: 'CACHE_STATS', count: cache.size });
+
+    // Flush messages queued while panel was closed
+    for (const queued of pendingPanelMessages) safeSend(port, queued);
+    pendingPanelMessages.length = 0;
+  });
+
+  import('./lib/paint').then(m => m.pushPaintState()).catch(e => log.swallow('sw:pushPaint', e));
+}
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === 'content') {
     const tabId = port.sender?.tab?.id;
@@ -181,67 +247,13 @@ chrome.runtime.onConnect.addListener((port) => {
       contentPorts.set(tabId, port);
       port.onDisconnect.addListener(() => contentPorts.delete(tabId));
     }
-
-    port.onMessage.addListener((msg: InspectorMessage) => {
-      handleContentMessage(msg, tabId ?? undefined);
-    });
-
-    settingsReady.then(() => {
-      try {
-        port.postMessage({ type: 'INSPECT_STATE', active: inspectActive } satisfies InspectorMessage);
-        port.postMessage({ type: 'ENRICH_MODE', mode: settings.enrichMode } satisfies InspectorMessage);
-      } catch { /* port may have disconnected */ }
-    });
-
-    // Push cached enrichments so a fresh content script (after F5) has data immediately
-    const enrichments: Record<string, {businessId?: string; type?: string; name?: string; templateBusinessId?: string}> = {};
-    for (const obj of cache.getAll()) {
-      if (obj.businessId || obj.type || obj.name) {
-        enrichments[obj.rid] = { businessId: obj.businessId, type: obj.type, name: obj.name, templateBusinessId: obj.templateBusinessId };
-      }
-    }
-    if (Object.keys(enrichments).length > 0) {
-      port.postMessage({ type: 'BADGE_ENRICHMENT', enrichments } satisfies InspectorMessage);
-    }
-
-    if (panelPort && tabId != null) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]?.id === tabId) {
-          logActivity('info', 'Content script connected');
-          sendPageInfoToPanel(tabId);
-          const det = getTabDetection(tabId);
-          panelPort?.postMessage({
-            type: 'DETECTION_STATE',
-            ...(det ?? { phase: 'checking' as import('./lib/types').DetectionPhase, confidence: 0, signals: [] }),
-          } satisfies InspectorMessage);
-        }
-      });
-    }
+    initContentPort(port, tabId ?? undefined);
   }
 
   if (port.name === 'panel') {
     panelPort = port;
     port.onDisconnect.addListener(() => { panelPort = null; stopHealthPolling(); });
-    startHealthPolling();
-    runAuthTest();
-
-    port.onMessage.addListener((msg: InspectorMessage) => {
-      handlePanelMessage(msg);
-    });
-
-    settingsReady.then(() => {
-      try {
-        port.postMessage({ type: 'INSPECT_STATE', active: inspectActive } satisfies InspectorMessage);
-        port.postMessage({ type: 'CACHE_STATS', count: cache.size } satisfies InspectorMessage);
-      } catch { /* port may have disconnected */ }
-    });
-    import('./lib/paint').then(m => m.pushPaintState()).catch(e => log.swallow('sw:pushPaint', e));
-
-    // Flush any messages queued while panel was closed (e.g., switch-profile shortcut)
-    for (const queued of pendingPanelMessages) {
-      port.postMessage(queued);
-    }
-    pendingPanelMessages.length = 0;
+    initPanelPort(port);
   }
 });
 
