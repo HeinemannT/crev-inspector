@@ -20,21 +20,18 @@
   gap: 5px;
   padding: 2px 8px;
   border-radius: 2px;
-  border-left: 2px solid var(--crev-color, #707070);
   font: 600 11px/1.3 'Inter', system-ui, sans-serif;
   color: #fff;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+  background: var(--crev-color, #707070);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
   pointer-events: auto;
   user-select: none;
   white-space: nowrap;
 }
-.crev-label:hover { background: rgba(0, 0, 0, 0.75); animation: none; }
-.crev-label-flash-pick { background: #ff832b !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
-.crev-label-flash-ok { background: #42be65 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
-.crev-label-flash-error { background: #fa4d56 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.crev-label:hover { filter: brightness(1.15); }
+.crev-label-flash-pick { background: #ff832b !important; }
+.crev-label-flash-ok { background: #42be65 !important; }
+.crev-label-flash-error { background: #fa4d56 !important; }
 .crev-label-text {
   cursor: pointer;
   max-width: 140px;
