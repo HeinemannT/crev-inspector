@@ -38,6 +38,8 @@ export type PageMessage =
   | { type: 'OBJECTS_DISCOVERED'; objects: BmpObject[] }
   | { type: 'GET_PAGE_INFO' }
   | { type: 'PAGE_INFO'; url: string; rid?: string; tabRid?: string; widgets: WidgetInfo[]; detection?: { confidence: number; signals: string[]; isBmp: boolean } }
+  | { type: 'GET_CONTEXT_RID' }
+  | { type: 'CONTEXT_RID_DATA'; rid?: string; name?: string; type?: string; businessId?: string }
   | { type: 'SELECT_OBJECT'; rid: string }
   | { type: 'COPY_TO_CLIPBOARD'; text: string };
 
@@ -167,7 +169,9 @@ export type OverlayModeMessage =
 export type ObjectViewMessage =
   | { type: 'OPEN_OBJECT_VIEW'; rid: string }
   | { type: 'FULL_LOOKUP'; rid: string }
-  | { type: 'FULL_LOOKUP_RESULT'; rid: string; object: BmpObject | null; template?: { rid: string; name: string; type: string; businessId?: string }; children?: Array<{ rid: string; name?: string; type?: string; businessId?: string }>; error?: string };
+  | { type: 'FULL_LOOKUP_RESULT'; rid: string; object: BmpObject | null; template?: { rid: string; name: string; type: string; businessId?: string }; children?: Array<{ rid: string; name?: string; type?: string; businessId?: string }>; error?: string }
+  | { type: 'FETCH_CHILDREN'; rid: string }
+  | { type: 'FETCH_CHILDREN_RESULT'; rid: string; children: Array<{ rid: string; name?: string; type?: string; businessId?: string }>; error?: string };
 
 // ── Diff ─────────────────────────────────────────────────────────
 export type DiffMessage =

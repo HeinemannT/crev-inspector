@@ -21,6 +21,7 @@ import { restoreActivity, logActivity } from './lib/activity';
 import { createSettingsReady, loadSettingsFrom } from './lib/settings';
 import { registerTabListeners, sendPageInfoToPanel } from './lib/tab-awareness';
 import { handleContentMessage, handlePanelMessage, handleOneShotMessage, toggleInspect } from './lib/message-router';
+import { setContextRid, getContextRid, deleteContextRid } from './lib/context-rid';
 
 // ── State ───────────────────────────────────────────────────────
 
@@ -127,15 +128,14 @@ chrome.contextMenus.removeAll(() => {
 });
 
 let compareRid: { rid: string; name?: string } | null = null;
-const contextRidMap = new Map<number, { rid: string; name?: string; type?: string; businessId?: string }>();
 
 // Clean up context menu state when tabs close
-chrome.tabs.onRemoved.addListener((tabId) => { contextRidMap.delete(tabId); });
+chrome.tabs.onRemoved.addListener((tabId) => { deleteContextRid(tabId); });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   const tabId = tab?.id;
   if (!tabId) return;
-  const ctxRid = contextRidMap.get(tabId);
+  const ctxRid = getContextRid(tabId);
   if (!ctxRid) return;
 
   const menuId = typeof info.menuItemId === 'string' ? info.menuItemId : '';
@@ -299,7 +299,7 @@ chrome.runtime.onMessage.addListener((msg: InspectorMessage, sender, sendRespons
   if (msg.type === 'SET_CONTEXT_RID') {
     const tabId = sender.tab?.id;
     if (tabId != null) {
-      contextRidMap.set(tabId, { rid: msg.rid, name: msg.name, type: msg.objectType, businessId: msg.businessId });
+      setContextRid(tabId, { rid: msg.rid, name: msg.name, type: msg.objectType, businessId: msg.businessId });
     }
     return false;
   }

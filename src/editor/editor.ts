@@ -15,7 +15,7 @@ import { catppuccinMocha } from './catppuccin-theme'
 // Shared types + context helpers
 import { type SaveTarget, type ScriptHistoryEntry } from '../lib/types'
 import { h, svg, render as renderDom } from '../lib/dom'
-import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_BRACKETS, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING } from '../lib/icons'
+import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_BRACKETS, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE } from '../lib/icons'
 import { renderEcOutput } from './ec-output'
 import {
   type EditorContext,
@@ -55,6 +55,7 @@ let lastOutputOk = true
 let historyEntries: ScriptHistoryEntry[] = []
 const wrapCompartment = new Compartment()
 let wrapLines = false
+let tablePreview = true
 
 // ── Init ─────────────────────────────────────────────────────────
 
@@ -191,6 +192,7 @@ function renderShell() {
     h('div', { class: 'editor-bottom-bar', id: 'bottom-bar' },
       h('button', { class: 'btn-bottom', id: 'btn-clear', title: 'Clear editor and output' }, svg(ICON_X), ' Clear'),
       h('button', { class: 'btn-bottom', id: 'btn-wrap', title: 'Toggle line wrapping' }, svg(ICON_WRAP), ' Wrap'),
+      h('button', { class: `btn-bottom${tablePreview ? ' active' : ''}`, id: 'btn-table', title: 'Toggle table rendering' }, svg(ICON_TABLE), ' Table'),
       h('div', { class: 'editor-bottom-spacer' }),
       h('button', { class: 'btn-bottom', id: 'btn-vars' }, svg(ICON_VARIABLE), ' Vars'),
       h('button', { class: 'btn-bottom', id: 'btn-snippets' }, svg(ICON_BRACKETS), ' Snippets'),
@@ -208,6 +210,7 @@ function renderShell() {
   document.getElementById('btn-snippets')?.addEventListener('click', toggleSnippets)
   document.getElementById('btn-history')?.addEventListener('click', toggleHistory)
   document.getElementById('btn-wrap')?.addEventListener('click', toggleWrap)
+  document.getElementById('btn-table')?.addEventListener('click', toggleTable)
   wireDragHandle()
 
   // Wire template/instance toggle
@@ -526,7 +529,7 @@ function renderBottomContent() {
     const cls = lastOutputOk ? 'ok' : 'error'
     const durationText = lastDuration != null ? `\u00b7 ${lastDuration}ms` : ''
     const outputContent = lastOutputOk
-      ? renderEcOutput(lastOutputText)
+      ? renderEcOutput(lastOutputText, tablePreview)
       : h('div', { class: 'editor-output-content error' }, lastOutputText)
     renderDom(container,
       h('div', { class: 'editor-output-header' },
@@ -712,6 +715,14 @@ function toggleWrap() {
   }
   const btn = document.getElementById('btn-wrap')
   if (btn) btn.className = `btn-bottom${wrapLines ? ' active' : ''}`
+}
+
+function toggleTable() {
+  tablePreview = !tablePreview
+  const btn = document.getElementById('btn-table')
+  if (btn) btn.className = `btn-bottom${tablePreview ? ' active' : ''}`
+  // Re-render output if currently showing
+  if (bottomPanelOpen && bottomMode === 'output') renderBottomContent()
 }
 
 function loadHistory() {

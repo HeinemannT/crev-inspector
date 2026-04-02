@@ -1,6 +1,53 @@
 # Changelog
 
-## 0.12.0 — 2026-03-26
+## 0.12.0 — 2026-04-02
+
+### Upgrade Package
+
+#### Enrichment
+- **Version-aware `batchEnrich`** — uses `resolveRef()` internally, returns `templateBusinessId` on all BMP versions (removed binary-only fallback path)
+- **Simplified enrichment pipeline** — removed `useEc` routing branch, always uses single `batchEnrich` code path
+
+#### Badge System
+- **Shift-click template copy** — works on all BMP versions; shows "No template" with dimmed badge when unavailable
+- **Badge tooltip** — shows copy modifier hints (click/shift/ctrl/double-click)
+- **Search button removed from badges** — moved to Objects tab; badges show EC button only for code-bearing types
+- **Dead CSS cleanup** — removed `.crev-action-btn` class
+
+#### Objects Tab
+- **Search references button** — per-row magnifying glass icon next to copy button, sends `SEARCH_REFERENCES`
+
+#### Editor Readability Overhaul
+- **Font sizes bumped** — output, toolbar, bottom bar, tables all increased from `--text-xs` (10px) to `--text-sm`/`--text-base`
+- **Contrast improved** — `--text-muted` (#707070, 3.5:1) replaced with `--text-secondary` (#b0b0b0, 7:1) throughout editor
+- **Property tabs and target toggle** — inactive state bumped from muted to secondary
+- **Drag handle** — increased visibility (opacity 0.4→0.5, color bumped)
+
+#### Table Preview
+- **Toggle button** — "Table" button in editor bottom bar, defaults ON, renders box-drawing tables as HTML
+- **Unclosed table handling** — partial EC output flushes accumulated rows
+- **Cell improvements** — hover title on `<td>`, empty cells render as non-breaking space
+
+#### Tab Emptying Fix
+- **Page tab** — `activate()` no longer clears data before requesting fresh
+- **Objects tab** — `CACHE_DATA` guard prevents empty response from wiping list
+- **Sidepanel render guard** — `document.body.contains(panel)` check before rendering
+
+#### Webpage Inspector (replaces Page tab)
+- **Context object** — shows identity, location breadcrumb (namespace root path), and properties
+- **Template tree** — lazy-loaded children via `FETCH_CHILDREN`, expandable properties per node
+- **Widgets list** — retained from old Page tab, shows detected page widgets
+- **Detection card** — compact BMP detection status
+- **Context RID lifecycle** — cleared on page navigation, extracted to `context-rid.ts` module
+- **FULL_LOOKUP parallelized** — object lookup + template resolution run concurrently
+- **Template children** — tree shows template's children (config hierarchy), not instance's
+
+#### Keyboard Shortcuts
+- **Edge compatibility** — `Alt+Shift+E` for Extended Code window on Windows (Edge reserves `Ctrl+Shift+E`)
+
+#### Code Quality
+- **Shared `formatValue()`** — extracted from detail-view.ts and page-tab.ts into utils.ts
+- **18 new tests** — shift-click fallback, CACHE_DATA guard, batchEnrich error path, context-rid module, page tab message handling (race conditions, stale responses)
 
 ### Design System
 - **Self-hosted Inter font** — 4 weights (96KB), no CDN dependency, works offline

@@ -7,7 +7,7 @@ import type { BmpObject, InspectorMessage } from '../lib/types';
 import { getTypeColor, getTypeAbbr, SCRIPT_PROPS } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
-import { copyBtn, copyBtnIdentity, copyText, ICON_ARROW_LEFT, ICON_STAR_FILLED, ICON_STAR_HOLLOW } from './utils';
+import { copyBtn, copyBtnIdentity, copyText, formatValue, ICON_ARROW_LEFT, ICON_STAR_FILLED, ICON_STAR_HOLLOW } from './utils';
 import { log } from '../lib/logger';
 import { LOOKUP_WATCHDOG_TIMEOUT } from '../lib/constants';
 import { S } from './state';
@@ -426,13 +426,4 @@ function wireDelegate(panel: HTMLElement): void {
   });
 }
 
-function formatValue(value: unknown): string {
-  if (value == null) return '';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  if (Array.isArray(value)) return value.map(String).join(', ');
-  if (typeof value === 'object') {
-    try { return JSON.stringify(value); } catch (e) { log.swallow('detail:formatValue', e); return String(value); }
-  }
-  return String(value);
-}
+

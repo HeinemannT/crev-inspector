@@ -71,8 +71,11 @@ export function resolveCopyText(
     const ns = resolveNamespace(identity.type ?? '');
     return { text: `${ns}.${identity.businessId}`, label: 'ref' };
   }
-  if (modifier === 'shift' && identity.templateBusinessId) {
-    return { text: identity.templateBusinessId, label: 'Template ID' };
+  if (modifier === 'shift') {
+    if (identity.templateBusinessId) {
+      return { text: identity.templateBusinessId, label: 'Template ID' };
+    }
+    return { text: '', label: 'No template' };
   }
   return { text: identity.businessId ?? identity.rid, label: 'ID' };
 }

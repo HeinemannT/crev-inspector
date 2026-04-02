@@ -131,13 +131,7 @@ export async function enrichBadges(rids: string[]) {
     return;
   }
 
-  // Enrichment mode: EC lookup() on 5.6.3+, binary GetObject on older versions.
-  // If version is unknown (null), fall back to binary — works on all versions.
-  const useEc = ctx.client.supportsLookup === true;
-
-  ctx.logActivity('info', useEc
-    ? `Enriching ${uncached.length} from server\u2026`
-    : `Enriching ${uncached.length} via binary commands\u2026`);
+  ctx.logActivity('info', `Enriching ${uncached.length} from server\u2026`);
 
   // Phase 2: Batch enrich — chunks of BATCH_CHUNK_SIZE, parallel with concurrency cap
   const failedRids: string[] = [];
@@ -148,9 +142,7 @@ export async function enrichBadges(rids: string[]) {
     if (isCancelled()) return { failed: chunk, batchError: false };
     const failed: string[] = [];
     try {
-      const { results: batchResults, error: batchError } = useEc
-        ? await ctx.client!.batchEnrich(chunk, abortSignal)
-        : await ctx.client!.batchEnrichBinary(chunk, abortSignal);
+      const { results: batchResults, error: batchError } = await ctx.client!.batchEnrich(chunk, abortSignal);
       if (isCancelled()) return { failed: chunk, batchError: false };
       if (batchError) {
         return { failed: chunk, batchError: true, errorMsg: batchError };
@@ -222,7 +214,7 @@ export async function enrichBadges(rids: string[]) {
 
   if (cancelled()) { ctx.logActivity('info', 'Enrichment cancelled (profile changed)'); return; }
 
-  // Mark remaining failures as permanently failed (no Phase 3 binary fallback)
+  // Mark remaining failures as permanently failed
   for (const rid of failedRids) permanentlyFailed.set(rid, Date.now());
   capPermanentlyFailed();
 

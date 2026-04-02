@@ -6,7 +6,7 @@ import type { InspectorMessage, BmpObject, HistoryEntry } from '../../lib/types'
 import { getTypeColor, getTypeAbbr } from '../../lib/types';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
-import { truncRid, copyText, relativeTime, ICON_COPY } from '../utils';
+import { truncRid, copyText, relativeTime, ICON_COPY, ICON_SEARCH } from '../utils';
 import { resolveCopyText, getModifier, COPY_TOOLTIP } from '../../lib/namespace';
 import { DISPLAY_LIMIT_STEP, SEARCH_DEBOUNCE } from '../../lib/constants';
 import { S as shared } from '../state';
@@ -44,7 +44,10 @@ export class ObjectsTab implements Tab {
   handleMessage(msg: InspectorMessage): boolean {
     switch (msg.type) {
       case 'CACHE_DATA':
-        this.objects = msg.objects;
+        // Don't replace existing objects with empty response unless actively filtering
+        if (msg.objects.length > 0 || this.filter.length > 0) {
+          this.objects = msg.objects;
+        }
         return true;
       case 'HISTORY_DATA':
         this.history = msg.entries;
@@ -175,7 +178,16 @@ export class ObjectsTab implements Tab {
                 h('td', null, h('span', { class: 'type-badge', style: `--type-color:${color}` }, getTypeAbbr(obj.type))),
                 h('td', { class: 'col-name' }, obj.name ?? ''),
                 h('td', { class: 'col-id' }, display),
-                h('td', null,
+                h('td', { style: 'display:flex;gap:2px' },
+                  h('button', {
+                    class: 'copy-btn',
+                    'data-action': 'search-ref',
+                    'data-rid': obj.rid,
+                    'data-search-bid': obj.businessId ?? '',
+                    'data-search-type': obj.type ?? '',
+                    'data-search-name': obj.name ?? '',
+                    title: 'Find references',
+                  }, svg(ICON_SEARCH)),
                   h('button', {
                     class: 'copy-btn',
                     'data-action': 'copy',
@@ -228,9 +240,21 @@ export class ObjectsTab implements Tab {
       'toggle-history': () => { this.historyExpanded = !this.historyExpanded; rerender(); },
       'recent-click': (el) => { const rid = el.dataset.rid; if (rid) this.onNavigate(rid); },
       'row-click': (el, e) => {
-        if ((e.target as HTMLElement).closest('[data-action="copy"]')) return;
+        if ((e.target as HTMLElement).closest('[data-action="copy"]') || (e.target as HTMLElement).closest('[data-action="search-ref"]')) return;
         const rid = el.dataset.rid;
         if (rid) this.onNavigate(rid);
+      },
+      'search-ref': (el, e) => {
+        e.stopPropagation();
+        const rid = el.dataset.rid;
+        if (!rid) return;
+        this.send({
+          type: 'SEARCH_REFERENCES',
+          rid,
+          businessId: el.dataset.searchBid || undefined,
+          objectType: el.dataset.searchType || undefined,
+          name: el.dataset.searchName || undefined,
+        });
       },
       copy: (el, e) => {
         e.stopPropagation();

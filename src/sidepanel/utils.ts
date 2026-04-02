@@ -5,7 +5,7 @@ import { h, svg } from '../lib/dom';
 import { type CopyableIdentity, resolveCopyText, getModifier, COPY_TOOLTIP } from '../lib/namespace';
 
 // Re-export icons used by sidepanel consumers
-export { ICON_COPY, ICON_REFRESH, ICON_ARROW_LEFT, ICON_PAINT, ICON_EYE_OPEN, ICON_EYE_CLOSED, ICON_STAR_FILLED, ICON_STAR_HOLLOW } from '../lib/icons';
+export { ICON_COPY, ICON_REFRESH, ICON_ARROW_LEFT, ICON_PAINT, ICON_EYE_OPEN, ICON_EYE_CLOSED, ICON_STAR_FILLED, ICON_STAR_HOLLOW, ICON_SEARCH } from '../lib/icons';
 
 /** Copy button with optional tooltip override. */
 export function copyBtn(text: string, tooltip?: string): HTMLElement {
@@ -52,6 +52,18 @@ export function truncRid(rid: string): string {
 /** Copy text to clipboard */
 export function copyText(text: string): void {
   navigator.clipboard.writeText(text).catch(e => log.swallow('clipboard:write', e));
+}
+
+/** Format an unknown value for display in property tables */
+export function formatValue(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map(String).join(', ');
+  if (typeof value === 'object') {
+    try { return JSON.stringify(value); } catch { return String(value); }
+  }
+  return String(value);
 }
 
 /** Format relative time (e.g. "2s ago", "1m ago") */

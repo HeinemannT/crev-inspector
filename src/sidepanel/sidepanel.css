@@ -1450,6 +1450,114 @@ body {
   margin-top: 2px;
 }
 
+/* ── Webpage Inspector (tree view) ──────────────── */
+
+.inspector-location {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  margin: var(--space-1) var(--space-2);
+}
+
+.inspector-location-label {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.inspector-location-path {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-branch { }
+
+.tree-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  font-size: var(--text-sm);
+  min-height: 22px;
+}
+
+.tree-chevron {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  user-select: none;
+  border-radius: var(--radius-sm);
+}
+
+.tree-chevron.clickable {
+  cursor: pointer;
+}
+
+.tree-chevron.clickable:hover {
+  color: var(--text-1);
+  background: var(--surface-2);
+}
+
+.tree-name {
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tree-name:hover {
+  color: var(--accent-dim);
+}
+
+.tree-count {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.tree-props-toggle {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 3px 0;
+  user-select: none;
+}
+
+.tree-props-toggle:hover {
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.tree-props-scroll {
+  max-height: 200px;
+  overflow-y: auto;
+  border-left: 1px solid var(--surface-3);
+  margin-bottom: var(--space-1);
+}
+
+.tree-loading {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-style: italic;
+  padding: 2px 0;
+}
+
 /* ── Scrollbar ─────────────────────────────────── */
 
 /* Scrollbars defined in base.css */

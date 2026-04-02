@@ -132,7 +132,7 @@ onPortMessage((msg: InspectorMessage) => {
     const changed = activeTab.handleMessage(msg);
     if (changed) {
       const panel = getActivePanel();
-      if (panel) activeTab.render(panel);
+      if (panel && document.body.contains(panel)) activeTab.render(panel);
     }
   }
 
@@ -194,7 +194,7 @@ function buildApp(): void {
       }
 
       const TAB_TITLES: Record<string, string> = {
-        connect: 'Server profiles', objects: 'Discovered objects', page: 'Current BMP page',
+        connect: 'Server profiles', objects: 'Discovered objects', page: 'Webpage Inspector',
         log: 'Activity feed',
       };
       return h('button', {

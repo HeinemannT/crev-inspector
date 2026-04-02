@@ -424,15 +424,14 @@ describe('parseTreeNodeInfo', () => {
   });
 });
 
-describe('supportsLookup null falls through to binary enrichment', () => {
-  it('enriches via batchEnrichBinary when supportsLookup is null (old BMP, version detection failed)', async () => {
+describe('supportsLookup null uses batchEnrich (version-aware)', () => {
+  it('enriches via batchEnrich when supportsLookup is null (old BMP, version detection failed)', async () => {
     mockChromeStorage();
     const ctx = makeCtx();
 
     ctx.client = {
-      supportsLookup: null, // version detection failed (e.g. /buildNum returned 401)
-      batchEnrich: vi.fn(async () => { throw new Error('should not be called'); }),
-      batchEnrichBinary: vi.fn(async (rids: string[]) => {
+      supportsLookup: null,
+      batchEnrich: vi.fn(async (rids: string[]) => {
         const results: Record<string, any> = {};
         for (const rid of rids) {
           results[rid] = { businessId: `BID-${rid}`, type: 'KPI', name: `Name-${rid}` };
@@ -449,9 +448,8 @@ describe('supportsLookup null falls through to binary enrichment', () => {
 
     await enrichBadges(['111', '222']);
 
-    // Should have used binary enrichment, not EC
-    expect(ctx.client.batchEnrich).not.toHaveBeenCalled();
-    expect(ctx.client.batchEnrichBinary).toHaveBeenCalled();
+    // batchEnrich is now version-aware and handles all BMP versions
+    expect(ctx.client.batchEnrich).toHaveBeenCalled();
 
     // Should have broadcast enrichment results
     const badges = ctx._broadcastedMessages.filter((m: any) => m.type === 'BADGE_ENRICHMENT');
@@ -459,17 +457,13 @@ describe('supportsLookup null falls through to binary enrichment', () => {
     expect(badges[0].enrichments['111']).toEqual({ businessId: 'BID-111', type: 'KPI', name: 'Name-111' });
   });
 
-  it('OLD behavior: supportsLookup null would have blocked enrichment', async () => {
-    // This test documents the old behavior that was broken.
-    // Before the fix, enrichBadges returned early with "Waiting for version detection…"
-    // when supportsLookup was null. Now it falls through to binary.
+  it('does not log version detection warning', async () => {
     mockChromeStorage();
     const ctx = makeCtx();
 
     ctx.client = {
       supportsLookup: null,
-      batchEnrich: vi.fn(),
-      batchEnrichBinary: vi.fn(async () => ({ results: {} })),
+      batchEnrich: vi.fn(async () => ({ results: {} })),
     };
     ctx.cache.get = vi.fn(() => undefined);
 
@@ -480,14 +474,14 @@ describe('supportsLookup null falls through to binary enrichment', () => {
 
     await enrichBadges(['111']);
 
-    // With the fix: should NOT log "Waiting for version detection"
+    // Should NOT log "Waiting for version detection"
     const waitingCalls = (ctx.logActivity as any).mock.calls.filter(
       (c: any[]) => c[1]?.includes?.('Waiting for version detection')
     );
     expect(waitingCalls.length).toBe(0);
 
-    // Should have attempted binary enrichment
-    expect(ctx.client.batchEnrichBinary).toHaveBeenCalled();
+    // Should have attempted enrichment via batchEnrich
+    expect(ctx.client.batchEnrich).toHaveBeenCalled();
   });
 });
 

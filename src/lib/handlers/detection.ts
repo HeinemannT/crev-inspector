@@ -6,6 +6,7 @@ import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import { getTabDetection, setTabDetection, updateBadge } from '../detection';
 import { sendPageInfoToPanel, handleGetDetection } from '../tab-awareness';
+import { getContextRid } from '../context-rid';
 import type { DetectionPhase } from '../types';
 
 register('DETECTION_RESULT', (msg, respond, meta) => {
@@ -36,4 +37,19 @@ register('GET_PAGE_INFO', () => {
 
 register('GET_DETECTION', () => {
   handleGetDetection();
+});
+
+register('GET_CONTEXT_RID', () => {
+  const ctx = getCtx();
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs[0]?.id;
+    const entry = tabId != null ? getContextRid(tabId) : undefined;
+    ctx.sendToPanel({
+      type: 'CONTEXT_RID_DATA',
+      rid: entry?.rid,
+      name: entry?.name,
+      type: entry?.type,
+      businessId: entry?.businessId,
+    });
+  });
 });

@@ -10,6 +10,7 @@ import { log } from './logger';
 import { handleContentMessage } from './message-router';
 import { cancelPaint } from './paint';
 import { checkBmpCookie } from './cookie-gate';
+import { deleteContextRid } from './context-rid';
 
 let activeTabId: number | null = null;
 
@@ -64,6 +65,7 @@ export function registerTabListeners() {
     }
     if (changeInfo.url) {
       deleteTabDetection(tabId);
+      deleteContextRid(tabId); // Clear stale context on navigation
 
       if (activeTabId === tabId) {
         autoDetectProfile(changeInfo.url!);

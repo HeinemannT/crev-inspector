@@ -7,44 +7,30 @@ import type { BmpObject, InspectorMessage, PaintPhase } from './lib/types';
 import { getTypeColor, getTypeAbbr, TYPES_WITH_CODE } from './lib/types';
 import { getAllRidElements } from './lib/dom-scanner';
 import { log } from './lib/logger';
-import { ICON_CODE, ICON_SEARCH } from './lib/icons';
+import { ICON_CODE } from './lib/icons';
 import { DISCOVERED_RIDS_CAP, LABEL_DBLCLICK_WINDOW } from './lib/constants';
 import { resolveCopyText, getModifier } from './lib/namespace';
 import { sendToSW } from './lib/content-port';
 import { showQuickInspector, hideQuickInspector } from './lib/quick-inspector';
 import type { ContentState } from './content-state';
 
-/** Create the action strip below a badge (EC button + search references) */
-function createActionStrip(rid: string, enrichment: { businessId?: string; type?: string; name?: string }): HTMLSpanElement {
+/** Create the action strip below a badge (EC button for code-bearing types). Returns null if no actions. */
+function createActionStrip(rid: string, enrichment: { businessId?: string; type?: string; name?: string }): HTMLSpanElement | null {
+  if (!enrichment.type || !TYPES_WITH_CODE.has(enrichment.type)) return null;
+
   const actions = document.createElement('span');
   actions.className = 'crev-actions';
 
-  if (enrichment.type && TYPES_WITH_CODE.has(enrichment.type)) {
-    const ecBtn = document.createElement('button');
-    ecBtn.className = 'crev-ec-btn';
-    ecBtn.innerHTML = ICON_CODE;
-    ecBtn.title = 'Open in editor';
-    ecBtn.setAttribute('aria-label', 'Open in editor');
-    ecBtn.addEventListener('click', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      chrome.runtime.sendMessage({ type: 'OPEN_EDITOR', rid });
-    });
-    actions.appendChild(ecBtn);
-  }
-
-  const searchBtn = document.createElement('button');
-  searchBtn.className = 'crev-action-btn';
-  searchBtn.innerHTML = ICON_SEARCH;
-  searchBtn.title = 'Find references';
-  searchBtn.setAttribute('aria-label', 'Find references');
-  searchBtn.addEventListener('click', (e) => {
+  const ecBtn = document.createElement('button');
+  ecBtn.className = 'crev-ec-btn';
+  ecBtn.innerHTML = ICON_CODE;
+  ecBtn.title = 'Open in editor';
+  ecBtn.setAttribute('aria-label', 'Open in editor');
+  ecBtn.addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation();
-    chrome.runtime.sendMessage({
-      type: 'SEARCH_REFERENCES', rid,
-      businessId: enrichment.businessId, objectType: enrichment.type, name: enrichment.name,
-    });
+    chrome.runtime.sendMessage({ type: 'OPEN_EDITOR', rid });
   });
-  actions.appendChild(searchBtn);
+  actions.appendChild(ecBtn);
 
   return actions;
 }
@@ -84,6 +70,7 @@ export function syncOverlays(s: ContentState) {
     const labelText = document.createElement('span');
     labelText.className = 'crev-label-text';
     labelText.textContent = enrichment?.businessId ?? enrichment?.name ?? getTypeAbbr(enrichment?.type);
+    labelText.title = 'Click: copy ID \u00b7 Shift: template \u00b7 Ctrl: reference \u00b7 Double-click: inspect';
     label.appendChild(labelText);
 
     // Click text → paint pick/apply if in paint mode, otherwise copy (with dblclick → quick inspector)
@@ -121,6 +108,14 @@ export function syncOverlays(s: ContentState) {
         s.labelClickRid = null;
         const enriched = s.enrichments.get(rid);
         const { text, label: copyLabel } = resolveCopyText({ rid, ...enriched }, mod);
+        if (!text) {
+          // Nothing to copy (e.g., shift-click but no template) — flash with muted style
+          const original = labelText.textContent;
+          labelText.textContent = copyLabel;
+          label.style.opacity = '0.5';
+          setTimeout(() => { labelText.textContent = original; label.style.opacity = ''; }, 800);
+          return;
+        }
         const flashText = copyLabel === 'ID' ? '\u2713' : `\u2713 ${copyLabel}`;
         navigator.clipboard.writeText(text).then(() => {
           const original = labelText.textContent;
@@ -136,9 +131,10 @@ export function syncOverlays(s: ContentState) {
 
     element.appendChild(label);
 
-    // Action strip below badge (EC button + search references)
+    // Action strip below badge (EC button for code-bearing types)
     if (enrichment) {
-      element.appendChild(createActionStrip(rid, enrichment));
+      const strip = createActionStrip(rid, enrichment);
+      if (strip) element.appendChild(strip);
     }
     s.badgedElements.add(element);
 
@@ -215,7 +211,8 @@ export function updateLabels(s: ContentState) {
       }
       // Add action strip if not already present (enrichment arrived after initial badge render)
       if (parent && !parent.querySelector('.crev-actions')) {
-        parent.appendChild(createActionStrip(rid, enrichment));
+        const strip = createActionStrip(rid, enrichment);
+        if (strip) parent.appendChild(strip);
       }
     }
   }

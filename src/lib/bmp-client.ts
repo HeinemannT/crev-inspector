@@ -234,15 +234,33 @@ export class BmpClient {
     };
   }
 
-  /** Batch enrich: get businessId, type, name for multiple RIDs in a single EC call */
+  /** Batch enrich: get businessId, type, name, templateBusinessId for multiple RIDs.
+   *  Version-aware: uses resolveRef() which returns lookup(rid) on 5.6.3+ or
+   *  namespace refs (t.{bid}) on pre-5.6.3. Works on all BMP versions. */
   async batchEnrich(rids: string[], signal?: AbortSignal): Promise<{ results: Record<string, { businessId?: string; type?: string; name?: string; templateBusinessId?: string }>; error?: string }> {
     let valid = rids.filter(Boolean).filter(rid => /^-?\d+$/.test(rid));
     if (valid.length === 0) return { results: {} };
     if (valid.length > BATCH_CHUNK_SIZE) valid = valid.slice(0, BATCH_CHUNK_SIZE);
 
+    // Resolve all refs in parallel (version-aware: lookup() or t.{bid})
+    const resolved = await pMap(valid, async (rid): Promise<{ rid: string; ref: string } | null> => {
+      try {
+        const ref = await this.resolveRef(rid);
+        return { rid, ref };
+      } catch (e) {
+        log.debug('batchEnrich', `resolveRef failed for ${rid}:`, e);
+        return null;
+      }
+    }, MAX_PARALLEL);
+    const refs = resolved.filter((r): r is { rid: string; ref: string } => r !== null);
+
+    if (refs.length === 0) {
+      return { results: {}, error: `All ${valid.length} RIDs failed ref resolution` };
+    }
+
     const lines = ['_d := "|||"', '_r := ""'];
-    for (const rid of valid) {
-      lines.push(`_o := lookup(${rid})`);
+    for (const { rid, ref } of refs) {
+      lines.push(`_o := ${ref}`);
       lines.push('IF _o != MISSING THEN');
       lines.push('  _t := _o.linkedTo');
       // Enterprise objects use .template instead of .linkedTo
@@ -250,16 +268,16 @@ export class BmpClient {
       lines.push('    _t := _o.template');
       lines.push('  ENDIF');
       lines.push('  _tid := (IF _t != MISSING THEN _t.id.whenMissing("") ELSE "" ENDIF)');
-      lines.push('  _r := _r + _o.rid.whenMissing("SKIP") + _d + _o.id.whenMissing("") + _d + _o.className.whenMissing("") + _d + _o.name.whenMissing("") + _d + _tid + "\\n"');
+      lines.push(`  _r := _r + "${rid}" + _d + _o.id.whenMissing("") + _d + _o.className.whenMissing("") + _d + _o.name.whenMissing("") + _d + _tid + "\\n"`);
       lines.push('ENDIF');
     }
     lines.push('_r');
     const code = lines.join('\n');
 
     const result = await this.executeEc(code, undefined, false, signal);
-    if (!result.ok) { log.debug('batchEnrich', `EC failed for ${valid.length} RIDs:`, result.error); return { results: {}, error: result.error ?? 'EC execution failed' }; }
+    if (!result.ok) { log.debug('batchEnrich', `EC failed for ${refs.length} RIDs:`, result.error); return { results: {}, error: result.error ?? 'EC execution failed' }; }
     if (result.log == null) { log.debug('batchEnrich', 'EC returned null output'); return { results: {}, error: 'EC returned null output' }; }
-    if (result.log.trim() === '') { log.debug('batchEnrich', `EC returned empty for ${valid.length} RIDs:`, valid); return { results: {} }; }
+    if (result.log.trim() === '') { log.debug('batchEnrich', `EC returned empty for ${refs.length} RIDs:`, refs.map(r => r.rid)); return { results: {} }; }
 
     const out: Record<string, { businessId?: string; type?: string; name?: string; templateBusinessId?: string }> = {};
     for (const parts of parsePipeLines(result.log, 4)) {
@@ -271,44 +289,15 @@ export class BmpClient {
       const tbid = parts[4] || undefined;
       out[rid] = { businessId: bid, type: typ, name, templateBusinessId: tbid };
     }
-    const missed = valid.filter(r => !(r in out));
-    if (missed.length > 0) log.debug('batchEnrich', `${missed.length}/${valid.length} RIDs not found by lookup():`, missed);
+    const missed = refs.filter(r => !(r.rid in out));
+    if (missed.length > 0) log.debug('batchEnrich', `${missed.length}/${refs.length} RIDs not resolved in EC:`, missed.map(r => r.rid));
     return { results: out };
   }
 
   /** Lightweight identity fetch for a single RID (version-aware) */
   async lookupIdentity(rid: string): Promise<{ name?: string; type?: string; businessId?: string; templateBusinessId?: string } | null> {
-    if (this.supportsLookup !== false) {
-      const { results } = await this.batchEnrich([rid]);
-      return results[rid] ?? null;
-    }
-    const identity = await this.getObjectIdentity(rid);
-    if (!identity) return null;
-    return { name: identity.name, type: identity.type, businessId: identity.businessId };
-  }
-
-  /** Binary fallback: enrich via TreeItemCommand (one per RID, parallel).
-   *  Uses lightweight tree node metadata — avoids the NullPointerException
-   *  that GetObjectCommand hits on some old BMP objects. */
-  async batchEnrichBinary(rids: string[], signal?: AbortSignal): Promise<{ results: Record<string, { businessId?: string; type?: string; name?: string }>; error?: string }> {
-    let valid = rids.filter(Boolean).filter(rid => /^-?\d+$/.test(rid));
-    if (valid.length === 0) return { results: {} };
-    if (valid.length > BATCH_CHUNK_SIZE) valid = valid.slice(0, BATCH_CHUNK_SIZE);
-
-    const out: Record<string, { businessId?: string; type?: string; name?: string }> = {};
-
-    await pMap(valid, async (rid) => {
-      try {
-        const parsed = await this.fetchTreeItem(rid, signal);
-        if (parsed) {
-          out[rid] = { businessId: parsed.businessId, type: parsed.type, name: parsed.name };
-        }
-      } catch {
-        // Individual RID failed — skip
-      }
-    }, MAX_PARALLEL);
-
-    return { results: out };
+    const { results } = await this.batchEnrich([rid]);
+    return results[rid] ?? null;
   }
 
   /** Fetch code properties via EC */

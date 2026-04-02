@@ -26,8 +26,9 @@ const LINE_CLASSES: Record<LineType, string> = {
   text: '',
 };
 
-/** Render EC output text into colored DOM elements. */
-export function renderEcOutput(text: string): HTMLElement {
+/** Render EC output text into colored DOM elements.
+ *  When tableMode is false, box-drawing tables are rendered as plain text. */
+export function renderEcOutput(text: string, tableMode = true): HTMLElement {
   const container = h('div', { class: 'ec-output-parsed' });
   if (!text) return container;
 
@@ -37,31 +38,33 @@ export function renderEcOutput(text: string): HTMLElement {
   let tableHeaders: string[] = [];
 
   for (const line of lines) {
-    // Table detection (box-drawing characters)
-    if (line.includes('╔') || line.includes('┌')) {
-      inTable = true;
-      tableRows = [];
-      tableHeaders = [];
-      continue;
-    }
-    if (inTable && (line.includes('╚') || line.includes('└'))) {
-      inTable = false;
-      if (tableHeaders.length > 0 || tableRows.length > 0) {
-        container.appendChild(renderTable(tableHeaders, tableRows));
+    if (tableMode) {
+      // Table detection (box-drawing characters)
+      if (line.includes('╔') || line.includes('┌')) {
+        inTable = true;
+        tableRows = [];
+        tableHeaders = [];
+        continue;
       }
-      continue;
-    }
-    if (inTable && (line.includes('╠') || line.includes('├') || line.includes('═') || line.includes('─'))) {
-      continue; // separator line
-    }
-    if (inTable && (line.includes('║') || line.includes('│'))) {
-      const cells = line.split(/[║│]/).map(c => c.trim()).filter(c => c !== '');
-      if (tableHeaders.length === 0) {
-        tableHeaders = cells;
-      } else {
-        tableRows.push(cells);
+      if (inTable && (line.includes('╚') || line.includes('└'))) {
+        inTable = false;
+        if (tableHeaders.length > 0 || tableRows.length > 0) {
+          container.appendChild(renderTable(tableHeaders, tableRows));
+        }
+        continue;
       }
-      continue;
+      if (inTable && (line.includes('╠') || line.includes('├') || line.includes('═') || line.includes('─'))) {
+        continue; // separator line
+      }
+      if (inTable && (line.includes('║') || line.includes('│'))) {
+        const cells = line.split(/[║│]/).map(c => c.trim()).filter(c => c !== '');
+        if (tableHeaders.length === 0) {
+          tableHeaders = cells;
+        } else {
+          tableRows.push(cells);
+        }
+        continue;
+      }
     }
 
     // Regular line
@@ -85,6 +88,11 @@ export function renderEcOutput(text: string): HTMLElement {
     }
   }
 
+  // Flush unclosed table (partial output)
+  if (inTable && (tableHeaders.length > 0 || tableRows.length > 0)) {
+    container.appendChild(renderTable(tableHeaders, tableRows));
+  }
+
   return container;
 }
 
@@ -95,7 +103,10 @@ function renderTable(headers: string[], rows: string[][]): HTMLElement {
     ),
     h('tbody', null,
       ...rows.map(row =>
-        h('tr', null, ...row.map(cell => h('td', null, cell))),
+        h('tr', null, ...row.map(cell => {
+          const display = cell.trim() || '\u00a0';
+          return h('td', { title: cell }, display);
+        })),
       ),
     ),
   );

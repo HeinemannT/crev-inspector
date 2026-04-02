@@ -226,18 +226,31 @@ register('LINKED_LOOKUP', async (msg) => {
 register('FULL_LOOKUP', async (msg, respond) => {
   const ctx = getCtx();
   try {
-    const obj = await lookupObject(msg.rid);
+    // Parallelize: object lookup + template resolution
+    const [obj, tmplResult] = await Promise.all([
+      lookupObject(msg.rid),
+      ctx.client ? ctx.client.resolveTemplate(msg.rid) : Promise.resolve({ templateRid: null } as any),
+    ]);
     let template: { rid: string; name: string; type: string; businessId?: string } | undefined;
-    if (ctx.client) {
-      const tmpl = await ctx.client.resolveTemplate(msg.rid);
-      if (tmpl.templateRid) {
-        template = { rid: tmpl.templateRid, name: tmpl.templateName ?? '', type: tmpl.templateType ?? '', businessId: tmpl.templateBusinessId };
-      }
+    if (tmplResult.templateRid) {
+      template = { rid: tmplResult.templateRid, name: tmplResult.templateName ?? '', type: tmplResult.templateType ?? '', businessId: tmplResult.templateBusinessId };
     }
-    const children = ctx.client ? await ctx.client.fetchChildren(msg.rid) : [];
+    // Fetch children of the template (config hierarchy), falling back to the object itself
+    const childrenRid = template?.rid ?? msg.rid;
+    const children = ctx.client ? await ctx.client.fetchChildren(childrenRid) : [];
     respond({ type: 'FULL_LOOKUP_RESULT', rid: msg.rid, object: obj, template, children });
   } catch (e) {
     respond({ type: 'FULL_LOOKUP_RESULT', rid: msg.rid, object: null, error: errorMessage(e) });
+  }
+}, true);
+
+register('FETCH_CHILDREN', async (msg, respond) => {
+  const ctx = getCtx();
+  try {
+    const children = ctx.client ? await ctx.client.fetchChildren(msg.rid) : [];
+    respond({ type: 'FETCH_CHILDREN_RESULT', rid: msg.rid, children });
+  } catch (e) {
+    respond({ type: 'FETCH_CHILDREN_RESULT', rid: msg.rid, children: [], error: errorMessage(e) });
   }
 }, true);
 
