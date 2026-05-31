@@ -1,0 +1,287 @@
+/**
+ * Shared components — buttons, badges, tables.
+ * Imported by all HTML entry points after tokens.css + base.css.
+ */
+
+/* ── Buttons ──────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  color: var(--text-2);
+  background: none;
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-default),
+              border-color var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default),
+              transform var(--duration-instant) var(--ease-default),
+              box-shadow var(--duration-fast) var(--ease-default);
+  white-space: nowrap;
+  user-select: none;
+}
+.btn:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.btn:disabled {
+  background: var(--surface-2);
+  border-color: var(--surface-3);
+  color: var(--text-disabled);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Keyboard focus ring. `outline: none` is removed by Chrome's stylesheet
+ * when buttons receive focus via mouse, but `:focus-visible` only fires
+ * for keyboard / programmatic focus — keeping mouse interactions clean
+ * while giving Tab-key users a clear "you are here" marker. WCAG AA. */
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Primary: filled accent. Used for the dominant CTA in a form group.
+ * One per surface, max. */
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-bright, #a76dff);
+  border-color: var(--accent-bright, #a76dff);
+}
+
+/* Secondary: muted outline. The neutral choice next to a primary CTA. */
+.btn-secondary {
+  border-color: var(--surface-4);
+  color: var(--text-2);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+/* Accent: purple outline */
+.btn-accent { border-color: var(--accent-dim); color: var(--accent-dim); }
+.btn-accent:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Danger: red */
+.btn-danger { border-color: var(--danger); color: var(--danger); }
+.btn-danger:hover { background: var(--danger); color: #fff; }
+
+/* Success: green */
+.btn-success { border-color: var(--success); color: var(--success); }
+.btn-success:hover { background: var(--success); color: #fff; }
+
+/* Ghost: transparent, no border — used as the "off" state for armed buttons (Run, Save) */
+.btn-ghost { border-color: transparent; color: var(--text-3); }
+.btn-ghost:hover:not(:disabled) { background: var(--surface-3); color: var(--text-2); border-color: transparent; }
+
+/* Same posture as btn-ghost (footer-level button) but hover reveals danger
+ * intent. Used for Reset-all — destructive but routine enough that we don't
+ * want a permanent red outline screaming at the user. */
+.btn-danger-ghost { border-color: transparent; color: var(--text-3); }
+.btn-danger-ghost:hover:not(:disabled) { background: rgba(250, 77, 86, 0.15); color: var(--danger); border-color: transparent; }
+
+/* Size: small */
+.btn-small { padding: 2px var(--space-2); font-size: var(--text-xs); }
+
+/* Size: wide */
+.btn-wide { width: 100%; padding: var(--space-2) var(--space-3); }
+
+/* ── Type chip ────────────────────────────────────────
+ * One coloured type-abbreviation tile shared by every surface that
+ * identifies an object by type: the layout tree, the template/object tree,
+ * the detail-view sibling tree, the Workshop context chips + identity
+ * header, the Objects tab, and the Reference view. Previously these were
+ * three separate rules (.type-badge / .pane-tree-chip / .layout-type) that
+ * had drifted on size (text-xs vs 9px), radius, and min-width, so chips
+ * looked different across surfaces. Unified here; the historical class
+ * names are kept as aliases so existing markup renders identically.
+ * The `--type-color` custom property (set inline per node) drives the fill. */
+.type-chip,
+.type-badge,
+.pane-tree-chip,
+.layout-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--type-color, var(--surface-3));
+  color: #fff;
+  font-size: 9px;
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.3px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* ── Inputs ───────────────────────────────────────── */
+
+.input {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 var(--space-2);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--text-1);
+  background: var(--surface-2);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.25);
+  transition: border-color var(--duration-fast) var(--ease-default),
+              box-shadow var(--duration-fast) var(--ease-default);
+}
+.input::placeholder { color: var(--text-3); }
+.input:hover { border-color: var(--surface-4); }
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.25),
+              0 0 0 2px rgba(186, 15, 254, 0.18);
+}
+.input:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+.input--mono {
+  font-family: var(--font-mono);
+}
+
+/* ── Modal (shared confirmation dialog) ───────────── */
+
+.crev-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2147483600;
+  animation: crev-fade-in var(--duration-fast) var(--ease-default);
+}
+
+.crev-modal {
+  min-width: 280px;
+  max-width: 440px;
+  margin: var(--space-4);
+  padding: var(--space-4);
+  background: var(--surface-1);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  animation: crev-slide-up var(--duration-normal) var(--ease-decelerate);
+}
+
+.crev-modal-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semi);
+  color: var(--text-1);
+  letter-spacing: -0.005em;
+}
+
+.crev-modal-body {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  color: var(--text-2);
+  word-wrap: break-word;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.crev-modal-diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--surface-0);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  margin-top: var(--space-2);
+}
+
+.crev-modal-diff-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.crev-modal-diff-key {
+  color: var(--text-3);
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
+.crev-modal-diff-from {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+.crev-modal-diff-arrow {
+  color: var(--text-3);
+}
+
+.crev-modal-diff-to {
+  color: var(--text-1);
+  font-weight: var(--weight-semi);
+}
+
+.crev-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* ── Cards (soft elevation with hover-lift) ───────── */
+
+.crev-card {
+  background: var(--surface-1);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+  transition: box-shadow var(--duration-fast) var(--ease-default),
+              transform var(--duration-fast) var(--ease-default);
+}
+.crev-card--interactive:hover {
+  box-shadow: var(--shadow-2);
+  transform: translateY(-1px);
+  cursor: pointer;
+}
+
+/* ── Copy Button ──────────────────────────────────── */
+
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  margin-left: var(--space-1);
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-fast) var(--ease-default);
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.copy-btn:hover {
+  color: var(--text-1);
+}

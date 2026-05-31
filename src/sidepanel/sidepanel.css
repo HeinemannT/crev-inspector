@@ -1,0 +1,4227 @@
+/* Tokens + base imported via HTML. Local overrides only. */
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--surface-0);
+  color: var(--text-1);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ── Header ────────────────────────────────────── */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--surface-4);
+  flex-shrink: 0;
+  min-height: 36px;
+}
+
+.header-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  color: var(--text-3);
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  /* Now a real button (in-panel navigate-to popup). Subtle hover so the
+   * affordance is discoverable without competing with the connect button. */
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
+}
+.header-brand:hover { color: var(--text-1); background: rgba(255,255,255,0.04); }
+.header-brand:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Brand menu — small popup anchored under the CREV chip. Lives inside the
+ * panel (not a new tab) so the user keeps their orientation. */
+.brand-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 200px;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.32);
+  padding: 4px;
+  animation: crev-brand-menu-in var(--duration-instant) var(--ease-decelerate);
+}
+@keyframes crev-brand-menu-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.brand-menu-link {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: var(--text-sm);
+  color: var(--text-1);
+  text-decoration: none;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+}
+.brand-menu-link:hover { background: var(--surface-3); color: var(--text-1); }
+.brand-menu-meta {
+  padding: 4px 10px 2px;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  border-top: 1px solid var(--surface-3);
+  margin-top: 4px;
+}
+
+.header-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+}
+.header-brand-mark svg {
+  display: block;
+}
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  padding: 2px var(--space-1);
+  margin: -2px calc(-1 * var(--space-1));
+  border-radius: var(--radius-md);
+  transition: background var(--duration-fast) var(--ease-default);
+}
+.header-status:hover {
+  background: var(--surface-2);
+}
+
+.header-label {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semi);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Profile Switcher Overlay ────────────────────────── */
+
+.profile-switcher {
+  position: fixed;
+  top: 40px;
+  left: 8px;
+  right: 8px;
+  z-index: 1000;
+  background: var(--surface-3);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  padding: 6px 0;
+  animation: ps-slide-down var(--duration-normal) var(--ease-default);
+}
+@keyframes ps-slide-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.ps-title {
+  padding: 4px 12px 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0.3px;
+}
+.ps-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: var(--text-base);
+  color: var(--text-1);
+}
+.ps-row:hover { background: rgba(138, 63, 252, 0.08); }
+.ps-row--active {
+  background: rgba(138, 63, 252, 0.05);
+  color: var(--accent);
+}
+.ps-row--active:hover { filter: brightness(1.15); }
+.ps-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.ps-row--active .ps-num {
+  background: var(--accent-bg);
+  color: var(--text-1);
+}
+.ps-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ps-check {
+  color: var(--success);
+  font-size: var(--text-base);
+  flex-shrink: 0;
+}
+.ps-hint {
+  padding: 4px 12px 2px;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  text-align: center;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-3);
+}
+
+.status-dot.ok { background: var(--success); }
+.status-dot.online { background: var(--success); opacity: 0.6; }
+.status-dot.warn { background: var(--warning); }
+.status-dot.fail { background: var(--danger); }
+
+/* ── Inspect toggle ────────────────────────────── */
+/* Dirty-state pattern: ghost (off) → accent (armed) */
+
+.inspect-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text-3);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background var(--duration-fast) var(--ease-default),
+              border-color var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
+}
+
+.inspect-toggle:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+.inspect-toggle.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.inspect-toggle kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-1);
+  height: 14px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.3px;
+  opacity: 0.7;
+}
+
+.inspect-toggle:hover kbd { opacity: 1; }
+.inspect-toggle.active kbd { background: rgba(255, 255, 255, 0.18); opacity: 0.95; }
+
+/* ── Paint Format button ───────────────────────── */
+/* Borderless micro-action style; accent-bg tint when armed */
+
+.paint-btn,
+.header-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
+}
+
+.paint-btn:hover,
+.header-icon-btn:hover {
+  color: var(--text-1);
+  background: var(--surface-3);
+}
+
+.paint-btn.active {
+  background: rgba(255, 131, 43, 0.18);
+  color: var(--latency-slow);
+}
+
+.header-icon-btn:hover {
+  color: var(--accent);
+}
+
+.paint-status-bar {
+  padding: 5px 12px;
+  background: rgba(255, 131, 43, 0.12);
+  border-bottom: 1px solid rgba(255, 131, 43, 0.3);
+  font-size: var(--text-xs);
+  color: var(--latency-slow);
+  flex-shrink: 0;
+}
+
+.paint-status-bar b { color: #fff; }
+
+.paint-status-bar--error {
+  background: rgba(242, 184, 181, 0.12);
+  border-bottom-color: rgba(242, 184, 181, 0.3);
+  color: var(--danger);
+}
+
+/* ── Tab bar ──────────────────────────────────── */
+
+.tab-bar {
+  display: flex;
+  gap: 0;
+  padding: 0 var(--space-3);
+  background: var(--surface-0);
+  border-bottom: 1px solid var(--surface-4);
+  flex-shrink: 0;
+}
+
+.tab {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-3);
+  cursor: pointer;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  border-radius: 0;
+  background: none;
+  font-family: var(--font-body);
+  white-space: nowrap;
+  transition: color var(--duration-fast) var(--ease-default),
+              border-color var(--duration-fast) var(--ease-default);
+}
+
+.tab:hover {
+  color: var(--text-1);
+}
+
+.tab.active {
+  color: var(--text-1);
+  border-bottom-color: var(--accent);
+  font-weight: var(--weight-semi);
+}
+
+.tab .badge {
+  display: inline-block;
+  padding: 0 5px;
+  margin-left: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-4);
+  font-size: var(--text-xs);
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+.tab.active .badge {
+  background: var(--accent-bg);
+  color: var(--text-1);
+}
+
+.tab .badge.badge--error {
+  background: var(--danger);
+  color: var(--surface-0);
+}
+
+/* ── Tab dot indicators ───────────────────────────── */
+
+.tab-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  margin-left: 4px;
+  vertical-align: middle;
+  background: var(--text-3);
+}
+.tab-dot--ok { background: var(--success); }
+.tab-dot--ok.tab-dot--dim { opacity: 0.6; }
+.tab-dot--fail { background: var(--danger); }
+.tab-dot--warn { background: var(--warning); }
+.tab-dot--gray { background: var(--text-3); }
+
+/* Inspect tab dirty dot — hidden by default; .active reveals an
+ * accent-coloured pip that signals "unsaved edits on the loaded
+ * object" even after the user has switched away. */
+.inspect-dirty-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: 5px;
+  vertical-align: middle;
+  background: var(--accent);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+.inspect-dirty-dot.active {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ── Status strip ─────────────────────────────── */
+
+.status-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--surface-4);
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+
+.status-strip.ok { color: var(--success); }
+.status-strip.fail { color: var(--danger); }
+.status-strip.offline { color: var(--warning); }
+.status-strip.online { color: var(--text-2); }
+
+.status-strip-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-strip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.status-strip-btn:hover {
+  opacity: 1;
+  background: rgba(138, 63, 252, 0.08);
+}
+
+.status-strip-btn.spinning svg {
+  animation: detection-spin 0.8s linear infinite;
+}
+
+.status-strip-reconnect {
+  padding: 2px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--danger);
+  background: color-mix(in srgb, var(--surface-1), var(--danger) 12%);
+  color: var(--danger);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.status-strip-reconnect:hover {
+  background: color-mix(in srgb, var(--surface-1), var(--danger) 22%);
+}
+
+.status-strip.offline .status-strip-reconnect {
+  border-color: var(--warning);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--surface-1), var(--warning) 12%);
+}
+
+.status-strip.offline .status-strip-reconnect:hover {
+  background: color-mix(in srgb, var(--surface-1), var(--warning) 22%);
+}
+
+.status-strip-reconnect.hidden { display: none; }
+
+/* ── Tab content ───────────────────────────────── */
+
+.tab-content { flex: 1; overflow-y: auto; overflow-x: hidden; }
+
+.tab-panel { display: none; padding: 12px; }
+.tab-panel.active { display: block; }
+
+
+/* ── Detection card ────────────────────────────── */
+
+.detection-card {
+  background: var(--surface-1);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: 12px;
+}
+
+.detection-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.detection-status {
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+.detection-status.detected { color: var(--success); }
+.detection-status.not-detected { color: var(--text-2); }
+.detection-status.checking {
+  color: var(--text-2);
+  animation: detection-pulse 1.5s ease-in-out infinite;
+}
+@keyframes detection-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.detection-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--surface-4);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: detection-spin 0.8s linear infinite;
+}
+@keyframes detection-spin {
+  to { transform: rotate(360deg); }
+}
+
+.detection-confidence {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  /* Default to muted so a low/zero confidence reads as informational. The
+     status modifier classes below pick the right tint for each state. */
+  color: var(--text-3);
+}
+/* Tint the score by detection state so a 0% on a not-BMP page reads as
+   muted info, not the alarming purple-on-black it used to. */
+.detection-card.is-detected .detection-confidence { color: var(--success); }
+.detection-card.is-not-detected .detection-confidence { color: var(--text-3); }
+.detection-card.is-checking .detection-confidence { color: var(--accent); }
+
+.detection-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.signal-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: var(--text-xs);
+}
+
+/* ── Section headers ───────────────────────────── */
+
+.section-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--surface-4);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+  margin-top: 12px;
+}
+
+.section-title:first-child { margin-top: 0; }
+
+/* Disclosure variant — section header acts as the toggle for an
+ * optional collapsed body (Layout / Preview). Hover gets a subtle
+ * accent so the affordance is obvious. */
+.section-title--toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: color var(--duration-fast) var(--ease-default);
+}
+.section-title--toggle:hover { color: var(--text-1); }
+.section-title--toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.section-chev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  font-size: 9px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.section-title--open .section-chev { color: var(--accent); }
+/* The refresh button at the right edge should not inherit the toggle
+ * cursor — it is its own click target. */
+.section-title--toggle .refresh-enrich-btn { cursor: pointer; margin-left: auto; }
+
+
+/* ── Layout tree (Page tab — TabSet / Tab / Container view) ─────
+ * Renders the layout subtree for any object that owns a grid. Each row
+ * is name + visual 6-col bar + numeric size. The bar doubles as an
+ * inline-edit affordance (click → number input).
+ */
+.layout-tree {
+  margin: 6px 0 12px;
+  font-size: var(--text-xs);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  padding: 4px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.layout-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: 2px;
+}
+.layout-row:hover { background: var(--surface-2); }
+.layout-row--dragging {
+  opacity: 0.4;
+  background: var(--surface-3);
+}
+/* Drag handle for tab reorder. Hidden until row hover so it doesn't
+ * compete with the size pill for the user's attention; cursor flips
+ * to grab so the affordance is clear once it's visible. */
+.layout-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  font-size: 13px;
+  color: var(--text-3);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  opacity: 0;
+  transition: opacity 100ms ease;
+  flex-shrink: 0;
+}
+.layout-row:hover .layout-handle,
+.layout-row--dragging .layout-handle { opacity: 1; }
+.layout-handle:hover { color: var(--text-1); }
+.layout-handle:active { cursor: grabbing; }
+/* Spacer variant — reserves the same width on rows without a real
+ * handle (Containers, Widgets). Keeps every row's chevron / type
+ * chip / name vertically aligned regardless of which row owns a
+ * draggable handle. */
+.layout-handle--spacer { cursor: default; opacity: 0 !important; }
+/* Ghost insertion indicator that follows the pointer between sibling
+ * rows during a tab drag. Absolute-positioned inside the layout-tree
+ * container, which is the relative positioning root we anchor to. */
+.layout-drop-indicator {
+  position: absolute;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  pointer-events: none;
+  box-shadow: 0 0 4px var(--accent);
+  z-index: 1;
+}
+.layout-tree { position: relative; }
+.layout-row--highlight {
+  background: color-mix(in srgb, var(--surface-2), var(--accent) 25%);
+  outline: 1px solid var(--accent);
+}
+
+/* ── Grid preview (Page tab — visual tab layout mockup) ─────
+ * CSS Grid mirrors BMP's 6-column layout exactly: each Container /
+ * widget gets `grid-column: span N` where N = columns*Screen for the
+ * active breakpoint. Browser handles the row-wrap (when siblings sum
+ * > 6) so the preview shows the real wrap behaviour. Heights are
+ * NOT pixel-accurate — auto-row sizing keeps it readable rather than
+ * faithful.
+ */
+.grid-preview-section {
+  margin: 12px 0;
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  padding: 8px;
+}
+.grid-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.grid-preview-note {
+  font-size: 10px;
+  color: var(--text-3);
+  font-style: italic;
+  margin-bottom: 8px;
+}
+.grid-bp-toggle {
+  display: inline-flex;
+  gap: 1px;
+  background: var(--surface-3);
+  border-radius: 4px;
+  padding: 1px;
+}
+.grid-bp {
+  font-size: 10px;
+  font-weight: var(--weight-medium);
+  padding: 2px 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  border-radius: 3px;
+  font-family: inherit;
+}
+.grid-bp.active {
+  background: var(--accent);
+  color: #fff;
+}
+.grid-preview-tab + .grid-preview-tab { margin-top: 12px; }
+.grid-preview-tab-label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  color: var(--text-2);
+  margin-bottom: 4px;
+}
+.grid-cell {
+  position: relative;
+  padding: 4px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-4);
+  border-radius: 3px;
+  min-height: 28px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: background 100ms ease, border-color 100ms ease;
+}
+.grid-cell:hover {
+  background: var(--surface-3);
+  border-color: var(--accent);
+}
+.grid-cell--highlight {
+  background: color-mix(in srgb, var(--surface-2), var(--accent) 30%);
+  border-color: var(--accent);
+}
+.grid-cell--container {
+  background: color-mix(in srgb, var(--surface-1), var(--text-3) 8%);
+  border-style: dashed;
+}
+.grid-cell--tab {
+  /* Tabs only appear as previewRoots, not as nested grid-cells, but
+   * defensively style them so a misclassified row reads correctly. */
+  border-style: solid;
+  border-width: 2px;
+}
+.grid-cell--hidden {
+  opacity: 0.4;
+  border-style: dotted;
+}
+.grid-cell--deep {
+  text-align: center;
+  color: var(--text-3);
+  font-style: italic;
+}
+.grid-cell-head {
+  /* Span every column of the parent grid so the title sits ABOVE its
+   * nested children instead of stealing one of their columns. No-op
+   * when the parent isn't a grid (leaf cells stay flex). */
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-bottom: 4px;
+  overflow: hidden;
+}
+.grid-cell-type {
+  font-size: 8px;
+  font-weight: var(--weight-semi);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #fff;
+  background: var(--type-color, #707070);
+  padding: 1px 4px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.grid-cell-name {
+  font-size: 10px;
+  color: var(--text-1);
+  flex: 1;
+  min-width: 0;
+  /* Wrap names instead of truncating — even a 3/6 cell has room for
+   * two short lines of 10px text, which beats an ellipsis you have to
+   * hover-tooltip to read. The cell's own height grows to fit. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+.grid-cell-hidden-badge {
+  font-size: 10px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.layout-row--tab { font-weight: var(--weight-semi); }
+.layout-row--tabset { color: var(--text-2); font-style: italic; }
+.layout-chev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  font-size: 10px;
+  color: var(--text-3);
+  user-select: none;
+}
+.layout-chev.clickable { cursor: pointer; color: var(--text-2); }
+.layout-chev.clickable:hover { color: var(--accent); }
+/* .layout-type uses the shared .type-chip rule (components.css). */
+.layout-name {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+.layout-name:hover { color: var(--accent); }
+.layout-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: ew-resize;
+  padding: 1px 4px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  touch-action: none; /* prevent the browser from interpreting horizontal drags as scroll/zoom */
+  user-select: none;
+}
+.layout-size:hover { background: var(--surface-3); }
+.layout-size--dragging {
+  background: var(--surface-3);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.layout-size-bar {
+  display: inline-flex;
+  gap: 1px;
+}
+.layout-size-cell {
+  display: inline-block;
+  width: 4px;
+  height: 8px;
+  background: var(--surface-3);
+  border-radius: 1px;
+}
+.layout-size-cell.filled { background: var(--accent); }
+.layout-size-num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-2);
+  font-weight: var(--weight-medium);
+  min-width: 8px;
+}
+/* Shared resources (Tab + TabSet) get a dotted underline on the size
+ * pill so the user pauses before editing. */
+.layout-size--shared {
+  border-bottom: 1px dotted var(--warning, #f1c21b);
+}
+.layout-loading-spinner {
+  margin-left: 6px;
+  font-size: 11px;
+}
+
+.refresh-enrich-btn {
+  background: none;
+  border: none;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: var(--text-xl);
+  margin-left: 4px;
+  padding: 0 2px;
+  vertical-align: middle;
+  opacity: 0.7;
+}
+.refresh-enrich-btn:hover { opacity: 1; color: var(--accent); }
+
+
+/* .copy-btn and .type-badge defined in components.css */
+
+/* ── Objects table ─────────────────────────────── */
+
+.search-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--surface-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  margin-bottom: 8px;
+  outline: none;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.search-input::placeholder { color: var(--text-2); }
+.search-input:focus { border-color: var(--text-3); }
+
+/* ── Browse (v0.23 search-forward) ───────────────────────────────
+ * Hero search field, compact pinned/recent rail above, and hero empty
+ * state when nothing is cached yet. Designed for the configurator who
+ * lands on Browse to FIND something — search bar is the first surface
+ * the eye lands on, not a buried filter on top of a table dump. */
+.browse-quick-rail {
+  margin-bottom: 8px;
+  padding: 4px 6px;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-md);
+}
+.browse-quick-header {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 4px 4px;
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: inherit;
+}
+.browse-quick-header:hover { color: var(--text-1); }
+.browse-quick-section { margin-top: 4px; padding: 4px 4px 0; }
+.browse-quick-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  margin-bottom: 4px;
+}
+.browse-quick-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.browse-quick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  background: var(--surface-0);
+  border: 1px solid var(--surface-3);
+  border-radius: 3px;
+  font-size: var(--text-xs);
+  color: var(--text-1);
+  cursor: pointer;
+  max-width: 220px;
+}
+.browse-quick-chip:hover { border-color: var(--accent); background: var(--surface-2); }
+.browse-quick-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.browse-quick-remove {
+  margin-left: 2px;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0;
+}
+.browse-quick-remove:hover { color: var(--accent); }
+.browse-quick-recent-action {
+  font-size: 10px;
+  color: var(--text-3);
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* Hero search shell — icon · input · clear · count, all on one row */
+.browse-search-shell {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  margin-bottom: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-md);
+  transition: border-color var(--duration-fast) var(--ease-default);
+}
+.browse-search-shell:focus-within {
+  border-color: var(--accent);
+  background: var(--surface-0);
+}
+.browse-search-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.browse-search-icon svg { width: 14px; height: 14px; }
+.browse-search-input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  padding: 6px 0;
+  color: var(--text-1);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+}
+.browse-search-input::placeholder { color: var(--text-3); }
+.browse-search-clear {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: var(--surface-3);
+  color: var(--text-2);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.browse-search-clear:hover { background: var(--surface-4); color: var(--text-1); }
+.browse-search-count {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  flex-shrink: 0;
+  padding: 0 4px;
+}
+
+.browse-type-chips { margin-bottom: 8px; }
+
+.obj-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.obj-table thead th {
+  position: sticky;
+  top: 32px; /* below sticky search-input (~32px tall) */
+  z-index: 1;
+  background: var(--surface-0);
+}
+
+.obj-table th {
+  text-align: left;
+  padding: 4px 6px;
+  color: var(--text-3);
+  font-weight: var(--weight-semi);
+  font-size: var(--text-xs);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--surface-4);
+}
+
+.obj-table th.sortable { cursor: pointer; user-select: none; }
+.obj-table th.sortable:hover { color: var(--text-1); }
+
+.obj-table td {
+  padding: 4px 6px;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--surface-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100px;
+}
+
+.obj-table tbody tr:nth-child(even) { background: var(--surface-1); }
+.obj-table tbody tr:hover { background: var(--surface-3); }
+.obj-row { cursor: pointer; }
+
+.obj-table .col-name {
+  max-width: 160px;
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+.obj-table .col-id {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-2);
+}
+
+.overflow-note {
+  text-align: center;
+  padding: 8px;
+  color: var(--text-2);
+  font-size: var(--text-xs);
+}
+
+/* .btn base + variants defined in components.css */
+
+/* ── Connect tab ───────────────────────────────── */
+
+.connect-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-4);
+}
+
+.connect-status.ok {
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--surface-1), var(--success) 8%);
+}
+
+.connect-status.fail {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--surface-1), var(--danger) 6%);
+}
+
+.connect-status.online {
+  border-color: var(--text-3);
+  background: var(--surface-1);
+}
+
+.connect-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-3);
+}
+
+.connect-status.ok .connect-status-dot { background: var(--success); }
+.connect-status.online .connect-status-dot { background: var(--success); opacity: 0.6; }
+.connect-status.fail .connect-status-dot { background: var(--danger); }
+
+.connect-status-text { flex: 1; min-width: 0; }
+
+.connect-status-title {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+.connect-status.ok .connect-status-title { color: var(--success); }
+.connect-status.online .connect-status-title { color: var(--text-2); }
+.connect-status.fail .connect-status-title { color: var(--danger); }
+
+.connect-status-detail {
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-group { margin-bottom: 8px; }
+
+.field-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  margin-bottom: 4px;
+}
+
+.field-input {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--surface-3);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  outline: none;
+}
+
+.field-input:focus { border-color: var(--accent); }
+.field-input.saved { border-color: var(--success); }
+
+.field-row { display: flex; gap: 8px; }
+.field-row .field-group { flex: 1; min-width: 0; }
+
+.field-hint {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  margin-top: 3px;
+}
+
+/* Inline security warning (HTTP downgrade). Visible only when populated so
+ * the field doesn't reserve vertical space when the URL is fine. Amber so
+ * it reads as advisory, not error — we don't block save. */
+.field-hint--security:empty { display: none; }
+.field-hint--security {
+  color: var(--warning);
+  font-weight: var(--weight-medium);
+}
+
+.save-target-toggle {
+  display: flex;
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.target-opt {
+  flex: 1;
+  padding: 5px 0;
+  border: none;
+  background: none;
+  color: var(--text-2);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.target-opt + .target-opt { border-left: 1px solid var(--surface-4); }
+
+.target-opt.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.connect-footer {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--surface-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.connect-meta-bytes {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+}
+
+/* Surfaces a chrome.storage.local quota failure — without this the user
+ * sees stale data from the moment the cache hits 10 MB and has no clue
+ * why. Click Reset in the banner to recover. */
+.cache-quota-banner {
+  margin-top: 12px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--surface-1), var(--warning) 14%);
+  border: 1px solid color-mix(in srgb, var(--surface-3), var(--warning) 40%);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cache-quota-banner .btn { flex-shrink: 0; }
+
+.connect-meta {
+  font-size: var(--text-xs);
+  color: var(--text-2);
+}
+
+/* ── Profile cards ─────────────────────────────── */
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  margin-bottom: 6px;
+}
+
+.profile-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: 4px;
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  cursor: pointer;
+}
+
+.profile-card:hover {
+  border-color: var(--text-3);
+  background: color-mix(in srgb, var(--surface-1), rgba(138, 63, 252, 0.05));
+}
+
+.profile-card.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--surface-1), var(--accent) 6%);
+}
+
+.profile-card.editing {
+  cursor: default;
+  border-color: var(--accent);
+}
+
+.profile-card.editing:hover { border-color: var(--accent); }
+
+.profile-radio { padding-top: 2px; flex-shrink: 0; }
+
+.profile-radio input[type="radio"] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.profile-info { flex: 1; min-width: 0; }
+
+.profile-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.profile-detail {
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-edit-btn { flex-shrink: 0; }
+
+.profile-form { width: 100%; }
+.profile-form .field-group { margin-bottom: 6px; }
+
+.profile-form-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.profile-form-actions .btn-danger { margin-left: auto; }
+
+.connect-test-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: var(--text-xl);
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.connect-test-btn:hover { color: var(--text-1); }
+.connect-test-btn.spinning svg { animation: detection-spin 0.8s linear infinite; }
+
+/* ── Shared empty-state component (src/lib/empty-state.ts) ─────
+ * Used by Workshop's detail-half placeholder, Browse, Code Search,
+ * and any other surface that needs a consistent "nothing here yet"
+ * message. Two variants — see component docstring. */
+.crev-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-2);
+  gap: 8px;
+}
+.crev-empty-state--inline {
+  padding: 16px 14px;
+  font-size: var(--text-sm);
+  color: var(--text-3);
+}
+.crev-empty-state--hero {
+  flex: 1;
+  padding: 28px 16px;
+}
+.crev-empty-state-title {
+  font-family: var(--font-display, var(--font-body));
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.crev-empty-state-body {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  line-height: 1.5;
+  max-width: 340px;
+}
+.crev-empty-state-hint {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-style: italic;
+  max-width: 340px;
+}
+
+/* ── Empty state (legacy classes) ─────────────────
+ * Kept while the codebase migrates call sites to `emptyState()`
+ * from src/lib/empty-state.ts. New surfaces should use the
+ * component, not these classes. */
+
+.empty-state {
+  text-align: center;
+  padding: 28px 16px;
+  color: var(--text-2);
+  font-size: var(--text-base);
+}
+
+/* When a divider drag is in flight we suppress body-wide text-selection
+ * so pointer-move sweeps don't highlight everything they pass over. */
+body.crev-divider-dragging,
+body.crev-divider-dragging * { user-select: none; }
+
+/* ── Workshop tab (v0.23 — layout + detail in one split) ──────── */
+/* Reclaim the 12px outer .tab-panel padding inside Workshop so the
+ * narrow side-panel gets every horizontal pixel for the tree, chips,
+ * and detail rows. Each half re-applies its own slim padding. */
+#panel-workshop.tab-panel { padding: 0; }
+.workshop-split {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.workshop-layout {
+  overflow-y: auto;
+  min-height: 0;
+  border-bottom: 1px solid var(--surface-3);
+  padding: 8px 6px 6px;
+  background: var(--surface-0);
+}
+.workshop-detail {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 6px 8px;
+  background: var(--surface-1);
+}
+/* Sections inside the Workshop halves get a card-like surface with a
+ * faint border + slight bg shift so the eye can parse where one
+ * ends and the next begins, without the noise of heavy dividers. */
+#panel-workshop .section-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 8px -6px 4px;
+  padding: 4px 8px;
+  background: var(--surface-1);
+  border-top: 1px solid var(--surface-3);
+  border-bottom: 1px solid var(--surface-2);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+#panel-workshop .workshop-layout .section-title:first-child { margin-top: 0; border-top: none; }
+/* ── Workshop context strip ─ scorecard/tab chips + picker ───── */
+.workshop-ctx-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px 4px 6px;
+  margin: 0 -6px 6px;
+  border-bottom: 1px solid var(--surface-3);
+  background: var(--surface-1);
+}
+.workshop-ctx-chips {
+  display: flex;
+  flex: 1;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.workshop-ctx-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-style: italic;
+}
+/* Ambient context chips (scorecard / active tab) — clickable "set as
+ * context" tags. They share the design language of the rest of the
+ * Workshop tab: the colored type chip sized to match the tree chips, the
+ * same type tokens, a 2px radius, and an accent-border hover that reads as
+ * actionable. The colored type chip is what keeps the two visually
+ * distinct from each other. */
+.workshop-ctx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 5px;
+  background: var(--surface-0);
+  border: 1px solid var(--surface-3);
+  border-radius: 2px;
+  font-size: var(--text-xs);
+  color: var(--text-1);
+  cursor: pointer;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  transition: border-color var(--duration-fast) var(--ease-default),
+              background var(--duration-fast) var(--ease-default);
+}
+.workshop-ctx-chip .pane-tree-chip {
+  font-size: 10px;
+  padding: 2px 6px;
+}
+.workshop-ctx-chip:hover {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.workshop-ctx-chip-value {
+  color: var(--text-1);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Leading pin icon on the context strip — labels the chip row as "page
+ * context" without spending a whole line on a header. Dim so the colored
+ * type chips stay the focal point. */
+.workshop-ctx-icon {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+/* Leading icon on the Layout / Template-tree section titles — gives the
+ * stack a clear, scannable hierarchy (banner → titled section → tree).
+ * The section title is a block, so center against the text via
+ * vertical-align like the refresh button does. */
+.section-title-icon {
+  display: inline-flex;
+  vertical-align: middle;
+  color: var(--text-3);
+  margin-right: 5px;
+}
+.section-title-icon svg { display: block; }
+.workshop-ctx-picker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: var(--surface-0);
+  border: 1px solid var(--surface-3);
+  border-radius: 3px;
+  color: var(--text-2);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color var(--duration-fast) var(--ease-default),
+              background var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
+}
+.workshop-ctx-picker:hover {
+  border-color: var(--accent);
+  color: var(--text-1);
+}
+.workshop-ctx-picker.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.workshop-ctx-picker svg { width: 14px; height: 14px; }
+.workshop-divider {
+  height: 6px;
+  background: var(--surface-1);
+  border-top: 1px solid var(--surface-2);
+  border-bottom: 1px solid var(--surface-2);
+  cursor: row-resize;
+  position: relative;
+  flex-shrink: 0;
+  transition: background var(--duration-fast) var(--ease-default);
+}
+.workshop-divider::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text-3);
+  opacity: 0.4;
+  transition: opacity var(--duration-fast) var(--ease-default);
+}
+.workshop-divider:hover,
+.workshop-divider.dragging {
+  background: var(--surface-2);
+}
+.workshop-divider:hover::after,
+.workshop-divider.dragging::after {
+  opacity: 0.85;
+}
+.workshop-divider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Inspect tab — empty state shown when no object is loaded. The user
+ * gets the brand icon, a teachable title, a one-line how-to, two
+ * action buttons, and (when populated) their pinned objects.
+ *
+ * Sizing / hierarchy:
+ *   icon  → 28px (Phosphor eye in accent colour, half opacity)
+ *   title → text-lg, semibold, text-1
+ *   body  → text-sm, text-2
+ *   chips → text-xs / mono, restrained
+ */
+.inspect-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 240px;
+  padding: 36px 20px 24px;
+  text-align: center;
+  color: var(--text-2);
+  gap: 12px;
+}
+.inspect-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.inspect-empty-icon svg {
+  width: 28px;
+  height: 28px;
+}
+.inspect-empty-title {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semi);
+  color: var(--text-1);
+  margin: 0;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.inspect-empty-body {
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+  max-width: 340px;
+  margin: 0;
+}
+.inspect-empty-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.inspect-empty-actions .inspect-quick-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-1);
+  background: var(--surface-2);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.inspect-empty-actions .inspect-quick-action:hover {
+  background: var(--surface-3);
+  border-color: var(--accent);
+}
+.inspect-empty-actions .inspect-quick-action svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
+
+/* Pinned list under the empty-state quick actions */
+.inspect-empty-pinned {
+  width: 100%;
+  max-width: 340px;
+  margin-top: 12px;
+  border-top: 1px solid var(--surface-3);
+  padding-top: 12px;
+  text-align: left;
+}
+.inspect-empty-pinned-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+.inspect-empty-pinned-icon {
+  display: inline-flex;
+  color: var(--warning);
+}
+.inspect-empty-pinned-icon svg { width: 12px; height: 12px; }
+.inspect-empty-pinned-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.inspect-pinned-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-1);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 100ms ease;
+}
+.inspect-pinned-item:hover { background: var(--surface-2); }
+.inspect-pinned-chip {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: var(--weight-semi);
+  color: #fff;
+  background: var(--type-color, var(--text-3));
+  border-radius: 2px;
+  letter-spacing: 0.3px;
+}
+.inspect-pinned-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inspect-pinned-bid {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+/* ── Detail view ───────────────────────────────── */
+
+.detail-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  margin-bottom: 8px;
+  background: none;
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.detail-back:hover {
+  border-color: var(--accent);
+  color: var(--text-1);
+}
+
+.detail-identity {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+.detail-identity::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--type-color, transparent) 0%, transparent 70%);
+  opacity: 0.08;
+  pointer-events: none;
+}
+
+.detail-name {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 80px;
+}
+
+.detail-bid {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  flex-shrink: 0;
+}
+
+/* Linked object badge (e.g., InputView → InputSet) */
+.detail-linked {
+  display: flex;
+  align-items: stretch;
+  margin: -4px 0 6px 20px;
+}
+.detail-linked-line {
+  width: 1px;
+  min-height: 14px;
+  background: var(--surface-4);
+  margin: 0 11px;
+  flex-shrink: 0;
+}
+.detail-linked-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: var(--surface-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-1);
+  border-left: 2px solid var(--surface-4);
+}
+.detail-linked-type {
+  font-weight: 600;
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+.detail-linked-id {
+  color: var(--text-1);
+}
+.detail-linked--dim {
+  opacity: 0.5;
+  font-style: italic;
+}
+
+/* ── Reference View ──────────────────────── */
+.ref-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ref-title { font-size: var(--text-lg); font-weight: 600; }
+.ref-progress { padding: 4px 8px; }
+.ref-progress-bar { height: 3px; background: var(--surface-3); border-radius: 2px; overflow: hidden; }
+.ref-progress-fill { height: 100%; background: var(--accent-dim); transition: width var(--duration-normal); }
+.ref-progress-text { font-size: var(--text-xs); color: var(--text-2); margin-top: 2px; display: block; }
+.ref-empty { text-align: center; padding: 20px; color: var(--text-2); font-size: var(--text-sm); font-style: italic; }
+.ref-group { margin: 4px 0; border: 1px solid var(--surface-4); border-radius: var(--radius-md); overflow: hidden; }
+.ref-group-header { display: flex; align-items: center; gap: 6px; padding: 6px 8px; cursor: pointer; font-size: var(--text-sm); }
+.ref-group-header:hover { background: var(--surface-3); }
+.ref-group-name { font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref-group-bid { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-2); }
+.ref-group-count { font-size: var(--text-xs); font-weight: 600; color: var(--text-2); background: var(--surface-3); padding: 1px 5px; border-radius: 8px; }
+.ref-match { display: flex; gap: 6px; padding: 3px 8px 3px 28px; font-size: var(--text-xs); border-top: 1px solid var(--surface-3); }
+.ref-match-prop { color: var(--accent); font-weight: 600; flex-shrink: 0; }
+.ref-match-line { color: var(--text-2); flex-shrink: 0; font-family: var(--font-mono); }
+.ref-match-text { font-family: var(--font-mono); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref-footer { text-align: center; padding: 8px; font-size: var(--text-xs); color: var(--text-2); }
+
+.detail-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+  padding: 14px;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+
+.detail-hint {
+  text-align: center;
+  padding: 12px;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-style: italic;
+}
+
+.detail-error {
+  text-align: center;
+  padding: var(--space-2);
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+.detail-retry {
+  display: block;
+  margin: 4px auto 0;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* ── Script blocks ─────────────────────────────── */
+
+.script-section { margin-bottom: var(--space-2); }
+
+.script-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.script-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.script-code {
+  background: var(--surface-1);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--text-1);
+  max-height: 250px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-bottom: 4px;
+}
+
+.script-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* ── Password toggle ──────────────────────────── */
+
+.field-with-toggle { display: flex; gap: 0; }
+
+.field-with-toggle .field-input {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.pass-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  border: 1px solid var(--surface-4);
+  border-left: none;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: var(--surface-3);
+  color: var(--text-2);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.pass-toggle:hover { color: var(--text-1); }
+
+/* ── Activity feed ─────────────────────────────── */
+
+.log-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.log-filter-row {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--surface-3);
+  flex-shrink: 0;
+}
+.log-filter-chip {
+  font: 500 11px/1 var(--font-body, 'Inter', system-ui, sans-serif);
+  padding: 4px 8px;
+  border-radius: 2px;
+  border: 1px solid var(--surface-3);
+  background: var(--surface-1);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.log-filter-chip:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+.log-filter-chip--active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.activity-feed {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Activity entry — feed-style row with a left edge stripe colored per level.
+ * Stripe is more legible than the old leading dot on a dense list; lets the
+ * user scan severity without reading each line. */
+.activity-entry {
+  display: grid;
+  grid-template-columns: 3px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 0;
+  font-size: var(--text-xs);
+  border-bottom: 1px solid var(--surface-2);
+  transition: background var(--duration-fast) var(--ease-default);
+}
+.activity-entry:hover { background: rgba(255,255,255,0.025); }
+.activity-entry:last-child { border-bottom: none; }
+
+.activity-stripe {
+  align-self: stretch;
+  background: var(--text-3);
+}
+.activity-entry--info .activity-stripe    { background: var(--info); }
+.activity-entry--success .activity-stripe { background: var(--success); }
+.activity-entry--warn .activity-stripe    { background: var(--warning); }
+.activity-entry--error .activity-stripe   { background: var(--danger); }
+
+/* Tint the warn/error rows so they stand out beyond the stripe.
+ * info / success stay neutral — they're routine. */
+.activity-entry--warn  { background: rgba(241, 194, 27, 0.06); }
+.activity-entry--error { background: rgba(250, 77, 86, 0.07); }
+.activity-entry--error .activity-msg { color: #ff9b9f; }
+
+.activity-msg {
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-entry:hover .activity-msg { white-space: normal; }
+
+.activity-count {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  border-radius: 8px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-weight: var(--weight-semi);
+}
+
+.activity-time {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  min-width: 38px;
+  text-align: right;
+}
+
+.activity-empty-hint {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-style: italic;
+}
+
+/* ── Status bar ────────────────────────────────── */
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-1);
+  border-top: 1px solid var(--surface-4);
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  min-height: 28px;
+}
+
+.status-bar-connection {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.status-bar-connection .status-dot {
+  width: 5px;
+  height: 5px;
+}
+
+.status-bar-activity {
+  flex: 1;
+  text-align: center;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-bar-count {
+  flex-shrink: 0;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+}
+
+/* Active-context chip — click to open the current BMP context in the
+ * detail view. Compact (max 100 px) so it doesn't crowd the activity
+ * marquee. Inline-dot uses the accent purple so it reads as "selected". */
+.status-bar-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 140px;
+  padding: 1px 8px 1px 4px;
+  background: transparent;
+  border: 1px solid var(--surface-3);
+  border-radius: 999px;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--duration-fast) var(--ease-default),
+              border-color var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
+}
+.status-bar-context:hover {
+  background: var(--surface-2);
+  border-color: var(--accent);
+  color: var(--text-1);
+}
+.status-bar-context-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+.status-bar-context-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-bar-context--empty {
+  color: var(--text-3);
+  font-style: italic;
+  cursor: default;
+  border-style: dashed;
+}
+.status-bar-context--empty:hover {
+  background: transparent;
+  border-color: var(--surface-3);
+  color: var(--text-3);
+}
+.status-bar-context--empty .status-bar-context-dot {
+  background: var(--surface-4);
+}
+
+/* Latency traffic light — 6-step warm-cool ramp plus a grey ✕ for "no
+ * data / disconnected". Tooltip carries the threshold table so a user
+ * with a different setup can recalibrate without us shipping a knob. */
+.status-bar-latency {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: var(--weight-medium);
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+}
+.status-bar-latency-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--surface-4);
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25) inset;
+}
+.status-bar-latency-value { letter-spacing: 0.2px; }
+
+/* Tier ramp — green → light green → yellow → orange → dark orange → red.
+ * Grey ✕ is t-1 (no sample / disconnected). */
+.status-bar-latency--t-1 .status-bar-latency-dot {
+  background: transparent;
+  color: var(--text-3);
+  font-size: 9px;
+  font-weight: var(--weight-bold);
+  line-height: 1;
+  text-align: center;
+  box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.status-bar-latency--t-1 .status-bar-latency-value { color: var(--text-3); }
+.status-bar-latency--t0 .status-bar-latency-dot { background: var(--latency-excellent); }   /* excellent */
+.status-bar-latency--t1 .status-bar-latency-dot { background: var(--latency-good); }   /* good */
+.status-bar-latency--t2 .status-bar-latency-dot { background: var(--latency-ok); }   /* ok */
+.status-bar-latency--t3 .status-bar-latency-dot { background: var(--latency-slow); }   /* slow */
+.status-bar-latency--t4 .status-bar-latency-dot { background: var(--latency-very-slow); }   /* very slow */
+.status-bar-latency--t5 .status-bar-latency-dot {
+  background: var(--latency-dead);
+  animation: crev-latency-pulse 1.2s ease-in-out infinite;
+}
+@keyframes crev-latency-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(218, 30, 40, 0.6); }
+  50%      { box-shadow: 0 0 0 3px rgba(218, 30, 40, 0); }
+}
+
+/* ── Type filter chips ─────────────────────────── */
+
+.type-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+  max-height: 56px;
+  overflow-y: auto;
+}
+
+.type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.type-chip:hover {
+  background: rgba(138, 63, 252, 0.05);
+  color: var(--text-1);
+}
+
+.type-chip.active {
+  background: var(--accent-bg);
+  color: var(--text-1);
+  border-color: var(--accent-bg);
+}
+
+.chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--type-color, #707070);
+}
+
+/* ── Log tab flex fill ─────────────────────────── */
+
+#panel-log.tab-panel.active {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Script result (used by detail-view) ──────── */
+
+.script-result {
+  padding: 8px;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  max-height: 300px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.script-result.ok { color: var(--text-1); }
+.script-result.error { color: var(--danger); }
+.script-result.warning { color: var(--warning); }
+.script-result.empty { color: var(--text-2); font-style: italic; font-family: var(--font-body); }
+.script-result.expanded { max-height: none; }
+
+.script-result-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  margin-bottom: 2px;
+}
+
+.script-result-mode {
+  font-weight: 600;
+}
+
+.script-result-mode.ok { color: var(--success); }
+.script-result-mode.error { color: var(--danger); }
+.script-result-mode.warning { color: var(--warning); }
+
+.script-result-duration {
+  color: var(--text-2);
+}
+
+.detail-clear-output {
+  margin-left: auto;
+}
+
+.detail-expand-output {
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: var(--text-xs);
+  background: none;
+  border: none;
+  font-family: var(--font-body);
+  padding: 0 4px;
+}
+
+.detail-expand-output:hover {
+  color: var(--text-1);
+}
+
+/* ── Inline style replacements ────────────────── */
+
+.section-title--flush { margin: 0; border-bottom: none; padding-bottom: 0; }
+
+.empty-state--padded { padding: 12px; }
+/* Compact variant for inline empty states (e.g. inside a section that
+   already has its own title) — smaller padding + smaller font so the
+   message doesn't dominate the layout. */
+.empty-state--compact {
+  padding: 12px 16px;
+  font-size: var(--text-xs);
+}
+
+.field-group--spaced { margin-top: 10px; }
+
+.field-label--inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.checkbox-accent { accent-color: var(--accent); }
+
+.connect-footer--flat {
+  border: none;
+  padding-top: 4px;
+}
+
+.kbd {
+  padding: 1px 4px;
+  background: var(--surface-3);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.field-input--invalid { border-color: var(--danger); }
+
+.activity-empty {
+  padding: 6px 0;
+  color: var(--text-2);
+  font-size: var(--text-xs);
+}
+
+/* ── Detail star & full view ──────────────────── */
+
+.detail-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.detail-star:hover {
+  color: var(--warning);
+  background: rgba(138, 63, 252, 0.05);
+}
+
+.detail-star.active {
+  color: var(--warning);
+}
+
+/* Header action buttons (Layout ↗, Edit ↗) — sit near the type chip
+ * in the detail header. Visual language: subtle tinted pill,
+ * accent-coloured text, slightly raised border. Sized to fit
+ * vertically alongside the type chip without distorting row height. */
+.detail-layout-btn,
+.detail-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+  /* Type chip = ~18px tall (1px border + 11px text + 3px padding).
+   * Buttons match so the header row stays visually flat. */
+  line-height: 1.3;
+}
+.detail-layout-btn:hover,
+.detail-edit-btn:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.detail-layout-btn:focus-visible,
+.detail-edit-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── Shortcut list ─────────────────────────────── */
+
+.shortcut-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  margin-top: 8px;
+}
+
+.shortcut-hint {
+  grid-column: 1 / -1;
+  color: var(--text-3);
+  cursor: help;
+  margin-top: 2px;
+}
+
+/* Quick reference card on the Connect tab — replaces the old cramped
+   shortcut row + "(?)" placeholder. Distinct bordered card with grouped
+   action / key rows so the reference doesn't blur into the rest of the
+   tab. Terse: action on the left, key chip or value on the right. */
+/* Update banner — sits above the Quick reference card. Same visual posture
+ * but with state-aware tinting: green-ish when up to date, accent purple when
+ * an update is available, warning amber on lookup failure. Always single-line. */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: var(--space-3);
+  padding: 4px 8px;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+}
+.update-banner--available {
+  background: color-mix(in srgb, var(--surface-1), var(--accent) 14%);
+  border-color: rgba(138, 63, 252, 0.5);
+}
+.update-banner--warn {
+  background: color-mix(in srgb, var(--surface-1), var(--warning) 8%);
+  border-color: color-mix(in srgb, var(--surface-3), var(--warning) 35%);
+}
+.update-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-1);
+  text-decoration: none;
+}
+.update-link:hover { color: var(--accent); }
+.update-version {
+  font-family: var(--font-mono);
+  color: var(--text-2);
+}
+.update-arrow {
+  color: var(--accent);
+  font-weight: var(--weight-bold);
+}
+.update-latest {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: var(--weight-semi);
+}
+.update-status { color: var(--text-3); }
+.update-status--ok { color: var(--success); }
+.update-banner--available .update-status { color: var(--accent); }
+.update-refresh {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  line-height: 1;
+}
+.update-refresh:hover { background: var(--surface-3); color: var(--text-1); }
+
+.reference-card {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-1);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+}
+.reference-title {
+  font-size: 11px;
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin-bottom: var(--space-2);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--surface-2);
+}
+.reference-group + .reference-group {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--surface-2);
+}
+.reference-group-title {
+  font-size: 10px;
+  font-weight: var(--weight-medium);
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 4px;
+}
+.reference-list {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  margin: 0;
+}
+.reference-action {
+  color: var(--text-2);
+  font-weight: var(--weight-regular);
+  margin: 0;
+}
+.reference-key {
+  margin: 0;
+  text-align: right;
+  color: var(--text-1);
+  font-size: 11px;
+}
+.reference-key .kbd {
+  font-size: 10px;
+}
+
+/* Live-binding stack: current key on top, greyed default underneath when
+ * customised or unbound. Right-aligned to match the surrounding .reference-key. */
+.kbd-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+.kbd--pending { opacity: 0.55; }
+.kbd-unbound {
+  font-size: 10px;
+  color: var(--text-3);
+  font-style: italic;
+}
+.kbd-default-hint {
+  font-size: 9px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  opacity: 0.7;
+}
+.reference-footnote {
+  margin-top: var(--space-2);
+  padding-top: var(--space-1);
+  border-top: 1px dashed var(--surface-2);
+  font-size: 10px;
+  color: var(--text-3);
+}
+.reference-footnote a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.reference-footnote a:hover { text-decoration: underline; }
+
+/* ── Webpage Inspector (tree view) ──────────────── */
+
+.inspector-auto-hint {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-style: italic;
+  padding: var(--space-1) var(--space-3);
+  margin: 0 var(--space-2);
+}
+
+.inspector-location {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  margin: var(--space-1) var(--space-2);
+}
+
+.inspector-location-label {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.inspector-location-path {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Object Pane (split-pane property editor) ──── */
+
+.pane-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Inline Back/Close button — lives inside the pane-header-row at the left
+ * edge, like a browser-tab back arrow. Subtle by default, picks up the
+ * object's type color on hover so it visually belongs to the object instead
+ * of being a separate purple band. Drill-down state shows a left arrow (←),
+ * top-level state shows a close (✕). */
+.pane-back-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 2px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default),
+              border-color var(--duration-fast) var(--ease-default);
+}
+.pane-back-inline:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+  border-color: var(--surface-4);
+}
+.pane-back-inline:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Breadcrumb trail — sits under the Back button when history is non-empty.
+   Horizontal row of clickable chips; the current chip is bold + non-clickable;
+   prior chips look slightly muted so the eye finds the current step. Long
+   trails truncate from the left with a "…" separator chip. */
+.pane-trail {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 2px var(--space-3) var(--space-1);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--surface-2);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  font-size: var(--text-xs);
+}
+.pane-trail::-webkit-scrollbar { height: 4px; }
+.pane-trail::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 2px; }
+
+.pane-trail-sep {
+  color: var(--text-3);
+  font-size: 11px;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.pane-trail-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px 1px 3px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  flex-shrink: 0;
+  max-width: 160px;
+  transition: background var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default),
+              border-color var(--duration-fast) var(--ease-default);
+}
+.pane-trail-chip:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--surface-4);
+  color: var(--text-1);
+}
+.pane-trail-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.pane-trail-chip--current {
+  color: var(--text-1);
+  font-weight: var(--weight-semi);
+  cursor: default;
+}
+.pane-trail-chip-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: var(--type-color, var(--surface-3));
+  color: #fff;
+  font-size: 10px;
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.pane-trail-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-header {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--surface-1), var(--type-color, var(--accent)) 6%),
+    var(--surface-1)
+  );
+  border-bottom: 1px solid var(--surface-4);
+  flex-shrink: 0;
+  /* 2 px accent line at the top tinted to the object's type color — at a
+   * glance you see "this is a CVO/Risk/Scorecard…" before reading. */
+  box-shadow: inset 0 2px 0 0 var(--type-color, transparent);
+}
+.pane-header-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+}
+
+/* Second header row — instance/template toggle on the left, BMP type name
+ * on the right. Pulled off the identity row so the object name can take the
+ * full panel width without being squeezed by the toggle. */
+.pane-header-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 22px;
+  margin-top: 2px;
+}
+.pane-header-type-name {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  letter-spacing: 0.2px;
+}
+
+/* Parent crumb — small "↑ inside <ParentChip> <ParentName>" line under the
+   title. Replaces the old Container body section so identity context lives
+   next to the title, freeing Flow / Code to be the first body section. */
+.pane-parent-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 4px;
+  margin-left: 18px; /* align under the type pill */
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--duration-fast) var(--ease-default),
+              border-color var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
+}
+.pane-parent-crumb:hover,
+.pane-parent-crumb:focus-visible {
+  background: var(--surface-2);
+  border-color: var(--surface-4);
+  color: var(--text-1);
+  outline: none;
+}
+.pane-parent-crumb-arrow {
+  opacity: 0.65;
+  font-weight: var(--weight-medium);
+}
+.pane-parent-crumb-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: var(--type-color, var(--surface-3));
+  color: #fff;
+  font-size: 10px;
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.4px;
+  line-height: 1;
+}
+.pane-parent-crumb-name {
+  font-weight: var(--weight-medium);
+  color: var(--text-1);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pane-parent-crumb-bid {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.pane-id-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--type-color, var(--surface-3));
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.pane-id-name {
+  color: var(--text-1);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semi);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.pane-id-bid {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  flex-shrink: 0;
+}
+
+.pane-target-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  padding: 2px;
+  gap: 1px;
+}
+
+.pane-target-btn {
+  padding: 3px 8px;
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: none;
+  color: var(--text-3);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
+}
+.pane-target-btn:hover:not(.active):not(:disabled) { color: var(--text-1); }
+.pane-target-btn:disabled { color: var(--text-disabled); cursor: not-allowed; }
+.pane-target-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.pane-split {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.pane-props-area {
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3) var(--space-4);
+  flex-shrink: 0;
+}
+
+
+.pane-divider {
+  height: 6px;
+  background: var(--surface-1);
+  border-top: 1px solid var(--surface-2);
+  border-bottom: 1px solid var(--surface-2);
+  cursor: row-resize;
+  position: relative;
+  flex-shrink: 0;
+  transition: background var(--duration-fast) var(--ease-default);
+}
+.pane-divider::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text-3);
+  opacity: 0.4;
+  transition: opacity var(--duration-fast) var(--ease-default);
+}
+.pane-divider:hover {
+  background: var(--surface-2);
+}
+.pane-divider:hover::after,
+.pane-divider.dragging::after {
+  opacity: 0.85;
+}
+
+.pane-tree-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-0);
+  min-height: 0;
+}
+
+/* Property groups */
+
+.prop-group {
+  position: relative;
+  margin: 0;
+  padding: 10px var(--space-3) 12px;
+  animation: crev-fade-in var(--duration-fast) var(--ease-decelerate);
+}
+/* Stronger divider between sections — full-width rule with a higher-contrast
+ * tone than surface-2. Pairs with the new prop-group-title underline so the
+ * group reads as a distinct band even on the all-dark pane. */
+.prop-group + .prop-group {
+  border-top: 1px solid var(--surface-3);
+}
+
+/* Read-only text value for the 'text' kind (e.g. columnWidths). Mono
+ * font to match other property-pane values; dim placeholder when
+ * empty. */
+.prop-text-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-1);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prop-text-empty { color: var(--text-3); }
+
+/* Section title — plain uppercase label. The earlier purple
+ * border-bottom was overpowering at the density we render groups; the
+ * stronger `.prop-group + .prop-group` divider above already
+ * separates sections. */
+.prop-group-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  color: var(--text-2);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  margin: 0 0 var(--space-2);
+}
+.prop-group-title-text {
+  color: var(--text-1);
+}
+.prop-group-title-meta {
+  font-size: 10px;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.2px;
+  text-transform: none;
+  color: var(--text-3);
+}
+
+.prop-group-count {
+  color: var(--accent);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.prop-row {
+  display: grid;
+  grid-template-columns: 100px 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: var(--text-sm);
+}
+
+/* ── Display group (compact) ───────────────────── */
+
+/* Tighter rendering for the Display group: columns triplet on one row, the
+   rest of the props share a 2-column flex grid so booleans/enums sit
+   side-by-side instead of stacking. Surfaces all responsive + chrome knobs
+   without burning vertical space. */
+.prop-group--display .prop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 2px var(--space-3);
+  margin-top: 2px;
+}
+.prop-group--display .prop-grid .prop-row {
+  grid-template-columns: minmax(80px, auto) 1fr auto;
+  padding: 2px 0;
+}
+.prop-row--columns {
+  grid-template-columns: 100px 1fr;
+  align-items: center;
+}
+.prop-columns-triplet {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.prop-column-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.prop-column-input {
+  width: 42px;
+  padding: 3px 4px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  background: var(--surface-2);
+  color: var(--text-1);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm);
+}
+.prop-column-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+.prop-column-input.prop-cell--dirty { border-color: var(--accent); background: rgba(138, 63, 252, 0.08); }
+.prop-column-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+.prop-column-cell.is-dirty .prop-column-label { color: var(--accent); }
+
+/* Narrow sidepanel: stack label above editor so color pickers + inputs
+ * don't get crushed below ~40px usable width. */
+@media (max-width: 320px) {
+  .prop-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "label revert" "editor revert";
+    row-gap: 2px;
+  }
+  .prop-label { grid-area: label; font-size: var(--text-xs); }
+  .prop-revert { grid-area: revert; }
+  .prop-row > .prop-cell { grid-area: editor; }
+  .prop-color-input { min-width: 0; }
+}
+
+.prop-label {
+  color: var(--text-2);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.prop-revert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1;
+}
+.prop-row:hover .prop-revert,
+.prop-row .prop-revert:focus-visible { opacity: 1; }
+.prop-revert:hover { color: var(--accent); background: var(--surface-2); }
+
+/* Property cells (typed editors) */
+
+.prop-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  position: relative;
+}
+
+.prop-cell--dirty::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(186, 15, 254, 0.15);
+}
+
+.prop-color-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: repeating-conic-gradient(var(--surface-3) 0% 25%, var(--surface-2) 0% 50%) 50% / 8px 8px;
+  border: 1px solid var(--surface-4);
+  position: relative;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
+}
+
+.prop-color-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 var(--space-1);
+  background: var(--surface-2);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(0,0,0,0.25);
+  transition: border-color var(--duration-fast) var(--ease-default),
+              box-shadow var(--duration-fast) var(--ease-default);
+}
+.prop-color-input:focus {
+  border-color: var(--accent);
+  box-shadow: inset 0 1px 0 rgba(0,0,0,0.25), 0 0 0 2px rgba(186, 15, 254, 0.18);
+}
+.prop-input--invalid { border-color: var(--danger); }
+.prop-color-picker {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.prop-color-picker::-webkit-color-swatch { border: 1px solid var(--surface-4); border-radius: var(--radius-sm); }
+.prop-color-picker::-moz-color-swatch { border: 1px solid var(--surface-4); border-radius: var(--radius-sm); }
+
+.prop-number-input {
+  width: 72px;
+  height: 24px;
+  padding: 0 var(--space-1);
+  background: var(--surface-2);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(0,0,0,0.25);
+  transition: border-color var(--duration-fast) var(--ease-default),
+              box-shadow var(--duration-fast) var(--ease-default);
+}
+.prop-number-input:focus {
+  border-color: var(--accent);
+  box-shadow: inset 0 1px 0 rgba(0,0,0,0.25), 0 0 0 2px rgba(186, 15, 254, 0.18);
+}
+/* Hide the native browser spin-buttons on <input type="number">. The
+ * default arrows are chunky, low-contrast, and crowd the already-narrow
+ * L/M/S columns triplet. The drag-bar in the layout tree is the primary
+ * affordance for column sizing; this field is the precise-typing
+ * fallback. Steppers can be added back later as an explicit UI if
+ * needed. */
+.prop-number-input { -moz-appearance: textfield; }
+.prop-number-input::-webkit-outer-spin-button,
+.prop-number-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.prop-unit {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+.prop-select {
+  height: 24px;
+  padding: 0 var(--space-1);
+  background: var(--surface-2);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  outline: none;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(0,0,0,0.25);
+}
+.prop-select:focus { border-color: var(--accent); box-shadow: inset 0 1px 0 rgba(0,0,0,0.25), 0 0 0 2px rgba(186, 15, 254, 0.18); }
+
+.prop-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px 8px 2px 2px;
+  border: 1px solid var(--surface-4);
+  background: var(--surface-2);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  transition: background var(--duration-fast) var(--ease-default),
+              border-color var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
+}
+.prop-toggle-track {
+  position: relative;
+  width: 22px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  transition: background var(--duration-fast) var(--ease-default);
+}
+.prop-toggle-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-2);
+  transition: transform var(--duration-fast) var(--ease-default),
+              background var(--duration-fast) var(--ease-default);
+}
+.prop-toggle--on { color: var(--text-1); }
+.prop-toggle--on .prop-toggle-track { background: var(--accent); }
+.prop-toggle--on .prop-toggle-thumb {
+  transform: translateX(10px);
+  background: #fff;
+}
+
+/* Slider widened + taller thumb so it's easy to grab. Range/scale now
+   matches BMP's native 0-100 (no client-side scaling), with the suffix
+   surfacing the percent reading. */
+.prop-cell--slider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0; /* allow the cell itself to shrink inside narrow grid tracks */
+}
+.prop-slider {
+  flex: 1 1 auto;
+  min-width: 0;          /* let the thumb track shrink with the column */
+  width: 80px;            /* fallback when flex collapses to 0 */
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: ew-resize;
+}
+.prop-slider::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+}
+.prop-slider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.prop-slider-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  flex: 0 0 auto;
+  /* "100%" is 4 chars at ~10px each in our mono font; 36px + padding
+   * fits with room to spare. 42px was overspending and made the
+   * value column spill into the next prop-row in 3-col Display
+   * grids at narrow viewports. */
+  min-width: 36px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Container chip */
+
+.pane-container-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px 8px;
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: border-color var(--duration-fast) var(--ease-default),
+              background var(--duration-fast) var(--ease-default);
+}
+.pane-container-chip:hover { background: var(--surface-3); border-color: var(--surface-4); }
+.pane-container-chip-bid { font-family: var(--font-mono); color: var(--text-3); font-size: var(--text-xs); }
+.pane-container-empty { color: var(--text-3); font-size: var(--text-sm); font-style: italic; }
+
+/* Sticky action bar */
+
+.pane-actionbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-1);
+  border-top: 1px solid var(--surface-4);
+  /* Soft shadow above so the sticky bar reads as floating ABOVE the
+   * tree content, not as another flat band glued to the bottom. The
+   * tree area scrolls underneath; the shadow gives it a real edge. */
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+  animation: crev-slide-up var(--duration-fast) var(--ease-decelerate);
+}
+/* v0.23 — when the action bar lives INSIDE the props area (not at
+ * pane-bottom), it sticks to the props-area's bottom edge. Result: the
+ * Save / Discard buttons hover above the props↔tree divider rather
+ * than below the entire tree-sub-pane, so they're reachable without
+ * scrolling past sibling/children navigation. */
+.pane-action-bar--floating {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: var(--space-2);
+}
+.pane-actionbar-summary {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.pane-actionbar-summary strong {
+  color: var(--accent);
+  font-weight: var(--weight-semi);
+}
+
+/* Loading / error / empty states */
+
+.pane-loading,
+.pane-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  font-size: var(--text-sm);
+  animation: crev-fade-in var(--duration-normal) var(--ease-decelerate);
+}
+.pane-loading { color: var(--text-2); }
+/* Stage 2 (3s+): same color, slightly more opaque so user notices the copy
+   changed. Stage 3 (7s+): warning tint so the impending cancel is visible. */
+.pane-loading--slow { color: var(--text-1); }
+.pane-loading--verySlow {
+  color: var(--warning-text, #b48a00);
+  font-weight: var(--weight-medium);
+  text-align: center;
+}
+.pane-error { color: var(--danger); }
+
+/* Tree component */
+
+.pane-tree { font-size: var(--text-sm); }
+
+.pane-tree-crumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-1);
+  transition: background var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
+}
+.pane-tree-crumb:hover {
+  background: var(--surface-1);
+  color: var(--text-1);
+}
+.pane-tree-crumb--root { cursor: default; }
+.pane-tree-crumb--root:hover { background: none; color: var(--text-3); }
+.pane-tree-crumb-arrow { font-size: 12px; }
+.pane-tree-meta { font-style: italic; }
+
+.pane-tree-siblings { display: flex; flex-direction: column; gap: 2px; }
+
+.pane-tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-default);
+}
+.pane-tree-row:hover:not(.pane-tree-row--current) { background: var(--surface-2); }
+.pane-tree-row--current {
+  background: var(--accent-bg);
+  cursor: default;
+}
+.pane-tree-row--current .pane-tree-name { color: var(--text-1); font-weight: var(--weight-semi); }
+.pane-tree-row--child { padding-left: var(--space-5); }
+
+/* .pane-tree-chip uses the shared .type-chip rule (components.css). */
+.pane-tree-name {
+  flex: 1;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pane-tree-bid {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.pane-tree-expander-wrap {
+  padding: 2px var(--space-2) 2px var(--space-5);
+}
+.pane-tree-expander {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px 6px;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-fast) var(--ease-default);
+}
+.pane-tree-expander:hover { color: var(--text-1); }
+.pane-tree-caret {
+  display: inline-block;
+  transition: transform var(--duration-fast) var(--ease-default);
+}
+.pane-tree-expander--open .pane-tree-caret { transform: rotate(90deg); }
+
+.pane-tree-children { display: flex; flex-direction: column; gap: 1px; margin-top: 2px; }
+.pane-tree-children-loading,
+.pane-tree-children-empty {
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-5);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-style: italic;
+}
+
+/* ── Code section (object pane) ─────────────────── */
+
+.code-row {
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--surface-1);
+}
+.code-row:last-child { border-bottom: none; }
+
+.code-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.code-row-prop {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-1);
+  font-weight: var(--weight-semi);
+}
+
+.code-row-meta {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+}
+
+.code-row-edit {
+  margin-left: auto;
+  padding: 1px 6px !important;
+  font-size: var(--text-xs);
+}
+
+.code-row-preview {
+  padding: 2px var(--space-2);
+  margin-top: 2px;
+  background: var(--surface-0);
+  border-left: 2px solid var(--surface-3);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.code-row-preview--empty {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.code-row-subtitle {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-style: italic;
+  margin-top: 2px;
+}
+
+/* Disabled (enabledBy=false): visible but dimmed; preview is still readable
+ * since the EC is real — it just isn't running right now. */
+.code-row--disabled {
+  opacity: 0.55;
+}
+.code-row--disabled .code-row-prop { color: var(--text-2); }
+.code-row-gate {
+  margin-top: 2px;
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--warning);
+  background: rgba(241, 194, 27, 0.1);
+  border-radius: var(--radius-sm);
+}
+
+/* ── Context section ───────────────────────────── */
+
+/* Bare chip strip, full width, no band or left rail. The chips themselves
+ * carry the affordance (key:value form, hover for full title); framing them
+ * inside a tinted block ate horizontal space and competed with the rest of
+ * the pane for attention. Section ends with a hairline so it reads as one
+ * unit without a bordered container. */
+.context-section {
+  padding: 6px var(--space-3);
+  margin: 0;
+  border-bottom: 1px solid var(--surface-2);
+  animation: crev-fade-in var(--duration-fast) var(--ease-decelerate);
+}
+
+.ctx-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+}
+
+.ctx-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  background: var(--surface-3);
+  border: 1px solid var(--surface-4);
+}
+
+.ctx-chip-key {
+  color: var(--text-3);
+  font-weight: var(--weight-medium);
+}
+.ctx-chip-sep { color: var(--text-3); }
+.ctx-chip-val {
+  color: var(--text-1);
+  font-weight: var(--weight-semi);
+}
+
+.ctx-chip--on {
+  background: rgba(66, 190, 101, 0.12);
+  border-color: rgba(66, 190, 101, 0.3);
+}
+.ctx-chip--on .ctx-chip-val { color: var(--success); }
+
+.ctx-chip--off {
+  opacity: 0.7;
+}
+
+.ctx-chip--enum {
+  background: var(--accent-bg);
+  border-color: rgba(186, 15, 254, 0.3);
+}
+.ctx-chip--enum .ctx-chip-val { color: var(--accent); }
+
+.ctx-list {
+  margin-top: var(--space-1);
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--surface-2);
+}
+.ctx-list-title {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.ctx-list-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ctx-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-2);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  transition: background var(--duration-fast) var(--ease-default);
+}
+.ctx-list-row:hover { background: var(--surface-2); }
+.ctx-list-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--type-color, var(--surface-3));
+  color: #fff;
+  font-size: 9px;
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.3px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.ctx-list-name {
+  flex: 1;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ctx-list-bid {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+/* ── References section ────────────────────────── */
+
+.ref-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  transition: background var(--duration-fast) var(--ease-default);
+}
+.ref-row:hover { background: var(--surface-2); }
+
+.ref-row--empty {
+  cursor: default;
+  opacity: 0.55;
+}
+.ref-row--empty:hover { background: none; }
+
+.ref-row-label {
+  color: var(--text-2);
+  font-weight: var(--weight-medium);
+  min-width: 100px;
+}
+
+.ref-row-arrow { color: var(--text-3); }
+
+.ref-row-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--type-color, var(--surface-3));
+  color: #fff;
+  font-size: 9px;
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.3px;
+  line-height: 1;
+}
+
+.ref-row-name {
+  flex: 1;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ref-row-bid {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+.ref-row-open {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+.ref-row:hover .ref-row-open { color: var(--accent); }
+
+.ref-row-empty {
+  color: var(--text-3);
+  font-style: italic;
+  font-size: var(--text-xs);
+}
+
+/* ── Flow walker ───────────────────────────────── */
+
+/* No purple band, no left rail — those ate horizontal space and competed
+ * with the cards inside. Section is a full-width zone bounded by a hairline
+ * at the top (the inline header label) and bottom. Cards run edge-to-edge
+ * of the pane to maximise readable name width. */
+.flow-section {
+  margin: 0;
+  padding: 0 0 6px;
+  border-bottom: 1px solid var(--surface-2);
+}
+
+.flow-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px var(--space-3) 6px;
+  border-bottom: 1px solid var(--surface-2);
+  background: var(--surface-1);
+}
+.flow-section-label {
+  font-size: 10px;
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.flow-section-meta {
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.flow-loading, .flow-error, .flow-empty {
+  padding: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  text-align: center;
+}
+.flow-error { color: var(--danger); }
+
+/* Vertical chain — cards stack top-to-bottom, full panel width. Tight gap;
+ * hierarchy is conveyed by chip size + font-weight, not indentation. */
+.flow-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.flow-step {
+  display: flex;
+  flex-direction: column;
+}
+
+.flow-edge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px 0 2px var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+}
+
+.flow-edge-line {
+  display: inline-block;
+  width: 16px;
+  height: 1px;
+  background: var(--surface-4);
+}
+
+.flow-edge-label {
+  letter-spacing: 0.3px;
+}
+
+.flow-edge-arrow {
+  color: var(--text-3);
+  font-size: 9px;
+}
+
+/* Cards run full width — no border on the sides, just a 2 px stripe in the
+ * object's type color at the left edge so you can read "this is a CVO" /
+ * "this is an InputView" at a glance without indenting the layout. */
+.flow-card {
+  position: relative;
+  background: var(--surface-1);
+  padding: 7px var(--space-3) 7px calc(var(--space-3) + 6px);
+  cursor: pointer;
+  border: none;
+  border-radius: 0;
+  transition: background var(--duration-fast) var(--ease-default);
+}
+.flow-card::before {
+  content: '';
+  position: absolute;
+  left: var(--space-3);
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  background: var(--type-color, var(--surface-3));
+  border-radius: 1px;
+}
+
+.flow-card:hover { background: var(--surface-2); }
+.flow-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.flow-card--highlight {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(186, 15, 254, 0.18), var(--shadow-2);
+}
+
+.flow-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.flow-card-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--type-color, var(--surface-3));
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.flow-card-name {
+  flex: 1;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semi);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-card-key {
+  padding: 1px 6px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.2px;
+}
+
+.flow-card-bid {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+.flow-card-hint {
+  margin-top: var(--space-1);
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--warning);
+  background: rgba(241, 194, 27, 0.08);
+  border-radius: var(--radius-sm);
+}
+
+.flow-code {
+  margin-top: var(--space-2);
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--surface-2);
+  cursor: default;
+}
+
+.flow-code-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.flow-code-prop {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  color: var(--text-2);
+}
+
+.flow-code-meta {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+}
+
+.flow-code-edit {
+  margin-left: auto;
+  padding: 1px 6px !important;
+  font-size: var(--text-xs);
+}
+
+.flow-code-preview {
+  margin-top: 2px;
+  padding: 2px var(--space-2);
+  background: var(--surface-0);
+  border-left: 2px solid var(--surface-3);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flow-code-preview--empty {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+/* EC syntax token colours — one set of rules, used by `.ec-preview` and
+ * `.ref-match-text` (the Reference View reuses the ec-preview wrapper).
+ * The palette lives in `src/styles/tokens.css` as `--ec-*` custom
+ * properties so the editor (highlight.ts), this file, objectview.css,
+ * and codesearch.css all share one source. Style/weight cues encode
+ * extra semantics: bold = high-signal (tx/agg/class), italic = out-of-
+ * band (null/cmt), underline = .expression gotcha. */
+.ec-preview .ec-tok-kw,
+.ref-match-text .ec-tok-kw      { color: var(--ec-kw); }
+.ec-preview .ec-tok-ctx,
+.ref-match-text .ec-tok-ctx     { color: var(--ec-ctx); }
+.ec-preview .ec-tok-bool,
+.ref-match-text .ec-tok-bool    { color: var(--ec-bool); }
+.ec-preview .ec-tok-null,
+.ref-match-text .ec-tok-null    { color: var(--ec-null); font-style: italic; }
+.ec-preview .ec-tok-style,
+.ref-match-text .ec-tok-style   { color: var(--ec-style); }
+.ec-preview .ec-tok-date,
+.ref-match-text .ec-tok-date    { color: var(--ec-date); }
+.ec-preview .ec-tok-global,
+.ref-match-text .ec-tok-global  { color: var(--ec-global); }
+.ec-preview .ec-tok-agg,
+.ref-match-text .ec-tok-agg     { color: var(--ec-agg); font-weight: var(--weight-semi); }
+.ec-preview .ec-tok-tx,
+.ref-match-text .ec-tok-tx      { color: var(--ec-tx); font-weight: var(--weight-semi); }
+.ec-preview .ec-tok-tbl,
+.ref-match-text .ec-tok-tbl     { color: var(--ec-tbl); }
+.ec-preview .ec-tok-read,
+.ref-match-text .ec-tok-read    { color: var(--ec-read); }
+.ec-preview .ec-tok-class,
+.ref-match-text .ec-tok-class   { color: var(--ec-class); font-weight: var(--weight-semi); }
+.ec-preview .ec-tok-idspace,
+.ref-match-text .ec-tok-idspace { color: var(--ec-idspace); }
+.ec-preview .ec-tok-prop,
+.ref-match-text .ec-tok-prop    { color: var(--ec-prop); }
+.ec-preview .ec-tok-expr,
+.ref-match-text .ec-tok-expr    { color: var(--ec-expr); text-decoration: underline; }
+.ec-preview .ec-tok-str,
+.ref-match-text .ec-tok-str     { color: var(--ec-str); }
+.ec-preview .ec-tok-num,
+.ref-match-text .ec-tok-num     { color: var(--ec-num); }
+.ec-preview .ec-tok-cmt,
+.ref-match-text .ec-tok-cmt     { color: var(--ec-cmt); font-style: italic; }
+.ec-preview .ec-tok-op,
+.ref-match-text .ec-tok-op      { color: var(--ec-op); }
+
+/* Reference View specifically needs the wrapper to flow inline so the
+ * property + line-number chips stay on the same row. ec-preview's
+ * default `display: block` would break the layout. */
+.ref-match-text.ec-preview { display: inline; }
+
+/* Gated EC row inside a flow card — the EC text is visible but dimmed and
+   carries an explicit hint that the runtime gate is off (useShowExpression /
+   useEnableExpression = false). Mirrors the code-row--disabled style used by
+   the standalone code-fields section. */
+.flow-code--disabled {
+  opacity: 0.55;
+}
+.flow-code--disabled:hover {
+  opacity: 0.8;
+}
+.flow-code-gate {
+  margin-top: 4px;
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--warning-text, var(--text-2));
+  font-style: italic;
+}
+
+.flow-reads {
+  margin-top: var(--space-1);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+.flow-reads-label { font-style: italic; }
+
+.flow-reads-chip {
+  padding: 1px 6px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  cursor: help;
+  transition: background var(--duration-fast) var(--ease-default);
+}
+.flow-reads-chip:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Children stack vertically at full width — narrow panel doesn't have room
+ * to tile horizontally. Hierarchy comes from the chip size + name weight in
+ * .flow-card-chip / .flow-card-name overrides below, NOT from indentation. */
+.flow-children {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* Depth scaling for visual hierarchy without consuming horizontal space:
+ *  - Top-level cards keep the prominent name and standard type chip.
+ *  - Nested cards dim the name + shrink the chip slightly so the reader can
+ *    parse a 3-step chain at a glance without checking position. */
+.flow-step--depth-0 > .flow-card .flow-card-name { font-weight: var(--weight-semi); }
+.flow-step--depth-1 > .flow-card,
+.flow-step--depth-2 > .flow-card,
+.flow-step--depth-3 > .flow-card {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.flow-step--depth-1 > .flow-card .flow-card-name,
+.flow-step--depth-2 > .flow-card .flow-card-name,
+.flow-step--depth-3 > .flow-card .flow-card-name {
+  font-weight: var(--weight-medium);
+  color: var(--text-2);
+  font-size: var(--text-xs);
+}
+.flow-step--depth-1 > .flow-card .flow-card-chip,
+.flow-step--depth-2 > .flow-card .flow-card-chip,
+.flow-step--depth-3 > .flow-card .flow-card-chip {
+  font-size: 9px;
+  padding: 1px 4px;
+}
+
+/* Code field inside a flow card spans the card's full width. Previously the
+ * preview line would wrap awkwardly when shoved next to a long card head. */
+.flow-card > .flow-code {
+  margin-top: 4px;
+  width: 100%;
+}
+
+/* ── Scrollbar ─────────────────────────────────── */
+
+/* Scrollbars defined in base.css */
+
+/* ── Toast notifications ─────────────────────────
+ * Mirrors the in-page toast styles (content-overlay.css) — we want
+ * the same visual language in the side panel for things like save
+ * errors and EC failures. SW fires TOAST messages; sidepanel.ts
+ * renders via the shared lib/toast.ts helper.
+ */
+#crev-toast-container {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+.crev-toast {
+  padding: 7px 12px;
+  border-radius: 4px;
+  font: 500 11px/1.4 var(--font-body, 'Inter', system-ui, sans-serif);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateX(16px);
+  transition: opacity 200ms ease, transform 200ms ease;
+  max-width: 260px;
+}
+.crev-toast--visible { opacity: 1; transform: translateX(0); }
+.crev-toast--exit { opacity: 0; transform: translateX(16px); }
+.crev-toast--success { background: rgba(66, 190, 101, 0.92); }
+.crev-toast--error { background: rgba(250, 77, 86, 0.92); }
+.crev-toast--info { background: rgba(120, 169, 255, 0.92); }

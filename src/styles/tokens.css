@@ -1,0 +1,209 @@
+/**
+ * Design tokens — single source of truth for the entire extension.
+ * Imported by all HTML entry points. Content overlay uses derived values.
+ * See DESIGN.md for the full design system specification.
+ */
+
+/* ── Self-hosted Inter (latin, 4 weights, ~96KB total) ── */
+@font-face { font-family: 'Inter'; font-weight: 400; font-style: normal; font-display: swap; src: url('../assets/fonts/inter-400.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 500; font-style: normal; font-display: swap; src: url('../assets/fonts/inter-500.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 600; font-style: normal; font-display: swap; src: url('../assets/fonts/inter-600.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 700; font-style: normal; font-display: swap; src: url('../assets/fonts/inter-700.woff2') format('woff2'); }
+
+/* ── Self-hosted JetBrains Mono (No-Ligatures, subset) ──
+ * Self-hosted so the mono italic is deterministic across OSes. The old
+ * system stack ('SF Mono', 'Cascadia Code', Consolas, …) meant the italic
+ * face was whatever the OS resolved — on Windows that's Cascadia Code,
+ * whose italic is a SCRIPT cursive (ugly s/l/f in Extended Code).
+ * JetBrains Mono's italic is a clean slanted-roman, so EC comments /
+ * MISSING read as slanted text, not cursive. One font for roman + italic
+ * keeps monospace cell metrics uniform (no cursor drift in CodeMirror).
+ *
+ * Subsetted with pyftsubset to DROP the ligature features
+ * (calt/liga/dlig/clig): programming ligatures are off (>=, :=, <>, !=
+ * stay as separate characters) and the ligature glyphs are pruned, which
+ * also halved the size (~21KB → ~9KB per face; 4 faces ≈ 36KB total).
+ * `--unicodes='*'` kept every real character, so UI glyphs (≡ ▾ ▸ ✕ ∅ →)
+ * are intact. */
+@font-face { font-family: 'JetBrains Mono'; font-weight: 400; font-style: normal; font-display: swap; src: url('../assets/fonts/jetbrains-mono-400.woff2') format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 500; font-style: normal; font-display: swap; src: url('../assets/fonts/jetbrains-mono-500.woff2') format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 700; font-style: normal; font-display: swap; src: url('../assets/fonts/jetbrains-mono-700.woff2') format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 400; font-style: italic;  font-display: swap; src: url('../assets/fonts/jetbrains-mono-400i.woff2') format('woff2'); }
+
+:root {
+  /* ── Surfaces (darkest → lightest) ────────────────── */
+  --surface-0: #111111;
+  --surface-1: #1a1a1a;
+  --surface-2: #252525;
+  --surface-3: #333333;
+  --surface-4: #444444;
+
+  /* ── Text ─────────────────────────────────────────── */
+  --text-1: #e4e4e4;
+  --text-2: #b0b0b0;
+  --text-3: #707070;
+  --text-disabled: #505050;
+
+  /* ── Accent ───────────────────────────────────────── */
+  --accent: #ba0ffe;
+  --accent-dim: #8a3ffc;
+  --accent-bright: #a76dff;
+  --accent-bg: #2a1a3e;
+
+  /* ── Semantic ─────────────────────────────────────── */
+  --success: #42be65;
+  --warning: #f1c21b;
+  --danger: #fa4d56;
+
+  /* Latency tiers — used by status-bar latency dot + similar
+   * connection-quality indicators. Same hue family as semantic
+   * tokens but tuned for the small dot context. */
+  --latency-excellent: #24a148;
+  --latency-good: #6fdc8c;
+  --latency-ok: #f1c21b;
+  --latency-slow: #ff832b;
+  --latency-very-slow: #d2552b;
+  --latency-dead: #da1e28;
+
+  /* Editor / code-preview syntax colours. Distinct from semantic
+   * (these are tuned for monospace contrast on dark surfaces). */
+  --syntax-string: #4cae4f;
+  --syntax-number: #4c9aff;
+  --info: #78a9ff;
+
+  /* ── Extended Code highlight palette ─────────────────
+   * Single source of truth for every surface that shows EC: the
+   * CodeMirror editor (src/editor/ec/highlight.ts re-uses these via
+   * getComputedStyle), the ObjectView code preview cards, the
+   * sidepanel `.ec-preview` block, the Reference View match lines,
+   * and the Code Search match-line composition. Hex literals used
+   * to be repeated across four CSS files plus highlight.ts — change
+   * a colour here, every surface picks it up.
+   *
+   * Family: Catppuccin Mocha — battle-tested on dark IDE backgrounds,
+   * WCAG-AA-friendly contrast on #1e1e2e, soothing pastels rather
+   * than the harsh Tailwind-default highlight palette we shipped
+   * first. Tokyo Night was the runner-up; Mocha won on overall
+   * harmony when 18+ token categories are visible at once.
+   *
+   * Categories carry weight/style cues for FAST scanning:
+   *   bold        → high-signal categories (tx writes, class types,
+   *                 agg slow operations)
+   *   italic      → out-of-band semantics (null, comments)
+   *   underline   → the .expression eval-vs-text gotcha (distinct
+   *                 from italic so a glance disambiguates)
+   *   normal      → everything else
+   *
+   * On collisions (e.g. tx + num both Peach): the categories share
+   * a hue but disambiguate by weight (tx is bold, num is not) and
+   * by context (tx appears after `.`, num is digits). Acceptable.
+   */
+  --ec-bg:        #1e1e2e;  /* Catppuccin Mocha base */
+
+  /* Identifier kinds */
+  --ec-kw:        #cba6f7;  /* Mauve   — control flow keywords */
+  --ec-ctx:       #b4befe;  /* Lavender — root / this / self / parent */
+  --ec-bool:      #f5c2e7;  /* Pink    — TRUE / FALSE */
+  --ec-null:      #585b70;  /* Surface2 — MISSING / NULL / NA  (italic) */
+
+  /* Literals */
+  --ec-str:       #a6e3a1;  /* Green   — strings */
+  --ec-num:       #fab387;  /* Peach   — numbers */
+  --ec-cmt:       #7f849c;  /* Overlay1 — comments  (italic) */
+  --ec-op:        #9399b2;  /* Overlay2 — operators */
+
+  /* Constants */
+  --ec-style:     #f9e2af;  /* Yellow  — LEFT / RIGHT / BOLD format */
+  --ec-date:      #89dceb;  /* Sky     — TODAY / BOP / EOP / period */
+
+  /* Functions */
+  --ec-global:    #94e2d5;  /* Teal    — LIST / JSON / output / when */
+  /* Tokyo Night "macroName" orange — semantically `aggregate` IS a
+   * macro-style operation (engine-level evaluator, slower than a
+   * plain function call). Distinct enough from Catppuccin Peach
+   * (--ec-num / --ec-tx) by saturation + bold weight; not red, so
+   * the "no red for non-errors" rule still holds. */
+  --ec-agg:       #ff9e64;  /* (bold) */
+
+  /* Methods */
+  --ec-tx:        #fab387;  /* Peach   — .add / .delete / .change  (bold) */
+  --ec-tbl:       #a6e3a1;  /* Green   — .addColumn / .addRow / table-builder */
+  --ec-read:      #89b4fa;  /* Blue    — .filter / .forEach / .children */
+
+  /* References */
+  --ec-class:     #f9e2af;  /* Yellow  — class names after SELECT / .add (T)  (bold) */
+  --ec-idspace:   #74c7ec;  /* Sapphire — `t.foo` / `o.100` / `d.bar` */
+
+  /* Properties */
+  --ec-prop:      #f5e0dc;  /* Rosewater — .name / .id / .rid / .className */
+  --ec-expr:      #f2cdcd;  /* Flamingo — bare `.expression`  (underline) */
+
+  /* ── Typography ───────────────────────────────────── */
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, ui-monospace, monospace;
+
+  --text-xs: 10px;
+  --text-sm: 11px;
+  --text-base: 12px;
+  --text-lg: 13px;
+  --text-xl: 14px;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semi: 600;
+  --weight-bold: 700;
+
+  --leading-tight: 1.2;
+  --leading-normal: 1.4;
+  --leading-relaxed: 1.6;
+
+  /* ── Spacing (4px grid) ───────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* ── Radius ───────────────────────────────────────── */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+
+  /* ── Elevation ────────────────────────────────────── */
+  /* Layered shadows — ambient + key — for a softer, more dimensional feel. */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.02);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --shadow-3: 0 4px 12px rgba(0, 0, 0, 0.35), 0 16px 40px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-4: 0 8px 24px rgba(0, 0, 0, 0.4), 0 32px 64px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+
+  /* Focused/armed state — accent-tinted halo, used for active overlays + key buttons */
+  --shadow-accent: 0 0 0 1px rgba(186, 15, 254, 0.4), 0 24px 64px rgba(0, 0, 0, 0.45);
+
+  /* ── Focus ring ───────────────────────────────────── */
+  --focus-ring: 0 0 0 2px rgba(186, 15, 254, 0.4);
+  --focus-ring-strong: 0 0 0 2px rgba(186, 15, 254, 0.7);
+
+  /* ── Transitions ──────────────────────────────────── */
+  --duration-instant: 80ms;
+  --duration-fast: 120ms;
+  --duration-normal: 180ms;
+  --duration-slow: 260ms;
+
+  /* Smooth, slightly springy default — feels more modern than cubic-bezier(0.4,0,0.2,1) */
+  --ease-default: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-decelerate: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-accelerate: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Reduced motion ──────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

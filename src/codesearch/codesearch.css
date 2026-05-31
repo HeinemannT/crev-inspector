@@ -1,0 +1,616 @@
+/* Code Search overlay — v0.23.0 revival in ctools design language. */
+/* Tokens + base imported via HTML. */
+
+html, body { width: 100%; height: 100%; overflow: hidden; }
+
+body {
+  background: var(--surface-0);
+  color: var(--text-1);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#search-root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 16px 18px 12px;
+  gap: 10px;
+  overflow: hidden;
+}
+
+/* ── Header ──────────────────────────────────────────────────── */
+
+.cs-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.cs-title {
+  font-family: var(--font-display, var(--font-body));
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-1);
+  margin: 0;
+}
+.cs-subtitle {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+/* ── Toolbar (search shell + pills) ──────────────────────────── */
+
+.cs-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  /* Sticky so the search box + filter + bulk controls stay visible
+   * when the user scrolls through a long result list. `top: 0` is
+   * relative to `.cs-results` parent (which is `#search-root`); the
+   * background-fill prevents result rows from showing through during
+   * the scroll. */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-0);
+  padding-bottom: 4px;
+}
+
+/* Hero search shell — same shape as Browse's .browse-search-shell,
+ * scaled up because the popup has more horizontal room and search
+ * should read as the primary affordance here. */
+.cs-search-shell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-md);
+  transition: border-color var(--duration-fast) var(--ease-default),
+              background var(--duration-fast) var(--ease-default);
+}
+.cs-search-shell:focus-within {
+  border-color: var(--accent);
+  background: var(--surface-0);
+}
+.cs-search-icon {
+  color: var(--text-3);
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.cs-search-input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  padding: 4px 0;
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+}
+.cs-search-input::placeholder { color: var(--text-3); }
+.cs-search-clear {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: var(--surface-3);
+  color: var(--text-2);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.cs-search-clear:hover { background: var(--surface-4); color: var(--text-1); }
+.cs-search-stop {
+  padding: 4px 12px;
+  background: var(--danger, #e64141);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.cs-search-stop:hover { filter: brightness(1.08); }
+
+/* Pill row — case-toggle + type group filters + scope chip. */
+.cs-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.cs-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  color: var(--text-2);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
+  user-select: none;
+  white-space: nowrap;
+}
+.cs-pill:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--surface-4));
+}
+.cs-pill.active {
+  background: color-mix(in srgb, var(--accent) 30%, var(--surface-2));
+  border-color: var(--accent);
+  color: var(--text-1);
+}
+.cs-pill--case { font-family: var(--font-mono); letter-spacing: -0.02em; }
+
+/* Scope chip — inline-editable RID input wrapped in a pill shell. */
+.cs-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px 0 10px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  margin-left: auto;
+}
+.cs-scope-label {
+  font-size: 10px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.cs-scope-input {
+  width: 130px;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 0;
+}
+.cs-scope-input::placeholder { color: var(--text-3); font-style: italic; }
+
+/* ── Result controls (filter + bulk expand/collapse) ─────────── */
+/* Only mounted once results land — see codesearch.ts. */
+
+.cs-result-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cs-filter-shell {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm);
+  transition: border-color var(--duration-fast) var(--ease-default);
+}
+.cs-filter-shell:focus-within { border-color: var(--accent); }
+.cs-filter-icon {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.cs-filter-input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  padding: 2px 0;
+  color: var(--text-1);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+}
+.cs-filter-input::placeholder { color: var(--text-3); font-style: italic; }
+.cs-filter-clear {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: var(--surface-3);
+  color: var(--text-2);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.cs-filter-clear:hover { background: var(--surface-4); color: var(--text-1); }
+.cs-bulk-btn {
+  padding: 3px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  color: var(--text-2);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 100ms ease, color 100ms ease, border-color 100ms ease;
+}
+.cs-bulk-btn:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--surface-4));
+}
+
+.cs-no-filter-matches {
+  padding: 16px 12px;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-style: italic;
+}
+.cs-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  padding: 0;
+  text-decoration: underline;
+  font-style: normal;
+}
+.cs-link:hover { color: color-mix(in srgb, var(--accent) 70%, #fff); }
+
+/* ── Error banner ────────────────────────────────────────────── */
+
+.cs-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--danger, #e64141) 18%, var(--surface-1));
+  border: 1px solid color-mix(in srgb, var(--danger, #e64141) 55%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  font-size: var(--text-sm);
+  flex-shrink: 0;
+}
+.cs-error-icon {
+  color: var(--danger, #e64141);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.cs-error-text { flex: 1; min-width: 0; }
+.cs-error-dismiss {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.cs-error-dismiss:hover { background: var(--surface-3); color: var(--text-1); }
+
+/* ── Progress strip ──────────────────────────────────────────── */
+
+.cs-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  flex-shrink: 0;
+}
+.cs-progress-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--surface-2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.cs-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 200ms ease-out;
+}
+.cs-progress--active .cs-progress-fill {
+  background: linear-gradient(
+    90deg,
+    var(--accent) 0%,
+    color-mix(in srgb, var(--accent) 50%, #fff) 50%,
+    var(--accent) 100%
+  );
+  background-size: 200% 100%;
+  animation: cs-progress-shimmer 1.2s linear infinite;
+}
+@keyframes cs-progress-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: 0 0; }
+}
+.cs-progress-text {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+/* ── Hero empty — popup-scaled overrides ─────────────────────────
+ * The shared `<EmptyState>` component is sized for the narrow side
+ * panel (14 px title, 340 px max body). The Code Search popup has
+ * more horizontal room, so bump the typography in this surface only. */
+.crev-empty-state--hero .crev-empty-state-title { font-size: 18px; }
+.crev-empty-state--hero .crev-empty-state-body,
+.crev-empty-state--hero .crev-empty-state-hint { max-width: 540px; }
+.crev-empty-state--hero { padding: 40px 24px; }
+
+/* ── Skeleton (loading) ──────────────────────────────────────── */
+
+.cs-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+}
+.cs-skeleton-row {
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--surface-1) 0%,
+    var(--surface-2) 50%,
+    var(--surface-1) 100%
+  );
+  background-size: 200% 100%;
+  animation: cs-skeleton-shimmer 1.4s linear infinite;
+}
+@keyframes cs-skeleton-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: 0 0; }
+}
+
+/* ── Results ─────────────────────────────────────────────────── */
+
+.cs-results {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 4px;
+}
+/* ── Type sections ───────────────────────────────────────────── */
+/* Top level grouping in the results list — one section per BMP type.
+ * Sections live directly inside `.cs-results`; per-object groups
+ * nest inside `.cs-section-body`. */
+
+.cs-section {
+  /* Locked to natural height so the scrolling parent (`.cs-results`)
+   * doesn't compress sections when the list overflows. */
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 4px;
+}
+.cs-section-header {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-1);
+  font-weight: 600;
+  transition: background 100ms ease, border-color 100ms ease;
+}
+.cs-section-header:hover { background: var(--surface-3); }
+.cs-section-header.expanded {
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  border-bottom-color: transparent;
+}
+.cs-section-chev {
+  width: 12px;
+  color: var(--text-3);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.cs-section-type {
+  font-family: var(--font-body);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+.cs-section-counts {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+.cs-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px 6px;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-3);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.cs-result-group {
+  /* Locked to natural height inside the section body — same reasoning
+   * as `.cs-section`. */
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-0);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.cs-result-header {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--text-1);
+  transition: background 100ms ease;
+}
+.cs-result-header:hover { background: var(--surface-2); }
+.cs-result-header.expanded { background: var(--surface-2); border-bottom: 1px solid var(--surface-3); }
+.cs-result-chev {
+  width: 12px;
+  color: var(--text-3);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.cs-type-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--type-color, var(--text-2));
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.cs-result-name {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  flex-shrink: 0;
+}
+.cs-result-bid {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+.cs-result-count {
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--surface-3);
+  padding: 2px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.cs-result-open {
+  all: unset;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  flex-shrink: 0;
+  transition: background 100ms ease, color 100ms ease;
+}
+.cs-result-open:hover { background: var(--surface-3); color: var(--accent); }
+
+.cs-result-prop {
+  padding: 6px 12px 2px 32px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.cs-match-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2px 12px 2px 32px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-1);
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background 100ms ease;
+}
+.cs-match-line:hover { background: var(--surface-3); }
+.cs-line-num {
+  flex-shrink: 0;
+  width: 36px;
+  text-align: right;
+  color: var(--text-3);
+  font-size: 10px;
+  user-select: none;
+}
+.cs-line-text {
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cs-match-highlight {
+  /* Background only — the EC tokeniser also runs on this text, and any
+   * `color` here would override the token colour wherever a match
+   * overlaps a tokenised span (very common). The accent-tinted
+   * background reads as "this matched the query" without fighting the
+   * syntax-highlight underneath. */
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  padding: 0 1px;
+  border-radius: 2px;
+  font-weight: 700;
+}
+
+/* EC syntax colours for the matched-line text. Palette is `--ec-*`
+ * from `src/styles/tokens.css` — shared with editor / sidepanel /
+ * ObjectView / Reference View. The `cs-match-highlight` background
+ * layers over these via class composition (each matched substring
+ * gets both `ec-tok-<kind>` AND `cs-match-highlight`). Scoped under
+ * .cs-line-text so non-EC body text isn't accidentally re-coloured. */
+.cs-line-text .ec-tok-kw      { color: var(--ec-kw); }
+.cs-line-text .ec-tok-ctx     { color: var(--ec-ctx); }
+.cs-line-text .ec-tok-bool    { color: var(--ec-bool); }
+.cs-line-text .ec-tok-null    { color: var(--ec-null); font-style: italic; }
+.cs-line-text .ec-tok-style   { color: var(--ec-style); }
+.cs-line-text .ec-tok-date    { color: var(--ec-date); }
+.cs-line-text .ec-tok-global  { color: var(--ec-global); }
+.cs-line-text .ec-tok-agg     { color: var(--ec-agg); font-weight: var(--weight-semi); }
+.cs-line-text .ec-tok-tx      { color: var(--ec-tx); font-weight: var(--weight-semi); }
+.cs-line-text .ec-tok-tbl     { color: var(--ec-tbl); }
+.cs-line-text .ec-tok-read    { color: var(--ec-read); }
+.cs-line-text .ec-tok-class   { color: var(--ec-class); font-weight: var(--weight-semi); }
+.cs-line-text .ec-tok-idspace { color: var(--ec-idspace); }
+.cs-line-text .ec-tok-prop    { color: var(--ec-prop); }
+.cs-line-text .ec-tok-expr    { color: var(--ec-expr); text-decoration: underline; }
+.cs-line-text .ec-tok-str     { color: var(--ec-str); }
+.cs-line-text .ec-tok-num     { color: var(--ec-num); }
+.cs-line-text .ec-tok-cmt     { color: var(--ec-cmt); font-style: italic; }
+.cs-line-text .ec-tok-op      { color: var(--ec-op); }

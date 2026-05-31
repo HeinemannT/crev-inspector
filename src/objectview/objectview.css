@@ -1,0 +1,382 @@
+/* Tokens + base imported via HTML. sidepanel.css is ALSO loaded so all the
+   .pane-* / .prop-* classes match the side-panel detail view 1:1 — this file
+   only adds wide-mode overrides (two-column body, bigger header, etc.). */
+
+html, body { width: 100%; height: 100%; overflow: hidden; }
+
+body {
+  background: var(--surface-0);
+  color: var(--text-1);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+
+#objectview-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Wide-mode shell ────────────────────────────── */
+
+.ov-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Body uses a 2-column grid only when the window is wide enough that the
+ * right-hand tree area gets meaningful space. Below ~960 px the sidebar
+ * would be squeezed under 280 px and the properties area below 600 px —
+ * both feel cramped. Single-column there gives properties the entire
+ * window width, with the tree stacked below where it can also expand. */
+.ov-body {
+  display: grid;
+  grid-template-columns: minmax(560px, 1fr) minmax(320px, 0.5fr);
+  gap: 16px;
+  padding: 16px;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 960px) {
+  .ov-body { grid-template-columns: 1fr; }
+}
+
+.ov-props-area { min-width: 0; }
+.ov-tree-area { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+/* Bigger header for the popout — the side-panel uses compact title sizes,
+   the popout has the screen real estate to read clearly. */
+.ov-header { padding: 12px 16px; }
+.ov-header .pane-id-name { font-size: var(--text-lg); }
+
+.ov-header-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ov-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-3) var(--space-4);
+  animation: crev-fade-in var(--duration-normal) var(--ease-decelerate);
+}
+
+/* ── Identity header (matches editor pattern) ───── */
+
+.ov-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--surface-4);
+  flex-shrink: 0;
+  min-height: 36px;
+}
+
+.ov-type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  color: #fff;
+  background: var(--type-color, var(--surface-3));
+  letter-spacing: 0.4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.ov-name {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semi);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.ov-header-bid {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+/* .btn base + variants defined in components.css */
+
+/* ── Identity fields ───────────────────────────── */
+
+.ov-identity {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: var(--space-1) var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-1);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+}
+
+.ov-id-label {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.ov-id-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-1);
+  cursor: pointer;
+  word-break: break-all;
+  transition: color var(--duration-fast) var(--ease-default);
+}
+
+.ov-id-value:hover { color: var(--accent); }
+.ov-id-value.copied { color: var(--success); }
+
+/* ── Sections ───────────────────────────────────── */
+
+.ov-section {
+  margin-top: var(--space-4);
+  animation: crev-fade-in var(--duration-normal) var(--ease-decelerate);
+}
+
+.ov-section-title {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  color: var(--text-3);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-1);
+  box-shadow: inset 0 -1px 0 var(--surface-2);
+}
+
+/* ── Property table ────────────────────────────── */
+
+.ov-prop-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface-1);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-1);
+}
+
+.ov-prop-table tr:nth-child(even) td { background: rgba(255, 255, 255, 0.025); }
+
+.ov-prop-table td {
+  padding: var(--space-1) var(--space-2);
+  vertical-align: top;
+  font-size: var(--text-sm);
+}
+
+.ov-prop-key {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  width: 100px;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.3px;
+}
+
+.ov-prop-value {
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  word-break: break-all;
+}
+
+/* ── Code blocks (popout v0.22.0 richer layout) ───────────────
+ * Each code-bearing property gets its own card with a header
+ * (prop label + line count + Edit button) and a 5-line preview
+ * with EC-syntax-highlighted body. Cards stack one per row at
+ * full width. Clicking the body opens the editor. */
+
+.ov-code-group {
+  /* Same outer rhythm as the other prop-groups (Layout, Visibility),
+   * but the inner content is cards not rows. */
+}
+.ov-code-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.ov-code-card {
+  background: var(--surface-1);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.ov-code-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--surface-3));
+}
+.ov-code-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px var(--space-2);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--surface-3);
+}
+.ov-code-card-prop {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semi);
+  color: var(--text-1);
+  flex: 1;
+}
+.ov-code-card-meta {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+}
+.ov-code-card-edit {
+  flex-shrink: 0;
+}
+.ov-code-card-body {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  color: var(--text-1);
+  cursor: pointer;
+  white-space: pre;
+  overflow-x: auto;
+  /* Bring out EC syntax tokens that ec-format produces */
+  &:hover {
+    background: color-mix(in srgb, var(--surface-2) 70%, var(--surface-1));
+  }
+}
+.ov-code-card-body:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* EC token colors inside the card body. Palette is `--ec-*` from
+ * `src/styles/tokens.css` — shared with the editor, sidepanel
+ * `.ec-preview`, Reference View, and Code Search. Style/weight cues
+ * encode extra semantics — see tokens.css for the rationale. Scoped
+ * under the card body so non-EC bodies (HTML / JS) stay plain mono. */
+.ov-code-card-body .ec-tok-kw      { color: var(--ec-kw); }
+.ov-code-card-body .ec-tok-ctx     { color: var(--ec-ctx); }
+.ov-code-card-body .ec-tok-bool    { color: var(--ec-bool); }
+.ov-code-card-body .ec-tok-null    { color: var(--ec-null); font-style: italic; }
+.ov-code-card-body .ec-tok-style   { color: var(--ec-style); }
+.ov-code-card-body .ec-tok-date    { color: var(--ec-date); }
+.ov-code-card-body .ec-tok-global  { color: var(--ec-global); }
+.ov-code-card-body .ec-tok-agg     { color: var(--ec-agg); font-weight: var(--weight-semi); }
+.ov-code-card-body .ec-tok-tx      { color: var(--ec-tx); font-weight: var(--weight-semi); }
+.ov-code-card-body .ec-tok-tbl     { color: var(--ec-tbl); }
+.ov-code-card-body .ec-tok-read    { color: var(--ec-read); }
+.ov-code-card-body .ec-tok-class   { color: var(--ec-class); font-weight: var(--weight-semi); }
+.ov-code-card-body .ec-tok-idspace { color: var(--ec-idspace); }
+.ov-code-card-body .ec-tok-prop    { color: var(--ec-prop); }
+.ov-code-card-body .ec-tok-expr    { color: var(--ec-expr); text-decoration: underline; }
+.ov-code-card-body .ec-tok-str     { color: var(--ec-str); }
+.ov-code-card-body .ec-tok-num     { color: var(--ec-num); }
+.ov-code-card-body .ec-tok-cmt     { color: var(--ec-cmt); font-style: italic; }
+.ov-code-card-body .ec-tok-op      { color: var(--ec-op); }
+.ov-code-card-fade {
+  padding: 4px var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  background: var(--surface-1);
+  border-top: 1px solid var(--surface-3);
+  font-family: var(--font-mono);
+  font-style: italic;
+  text-align: center;
+}
+
+/* ── Template link (card with hover-lift) ──────── */
+
+.ov-template-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-1);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  transition: box-shadow var(--duration-fast) var(--ease-default),
+              transform var(--duration-fast) var(--ease-default);
+}
+
+.ov-template-link:hover {
+  box-shadow: var(--shadow-2);
+  transform: translateY(-1px);
+}
+
+/* ── Children list ─────────────────────────────── */
+
+.ov-children {
+  background: var(--surface-1);
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
+  box-shadow: var(--shadow-1);
+}
+
+.ov-child-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-fast) var(--ease-default);
+}
+
+.ov-child-row:hover {
+  background: var(--surface-2);
+}
+
+.ov-child-name {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-child-bid {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+/* ── Loading / Error ───────────────────────────── */
+
+.ov-loading,
+.ov-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: var(--space-6);
+  font-size: var(--text-sm);
+  animation: crev-fade-in var(--duration-normal) var(--ease-decelerate);
+}
+
+.ov-loading { color: var(--text-2); }
+.ov-error { color: var(--danger); }
+
+/* Scrollbars defined in base.css */

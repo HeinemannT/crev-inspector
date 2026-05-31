@@ -1,0 +1,271 @@
+import type { BmpObject } from './types';
+import { getCtx } from './sw-context';
+import { pMap } from './util';
+import { errorMessage, log } from './logger';
+import { BATCH_CHUNK_SIZE, MAX_PARALLEL, ENRICHMENT_RETRY_DELAY, MAX_PERMANENTLY_FAILED } from './constants';
+
+/** Registered by connection.ts at init to break circular dependency.
+ *  Returns 'checking' before registration — safe default (won't skip enrichment). */
+let _getConnectionDisplay: (() => string) | null = null;
+export function registerConnectionDisplayFn(fn: () => string): void {
+  _getConnectionDisplay = fn;
+}
+function getConnectionDisplay(): string {
+  return _getConnectionDisplay?.() ?? 'checking';
+}
+
+const enrichedRids = new Set<string>();
+const permanentlyFailed = new Map<string, number>(); // RID → failure timestamp
+const FAILED_TTL = 60_000; // re-allow enrichment after 60s
+let enrichmentGeneration = 0;
+let enrichAbort: AbortController | null = null;
+
+type EnrichmentData = {
+  businessId?: string;
+  type?: string;
+  name?: string;
+  templateBusinessId?: string;
+  /** Optional template-cascade pointer used by the side-panel widget
+   *  pill column for objects with a multi-level template hierarchy.
+   *  Same shape as `EnrichmentEntry.cascade` in lib/types.ts. */
+  cascade?: { rid: string; businessId?: string; type?: string; name?: string };
+};
+
+/** Check if a RID is still within its failure TTL */
+function isStillFailed(rid: string): boolean {
+  const failedAt = permanentlyFailed.get(rid);
+  if (!failedAt) return false;
+  if (Date.now() - failedAt > FAILED_TTL) {
+    permanentlyFailed.delete(rid);
+    return false;
+  }
+  return true;
+}
+
+/** Evict oldest entries from permanentlyFailed if over cap */
+function capPermanentlyFailed() {
+  if (permanentlyFailed.size <= MAX_PERMANENTLY_FAILED) return;
+  const excess = permanentlyFailed.size - MAX_PERMANENTLY_FAILED;
+  let count = 0;
+  for (const rid of permanentlyFailed.keys()) {
+    if (count >= excess) break;
+    permanentlyFailed.delete(rid);
+    count++;
+  }
+}
+
+export function resetEnrichment() {
+  enrichedRids.clear();
+  permanentlyFailed.clear();
+}
+
+/** Drop one rid from the cache + dedup state and fetch a fresh
+ *  enrichment for it. Called after SAVE_PROPERTY / APPLY_OBJECT_CHANGES
+ *  succeed — otherwise the badge and side-panel detail view would
+ *  keep showing the pre-save name / type until manual cache clear.
+ *
+ *  Best-effort: if the BMP client isn't connected, we still wipe the
+ *  local cache (so we don't serve stale data) but skip the re-fetch. */
+export async function invalidateRid(rid: string): Promise<void> {
+  const ctx = getCtx();
+  ctx.cache.invalidate(rid);
+  enrichedRids.delete(rid);
+  permanentlyFailed.delete(rid);
+  if (!ctx.client) return;
+  // Re-enrich. enrichBadges handles its own broadcast to content
+  // scripts via BADGE_ENRICHMENT.
+  await enrichBadges([rid]);
+}
+
+export function incrementGeneration() {
+  enrichmentGeneration++;
+  enrichedRids.clear();
+  permanentlyFailed.clear();
+  enrichAbort?.abort();
+  enrichAbort = null;
+}
+
+export async function enrichBadges(rids: string[]) {
+  const ctx = getCtx();
+  if (!ctx.client) {
+    // Broadcast empty enrichments so content labels stop shimmer-loading
+    const empty: Record<string, EnrichmentData> = {};
+    for (const rid of rids) empty[rid] = {};
+    ctx.broadcastToContent({ type: 'BADGE_ENRICHMENT', enrichments: empty });
+    ctx.logActivity('warn', 'Enrichment skipped: not connected');
+    return;
+  }
+
+  // Skip enrichment when server is known-unreachable or still authenticating.
+  // We call getConnectionDisplay() (lazy import) to avoid circular dependency
+  // since connection.ts imports incrementGeneration from this module.
+  const connDisplay = getConnectionDisplay();
+  if (connDisplay === 'unreachable' || connDisplay === 'server-down') {
+    const empty: Record<string, EnrichmentData> = {};
+    for (const rid of rids) empty[rid] = {};
+    ctx.broadcastToContent({ type: 'BADGE_ENRICHMENT', enrichments: empty });
+    ctx.logActivity('info', 'Enrichment skipped: server unreachable');
+    return;
+  }
+
+  const gen = enrichmentGeneration;
+  enrichAbort = new AbortController();
+  const signal = enrichAbort.signal;
+  const cancelled = () => gen !== enrichmentGeneration;
+
+  const newRids = rids.map(r => r.trim()).filter(rid => rid && !enrichedRids.has(rid));
+  log.debug('enrich', `enrichBadges: ${rids.length} incoming, ${newRids.length} new, ${permanentlyFailed.size} permanently failed`);
+  if (newRids.length === 0) return;
+
+  // Partition: still-failed RIDs get empty broadcast, the rest proceed to enrichment
+  const alreadyFailed: string[] = [];
+  const toProcess: string[] = [];
+  for (const rid of newRids) {
+    (isStillFailed(rid) ? alreadyFailed : toProcess).push(rid);
+  }
+  if (alreadyFailed.length > 0) {
+    const fail: Record<string, EnrichmentData> = {};
+    for (const rid of alreadyFailed) fail[rid] = {};
+    ctx.broadcastToContent({ type: 'BADGE_ENRICHMENT', enrichments: fail });
+  }
+
+  // Phase 1: Send cache hits immediately (zero latency)
+  const cacheHits: Record<string, EnrichmentData> = {};
+  const uncached: string[] = [];
+
+  for (const rid of toProcess) {
+    const cached = ctx.cache.get(rid);
+    if (cached?.businessId || cached?.type || cached?.name) {
+      cacheHits[rid] = { businessId: cached.businessId, type: cached.type, name: cached.name, templateBusinessId: cached.templateBusinessId, cascade: cached.cascade };
+      enrichedRids.add(rid);
+    } else {
+      uncached.push(rid);
+    }
+  }
+
+  const cacheHitCount = Object.keys(cacheHits).length;
+
+  if (cacheHitCount > 0) {
+    ctx.broadcastToContent({ type: 'BADGE_ENRICHMENT', enrichments: cacheHits });
+  }
+
+  if (uncached.length === 0) {
+    enrichAbort = null; // nothing in-flight to abort
+    if (cacheHitCount > 0 || alreadyFailed.length > 0) {
+      // Cache hits are routine \u2014 push to debug only, not the activity feed.
+      // The feed used to drown in "Enriched 12 (cached)" every navigation.
+      log.debug('enrich', `Enriched ${cacheHitCount} (cached)`);
+      ctx.sendToPanel({ type: 'CACHE_STATS', count: ctx.cache.size });
+    }
+    return;
+  }
+
+  // Server-side enrichment is worth surfacing \u2014 it's a real round trip.
+  ctx.logActivity('info', `Enriching ${uncached.length} from server\u2026`);
+
+  // Phase 2: Batch enrich — chunks of BATCH_CHUNK_SIZE, parallel with concurrency cap
+  const failedRids: string[] = [];
+  const batchFailedChunks: { chunk: string[]; errorMsg?: string }[] = [];
+  let total = cacheHitCount;
+
+  async function processChunk(chunk: string[], isCancelled: () => boolean, abortSignal: AbortSignal): Promise<{ failed: string[]; batchError: boolean; errorMsg?: string }> {
+    if (isCancelled()) return { failed: chunk, batchError: false };
+    const failed: string[] = [];
+    try {
+      const { results: batchResults, error: batchError } = await ctx.client!.batchEnrich(chunk, abortSignal);
+      if (isCancelled()) return { failed: chunk, batchError: false };
+      if (batchError) {
+        return { failed: chunk, batchError: true, errorMsg: batchError };
+      }
+      const chunkHits: Record<string, EnrichmentData> = {};
+      const cacheObjs: BmpObject[] = [];
+      const now = Date.now();
+      for (const rid of chunk) {
+        const data = batchResults[rid];
+        if (data) {
+          chunkHits[rid] = data;
+          enrichedRids.add(rid);
+          cacheObjs.push({ rid, businessId: data.businessId, type: data.type, name: data.name, templateBusinessId: data.templateBusinessId, cascade: data.cascade, source: 'server', discoveredAt: now, updatedAt: now });
+          total++;
+        } else {
+          failed.push(rid);
+        }
+      }
+      if (cacheObjs.length > 0 && !isCancelled()) {
+        ctx.cache.putAll(cacheObjs);
+        ctx.broadcastToContent({ type: 'BADGE_ENRICHMENT', enrichments: chunkHits });
+      }
+      return { failed, batchError: false };
+    } catch (e) {
+      return { failed: chunk, batchError: true, errorMsg: errorMessage(e) };
+    }
+  }
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < uncached.length; i += BATCH_CHUNK_SIZE) {
+    chunks.push(uncached.slice(i, i + BATCH_CHUNK_SIZE));
+  }
+
+  if (cancelled()) { ctx.logActivity('info', 'Enrichment cancelled (profile changed)'); return; }
+  const chunkResults = await pMap(chunks, chunk => processChunk(chunk, cancelled, signal), MAX_PARALLEL);
+
+  for (let i = 0; i < chunkResults.length; i++) {
+    const result = chunkResults[i];
+    if (result.batchError) {
+      batchFailedChunks.push({ chunk: chunks[i], errorMsg: result.errorMsg });
+      ctx.logActivity('warn', `Batch failed: ${result.errorMsg ?? 'unknown error'}`);
+    } else {
+      failedRids.push(...result.failed);
+    }
+  }
+
+  // Retry failed batch chunks once after a short delay (parallel)
+  if (batchFailedChunks.length > 0 && !cancelled()) {
+    const jitter = Math.random() * ENRICHMENT_RETRY_DELAY * 0.3;
+    const retryDelay = ENRICHMENT_RETRY_DELAY + jitter;
+    ctx.logActivity('info', `Retrying ${batchFailedChunks.length} failed batch(es) in ${Math.round(retryDelay / 1000)}s\u2026`);
+    await new Promise(r => setTimeout(r, retryDelay));
+    if (cancelled()) { ctx.logActivity('info', 'Enrichment cancelled (profile changed)'); return; }
+    const retryResults = await pMap(
+      batchFailedChunks,
+      ({ chunk }) => processChunk(chunk, cancelled, signal),
+      MAX_PARALLEL,
+    );
+    for (let i = 0; i < retryResults.length; i++) {
+      const result = retryResults[i];
+      if (result.batchError) {
+        for (const rid of batchFailedChunks[i].chunk) permanentlyFailed.set(rid, Date.now());
+        ctx.logActivity('warn', `Batch retry failed (${result.errorMsg ?? 'unknown'}): ${batchFailedChunks[i].chunk.length} RIDs skipped`);
+      } else {
+        failedRids.push(...result.failed);
+      }
+    }
+  }
+
+  if (cancelled()) { ctx.logActivity('info', 'Enrichment cancelled (profile changed)'); return; }
+
+  // Mark remaining failures as permanently failed
+  for (const rid of failedRids) permanentlyFailed.set(rid, Date.now());
+  capPermanentlyFailed();
+
+  // Broadcast empty enrichment for failed RIDs so content removes loading state
+  if (failedRids.length > 0) {
+    const failedEnrichments: Record<string, EnrichmentData> = {};
+    for (const rid of failedRids) failedEnrichments[rid] = {};
+    ctx.broadcastToContent({ type: 'BADGE_ENRICHMENT', enrichments: failedEnrichments });
+  }
+
+  ctx.logActivity('success', `Enriched ${total} object${total !== 1 ? 's' : ''}`);
+  ctx.sendToPanel({ type: 'CACHE_STATS', count: ctx.cache.size });
+  // Flush cache to storage immediately — setTimeout-based batching won't
+  // survive SW suspension, and enrichment is the main cache write path.
+  ctx.cache.flush().catch(e => log.swallow('enrich:cacheFlush', e));
+}
+
+/** Clear enrichment state and trigger re-enrichment on all connected tabs */
+export function refreshEnrichment() {
+  const ctx = getCtx();
+  incrementGeneration();
+  ctx.logActivity('info', 'Refreshing badge enrichment\u2026');
+  ctx.broadcastToContent({ type: 'RE_ENRICH' });
+}

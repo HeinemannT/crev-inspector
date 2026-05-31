@@ -1,0 +1,530 @@
+/**
+ * Background service worker — thin entry point.
+ * State, context, port management, boot sequence.
+ * All logic delegated to focused modules.
+ */
+
+import type { InspectorMessage, InspectorSettings } from './lib/types';
+import { DEFAULT_SETTINGS } from './lib/types';
+import { ObjectCache } from './lib/object-cache';
+import { HistoryManager } from './lib/history';
+import { FavoritesManager } from './lib/favorites';
+import { ScriptHistoryManager } from './lib/script-history';
+import type { SwContext } from './lib/sw-context';
+import { setSwContext } from './lib/sw-context';
+import { log } from './lib/logger';
+
+// Modules
+import { loadTabDetection, getTabDetection } from './lib/detection';
+import { startHealthPolling, runAuthTest, stopHealthPolling, pollHealth } from './lib/connection';
+import { restoreActivity, logActivity } from './lib/activity';
+import { createSettingsReady, loadSettingsFrom, onProfileSwitch } from './lib/settings';
+import { registerTabListeners, sendPageInfoToPanel } from './lib/tab-awareness';
+import { handleContentMessage, handlePanelMessage, handleOneShotMessage, toggleInspect } from './lib/message-router';
+import { setContextRid, getContextRid, deleteContextRid } from './lib/context-rid';
+import { pushPaintState } from './lib/paint';
+import { openEditorWindow, openExtendedWindow } from './lib/editor';
+import { openCodeSearchWindow } from './lib/codesearch-launcher';
+import { openDiffWindow } from './lib/diff-launcher';
+
+// ── State ───────────────────────────────────────────────────────
+
+// Cache initialized with default profile; will be switched once settings load
+const cache = new ObjectCache('_default');
+const history = new HistoryManager('_default');
+const favorites = new FavoritesManager('_default');
+const scriptHistory = new ScriptHistoryManager('_default');
+/** Per-window inspect-mode flag. Persisted to chrome.storage.session so
+ *  toggling survives SW idle-suspend within a single browser session.
+ *  Window IDs aren't stable across browser restarts; cleanup happens on
+ *  chrome.windows.onRemoved + at boot we drop entries whose window
+ *  doesn't exist anymore. */
+const inspectActiveByWindow = new Map<number, boolean>();
+let technicalOverlay = false;
+let settings: InspectorSettings = { ...DEFAULT_SETTINGS };
+let client: import('./lib/bmp-client').BmpClient | null = null;
+
+const contentPorts = new Map<number, chrome.runtime.Port>();
+
+// Side-panel ports indexed by the windowId they live in. Chrome allows one
+// panel per browser window; with two windows open the user can have two
+// panel instances connected simultaneously. The original singleton
+// `panelPort` made the second connect silently steal the first panel's
+// channel, which is the bug this Map fixes.
+const panelPortByWindow = new Map<number, chrome.runtime.Port>();
+// Reverse lookup so the disconnect handler can find which windowId a
+// disconnecting port was attached to (Chrome doesn't give us the windowId
+// in the disconnect event).
+const portToWindowId = new Map<chrome.runtime.Port, number>();
+
+const PANEL_MSG_CAP = 100;
+const pendingPanelMessages: InspectorMessage[] = [];
+
+function broadcastToPanels(msg: InspectorMessage) {
+  if (panelPortByWindow.size === 0) {
+    // No panels open — queue with the same dedup semantics as the legacy
+    // singleton path so the first panel that opens after the SW starts
+    // gets fresh state without duplicates.
+    const DEDUP_TYPES = new Set(['CONNECTION_STATE', 'DETECTION_STATE']);
+    if (DEDUP_TYPES.has(msg.type)) {
+      const idx = pendingPanelMessages.findIndex(m => m.type === msg.type);
+      if (idx >= 0) pendingPanelMessages.splice(idx, 1);
+    }
+    pendingPanelMessages.push(msg);
+    if (pendingPanelMessages.length > PANEL_MSG_CAP) {
+      const dropped = pendingPanelMessages.length - PANEL_MSG_CAP;
+      log.warn('sw:panelOverflow', `Panel queue overflowed, dropping ${dropped} oldest messages`);
+      pendingPanelMessages.splice(0, dropped);
+    }
+    return;
+  }
+  for (const port of panelPortByWindow.values()) {
+    try { port.postMessage(msg); }
+    catch (e) { log.swallow('sw:broadcastToPanels', e); }
+  }
+}
+
+function sendToPanelByWindow(windowId: number, msg: InspectorMessage) {
+  const port = panelPortByWindow.get(windowId);
+  if (port) {
+    try { port.postMessage(msg); }
+    catch (e) { log.swallow('sw:sendToPanelByWindow', e); }
+  }
+}
+
+function sendToPanelByTab(tabId: number, msg: InspectorMessage) {
+  // Look up the tab's windowId then route. Cheap call (Chrome cache);
+  // fire-and-forget — if the tab is gone, no panel needs the message.
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab?.windowId) return;
+    sendToPanelByWindow(tab.windowId, msg);
+  });
+}
+
+// ── Context ─────────────────────────────────────────────────────
+
+const { settingsReady, resolveSettings } = createSettingsReady();
+
+const ctx: SwContext = {
+  get client() { return client; },
+  set client(v) { client = v; },
+  get hasPanel() { return panelPortByWindow.size > 0; },
+  panelPortByWindow,
+  contentPorts,
+  cache,
+  history,
+  favorites,
+  scriptHistory,
+  get settings() { return settings; },
+  set settings(v) { settings = v; },
+  inspectActiveByWindow,
+  isInspectActive(windowId: number | undefined): boolean {
+    return windowId != null && inspectActiveByWindow.get(windowId) === true;
+  },
+  setInspectActive(windowId: number, active: boolean): void {
+    if (active) inspectActiveByWindow.set(windowId, true);
+    else inspectActiveByWindow.delete(windowId);
+    persistInspectState();
+  },
+  get technicalOverlay() { return technicalOverlay; },
+  set technicalOverlay(v) { technicalOverlay = v; },
+  settingsReady,
+  logActivity,
+  sendToPanel: broadcastToPanels,
+  sendToPanelByWindow,
+  sendToPanelByTab,
+  broadcastToContent(msg: InspectorMessage) {
+    for (const port of contentPorts.values()) {
+      try { port.postMessage(msg); } catch (e) { log.swallow('sw:broadcastToContent', e); }
+    }
+  },
+  toast(text, kind) {
+    // Push the TOAST to every connected panel. Callers that ALSO want a
+    // permanent record in the Log tab call ctx.logActivity() separately —
+    // we don't mirror automatically so handlers that already log can't
+    // accidentally double-log.
+    ctx.sendToPanel({ type: 'TOAST', text, kind });
+  },
+};
+
+// ── Init ─────────────────────────────────────────────────────────
+
+setSwContext(ctx);
+registerTabListeners();
+
+// ── Boot ────────────────────────────────────────────────────────
+
+/** Per-window inspect state restore. Runs in parallel with the other
+ *  state-manager loads so it completes BEFORE settingsReady resolves —
+ *  otherwise handlers gated on settingsReady could read an empty
+ *  inspectActiveByWindow Map and miss the user's pre-restart toggle. */
+async function restoreInspectState(): Promise<void> {
+  try {
+    const sess = await chrome.storage.session.get('crev_inspect_active_by_window');
+    const saved = sess.crev_inspect_active_by_window as Record<string, boolean> | undefined;
+    if (!saved) return;
+    const liveWindows = await chrome.windows.getAll();
+    const liveIds = new Set(liveWindows.map(w => w.id).filter((id): id is number => id != null));
+    for (const [k, v] of Object.entries(saved)) {
+      const id = Number(k);
+      // Drop entries for closed windows so a future window assigned the
+      // same id doesn't inherit stale state.
+      if (Number.isFinite(id) && liveIds.has(id) && v === true) {
+        inspectActiveByWindow.set(id, true);
+      }
+    }
+  } catch (e) { log.swallow('sw:restoreInspect', e); }
+}
+
+// Boot: load state managers independently (one failure must not block the rest)
+Promise.all([
+  cache.load().catch(e => log.swallow('sw:cache', e)),
+  history.load().catch(e => log.swallow('sw:history', e)),
+  favorites.load().catch(e => log.swallow('sw:favorites', e)),
+  scriptHistory.load().catch(e => log.swallow('sw:scriptHistory', e)),
+  restoreActivity().catch(e => log.swallow('sw:activity', e)),
+  loadTabDetection().catch(e => log.swallow('sw:tabDetection', e)),
+  restoreInspectState().catch(e => log.swallow('sw:restoreInspect', e)),
+]).then(async () => {
+  const stored = await chrome.storage.local.get(['crev_settings']).catch(e => { log.swallow('sw:loadStorage', e); return {} as Record<string, unknown>; });
+  await loadSettingsFrom((stored as Record<string, unknown>).crev_settings);
+
+  // Drop the legacy global inspect-active key one-shot so storage stays clean.
+  chrome.storage.local.remove('crev_inspect_active').catch(() => { /* fine if absent */ });
+}).catch(e => {
+  log.swallow('sw:init', e);
+  resolveSettings(); // ensure settingsReady resolves even on catastrophic failure
+});
+
+function persistInspectState() {
+  const obj: Record<string, boolean> = {};
+  for (const [k, v] of inspectActiveByWindow) if (v) obj[String(k)] = true;
+  chrome.storage.session.set({ crev_inspect_active_by_window: obj })
+    .catch(e => log.swallow('sw:persistInspect', e));
+}
+
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(e => log.swallow('sw:sidePanel', e));
+
+chrome.windows.onRemoved.addListener((id) => {
+  // Drop the closed window's inspect-mode entry; otherwise a future
+  // window assigned the same ID would inherit stale state.
+  if (inspectActiveByWindow.delete(id)) persistInspectState();
+});
+
+// ── Context menus ──────────────────────────────────────────────
+
+chrome.contextMenus.removeAll(async () => {
+  const items: Array<chrome.contextMenus.CreateProperties> = [
+    { id: 'crev-copy-rid', title: 'Copy RID' },
+    { id: 'crev-copy-bid', title: 'Copy Business ID' },
+    { id: 'crev-copy-name', title: 'Copy Name' },
+    { id: 'crev-sep-1', type: 'separator' },
+    { id: 'crev-view-props', title: 'View Properties' },
+    { id: 'crev-open-editor', title: 'Open Editor' },
+    { id: 'crev-sep-2', type: 'separator' },
+    { id: 'crev-compare', title: 'Compare with\u2026' },
+    { id: 'crev-search-code', title: 'Search Code' },
+  ];
+  for (const item of items) {
+    chrome.contextMenus.create({ ...item, contexts: ['all'] });
+  }
+  // If we have a half-completed compare from a previous SW lifetime, reflect it.
+  // Pivot is now keyed per-profile, so we need the active profile id first.
+  await ctx.settingsReady.catch(() => { /* boot race; pivot restore is best-effort */ });
+  try {
+    const pivot = await getComparePivot();
+    if (pivot) chrome.contextMenus.update('crev-compare', { title: `Compare with ${pivot.name ?? pivot.rid}\u2026` });
+  } catch (e) { log.swallow('sw:restoreComparePivot', e); }
+});
+
+/** Compare pivot lives in chrome.storage.session, scoped per profile.
+ *  Pinning a sbx object then alt-tabbing to dev no longer shows a stale
+ *  "Compare with <sbx-rid>" \u2014 dev's pivot is independent. */
+type ComparePivot = { rid: string; name?: string };
+
+function compareKey(): string {
+  const profileId = ctx.settings?.activeProfileId || '_default';
+  return `crev_compare_pivot_${profileId}`;
+}
+
+async function getComparePivot(): Promise<ComparePivot | null> {
+  const key = compareKey();
+  const r = await chrome.storage.session.get(key);
+  return (r[key] as ComparePivot | undefined) ?? null;
+}
+async function setComparePivot(p: ComparePivot | null): Promise<void> {
+  const key = compareKey();
+  if (p) await chrome.storage.session.set({ [key]: p });
+  else await chrome.storage.session.remove(key);
+}
+
+// Refresh the context-menu compare title when the active profile
+// switches. Without this, the menu would show "Compare with <sbx-rid>…"
+// after the user alt-tabbed to dev — visually correct for sbx but
+// stale for dev (which has its own per-profile pivot, possibly empty).
+onProfileSwitch(() => {
+  getComparePivot().then((pivot) => {
+    const title = pivot ? `Compare with ${pivot.name ?? pivot.rid}…` : 'Compare with…';
+    chrome.contextMenus.update('crev-compare', { title }).catch(e => log.swallow('sw:refreshCompareMenu', e));
+  }).catch(e => log.swallow('sw:refreshCompareMenuRead', e));
+});
+
+// Clean up context menu state when tabs close
+chrome.tabs.onRemoved.addListener((tabId) => { deleteContextRid(tabId); });
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  const tabId = tab?.id;
+  if (!tabId) return;
+  const ctxRid = getContextRid(tabId);
+  if (!ctxRid) return;
+
+  const menuId = typeof info.menuItemId === 'string' ? info.menuItemId : '';
+  const reportFail = (action: string) => (e: unknown) => {
+    ctx.logActivity('error', `${action} failed`, e instanceof Error ? e.message : String(e));
+  };
+  switch (menuId) {
+    case 'crev-copy-rid':
+      chrome.tabs.sendMessage(tabId, { type: 'COPY_TO_CLIPBOARD', text: ctxRid.rid }).catch(reportFail('Copy RID'));
+      break;
+    case 'crev-copy-bid':
+      chrome.tabs.sendMessage(tabId, { type: 'COPY_TO_CLIPBOARD', text: ctxRid.businessId ?? ctxRid.rid }).catch(reportFail('Copy ID'));
+      break;
+    case 'crev-copy-name':
+      chrome.tabs.sendMessage(tabId, { type: 'COPY_TO_CLIPBOARD', text: ctxRid.name ?? '' }).catch(reportFail('Copy name'));
+      break;
+    case 'crev-view-props':
+      if (tabId) chrome.sidePanel.open({ tabId }).catch(reportFail('Open side panel'));
+      ctx.sendToPanel({ type: 'SELECT_OBJECT', rid: ctxRid.rid });
+      break;
+    case 'crev-open-editor':
+      // Context menu fires for a specific tab \u2014 mount the editor there
+      // rather than on lastFocusedWindow's active tab.
+      openEditorWindow(ctxRid.rid, undefined, { tabId }).catch(reportFail('Open editor'));
+      break;
+    case 'crev-search-code':
+      openCodeSearchWindow({ tabId });
+      break;
+    case 'crev-compare': {
+      const pivot = await getComparePivot();
+      if (!pivot) {
+        await setComparePivot({ rid: ctxRid.rid, name: ctxRid.name });
+        chrome.contextMenus.update('crev-compare', { title: `Compare with ${ctxRid.name ?? ctxRid.rid}\u2026` });
+      } else {
+        openDiffWindow(pivot.rid, ctxRid.rid, undefined, { tabId });
+        await setComparePivot(null);
+        chrome.contextMenus.update('crev-compare', { title: 'Compare with\u2026' });
+      }
+      break;
+    }
+  }
+});
+
+// ── Port connections ────────────────────────────────────────────
+
+/** Safe postMessage — swallows errors from disconnected ports. */
+function safeSend(port: chrome.runtime.Port, msg: InspectorMessage) {
+  try { port.postMessage(msg); }
+  catch (e) { log.swallow('sw:safeSend', e); }
+}
+
+/** Push initial state to a newly connected content port (after settingsReady). */
+function initContentPort(port: chrome.runtime.Port, tabId: number | undefined) {
+  port.onMessage.addListener((msg: InspectorMessage) => {
+    handleContentMessage(msg, tabId ?? undefined);
+  });
+
+  // All initial pushes gated on settingsReady — inspect state and cache
+  // are only valid after boot completes (restored from storage). Inspect
+  // is per-window: this content port belongs to a tab in some window;
+  // we look up that window's flag.
+  settingsReady.then(async () => {
+    let inspectForWindow = false;
+    if (tabId != null) {
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        inspectForWindow = inspectActiveByWindow.get(tab.windowId) === true;
+      } catch { /* tab gone */ }
+    }
+    safeSend(port, { type: 'INSPECT_STATE', active: inspectForWindow });
+    safeSend(port, { type: 'ENRICH_MODE', mode: settings.enrichMode });
+
+    // Push cached enrichments so a fresh content script (after F5) has data immediately
+    const enrichments: Record<string, { businessId?: string; type?: string; name?: string; templateBusinessId?: string }> = {};
+    for (const obj of cache.getAll()) {
+      if (obj.businessId || obj.type || obj.name) {
+        enrichments[obj.rid] = { businessId: obj.businessId, type: obj.type, name: obj.name, templateBusinessId: obj.templateBusinessId };
+      }
+    }
+    if (Object.keys(enrichments).length > 0) {
+      safeSend(port, { type: 'BADGE_ENRICHMENT', enrichments });
+    }
+  });
+
+  // Notify the panel that lives in the same window as the connecting
+  // content script (if any). Previously we asked Chrome for the "active
+  // tab" globally and pushed to the singleton panel; with multiple
+  // windows that surfaced the wrong tab's data in the wrong panel.
+  if (tabId != null && panelPortByWindow.size > 0) {
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError || !tab) return;
+      const windowId = tab.windowId;
+      if (windowId == null) return;
+      // Active-tab gate per window: only push if the connecting tab is
+      // the active tab of its window (background BMP tabs shouldn't
+      // jerk that window's panel).
+      chrome.tabs.query({ active: true, windowId }, (actives) => {
+        if (actives[0]?.id !== tabId) return;
+        logActivity('info', 'Content script connected');
+        sendPageInfoToPanel(tabId);
+        const det = getTabDetection(tabId);
+        sendToPanelByWindow(windowId, {
+          type: 'DETECTION_STATE',
+          ...(det ?? { phase: 'checking' as import('./lib/types').DetectionPhase, confidence: 0, signals: [] }),
+        } satisfies InspectorMessage);
+      });
+    });
+  }
+}
+
+/** Push initial state to a newly connected panel port. The port is not
+ *  yet registered in `panelPortByWindow` — that happens after the first
+ *  PANEL_HELLO message arrives carrying the panel's windowId. */
+function initPanelPort(port: chrome.runtime.Port) {
+  port.onMessage.addListener((msg: InspectorMessage) => {
+    if (msg.type === 'PANEL_HELLO') {
+      const { windowId } = msg;
+      // De-dup: if a panel for this window already exists (shouldn't
+      // happen but defensive), drop the previous one.
+      const prev = panelPortByWindow.get(windowId);
+      if (prev && prev !== port) {
+        portToWindowId.delete(prev);
+        try { prev.disconnect(); } catch { /* already gone */ }
+      }
+      panelPortByWindow.set(windowId, port);
+      portToWindowId.set(port, windowId);
+
+      settingsReady.then(() => {
+        // Per-window inspect — this panel only cares about its own window.
+        safeSend(port, { type: 'INSPECT_STATE', active: inspectActiveByWindow.get(windowId) === true });
+        safeSend(port, { type: 'CACHE_STATS', count: cache.size });
+        // Flush queued broadcasts to the newly-registered panel. Multiple
+        // panels racing to flush would each pop the queue; only the
+        // *first* panel gets the queued messages — that's intentional,
+        // the queued payloads are state snapshots that are equally
+        // useful to either panel and we don't want to double-fire
+        // activity entries.
+        for (const queued of pendingPanelMessages) safeSend(port, queued);
+        pendingPanelMessages.length = 0;
+      });
+      pushPaintState();
+      return;
+    }
+    handlePanelMessage(msg, port);
+  });
+
+  startHealthPolling();
+  runAuthTest();
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === 'content') {
+    const tabId = port.sender?.tab?.id;
+    if (tabId != null) {
+      contentPorts.set(tabId, port);
+      port.onDisconnect.addListener(() => contentPorts.delete(tabId));
+    }
+    initContentPort(port, tabId ?? undefined);
+  }
+
+  if (port.name === 'panel') {
+    port.onDisconnect.addListener(() => {
+      const windowId = portToWindowId.get(port);
+      portToWindowId.delete(port);
+      if (windowId != null && panelPortByWindow.get(windowId) === port) {
+        panelPortByWindow.delete(windowId);
+      }
+      // Stop health polling only when the LAST panel goes away —
+      // otherwise closing one window's panel would kill the polling
+      // the other window's panel still depends on.
+      if (panelPortByWindow.size === 0) stopHealthPolling();
+    });
+    initPanelPort(port);
+  }
+});
+
+// ── Keyboard shortcut ───────────────────────────────────────────
+
+chrome.commands.onCommand.addListener((command) => {
+  log.info('sw:command', command);
+  if (command === 'open-sidebar') {
+    // Per-window toggle: close the panel if it's open in the user's
+    // current window; otherwise open it there. chrome.sidePanel has no
+    // close API so closing routes through CLOSE_PANEL → window.close().
+    // We target THIS window only — the panel in another window is the
+    // user's other context and shouldn't be disturbed.
+    chrome.windows.getCurrent({ populate: false }, (win) => {
+      if (win?.id == null) return;
+      const existing = panelPortByWindow.get(win.id);
+      if (existing) {
+        try { existing.postMessage({ type: 'CLOSE_PANEL' } as InspectorMessage); }
+        catch (e) { log.swallow('sw:closeSidebar', e); }
+        return;
+      }
+      chrome.sidePanel.open({ windowId: win.id }).catch(e => log.swallow('sw:openSidebar', e));
+    });
+  }
+  if (command === 'toggle-inspect') {
+    toggleInspect();
+  }
+  if (command === 'open-extended') {
+    // Mount on the user's most-recently-focused window's active tab.
+    // This is the closest we can get from a keyboard shortcut (we have
+    // no panel context). Pass tabId so launcher targets exactly that tab.
+    chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      const tabUrl = tab?.url;
+      let pageRid: string | undefined;
+      if (tabUrl) {
+        try {
+          const params = new URL(tabUrl).searchParams;
+          pageRid = params.get('rid') ?? undefined;
+        } catch { /* ignore invalid URLs */ }
+      }
+      openExtendedWindow(pageRid, { tabId: tab?.id }).catch(e => log.swallow('sw:openExtended', e));
+    });
+  }
+});
+
+// ── Network state change → immediate re-poll ────────────────────
+
+self.addEventListener('online', () => { pollHealth(); });
+self.addEventListener('offline', () => { pollHealth(); });
+
+// ── One-shot message handler ────────────────────────────────────
+
+chrome.runtime.onMessage.addListener((msg: InspectorMessage, sender, sendResponse) => {
+  // Track last right-clicked RID per tab (from content script). Surface the
+  // change in the activity log — the user sets context constantly and the
+  // Log tab was previously blind to it.
+  if (msg.type === 'SET_CONTEXT_RID') {
+    const tabId = sender.tab?.id;
+    if (tabId != null) {
+      setContextRid(tabId, { rid: msg.rid, name: msg.name, type: msg.objectType, businessId: msg.businessId });
+    }
+    const label = msg.name || msg.businessId || msg.rid;
+    ctx.logActivity('info', `Context: ${label}`);
+    // Push the new context to the panel so the Page tab + picker refresh
+    // without the user having to close/reopen the side panel. The Page tab's
+    // CONTEXT_RID_DATA handler already takes care of fetching the full
+    // template tree from the new rid.
+    ctx.sendToPanel({
+      type: 'CONTEXT_RID_DATA',
+      rid: msg.rid,
+      name: msg.name,
+      objectType: msg.objectType,
+      businessId: msg.businessId,
+    });
+    return false;
+  }
+  return handleOneShotMessage(msg, sender, sendResponse);
+});

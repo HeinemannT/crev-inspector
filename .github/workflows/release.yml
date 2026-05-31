@@ -1,0 +1,93 @@
+name: release
+
+# Triggered when you push a tag like `v0.17.5` (must match the manifest.json
+# version). Builds the extension, zips dist/, and attaches the .zip to a
+# GitHub release with the same tag.
+#
+# Naming convention follows the existing release assets in this repo:
+# `crev-inspector-<version>.zip` (no leading "v") so the version-check in
+# src/lib/version-check.ts can find it without parsing.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    # GitHub is removing Node.js 20 from the action runtime on
+    # 2026-09-16 (default flip to Node 24 lands on 2026-06-02). The
+    # two pins below already use Node-24-shipped majors (checkout@v5,
+    # setup-node@v5). softprops/action-gh-release@v2 hasn't bumped
+    # yet, so the env var below opts every JS action in this job into
+    # the Node 24 runtime until that release ships — no surprise
+    # warnings, no deprecation cliff.
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          # `node-version: 20` controls the BUILD environment (npm ci,
+          # npm run build, npm test), not the action runtime above.
+          # Node 20 is still LTS through 2026-04 — separate decision
+          # from the action-runtime bump.
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Verify tag matches manifest version
+        # Refuses to ship a release whose tag doesn't match manifest.version —
+        # otherwise the update banner in the panel would always think we're
+        # behind. Strip the leading "v" from the tag for comparison.
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
+          if [ "$TAG_VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "::error::Tag ($TAG_VERSION) does not match manifest.json version ($MANIFEST_VERSION). Bump one to match the other before tagging."
+            exit 1
+          fi
+          echo "VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
+
+      - name: Test
+        # Gate the release on the test suite. A broken test must never
+        # ship — historically we noticed several days late that bad
+        # code had been released.
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Package
+        run: |
+          # Bundle the *built* extension — what users load via "Load unpacked"
+          # plus all the manifest-referenced static files. dist/ on its own
+          # isn't a valid extension (manifest.json lives at root, content
+          # scripts reference content.js etc.), so we assemble a pkg/ tree.
+          mkdir -p pkg
+          cp manifest.json pkg/
+          cp -r dist/* pkg/
+          cp -r icons pkg/ 2>/dev/null || true
+          cd pkg
+          zip -r "../crev-inspector-${VERSION}.zip" .
+
+      - name: Create / update release with asset
+        uses: softprops/action-gh-release@v2
+        with:
+          # Use the tag as the release name unless one was pre-created.
+          # `generate_release_notes: false` because the auto-notes are
+          # PR-title-driven and feel noisy when we ship multiple
+          # patches per day. Maintainer adds curated notes manually
+          # post-publish via `gh release edit`.
+          files: crev-inspector-${{ env.VERSION }}.zip
+          generate_release_notes: false
+          draft: false
+          prerelease: false

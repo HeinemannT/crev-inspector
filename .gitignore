@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.playwright-mcp/
+
+# Built extension artefacts. The Vite build mirrors dist/ to the repo
+# root so `chrome://extensions → Load unpacked → repo root` works
+# without an extra cd. They regenerate on every `npm run build`, so
+# tracking them only created noise in the git history.
+/content.js
+/interceptor.js
+/service-worker.js
+/assets/
+/chunks/
+/codesearch/
+/diff/
+/editor/
+/graphview/
+/objectview/
+/sidepanel/
+
+# Internal docs
+ARCHITECTURE.md
