@@ -295,3 +295,34 @@ describe('paint — cancelPaint', () => {
     expect(h.panelMsgs.filter((m: any) => m.type === 'PAINT_STATE')).toHaveLength(0);
   });
 });
+
+describe('paint — cancelPaintForTab (navigation / refresh)', () => {
+  it('cancels when armed but no tab was recorded — the stuck-after-refresh case', async () => {
+    const h = await createPaintHarness();
+    const { cancelPaint, handlePaintPick, cancelPaintForTab } = await import('../paint');
+    cancelPaint();
+    // Arm via pick (handlePaintPick does not record a tab, mirroring the
+    // real bug: paint active but no active-tab association yet).
+    handlePaintPick('111');
+    h.broadcasts.length = 0;
+    h.panelMsgs.length = 0;
+
+    cancelPaintForTab(42);
+
+    const off = [...h.panelMsgs, ...h.broadcasts]
+      .filter((m: any) => m.type === 'PAINT_STATE' && m.phase === 'off');
+    expect(off.length).toBeGreaterThan(0);
+  });
+
+  it('is a no-op when paint is off', async () => {
+    const h = await createPaintHarness();
+    const { cancelPaint, cancelPaintForTab } = await import('../paint');
+    cancelPaint();
+    h.broadcasts.length = 0;
+    h.panelMsgs.length = 0;
+
+    cancelPaintForTab(7);
+    expect(h.broadcasts.filter((m: any) => m.type === 'PAINT_STATE')).toHaveLength(0);
+    expect(h.panelMsgs.filter((m: any) => m.type === 'PAINT_STATE')).toHaveLength(0);
+  });
+});

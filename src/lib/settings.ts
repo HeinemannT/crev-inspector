@@ -7,6 +7,7 @@ import { getCtx } from './sw-context';
 import { BmpClient } from './bmp-client';
 import { normalizeUrl, resetConnectionState, pushConnectionState, runAuthTest, startHealthPolling, stopHealthPolling } from './connection';
 import { incrementGeneration } from './enrichment';
+import { clearAllContextRids } from './context-rid';
 import { log } from './logger';
 import { MANUAL_OVERRIDE_DURATION } from './constants';
 import { encrypt, decrypt } from './crypto';
@@ -252,6 +253,9 @@ export async function autoDetectProfile(pageUrl: string) {
   try {
     ctx.settings = { ...ctx.settings, activeProfileId: matched.id };
     saveSettings();
+    // Workspace changed — drop per-tab context RIDs (they belong to the old
+    // workspace and would resolve to wrong/missing objects in the new one).
+    clearAllContextRids();
     // clearCache=false — `switchProfile` already swaps cache stores
     // atomically, and the in-memory entries from the old profile would
     // get re-fetched on next view anyway. Wiping in-memory cache here

@@ -26,6 +26,10 @@ const root = document.getElementById('search-root')!;
 // ── State ────────────────────────────────────────────────────────
 let query = '';
 let subtreeRid = '';
+/** Resolved scope object (name/type/bid) for the feedback chip, or an error
+ *  string when the scope input couldn't be resolved. Both null = no scope. */
+let scopeInfo: { rid: string; businessId: string; name: string; type: string } | null = null;
+let scopeError: string | null = null;
 let caseSensitive = true;
 let searching = false;
 let searched = 0;
@@ -60,10 +64,6 @@ const TYPE_GROUPS: ReadonlyArray<{ key: string; label: string; types: readonly s
 ];
 const activeGroups = new Set<string>(); // keys; empty = all
 
-// Search debounce
-let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-const SEARCH_DEBOUNCE_MS = 350;
-
 // Cursor position to restore after a re-render of the input.
 let queryRefocus: number | null = null;
 
@@ -79,6 +79,11 @@ chrome.runtime.onMessage.addListener((msg: InspectorMessage) => {
     searching = false;
     searched = msg.totalSearched;
     lastError = msg.error ?? null;
+    renderUI();
+  }
+  if (msg.type === 'CODE_SEARCH_SCOPE') {
+    scopeInfo = msg.scope;
+    scopeError = msg.error ?? null;
     renderUI();
   }
 });
@@ -160,14 +165,14 @@ function renderToolbar(): HTMLElement {
         const el = e.currentTarget as HTMLInputElement;
         query = el.value;
         queryRefocus = el.selectionStart ?? el.value.length;
-        scheduleSearch();
-        // Re-render so the clear button reflects the new value.
+        // Do NOT search on keystroke — code search hits live EC and is too
+        // expensive to run per-character. Runs only on Enter / the Search
+        // button. Re-render so the clear/search buttons reflect the value.
         renderUI();
       },
       onKeyDown: (e: KeyboardEvent) => {
         if (e.key === 'Enter') {
           e.preventDefault();
-          if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null; }
           fireSearch();
         }
         if (e.key === 'Escape') {
@@ -189,7 +194,13 @@ function renderToolbar(): HTMLElement {
           title: 'Stop search',
           onClick: () => sendFireForget({ type: 'CODE_SEARCH_STOP' }),
         }, 'Stop')
-      : null,
+      : query.trim()
+        ? h('button', {
+            class: 'cs-search-go',
+            title: 'Run search (Enter)',
+            onClick: () => fireSearch(),
+          }, 'Search')
+        : null,
   );
 
   // Filter pills row.
@@ -199,7 +210,7 @@ function renderToolbar(): HTMLElement {
     title: caseSensitive
       ? 'Match case: uses the fast server-side prefilter (recommended)'
       : 'Ignore case: falls back to fetch-and-grep, slower on large workspaces',
-    onClick: () => { caseSensitive = !caseSensitive; scheduleSearch(); renderUI(); },
+    onClick: () => { caseSensitive = !caseSensitive; fireSearch(); },
   }, 'Aa Match case'));
 
   for (const g of TYPE_GROUPS) {
@@ -209,25 +220,38 @@ function renderToolbar(): HTMLElement {
       onClick: () => {
         if (activeGroups.has(g.key)) activeGroups.delete(g.key);
         else activeGroups.add(g.key);
-        scheduleSearch();
-        renderUI();
+        fireSearch();
       },
     }, g.label));
   }
 
-  // Subtree scope chip — currently a plain RID input (the launcher
-  // could prefill from the BMP page's context in a future pass).
+  // Subtree scope — accepts a numeric RID or a namespace.bid ref (e.g.
+  // t.118). The resolved object (or an error) shows in a chip below.
+  const scopeSet = subtreeRid.trim().length > 0;
+  const scopeFeedback = !scopeSet
+    ? null
+    : scopeError
+      ? h('span', { class: 'cs-scope-feedback cs-scope-feedback--error', title: scopeError }, '⚠ ' + scopeError)
+      : scopeInfo
+        ? h('span', { class: 'cs-scope-feedback cs-scope-feedback--ok', title: `${scopeInfo.type} · ${scopeInfo.businessId || scopeInfo.rid}` },
+            '↳ ',
+            h('span', { class: 'cs-scope-feedback-name' }, scopeInfo.name || '(unnamed)'),
+            scopeInfo.type ? h('span', { class: 'cs-scope-feedback-type' }, scopeInfo.type) : null,
+          )
+        : null;
   pills.push(h('span', { class: 'cs-scope' },
     h('span', { class: 'cs-scope-label' }, 'Scope:'),
     h('input', {
       class: 'cs-scope-input',
       type: 'text',
-      placeholder: 'workspace-wide',
+      placeholder: 'whole workspace',
       value: subtreeRid,
-      title: 'Optional subtree RID. Empty = whole workspace.',
-      onInput: (e: Event) => { subtreeRid = (e.currentTarget as HTMLInputElement).value; scheduleSearch(); },
+      title: 'Limit to a subtree: numeric RID or namespace.bid (e.g. t.118). Empty = whole workspace. Press Enter or Search to apply.',
+      onInput: (e: Event) => { subtreeRid = (e.currentTarget as HTMLInputElement).value; },
+      onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); fireSearch(); } },
     }),
   ));
+  if (scopeFeedback) pills.push(scopeFeedback);
 
   // Second toolbar row — only shown once results land. Carries the
   // narrow-by-substring filter and the bulk expand/collapse controls.
@@ -569,14 +593,6 @@ function highlightMatch(text: string): HTMLElement {
 }
 
 // ── Search invocation ────────────────────────────────────────────
-function scheduleSearch(): void {
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
-  searchDebounceTimer = setTimeout(() => {
-    searchDebounceTimer = null;
-    fireSearch();
-  }, SEARCH_DEBOUNCE_MS);
-}
-
 function fireSearch(): void {
   if (!query.trim()) {
     results = [];

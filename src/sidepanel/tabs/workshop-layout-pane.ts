@@ -15,6 +15,7 @@ import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { truncRid, ICON_REFRESH, ICON_CROSSHAIR, ICON_PIN, ICON_LAYOUT } from '../utils';
 import type { Tab, SendFn } from './tab-types';
+import { LAYOUT_BEARING_TYPES } from '../../lib/layout-target';
 
 type WidgetEnrichment = { rid: string; businessId?: string; type?: string; name?: string };
 
@@ -120,6 +121,29 @@ export class WorkshopLayoutPane implements Tab {
     // didn't return a rid. Sending both here used to race — two
     // responses would step on each other's contextRid assignment.
     this.send({ type: 'GET_PAGE_INFO' });
+  }
+
+  /** Wipe all context + page state (used on workspace/profile switch — every
+   *  RID here belongs to the old workspace) and re-detect for the new one. */
+  reset(): void {
+    this.detection = { phase: 'unknown', confidence: 0, signals: [] };
+    this.widgets = [];
+    this.pageRid = null;
+    this.pageTabRid = null;
+    this.pageTabName = null;
+    this.widgetEnrichments.clear();
+    this.widgetEnrichInFlight.clear();
+    this.contextRid = null;
+    this.contextObj = null;
+    this.contextLoading = false;
+    this.contextAutoDetected = false;
+    this.layoutNodes = null;
+    this.layoutLoadingFor = null;
+    this.highlightedNodeRid = null;
+    this.expandedNodes.clear();
+    this.previewSectionExpanded = false;
+    this.pickingContext = false;
+    this.activate(); // re-detect page context in the new workspace
   }
 
   deactivate() {
@@ -367,7 +391,6 @@ export class WorkshopLayoutPane implements Tab {
   /** Walk the cached layoutNodes upward from `rid` to find the
    *  nearest Tab. Returns the original rid if no walk is possible. */
   private resolveLayoutTarget(rid: string): string {
-    const LAYOUT_BEARING = new Set(['Scorecard', 'TabSet', 'Tab', 'Container']);
     if (!this.layoutNodes) return rid;
     const byRid = new Map<string, { rid: string; parentRid?: string; containerRid?: string; type: string }>();
     for (const n of this.layoutNodes) byRid.set(n.rid, n);
@@ -383,7 +406,7 @@ export class WorkshopLayoutPane implements Tab {
       if (cur.type === 'Tab') return cur.rid;
       // Remember the highest layout-bearing ancestor as a fallback
       // when there's no Tab on the chain.
-      if (cur !== start && LAYOUT_BEARING.has(cur.type)) bestSoFar = cur.rid;
+      if (cur !== start && LAYOUT_BEARING_TYPES.has(cur.type)) bestSoFar = cur.rid;
       const nextRid: string | undefined = cur.containerRid ?? cur.parentRid;
       cur = nextRid ? byRid.get(nextRid) : undefined;
     }

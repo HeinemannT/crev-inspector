@@ -110,7 +110,9 @@ export class LogTab implements Tab {
             h('span', { class: 'activity-empty-hint' },
               'Edits, saves, EC runs, paint, pins, and context changes are logged here.'),
           )
-        : collapsed.map(({ entry, count }) =>
+        // Newest-first: collapse runs in chronological order (so adjacent
+        // dupes merge), then reverse for display so the latest entry is on top.
+        : collapsed.slice().reverse().map(({ entry, count }) =>
             h('div', {
               class: `activity-entry activity-entry--${entry.level}`,
               title: entry.detail ? `${entry.message}\n\n${entry.detail}` : entry.message,
@@ -139,7 +141,8 @@ export class LogTab implements Tab {
         this.render(container);
       });
     }
-    feed.scrollTop = feed.scrollHeight;
+    // Newest is on top now, so park the scroll there.
+    feed.scrollTop = 0;
   }
 
 }

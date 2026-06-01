@@ -5,6 +5,7 @@
 import { getTypeColor, getTypeAbbr } from './lib/types';
 import { h, render } from './lib/dom';
 import { sendRequest } from './lib/messaging';
+import { updateOverlayBlockState } from './content-frame-overlay';
 import type { ContentState } from './content-state';
 
 const OVERLAY_SKIP_PROPS = new Set(['rid', 'id', 'name', 'type', '__typename', 'typename',
@@ -55,6 +56,15 @@ export function showTooltipForElement(s: ContentState, el: HTMLElement, rid: str
 
   tooltip.style.top = `${top}px`;
   tooltip.style.left = `${left}px`;
+
+  // A frame overlay (Object View / editor / diff) may sit over the tooltip's
+  // new spot. The overlay gate only re-runs on DOM mutations, but we just
+  // moved an existing node via inline styles — so it never fired and the
+  // tooltip lingered on top of the popout. Nudge the gate here (only when an
+  // overlay is actually open) so an intersecting tooltip gets hidden.
+  if (document.body.classList.contains('crev-task-open')) {
+    updateOverlayBlockState();
+  }
 }
 
 export function hideTooltip(s: ContentState) {

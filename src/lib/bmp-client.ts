@@ -610,11 +610,18 @@ _r
 
   /** Fetch full editor context in a single EC call: identity, template, code props for both.
    *  Replaces separate lookupIdentity + resolveTemplate + 2× fetchCodeViaEc round-trips. */
-  async fetchEditorContext(rid: string): Promise<EditorContextData | null> {
+  async fetchEditorContext(rid: string, extraProps: string[] = []): Promise<EditorContextData | null> {
     const ref = await this.resolveRef(rid);
     const sep = '<<<CREV_SEP>>>';
-    // Fetch all possible code properties — empty ones filtered out after parsing.
-    const codeProps = ['expression', 'html', 'javascript'];
+    // Standard code props + any caller-requested property (e.g. afterExpression,
+    // showExpression, initExpression, defaultExpression). Without the extra, an
+    // Edit on a non-standard field would fetch nothing for it and the editor
+    // silently fell back to `expression`. Validated — names are interpolated
+    // into EC below.
+    const extras = extraProps.filter(p => {
+      try { validateEcIdentifier(p); return true; } catch { return false; }
+    });
+    const codeProps = [...new Set(['expression', 'html', 'javascript', ...extras])];
     const lines = [
       `_sep := "${sep}"`,
       `_inst := ${ref}`,

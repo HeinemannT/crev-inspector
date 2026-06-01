@@ -42,6 +42,48 @@ import type { BmpClient } from './bmp-client';
  *  short-circuit when superseded. Concurrent start+stop is safe. */
 let activeGeneration = 0;
 
+/** Last progress snapshot — so stopCodeSearch() can broadcast a final DONE
+ *  (otherwise the panel's "searching" flag never clears: the in-flight loops
+ *  bail on abort WITHOUT broadcasting done, leaving the Stop button stuck). */
+let lastProgress = { results: 0, searched: 0, total: 0 };
+
+interface ScopeInfo { rid: string; businessId: string; name: string; type: string; }
+
+/** Resolve the search scope from a user string: a numeric RID or a
+ *  namespace.bid ref (e.g. `t.118`, `ceiss.bar`). Returns the EC ref to scope
+ *  the SELECT (FROM <ref>) plus the resolved object's identity for the UI, or
+ *  null if the input is malformed or the object doesn't exist. The ref shape
+ *  is validated before interpolation so it can't inject EC. */
+async function resolveScope(
+  client: NonNullable<ReturnType<typeof getCtx>['client']>,
+  input: string,
+): Promise<{ ref: string; scope: ScopeInfo } | null> {
+  const trimmed = input.trim();
+  let ref: string;
+  if (/^-?\d+$/.test(trimmed)) {
+    try { ref = await client.resolveRef(trimmed); } catch { return null; }
+  } else if (/^[a-z]+\.[A-Za-z0-9_-]+$/.test(trimmed)) {
+    ref = trimmed; // namespace.bid — already a valid, injection-safe EC accessor
+  } else {
+    return null;
+  }
+  const ec = [
+    `_o := ${ref}`,
+    '_o.rid.whenMissing("MISSING") + "|||" + _o.id.whenMissing("") + "|||" + _o.name.whenMissing("") + "|||" + _o.className.whenMissing("")',
+  ].join('\n');
+  const res = await client.executeEc(ec, undefined, false);
+  if (!res.ok || !res.log) return null;
+  const line = res.log.split('\n').map(l => l.trim()).find(l => l.includes('|||'));
+  if (!line) return null;
+  const [rid, businessId, name, type] = line.split('|||');
+  if (!rid || rid === 'MISSING') return null;
+  return { ref, scope: { rid, businessId: businessId || '', name: name || '', type: type || '' } };
+}
+
+function broadcastScope(scope: ScopeInfo | null, error?: string): void {
+  sendFireForget({ type: 'CODE_SEARCH_SCOPE', scope, error });
+}
+
 /** SELECT enumerations are class-indexed (~10 ms per type) so the
  *  parallel cap is generous but finite — keeps BMP's EC queue
  *  unsaturated for other clients. */
@@ -72,23 +114,27 @@ export async function startCodeSearch(
     return;
   }
 
-  // Resolve the subtree ref once; reuse for every per-type call.
-  // Surface a resolve failure to the UI instead of silently widening
-  // the search to workspace-wide.
+  // Resolve the scope once; reuse for every per-type call. Accepts a numeric
+  // RID or a namespace.bid ref (e.g. t.118). Surface the resolved object — or
+  // a failure — to the panel instead of silently widening to workspace-wide.
   let subtreeRef: string | null = null;
   if (subtreeRid) {
-    try {
-      subtreeRef = await ctx.client.resolveRef(subtreeRid);
-    } catch (e) {
-      log.swallow('codeSearch:resolveSubtree', e);
-      broadcastDone(0, 0, `Couldn't resolve subtree RID "${subtreeRid}"`);
+    const resolved = await resolveScope(ctx.client, subtreeRid);
+    if (aborted()) return;
+    if (!resolved) {
+      broadcastScope(null, `Couldn't resolve scope "${subtreeRid}" — use a numeric RID or namespace.bid (e.g. t.118)`);
+      broadcastDone(0, 0);
       return;
     }
-    if (aborted()) return;
+    subtreeRef = resolved.ref;
+    broadcastScope(resolved.scope);
+  } else {
+    broadcastScope(null);
   }
 
   const allResults: CodeSearchResult[] = [];
   let typesDone = 0;
+  lastProgress = { results: 0, searched: 0, total: searchTypes.length };
 
   const runOneType = async (typeName: string) => {
     if (aborted()) return;
@@ -108,6 +154,7 @@ export async function startCodeSearch(
     }
     typesDone++;
     if (!aborted()) {
+      lastProgress = { results: allResults.length, searched: typesDone, total: searchTypes.length };
       sendFireForget({
         type: 'CODE_SEARCH_PROGRESS',
         results: [...allResults],
@@ -127,7 +174,11 @@ export async function startCodeSearch(
 }
 
 export function stopCodeSearch(): void {
+  // Supersede in-flight loops (they bail on the next aborted() check) AND tell
+  // the panel we're done — otherwise its "searching" flag never clears and the
+  // Stop button stays stuck. Partial results already shown via PROGRESS stay.
   activeGeneration++;
+  broadcastDone(lastProgress.results, lastProgress.searched);
 }
 
 // ── Per-type search pipeline ─────────────────────────────────────

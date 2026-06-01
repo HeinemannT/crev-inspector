@@ -2476,9 +2476,11 @@ body.crev-divider-dragging * { user-select: none; }
   padding: 2px 8px;
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  /* Light lavender, not the saturated magenta --accent — that reads as a
+   * muddy "shadow of purple" against the dark header and is hard to scan. */
+  color: var(--accent-bright);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   border-radius: var(--radius-sm);
   cursor: pointer;
   flex-shrink: 0;
@@ -3683,7 +3685,7 @@ body.crev-divider-dragging * { user-select: none; }
 }
 
 .ctx-chip-key {
-  color: var(--text-3);
+  color: var(--text-2);
   font-weight: var(--weight-medium);
 }
 .ctx-chip-sep { color: var(--text-3); }
@@ -3693,20 +3695,21 @@ body.crev-divider-dragging * { user-select: none; }
 }
 
 .ctx-chip--on {
-  background: rgba(66, 190, 101, 0.12);
-  border-color: rgba(66, 190, 101, 0.3);
+  background: rgba(66, 190, 101, 0.14);
+  border-color: rgba(66, 190, 101, 0.35);
 }
 .ctx-chip--on .ctx-chip-val { color: var(--success); }
 
-.ctx-chip--off {
-  opacity: 0.7;
-}
+/* Off is a normal state (not an error) — keep it readable, just not green. */
+.ctx-chip--off .ctx-chip-val { color: var(--text-2); }
 
+/* Enums: info-blue value on a matching tint — clearly visible, and off the
+ * overloaded purple accent (which now means "interactive" only). */
 .ctx-chip--enum {
-  background: var(--accent-bg);
-  border-color: rgba(186, 15, 254, 0.3);
+  background: rgba(120, 169, 255, 0.12);
+  border-color: rgba(120, 169, 255, 0.32);
 }
-.ctx-chip--enum .ctx-chip-val { color: var(--accent); }
+.ctx-chip--enum .ctx-chip-val { color: var(--info); }
 
 .ctx-list {
   margin-top: var(--space-1);
@@ -3872,12 +3875,13 @@ body.crev-divider-dragging * { user-select: none; }
 }
 .flow-error { color: var(--danger); }
 
-/* Vertical chain — cards stack top-to-bottom, full panel width. Tight gap;
- * hierarchy is conveyed by chip size + font-weight, not indentation. */
+/* Vertical chain — each object is a distinct card; nesting is shown by an
+ * indented rail down the left of each child group. */
 .flow-chain {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--space-1);
+  padding: 4px var(--space-3) 6px;
 }
 
 .flow-step {
@@ -3885,56 +3889,46 @@ body.crev-divider-dragging * { user-select: none; }
   flex-direction: column;
 }
 
+/* Relationship into a step — a small pill ("inputSet", "actionObject",
+ * "editPage › inputSet") sitting just above the child card, on its rail. */
 .flow-edge {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: 2px 0 2px var(--space-3);
-  font-size: var(--text-xs);
-  color: var(--text-3);
-  font-family: var(--font-mono);
+  padding: 2px 0 4px;
 }
-
-.flow-edge-line {
-  display: inline-block;
-  width: 16px;
-  height: 1px;
-  background: var(--surface-4);
-}
-
 .flow-edge-label {
-  letter-spacing: 0.3px;
-}
-
-.flow-edge-arrow {
-  color: var(--text-3);
+  font-family: var(--font-mono);
   font-size: 9px;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--info);
+  background: rgba(120, 169, 255, 0.13);
+  border: 1px solid rgba(120, 169, 255, 0.32);
+  border-radius: 999px;
+  padding: 1px 8px;
 }
 
-/* Cards run full width — no border on the sides, just a 2 px stripe in the
- * object's type color at the left edge so you can read "this is a CVO" /
- * "this is an InputView" at a glance without indenting the layout. */
+/* Each object is its own card: faint border + a 3 px type-colour left edge so
+ * "this is a CVO / InputView / ButtonInput" reads at a glance. Gaps + the rail
+ * (on .flow-children) separate and nest them. */
 .flow-card {
-  position: relative;
   background: var(--surface-1);
-  padding: 7px var(--space-3) 7px calc(var(--space-3) + 6px);
+  border: 1px solid var(--surface-2);
+  border-left: 3px solid var(--type-color, var(--surface-4));
+  border-radius: var(--radius-sm);
+  padding: 7px var(--space-3) 7px 10px;
   cursor: pointer;
-  border: none;
-  border-radius: 0;
-  transition: background var(--duration-fast) var(--ease-default);
-}
-.flow-card::before {
-  content: '';
-  position: absolute;
-  left: var(--space-3);
-  top: 5px;
-  bottom: 5px;
-  width: 2px;
-  background: var(--type-color, var(--surface-3));
-  border-radius: 1px;
+  transition: background var(--duration-fast) var(--ease-default),
+              border-color var(--duration-fast) var(--ease-default);
 }
 
-.flow-card:hover { background: var(--surface-2); }
+.flow-card:hover {
+  background: var(--surface-2);
+  border-top-color: var(--surface-3);
+  border-right-color: var(--surface-3);
+  border-bottom-color: var(--surface-3);
+}
 .flow-card:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -3979,8 +3973,11 @@ body.crev-divider-dragging * { user-select: none; }
 
 .flow-card-key {
   padding: 1px 6px;
-  background: var(--accent-bg);
-  color: var(--accent);
+  /* Keys are identifiers — sapphire, the EC id-space colour — not the
+   * overloaded purple accent. Bright enough to read at a glance. */
+  background: rgba(116, 199, 236, 0.14);
+  color: var(--ec-idspace);
+  border: 1px solid rgba(116, 199, 236, 0.32);
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -4135,38 +4132,34 @@ body.crev-divider-dragging * { user-select: none; }
 
 .flow-reads-chip {
   padding: 1px 6px;
-  background: var(--accent-bg);
-  color: var(--accent);
+  background: rgba(116, 199, 236, 0.14);
+  color: var(--ec-idspace);
+  border: 1px solid rgba(116, 199, 236, 0.32);
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   cursor: help;
-  transition: background var(--duration-fast) var(--ease-default);
+  transition: background var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);
 }
 .flow-reads-chip:hover {
-  background: var(--accent);
-  color: #fff;
+  background: var(--ec-idspace);
+  color: var(--surface-0);
 }
 
-/* Children stack vertically at full width — narrow panel doesn't have room
- * to tile horizontally. Hierarchy comes from the chip size + name weight in
- * .flow-card-chip / .flow-card-name overrides below, NOT from indentation. */
+/* Children indent under a visible rail — the rail (a 2 px line in the object's
+ * type-neutral grey) makes the parent→child nesting unmistakable. The rail is
+ * inset from the parent card and the child cards sit to its right. */
 .flow-children {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0 9px;
+  padding-left: 11px;
+  border-left: 2px solid var(--text-3);
 }
 
-/* Depth scaling for visual hierarchy without consuming horizontal space:
- *  - Top-level cards keep the prominent name and standard type chip.
- *  - Nested cards dim the name + shrink the chip slightly so the reader can
- *    parse a 3-step chain at a glance without checking position. */
-.flow-step--depth-0 > .flow-card .flow-card-name { font-weight: var(--weight-semi); }
-.flow-step--depth-1 > .flow-card,
-.flow-step--depth-2 > .flow-card,
-.flow-step--depth-3 > .flow-card {
-  padding-top: 5px;
-  padding-bottom: 5px;
-}
+/* Root object's name gets the most weight; nested objects keep full size
+ * (the rail conveys depth now, so no need to shrink them). */
+.flow-step--depth-0 > .flow-card .flow-card-name { font-weight: var(--weight-bold); }
 .flow-step--depth-1 > .flow-card .flow-card-name,
 .flow-step--depth-2 > .flow-card .flow-card-name,
 .flow-step--depth-3 > .flow-card .flow-card-name {

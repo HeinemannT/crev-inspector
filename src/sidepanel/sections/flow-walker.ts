@@ -83,13 +83,13 @@ function renderChain(chain: FlowChainMsg, input: FlowSectionInput): HTMLElement 
 function renderStep(step: FlowStepMsg, input: FlowSectionInput, depth: number): HTMLElement {
   const wrap = h('div', { class: `flow-step flow-step--depth-${Math.min(depth, 3)}` });
 
-  // Edge from previous step
+  // Relationship into this step — a small pill that rides the hierarchy
+  // rail (e.g. "inputSet", "actionObject", "editPage › inputSet"). The rail
+  // + indentation carry the "flows into" direction, so no dash/arrow needed.
   if (step.edgeLabel) {
     wrap.appendChild(
       h('div', { class: 'flow-edge' },
-        h('span', { class: 'flow-edge-line' }),
         h('span', { class: 'flow-edge-label' }, step.edgeLabel),
-        h('span', { class: 'flow-edge-arrow' }, '▼'),
       ),
     );
   }

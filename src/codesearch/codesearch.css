@@ -129,6 +129,20 @@ body {
 }
 .cs-search-stop:hover { filter: brightness(1.08); }
 
+.cs-search-go {
+  padding: 4px 14px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.cs-search-go:hover { filter: brightness(1.1); }
+
 /* Pill row — case-toggle + type group filters + scope chip. */
 .cs-pill-row {
   display: flex;
@@ -194,6 +208,34 @@ body {
   padding: 0;
 }
 .cs-scope-input::placeholder { color: var(--text-3); font-style: italic; }
+
+/* Scope resolution feedback — shows the object the scope resolved to, or an
+ * error, right after the scope pill. */
+.cs-scope-feedback {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  max-width: 220px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.cs-scope-feedback--ok {
+  color: var(--info);
+  background: rgba(120, 169, 255, 0.12);
+  border: 1px solid rgba(120, 169, 255, 0.3);
+}
+.cs-scope-feedback--error {
+  color: var(--danger);
+  background: rgba(250, 77, 86, 0.10);
+  border: 1px solid rgba(250, 77, 86, 0.3);
+  text-overflow: ellipsis;
+}
+.cs-scope-feedback-name { color: var(--text-1); overflow: hidden; text-overflow: ellipsis; }
+.cs-scope-feedback-type { color: var(--text-3); font-family: var(--font-mono); }
 
 /* ── Result controls (filter + bulk expand/collapse) ─────────── */
 /* Only mounted once results land — see codesearch.ts. */

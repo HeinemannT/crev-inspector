@@ -19,7 +19,10 @@ export async function openEditorWindow(
   let editorData: import('../lib/bmp-client').EditorContextData | null = null;
   if (swCtx.client) {
     try {
-      editorData = await swCtx.client.fetchEditorContext(rid);
+      // Pass the caller's requested property so it's fetched too — otherwise
+      // Edit on e.g. afterExpression / showExpression / initExpression would
+      // open `expression` (the property wasn't in the fetched code map).
+      editorData = await swCtx.client.fetchEditorContext(rid, preferredProperty ? [preferredProperty] : []);
     } catch (e) {
       log.swallow('editor:fetchContext', e);
     }

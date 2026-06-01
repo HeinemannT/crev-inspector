@@ -31,7 +31,7 @@ describe('ContentState', () => {
     expect(s.tooltipHideTimer).toBeNull();
     expect(s.debounceTimer).toBeNull();
     expect(s.labelClickTimer).toBeNull();
-    expect(s.hoveredOutlineEl).toBeNull();
+    expect(s.hoveredLabelEl).toBeNull();
     expect(s.labelClickRid).toBeNull();
   });
 
@@ -40,14 +40,14 @@ describe('ContentState', () => {
       s.requestedRids.add('rid1');
       s.overlayProps.set('rid1', { foo: 'bar' });
       s.labelClickRid = 'rid1';
-      s.hoveredOutlineEl = {} as Element;
+      s.hoveredLabelEl = {} as Element;
 
       s.resetOverlays();
 
       expect(s.requestedRids.size).toBe(0);
       expect(s.overlayProps.size).toBe(0);
       expect(s.labelClickRid).toBeNull();
-      expect(s.hoveredOutlineEl).toBeNull();
+      expect(s.hoveredLabelEl).toBeNull();
     });
 
     it('clears labelClickTimer if active', () => {

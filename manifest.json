@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CREV Inspector",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Overlay technical metadata on the Corporater BMP web portal",
   "icons": {
     "16": "icons/icon-16.png",
@@ -25,13 +25,21 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["<all_urls>"],
-      "js": ["interceptor.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "interceptor.js"
+      ],
       "world": "MAIN",
       "run_at": "document_start"
     }
@@ -79,7 +87,9 @@
         "assets/*",
         "chunks/*"
       ],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ],
   "content_security_policy": {

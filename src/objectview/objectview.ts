@@ -23,6 +23,7 @@ import { resolveCopyText, getModifier } from '../lib/namespace';
 import { appendEcPreview } from '../lib/ec-format';
 import { installCloseHandshake } from '../lib/frame-close-handshake';
 import { sendFireForget, sendRequest } from '../lib/messaging';
+import { resolveLayoutShortcut } from '../lib/layout-target';
 import { PROP_GROUPS, findPropDef, type PropDef } from '../sidepanel/pane-schema';
 import {
   colorEditor, booleanEditor, numberEditor, enumEditor, sliderEditor,
@@ -34,6 +35,12 @@ installCloseHandshake();
 
 const root = document.getElementById('objectview-root')!;
 const rid = location.hash.slice(1);
+
+// The "↑ inside" parent crumb (and any re-open of this overlay for a
+// different object) navigates by swapping the iframe's hash. A hash-only
+// change does NOT reload the document, so `rid` above would stay stale and
+// the view wouldn't move. Reload on hashchange so the new RID is picked up.
+window.addEventListener('hashchange', () => location.reload());
 
 interface PaneState {
   rid: string;
@@ -324,18 +331,16 @@ function renderPane(): void {
 function renderLayoutShortcut(): HTMLElement | null {
   const s = state;
   if (!s?.identity?.type) return null;
-  const LAYOUT_BEARING = new Set(['Scorecard', 'TabSet', 'Tab', 'Container']);
-  const selfIsLayout = LAYOUT_BEARING.has(s.identity.type);
-  const parentIsLayout = !!(s.parent?.type && LAYOUT_BEARING.has(s.parent.type));
-  if (!selfIsLayout && !parentIsLayout) return null;
-  const target = selfIsLayout ? s.rid : s.parent!.rid;
-  const highlight = selfIsLayout ? undefined : s.rid;
+  // Shared resolver (see lib/layout-target.ts) — identical routing to the
+  // side-panel detail view's "Layout ↗" button.
+  const layout = resolveLayoutShortcut({ rid: s.rid, type: s.identity.type }, s.parent);
+  if (!layout) return null;
   return h('button', {
     class: 'btn btn-small',
-    title: selfIsLayout
+    title: layout.selfIsLayout
       ? 'Open this object in the Page tab\'s Layout view'
-      : `Show this ${s.identity.type} in its ${s.parent!.type}'s Layout view`,
-    onClick: () => sendFireForget({ type: 'OPEN_LAYOUT_FOR', rid: target, highlightRid: highlight }),
+      : `Show this ${s.identity.type} in its ${layout.targetType}'s Layout view`,
+    onClick: () => sendFireForget({ type: 'OPEN_LAYOUT_FOR', rid: layout.target, highlightRid: layout.highlight }),
   }, 'Layout ↗');
 }
 

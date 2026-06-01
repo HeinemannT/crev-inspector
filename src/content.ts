@@ -62,19 +62,20 @@ function injectStyles() {
   tooltip.id = 'crev-tooltip';
   document.body.appendChild(tooltip);
 
-  // Delegated hover handler for outlined elements. Attached with the
-  // injection-lifetime AbortSignal so resetContentState() detaches it
-  // — without that, a double-injection would pile up identical
-  // listeners and we'd be running this on every mouse move.
+  // Delegated hover handler for the badge pills. Hovering the pill (not the
+  // whole widget) shows the info card — the widget body stays clickable for
+  // BMP without summoning the tooltip. Attached with the injection-lifetime
+  // AbortSignal so resetContentState() detaches it — without that, a
+  // double-injection would pile up identical listeners and we'd be running
+  // this on every mouse move.
   document.body.addEventListener('mouseover', (e) => {
     if (!s.inspectActive) return;
-    const outline = (e.target as HTMLElement).closest?.('.crev-outline');
-    if (outline === s.hoveredOutlineEl) return;
-    s.hoveredOutlineEl = outline;
-    if (outline) {
-      const label = outline.querySelector('[data-crev-label]');
-      const rid = label?.getAttribute('data-crev-label');
-      if (rid) showTooltipForElement(s, outline as HTMLElement, rid);
+    const pill = (e.target as HTMLElement).closest?.('.crev-label') as HTMLElement | null;
+    if (pill === s.hoveredLabelEl) return;
+    s.hoveredLabelEl = pill;
+    const rid = pill?.getAttribute('data-crev-label');
+    if (pill && rid) {
+      showTooltipForElement(s, pill, rid);
     } else {
       hideTooltip(s);
     }
@@ -202,6 +203,10 @@ onPortMessage((msg: InspectorMessage) => {
       break;
     case 'PAINT_APPLY_RESULT':
       flashApplyResult(msg.rid, msg.ok, msg.error);
+      // Restore the banner from "Applying…" back to the ready prompt so the
+      // user can immediately paint the next object — paint stays armed
+      // (phase still 'applying' in the SW) for painting several in a row.
+      if (s.paintPhase === 'applying') updatePaintCursors(s);
       break;
     case 'ENRICH_MODE':
       if (msg.mode !== s.enrichMode) {

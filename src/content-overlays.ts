@@ -276,7 +276,7 @@ export function removeOverlays(s: ContentState) {
   }
   const tooltip = document.getElementById('crev-tooltip');
   if (tooltip) tooltip.style.display = 'none';
-  s.hoveredOutlineEl = null;
+  s.hoveredLabelEl = null;
   s.badgedElements = new WeakSet();
   s.overlayProps.clear();
 }

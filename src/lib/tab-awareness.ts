@@ -8,7 +8,7 @@ import { getCtx } from './sw-context';
 import { getTabDetection, setTabDetection, deleteTabDetection, updateBadge } from './detection';
 import { autoDetectProfile } from './settings';
 import { log } from './logger';
-import { cancelPaint } from './paint';
+import { cancelPaint, cancelPaintForTab } from './paint';
 import { checkBmpCookie } from './cookie-gate';
 import { deleteContextRid } from './context-rid';
 import { sendPageInfoToPanel } from './content-script-injection';
@@ -67,9 +67,11 @@ export function registerTabListeners() {
     const windowId = tab?.windowId;
     const isActiveTab = windowId != null && isActiveInItsWindow(tabId, windowId);
 
-    // Cancel paint on navigation or refresh (only for the active tab of its window)
+    // Cancel paint when the PAINTED tab navigates or refreshes. Keyed on the
+    // tab paint is armed for (not the active-tab map, which is empty until the
+    // first tab switch — that gap left the brush stuck-armed after a refresh).
     if (changeInfo.url || changeInfo.status === 'loading') {
-      if (isActiveTab) cancelPaint();
+      cancelPaintForTab(tabId);
     }
 
     // Cookie-based fast gate: early BMP detection on page load

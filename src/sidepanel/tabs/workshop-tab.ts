@@ -96,14 +96,21 @@ export class WorkshopTab implements Tab {
     const divider = panel.querySelector<HTMLElement>('.workshop-divider');
     if (!layoutContainer || !divider) return;
     const split = this.layoutPane.hasLayoutTree();
-    layoutContainer.style.flex = split ? `0 0 ${this.splitPct}%` : '0 0 auto';
+    // Split: size to content, capped at splitPct% — a short layout tree
+    // shrinks instead of reserving a fixed band of empty space above the
+    // detail editor. A tall tree caps at the % and scrolls. Stacked: the
+    // top is just the context strip, so size to content and drop the divider.
+    layoutContainer.style.flex = '0 1 auto';
+    layoutContainer.style.maxHeight = split ? `${this.splitPct}%` : 'none';
     divider.style.display = split ? '' : 'none';
   }
 
   render(container: HTMLElement): void {
     // Build the split shell once; subsequent re-renders update each
     // half in place via this.layoutPane.render / detailView.refresh.
-    const layoutContainer = h('div', { class: 'workshop-layout', style: `flex: 0 0 ${this.splitPct}%` });
+    // Initial flex; applySplitMode (called at the end of render) sets the
+    // content-sized cap based on whether there's a layout tree to show.
+    const layoutContainer = h('div', { class: 'workshop-layout', style: `flex: 0 1 auto; max-height: ${this.splitPct}%` });
     const divider = h('div', {
       class: 'workshop-divider',
       role: 'separator',
@@ -171,6 +178,14 @@ export class WorkshopTab implements Tab {
     this.layoutPane.openLayoutFor(rid, highlightRid);
   }
 
+  /** Reset both halves on a workspace/profile switch — the layout context
+   *  and the inspected object both belong to the old workspace. The layout
+   *  pane re-detects page context for the new workspace. */
+  resetContext(): void {
+    this.layoutPane.reset();
+    this.detailView.clear();
+  }
+
   /** Clear the detail half — empty-state shows on next render. */
   clear(panel?: HTMLElement): void {
     this.detailView.clear();
@@ -212,7 +227,7 @@ export class WorkshopTab implements Tab {
       if (pct < SPLIT_MIN_PCT) pct = SPLIT_MIN_PCT;
       if (pct > SPLIT_MAX_PCT) pct = SPLIT_MAX_PCT;
       this.splitPct = pct;
-      layoutContainer.style.flex = `0 0 ${pct}%`;
+      layoutContainer.style.maxHeight = `${pct}%`;
       divider.setAttribute('aria-valuenow', String(Math.round(pct)));
     });
     const finish = () => {
@@ -230,7 +245,7 @@ export class WorkshopTab implements Tab {
     divider.addEventListener('pointercancel', finish);
     divider.addEventListener('dblclick', () => {
       this.splitPct = SPLIT_DEFAULT_PCT;
-      layoutContainer.style.flex = `0 0 ${SPLIT_DEFAULT_PCT}%`;
+      layoutContainer.style.maxHeight = `${SPLIT_DEFAULT_PCT}%`;
       try { localStorage.setItem(SPLIT_STORAGE_KEY, String(this.splitPct)); } catch { /* fine */ }
     });
   }

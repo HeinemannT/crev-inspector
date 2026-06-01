@@ -10,7 +10,7 @@ import type { InspectorMessage } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
 import { log } from '../lib/logger';
-import { ICON_PAINT, ICON_REFRESH, ICON_LIGHTNING, ICON_TORNADO } from './utils';
+import { ICON_PAINT, ICON_REFRESH, ICON_LIGHTNING, ICON_TORNADO, ICON_SEARCH } from './utils';
 import { DetailView } from './detail-view';
 import { initReferenceView, showReferenceView, handleReferenceMessage, isReferenceActive } from './reference-view';
 import { S, sendMessage, getActivePanel, getTabPanel, tabPanelId, onPortMessage, onReconnect, connectPanel } from './state';
@@ -43,6 +43,11 @@ function navigateToDetail(rid: string) {
     obj = { rid, source: 'dom' as const, discoveredAt: Date.now(), updatedAt: Date.now() };
   }
   S.detailRid = rid;
+  // Footer context = the object being inspected. Set from the cached hint
+  // now; OBJECT_PANE_DATA upgrades it with the authoritative identity once
+  // the fetch lands.
+  S.context = { rid, name: obj.name, type: obj.type, businessId: obj.businessId };
+  updateContextPill();
 
   // Workshop hosts the detail view in its bottom half. If the user
   // is elsewhere, switch first; either way load the object. Drilling
@@ -61,6 +66,9 @@ const detailView = new DetailView(
     // render Workshop's empty-state in the bottom half, top half
     // stays as-is.
     S.detailRid = null;
+    // Footer mirrors the inspected object — nothing open ⇒ no context.
+    S.context = null;
+    updateContextPill();
     const panel = getActivePanel();
     if (panel && S.activeTab === 'workshop') {
       (tabs.workshop as WorkshopTab).clear(panel);
@@ -144,15 +152,17 @@ onPortMessage((msg: InspectorMessage) => {
       headerChanged = true;
       updateLatencyPill();
       break;
-    case 'CONTEXT_RID_DATA':
-      // Track the latest BMP context object so the status bar can surface
-      // "what's selected" across tabs. A null rid means context was cleared.
-      if ('rid' in msg && msg.rid) {
-        S.context = { rid: msg.rid, name: msg.name, type: msg.objectType, businessId: msg.businessId };
-      } else {
-        S.context = null;
+    case 'OBJECT_PANE_DATA':
+      // The footer context chip tracks the object currently open in the
+      // Workshop detail editor — so "footer context" and "object detail"
+      // are always the same thing. (Page context — scorecard/tab — lives in
+      // the Workshop context strip, not the footer.) This fires for the
+      // initial load AND every drill-down/parent hop.
+      if ('instance' in msg && msg.instance?.rid) {
+        const i = msg.instance;
+        S.context = { rid: i.rid, name: i.name, type: i.type, businessId: i.businessId };
+        updateContextPill();
       }
-      updateContextPill();
       break;
     case 'EC_RESULT':
       // Surface user-action latency in the status bar — feels more honest
@@ -164,6 +174,14 @@ onPortMessage((msg: InspectorMessage) => {
       break;
     case 'PROFILE_SWITCHED':
       headerChanged = true;
+      // Workspace changed — everything keyed by the old workspace's RIDs is
+      // now stale. Clear the footer context + the inspected object, and reset
+      // the Workshop's layout context (which re-detects in the new workspace).
+      S.context = null;
+      S.detailRid = null;
+      (tabs.workshop as WorkshopTab).resetContext();
+      updateContextPill();
+      renderActiveTab();
       break;
     case 'FAVORITES_DATA':
       S.favoriteEntries = msg.entries;
@@ -294,6 +312,12 @@ function buildApp(): void {
     ),
     h('button', {
       class: 'header-icon-btn',
+      id: 'open-codesearch',
+      'aria-label': 'Code Search',
+      title: 'Code Search: find code across objects (RID or namespace.bid scope)',
+    }, svg(ICON_SEARCH)),
+    h('button', {
+      class: 'header-icon-btn',
       id: 'open-extended',
       'aria-label': 'Open Extended Code',
       title: 'Open Extended Code (Ctrl+Shift+E by default: rebind at chrome://extensions/shortcuts)',
@@ -419,6 +443,7 @@ function buildApp(): void {
   app.querySelector('#toggle-paint')?.addEventListener('click', () => sendMessage({ type: 'TOGGLE_PAINT' }));
   app.querySelector('#toggle-inspect')?.addEventListener('click', () => sendMessage({ type: 'TOGGLE_INSPECT' }));
   app.querySelector('#open-extended')?.addEventListener('click', () => sendMessage({ type: 'OPEN_EXTENDED' }));
+  app.querySelector('#open-codesearch')?.addEventListener('click', () => sendMessage({ type: 'OPEN_CODE_SEARCH' }));
   app.querySelector('#header-status')?.addEventListener('click', () => showProfileSwitcher());
   app.querySelector('#header-brand')?.addEventListener('click', (e) => showBrandMenu(e.currentTarget as HTMLElement));
 
@@ -630,7 +655,7 @@ function updateStatusBar() {
  *  Click jumps to the detail view. Hidden when there's nothing in context. */
 function renderContextPill(): HTMLElement | null {
   const c = S.context;
-  if (!c?.rid) return h('div', { class: 'status-bar-context status-bar-context--empty', id: 'status-bar-context', title: 'No BMP context: right-click an element or use the Page-tab crosshair to set one' }, 'no context');
+  if (!c?.rid) return h('div', { class: 'status-bar-context status-bar-context--empty', id: 'status-bar-context', title: 'No object open — click a widget (Inspect on), right-click a BMP element, or pick one to inspect it' }, 'no object');
   const label = c.name || c.businessId || c.rid;
   // When the context is a Tab, prefix the label so it's distinguishable
   // from a same-named widget at a glance — tabs live alongside scorecards
@@ -639,7 +664,7 @@ function renderContextPill(): HTMLElement | null {
   return h('button', {
     class: `status-bar-context${c.type === 'Tab' ? ' status-bar-context--tab' : ''}`,
     id: 'status-bar-context',
-    title: `Context: ${c.type ?? 'Object'} · ${label} · click to open`,
+    title: `Inspecting: ${c.type ?? 'Object'} · ${label} · click to open`,
     onClick: () => {
       if (c.rid) {
         // Re-use the existing SELECT_OBJECT routing path. Wrapping in a
@@ -722,9 +747,7 @@ function showBrandMenu(anchor: HTMLElement): void {
     role: 'menu',
     style: `top:${rect.bottom + 4}px; left:${rect.left}px;`,
   },
-    h('button', { class: 'brand-menu-link', role: 'menuitem',
-      onClick: () => { sendMessage({ type: 'OPEN_CODE_SEARCH' }); document.getElementById('header-brand-menu')?.remove(); },
-    }, 'Code search…'),
+    // Code search now lives as a header icon (next to Extended Code / Paint).
     h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://crev.theinemann.de', target: '_blank', rel: 'noopener' }, 'Open crev.theinemann.de'),
     h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://github.com/HeinemannT/crev-inspector', target: '_blank', rel: 'noopener' }, 'GitHub repo'),
     h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://github.com/HeinemannT/crev-inspector/releases', target: '_blank', rel: 'noopener' }, 'Releases'),

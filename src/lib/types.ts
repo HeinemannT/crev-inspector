@@ -360,6 +360,7 @@ export type CodeSearchMessage =
   | { type: 'CODE_SEARCH_PROGRESS'; results: CodeSearchResult[]; searched: number; total: number }
   | { type: 'CODE_SEARCH_DONE'; totalResults: number; totalSearched: number; error?: string }
   | { type: 'CODE_SEARCH_STOP' }
+  | { type: 'CODE_SEARCH_SCOPE'; scope: { rid: string; businessId: string; name: string; type: string } | null; error?: string }
   | { type: 'SEARCH_REFERENCES'; rid: string; businessId?: string; objectType?: string; name?: string };
 
 // ── Script History ───────────────────────────────────────────────

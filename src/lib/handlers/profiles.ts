@@ -4,6 +4,7 @@
 
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
+import { clearAllContextRids } from '../context-rid';
 import { saveSettings, rebuildClient, setManualOverride, snapshotSettings, evictPooledClient, fireProfileSwitch } from '../settings';
 import { pushConnectionState, runAuthTest } from '../connection';
 import { log } from '../logger';
@@ -69,10 +70,15 @@ register('SET_ACTIVE_PROFILE', async (msg, respond) => {
     // prod URL matches.
     if (previousId) setManualOverride(previousId);
     saveSettings();
+    // Workspace changed — per-tab context RIDs belong to the old workspace
+    // and would resolve to wrong/missing objects in the new one.
+    clearAllContextRids();
     await rebuildClient(true);
     respond({ type: 'SETTINGS_DATA', settings: ctx.settings });
     snapshotSettings();
     if (profile) {
+      // Notify the panel (reset stale context/detail/layout) AND content.
+      ctx.sendToPanel({ type: 'PROFILE_SWITCHED', profileId: msg.profileId, label: profile.label });
       ctx.broadcastToContent({ type: 'PROFILE_SWITCHED', profileId: msg.profileId, label: profile.label });
     }
     fireProfileSwitch(msg.profileId);

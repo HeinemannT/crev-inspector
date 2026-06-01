@@ -16,6 +16,7 @@
 import type { BmpObject, InspectorMessage, ObjectPaneIdentity, ObjectPaneSiblingMsg } from '../lib/types';
 import { getTypeColor, getTypeAbbr } from '../lib/types';
 import { h, render } from '../lib/dom';
+import { resolveLayoutShortcut } from '../lib/layout-target';
 import { confirmModal } from '../lib/modal';
 import {
   colorEditor, booleanEditor, numberEditor, enumEditor, sliderEditor,
@@ -551,13 +552,12 @@ export class DetailView {
     // a row with the name, especially in narrow sidebars where the name was
     // clipping to ellipsis after 6 characters.
     const isPinned = S.favoriteEntries.some(f => f.rid === s.rid);
-    // "Layout ↗" — opens the widget's containing page in the layout
-    // tree, with the widget's row highlighted. We pass the widget's
-    // own rid; WorkshopLayoutPane.openLayoutFor walks up to the
-    // nearest Tab ancestor.
-    const showLayoutBtn = !!this.onOpenLayout;
-    const LAYOUT_BEARING = new Set(['Scorecard', 'TabSet', 'Tab', 'Container']);
-    const selfIsLayout = !!(s.identity.type && LAYOUT_BEARING.has(s.identity.type));
+    // "Layout ↗" — opens the layout-bearing target in the Layout tree,
+    // highlighting this object's row. Shared resolver (see layout-target.ts)
+    // keeps this identical to the Object View popout's shortcut.
+    const layout = this.onOpenLayout
+      ? resolveLayoutShortcut({ rid: s.rid, type: s.identity.type }, s.parent)
+      : null;
 
     // "Edit ↗" — visible when the object has a code-bearing property
     // with actual content. Opens that property in the floating
@@ -579,13 +579,13 @@ export class DetailView {
         backButton,
         h('span', { class: 'pane-id-chip', title: s.identity.type }, abbr),
         h('span', { class: 'pane-id-name', title: s.identity.name }, s.identity.name || '(unnamed)'),
-        showLayoutBtn
+        layout
           ? h('button', {
               class: 'detail-layout-btn',
-              title: selfIsLayout
+              title: layout.selfIsLayout
                 ? `Open ${s.identity.type} in the Layout view`
-                : `Show this ${s.identity.type || 'widget'} in the containing Tab’s Layout view`,
-              onClick: () => { this.onOpenLayout!(s.rid); },
+                : `Show this ${s.identity.type || 'widget'} in its ${layout.targetType}’s Layout view`,
+              onClick: () => { this.onOpenLayout!(layout.target, layout.highlight); },
             }, 'Layout ↗')
           : null,
         showEditBtn

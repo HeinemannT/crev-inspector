@@ -7,6 +7,11 @@ let paintPhase: PaintPhase = 'off';
 let paintSourceRid: string | null = null;
 let paintSourceName: string | null = null;
 let paintPendingTargetRid: string | null = null;
+/** Tab paint is armed for. Lets us cancel precisely when THAT tab
+ *  navigates/refreshes, instead of relying on the active-tab map (which is
+ *  empty until the first tab switch — the cause of the "stuck brush after
+ *  refresh" bug). */
+let paintTabId: number | null = null;
 
 /** Push current paint state to the panel (called on panel connect). */
 export function pushPaintState() {
@@ -53,6 +58,7 @@ export async function togglePaint(ensureContentScript: (tabId: number) => Promis
       : { active: true, lastFocusedWindow: true };
     const tabs = await chrome.tabs.query(query);
     const tabId = tabs[0]?.id;
+    paintTabId = tabId ?? null;
     const targetWindowId = panelWindowId ?? tabs[0]?.windowId;
     if (targetWindowId != null && !ctx.isInspectActive(targetWindowId)) {
       ctx.setInspectActive(targetWindowId, true);
@@ -68,6 +74,7 @@ export async function togglePaint(ensureContentScript: (tabId: number) => Promis
     paintSourceRid = null;
     paintSourceName = null;
     paintPendingTargetRid = null;
+    paintTabId = null;
   }
   broadcastPaintState();
 }
@@ -79,7 +86,17 @@ export function cancelPaint() {
   paintSourceRid = null;
   paintSourceName = null;
   paintPendingTargetRid = null;
+  paintTabId = null;
   broadcastPaintState();
+}
+
+/** Cancel paint only if it's armed for `tabId` (or no tab was recorded).
+ *  Used on navigation/refresh so refreshing the painted tab clears the
+ *  brush, while a refresh in some OTHER tab leaves an active session alone. */
+export function cancelPaintForTab(tabId: number) {
+  if (paintPhase === 'off') return;
+  if (paintTabId != null && paintTabId !== tabId) return;
+  cancelPaint();
 }
 
 export function handlePaintPick(rid: string) {

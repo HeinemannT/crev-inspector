@@ -57,8 +57,9 @@ export class ContentState {
   debounceTimer: ReturnType<typeof setTimeout> | null = null;
   labelClickTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Transient DOM state
-  hoveredOutlineEl: Element | null = null;
+  // Transient DOM state — the badge pill the cursor is currently over
+  // (hover-tooltip dedup guard).
+  hoveredLabelEl: Element | null = null;
   labelClickRid: string | null = null;
 
   /** AbortController whose signal is passed to every page-lifetime
@@ -74,7 +75,7 @@ export class ContentState {
     this.overlayProps.clear();
     if (this.labelClickTimer) { clearTimeout(this.labelClickTimer); this.labelClickTimer = null; }
     this.labelClickRid = null;
-    this.hoveredOutlineEl = null;
+    this.hoveredLabelEl = null;
   }
 
   /** Reset discovery dedup (on URL change) */
