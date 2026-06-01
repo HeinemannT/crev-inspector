@@ -179,34 +179,35 @@ body {
 }
 .cs-pill--case { font-family: var(--font-mono); letter-spacing: -0.02em; }
 
-/* Scope chip — inline-editable RID input wrapped in a pill shell. */
-.cs-scope {
-  display: inline-flex;
+/* Scope — its own row (so the filter pills above wrap freely): a label, a
+ * flexible input, and the resolution chip. */
+.cs-scope-row {
+  display: flex;
   align-items: center;
-  gap: 4px;
-  height: 24px;
-  padding: 0 8px 0 10px;
-  border-radius: 12px;
-  background: var(--surface-2);
-  border: 1px solid var(--surface-3);
-  margin-left: auto;
+  gap: 6px;
+  min-width: 0;
 }
 .cs-scope-label {
+  flex-shrink: 0;
   font-size: 10px;
   color: var(--text-3);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 .cs-scope-input {
-  width: 130px;
-  background: none;
-  border: none;
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  border-radius: 12px;
   outline: none;
   color: var(--text-1);
   font-family: var(--font-mono);
   font-size: 11px;
-  padding: 0;
 }
+.cs-scope-input:focus { border-color: var(--accent); }
 .cs-scope-input::placeholder { color: var(--text-3); font-style: italic; }
 
 /* Scope resolution feedback — shows the object the scope resolved to, or an
@@ -525,6 +526,8 @@ body {
   cursor: pointer;
   color: var(--text-1);
   transition: background 100ms ease;
+  /* Allow drag-selecting the name/id even if an ancestor disables selection. */
+  user-select: text;
 }
 .cs-result-header:hover { background: var(--surface-2); }
 .cs-result-header.expanded { background: var(--surface-2); border-bottom: 1px solid var(--surface-3); }
@@ -547,20 +550,43 @@ body {
   font-weight: 700;
   flex-shrink: 0;
 }
+/* Name + id are two equal columns at the same hierarchy; both selectable
+ * (the header is a div, not a button, so drag-select works — a plain click
+ * still toggles). */
 .cs-result-name {
+  flex: 1 1 0;
+  min-width: 0;
   font-weight: 600;
   font-size: var(--text-sm);
-  flex-shrink: 0;
-}
-.cs-result-bid {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-3);
+  color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  user-select: text;
+}
+.cs-result-id {
+  flex: 1 1 0;
   min-width: 0;
-  flex: 1;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: var(--text-sm);
+  overflow: hidden;
+  white-space: nowrap;
+  user-select: text;
+}
+.cs-result-id-label {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  user-select: none;
+}
+.cs-result-id-val {
+  font-family: var(--font-mono);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: text;
 }
 .cs-result-count {
   font-size: 11px;

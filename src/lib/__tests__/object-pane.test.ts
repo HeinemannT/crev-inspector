@@ -123,15 +123,25 @@ describe('applyObjectChanges — PANE_PROPS_SET allowlist', () => {
     expect(exec).not.toHaveBeenCalled();
   });
 
-  it('accepts only whitelisted properties', async () => {
+  it('accepts whitelisted props; colours link by bid, values stay literal', async () => {
     const { c, exec } = makeClient('Result : 0');
     const result = await c.applyObjectChanges('100', 'instance', {
-      headerColor: '#aabbcc',
+      headerColor: 'df12 Clear orange', // "<bid> <name>" from the picker
       width: 200,
       shadow: true,
     });
     expect(result.ok).toBe(true);
     expect(exec).toHaveBeenCalledTimes(1);
+    const ec = (exec.mock.calls[0] as unknown as [string])[0];
+    expect(ec).toContain('headerColor := t.df12'); // linked, not "df12 Clear orange"
+    expect(ec).toMatch(/width\s*:=\s*200/);
+  });
+
+  it('rejects a malformed colour id (no EC sent)', async () => {
+    const { c, exec } = makeClient('');
+    const result = await c.applyObjectChanges('100', 'instance', { headerColor: '#fff' });
+    expect(result.ok).toBe(false);
+    expect(exec).not.toHaveBeenCalled();
   });
 
   it('returns ok=true with no EC call when changes is empty', async () => {
@@ -177,7 +187,7 @@ describe('applyObjectChanges — EC literal escaping', () => {
 describe('applyObjectChanges — template target', () => {
   it('routes through _o.linkedTo for template target', async () => {
     const { c, exec } = makeClient('Result : 0');
-    await c.applyObjectChanges('100', 'template', { headerColor: '#fff' });
+    await c.applyObjectChanges('100', 'template', { width: 200 });
     const ec = (exec.mock.calls[0] as unknown as [string])[0];
     expect(ec).toContain('_o.linkedTo');
     expect(ec).toContain('_o.template');
@@ -185,7 +195,7 @@ describe('applyObjectChanges — template target', () => {
 
   it('emits instance change without touching linkedTo for instance target', async () => {
     const { c, exec } = makeClient('Result : 0');
-    await c.applyObjectChanges('100', 'instance', { headerColor: '#fff' });
+    await c.applyObjectChanges('100', 'instance', { width: 200 });
     const ec = (exec.mock.calls[0] as unknown as [string])[0];
     expect(ec).not.toContain('_o.linkedTo');
     expect(ec).toContain('_o.change(');

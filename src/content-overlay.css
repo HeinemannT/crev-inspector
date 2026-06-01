@@ -126,37 +126,46 @@
   border-color: rgba(255,255,255,0.5);
 }
 .crev-paint-apply-btn {
-  background: #fff;
-  color: #ff832b;
+  background: #8a3ffc;
+  color: #fff;
   border: none;
   border-radius: 4px;
-  padding: 2px 10px;
-  font-weight: 700;
+  padding: 3px 12px;
+  font-weight: 600;
   cursor: pointer;
   margin-right: 6px;
 }
+.crev-paint-apply-btn:hover { background: #a76dff; }
 .crev-paint-cancel-btn {
-  background: rgba(255,255,255,0.2);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,0.4);
+  background: transparent;
+  color: #b0b0b0;
+  border: 1px solid #444;
   border-radius: 4px;
-  padding: 2px 10px;
+  padding: 3px 12px;
   cursor: pointer;
 }
+.crev-paint-cancel-btn:hover { color: #e4e4e4; border-color: #707070; }
 #crev-paint-banner {
   position: fixed;
-  top: 0; left: 0; right: 0;
-  /* Below crev-eo-host so the editor frame can cover the paint banner
-   * if the user happens to open a task surface while in paint mode. */
+  /* Compact floating card, top-centre — not a full-width bar. Matches the
+   * extension's dark surface + purple accent (content scripts can't read the
+   * token CSS vars, so the design values are inlined here). Below crev-eo-host
+   * so a task surface can cover it. */
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 2147483636;
-  padding: 6px 12px;
-  background: #ff832b;
-  color: #fff;
-  font: 600 11px/1.4 'Inter', system-ui, sans-serif;
-  letter-spacing: 0.2px;
-  text-align: center;
+  max-width: min(560px, calc(100vw - 24px));
+  padding: 9px 14px;
+  background: #1a1a1a;
+  color: #e4e4e4;
+  font: 500 12px/1.45 'Inter', system-ui, sans-serif;
+  letter-spacing: 0.1px;
+  text-align: left;
   display: none;
-  box-shadow: 0 2px 12px rgba(255, 131, 43, 0.35), 0 4px 16px rgba(0,0,0,0.3);
+  border: 1px solid rgba(138, 63, 252, 0.55);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(138, 63, 252, 0.18);
 }
 #crev-paint-banner.crev-visible {
   display: block;

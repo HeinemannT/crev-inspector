@@ -51,6 +51,24 @@ export function colorEditor(ctx: PropEditorContext): HTMLElement {
   );
 }
 
+/** Linked-colour cell: a swatch + name button that opens the colour picker.
+ *  BMP colours are CorpoColor LINKS, not hex — so there's no text input; the
+ *  value flows back through ctx.onChange (called by the picker on pick). */
+export function colorLinkEditor(
+  ctx: PropEditorContext,
+  opts: { name: string; rgb: string | null; onOpen: (anchor: HTMLElement) => void },
+): HTMLElement {
+  const btn = h('button', {
+    class: 'prop-color-link',
+    title: opts.name ? `${opts.name} — click to change the linked colour` : 'No colour linked — click to pick one',
+    onClick: (e: Event) => opts.onOpen(e.currentTarget as HTMLElement),
+  },
+    h('span', { class: `prop-color-swatch${opts.rgb ? '' : ' prop-color-swatch--none'}`, style: opts.rgb ? `background:${opts.rgb}` : '' }),
+    h('span', { class: 'prop-color-link-name' }, opts.name || 'Link a colour…'),
+  );
+  return h('div', { class: `prop-cell prop-cell--color${ctx.dirty ? ' prop-cell--dirty' : ''}` }, btn);
+}
+
 /** Expand #rgb → #rrggbb for the native color picker. */
 function expandColor(c: string): string {
   if (c.length === 4) return `#${c[1]}${c[1]}${c[2]}${c[2]}${c[3]}${c[3]}`;

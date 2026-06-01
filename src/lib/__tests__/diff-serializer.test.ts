@@ -76,18 +76,16 @@ describe('serializeForDiff (v0.22 categorised format)', () => {
       { rid: '1' },
       {
         headerColor: 'Blue',
-        bgColor: 'Red',
         fontColor: 'Green',
       },
       [],
     );
     const apprIdx = result.indexOf('─── appearance ───');
     const rest = result.slice(apprIdx);
-    const bgIdx = rest.indexOf('bgColor:');
     const fontIdx = rest.indexOf('fontColor:');
     const headerIdx = rest.indexOf('headerColor:');
-    expect(bgIdx).toBeGreaterThan(0);
-    expect(bgIdx).toBeLessThan(fontIdx);
+    // Alphabetical within the category: fontColor before headerColor.
+    expect(fontIdx).toBeGreaterThan(0);
     expect(fontIdx).toBeLessThan(headerIdx);
   });
 

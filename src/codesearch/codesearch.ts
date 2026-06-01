@@ -32,6 +32,9 @@ let scopeInfo: { rid: string; businessId: string; name: string; type: string } |
 let scopeError: string | null = null;
 let caseSensitive = true;
 let searching = false;
+/** True once a search has actually run — gates the "no matches" empty state
+ *  so it can't show before the user has searched (manual-trigger model). */
+let hasSearched = false;
 let searched = 0;
 let total = 0;
 let results: CodeSearchResult[] = [];
@@ -100,10 +103,12 @@ function renderUI() {
     elements.push(renderResults());
   } else if (searching) {
     elements.push(renderSkeleton());
-  } else if (!query.trim()) {
-    elements.push(renderHeroEmpty());
-  } else if (!lastError) {
+  } else if (hasSearched && !lastError) {
+    // Only after a real search came back empty — not while the user is still
+    // typing (no auto-search anymore).
     elements.push(renderNoMatches());
+  } else {
+    elements.push(renderHeroEmpty());
   }
 
   render(root, ...elements.filter(Boolean) as HTMLElement[]);
@@ -165,6 +170,9 @@ function renderToolbar(): HTMLElement {
         const el = e.currentTarget as HTMLInputElement;
         query = el.value;
         queryRefocus = el.selectionStart ?? el.value.length;
+        // Editing invalidates the last result set's "no matches" verdict —
+        // go back to the hero prompt until the next Enter/Search.
+        hasSearched = false;
         // Do NOT search on keystroke — code search hits live EC and is too
         // expensive to run per-character. Runs only on Enter / the Search
         // button. Re-render so the clear/search buttons reflect the value.
@@ -185,7 +193,7 @@ function renderToolbar(): HTMLElement {
       ? h('button', {
           class: 'cs-search-clear',
           title: 'Clear',
-          onClick: () => { query = ''; results = []; searched = 0; total = 0; renderUI(); },
+          onClick: () => { query = ''; results = []; searched = 0; total = 0; hasSearched = false; renderUI(); },
         }, '✕')
       : null,
     searching
@@ -225,8 +233,9 @@ function renderToolbar(): HTMLElement {
     }, g.label));
   }
 
-  // Subtree scope — accepts a numeric RID or a namespace.bid ref (e.g.
-  // t.118). The resolved object (or an error) shows in a chip below.
+  // Subtree scope on its own row (not crammed into the wrapping pill row) —
+  // accepts a numeric RID or a namespace.bid ref (e.g. t.118). The resolved
+  // object (or an error) shows in a chip beside the input.
   const scopeSet = subtreeRid.trim().length > 0;
   const scopeFeedback = !scopeSet
     ? null
@@ -239,19 +248,19 @@ function renderToolbar(): HTMLElement {
             scopeInfo.type ? h('span', { class: 'cs-scope-feedback-type' }, scopeInfo.type) : null,
           )
         : null;
-  pills.push(h('span', { class: 'cs-scope' },
-    h('span', { class: 'cs-scope-label' }, 'Scope:'),
+  const scopeRow = h('div', { class: 'cs-scope-row' },
+    h('span', { class: 'cs-scope-label' }, 'Scope'),
     h('input', {
       class: 'cs-scope-input',
       type: 'text',
-      placeholder: 'whole workspace',
+      placeholder: 'whole workspace — RID or t.bid',
       value: subtreeRid,
       title: 'Limit to a subtree: numeric RID or namespace.bid (e.g. t.118). Empty = whole workspace. Press Enter or Search to apply.',
-      onInput: (e: Event) => { subtreeRid = (e.currentTarget as HTMLInputElement).value; },
+      onInput: (e: Event) => { subtreeRid = (e.currentTarget as HTMLInputElement).value; hasSearched = false; },
       onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); fireSearch(); } },
     }),
-  ));
-  if (scopeFeedback) pills.push(scopeFeedback);
+    scopeFeedback,
+  );
 
   // Second toolbar row — only shown once results land. Carries the
   // narrow-by-substring filter and the bulk expand/collapse controls.
@@ -305,14 +314,45 @@ function renderToolbar(): HTMLElement {
             renderUI();
           },
         }, '▸ Collapse all'),
+        h('button', {
+          class: 'cs-bulk-btn cs-copy-btn',
+          title: 'Copy the matched objects (class, id, name) as a tab-separated table',
+          onClick: copyResultsTable,
+        }, '⎘ Copy table'),
       )
     : null;
 
   return h('div', { class: 'cs-toolbar' },
     searchShell,
     h('div', { class: 'cs-pill-row' }, ...pills),
+    scopeRow,
     resultControls,
   );
+}
+
+/** Copy the (filtered) matched objects as a TSV table: className, id, name —
+ *  one row per object (deduped across the property rows that share a RID). */
+function copyResultsTable(): void {
+  const seen = new Set<string>();
+  const rows = [['Class', 'ID', 'Name']];
+  for (const r of results.filter(passesResultFilter)) {
+    if (seen.has(r.rid)) continue;
+    seen.add(r.rid);
+    rows.push([r.type ?? '', r.businessId || r.rid, r.name || '']);
+  }
+  const tsv = rows.map(cols => cols.join('\t')).join('\n');
+  navigator.clipboard.writeText(tsv)
+    .then(() => flashCopied(rows.length - 1))
+    .catch(() => { /* clipboard blocked — nothing we can do from here */ });
+}
+
+let copyFlashTimer: ReturnType<typeof setTimeout> | null = null;
+function flashCopied(count: number): void {
+  const btn = document.querySelector<HTMLElement>('.cs-copy-btn');
+  if (!btn) return;
+  btn.textContent = `✓ Copied ${count}`;
+  if (copyFlashTimer) clearTimeout(copyFlashTimer);
+  copyFlashTimer = setTimeout(() => { const b = document.querySelector<HTMLElement>('.cs-copy-btn'); if (b) b.textContent = '⎘ Copy table'; }, 1500);
 }
 
 function renderErrorBanner(message: string): HTMLElement {
@@ -438,15 +478,30 @@ function renderResults(): HTMLElement {
         const expanded = expandedGroups.has(rid);
         const totalMatches = group.reduce((n, r) => n + r.matchingLines.length, 0);
 
-        const header = h('button', {
+        // A div (not a button) so the id / name text stays selectable —
+        // drag-select doesn't fire a click, so a plain click still toggles
+        // (delegated via data-action). Name + id are two equal columns.
+        const header = h('div', {
           class: `cs-result-header${expanded ? ' expanded' : ''}`,
+          role: 'button',
+          tabindex: '0',
           'data-rid': rid,
           'data-action': 'toggle',
           title: expanded ? 'Collapse' : 'Expand to see matched lines',
+          onKeyDown: (e: KeyboardEvent) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              if (expandedGroups.has(rid)) expandedGroups.delete(rid); else expandedGroups.add(rid);
+              renderUI();
+            }
+          },
         },
           h('span', { class: 'cs-result-chev' }, expanded ? '▾' : '▸'),
-          h('span', { class: 'cs-result-name' }, first.name || '(unnamed)'),
-          h('span', { class: 'cs-result-bid' }, first.businessId || rid),
+          h('span', { class: 'cs-result-name', title: first.name || '(unnamed)' }, first.name || '(unnamed)'),
+          h('span', { class: 'cs-result-id' },
+            h('span', { class: 'cs-result-id-label' }, 'id:'),
+            h('span', { class: 'cs-result-id-val' }, first.businessId || rid),
+          ),
           h('span', { class: 'cs-result-count' }, `${totalMatches} match${totalMatches !== 1 ? 'es' : ''}`),
           h('button', {
             class: 'cs-result-open',
@@ -599,9 +654,11 @@ function fireSearch(): void {
     searched = 0;
     total = 0;
     searching = false;
+    hasSearched = false;
     renderUI();
     return;
   }
+  hasSearched = true;
 
   // No need to explicitly stop the previous in-flight search —
   // `startCodeSearch` bumps the generation counter on entry, which

@@ -12,6 +12,8 @@ import {
   parseTreeNodeInfo,
 } from './bmp-types';
 import { deserializeStream } from './java-serial';
+import { COLOR_LINK_PROPS, colorLinkBid } from './types';
+import type { ColorSetData } from './types';
 import { log } from './logger';
 import { HEALTH_TIMEOUT, BATCH_CHUNK_SIZE, MAX_PARALLEL } from './constants';
 import { BmpAuth } from './bmp-auth';
@@ -167,7 +169,9 @@ export const PANE_PROPS = [
   'columnsLargeScreen', 'columnsMediumScreen', 'columnsSmallScreen',
   // Display-level toggles attached by HasToolsMenu / HasDisableSearch mixins.
   'showToolMenu', 'disableSearch',
-  'headerColor', 'bgColor', 'fontColor',
+  // HasWidgetColors declares only headerColor + fontColor (no bgColor —
+  // verified against every decompiled BeanInfo + the live type schema).
+  'headerColor', 'fontColor',
   'shadow', 'transparency',
   'headerStyle', 'borderStyle',
   // Visibility — Visibillity mixin (`visible`) + ScreenSizeVisibility mixin
@@ -184,6 +188,12 @@ export const PANE_PROPS = [
 ] as const;
 export type PaneProp = typeof PANE_PROPS[number];
 export const PANE_PROPS_SET: ReadonlySet<string> = new Set(PANE_PROPS);
+
+/** Parse `java.awt.Color[r=219,g=132,b=61]` → `rgb(219,132,61)`, else ''. */
+export function parseAwtColor(s: string): string {
+  const m = /r=(\d+),\s*g=(\d+),\s*b=(\d+)/.exec(s);
+  return m ? `rgb(${m[1]},${m[2]},${m[3]})` : '';
+}
 
 // ALL_CODE_FIELDS / ALL_REFERENCE_FIELDS live in widget-metadata.ts where
 // they're derived from TYPE_META at module load (single source of truth).
@@ -1123,7 +1133,19 @@ _r
     const ref = await this.resolveRef(rid);
     const assignments: string[] = [];
     for (const p of props) {
-      assignments.push(`${p} := ${this.formatEcLiteral(changes[p])}`);
+      if (COLOR_LINK_PROPS.has(p)) {
+        // Color props are LINKS — emit `prop := t.<colorBid>` (a reference),
+        // never a quoted string (which errors against a CorpoColor property).
+        // The value is "<bid> <name>" (or "" to clear). Take the bid token.
+        const bid = colorLinkBid(changes[p]);
+        // Empty = nothing to link. Skip it — BMP doesn't unset a colour via
+        // `:= MISSING` (verified no-op), so we never emit a clear.
+        if (!bid) continue;
+        if (!/^[A-Za-z0-9_]+$/.test(bid)) return { ok: false, error: `Invalid colour id "${bid}"` };
+        assignments.push(`${p} := t.${bid}`);
+      } else {
+        assignments.push(`${p} := ${this.formatEcLiteral(changes[p])}`);
+      }
     }
     const lines: string[] = [
       `_o := ${ref}`,
@@ -1143,6 +1165,47 @@ _r
     if (!result.ok) return { ok: false, error: result.error ?? result.log ?? 'Change failed' };
     if (result.log?.includes('no template')) return { ok: false, error: 'Object has no template' };
     return { ok: true };
+  }
+
+  /** Enumerate the workspace's colour sets + colours (for the link picker).
+   *  Walks t.ColorRoot → CorpoColorSet → CorpoColor; each colour carries its
+   *  bid (for linking via `t.<bid>`), name, and rgb (parsed from java.awt.Color). */
+  async fetchColorSets(): Promise<ColorSetData[]> {
+    const sep = '<<<CREV_COL>>>';
+    const ec = [
+      '_root := t.ColorRoot',
+      '_r := ""',
+      '_root.children().forEach(_set:',
+      `  _r := _r + "${sep}S${sep}" + _set.id.whenMissing("") + "${sep}" + _set.name.whenMissing("") + "\\n"`,
+      '  _set.children().forEach(_col:',
+      // Concatenate _col.color (java.awt.Color → toString) — NOT output(),
+      // which is for expression *text* and is ~600× slower here (8.8s vs ~50ms
+      // for ~100 colours). Guard on MISSING so non-colour children are skipped
+      // and the accumulator stays a text value.
+      '    _cv := _col.color',
+      '    IF _cv != MISSING THEN',
+      `      _r := _r + "${sep}C${sep}" + _col.id.whenMissing("") + "${sep}" + _col.name.whenMissing("") + "${sep}" + _cv + "\\n"`,
+      '    ENDIF',
+      '  )',
+      ')',
+      '_r',
+    ].join('\n');
+    const result = await this.executeEc(ec);
+    if (!result.ok || !result.log) return [];
+    const sets: ColorSetData[] = [];
+    let cur: ColorSetData | null = null;
+    for (const line of result.log.split('\n')) {
+      const parts = line.split(sep);
+      if (parts[1] === 'S') {
+        cur = { id: (parts[2] ?? '').trim(), name: (parts[3] ?? '').trim(), colors: [] };
+        sets.push(cur);
+      } else if (parts[1] === 'C' && cur) {
+        const bid = (parts[2] ?? '').trim();
+        const rgb = parseAwtColor(parts[4] ?? '');
+        if (bid && rgb) cur.colors.push({ bid, name: (parts[3] ?? '').trim(), rgb });
+      }
+    }
+    return sets.filter(s => s.colors.length > 0);
   }
 
   /** Format a JS value as an EC literal: strings double-quoted with escapes,

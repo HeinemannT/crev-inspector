@@ -48,8 +48,8 @@ function makeObj(rid: string, overrides: Partial<BmpObject> = {}): BmpObject {
 
 function emptyProps(over: Partial<Record<string, string>> = {}): Record<string, string> {
   const base: Record<string, string> = {
-    width: '', height: '', headerColor: '', bgColor: '', fontColor: '',
-    shadow: '', transparency: '', headerStyle: '', borderStyle: '', hidden: '',
+    width: '', height: '', headerColor: '', fontColor: '',
+    shadow: '', transparency: '', headerStyle: '', borderStyle: '', visible: '',
   };
   return { ...base, ...over } as Record<string, string>;
 }
@@ -262,6 +262,29 @@ describe('DetailView — edit + save', () => {
     dv.handleMessage({ type: 'APPLY_CHANGES_RESULT', rid: '100', ok: true }, panel);
 
     expect(sent.find(m => m.type === 'FETCH_OBJECT_PANE' && (m as { rid: string }).rid === '100')).toBeTruthy();
+  });
+
+  it('APPLY_CHANGES_RESULT ok=true shows a Reload toast that sends RELOAD_BMP_TAB', () => {
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('100'), panel);
+    dv.handleMessage(paneData('100'), panel);
+
+    const w = panel.querySelector<HTMLInputElement>('.prop-number-input')!;
+    w.value = '320';
+    w.dispatchEvent(new Event('input', { bubbles: true }));
+
+    sent.length = 0;
+    dv.handleMessage({ type: 'APPLY_CHANGES_RESULT', rid: '100', ok: true }, panel);
+
+    // BMP's React DOM doesn't re-render on out-of-band writes, so the save
+    // offers a one-click reload of the BMP tab.
+    const reloadBtn = document.querySelector<HTMLButtonElement>('.crev-toast__action');
+    expect(reloadBtn, 'reload toast button should render').toBeTruthy();
+    expect(reloadBtn!.textContent).toBe('Reload');
+    reloadBtn!.click();
+    expect(sent.find(m => m.type === 'RELOAD_BMP_TAB')).toBeTruthy();
+
+    document.getElementById('crev-toast-container')?.remove();
   });
 
   it('APPLY_CHANGES_RESULT ok=false surfaces the error and keeps the draft', () => {

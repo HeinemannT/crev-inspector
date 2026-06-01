@@ -153,7 +153,9 @@ describe('renderFlowSection', () => {
     expect(open).toEqual({ type: 'OPEN_EDITOR', rid: '8123', property: 'expression' });
   });
 
-  it('renders edge label between parent and child', () => {
+  it('nests children under the parent without a relationship pill', () => {
+    // The edge label/pill was removed — the indentation rail conveys nesting.
+    // The child card still renders inside the parent's flow-children block.
     const chain: FlowChainMsg = { steps: [step({
       identity: { rid: '1', businessId: 'iv', name: 'IV', type: 'InputView' },
       children: [step({
@@ -162,9 +164,10 @@ describe('renderFlowSection', () => {
       })],
     })] };
     const el = renderFlowSection(inputs({ chain }));
-    const edge = el.querySelector('.flow-edge-label');
-    expect(edge).toBeTruthy();
-    expect(edge!.textContent).toBe('inputSet');
+    expect(el.querySelector('.flow-edge-label')).toBeNull();
+    const childCard = el.querySelector('.flow-children .flow-card');
+    expect(childCard).toBeTruthy();
+    expect(childCard!.querySelector('.flow-card-name')!.textContent).toBe('IS');
   });
 
   it('renders the input key chip for *Input children', () => {

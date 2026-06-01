@@ -411,17 +411,21 @@ body {
  * object" even after the user has switched away. */
 .inspect-dirty-dot {
   display: inline-block;
-  width: 6px;
+  /* Collapsed to zero footprint when inactive so the Workshop tab label
+   * doesn't read as "Workshop " with a trailing gap. */
+  width: 0;
   height: 6px;
   border-radius: 50%;
-  margin-left: 5px;
+  margin-left: 0;
   vertical-align: middle;
   background: var(--accent);
   opacity: 0;
   transform: scale(0.6);
-  transition: opacity 150ms ease, transform 150ms ease;
+  transition: opacity 150ms ease, transform 150ms ease, width 150ms ease, margin 150ms ease;
 }
 .inspect-dirty-dot.active {
+  width: 6px;
+  margin-left: 5px;
   opacity: 1;
   transform: scale(1);
 }
@@ -3241,6 +3245,62 @@ body.crev-divider-dragging * { user-select: none; }
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
 }
 
+/* Linked-colour cell — swatch + name button that opens the picker. */
+.prop-color-link {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.prop-color-link:hover { border-color: var(--accent-bright); background: var(--surface-2); }
+.prop-color-link .prop-color-swatch { width: 16px; height: 16px; }
+.prop-color-link-name {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--text-sm); color: var(--text-1);
+}
+
+/* ── Linked-colour picker popover ─────────────────────────────── */
+.cp-backdrop { position: fixed; inset: 0; z-index: 200; }
+.cp-popover {
+  position: fixed; z-index: 201;
+  max-height: 60vh;
+  display: flex; flex-direction: column;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+}
+.cp-head { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--surface-2); }
+.cp-filter {
+  flex: 1; min-width: 0; height: 26px; padding: 0 8px;
+  background: var(--surface-2); border: 1px solid var(--surface-3); border-radius: var(--radius-sm);
+  color: var(--text-1); font-size: var(--text-sm); outline: none;
+}
+.cp-filter:focus { border-color: var(--accent); }
+.cp-body { overflow-y: auto; padding: 6px 8px 8px; }
+.cp-set { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); margin: 8px 0 4px; }
+.cp-grid { display: flex; flex-direction: column; gap: 1px; }
+.cp-swatch {
+  all: unset; box-sizing: border-box;
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; border-radius: var(--radius-sm); cursor: pointer;
+}
+.cp-swatch:hover { background: var(--surface-2); }
+.cp-swatch--sel { background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent); }
+.cp-swatch-dot { width: 16px; height: 16px; border-radius: 3px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.12); }
+.cp-swatch-name { font-size: var(--text-sm); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-loading, .cp-empty { padding: 16px 8px; text-align: center; color: var(--text-3); font-size: var(--text-sm); }
+
 .prop-color-input {
   flex: 1;
   min-width: 0;
@@ -3659,9 +3719,8 @@ body.crev-divider-dragging * { user-select: none; }
  * the pane for attention. Section ends with a hairline so it reads as one
  * unit without a bordered container. */
 .context-section {
-  padding: 6px var(--space-3);
+  padding: 4px var(--space-3) 6px;
   margin: 0;
-  border-bottom: 1px solid var(--surface-2);
   animation: crev-fade-in var(--duration-fast) var(--ease-decelerate);
 }
 
@@ -3843,16 +3902,14 @@ body.crev-divider-dragging * { user-select: none; }
  * of the pane to maximise readable name width. */
 .flow-section {
   margin: 0;
-  padding: 0 0 6px;
-  border-bottom: 1px solid var(--surface-2);
+  padding: 0;
 }
 
 .flow-section-head {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 8px var(--space-3) 6px;
-  border-bottom: 1px solid var(--surface-2);
+  padding: 4px var(--space-3) 2px;
   background: var(--surface-1);
 }
 .flow-section-label {
@@ -3881,32 +3938,12 @@ body.crev-divider-dragging * { user-select: none; }
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: 4px var(--space-3) 6px;
+  padding: 2px var(--space-3) 4px;
 }
 
 .flow-step {
   display: flex;
   flex-direction: column;
-}
-
-/* Relationship into a step — a small pill ("inputSet", "actionObject",
- * "editPage › inputSet") sitting just above the child card, on its rail. */
-.flow-edge {
-  display: flex;
-  align-items: center;
-  padding: 2px 0 4px;
-}
-.flow-edge-label {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: var(--weight-medium);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--info);
-  background: rgba(120, 169, 255, 0.13);
-  border: 1px solid rgba(120, 169, 255, 0.32);
-  border-radius: 999px;
-  padding: 1px 8px;
 }
 
 /* Each object is its own card: faint border + a 3 px type-colour left edge so
@@ -4218,3 +4255,24 @@ body.crev-divider-dragging * { user-select: none; }
 .crev-toast--success { background: rgba(66, 190, 101, 0.92); }
 .crev-toast--error { background: rgba(250, 77, 86, 0.92); }
 .crev-toast--info { background: rgba(120, 169, 255, 0.92); }
+
+/* Toast with an inline action button (e.g. "Reload" after a save). */
+.crev-toast--with-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 6px;
+}
+.crev-toast__text { flex: 1; }
+.crev-toast__action {
+  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font: 600 11px/1 var(--font-body, 'Inter', system-ui, sans-serif);
+  padding: 4px 9px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.crev-toast__action:hover { background: rgba(255, 255, 255, 0.3); }

@@ -8,7 +8,7 @@ import { getCtx } from './sw-context';
 import { getTabDetection, setTabDetection, deleteTabDetection, updateBadge } from './detection';
 import { autoDetectProfile } from './settings';
 import { log } from './logger';
-import { cancelPaint, cancelPaintForTab } from './paint';
+import { cancelPaintForTab } from './paint';
 import { checkBmpCookie } from './cookie-gate';
 import { deleteContextRid } from './context-rid';
 import { sendPageInfoToPanel } from './content-script-injection';
@@ -31,7 +31,14 @@ export function registerTabListeners() {
   chrome.tabs.onActivated.addListener((activeInfo) => {
     const ctx = getCtx();
     activeTabIdByWindow.set(activeInfo.windowId, activeInfo.tabId);
-    cancelPaint();
+    // NOTE: paint is intentionally NOT cancelled on a plain tab switch — a
+    // source widget picked on one page can be painted onto a widget on
+    // another page (same workspace), which is a valid cross-page paint.
+    // Paint is cancelled only when the WORKSPACE actually changes (via the
+    // onProfileSwitch hook in the SW — covers both the manual switch and the
+    // autoDetectProfile below) or when the armed tab navigates/refreshes
+    // (cancelPaintForTab in onUpdated). RIDs/colour-bids are workspace-scoped,
+    // so a source from another workspace can't resolve in the new one.
 
     chrome.tabs.get(activeInfo.tabId, (tab) => {
       if (chrome.runtime.lastError) return;

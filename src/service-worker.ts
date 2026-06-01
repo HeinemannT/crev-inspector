@@ -22,7 +22,7 @@ import { createSettingsReady, loadSettingsFrom, onProfileSwitch } from './lib/se
 import { registerTabListeners, sendPageInfoToPanel } from './lib/tab-awareness';
 import { handleContentMessage, handlePanelMessage, handleOneShotMessage, toggleInspect } from './lib/message-router';
 import { setContextRid, getContextRid, deleteContextRid } from './lib/context-rid';
-import { pushPaintState } from './lib/paint';
+import { pushPaintState, paintStateMessage, cancelPaint } from './lib/paint';
 import { openEditorWindow, openExtendedWindow } from './lib/editor';
 import { openCodeSearchWindow } from './lib/codesearch-launcher';
 import { openDiffWindow } from './lib/diff-launcher';
@@ -263,6 +263,12 @@ async function setComparePivot(p: ComparePivot | null): Promise<void> {
 // after the user alt-tabbed to dev — visually correct for sbx but
 // stale for dev (which has its own per-profile pivot, possibly empty).
 onProfileSwitch(() => {
+  // Workspace changed — a paint source armed in the old workspace can't be
+  // resolved here (RIDs + colour-bids are workspace-scoped). Cancel the brush
+  // so the user re-picks in the new workspace instead of hitting a confusing
+  // silent misfire. Mirrors clearAllContextRids() in the same switch paths.
+  cancelPaint();
+
   getComparePivot().then((pivot) => {
     const title = pivot ? `Compare with ${pivot.name ?? pivot.rid}…` : 'Compare with…';
     chrome.contextMenus.update('crev-compare', { title }).catch(e => log.swallow('sw:refreshCompareMenu', e));
@@ -347,6 +353,12 @@ function initContentPort(port: chrome.runtime.Port, tabId: number | undefined) {
     }
     safeSend(port, { type: 'INSPECT_STATE', active: inspectForWindow });
     safeSend(port, { type: 'ENRICH_MODE', mode: settings.enrichMode });
+    // Re-sync paint state to this (re)connected content script — its in-page
+    // banner + pill-click handling read s.paintPhase, and without this push a
+    // reconnect/re-injection (SW idle→wake, F5, paint's own ensureContentScript)
+    // would leave the page stale ('off') while the panel stayed armed. Pushed
+    // ALWAYS (even 'off') so a stale 'applying' content gets corrected too.
+    safeSend(port, paintStateMessage());
 
     // Push cached enrichments so a fresh content script (after F5) has data immediately
     const enrichments: Record<string, { businessId?: string; type?: string; name?: string; templateBusinessId?: string }> = {};

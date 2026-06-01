@@ -12,6 +12,7 @@ import { delegate } from './delegate';
 import { log } from '../lib/logger';
 import { ICON_PAINT, ICON_REFRESH, ICON_LIGHTNING, ICON_TORNADO, ICON_SEARCH } from './utils';
 import { DetailView } from './detail-view';
+import { onColorSetsData } from './color-picker';
 import { initReferenceView, showReferenceView, handleReferenceMessage, isReferenceActive } from './reference-view';
 import { S, sendMessage, getActivePanel, getTabPanel, tabPanelId, onPortMessage, onReconnect, connectPanel } from './state';
 import { dispatchBroadcast } from '../lib/handler-registry';
@@ -163,6 +164,9 @@ onPortMessage((msg: InspectorMessage) => {
         S.context = { rid: i.rid, name: i.name, type: i.type, businessId: i.businessId };
         updateContextPill();
       }
+      break;
+    case 'COLOR_SETS_DATA':
+      onColorSetsData(msg.sets);
       break;
     case 'EC_RESULT':
       // Surface user-action latency in the status bar — feels more honest
@@ -395,14 +399,9 @@ function buildApp(): void {
     h('button', { class: 'status-strip-btn', 'data-action': 'test', title: 'Test connection' }, svg(ICON_REFRESH)),
   );
 
-  const paintStatus = S.paintPhase !== 'off'
-    ? h('div', { class: 'paint-status-bar', id: 'paint-status' },
-        S.paintPhase === 'picking'
-          ? 'Click a widget to pick its style'
-          : ['Painting from ', h('b', null, S.paintSourceName ?? '?'), ': click targets'],
-      )
-    : null;
-
+  // No sidebar paint status bar — during paint the user's focus is the page,
+  // where the in-page banner is the HUD. The header paint button's active
+  // state is the only sidebar signal needed.
   const tabContent = h('div', { class: 'tab-content' },
     ...TAB_NAMES.map(t =>
       h('div', { class: `tab-panel ${S.activeTab === t ? 'active' : ''}`, id: tabPanelId(t), role: 'tabpanel' }),
@@ -425,7 +424,7 @@ function buildApp(): void {
     cacheCountEl,
   );
 
-  render(app, header, tabBar, statusStrip, paintStatus, tabContent, statusBar);
+  render(app, header, tabBar, statusStrip, tabContent, statusBar);
 
   delegate(app, {
     tab: (el) => {
@@ -537,37 +536,13 @@ function connectDotClass(): string {
 }
 
 function showPaintError(error: string) {
-  const tabBar = app.querySelector('.tab-bar');
-  if (!tabBar) return;
-  let bar = document.getElementById('paint-error');
-  if (!bar) {
-    bar = document.createElement('div');
-    bar.id = 'paint-error';
-    bar.className = 'paint-status-bar paint-status-bar--error';
-    tabBar.insertAdjacentElement('afterend', bar);
-  }
-  bar.textContent = error;
-  setTimeout(() => bar?.remove(), 4000);
+  // Errors surface as a toast — the dedicated sidebar paint bar is gone.
+  showToast(error, 'error');
 }
 
 function updatePaintButton() {
   const btn = document.getElementById('toggle-paint');
-  if (btn) {
-    btn.className = `paint-btn ${S.paintPhase !== 'off' ? 'active' : ''}`;
-  }
-  const statusBar = document.getElementById('paint-status');
-  if (statusBar) {
-    if (S.paintPhase === 'off') {
-      statusBar.remove();
-    } else if (S.paintPhase === 'picking') {
-      statusBar.textContent = 'Click a widget to pick its style';
-    } else {
-      statusBar.textContent = '';
-      statusBar.append('Painting from ', h('b', null, S.paintSourceName ?? '?'), ': click targets');
-    }
-  } else if (S.paintPhase !== 'off') {
-    buildApp();
-  }
+  if (btn) btn.className = `paint-btn ${S.paintPhase !== 'off' ? 'active' : ''}`;
 }
 
 function statusStripClass(): string {

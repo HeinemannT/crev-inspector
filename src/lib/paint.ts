@@ -1,5 +1,5 @@
 import type { InspectorMessage, PaintPhase } from './types';
-import { PAINT_STYLE_PROPS } from './types';
+import { PAINT_STYLE_PROPS, COLOR_LINK_PROPS } from './types';
 import { getCtx } from './sw-context';
 import { log, errorMessage } from './logger';
 
@@ -13,26 +13,29 @@ let paintPendingTargetRid: string | null = null;
  *  refresh" bug). */
 let paintTabId: number | null = null;
 
-/** Push current paint state to the panel (called on panel connect). */
-export function pushPaintState() {
-  if (paintPhase === 'off') return; // no need to push default state
-  const ctx = getCtx();
-  ctx.sendToPanel({
-    type: 'PAINT_STATE',
-    phase: paintPhase,
-    sourceRid: paintSourceRid ?? undefined,
-    sourceName: paintSourceName ?? undefined,
-  });
-}
-
-function broadcastPaintState() {
-  const ctx = getCtx();
-  const msg: InspectorMessage = {
+/** The current paint state as a PAINT_STATE message. Single builder so every
+ *  push (panel connect, content connect, broadcast) carries identical state —
+ *  the SW is the one source of truth and every consumer re-syncs from it. */
+export function paintStateMessage(): InspectorMessage {
+  return {
     type: 'PAINT_STATE',
     phase: paintPhase,
     sourceRid: paintSourceRid ?? undefined,
     sourceName: paintSourceName ?? undefined,
   };
+}
+
+/** Push current paint state to the panel (called on panel connect/reconnect).
+ *  Pushed ALWAYS — including 'off' — so a panel that reconnects after an MV3
+ *  SW idle-reset (which wipes paintPhase back to 'off') corrects a stale
+ *  "armed" indicator instead of keeping it. Symmetric with the content push. */
+export function pushPaintState() {
+  getCtx().sendToPanel(paintStateMessage());
+}
+
+function broadcastPaintState() {
+  const ctx = getCtx();
+  const msg = paintStateMessage();
   ctx.sendToPanel(msg);
   ctx.broadcastToContent(msg);
 }
@@ -203,12 +206,20 @@ async function executePaintApply(rid: string) {
     ctx.client.resolveRef(paintSourceRid!),
     ctx.client.resolveRef(targetRid),
   ]);
-  const propAssignments = PAINT_STYLE_PROPS.map(p => `${p} := _src.${p}.whenMissing("")`).join(', ');
-  const code = [
-    `_src := ${srcRef}`,
-    `_tgt := ${tgtRef}`,
-    `_tgt.change(${propAssignments})`,
-  ].join('\n');
+  // Value props (enums/numbers/booleans) copy via whenMissing("").
+  // Colour props are CorpoColor LINKS: assigning "" to a colour reference
+  // errors, so copy the link only when the source actually has one (copying a
+  // style adds the source's look — it shouldn't clear the target's colours).
+  const valueProps = PAINT_STYLE_PROPS.filter(p => !COLOR_LINK_PROPS.has(p));
+  const colorProps = PAINT_STYLE_PROPS.filter(p => COLOR_LINK_PROPS.has(p));
+  const lines = [`_src := ${srcRef}`, `_tgt := ${tgtRef}`];
+  if (valueProps.length > 0) {
+    lines.push(`_tgt.change(${valueProps.map(p => `${p} := _src.${p}.whenMissing("")`).join(', ')})`);
+  }
+  for (const p of colorProps) {
+    lines.push(`IF _src.${p} != MISSING THEN _tgt.change(${p} := _src.${p}) ENDIF`);
+  }
+  const code = lines.join('\n');
 
   try {
     const result = await ctx.client.executeEc(code, undefined, true);

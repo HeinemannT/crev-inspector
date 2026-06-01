@@ -81,7 +81,13 @@ export type CacheMessage =
   // In-place BMP navigation: the content script clicks the matching tab
   // button (no reload) and scroll-and-highlights the target widget. Sent by
   // the Extended Code editor's "go to this object" action.
-  | { type: 'BMP_GOTO'; bmpTabId?: number; rid?: string; tabRid?: string; tabName?: string };
+  | { type: 'BMP_GOTO'; bmpTabId?: number; rid?: string; tabRid?: string; tabName?: string }
+  // Hard-reload the BMP tab. Out-of-band EC writes (property/colour/style
+  // edits from the detail view) do NOT re-render BMP's React DOM — verified
+  // live: the committed change is invisible until a full page reload. So
+  // after a successful save we offer a one-click reload; the SW reloads the
+  // active BMP tab (mirrors BMP_GOTO's tab resolution).
+  | { type: 'RELOAD_BMP_TAB'; bmpTabId?: number };
 
 // ── Server Lookup (detail view) ──────────────────────────────────
 export type ServerLookupMessage =
@@ -372,6 +378,16 @@ export type ScriptHistoryMessage =
   | { type: 'GET_SCRIPT_HISTORY' }
   | { type: 'SCRIPT_HISTORY_DATA'; entries: ScriptHistoryEntry[] };
 
+// ── Colors (linked CorpoColor picker) ────────────────────────────
+// BMP widget colors (headerColor / fontColor / bgColor) are LINKS to
+// CorpoColor objects in CorpoColorSets, not hex strings — so they're picked
+// from a list, not typed. The picker fetches the workspace's colorsets once.
+export interface ColorOption { bid: string; name: string; rgb: string }
+export interface ColorSetData { id: string; name: string; colors: ColorOption[] }
+export type ColorMessage =
+  | { type: 'FETCH_COLOR_SETS' }
+  | { type: 'COLOR_SETS_DATA'; sets: ColorSetData[] };
+
 // ── Notifications (ephemeral panel toasts) ───────────────────────
 // SW fires `TOAST` to surface user-action failures that are otherwise
 // buried in the Log tab. The panel renders a top-right notification
@@ -395,7 +411,7 @@ export type InspectorMessage =
   | HistoryMessage | FavoritesMessage | ContextMenuMessage
   | OverlayModeMessage | ObjectViewMessage | ObjectPaneMessage
   | DiffMessage | CodeSearchMessage | ScriptHistoryMessage
-  | NotificationMessage;
+  | ColorMessage | NotificationMessage;
 
 export interface WidgetInfo {
   rid: string;
@@ -610,6 +626,19 @@ export const SCRIPT_PROPS = [
 export const PAINT_STYLE_PROPS = [
   'headerColor', 'fontColor', 'transparency', 'shadow', 'headerStyle', 'borderStyle',
 ] as const;
+
+/** Pane/paint props that are LINKS to CorpoColor objects (not hex/value props):
+ *  written as references (`prop := t.<colorBid>`), picked from the colourset
+ *  list, never typed. */
+export const COLOR_LINK_PROPS: ReadonlySet<string> = new Set(['headerColor', 'fontColor']);
+
+/** A colour-link draft value is stored as `"<bid> <name>"` (the picker writes
+ *  both so the UI can show the name without a cache hit). Both the display
+ *  layer and the EC serializer need just the leading bid — extract it here so
+ *  the parse rule lives in one place. */
+export function colorLinkBid(value: unknown): string {
+  return String(value ?? '').trim().split(/\s+/)[0] ?? '';
+}
 
 /** Map from BMP type → code property names to fetch/save.
  *  All HasExtendedExpression types use 'expression' (CorpoExtendedExpression).

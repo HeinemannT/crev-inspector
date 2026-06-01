@@ -44,7 +44,7 @@ const CATEGORY_PROPS: Record<string, readonly string[]> = {
     'showToolMenu', 'disableSearch', 'shadow', 'headerStyle', 'borderStyle',
     'transparency',
   ],
-  appearance: ['headerColor', 'bgColor', 'fontColor'],
+  appearance: ['headerColor', 'fontColor'],
   visibility: [
     'visible', 'shownOnLargeDisplay', 'shownOnMediumDisplay', 'shownOnSmallDisplay',
   ],

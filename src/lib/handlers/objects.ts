@@ -171,6 +171,18 @@ register('HOVER_RESOLVE', async (msg, respond) => {
 // serverId from settings.activeProfileId so two profiles never share
 // schema state.
 
+register('FETCH_COLOR_SETS', async () => {
+  const ctx = getCtx();
+  if (!ctx.client) { ctx.sendToPanel({ type: 'COLOR_SETS_DATA', sets: [] }); return; }
+  try {
+    const sets = await ctx.client.fetchColorSets();
+    ctx.sendToPanel({ type: 'COLOR_SETS_DATA', sets });
+  } catch (e) {
+    log.swallow('handler:fetchColorSets', e);
+    ctx.sendToPanel({ type: 'COLOR_SETS_DATA', sets: [] });
+  }
+});
+
 register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
   const ctx = getCtx();
   const serverId = ctx.settings.activeProfileId || '';

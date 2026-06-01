@@ -14,14 +14,15 @@
  */
 
 import type { BmpObject, InspectorMessage, ObjectPaneIdentity, ObjectPaneSiblingMsg } from '../lib/types';
-import { getTypeColor, getTypeAbbr } from '../lib/types';
+import { getTypeColor, getTypeAbbr, colorLinkBid } from '../lib/types';
 import { h, render } from '../lib/dom';
 import { resolveLayoutShortcut } from '../lib/layout-target';
 import { confirmModal } from '../lib/modal';
 import {
-  colorEditor, booleanEditor, numberEditor, enumEditor, sliderEditor,
+  colorLinkEditor, booleanEditor, numberEditor, enumEditor, sliderEditor,
   displayValue, type PropEditorContext,
 } from './property-editors';
+import { openColorPicker, lookupColor } from './color-picker';
 import { renderPaneTree, type PaneTreeData } from './pane-tree';
 import { renderCodeSection } from './sections/code-fields';
 import { renderReferenceSection } from './sections/reference-edges';
@@ -73,6 +74,7 @@ interface PaneChildren {
 // Property schema lives in pane-schema.ts so the full-view popout can reuse it.
 import { PROP_GROUPS, findPropDef, type PropDef } from './pane-schema';
 import { requestSchema, isPropAvailable, subscribePaneSchema } from './pane-schema-runtime';
+import { showToast } from '../lib/toast';
 
 export class DetailView {
   private state: PaneState | null = null;
@@ -340,6 +342,14 @@ export class DetailView {
         // Optimistic: refetch to pick up server-canonical values
         this.draft = {};
         this.sendMessage({ type: 'FETCH_OBJECT_PANE', rid });
+        // BMP's React DOM does NOT re-render on out-of-band EC writes
+        // (verified live — the committed change is invisible until a full
+        // page reload). Rather than fight it with a fragile per-component
+        // optimistic DOM patch, offer a one-click reload of the BMP tab.
+        showToast('Saved — reload the BMP page to see it', 'success', {
+          label: 'Reload',
+          onClick: () => this.sendMessage({ type: 'RELOAD_BMP_TAB' }),
+        });
       } else {
         // Keep draft, surface the error in the action bar
         this.state.error = msg.error ?? 'Save failed';
@@ -1047,7 +1057,24 @@ export class DetailView {
     };
     let editor: HTMLElement;
     switch (def.kind) {
-      case 'color':   editor = colorEditor(ctx); break;
+      case 'color': {
+        // Colours are CorpoColor LINKS — value is "<bid> <name>" (or ""). Show
+        // the current swatch (rgb resolved from the picker's colour cache) and
+        // open the picker on click; picking links via setDraft.
+        const bid = colorLinkBid(value);
+        const cached = lookupColor(bid);
+        editor = colorLinkEditor(ctx, {
+          name: cached?.name ?? (bid ? value.slice(bid.length).trim() || bid : ''),
+          rgb: cached?.rgb ?? null,
+          onOpen: (anchor) => openColorPicker({
+            anchor,
+            currentBid: bid || null,
+            sendMessage: this.sendMessage,
+            onPick: (val) => this.setDraft(def.prop, val, panel),
+          }),
+        });
+        break;
+      }
       case 'number':  editor = numberEditor(ctx, { unit: def.unit, ...(def.range ?? {}) }); break;
       case 'enum':    editor = enumEditor(ctx, def.options ?? []); break;
       case 'boolean': editor = booleanEditor(ctx); break;

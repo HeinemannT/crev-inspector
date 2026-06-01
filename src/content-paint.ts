@@ -19,8 +19,11 @@ export function updatePaintBanner(s: ContentState, ...content: (Node | string)[]
     return;
   }
 
+  // Clear the inline display:none the off-path set — otherwise it wins over
+  // the `.crev-visible { display: block }` rule and the banner stays hidden
+  // after a toggle-off→on cycle. (Styling now lives entirely in CSS.)
+  banner.style.display = '';
   banner.classList.add('crev-visible');
-  banner.style.background = '#ff832b';
 
   if (content.length > 0) {
     render(bannerText, ...content);

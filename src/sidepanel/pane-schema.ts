@@ -89,11 +89,40 @@ export const HAS_TOOLS_MENU_TYPES: ReadonlySet<string> = new Set([
 // disableSearch is HasDisableSearch — same coverage as HasToolsMenu
 // (Container + Input children don't carry it; every list-widget does).
 export const HAS_DISABLE_SEARCH_TYPES: ReadonlySet<string> = HAS_TOOLS_MENU_TYPES;
-export const WEB_CHILD_TYPES: ReadonlySet<string> = new Set([
-  'ActionButton', 'CustomVisualization',
-  'InputView', 'TextElement',
+// Appearance family — every type carrying the WebChild styling props
+// (shadow / headerStyle / borderStyle / transparency) AND the
+// HasWidgetColors colour links (headerColor / fontColor). The two mixins
+// are declared on a BYTE-FOR-BYTE IDENTICAL set of 103 types in the
+// decompiled BeanInfo, so one constant gates both. Sourced from every
+// BeanInfo that declares the WebChild `shadow` descriptor (minus the
+// abstract WebChildReference wrapper).
+//
+// The live type schema (pane-schema-runtime) overrides this at render
+// time, so this is only the FIRST-RENDER fallback — but it must mirror
+// BMP's real coverage, else the styling/Appearance controls flash absent
+// on the 57 types the old hand-curated `WebChild` set omitted (Dashboard,
+// ImageView, URLView, Status, SimpleStatus, Perspective, StrategicObjective,
+// Kpi, Indicator, CreateObjectView, StandardChart, BowtieDiagram, …).
+export const APPEARANCE_TYPES: ReadonlySet<string> = new Set([
   ...LIST_WIDGET_TYPES,
   ...CHART_WIDGET_TYPES,
+  // WebChild / HasWidgetColors types outside the list+chart subsets:
+  'ActionButton', 'AnsweredReportFormEnrollment', 'Asset', 'BowtieDiagram',
+  'BPMNView', 'BPMNViewOnUserTaskPage', 'ControlMeasure', 'CorrelationMatrix',
+  'CreateObjectView', 'CustomVisualization', 'Dashboard', 'DatasetTableQueryView',
+  'DataTable', 'DescriptionView', 'Enrollment', 'Enrollments',
+  'EPMForm', 'FilteredComments', 'FormResponses', 'FunctionStatus',
+  'HappyPathViewForProcessReference', 'HappyPathViewOnUserTaskPage', 'ImageView', 'Indicator',
+  'InputView', 'Kpi', 'LinkMap', 'LocalComments',
+  'Milestone', 'NodeInputTable', 'NotificationTable', 'ObjectClassification',
+  'PdfView', 'Perspective', 'Policy', 'PowerBi',
+  'Procedure', 'ProcessInstanceEnrollmentWidget', 'ProcessLandscapeView', 'ProcessLandscapeViewSection',
+  'ReportFormEnrollment', 'ReportFormEnrollments', 'ReportForms', 'ReportsList',
+  'RiskChart', 'RiskRadarChart', 'SearchBox', 'SelectionTable',
+  'ShortcutList', 'SimpleStatus', 'SpreadsheetView', 'StandardChart',
+  'Status', 'StrategicObjective', 'Task', 'TaskFormEnrollment',
+  'TextElement', 'TreatmentActivity', 'URLView', 'UserTaskInstanceEnrollmentWidget',
+  'UserTaskVariablesInputWidget',
 ]);
 // HasVisibility (boolean `visible`) — covers all layout-bearing types
 // PLUS Container. Drop-down menu items and Tab subtypes inherit via
@@ -136,26 +165,33 @@ export const PROP_GROUPS: Array<{ title: string; props: PropDef[] }> = [
         availableOn: RESPONSIVE_WIDTH_TYPES, compact: true },
       { prop: 'showToolMenu',  label: 'Tool menu',      kind: 'boolean', availableOn: HAS_TOOLS_MENU_TYPES },
       { prop: 'disableSearch', label: 'Disable search', kind: 'boolean', availableOn: HAS_DISABLE_SEARCH_TYPES },
-      { prop: 'shadow',        label: 'Shadow',         kind: 'boolean', availableOn: WEB_CHILD_TYPES },
-      { prop: 'headerStyle',   label: 'Header style',   kind: 'enum',    availableOn: WEB_CHILD_TYPES, options: [
+      { prop: 'shadow',        label: 'Shadow',         kind: 'boolean', availableOn: APPEARANCE_TYPES },
+      { prop: 'headerStyle',   label: 'Header style',   kind: 'enum',    availableOn: APPEARANCE_TYPES, options: [
         { value: 'INSIDE',  label: 'Inside' },
         { value: 'OUTSIDE', label: 'Outside' },
         { value: 'NONE',    label: 'None' },
       ]},
-      { prop: 'borderStyle',   label: 'Border',         kind: 'enum',    availableOn: WEB_CHILD_TYPES, options: [
+      { prop: 'borderStyle',   label: 'Border',         kind: 'enum',    availableOn: APPEARANCE_TYPES, options: [
         { value: 'LINE',  label: 'Line' },
         { value: 'NONE',  label: 'None' },
       ]},
-      { prop: 'transparency',  label: 'Transparency',   kind: 'slider',  availableOn: WEB_CHILD_TYPES,
+      { prop: 'transparency',  label: 'Transparency',   kind: 'slider',  availableOn: APPEARANCE_TYPES,
         range: { min: 0, max: 100, step: 1, unit: '%' } },
     ],
   },
   {
+    // Appearance — colour LINKS (CorpoColor references, picked from the
+    // colourset list, never typed). HasWidgetColors declares exactly two
+    // accessors: `headerColor` and `fontColor`. There is NO `bgColor` on
+    // any BMP widget (confirmed against every decompiled BeanInfo + the
+    // live type schema) — it was a phantom prop and has been removed.
+    // Gated to APPEARANCE_TYPES so the colour editors don't surface on
+    // non-widget nodes (Organisation, plain Kpi/Node, …) in the
+    // pre-schema fallback window.
     title: 'Appearance',
     props: [
-      { prop: 'headerColor', label: 'Header',     kind: 'color' },
-      { prop: 'bgColor',     label: 'Background', kind: 'color' },
-      { prop: 'fontColor',   label: 'Font',       kind: 'color' },
+      { prop: 'headerColor', label: 'Header', kind: 'color', availableOn: APPEARANCE_TYPES },
+      { prop: 'fontColor',   label: 'Font',   kind: 'color', availableOn: APPEARANCE_TYPES },
     ],
   },
   {

@@ -17,12 +17,46 @@ function ensureContainer(): HTMLDivElement {
   return container;
 }
 
-export function showToast(text: string, type: 'success' | 'error' | 'info') {
+/** Optional inline action button on a toast (e.g. "Reload"). When present
+ *  the toast lingers longer so the user has time to click it. */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
+// Toasts carrying an action stay up longer — a 3s window is too short to
+// read "saved, reload to see it" and decide to click.
+const ACTION_DISMISS_MS = 8000;
+
+export function showToast(
+  text: string,
+  type: 'success' | 'error' | 'info',
+  action?: ToastAction,
+) {
   const container = ensureContainer();
 
   const toast = document.createElement('div');
   toast.className = `crev-toast crev-toast--${type}`;
-  toast.textContent = text;
+
+  let dismiss: () => void;
+
+  if (action) {
+    toast.classList.add('crev-toast--with-action');
+    const label = document.createElement('span');
+    label.className = 'crev-toast__text';
+    label.textContent = text;
+    const btn = document.createElement('button');
+    btn.className = 'crev-toast__action';
+    btn.textContent = action.label;
+    btn.addEventListener('click', () => {
+      action.onClick();
+      dismiss();
+    });
+    toast.append(label, btn);
+  } else {
+    toast.textContent = text;
+  }
+
   container.appendChild(toast);
 
   // Enforce max stacked
@@ -35,10 +69,15 @@ export function showToast(text: string, type: 'success' | 'error' | 'info') {
     toast.classList.add('crev-toast--visible');
   });
 
-  // Auto-dismiss
-  setTimeout(() => {
+  let fadeTimer: ReturnType<typeof setTimeout> | undefined;
+  dismiss = () => {
+    if (!toast.isConnected) return;
     toast.classList.remove('crev-toast--visible');
     toast.classList.add('crev-toast--exit');
-    setTimeout(() => toast.remove(), FADE_MS);
-  }, AUTO_DISMISS_MS);
+    if (fadeTimer) clearTimeout(fadeTimer);
+    fadeTimer = setTimeout(() => toast.remove(), FADE_MS);
+  };
+
+  // Auto-dismiss
+  setTimeout(dismiss, action ? ACTION_DISMISS_MS : AUTO_DISMISS_MS);
 }
