@@ -19,7 +19,7 @@
  * autocomplete with this entry.
  */
 import type { CompletionContext, CompletionResult } from '@codemirror/autocomplete';
-import { getInference, getSchema, intersectionSchema, ensureSchemaNow, subscribe } from './typeInference';
+import { getInference, getSchema, intersectionSchema, ensureSchemaNow, subscribe, canonicalType } from './typeInference';
 
 // Only `.table(...)` accepts a comma-separated list of accessor names
 // as its argument shape — that's the canonical "expand every column"
@@ -136,7 +136,7 @@ function buildResult(
   if (useProps.length === 0) return null;
 
   const accessorList = useProps.map(p => p.accessor).join(', ');
-  const typeLabel = types.length === 1 ? types[0] : types.join(' ∩ ');
+  const typeLabel = types.length === 1 ? canonicalType(types[0]) : types.map(canonicalType).join(' ∩ ');
 
   return {
     from,

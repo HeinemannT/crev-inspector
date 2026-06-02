@@ -1200,6 +1200,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     instExpression?: string; tmplExpression?: string;
     instHtml?: string; tmplHtml?: string;
     instJavascript?: string; tmplJavascript?: string;
+    locRid?: string;
   }): string {
     const s = SEP;
     const parts = [
@@ -1211,6 +1212,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
       `${s}tmplId${s}${opts.tmplId ?? ''}`,
       `${s}tmplName${s}${opts.tmplName ?? ''}`,
       `${s}tmplType${s}${opts.tmplType ?? ''}`,
+      `${s}locRid${s}${opts.locRid ?? 'MISSING'}`,
       `${s}inst_expression${s}${opts.instExpression ?? ''}`,
       `${s}tmpl_expression${s}${opts.tmplExpression ?? ''}`,
       `${s}inst_html${s}${opts.instHtml ?? ''}`,
@@ -1372,5 +1374,98 @@ describe('Editor Context — What The Code Popup Shows', () => {
     expect(Object.keys(ctx.instanceCode)).toHaveLength(0); // No code props
     expect(ctx.property).toBe('expression'); // default
     expect(ctx.template).toBeNull();
+  });
+
+  it('uses the BMP page ?rid= as the EC execution context, not .location', async () => {
+    const CONTEXT_RID = RIDS.risk; // the enterprise object the page renders for
+    harness.client.executeEc = vi.fn(async () => ({
+      ok: true,
+      log: buildEditorContextLog({
+        instRid: RIDS.extTable, instId: 'sc_grc_risk', instType: 'ExtendedTable', instName: 'Risk Summary',
+        instExpression: 'this.children()',
+        locRid: RIDS.editPage, // .location = the page/template (the WRONG context)
+      }),
+    })) as any;
+    harness.client.lookupIdentity = vi.fn(async () => ({
+      name: 'Operational Risk #4', type: 'CeRiskAssessment', businessId: 'ceras.113',
+    })) as any;
+    // BMP tab is currently rendering the enterprise instance.
+    (globalThis.chrome as any).tabs = {
+      get: vi.fn(async () => ({ id: 5, url: `https://bmp.test/app?rid=${CONTEXT_RID}&x=1` })),
+      query: vi.fn(async () => [{ id: 5, url: `https://bmp.test/app?rid=${CONTEXT_RID}` }]),
+    };
+
+    const { openEditorWindow } = await import('../editor');
+    await openEditorWindow(RIDS.extTable, undefined, { tabId: 5 });
+
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
+    );
+    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
+    const ctx = setCall[0][ctxKey];
+
+    // ?rid= wins over .location (RIDS.editPage) and over the widget.
+    expect(ctx.executionContextRid).toBe(CONTEXT_RID);
+    expect(ctx.executionContext.rid).toBe(CONTEXT_RID);
+    expect(ctx.executionContext.type).toBe('CeRiskAssessment');
+    expect(ctx.executionContext.name).toBe('Operational Risk #4');
+    // The widget being EDITED is still the table — context is separate.
+    expect(ctx.instance.rid).toBe(RIDS.extTable);
+  });
+
+  it('falls back to .location when the BMP page has no ?rid=', async () => {
+    harness.client.executeEc = vi.fn(async () => ({
+      ok: true,
+      log: buildEditorContextLog({
+        instRid: RIDS.extTable, instId: 'sc_grc_risk', instType: 'ExtendedTable', instName: 'Risk Summary',
+        instExpression: 'this.children()',
+        locRid: RIDS.editPage,
+      }),
+    })) as any;
+    harness.client.lookupIdentity = vi.fn(async () => ({ name: 'Risk Page', type: 'ModelPage', businessId: '' })) as any;
+    (globalThis.chrome as any).tabs = {
+      get: vi.fn(async () => ({ id: 5, url: 'https://bmp.test/app' })), // no rid param
+      query: vi.fn(async () => [{ id: 5, url: 'https://bmp.test/app' }]),
+    };
+
+    const { openEditorWindow } = await import('../editor');
+    await openEditorWindow(RIDS.extTable, undefined, { tabId: 5 });
+
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
+    );
+    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
+    const ctx = setCall[0][ctxKey];
+
+    expect(ctx.executionContextRid).toBe(RIDS.editPage); // .location fallback
+  });
+
+  it('ignores a non-numeric ?rid= from a foreign tab and falls back to .location', async () => {
+    harness.client.executeEc = vi.fn(async () => ({
+      ok: true,
+      log: buildEditorContextLog({
+        instRid: RIDS.extTable, instId: 'sc_grc_risk', instType: 'ExtendedTable', instName: 'Risk Summary',
+        instExpression: 'this.children()',
+        locRid: RIDS.editPage,
+      }),
+    })) as any;
+    harness.client.lookupIdentity = vi.fn(async () => ({ name: 'Page', type: 'ModelPage', businessId: '' })) as any;
+    // A non-BMP tab whose URL happens to carry ?rid=<garbage>.
+    (globalThis.chrome as any).tabs = {
+      get: vi.fn(async () => ({ id: 5, url: 'https://evil.example/x?rid=not-a-rid' })),
+      query: vi.fn(async () => [{ id: 5, url: 'https://evil.example/x?rid=not-a-rid' }]),
+    };
+
+    const { openEditorWindow } = await import('../editor');
+    await openEditorWindow(RIDS.extTable, undefined, { tabId: 5 });
+
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
+    );
+    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
+    const ctx = setCall[0][ctxKey];
+
+    // The garbage rid was rejected → fell back to .location, not bound as `this`.
+    expect(ctx.executionContextRid).toBe(RIDS.editPage);
   });
 });

@@ -86,6 +86,30 @@ body {
   flex-shrink: 0;
 }
 
+/* EC execution context (`this`) — the object the page renders for. Styled
+ * distinctly (accent-tinted pill) so it reads as "context", not as part of
+ * the widget identity to its left. */
+.editor-id-context {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-2);
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+}
+.editor-id-context-arrow {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  margin-right: 2px;
+}
+
 /* ── Segmented control (template/instance) ───── */
 
 .editor-seg {

@@ -8,7 +8,7 @@
  * @vitest-environment happy-dom
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { scanDocForInferences, getInference, clearInferences } from '../ec/typeInference';
+import { scanDocForInferences, getInference, clearInferences, ensureSchemaNow, getSchema, canonicalType } from '../ec/typeInference';
 
 // Mock chrome.runtime.sendMessage so ensureSchema doesn't blow up
 // (it fires off requests for every type it sees).
@@ -498,5 +498,33 @@ describe('clearInferences', () => {
     expect(getInference('_v')).toBeDefined();
     clearInferences();
     expect(getInference('_v')).toBeUndefined();
+  });
+});
+
+describe('case-insensitive schema + canonical type label', () => {
+  it('resolves members for any casing and shows the canonical PascalCase', async () => {
+    // BMP resolves class names case-insensitively; the schema fetch returns
+    // the canonical name (last segment of the FQ id). The editor must key
+    // its cache case-insensitively and display the canonical label so a
+    // user who typed CECONTROLMEASURE still sees CeControlMeasure + members.
+    (globalThis as unknown as { chrome: { runtime: { sendMessage: unknown } } })
+      .chrome.runtime.sendMessage = vi.fn(async () => ({
+        type: 'FETCH_TYPE_SCHEMA_RESULT',
+        className: 'CECONTROLMEASURE',
+        ok: true,
+        props: [{ accessor: 'name', label: 'Name', configClass: 'X', systemobject: false }],
+        canonicalClassName: 'CeControlMeasure',
+      }));
+
+    ensureSchemaNow('CECONTROLMEASURE');
+    await vi.waitFor(() => expect(getSchema('CECONTROLMEASURE')).toBeTruthy());
+
+    // Members resolve no matter which casing is queried.
+    expect(getSchema('cecontrolmeasure')).toHaveLength(1);
+    expect(getSchema('CeControlMeasure')).toHaveLength(1);
+    // Display label canonicalises to BMP's PascalCase regardless of input.
+    expect(canonicalType('CECONTROLMEASURE')).toBe('CeControlMeasure');
+    expect(canonicalType('cecontrolmeasure')).toBe('CeControlMeasure');
+    expect(canonicalType('CeControlMeasure')).toBe('CeControlMeasure');
   });
 });

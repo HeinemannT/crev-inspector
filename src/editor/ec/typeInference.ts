@@ -93,10 +93,11 @@ const state: InferenceState = {
 
 /** Internal — has a CURRENT (non-expired) error for this class? */
 function hasCurrentSchemaError(className: string): boolean {
-  const entry = state.schemaErrors.get(className);
+  const key = lc(className);
+  const entry = state.schemaErrors.get(key);
   if (!entry) return false;
   if (Date.now() >= entry.expiresAt) {
-    state.schemaErrors.delete(className);
+    state.schemaErrors.delete(key);
     return false;
   }
   return true;
@@ -104,7 +105,7 @@ function hasCurrentSchemaError(className: string): boolean {
 
 /** Internal — record a fresh failure with a TTL. */
 function recordSchemaError(className: string, message: string): void {
-  state.schemaErrors.set(className, {
+  state.schemaErrors.set(lc(className), {
     message,
     expiresAt: Date.now() + SCHEMA_ERROR_TTL_MS,
   });
@@ -114,10 +115,11 @@ function recordSchemaError(className: string, message: string): void {
  *  show a retryable error state. Treats expired entries as absent so
  *  the UI doesn't paint a stale "broken" message after the TTL. */
 export function getSchemaError(className: string): string | undefined {
-  const entry = state.schemaErrors.get(className);
+  const key = lc(className);
+  const entry = state.schemaErrors.get(key);
   if (!entry) return undefined;
   if (Date.now() >= entry.expiresAt) {
-    state.schemaErrors.delete(className);
+    state.schemaErrors.delete(key);
     return undefined;
   }
   return entry.message;
@@ -138,7 +140,7 @@ export function getAllInferences(): Map<string, TypeInference> {
   return state.vars;
 }
 export function getSchema(className: string): TypeSchemaProp[] | undefined {
-  return state.schemas.get(className);
+  return state.schemas.get(lc(className));
 }
 
 /** Intersection of accessors across multiple types — used for
@@ -148,11 +150,11 @@ export function getSchema(className: string): TypeSchemaProp[] | undefined {
  *  caller can wait. */
 export function intersectionSchema(types: string[]): TypeSchemaProp[] | undefined {
   if (types.length === 0) return [];
-  if (types.length === 1) return state.schemas.get(types[0]);
-  const first = state.schemas.get(types[0]);
+  if (types.length === 1) return state.schemas.get(lc(types[0]));
+  const first = state.schemas.get(lc(types[0]));
   if (!first) return undefined;
   const accessorSets = types.slice(1).map(t => {
-    const s = state.schemas.get(t);
+    const s = state.schemas.get(lc(t));
     return s ? new Set(s.map(p => p.accessor)) : null;
   });
   if (accessorSets.some(s => s === null)) return undefined;
@@ -201,6 +203,30 @@ function canonicalizeTypeName(name: string): string {
   const first = name[0];
   if (first >= 'a' && first <= 'z') return first.toUpperCase() + name.slice(1);
   return name;
+}
+
+// ── Case-insensitive type resolution ──────────────────────────────
+// BMP resolves class names case-insensitively (`CeControlMeasure` ===
+// `CECONTROLMEASURE` === `cecontrolmeasure`), but the editor used to key
+// schemas + display labels by the EXACT casing the user typed — so an odd
+// casing showed an unresolved / wrong-cased type in the Vars panel. We now
+// key all schema state by a lowercased key (members resolve for any casing)
+// and learn the canonical PascalCase from the schema fetch (`canonicalByLower`)
+// for display.
+const lc = (s: string): string => s.toLowerCase();
+
+/** lowercased class name → canonical PascalCase (from FETCH_TYPE_SCHEMA).
+ *  Not cleared on profile/server switch: a class's canonical casing is a
+ *  property of the BMP type system, not the instance, so it doesn't drift
+ *  across servers. Bounded by the number of distinct types typed in a
+ *  session (negligible). Cleared in `_resetForTests`. */
+const canonicalByLower = new Map<string, string>();
+
+/** Best-known canonical display name for a class, regardless of input case.
+ *  Falls back to the leading-lowercase fix until the schema fetch teaches us
+ *  BMP's real casing. */
+export function canonicalType(name: string): string {
+  return canonicalByLower.get(lc(name)) ?? canonicalizeTypeName(name);
 }
 
 // ── Parse a single RHS expression into a TypeInference ─────────
@@ -490,25 +516,34 @@ const schemaResolver = new DebouncedResolver(
  *  user-initiated paths where the caller is waiting on the result
  *  (e.g. `*`-expansion completions). */
 export function ensureSchema(className: string): void {
-  if (state.schemas.has(className)) return;
-  if (state.inflight.has(className)) return;
+  if (state.schemas.has(lc(className))) return;
+  if (state.inflight.has(lc(className))) return;
   if (hasCurrentSchemaError(className)) return;
   schemaResolver.schedule(className);
 }
 
+/** Record the canonical PascalCase for a class so the Vars panel can show
+ *  it regardless of the casing the user typed. */
+function rememberCanonical(requested: string, canonical: string | undefined): void {
+  if (!canonical) return;
+  canonicalByLower.set(lc(requested), canonical);
+  canonicalByLower.set(lc(canonical), canonical);
+}
+
 /** Eager schema fetch — skips the debounce. */
 export function ensureSchemaNow(className: string): void {
-  if (state.schemas.has(className)) return;
-  if (state.inflight.has(className)) return;
+  if (state.schemas.has(lc(className))) return;
+  if (state.inflight.has(lc(className))) return;
   if (hasCurrentSchemaError(className)) return;
-  state.inflight.add(className);
+  state.inflight.add(lc(className));
   enqueue(async () => {
     try {
       const r = await sendRequest({ type: 'FETCH_TYPE_SCHEMA', className } as InspectorMessage);
       if (r?.type === 'FETCH_TYPE_SCHEMA_RESULT') {
         if (r.ok && r.props) {
-          state.schemas.set(className, r.props);
-          state.schemaErrors.delete(className);
+          state.schemas.set(lc(className), r.props);
+          rememberCanonical(className, r.canonicalClassName);
+          state.schemaErrors.delete(lc(className));
         } else {
           // Cache the error so the UI surfaces it AND so re-renders
           // don't burn fetches on every keystroke. TTL'd so a bridge
@@ -526,7 +561,7 @@ export function ensureSchemaNow(className: string): void {
       recordSchemaError(className, (e as Error)?.message || 'Fetch failed');
       notify();
     } finally {
-      state.inflight.delete(className);
+      state.inflight.delete(lc(className));
     }
   });
 }
@@ -535,16 +570,17 @@ export function ensureSchemaNow(className: string): void {
  *  panel's ↻ button. Also clears any previous error so the negative
  *  cache in ensureSchema lets new fetches through. */
 export function refreshSchema(className: string): void {
-  state.schemas.delete(className);
-  state.schemaErrors.delete(className);
-  state.inflight.add(className);
+  state.schemas.delete(lc(className));
+  state.schemaErrors.delete(lc(className));
+  state.inflight.add(lc(className));
   notify(); // immediate UI update so the spinner shows
   enqueue(async () => {
     try {
       const r = await sendRequest({ type: 'FETCH_TYPE_SCHEMA', className, refresh: true } as InspectorMessage);
       if (r?.type === 'FETCH_TYPE_SCHEMA_RESULT') {
         if (r.ok && r.props) {
-          state.schemas.set(className, r.props);
+          state.schemas.set(lc(className), r.props);
+          rememberCanonical(className, r.canonicalClassName);
         } else {
           recordSchemaError(className, r.error || 'Unknown error');
         }
@@ -557,7 +593,7 @@ export function refreshSchema(className: string): void {
       recordSchemaError(className, (e as Error)?.message || 'Fetch failed');
       notify();
     } finally {
-      state.inflight.delete(className);
+      state.inflight.delete(lc(className));
     }
   });
 }
@@ -694,6 +730,7 @@ export function _resetForTests(): void {
   state.schemas.clear();
   state.schemaErrors.clear();
   state.inflight.clear();
+  canonicalByLower.clear();
   rootCategoryCache.clear();
   rootInFlight.clear();
   fetchQueue.length = 0;

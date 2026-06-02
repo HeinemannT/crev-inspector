@@ -32,6 +32,9 @@ interface CacheEntry {
   bmpBuildId?: string;
   fetchedAt: number;
   props: TypeSchemaProp[];
+  /** BMP's canonical PascalCase for this type (last segment of the FQ Java
+   *  id). Lets a warm-cache hit still tell the client the canonical casing. */
+  canonicalClassName?: string;
 }
 
 const mem = new Map<string, CacheEntry>();
@@ -98,11 +101,19 @@ export function get(serverId: string, className: string): TypeSchemaProp[] | nul
   return e.props;
 }
 
-export function set(serverId: string, className: string, props: TypeSchemaProp[]): void {
+export function set(serverId: string, className: string, props: TypeSchemaProp[], canonicalClassName?: string): void {
   mem.set(key(serverId, className), {
-    serverId, className, props, fetchedAt: Date.now(),
+    serverId, className, props, canonicalClassName, fetchedAt: Date.now(),
   });
   scheduleFlush();
+}
+
+/** Canonical PascalCase for a cached type, if known. Returns undefined on
+ *  miss / expiry so the caller falls back to a fresh fetch. */
+export function getCanonical(serverId: string, className: string): string | undefined {
+  const e = mem.get(key(serverId, className));
+  if (!e || Date.now() - e.fetchedAt > TTL_MS) return undefined;
+  return e.canonicalClassName;
 }
 
 /** Manual single-type invalidation (Refresh button). */

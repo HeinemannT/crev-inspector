@@ -23,6 +23,12 @@ export interface EditorContext {
   property: string | null
   extended?: boolean
   executionContextRid?: string
+  /** Resolved identity of the EC execution context (`this`) — the object the
+   *  BMP page is currently rendering for. For an enterprise detail page that's
+   *  the enterprise instance (e.g. a CeRiskAssessment), NOT the page/template
+   *  that `.location` returns. Shown as a header chip so the user can see what
+   *  `this` binds to; distinct from `instance` (the widget being edited). */
+  executionContext?: ObjectIdentity
   /** Whether BMP supports EC lookup(). False on pre-5.6.3. */
   useLookup?: boolean
   /** One-shot scroll target — when set, the editor jumps to this 1-based
@@ -65,8 +71,11 @@ export function getActiveIdentity(ctx: EditorContext): ObjectIdentity {
   return ctx.instance
 }
 
-/** Get the RID to pass as EC execution context.
- *  Uses location (nearest WebParent ancestor) if available, falls back to instance RID. */
+/** Get the RID to pass as EC execution context (`this` for preview/execute).
+ *  `executionContextRid` is resolved at open time as: the BMP page's current
+ *  `?rid=` (the object the page renders for) → the widget's `.location` →
+ *  undefined. This falls back to the widget's own RID only when none of those
+ *  resolved. */
 export function getExecutionRid(ctx: EditorContext): string | undefined {
   return ctx.executionContextRid ?? ctx.instance.rid
 }

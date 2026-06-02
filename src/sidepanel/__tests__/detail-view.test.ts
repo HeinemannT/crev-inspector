@@ -57,6 +57,8 @@ function emptyProps(over: Partial<Record<string, string>> = {}): Record<string, 
 function paneData(rid: string, over: Partial<{
   parentRid: string;
   templateRid: string;
+  cardRid: string;
+  cardViaTemplate: boolean;
   instanceProps: Record<string, string>;
   templateProps: Record<string, string>;
   siblings: Array<{ rid: string; isCurrent: boolean }>;
@@ -71,6 +73,9 @@ function paneData(rid: string, over: Partial<{
       : null,
     template: over.templateRid
       ? { rid: over.templateRid, businessId: `tmpl-${over.templateRid}`, type: 'ExtendedTable', name: 'Template' }
+      : null,
+    card: over.cardRid
+      ? { rid: over.cardRid, businessId: `card-${over.cardRid}`, type: 'Card', name: 'Detail card', viaTemplate: over.cardViaTemplate ?? false }
       : null,
     instanceProps: over.instanceProps ?? emptyProps({ width: '200', height: '100', headerColor: '#ff0000', shadow: 'false' }),
     templateProps: over.templateProps ?? emptyProps(),
@@ -117,6 +122,25 @@ describe('DetailView — fetch flow', () => {
     const { dv, panel } = makeDetailView();
     dv.show(makeObj('100'), panel);
     expect(dv.handleMessage(paneData('999'), panel)).toBe(false);
+  });
+
+  it('renders the card crumb and navigates BMP on click', () => {
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('100'), panel);
+    dv.handleMessage(paneData('100', { cardRid: '777', cardViaTemplate: true }), panel);
+    const crumb = panel.querySelector<HTMLElement>('.pane-card-crumb');
+    expect(crumb).toBeTruthy();
+    expect(crumb!.textContent).toContain('Detail card');
+    expect(crumb!.textContent).toContain('via template'); // inherited badge
+    crumb!.click();
+    expect(sent.find(m => m.type === 'BMP_GOTO' && (m as { rid?: string }).rid === '777')).toBeTruthy();
+  });
+
+  it('shows no card crumb when the object has no card', () => {
+    const { dv, panel } = makeDetailView();
+    dv.show(makeObj('100'), panel);
+    dv.handleMessage(paneData('100'), panel); // no cardRid
+    expect(panel.querySelector('.pane-card-crumb')).toBeFalsy();
   });
 
   it('watchdog surfaces a timeout when OBJECT_PANE_DATA never arrives', async () => {

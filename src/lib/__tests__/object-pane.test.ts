@@ -26,6 +26,8 @@ function buildPaneLog(opts: {
   instType: string;
   refs?: Partial<Record<string, { rid: string; id: string; name: string; type: string }>>;
   code?: Partial<Record<string, string>>;
+  card?: { rid: string; id: string; name: string; type: string };
+  instCardRid?: string;
 }) {
   const props: string[] = [
     `${SEP}instRid${SEP}${opts.instRid}`,
@@ -40,6 +42,11 @@ function buildPaneLog(opts: {
     `${SEP}tmplId${SEP}`,
     `${SEP}tmplName${SEP}`,
     `${SEP}tmplType${SEP}`,
+    `${SEP}cardRid${SEP}${opts.card?.rid ?? 'MISSING'}`,
+    `${SEP}cardId${SEP}${opts.card?.id ?? ''}`,
+    `${SEP}cardName${SEP}${opts.card?.name ?? ''}`,
+    `${SEP}cardType${SEP}${opts.card?.type ?? ''}`,
+    `${SEP}instCardRid${SEP}${opts.instCardRid ?? ''}`,
   ];
   for (const p of PANE_PROPS) {
     props.push(`${SEP}inst_${p}${SEP}`);
@@ -77,6 +84,40 @@ describe('fetchObjectPane — reference parsing', () => {
       rid: '101', businessId: 'is_create_risk', name: 'is_create_risk', type: 'InputSet',
     });
     expect(data!.references.editPage).toBeUndefined();
+  });
+
+  it('resolves the effective card and flags it as inherited from the template', async () => {
+    // Enterprise object: its own card is empty; the effective card came from
+    // its EnterpriseTemplate (instCardRid empty → viaTemplate true).
+    const log = buildPaneLog({
+      instRid: '500', instId: 'risk_x', instName: 'FX Risk', instType: 'CeRiskAssessment',
+      card: { rid: '900', id: 'card_test', name: 'test', type: 'Card' },
+      instCardRid: '',
+    });
+    const { c } = makeClient(log);
+    const data = await c.fetchObjectPane('500');
+    expect(data!.card).toEqual({
+      rid: '900', businessId: 'card_test', name: 'test', type: 'Card', viaTemplate: true,
+    });
+  });
+
+  it('flags a card as owned (not via template) when the instance has its own', async () => {
+    const log = buildPaneLog({
+      instRid: '600', instId: 'sc_main', instName: 'Main', instType: 'Scorecard',
+      card: { rid: '901', id: 'card_default', name: 'Default card', type: 'Card' },
+      instCardRid: '901',
+    });
+    const { c } = makeClient(log);
+    const data = await c.fetchObjectPane('600');
+    expect(data!.card!.viaTemplate).toBe(false);
+    expect(data!.card!.name).toBe('Default card');
+  });
+
+  it('emits no card when none resolves', async () => {
+    const log = buildPaneLog({ instRid: '700', instId: 'x', instName: 'X', instType: 'TextElement' });
+    const { c } = makeClient(log);
+    const data = await c.fetchObjectPane('700');
+    expect(data!.card).toBeNull();
   });
 
   it('emits all populated refs and omits unset ones', async () => {

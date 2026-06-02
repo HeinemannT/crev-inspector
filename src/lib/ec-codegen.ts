@@ -247,6 +247,19 @@ export function buildObjectPaneEc(ref: string, paneProps: readonly string[]): st
     scalarBlock('tmplId', '_t.id.whenMissing("")'),
     scalarBlock('tmplName', '_t.name.whenMissing("")'),
     scalarBlock('tmplType', '_t.className.whenMissing("")'),
+    // Effective detail card — the object's own `.card`, else (for enterprise
+    // objects, whose instance `.card` is empty) the template's. `.card` is
+    // null-safe in BMP (returns MISSING, never throws) for types without
+    // HasCard — verified live across Container/FileResource/TextMethodConfig/
+    // Organisation/Scorecard/CeRiskAssessment — so the eager `whenMissing` arg
+    // (`_t.card`) can't blank the pane. Resolved here, after identity/parent/
+    // template are emitted, so even a surprise failure leaves those intact.
+    '_card := _o.card.whenMissing(_t.card)',
+    scalarBlock('cardRid', '_card.rid.whenMissing("MISSING")'),
+    scalarBlock('cardId', '_card.id.whenMissing("")'),
+    scalarBlock('cardName', '_card.name.whenMissing("")'),
+    scalarBlock('cardType', '_card.className.whenMissing("")'),
+    scalarBlock('instCardRid', '_o.card.rid.whenMissing("")'),
   ];
   // Style props on instance + template — output() wrapper handles non-string
   // values (booleans, enums) which EC's bare-concat doesn't. Re-validate

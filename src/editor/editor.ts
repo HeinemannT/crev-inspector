@@ -41,6 +41,7 @@ import {
   typeInferenceListener, scanDocForInferences, clearInferences,
   getAllInferences, getSchema, ensureSchema, refreshSchema,
   intersectionSchema, subscribe as subscribeInference, getSchemaError,
+  canonicalType,
   type TypeInference,
 } from './ec/typeInference'
 import { starExpansionCompletions } from './ec/starExpansion'
@@ -336,6 +337,18 @@ function renderShell() {
         'data-action': 'goto-bmp',
       }, identity.name || '(unnamed)'),
       h('span', { class: 'editor-id-bid' }, bid),
+      // EC execution context (`this`) — the object the page renders for,
+      // which is NOT the widget. Crucial for enterprise templates where the
+      // widget sits on a CeRiskAssessment detail page: `this` is the
+      // assessment, not the table. Surfaced so the user can trust what
+      // preview/execute binds `this` to.
+      ctx.executionContext != null && h('span', {
+        class: 'editor-id-context',
+        title: `EC context — \`this\` binds to ${ctx.executionContext.type || 'object'}${ctx.executionContext.name ? ` '${ctx.executionContext.name}'` : ''} (the object the page renders for, not the widget)`,
+      },
+        h('span', { class: 'editor-id-context-arrow' }, 'this → '),
+        ctx.executionContext.name || ctx.executionContext.businessId || ctx.executionContext.type || ctx.executionContext.rid,
+      ),
     )
   }
 
@@ -1387,16 +1400,18 @@ function renderVarsList(
 function renderTypeChip(inf: TypeInference | undefined): HTMLElement {
   if (!inf) return h('span', { class: 'editor-vars-typechip editor-vars-typechip--unknown', title: 'No inference yet' }, '?')
   switch (inf.kind) {
-    case 'list':
+    case 'list': {
+      const labels = inf.types.map(canonicalType)
       return h('span', {
         class: 'editor-vars-typechip editor-vars-typechip--list',
-        title: inf.types.length > 1 ? `List of ${inf.types.join(' | ')}: properties shown are the intersection` : `List<${inf.types[0]}>`,
-      }, `[${inf.types.join('|')}]`)
+        title: labels.length > 1 ? `List of ${labels.join(' | ')}: properties shown are the intersection` : `List<${labels[0]}>`,
+      }, `[${labels.join('|')}]`)
+    }
     case 'scalar':
       return h('span', {
         class: 'editor-vars-typechip editor-vars-typechip--scalar',
-        title: `Single ${inf.type}`,
-      }, inf.type)
+        title: `Single ${canonicalType(inf.type)}`,
+      }, canonicalType(inf.type))
     case 'primitive':
       return h('span', {
         class: 'editor-vars-typechip editor-vars-typechip--primitive',
@@ -1449,7 +1464,7 @@ function renderVarsProps(selected: string | null, inferences: Map<string, TypeIn
       const err = getSchemaError(failedType)
       return h('div', { class: 'editor-vars-props-pane' },
         h('div', { class: 'editor-vars-props-error' },
-          h('div', { class: 'editor-vars-props-error-head' }, `Couldn\u2019t load ${failedType}`),
+          h('div', { class: 'editor-vars-props-error-head' }, `Couldn\u2019t load ${canonicalType(failedType)}`),
           h('div', { class: 'editor-vars-props-error-body' }, err ?? 'Unknown error'),
           h('button', {
             class: 'btn btn-small',
@@ -1460,7 +1475,7 @@ function renderVarsProps(selected: string | null, inferences: Map<string, TypeIn
       )
     }
     return h('div', { class: 'editor-vars-props-pane' },
-      h('div', { class: 'editor-vars-props-empty' }, `Loading schema for ${types.join(' + ')}\u2026`),
+      h('div', { class: 'editor-vars-props-empty' }, `Loading schema for ${types.map(canonicalType).join(' + ')}\u2026`),
     )
   }
 
@@ -1492,7 +1507,7 @@ function renderVarsProps(selected: string | null, inferences: Map<string, TypeIn
     visible = visible.filter(p => p.accessor.toLowerCase().includes(q) || p.label.toLowerCase().includes(q))
   }
 
-  const typeLabel = types.length === 1 ? types[0] : types.join(' \u2229 ')
+  const typeLabel = types.length === 1 ? canonicalType(types[0]) : types.map(canonicalType).join(' \u2229 ')
   return h('div', { class: 'editor-vars-props-pane' },
     h('div', { class: 'editor-vars-props-head' },
       h('span', { class: 'editor-vars-props-title' },

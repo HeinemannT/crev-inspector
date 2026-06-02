@@ -112,7 +112,7 @@ export type ServerLookupMessage =
   // and config-class. Cached in the SW; refresh=true bypasses the
   // cache and re-fetches. See type-schema-cache.ts.
   | { type: 'FETCH_TYPE_SCHEMA'; className: string; refresh?: boolean }
-  | { type: 'FETCH_TYPE_SCHEMA_RESULT'; className: string; ok: boolean; props?: TypeSchemaProp[]; error?: string }
+  | { type: 'FETCH_TYPE_SCHEMA_RESULT'; className: string; ok: boolean; props?: TypeSchemaProp[]; canonicalClassName?: string; error?: string }
   // Resolve a `root.<lcCategory>.children()` style reference to the
   // class of objects it returns — one EC call per category root,
   // cached forever per server.
@@ -283,6 +283,12 @@ export interface ObjectPaneIdentity {
   type: string;
   name: string;
 }
+
+/** An object's effective detail card, plus whether it was inherited from the
+ *  object's template (enterprise objects carry the card on their template,
+ *  not the instance). Shared by ObjectPaneData, the OBJECT_PANE_DATA message,
+ *  and the detail-view state so the four sites can't drift. */
+export type ObjectPaneCard = ObjectPaneIdentity & { viaTemplate: boolean };
 export interface ObjectPaneSiblingMsg {
   rid: string;
   businessId: string;
@@ -297,6 +303,7 @@ export type ObjectPaneMessage =
       instance: ObjectPaneIdentity;
       parent: ObjectPaneIdentity | null;
       template: ObjectPaneIdentity | null;
+      card: ObjectPaneCard | null;
       instanceProps: Record<string, string>;
       templateProps: Record<string, string>;
       siblings: ObjectPaneSiblingMsg[];

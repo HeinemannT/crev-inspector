@@ -13,7 +13,7 @@
  * Works for model (.linkedTo) and enterprise (.template) objects alike.
  */
 
-import type { BmpObject, InspectorMessage, ObjectPaneIdentity, ObjectPaneSiblingMsg } from '../lib/types';
+import type { BmpObject, InspectorMessage, ObjectPaneIdentity, ObjectPaneCard, ObjectPaneSiblingMsg } from '../lib/types';
 import { getTypeColor, getTypeAbbr, colorLinkBid } from '../lib/types';
 import { h, render } from '../lib/dom';
 import { resolveLayoutShortcut } from '../lib/layout-target';
@@ -41,6 +41,7 @@ interface PaneState {
   identity: ObjectPaneIdentity;
   parent: ObjectPaneIdentity | null;
   template: ObjectPaneIdentity | null;
+  card: ObjectPaneCard | null;
   instanceProps: Record<string, string>;
   templateProps: Record<string, string>;
   siblings: ObjectPaneSiblingMsg[];
@@ -253,6 +254,7 @@ export class DetailView {
       } : { rid, businessId: '', type: '', name: '' },
       parent: null,
       template: null,
+      card: null,
       instanceProps: {},
       templateProps: {},
       siblings: [],
@@ -295,6 +297,7 @@ export class DetailView {
       this.state.identity = msg.instance;
       this.state.parent = msg.parent;
       this.state.template = msg.template;
+      this.state.card = msg.card;
       this.state.instanceProps = msg.instanceProps;
       this.state.templateProps = msg.templateProps;
       this.state.siblings = msg.siblings;
@@ -632,6 +635,9 @@ export class DetailView {
     if (s.parent) {
       headerRows.push(this.renderParentCrumb(s.parent, panel));
     }
+    if (s.card) {
+      headerRows.push(this.renderCardCrumb(s.card));
+    }
     const header = h('div', { class: 'pane-header', style: `--type-color:${color}` }, ...headerRows);
 
     // Properties or loading / error
@@ -780,6 +786,33 @@ export class DetailView {
       h('span', { class: 'pane-parent-crumb-name' }, parent.name || '(unnamed)'),
       parent.businessId
         ? h('span', { class: 'pane-parent-crumb-bid' }, parent.businessId)
+        : null,
+    );
+  }
+
+  /** The object's effective detail card — its own `.card`, or (for
+   *  enterprise objects whose instance card is empty) the card inherited
+   *  from its template. Clicking navigates the BMP tab to the card so the
+   *  user can see/edit the layout that renders for this object. */
+  private renderCardCrumb(card: ObjectPaneCard): HTMLElement {
+    const goto = () => this.sendMessage({ type: 'BMP_GOTO', rid: card.rid });
+    return h('div', {
+      class: 'pane-parent-crumb pane-card-crumb',
+      role: 'button',
+      tabindex: '0',
+      title: `Navigate BMP to the detail card '${card.name || card.businessId}'`
+        + (card.viaTemplate ? " — inherited from this object's template" : ''),
+      onClick: goto,
+      onKeydown: (e: KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto(); }
+      },
+    },
+      // `↗` signals this opens the BMP tab (vs the parent crumb's `↑ inside`,
+      // which drills the inspector) — distinct action, distinct cue.
+      h('span', { class: 'pane-parent-crumb-arrow' }, card.viaTemplate ? '▦ card · via template ↗' : '▦ card ↗'),
+      h('span', { class: 'pane-parent-crumb-name' }, card.name || '(unnamed)'),
+      card.businessId
+        ? h('span', { class: 'pane-parent-crumb-bid' }, card.businessId)
         : null,
     );
   }

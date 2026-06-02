@@ -205,7 +205,7 @@ register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
     await schemaCache.load();
     const cached = schemaCache.get(serverId, msg.className);
     if (cached) {
-      respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: true, props: cached });
+      respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: true, props: cached, canonicalClassName: schemaCache.getCanonical(serverId, msg.className) });
       return;
     }
   }
@@ -222,9 +222,15 @@ register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
     // `.as(linkedTo.id)` returns DISPLAY names instead of accessors.
     // Triple-pipe delimiter so user-set labels containing `|` don't
     // shift the column count (HOVER_RESOLVE uses the same pattern).
+    // First line carries the canonical class name: `c.get(X)` resolves the
+    // ClassConfig case-insensitively, and its `.id` is the fully-qualified
+    // Java name (`…enterprise.CeControlMeasure`) whose last segment is the
+    // canonical PascalCase the client should display/cache, regardless of
+    // what casing the user typed (`CECONTROLMEASURE`, `ceControlMeasure`, …).
     const ec = [
-      `_kids := c.get(${msg.className}.name).children()`,
-      '_out := ""',
+      `_cls := c.get(${msg.className}.name)`,
+      '_out := "__canon__|||" + _cls.id.whenMissing("") + "\\n"',
+      '_kids := _cls.children()',
       '_kids.forEach(_k:',
       '     _out := _out + _k.linkedTo.id + "|||" + _k.name + "|||" + _k.className + "|||" + _k.systemobject + "\\n"',
       ')',
@@ -241,8 +247,17 @@ register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
     // The trailing "Duration : Nms" line has 0 `|||` separators and
     // is filtered out by the parts-count check below.
     const props = [] as Array<{ accessor: string; label: string; configClass: string; systemobject: boolean }>;
+    let canonicalClassName: string | undefined;
     for (const line of (result.log || '').split('\n')) {
       const parts = line.split('|||');
+      // Canonical-name marker line — last segment of the FQ Java id. Require
+      // exactly 2 fields so a (vanishingly unlikely) real prop accessor named
+      // `__canon__` can't be swallowed as the marker.
+      if (parts.length === 2 && parts[0] === '__canon__') {
+        const seg = parts[1].trim().split('.').pop();
+        if (seg) canonicalClassName = seg;
+        continue;
+      }
       if (parts.length < 4) continue;
       const [accessor, label, configClass, sysFlag] = parts;
       if (!accessor || !configClass) continue;
@@ -257,8 +272,8 @@ register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
       respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: 'No properties returned (unknown class?)' });
       return;
     }
-    schemaCache.set(serverId, msg.className, props);
-    respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: true, props });
+    schemaCache.set(serverId, msg.className, props, canonicalClassName);
+    respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: true, props, canonicalClassName });
   } catch (e) {
     respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: errorMessage(e) });
   }
@@ -540,7 +555,7 @@ function emptyPaneResponse(rid: string, error?: string) {
     type: 'OBJECT_PANE_DATA' as const,
     rid,
     instance: { rid, businessId: '', type: '', name: '' },
-    parent: null, template: null,
+    parent: null, template: null, card: null,
     instanceProps: {}, templateProps: {}, siblings: [],
     codeFields: {}, references: {},
     indirectCode: {}, indirectCodeRids: {}, contextValues: {}, gateValues: {}, lists: {},
@@ -572,6 +587,7 @@ register('FETCH_OBJECT_PANE', async (msg, respond) => {
       instance: data.instance,
       parent: data.parent,
       template: data.template,
+      card: data.card,
       instanceProps: data.instanceProps,
       templateProps: data.templateProps,
       siblings: data.siblings,

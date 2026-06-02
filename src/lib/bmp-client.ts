@@ -13,7 +13,7 @@ import {
 } from './bmp-types';
 import { deserializeStream } from './java-serial';
 import { COLOR_LINK_PROPS, colorLinkBid } from './types';
-import type { ColorSetData } from './types';
+import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity } from './types';
 import { log } from './logger';
 import { HEALTH_TIMEOUT, BATCH_CHUNK_SIZE, MAX_PARALLEL } from './constants';
 import { BmpAuth } from './bmp-auth';
@@ -131,6 +131,10 @@ export interface ObjectPaneData {
   instance: { rid: string; businessId: string; type: string; name: string };
   parent: { rid: string; businessId: string; type: string; name: string } | null;
   template: { rid: string; businessId: string; type: string; name: string } | null;
+  /** Effective detail card — the object's own `.card`, else the template's
+   *  `.card` (enterprise objects carry the card on their EnterpriseTemplate,
+   *  not the instance). `viaTemplate` is true when it was inherited. */
+  card: ObjectPaneCard | null;
   /** Property values keyed by name. Empty string means "not set" on server. */
   instanceProps: Record<string, string>;
   templateProps: Record<string, string>;
@@ -188,6 +192,21 @@ export const PANE_PROPS = [
 ] as const;
 export type PaneProp = typeof PANE_PROPS[number];
 export const PANE_PROPS_SET: ReadonlySet<string> = new Set(PANE_PROPS);
+
+/** Parse a `<prefix>Rid/Id/Name/Type` identity block out of a parseSepBlocks
+ *  map. Returns null when the rid is absent/`MISSING`. Shared by
+ *  fetchEditorContext (inst/tmpl) and fetchObjectPane (inst/par/tmpl/card) so
+ *  the blocks can't drift apart. */
+function parseIdentityBlock(data: Record<string, string | undefined>, prefix: string): ObjectPaneIdentity | null {
+  const rid = data[`${prefix}Rid`];
+  if (!rid || rid === 'MISSING') return null;
+  return {
+    rid,
+    businessId: data[`${prefix}Id`] ?? '',
+    type: data[`${prefix}Type`] ?? '',
+    name: data[`${prefix}Name`] ?? '',
+  };
+}
 
 /** Parse `java.awt.Color[r=219,g=132,b=61]` → `rgb(219,132,61)`, else ''. */
 export function parseAwtColor(s: string): string {
@@ -659,22 +678,9 @@ _r
     if (!result.ok || !result.log) return null;
 
     const data = parseSepBlocks(result.log, sep);
-    if (!data.instRid || data.instRid === 'MISSING') return null;
-
-    const instance = {
-      rid: data.instRid,
-      businessId: data.instId ?? '',
-      type: data.instType ?? '',
-      name: data.instName ?? '',
-    };
-
-    const hasTemplate = !!data.tmplRid && data.tmplRid !== 'MISSING';
-    const template = hasTemplate ? {
-      rid: data.tmplRid!,
-      businessId: data.tmplId ?? '',
-      type: data.tmplType ?? '',
-      name: data.tmplName ?? '',
-    } : null;
+    const instance = parseIdentityBlock(data, 'inst');
+    if (!instance) return null;
+    const template = parseIdentityBlock(data, 'tmpl');
 
     // Extract code props, filtering empty values
     const instanceCode: Record<string, string> = {};
@@ -719,27 +725,18 @@ _r
     if (!result.log) throw new Error('Empty EC response');
 
     const data = parseSepBlocks(result.log, FLOW_SEP);
-    if (!data.instRid || data.instRid === 'MISSING') return null;
+    const instance = parseIdentityBlock(data, 'inst');
+    if (!instance) return null;
+    const parent = parseIdentityBlock(data, 'par');
+    const template = parseIdentityBlock(data, 'tmpl');
 
-    const instance = {
-      rid: data.instRid,
-      businessId: data.instId ?? '',
-      type: data.instType ?? '',
-      name: data.instName ?? '',
-    };
-
-    const parent = data.parRid && data.parRid !== 'MISSING' ? {
-      rid: data.parRid,
-      businessId: data.parId ?? '',
-      type: data.parType ?? '',
-      name: data.parName ?? '',
-    } : null;
-
-    const template = data.tmplRid && data.tmplRid !== 'MISSING' ? {
-      rid: data.tmplRid,
-      businessId: data.tmplId ?? '',
-      type: data.tmplType ?? '',
-      name: data.tmplName ?? '',
+    const cardBase = parseIdentityBlock(data, 'card');
+    const card: ObjectPaneCard | null = cardBase ? {
+      ...cardBase,
+      // Instance had no own card → the effective card came from the template.
+      // `.trim()` guards the load-bearing emptiness check: parseSepBlocks
+      // strips only a trailing newline, not stray whitespace.
+      viaTemplate: !data.instCardRid?.trim(),
     } : null;
 
     const instanceProps: Record<string, string> = {};
@@ -823,7 +820,7 @@ _r
     }
 
     return {
-      instance, parent, template,
+      instance, parent, template, card,
       instanceProps, templateProps, siblings,
       codeFields, references,
       indirectCode, indirectCodeRids, contextValues, gateValues, lists,

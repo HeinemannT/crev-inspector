@@ -2925,6 +2925,18 @@ body.crev-divider-dragging * { user-select: none; }
   opacity: 0.65;
   font-weight: var(--weight-medium);
 }
+/* The card crumb sits next to the parent crumb but navigates BMP (not the
+ * inspector). Give it a distinct shape — accent left-border + tinted arrow —
+ * so the different action reads at a glance, not just from the tooltip. */
+.pane-card-crumb {
+  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding-left: 6px;
+}
+.pane-card-crumb .pane-parent-crumb-arrow {
+  color: var(--accent);
+  opacity: 0.9;
+}
 .pane-parent-crumb-chip {
   display: inline-flex;
   align-items: center;
