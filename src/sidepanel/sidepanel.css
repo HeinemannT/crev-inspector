@@ -3309,6 +3309,13 @@ body.crev-divider-dragging * { user-select: none; }
   color: var(--text-1); font-size: var(--text-sm); outline: none;
 }
 .cp-filter:focus { border-color: var(--accent); }
+.cp-refresh {
+  flex: none; width: 26px; height: 26px; padding: 0;
+  background: var(--surface-2); border: 1px solid var(--surface-3); border-radius: var(--radius-sm);
+  color: var(--text-2); font-size: 14px; line-height: 1; cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.cp-refresh:hover { color: var(--text-1); border-color: var(--accent); }
 .cp-body { overflow-y: auto; padding: 6px 8px 8px; }
 .cp-set { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); margin: 8px 0 4px; }
 .cp-grid { display: flex; flex-direction: column; gap: 1px; }

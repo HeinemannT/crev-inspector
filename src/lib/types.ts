@@ -383,7 +383,8 @@ export type ScriptHistoryMessage =
 export interface ColorOption { bid: string; name: string; rgb: string }
 export interface ColorSetData { id: string; name: string; colors: ColorOption[] }
 export type ColorMessage =
-  | { type: 'FETCH_COLOR_SETS' }
+  // `force` bypasses the persistent colour cache (manual refresh in the picker).
+  | { type: 'FETCH_COLOR_SETS'; force?: boolean }
   | { type: 'COLOR_SETS_DATA'; sets: ColorSetData[] };
 
 // ── Notifications (ephemeral panel toasts) ───────────────────────

@@ -10,6 +10,7 @@ import { clearActivityLog } from '../activity';
 import { clearAllContextRids, setContextRid } from '../context-rid';
 import { errorMessage, log } from '../logger';
 import { CODE_BEARING_TYPES } from '../namespace';
+import { getColorSets, setColorSets } from '../color-set-cache';
 import type { BmpObject } from '../types';
 import type { TemplateResolution } from '../bmp-client';
 import * as schemaCache from '../type-schema-cache';
@@ -171,11 +172,20 @@ register('HOVER_RESOLVE', async (msg, respond) => {
 // serverId from settings.activeProfileId so two profiles never share
 // schema state.
 
-register('FETCH_COLOR_SETS', async () => {
+register('FETCH_COLOR_SETS', async (msg) => {
   const ctx = getCtx();
+  const serverId = ctx.settings.activeProfileId || '';
+  // Serve from the persistent cache unless a manual refresh forced a reload.
+  // This is the speed win: a panel reopen or SW idle-reset no longer re-runs
+  // the BMP round-trip — the colours come straight from storage.session.
+  if (!msg.force) {
+    const cached = await getColorSets(serverId);
+    if (cached) { ctx.sendToPanel({ type: 'COLOR_SETS_DATA', sets: cached }); return; }
+  }
   if (!ctx.client) { ctx.sendToPanel({ type: 'COLOR_SETS_DATA', sets: [] }); return; }
   try {
     const sets = await ctx.client.fetchColorSets();
+    if (sets.length > 0) await setColorSets(serverId, sets);
     ctx.sendToPanel({ type: 'COLOR_SETS_DATA', sets });
   } catch (e) {
     log.swallow('handler:fetchColorSets', e);

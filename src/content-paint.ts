@@ -20,13 +20,22 @@ const PAINTBRUSH_PATHS =
   '<path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"/>' +
   '<path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7"/><path d="M14.5 17.5 4.5 15"/>';
 
-function cursorUrl(paths: string, hotX: number, hotY: number): string {
+function svgCursor(paths: string, px: number): string {
   const svg =
-    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" ' +
-    'fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 24 24" ` +
+    'fill="none" stroke-linecap="round" stroke-linejoin="round" shape-rendering="geometricPrecision">' +
     `<g stroke="#ffffff" stroke-width="4">${paths}</g>` +
     `<g stroke="#8a3ffc" stroke-width="2.25">${paths}</g></svg>`;
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotX} ${hotY}, crosshair`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
+// Chromium rasterises an SVG cursor at its CSS-pixel size and does NOT
+// re-render for devicePixelRatio — so a 24px cursor is upscaled (pixelated) on
+// 2x/retina displays. `image-set` ships a 48px raster for 2x screens, which the
+// browser draws at 24 CSS px = sharp. The trailing `crosshair` is the fallback
+// if a data-URI cursor is rejected.
+function cursorUrl(paths: string, hotX: number, hotY: number): string {
+  return `-webkit-image-set(${svgCursor(paths, 24)} 1x, ${svgCursor(paths, 48)} 2x) ${hotX} ${hotY}, crosshair`;
 }
 
 const PICK_CURSOR = cursorUrl(EYEDROPPER_PATHS, 2, 22);

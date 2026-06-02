@@ -1,8 +1,10 @@
 /**
  * Linked-colour picker popover. BMP widget colours (headerColor / fontColor)
  * are LINKS to CorpoColor objects, not hex — so they're picked from
- * the workspace's colourset list, never typed. The set list is fetched once
- * (FETCH_COLOR_SETS) and cached for the session.
+ * the workspace's colourset list, never typed. The set list is fetched via
+ * FETCH_COLOR_SETS and served from a persistent per-profile cache
+ * (color-set-cache.ts) — only the first open in a browser session pays the
+ * BMP round-trip; the ↻ button forces a reload when colours changed.
  */
 import { h, render } from '../lib/dom';
 import type { ColorSetData, InspectorMessage } from '../lib/types';
@@ -46,6 +48,15 @@ export function openColorPicker(opts: PickerOpts): void {
     autocomplete: 'off', spellcheck: 'false',
     onInput: (e: Event) => { filter = (e.currentTarget as HTMLInputElement).value; drawBody(); },
   }) as HTMLInputElement;
+  // Manual refresh — busts the persistent cache when a colour changed in BMP.
+  const refreshBtn = h('button', {
+    class: 'cp-refresh', type: 'button', title: 'Reload colours from BMP',
+    onClick: () => {
+      cache = null;
+      drawBody();
+      opts.sendMessage({ type: 'FETCH_COLOR_SETS', force: true });
+    },
+  }, '↻');
 
   const close = () => {
     document.removeEventListener('keydown', onKey, true);
@@ -98,7 +109,7 @@ export function openColorPicker(opts: PickerOpts): void {
 
   // No "clear" action: BMP doesn't unset a colour link via `:= MISSING`
   // (verified — it's a no-op), so we only offer picking a colour to link.
-  render(root, h('div', { class: 'cp-head' }, filterInput), bodyEl);
+  render(root, h('div', { class: 'cp-head' }, filterInput, refreshBtn), bodyEl);
   document.body.appendChild(backdrop);
   document.body.appendChild(root);
   document.addEventListener('keydown', onKey, true);
