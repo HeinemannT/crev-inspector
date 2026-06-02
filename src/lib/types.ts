@@ -186,8 +186,6 @@ export type PaintMessage =
   | { type: 'PAINT_STATE'; phase: PaintPhase; sourceRid?: string; sourceName?: string }
   | { type: 'PAINT_PICK'; rid: string }
   | { type: 'PAINT_APPLY'; rid: string }
-  | { type: 'PAINT_PREVIEW'; rid: string; diff: Array<{ prop: string; from: string; to: string }> }
-  | { type: 'PAINT_CONFIRM'; rid: string }
   | { type: 'PAINT_APPLY_RESULT'; rid: string; ok: boolean; error?: string };
 
 // ── Detection ────────────────────────────────────────────────────
@@ -439,6 +437,10 @@ export interface InspectorSettings {
   autoDetect: boolean;
   saveTarget: SaveTarget;
   enrichMode: EnrichMode;
+  /** Which visual-style properties Paint Format copies. Subset of
+   *  PAINT_STYLE_PROPS, toggled via the paint button's right-click menu.
+   *  Optional/undefined ⇒ copy all (see DEFAULT_SETTINGS + activePaintProps). */
+  paintProps?: string[];
 }
 
 export const DEFAULT_SETTINGS: InspectorSettings = {
@@ -448,6 +450,9 @@ export const DEFAULT_SETTINGS: InspectorSettings = {
   autoDetect: true,
   saveTarget: 'template',
   enrichMode: 'all',
+  // Default: copy every style prop (mirrors PAINT_STYLE_PROPS, inlined because
+  // that const is declared later in this file).
+  paintProps: ['headerColor', 'fontColor', 'transparency', 'shadow', 'headerStyle', 'borderStyle'],
 };
 
 /** Chart types — all share the same color. Charts are visualizations →
@@ -631,6 +636,23 @@ export const PAINT_STYLE_PROPS = [
  *  written as references (`prop := t.<colorBid>`), picked from the colourset
  *  list, never typed. */
 export const COLOR_LINK_PROPS: ReadonlySet<string> = new Set(['headerColor', 'fontColor']);
+
+/** EC literal that RESETS each style prop to "no styling" — emitted by Paint
+ *  Format when the source widget lacks the prop, so the target ends up matching
+ *  the source. Each value is TYPE-CORRECT per BMP (live-verified 2026-06-02 on
+ *  a Text element): colour refs clear with "", transparency with 0, shadow with
+ *  FALSE, and the header/border-style enums with their "None" member.
+ *  NOTE: `:= ""` ERRORS on number/enum props ("Could not convert value :  into
+ *  Transparency/Header style/Border style"), and `:= MISSING` is a silent
+ *  no-op — neither is a usable reset, which is why this explicit map exists. */
+export const PAINT_PROP_RESET: Record<string, string> = {
+  headerColor: '""',
+  fontColor: '""',
+  transparency: '0',
+  shadow: 'FALSE',
+  headerStyle: '"None"',
+  borderStyle: '"None"',
+};
 
 /** A colour-link draft value is stored as `"<bid> <name>"` (the picker writes
  *  both so the UI can show the name without a cache hit). Both the display

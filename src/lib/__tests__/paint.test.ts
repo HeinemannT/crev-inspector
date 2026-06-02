@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mockChromeStorage } from './chrome-mock';
 import { setSwContext } from '../sw-context';
 import { ObjectCache } from '../object-cache';
-import { PAINT_STYLE_PROPS, COLOR_LINK_PROPS } from '../types';
+import { PAINT_STYLE_PROPS, PAINT_PROP_RESET } from '../types';
 import type { InspectorMessage, InspectorSettings } from '../types';
 
 interface PaintHarness {
@@ -55,6 +55,7 @@ async function createPaintHarness(opts?: { withClient?: boolean }): Promise<Pain
       autoDetect: true,
       saveTarget: 'instance' as const,
       enrichMode: 'all' as const,
+      paintProps: ['headerColor', 'fontColor', 'transparency', 'shadow', 'headerStyle', 'borderStyle'],
     } satisfies InspectorSettings,
     inspectActive: true,
     technicalOverlay: false,
@@ -163,60 +164,68 @@ describe('paint — apply', () => {
     expect((errs[0] as any).error).toMatch(/Not connected/);
   });
 
-  it('with source picked, reads style props from both source + target via EC', async () => {
+  it('with source picked, applies styles to the target via a committed EC write and broadcasts success', async () => {
     // Pick source first
     const { handlePaintPick, handlePaintApply } = await import('../paint');
     handlePaintPick('111');
     h.broadcasts.length = 0;
     h.panelMsgs.length = 0;
 
-    // EC returns "SRC|||sv1|||sv2|||...\nTGT|||tv1|||tv2|||..."
-    // 6 source values, 6 target values (only headerColor differs)
-    h.executeEcMock.mockResolvedValueOnce({
-      ok: true,
-      log: 'SRC|||#ff0000|||#000|||0|||true|||SOLID|||SOLID\nTGT|||#00ff00|||#000|||0|||true|||SOLID|||SOLID',
-    });
+    h.executeEcMock.mockResolvedValueOnce({ ok: true });
 
     await handlePaintApply('222');
 
-    // EC was called exactly once for comparison
+    // Instant apply: a single committed EC write (no preview round-trip).
     expect(h.executeEcMock).toHaveBeenCalledTimes(1);
-    const ecCode = h.executeEcMock.mock.calls[0][0] as string;
+    const [ecCode, , commit] = h.executeEcMock.mock.calls[0] as [string, unknown, boolean];
+    expect(commit, 'apply must commit (executeEc commit flag)').toBe(true);
 
-    // EC code references all PAINT_STYLE_PROPS
+    // References every painted prop.
     for (const prop of PAINT_STYLE_PROPS) {
-      expect(ecCode).toContain(`.${prop}`);
+      expect(ecCode).toContain(prop);
     }
 
-    // PAINT_PREVIEW broadcast contains only the changed prop
-    const preview = h.broadcasts.find((m: any) => m.type === 'PAINT_PREVIEW') as any;
-    expect(preview).toBeDefined();
-    expect(preview.rid).toBe('222');
-    expect(preview.diff).toHaveLength(1);
-    expect(preview.diff[0].prop).toBe('headerColor');
-    expect(preview.diff[0].from).toBe('#00ff00');
-    expect(preview.diff[0].to).toBe('#ff0000');
+    // Broadcasts a success result — no PAINT_PREVIEW any more.
+    const results = h.broadcasts.filter((m: any) => m.type === 'PAINT_APPLY_RESULT') as any[];
+    expect(results.length).toBe(1);
+    expect(results[0].ok).toBe(true);
+    expect(h.broadcasts.some((m: any) => m.type === 'PAINT_PREVIEW')).toBe(false);
   });
 
-  it('apply with all identical props emits an empty-diff preview (no changes)', async () => {
+  it('only writes the props selected in settings.paintProps', async () => {
     const { handlePaintPick, handlePaintApply } = await import('../paint');
+    // Narrow the selection to just headerColor (right-click menu behaviour).
+    h.ctx.settings.paintProps = ['headerColor'];
     handlePaintPick('111');
     h.broadcasts.length = 0;
 
-    // Identical SRC + TGT
-    h.executeEcMock.mockResolvedValueOnce({
-      ok: true,
-      log: 'SRC|||a|||b|||c|||d|||e|||f\nTGT|||a|||b|||c|||d|||e|||f',
-    });
+    h.executeEcMock.mockResolvedValueOnce({ ok: true });
+    await handlePaintApply('222');
+
+    const ecCode = h.executeEcMock.mock.calls.at(-1)?.[0] as string;
+    expect(ecCode).toContain('headerColor');
+    // Deselected props must not appear.
+    expect(ecCode).not.toContain('fontColor');
+    expect(ecCode).not.toContain('headerStyle');
+    expect(ecCode).not.toContain('borderStyle');
+  });
+
+  it('with no styles selected, broadcasts a failure and writes nothing', async () => {
+    const { handlePaintPick, handlePaintApply } = await import('../paint');
+    h.ctx.settings.paintProps = [];
+    handlePaintPick('111');
+    h.broadcasts.length = 0;
 
     await handlePaintApply('222');
 
-    const preview = h.broadcasts.find((m: any) => m.type === 'PAINT_PREVIEW') as any;
-    expect(preview).toBeDefined();
-    expect(preview.diff).toHaveLength(0);
+    expect(h.executeEcMock).not.toHaveBeenCalled();
+    const errs = h.broadcasts.filter((m: any) => m.type === 'PAINT_APPLY_RESULT') as any[];
+    expect(errs.length).toBe(1);
+    expect(errs[0].ok).toBe(false);
+    expect(errs[0].error).toMatch(/No styles selected/);
   });
 
-  it('apply when EC read fails broadcasts apply failure', async () => {
+  it('apply when the EC write fails broadcasts apply failure', async () => {
     const { handlePaintPick, handlePaintApply } = await import('../paint');
     handlePaintPick('111');
     h.broadcasts.length = 0;
@@ -243,28 +252,27 @@ describe('paint — PAINT_STYLE_PROPS contract', () => {
     ]);
   });
 
-  it('paint apply executes one assignment per style prop', async () => {
+  it('paint apply emits one assignment per style prop (colours clear when source has none)', async () => {
     const h = await createPaintHarness();
-    const { cancelPaint, handlePaintPick, handlePaintConfirm } = await import('../paint');
+    const { cancelPaint, handlePaintPick, handlePaintApply } = await import('../paint');
     cancelPaint();
     handlePaintPick('111');
     h.broadcasts.length = 0;
 
-    // Stub the EC call done by executePaintApply — return success
+    // Stub the committed EC apply — return success
     h.executeEcMock.mockResolvedValue({ ok: true });
 
-    await handlePaintConfirm('222');
+    await handlePaintApply('222');
 
     const lastCallCode = h.executeEcMock.mock.calls.at(-1)?.[0] as string;
     expect(lastCallCode).toBeDefined();
-    // Value props copy via whenMissing(""); colour props (CorpoColor LINKS)
-    // copy the link conditionally so "" is never assigned to a colour ref.
+    // Each prop: copy the source value when present, else reset with the
+    // TYPE-CORRECT empty (PAINT_PROP_RESET — colour:"" / number:0 / bool:FALSE
+    // / enum:"None"). All branches live-verified; `:= ""` errors on number/enum
+    // props so the reset must be type-aware.
     for (const prop of PAINT_STYLE_PROPS) {
-      if (COLOR_LINK_PROPS.has(prop)) {
-        expect(lastCallCode).toContain(`IF _src.${prop} != MISSING THEN _tgt.change(${prop} := _src.${prop}) ENDIF`);
-      } else {
-        expect(lastCallCode).toContain(`${prop} := _src.${prop}.whenMissing("")`);
-      }
+      const reset = PAINT_PROP_RESET[prop];
+      expect(lastCallCode).toContain(`IF _src.${prop} != MISSING THEN _tgt.change(${prop} := _src.${prop}) ELSE _tgt.change(${prop} := ${reset}) ENDIF`);
     }
   });
 });

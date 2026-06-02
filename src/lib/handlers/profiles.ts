@@ -14,16 +14,21 @@ register('GET_SETTINGS', (msg, respond) => {
   snapshotSettings();
 });
 
+// Settings that don't affect the BMP client/auth — changing only these skips
+// the (re-auth) client rebuild.
+const CLIENT_IRRELEVANT_SETTINGS = new Set(['enrichMode', 'paintProps']);
+
 register('SAVE_SETTINGS', async (msg) => {
   const ctx = getCtx();
-  const onlyEnrichMode = Object.keys(msg.settings).length === 1 && 'enrichMode' in msg.settings;
+  const changedKeys = Object.keys(msg.settings);
+  const skipRebuild = changedKeys.length > 0 && changedKeys.every(k => CLIENT_IRRELEVANT_SETTINGS.has(k));
   const prevMode = ctx.settings.enrichMode;
   ctx.settings = { ...ctx.settings, ...msg.settings };
   saveSettings();
   if (ctx.settings.enrichMode !== prevMode) {
     ctx.broadcastToContent({ type: 'ENRICH_MODE', mode: ctx.settings.enrichMode });
   }
-  if (!onlyEnrichMode) await rebuildClient();
+  if (!skipRebuild) await rebuildClient();
 });
 
 register('SAVE_PROFILE', async (msg, respond) => {

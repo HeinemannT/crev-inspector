@@ -7,6 +7,7 @@
  */
 
 import type { InspectorMessage } from '../lib/types';
+import { PAINT_STYLE_PROPS } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
 import { log } from '../lib/logger';
@@ -330,7 +331,7 @@ function buildApp(): void {
       class: `paint-btn ${S.paintPhase !== 'off' ? 'active' : ''}`,
       id: 'toggle-paint',
       'aria-label': 'Paint Format',
-      title: 'Paint Format: copy visual style between objects.\nApplies: headerColor, fontColor, transparency, shadow, headerStyle, borderStyle.\nPick a source widget, then click targets to apply.',
+      title: 'Paint Format: copy visual style between objects.\nApplies: headerColor, fontColor, transparency, shadow, headerStyle, borderStyle.\nPick a source widget, then click targets to apply.\nRight-click to choose which styles get painted.',
     }, svg(ICON_PAINT)),
     h('button', {
       class: `inspect-toggle ${S.inspectActive ? 'active' : ''}`,
@@ -439,7 +440,12 @@ function buildApp(): void {
     reconnect: () => sendMessage({ type: 'CONNECTION_TEST' }),
   });
 
-  app.querySelector('#toggle-paint')?.addEventListener('click', () => sendMessage({ type: 'TOGGLE_PAINT' }));
+  const paintBtn = app.querySelector('#toggle-paint');
+  paintBtn?.addEventListener('click', () => sendMessage({ type: 'TOGGLE_PAINT' }));
+  paintBtn?.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showPaintStyleMenu(e.currentTarget as HTMLElement);
+  });
   app.querySelector('#toggle-inspect')?.addEventListener('click', () => sendMessage({ type: 'TOGGLE_INSPECT' }));
   app.querySelector('#open-extended')?.addEventListener('click', () => sendMessage({ type: 'OPEN_EXTENDED' }));
   app.querySelector('#open-codesearch')?.addEventListener('click', () => sendMessage({ type: 'OPEN_CODE_SEARCH' }));
@@ -711,6 +717,63 @@ function updateLatencyPill(): void {
 /** Unobtrusive in-sidebar popup anchored under the CREV brand. Stays inside
  *  the panel (no new tab) so the user doesn't lose context — clicking a link
  *  inside opens that destination in a real tab via window.open. */
+/** Human labels for the paintable style props (right-click menu). */
+const PAINT_PROP_LABELS: Record<string, string> = {
+  headerColor: 'Header color',
+  fontColor: 'Font color',
+  transparency: 'Transparency',
+  shadow: 'Shadow',
+  headerStyle: 'Header style',
+  borderStyle: 'Border style',
+};
+
+/** Right-click menu on the paint button: toggle which style props Paint
+ *  Format copies. Persists via SAVE_SETTINGS (paintProps) — the SW reads it in
+ *  handlePaintApply. Stays open across toggles; closes on outside-click/Esc. */
+function showPaintStyleMenu(anchor: HTMLElement): void {
+  const existing = document.getElementById('paint-style-menu');
+  if (existing) { existing.remove(); return; }
+
+  const selected = new Set(S.settings.paintProps ?? PAINT_STYLE_PROPS);
+  const rect = anchor.getBoundingClientRect();
+
+  const rows = PAINT_STYLE_PROPS.map((prop) => {
+    const cb = h('input', { type: 'checkbox', class: 'paint-style-cb' }) as HTMLInputElement;
+    cb.checked = selected.has(prop);
+    cb.addEventListener('change', () => {
+      if (cb.checked) selected.add(prop); else selected.delete(prop);
+      const paintProps = PAINT_STYLE_PROPS.filter(p => selected.has(p));
+      S.settings = { ...S.settings, paintProps };
+      sendMessage({ type: 'SAVE_SETTINGS', settings: { paintProps } });
+    });
+    return h('label', { class: 'paint-style-row', role: 'menuitemcheckbox' },
+      cb, h('span', null, PAINT_PROP_LABELS[prop] ?? prop));
+  });
+
+  const menu = h('div', {
+    id: 'paint-style-menu',
+    class: 'brand-menu paint-style-menu',
+    role: 'menu',
+    style: `top:${rect.bottom + 4}px; right:${Math.max(4, window.innerWidth - rect.right)}px;`,
+  },
+    h('div', { class: 'paint-style-title' }, 'Paint these styles'),
+    ...rows,
+  );
+  document.body.appendChild(menu);
+
+  const close = (e?: Event) => {
+    if (e && menu.contains(e.target as Node)) return;
+    menu.remove();
+    document.removeEventListener('mousedown', close);
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+  setTimeout(() => {
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', onKey);
+  }, 0);
+}
+
 function showBrandMenu(anchor: HTMLElement): void {
   const existing = document.getElementById('header-brand-menu');
   if (existing) { existing.remove(); return; }

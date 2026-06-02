@@ -1,12 +1,11 @@
 import type { InspectorMessage, PaintPhase } from './types';
-import { PAINT_STYLE_PROPS, COLOR_LINK_PROPS } from './types';
+import { PAINT_STYLE_PROPS, PAINT_PROP_RESET } from './types';
 import { getCtx } from './sw-context';
 import { log, errorMessage } from './logger';
 
 let paintPhase: PaintPhase = 'off';
 let paintSourceRid: string | null = null;
 let paintSourceName: string | null = null;
-let paintPendingTargetRid: string | null = null;
 /** Tab paint is armed for. Lets us cancel precisely when THAT tab
  *  navigates/refreshes, instead of relying on the active-tab map (which is
  *  empty until the first tab switch — the cause of the "stuck brush after
@@ -76,7 +75,6 @@ export async function togglePaint(ensureContentScript: (tabId: number) => Promis
     paintPhase = 'off';
     paintSourceRid = null;
     paintSourceName = null;
-    paintPendingTargetRid = null;
     paintTabId = null;
   }
   broadcastPaintState();
@@ -88,7 +86,6 @@ export function cancelPaint() {
   paintPhase = 'off';
   paintSourceRid = null;
   paintSourceName = null;
-  paintPendingTargetRid = null;
   paintTabId = null;
   broadcastPaintState();
 }
@@ -110,6 +107,19 @@ export function handlePaintPick(rid: string) {
   broadcastPaintState();
 }
 
+/** Which style props this paint session writes — the user's right-click
+ *  selection, intersected with the known prop list (order preserved) so a
+ *  stale/garbage setting can never inject an unknown property name into EC. */
+function activePaintProps(ctx: ReturnType<typeof getCtx>): string[] {
+  const selected = new Set(ctx.settings.paintProps ?? PAINT_STYLE_PROPS);
+  return PAINT_STYLE_PROPS.filter(p => selected.has(p));
+}
+
+/**
+ * Apply the picked source's style to `rid` and IMMEDIATELY commit — no preview
+ * step. Paint stays armed (`phase` unchanged) so the user keeps clicking
+ * targets; the content script flashes each one + shows a Reload toast.
+ */
 export async function handlePaintApply(rid: string) {
   const ctx = getCtx();
   if (!paintSourceRid || !ctx.client) {
@@ -121,79 +131,13 @@ export async function handlePaintApply(rid: string) {
 
   await ctx.settingsReady;
 
-  try {
-    // Read style props from both source and target in a single EC call.
-    // Each property read is isolated so one failure doesn't kill all reads.
-    // Result is the last expression (not output() which silently crashes on Ref properties).
-    const [srcRef, tgtRef] = await Promise.all([
-      ctx.client.resolveRef(paintSourceRid!),
-      ctx.client.resolveRef(rid),
-    ]);
-    const codeLines: string[] = [
-      '_d := "|||"',
-      `_s := ${srcRef}`,
-      `_t := ${tgtRef}`,
-      '_sr := ""',
-      '_tr := ""',
-    ];
-    for (const p of PAINT_STYLE_PROPS) {
-      codeLines.push(`_sr := _sr + _d + _s.${p}.whenMissing("")`);
-      codeLines.push(`_tr := _tr + _d + _t.${p}.whenMissing("")`);
-    }
-    codeLines.push('"SRC" + _sr + "\\nTGT" + _tr');
-    const code = codeLines.join('\n');
-
-    const result = await ctx.client.executeEc(code, undefined, false);
-    log.info('paint:compare', `EC result ok=${result.ok} log=${JSON.stringify((result.log ?? '').slice(0, 200))}`);
-    if (!result.ok) {
-      broadcastApplyResult(rid, false, result.error ?? 'Failed to read style properties');
-      return;
-    }
-
-    // Parse result: last expression = "SRC|||v1|||v2...\nTGT|||v1|||v2..."
-    // Each line in result.log is an EC entry; find the SRC/TGT lines.
-    const lines = (result.log ?? '').trim().split('\n');
-    const srcLine = lines.find(l => l.startsWith('SRC|||')) ?? '';
-    const tgtLine = lines.find(l => l.startsWith('TGT|||')) ?? '';
-    // Split on ||| and skip index 0 (the SRC/TGT label)
-    const srcVals = srcLine.split('|||').slice(1);
-    const tgtVals = tgtLine.split('|||').slice(1);
-    log.info('paint:parsed', `src=[${srcVals.join(',')}] tgt=[${tgtVals.join(',')}]`);
-
-    const diff: Array<{ prop: string; from: string; to: string }> = [];
-    for (let i = 0; i < PAINT_STYLE_PROPS.length; i++) {
-      const from = (tgtVals[i] ?? '').trim();
-      const to = (srcVals[i] ?? '').trim();
-      if (from !== to) {
-        diff.push({ prop: PAINT_STYLE_PROPS[i], from: from || '(empty)', to: to || '(empty)' });
-      }
-    }
-
-    if (diff.length === 0) {
-      ctx.logActivity('info', `Paint: styles identical (src=${srcVals.join(',')}, tgt=${tgtVals.join(',')})`);
-      ctx.broadcastToContent({ type: 'PAINT_PREVIEW', rid, diff: [] });
-      return;
-    }
-
-    paintPendingTargetRid = rid;
-    ctx.broadcastToContent({ type: 'PAINT_PREVIEW', rid, diff });
-  } catch (e) {
-    broadcastApplyResult(rid, false, errorMessage(e));
-  }
-}
-
-async function executePaintApply(rid: string) {
-  const ctx = getCtx();
-  if (!paintSourceRid || !ctx.client) {
-    broadcastApplyResult(rid, false, !ctx.client
-      ? 'Not connected. Configure in Connect tab'
-      : 'No source selected');
+  const props = activePaintProps(ctx);
+  if (props.length === 0) {
+    broadcastApplyResult(rid, false, 'No styles selected — right-click the paint button to choose');
     return;
   }
 
-  await ctx.settingsReady;
-
-  // When saveTarget is 'template', resolve target's template first
+  // When saveTarget is 'template', resolve target's template first.
   let targetRid = rid;
   if (ctx.settings.saveTarget === 'template') {
     try {
@@ -202,35 +146,30 @@ async function executePaintApply(rid: string) {
     } catch (e) { log.swallow('paint:resolveTemplate', e); }
   }
 
-  const [srcRef, tgtRef] = await Promise.all([
-    ctx.client.resolveRef(paintSourceRid!),
-    ctx.client.resolveRef(targetRid),
-  ]);
-  // Value props (enums/numbers/booleans) copy via whenMissing("").
-  // Colour props are CorpoColor LINKS: assigning "" to a colour reference
-  // errors, so copy the link only when the source actually has one (copying a
-  // style adds the source's look — it shouldn't clear the target's colours).
-  const valueProps = PAINT_STYLE_PROPS.filter(p => !COLOR_LINK_PROPS.has(p));
-  const colorProps = PAINT_STYLE_PROPS.filter(p => COLOR_LINK_PROPS.has(p));
-  const lines = [`_src := ${srcRef}`, `_tgt := ${tgtRef}`];
-  if (valueProps.length > 0) {
-    lines.push(`_tgt.change(${valueProps.map(p => `${p} := _src.${p}.whenMissing("")`).join(', ')})`);
-  }
-  for (const p of colorProps) {
-    lines.push(`IF _src.${p} != MISSING THEN _tgt.change(${p} := _src.${p}) ENDIF`);
-  }
-  const code = lines.join('\n');
-
   try {
+    const [srcRef, tgtRef] = await Promise.all([
+      ctx.client.resolveRef(paintSourceRid!),
+      ctx.client.resolveRef(targetRid),
+    ]);
+    // One independent conditional per prop: copy the source's value when it has
+    // one, otherwise RESET the target to "no styling" with a TYPE-CORRECT empty
+    // (PAINT_PROP_RESET — colour:"" / number:0 / bool:FALSE / enum:"None").
+    //
+    // Per-prop (not a single batched change()) is deliberate: `prop := ""`
+    // ERRORS on number/enum props, so one missing source prop must not abort
+    // the whole paint — and `:= MISSING` is a no-op so it can't reset either.
+    // All branches live-verified 2026-06-02. This is what lets painting a
+    // header-less source onto a coloured widget actually clear the colour.
+    const lines = [`_src := ${srcRef}`, `_tgt := ${tgtRef}`];
+    for (const p of props) {
+      const reset = PAINT_PROP_RESET[p] ?? '""';
+      lines.push(`IF _src.${p} != MISSING THEN _tgt.change(${p} := _src.${p}) ELSE _tgt.change(${p} := ${reset}) ENDIF`);
+    }
+    const code = lines.join('\n');
+
     const result = await ctx.client.executeEc(code, undefined, true);
     broadcastApplyResult(rid, result.ok, result.error ?? (result.hasError ? result.log : undefined));
   } catch (e) {
     broadcastApplyResult(rid, false, errorMessage(e));
   }
-}
-
-export async function handlePaintConfirm(rid: string) {
-  const targetRid = paintPendingTargetRid ?? rid;
-  paintPendingTargetRid = null;
-  await executePaintApply(targetRid);
 }

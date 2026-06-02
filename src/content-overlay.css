@@ -125,26 +125,6 @@
   color: #fff;
   border-color: rgba(255,255,255,0.5);
 }
-.crev-paint-apply-btn {
-  background: #8a3ffc;
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  padding: 3px 12px;
-  font-weight: 600;
-  cursor: pointer;
-  margin-right: 6px;
-}
-.crev-paint-apply-btn:hover { background: #a76dff; }
-.crev-paint-cancel-btn {
-  background: transparent;
-  color: #b0b0b0;
-  border: 1px solid #444;
-  border-radius: 4px;
-  padding: 3px 12px;
-  cursor: pointer;
-}
-.crev-paint-cancel-btn:hover { color: #e4e4e4; border-color: #707070; }
 #crev-paint-banner {
   position: fixed;
   /* Compact floating card, top-centre — not a full-width bar. Matches the
@@ -375,6 +355,27 @@
 .crev-toast--info {
   background: rgba(120, 169, 255, 0.92);
 }
+/* Toast with an inline action button (e.g. paint's "Reload"). Mirrors the
+ * side-panel toast styling so the in-page and panel toasts look identical. */
+.crev-toast--with-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 6px;
+}
+.crev-toast__text { flex: 1; }
+.crev-toast__action {
+  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font: 600 11px/1 'Inter', system-ui, sans-serif;
+  padding: 4px 9px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.crev-toast__action:hover { background: rgba(255, 255, 255, 0.3); }
 
 /* ── Technical Overlay Cards ───────────────────────────── */
 
@@ -524,8 +525,6 @@
 .crev-ec-btn:focus-visible,
 .crev-qi-btn:focus-visible,
 .crev-qi-star:focus-visible,
-.crev-paint-apply-btn:focus-visible,
-.crev-paint-cancel-btn:focus-visible,
 #crev-paint-banner .crev-paint-close:focus-visible {
   outline: 2px solid #ba0ffe;
   outline-offset: 2px;

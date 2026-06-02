@@ -17,7 +17,7 @@ import OVERLAY_CSS from './content-overlay.css';
 
 import { ContentState } from './content-state';
 import { syncOverlays, removeOverlays, updateLabels } from './content-overlays';
-import { updatePaintCursors, flashApplyResult, showPaintPreview } from './content-paint';
+import { updatePaintCursors, flashApplyResult } from './content-paint';
 import { showTooltipForElement, hideTooltip, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
 import { mountFrameOverlay, unmountAllFrameOverlays } from './content-frame-overlay';
@@ -198,14 +198,10 @@ onPortMessage((msg: InspectorMessage) => {
       updatePaintCursors(s);
       if (!s.fromSync) broadcast('crev_sync_paint', { phase: msg.phase, sourceName: msg.sourceName });
       break;
-    case 'PAINT_PREVIEW':
-      showPaintPreview(s, msg.rid, msg.diff);
-      break;
     case 'PAINT_APPLY_RESULT':
       flashApplyResult(msg.rid, msg.ok, msg.error);
-      // Restore the banner from "Applying…" back to the ready prompt so the
-      // user can immediately paint the next object — paint stays armed
-      // (phase still 'applying' in the SW) for painting several in a row.
+      // Paint stays armed (phase still 'applying' in the SW) so the user can
+      // immediately click the next target — instant-apply sticky painting.
       if (s.paintPhase === 'applying') updatePaintCursors(s);
       break;
     case 'ENRICH_MODE':
@@ -323,8 +319,14 @@ document.body.addEventListener('contextmenu', (e) => {
 // ── Escape + click-outside dismiss quick inspector ───────────────
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && isQuickInspectorVisible()) {
+  if (e.key !== 'Escape') return;
+  if (isQuickInspectorVisible()) {
     hideQuickInspector();
+    return;
+  }
+  // Esc stops an active paint session (matches the in-page banner hint).
+  if (s.paintPhase !== 'off') {
+    sendToSW({ type: 'TOGGLE_PAINT' } as InspectorMessage);
   }
 });
 
