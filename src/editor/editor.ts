@@ -16,7 +16,7 @@ import { catppuccinMocha } from './catppuccin-theme'
 import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK } from '../lib/icons'
-import { renderEcOutput } from './ec-output'
+import { renderEcOutput, ecOutputToText } from './ec-output'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
 import { installCloseHandshake } from '../lib/frame-close-handshake'
@@ -1208,7 +1208,14 @@ function renderBottomContent() {
           title: 'Copy output',
           onClick: (e: Event) => {
             const btn = (e.currentTarget as HTMLElement)
-            flashCopy(btn, lastOutputText, () => {})
+            // Mirror what the panel shows. On OK output that's the parsed
+            // view (tables → TSV for spreadsheet-paste, other lines verbatim,
+            // honouring the decode + table toggles). On ERROR the panel shows
+            // raw text untouched, so copy the raw bytes to match.
+            const copyText = lastOutputOk
+              ? ecOutputToText(lastOutputText, tablePreview, decodePreview)
+              : lastOutputText
+            flashCopy(btn, copyText, () => {})
           },
         }, svg(ICON_COPY)),
         h('button', { class: 'btn-micro', title: 'Close', onClick: hideBottomPanel }, svg(ICON_X)),

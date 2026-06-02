@@ -1157,6 +1157,10 @@ body {
   overflow: auto;
 }
 .ec-out-line { white-space: pre-wrap; word-break: break-word; }
+/* Raw-mode box-drawing rows (table rendering toggled off): keep each row
+ * on one line so the monospace art doesn't wrap into nonsense. The panel
+ * (.ec-output-parsed) already scrolls, so wide rows scroll horizontally. */
+.ec-out-raw { white-space: pre; word-break: normal; }
 .ec-out-meta { color: var(--text-2); font-style: italic; }
 .ec-out-warn { color: var(--warning); }
 .ec-out-error { color: var(--danger); font-weight: 600; }
