@@ -105,9 +105,20 @@ export function isValidNamespace(prefix: string): boolean {
   return VALID_PREFIXES.has(prefix);
 }
 
-/** Resolve a className to its namespace prefix. */
+// Case-insensitive lookup table. BMP classNames are PascalCase
+// (`CeRiskAssessment`), but the enterprise block of NAMESPACE_MAP was
+// authored ALL-CAPS (`CERISKASSESSMENT`). A direct lookup therefore MISSED
+// for every Ce* type and fell back to `t.`, producing dead references like
+// `t.113` (correct: `ceras.113`) when ctrl-clicking a pill. Normalising both
+// sides to upper-case fixes the whole enterprise block at once and is robust
+// to className-vs-typeKey casing differences.
+const NAMESPACE_MAP_UC: Record<string, string> = Object.fromEntries(
+  Object.entries(NAMESPACE_MAP).map(([k, v]) => [k.toUpperCase(), v]),
+);
+
+/** Resolve a className to its namespace prefix (case-insensitive). */
 export function resolveNamespace(className: string): string {
-  return NAMESPACE_MAP[className] ?? 't';
+  return NAMESPACE_MAP_UC[className.toUpperCase()] ?? 't';
 }
 
 /** ClassNames that carry code properties (expression, html, javascript). */
