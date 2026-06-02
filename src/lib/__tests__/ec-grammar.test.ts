@@ -91,6 +91,24 @@ describe('classifyDotMember', () => {
     expect(classifyDotMember('myCustomProp')).toBeNull();
     expect(classifyDotMember('')).toBeNull();
   });
+
+  // BMP dispatches receiver methods/properties case-insensitively
+  // (verified live: forEach === foreach === FOREACH === ForEach), so the
+  // classifier must accept any casing — see the `demo_table` build that
+  // uses lowercase `.foreach(`.
+  it.each([
+    ['foreach', 'read'],
+    ['FOREACH', 'read'],
+    ['ForEach', 'read'],
+    ['ADDROW', 'tbl'],
+    ['addrow', 'tbl'],
+    ['DELETE', 'tx'],
+    ['Indent', 'tbl'],
+    ['NAME', 'prop'],
+    ['EXPRESSION', 'expr'],
+  ] as const)('case-insensitive: .%s → %s', (name, kind) => {
+    expect(classifyDotMember(name)).toBe(kind);
+  });
 });
 
 describe('keyword sets are non-empty', () => {

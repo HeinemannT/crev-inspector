@@ -9,22 +9,31 @@
  *
  * ## Case-sensitivity rules per category
  *
- * EC's grammar mixes case-INsensitive control words (`IF`/`if`/`If`)
- * with case-SENSITIVE method names (`forEach`, NOT `FOREACH`). The
- * sets below adopt the canonical case used in real EC scripts:
+ * EC's grammar is largely case-INsensitive: control words (`IF`/`if`/`If`)
+ * AND receiver-dispatched dot members (`forEach`/`foreach`/`FOREACH` all
+ * resolve identically at runtime). The Sets below adopt the canonical case
+ * used in real EC scripts; the lookup rules per category are:
  *
  *   - CONTROL_KEYWORDS / NAMED_OPERATORS / CONTEXT_KEYWORDS /
  *     BOOL_VALUES / NULL_VALUES / STYLE_CONSTANTS / DATE_CONSTANTS
  *     → uppercase canonical. `classifyIdent` normalises via toUpperCase()
  *     before lookup, so any case matches.
  *
- *   - GLOBAL_FUNCS / TRANSACTIONAL_METHODS / TABLE_METHODS /
- *     READ_METHODS / AGGREGATE_FUNCS / KNOWN_PROPERTIES /
- *     ID_SPACE_PREFIXES
- *     → mixed canonical (e.g. `forEach`, `addColumn`, `whenMissing`).
- *     `classifyIdent` does an exact match against the canonical form;
- *     `FOREACH` won't be classified as a read-method. This matches the
- *     EC runtime's actual case-sensitivity for method dispatch.
+ *   - GLOBAL_FUNCS / AGGREGATE_FUNCS / ID_SPACE_PREFIXES
+ *     → mixed canonical, matched case-SENSITIVELY by `classifyIdent`.
+ *     These are bare identifiers / prefixes whose casing is meaningful
+ *     (e.g. the `t`/`o`/`d` ID spaces, the PascalCase-vs-aggregate
+ *     distinction), so they keep their canonical spelling.
+ *
+ *   - TRANSACTIONAL_METHODS / TABLE_METHODS / READ_METHODS /
+ *     KNOWN_PROPERTIES / CLASS_INTRO_METHODS (DOT-MEMBER dispatch)
+ *     → stored in canonical case for docs/completions/tests, but matched
+ *     case-INsensitively. BMP's runtime dispatches receiver methods and
+ *     property reads case-insensitively — `forEach`, `foreach`, `FOREACH`
+ *     and `ForEach` all resolve to the same method (verified live against
+ *     the server). So `.foreach(...)` is a valid read-method call and is
+ *     highlighted/linted as one. Use the `is*Method` / `isKnownProperty`
+ *     predicates below rather than `Set.has()` for these categories.
  *
  * ## Adding a new entry
  *
@@ -287,6 +296,38 @@ export type TokKind =
   | 'num'
   | 'cmt'
 
+// ── Case-insensitive dot-member dispatch ───────────────────────────
+//
+// BMP resolves receiver methods and property reads case-insensitively
+// at runtime (verified live: `forEach`/`foreach`/`FOREACH`/`ForEach`
+// all dispatch identically). The Sets above hold ONE canonical spelling
+// for documentation, completions and disjointness tests; these
+// predicates do the actual classification and accept any case.
+//
+// Only the dot-member categories are case-folded. Bare-identifier
+// globals (GLOBAL_FUNCS / AGGREGATE_FUNCS), ID-space prefixes, and
+// PascalCase class names stay case-sensitive — their casing carries
+// meaning.
+const lc = (set: ReadonlySet<string>): ReadonlySet<string> =>
+  new Set(Array.from(set, (s) => s.toLowerCase()))
+
+const TRANSACTIONAL_METHODS_LC = lc(TRANSACTIONAL_METHODS)
+const TABLE_METHODS_LC = lc(TABLE_METHODS)
+const READ_METHODS_LC = lc(READ_METHODS)
+const KNOWN_PROPERTIES_LC = lc(KNOWN_PROPERTIES)
+const CLASS_INTRO_METHODS_LC = lc(CLASS_INTRO_METHODS)
+
+export const isTransactionalMethod = (name: string): boolean =>
+  TRANSACTIONAL_METHODS_LC.has(name.toLowerCase())
+export const isTableMethod = (name: string): boolean =>
+  TABLE_METHODS_LC.has(name.toLowerCase())
+export const isReadMethod = (name: string): boolean =>
+  READ_METHODS_LC.has(name.toLowerCase())
+export const isKnownProperty = (name: string): boolean =>
+  KNOWN_PROPERTIES_LC.has(name.toLowerCase())
+export const isClassIntroMethod = (name: string): boolean =>
+  CLASS_INTRO_METHODS_LC.has(name.toLowerCase())
+
 // ── Classifier ─────────────────────────────────────────────────────
 
 /** Map a bare identifier (NO leading `.`, no prefix) to its TokKind,
@@ -317,10 +358,10 @@ export function classifyIdent(word: string): TokKind | null {
  *  everything else falls through to whichever method-set claims it. */
 export function classifyDotMember(name: string): TokKind | null {
   if (!name) return null
-  if (name === 'expression') return 'expr'
-  if (TRANSACTIONAL_METHODS.has(name)) return 'tx'
-  if (TABLE_METHODS.has(name)) return 'tbl'
-  if (READ_METHODS.has(name)) return 'read'
-  if (KNOWN_PROPERTIES.has(name)) return 'prop'
+  if (name.toLowerCase() === 'expression') return 'expr'
+  if (isTransactionalMethod(name)) return 'tx'
+  if (isTableMethod(name)) return 'tbl'
+  if (isReadMethod(name)) return 'read'
+  if (isKnownProperty(name)) return 'prop'
   return null
 }

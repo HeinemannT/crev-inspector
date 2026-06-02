@@ -9,8 +9,10 @@
 import { linter, Diagnostic } from '@codemirror/lint'
 import { EditorView } from '@codemirror/view'
 
-const FOREACH_RE = /\.forEach\s*\(/
-const TRANSACTIONAL_RE = /\.(delete|add|update|change|move|copy|unlink|link)\s*\(/
+// Case-insensitive: BMP dispatches `.forEach` / `.foreach` / `.FOREACH`
+// identically, so the missing-colon check must fire for every casing.
+const FOREACH_RE = /\.forEach\s*\(/i
+const TRANSACTIONAL_RE = /\.(delete|add|update|change|move|copy|unlink|link)\s*\(/i
 
 /** EC IF is a STATEMENT, not an expression. `_x := IF ... ENDIF` and
  *  `"str" + IF ... ENDIF` are parse errors — must be parenthesised:

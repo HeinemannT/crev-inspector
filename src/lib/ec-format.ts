@@ -28,7 +28,7 @@
  */
 
 import {
-  CLASS_INTRO_METHODS,
+  isClassIntroMethod,
   IDENT_FIRST_CHAR_RE,
   IDENT_CONT_CHAR_RE,
   DIGIT_RE,
@@ -168,7 +168,7 @@ function consumeDotMember(ctx: Ctx): boolean {
     push(ctx, 'op', i, ctx.i)
     push(ctx, classifyDotMember(name), ctx.i, j)
     ctx.i = j
-    if (CLASS_INTRO_METHODS.has(name)) ctx.classContext = true
+    if (isClassIntroMethod(name)) ctx.classContext = true
     return true
   }
   // Bare dot (rare — `_x.` mid-typing). Plain op.

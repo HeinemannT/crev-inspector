@@ -23,12 +23,12 @@ import {
   DATE_CONSTANTS,
   GLOBAL_FUNCS,
   AGGREGATE_FUNCS,
-  TRANSACTIONAL_METHODS,
-  TABLE_METHODS,
-  READ_METHODS,
-  KNOWN_PROPERTIES,
+  isTransactionalMethod,
+  isTableMethod,
+  isReadMethod,
+  isKnownProperty,
+  isClassIntroMethod,
   ID_SPACE_PREFIXES,
-  CLASS_INTRO_METHODS,
   IDENT_RE_STREAM,
   PASCAL_RE,
   CAMEL_RE,
@@ -53,9 +53,10 @@ type State = {
   classContext: boolean
 }
 
-// IDENT_RE_STREAM (un-anchored, stream-friendly) + CLASS_INTRO_METHODS
-// are both imported from `../../lib/ec-grammar` — the same data is
-// shared with the lightweight tokeniser in `src/lib/ec-format.ts`.
+// IDENT_RE_STREAM (un-anchored, stream-friendly) + the case-insensitive
+// dot-member predicates (isReadMethod / isClassIntroMethod / …) are
+// imported from `../../lib/ec-grammar` — the same grammar data backs the
+// lightweight tokeniser in `src/lib/ec-format.ts`.
 
 export const extendedLanguage = StreamLanguage.define<State>({
   startState: () => ({
@@ -167,20 +168,24 @@ export const extendedLanguage = StreamLanguage.define<State>({
         const name = stream.current().slice(1) // strip leading dot
 
         // `.expression` is the eval-vs-text gotcha. Tag distinctly so
-        // CSS can italicise it as a reminder.
-        if (name === 'expression') return 'expr'
+        // CSS can italicise it as a reminder. Matched case-insensitively
+        // like every other dot-member (BMP dispatches case-blind).
+        if (name.toLowerCase() === 'expression') return 'expr'
 
         // `.add(T, …)` / `.children(T)` / `.descendants(T)` / `.ancestor(T)`
         // all introduce a class reference as the first argument. Flag
         // it for the next ident regardless of which method category the
         // name belongs to.
-        const introducesClass = CLASS_INTRO_METHODS.has(name)
+        const introducesClass = isClassIntroMethod(name)
         if (introducesClass) state.classContext = true
 
-        if (TRANSACTIONAL_METHODS.has(name)) return 'transactional'
-        if (TABLE_METHODS.has(name)) return 'tableMethod'
-        if (READ_METHODS.has(name)) return 'readMethod'
-        if (KNOWN_PROPERTIES.has(name)) return 'prop'
+        // Method/property dispatch is case-insensitive (BMP runtime is
+        // case-blind — `.forEach`/`.foreach`/`.FOREACH` all resolve the
+        // same), so `.foreach(...)` highlights as a read-method too.
+        if (isTransactionalMethod(name)) return 'transactional'
+        if (isTableMethod(name)) return 'tableMethod'
+        if (isReadMethod(name)) return 'readMethod'
+        if (isKnownProperty(name)) return 'prop'
         // Unknown dot-access — no highlight, but consumed
       }
       return null
