@@ -237,70 +237,56 @@ function renderPane(): void {
   const hasTemplate = !!s.template;
   const dirtyCount = Object.keys(draft).length;
 
+  const switchTarget = async (next: SaveTarget) => {
+    if (target === next) return;
+    if (next === 'template' && !hasTemplate) return;
+    if (Object.keys(draft).length > 0) {
+      const ok = await confirmModal({
+        title: 'Discard draft to switch target?',
+        body: 'Switching between template and instance resets your pending edits.',
+        confirmLabel: 'Switch & discard',
+        confirmVariant: 'danger',
+      });
+      if (!ok) return;
+      draft = {};
+    }
+    target = next;
+    renderPane();
+  };
+  const targetToggle = h('div', { class: 'pane-target-toggle', role: 'tablist', 'aria-label': 'Save target' },
+    h('button', {
+      class: `pane-target-btn${target === 'instance' ? ' active' : ''}`,
+      role: 'tab', 'aria-selected': target === 'instance' ? 'true' : 'false',
+      onClick: () => switchTarget('instance'),
+    }, 'instance'),
+    h('button', {
+      class: `pane-target-btn${target === 'template' ? ' active' : ''}`,
+      role: 'tab', 'aria-selected': target === 'template' ? 'true' : 'false',
+      disabled: !hasTemplate,
+      onClick: () => switchTarget('template'),
+    }, 'template'),
+  );
+
+  // Two-row header, matching the side-panel's pattern:
+  //   Row 1 (context + actions): ↑parent ···· Diff · Vs Template · Layout · instance|template
+  //   Row 2 (identity):          [chip] Name ······················· id
   const header = h('div', { class: 'ov-header pane-header', style: `--type-color:${color}` },
-    h('div', { class: 'pane-header-row' },
-      h('span', { class: 'pane-id-chip', title: s.identity.type }, abbr),
-      h('span', { class: 'pane-id-name' }, s.identity.name || '(unnamed)'),
-      s.identity.businessId ? h('span', { class: 'pane-id-bid' }, s.identity.businessId) : null,
-      // Instance / Template target — same UX as the side-panel pane.
-      h('div', { class: 'pane-target-toggle', role: 'tablist', 'aria-label': 'Save target' },
-        h('button', {
-          class: `pane-target-btn${target === 'instance' ? ' active' : ''}`,
-          role: 'tab',
-          'aria-selected': target === 'instance' ? 'true' : 'false',
-          onClick: async () => {
-            if (target === 'instance') return;
-            if (Object.keys(draft).length > 0) {
-              const ok = await confirmModal({
-                title: 'Discard draft to switch target?',
-                body: 'Switching between template and instance resets your pending edits.',
-                confirmLabel: 'Switch & discard',
-                confirmVariant: 'danger',
-              });
-              if (!ok) return;
-              draft = {};
-            }
-            target = 'instance';
-            renderPane();
-          },
-        }, 'instance'),
-        h('button', {
-          class: `pane-target-btn${target === 'template' ? ' active' : ''}`,
-          role: 'tab',
-          'aria-selected': target === 'template' ? 'true' : 'false',
-          disabled: !hasTemplate,
-          onClick: async () => {
-            if (!hasTemplate || target === 'template') return;
-            if (Object.keys(draft).length > 0) {
-              const ok = await confirmModal({
-                title: 'Discard draft to switch target?',
-                body: 'Switching between template and instance resets your pending edits.',
-                confirmLabel: 'Switch & discard',
-                confirmVariant: 'danger',
-              });
-              if (!ok) return;
-              draft = {};
-            }
-            target = 'template';
-            renderPane();
-          },
-        }, 'template'),
-      ),
-      // Diff buttons — popout-exclusive surfaces. The side-panel doesn't need
-      // these inline (Cmd+K palette already covers it there).
-      h('div', { class: 'ov-header-actions' },
+    h('div', { class: 'pane-header-nav' },
+      s.parent ? renderParentCrumb(s.parent) : h('span', { class: 'pane-header-nav-spacer' }),
+      h('div', { class: 'pane-header-actions' },
         h('button', { class: 'btn btn-small', 'data-action': 'diff', title: 'Compare with another object' }, 'Diff…'),
         hasTemplate
           ? h('button', { class: 'btn btn-small', 'data-action': 'template-diff', title: 'Compare instance to its template' }, 'Vs Template')
           : null,
-        // Layout shortcut — same as the side panel's button, sent
-        // through the SW which forwards to the panel in this window.
-        // Visible on layout-bearing objects OR widgets nested
-        // directly inside one (same rule as the side panel).
         renderLayoutShortcut(),
+        targetToggle,
       ),
     ),
-    s.parent ? renderParentCrumb(s.parent) : null,
+    h('div', { class: 'pane-header-id' },
+      h('span', { class: 'pane-id-chip', title: s.identity.type }, abbr),
+      h('span', { class: 'pane-id-name' }, s.identity.name || '(unnamed)'),
+      s.identity.businessId ? h('span', { class: 'pane-id-bid' }, s.identity.businessId) : null,
+    ),
   );
 
   const propsArea = h('div', { class: 'ov-props-area' }, renderPropertiesArea());
