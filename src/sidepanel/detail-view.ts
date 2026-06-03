@@ -14,20 +14,18 @@
  */
 
 import type { BmpObject, InspectorMessage, ObjectPaneIdentity, ObjectPaneCard, ObjectPaneSiblingMsg } from '../lib/types';
-import { getTypeColor, getTypeAbbr, colorLinkBid } from '../lib/types';
+import { getTypeColor, getTypeAbbr } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
-import { ICON_PENCIL, ICON_LAYOUT, ICON_SHIELD, ICON_CHEVRON, ICON_ARROW_LEFT, ICON_X } from '../lib/icons';
+import { ICON_PENCIL, ICON_LAYOUT, ICON_SHIELD, ICON_ARROW_LEFT, ICON_X } from '../lib/icons';
 import { resolveLayoutShortcut } from '../lib/layout-target';
 import { confirmModal } from '../lib/modal';
-import {
-  colorLinkEditor, booleanEditor, numberEditor, enumEditor, sliderEditor,
-  displayValue, type PropEditorContext,
-} from './property-editors';
-import { openColorPicker, lookupColor } from './color-picker';
+import { displayValue } from './property-editors';
+import { openColorPicker } from './color-picker';
 import { renderPaneTree, type PaneTreeData } from './pane-tree';
 import { openAccessTrace } from './access-trace';
 import { renderCodeSection } from './sections/code-fields';
 import { renderReferenceSection } from './sections/reference-edges';
+import { renderPropertyGroups, type PaneGroupsCtx } from './sections/property-groups';
 import { renderFlowSection } from './sections/flow-walker';
 import { renderContextSection } from './sections/context-fields';
 import { S } from './state';
@@ -75,7 +73,7 @@ interface PaneChildren {
 }
 
 // Property schema lives in pane-schema.ts so the full-view popout can reuse it.
-import { PROP_GROUPS, findPropDef, type PropDef } from './pane-schema';
+import { findPropDef } from './pane-schema';
 import { requestSchema, isPropAvailable, subscribePaneSchema } from './pane-schema-runtime';
 import { showToast } from '../lib/toast';
 
@@ -447,10 +445,6 @@ export class DetailView {
     this.renderDetail(panel);
   }
 
-  private revertOne(prop: string, panel: HTMLElement): void {
-    delete this.draft[prop];
-    this.renderDetail(panel);
-  }
 
   private async discardAll(panel: HTMLElement): Promise<void> {
     const n = Object.keys(this.draft).length;
@@ -898,237 +892,33 @@ export class DetailView {
       if (refSection) wrap.appendChild(refSection);
     }
 
-    const objectType = this.state!.identity.type;
 
-    // Property groups — for each, render visible props (those that exist on
-    // server or have a draft, AND apply to this BMP type).
-    for (const group of PROP_GROUPS) {
-      const visibleDefs: PropDef[] = [];
-      let dirtyInGroup = 0;
-      for (const def of group.props) {
-        // Type-availability gate — schema-cached truth when present,
-        // static `availableOn` set as fallback.
-        if (!isPropAvailable(objectType, def.prop, def.availableOn)) continue;
-        const draftPresent = this.draft[def.prop] != null;
-        const serverVal = this.currentServerValue(def.prop);
-        const serverHas = serverVal !== '';
-        // Near-zero px dimensions (Width / Height) are "auto/unset" — 0 or 1px
-        // is never a deliberate layout, so surfacing it is just a noise row.
-        // Hide unless the user is actively editing it.
-        if (def.kind === 'number' && def.unit === 'px' && !draftPresent) {
-          const n = Number(serverVal);
-          if (!serverHas || (Number.isFinite(n) && n <= 1)) continue;
-        }
-        // 'text' is read-only — only render the row when the server
-        // actually has a value (otherwise we'd surface a permanent "—"
-        // on every list/table widget regardless of configuration).
-        const isAlwaysShown = def.kind === 'boolean' || def.kind === 'enum' || def.kind === 'slider';
-        if (!serverHas && !draftPresent && !isAlwaysShown) continue;
-        if (draftPresent) dirtyInGroup++;
-        visibleDefs.push(def);
-      }
-      if (visibleDefs.length === 0) continue;
-
-      const titleChildren: (HTMLElement | string | null)[] = [group.title];
-      if (dirtyInGroup > 0) titleChildren.push(h('span', { class: 'prop-group-count' }, ` · ${dirtyInGroup} changed`));
-
-      // Layout + Display groups render WITHOUT a title bar — the rows
-      // (Width/Height, Columns triplet, etc.) are self-explanatory and
-      // the title was just adding vertical clutter in the most-used
-      // sections of the pane. The dirty count still surfaces, just as
-      // an invisible affordance (group still flagged through styling
-      // when something inside is dirty).
-      const suppressTitle = group.title === 'Layout' || group.title === 'Display';
-
-      // The Display group renders compactly: the columns triplet lives on a
-      // single row, the rest of the props pack into a tight grid. Reduces
-      // scroll for the common case where the user only cares about one knob.
-      if (group.title === 'Display') {
-        wrap.appendChild(this.renderDisplayGroup(visibleDefs, titleChildren, panel, suppressTitle));
-      } else if (group.title === 'Visibility') {
-        wrap.appendChild(this.renderVisibilityGroup(visibleDefs, titleChildren, panel));
-      } else {
-        wrap.appendChild(
-          h('div', { class: 'prop-group' },
-            suppressTitle
-              ? null
-              : h('div', { class: 'prop-group-title' }, ...titleChildren.filter(Boolean) as (HTMLElement | string)[]),
-            ...visibleDefs.map(d => this.renderPropRow(d, panel)),
-          ),
-        );
-      }
-    }
+    // Property groups (Layout / Display / Appearance / Visibility / Columns) —
+    // shared with the Object View popout via the single renderer below, so the
+    // two surfaces can't drift. See sections/property-groups.ts.
+    wrap.appendChild(renderPropertyGroups(this.makeGroupsCtx(panel)));
 
     return wrap;
   }
 
-  /** Compact rendering for the Display group. Columns triplet on one row,
-   *  remaining props in a 2-column flex grid so booleans/enums share lines. */
-  private renderDisplayGroup(defs: PropDef[], titleChildren: (HTMLElement | string | null)[], panel: HTMLElement, suppressTitle = false): HTMLElement {
-    const columnsDefs = defs.filter(d =>
-      d.prop === 'columnsLargeScreen' || d.prop === 'columnsMediumScreen' || d.prop === 'columnsSmallScreen',
-    );
-    const otherDefs = defs.filter(d => !columnsDefs.includes(d));
-
-    const columnsRow = columnsDefs.length > 0
-      ? h('div', { class: 'prop-row prop-row--columns', title: 'Responsive width: large / medium / small screens (0–6, 0 = full width)' },
-          h('span', { class: 'prop-label' }, 'Columns'),
-          h('div', { class: 'prop-columns-triplet' },
-            ...columnsDefs.map(def => this.renderColumnCell(def, panel)),
-          ),
-        )
-      : null;
-
-    // The remaining controls are cosmetic/behavioural (Shadow, Header style,
-    // Border, Transparency, Tool menu, Disable search) — set-once, not why you
-    // opened the widget. Fold them behind a "Style" disclosure, but keep the
-    // Columns row above always visible. Auto-expand when one carries a draft so
-    // a pending change is never hidden.
-    const changedCount = otherDefs.filter(d => this.draft[d.prop] != null).length;
-    const open = !this.styleCollapsed || changedCount > 0;
-    const styleSection = otherDefs.length > 0
-      ? h('div', { class: 'prop-substyle' },
-          h('button', {
-            class: `prop-substyle-head${open ? ' is-open' : ''}`,
-            'aria-expanded': open ? 'true' : 'false',
-            onClick: () => { this.styleCollapsed = !this.styleCollapsed; this.refresh(panel); },
-          },
-            h('span', { class: 'prop-substyle-tw' }, svg(ICON_CHEVRON)),
-            h('span', { class: 'prop-substyle-label' }, 'Style'),
-            changedCount > 0 ? h('span', { class: 'prop-group-count' }, `${changedCount} changed`) : null,
-          ),
-          open ? h('div', { class: 'prop-grid' }, ...otherDefs.map(d => this.renderPropRow(d, panel))) : null,
-        )
-      : null;
-
-    return h('div', { class: 'prop-group prop-group--display' },
-      suppressTitle
-        ? null
-        : h('div', { class: 'prop-group-title' }, ...titleChildren.filter(Boolean) as (HTMLElement | string)[]),
-      columnsRow,
-      styleSection,
-    );
-  }
-
-  /** Single column-size editor — small numeric box with the L/M/S label
-   *  underneath. Shares dirty styling with the rest of the property cells. */
-  private renderColumnCell(def: PropDef, panel: HTMLElement): HTMLElement {
-    const value = this.currentDisplayValue(def.prop);
-    const original = this.currentServerValue(def.prop);
-    const dirty = this.draft[def.prop] != null;
-    const input = h('input', {
-      class: `prop-column-input${dirty ? ' prop-cell--dirty' : ''}`,
-      type: 'number',
-      min: 0,
-      max: 6,
-      step: 1,
-      value: value || '',
-      'aria-label': def.label,
-    }) as HTMLInputElement;
-    input.addEventListener('input', () => this.setDraft(def.prop, input.value, panel));
-    return h('div', {
-      class: `prop-column-cell${dirty ? ' is-dirty' : ''}`,
-      title: `${def.label} (server: ${original || 'none'})`,
-    }, input, h('span', { class: 'prop-column-label' }, def.label));
-  }
-
-  /** Visibility group: "Visible" as a normal row, and the three responsive
-   *  toggles (large / medium / small) collapsed onto ONE row as an L/M/S
-   *  triplet — mirroring the Columns triplet, instead of three stacked rows. */
-  private renderVisibilityGroup(defs: PropDef[], titleChildren: (HTMLElement | string | null)[], panel: HTMLElement): HTMLElement {
-    const RESP: Record<string, string> = {
-      shownOnLargeDisplay: 'L', shownOnMediumDisplay: 'M', shownOnSmallDisplay: 'S',
+  /** Build the controller the shared property-group renderer needs. */
+  private makeGroupsCtx(panel: HTMLElement): PaneGroupsCtx {
+    return {
+      objectType: this.state!.identity.type,
+      isAvailable: (def) => isPropAvailable(this.state!.identity.type, def.prop, def.availableOn),
+      displayValue: (prop) => this.currentDisplayValue(prop),
+      serverValue: (prop) => this.currentServerValue(prop),
+      isDirty: (prop) => this.draft[prop] != null,
+      setDraft: (prop, value) => this.setDraft(prop, value, panel),
+      openColorPicker: (def, anchor, currentBid) => openColorPicker({
+        anchor,
+        currentBid,
+        sendMessage: this.sendMessage,
+        onPick: (val) => this.setDraft(def.prop, val, panel),
+      }),
+      styleCollapsed: this.styleCollapsed,
+      toggleStyleCollapsed: () => { this.styleCollapsed = !this.styleCollapsed; this.refresh(panel); },
     };
-    const respDefs = defs.filter(d => d.prop in RESP);
-    const otherDefs = defs.filter(d => !(d.prop in RESP));
-    const tripletRow = respDefs.length > 0
-      ? h('div', { class: 'prop-row prop-row--columns', title: 'Show on large / medium / small screens' },
-          h('span', { class: 'prop-label' }, 'Show on'),
-          h('div', { class: 'prop-vis-triplet' },
-            ...respDefs.map(d => this.renderVisCell(d, RESP[d.prop], panel)),
-          ),
-        )
-      : null;
-    return h('div', { class: 'prop-group' },
-      h('div', { class: 'prop-group-title' }, ...titleChildren.filter(Boolean) as (HTMLElement | string)[]),
-      ...otherDefs.map(d => this.renderPropRow(d, panel)),
-      tripletRow,
-    );
-  }
-
-  /** One compact L/M/S toggle cell (switch + breakpoint letter under it). */
-  private renderVisCell(def: PropDef, label: string, panel: HTMLElement): HTMLElement {
-    const value = this.currentDisplayValue(def.prop);
-    const dirty = this.draft[def.prop] != null;
-    const checked = value === 'true' || value === 'TRUE';
-    return h('div', { class: 'prop-vis-cell' },
-      h('button', {
-        class: `prop-toggle prop-toggle--compact${checked ? ' prop-toggle--on' : ''}${dirty ? ' prop-cell--dirty' : ''}`,
-        role: 'switch',
-        'aria-checked': checked ? 'true' : 'false',
-        'aria-label': `Show on ${def.label.replace(/^Show on /, '')}`,
-        onClick: () => this.setDraft(def.prop, checked ? 'false' : 'true', panel),
-      },
-        h('span', { class: 'prop-toggle-track' }, h('span', { class: 'prop-toggle-thumb' })),
-      ),
-      h('span', { class: 'prop-vis-cell-label' }, label),
-    );
-  }
-
-  private renderPropRow(def: PropDef, panel: HTMLElement): HTMLElement {
-    const value = this.currentDisplayValue(def.prop);
-    const original = this.currentServerValue(def.prop);
-    const dirty = this.draft[def.prop] != null;
-    const ctx: PropEditorContext = {
-      value,
-      original,
-      dirty,
-      onChange: (next) => this.setDraft(def.prop, next, panel),
-    };
-    let editor: HTMLElement;
-    switch (def.kind) {
-      case 'color': {
-        // Colours are CorpoColor LINKS — value is "<bid> <name>" (or ""). Show
-        // the current swatch (rgb resolved from the picker's colour cache) and
-        // open the picker on click; picking links via setDraft.
-        const bid = colorLinkBid(value);
-        const cached = lookupColor(bid);
-        editor = colorLinkEditor(ctx, {
-          name: cached?.name ?? (bid ? value.slice(bid.length).trim() || bid : ''),
-          rgb: cached?.rgb ?? null,
-          onOpen: (anchor) => openColorPicker({
-            anchor,
-            currentBid: bid || null,
-            sendMessage: this.sendMessage,
-            onPick: (val) => this.setDraft(def.prop, val, panel),
-          }),
-        });
-        break;
-      }
-      case 'number':  editor = numberEditor(ctx, { unit: def.unit, ...(def.range ?? {}) }); break;
-      case 'enum':    editor = enumEditor(ctx, def.options ?? []); break;
-      case 'boolean': editor = booleanEditor(ctx); break;
-      case 'slider':  editor = sliderEditor(ctx, def.range!); break;
-      case 'text':
-        // Read-only display — used for structured values like
-        // columnWidths where editing requires a custom UI we haven't
-        // built yet. Empty values render as a dim "—" so the row still
-        // tells the user "this exists but isn't set".
-        editor = h('span', { class: 'prop-text-value' }, value || h('span', { class: 'prop-text-empty' }, '—'));
-        break;
-    }
-    return h('div', { class: `prop-row prop-row--${def.kind}` },
-      h('span', { class: 'prop-label', title: `BMP property: ${def.prop}` }, def.label),
-      editor,
-      dirty && def.kind !== 'text'
-        ? h('button', {
-            class: 'prop-revert',
-            title: `Reset to ${displayValue(original)}`,
-            'aria-label': 'Revert this property',
-            onClick: () => this.revertOne(def.prop, panel),
-          }, '↻')
-        : h('span', { class: 'prop-revert', 'aria-hidden': 'true' }),
-    );
   }
 
   private renderTreeArea(panel: HTMLElement): HTMLElement {

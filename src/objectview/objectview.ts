@@ -24,11 +24,10 @@ import { appendEcPreview } from '../lib/ec-format';
 import { installCloseHandshake } from '../lib/frame-close-handshake';
 import { sendFireForget, sendRequest } from '../lib/messaging';
 import { resolveLayoutShortcut } from '../lib/layout-target';
-import { PROP_GROUPS, findPropDef, type PropDef } from '../sidepanel/pane-schema';
-import {
-  colorEditor, booleanEditor, numberEditor, enumEditor, sliderEditor,
-  displayValue, type PropEditorContext,
-} from '../sidepanel/property-editors';
+import { findPropDef } from '../sidepanel/pane-schema';
+import { displayValue } from '../sidepanel/property-editors';
+import { renderPropertyGroups, type PaneGroupsCtx } from '../sidepanel/sections/property-groups';
+import { openColorPicker } from '../sidepanel/color-picker';
 import { confirmModal } from '../lib/modal';
 
 installCloseHandshake();
@@ -63,6 +62,8 @@ type SaveTarget = 'instance' | 'template';
 let state: PaneState | null = null;
 let draft: Record<string, string> = {};
 let target: SaveTarget = 'instance';
+/** Collapse state for the shared "Style" disclosure (see property-groups.ts). */
+let styleCollapsed = true;
 
 if (!rid) {
   render(root, h('div', { class: 'ov-error' }, 'No RID specified'));
@@ -150,10 +151,6 @@ function setDraft(prop: string, value: string): void {
   renderPane();
 }
 
-function revertOne(prop: string): void {
-  delete draft[prop];
-  renderPane();
-}
 
 async function discardAll(): Promise<void> {
   const n = Object.keys(draft).length;
@@ -371,41 +368,9 @@ function renderPropertiesArea(): HTMLElement {
   }
 
   const wrap = h('div');
-  const objectType = s.identity.type;
-
-  for (const group of PROP_GROUPS) {
-    const visibleDefs: PropDef[] = [];
-    let dirtyInGroup = 0;
-    for (const def of group.props) {
-      if (def.availableOn && !def.availableOn.has(objectType)) continue;
-      const draftPresent = draft[def.prop] != null;
-      const serverHas = currentServerValue(def.prop) !== '';
-      const isAlwaysShown = def.kind === 'boolean' || def.kind === 'enum' || def.kind === 'slider';
-      if (!serverHas && !draftPresent && !isAlwaysShown) continue;
-      if (draftPresent) dirtyInGroup++;
-      visibleDefs.push(def);
-    }
-    if (visibleDefs.length === 0) continue;
-
-    const titleChildren: (HTMLElement | string | null)[] = [group.title];
-    if (dirtyInGroup > 0) titleChildren.push(h('span', { class: 'prop-group-count' }, ` · ${dirtyInGroup} changed`));
-    // Layout + Display titles suppressed — see detail-view.ts for the
-    // rationale. Same rule both surfaces so the two stay in sync.
-    const suppressTitle = group.title === 'Layout' || group.title === 'Display';
-
-    if (group.title === 'Display') {
-      wrap.appendChild(renderDisplayGroup(visibleDefs, titleChildren, suppressTitle));
-    } else {
-      wrap.appendChild(
-        h('div', { class: 'prop-group' },
-          suppressTitle
-            ? null
-            : h('div', { class: 'prop-group-title' }, ...titleChildren.filter(Boolean) as (HTMLElement | string)[]),
-          ...visibleDefs.map(d => renderPropRow(d)),
-        ),
-      );
-    }
-  }
+  // Property groups — shared with the sidebar DetailView (single source of
+  // truth, so the popout can't drift). See sidepanel/sections/property-groups.ts.
+  wrap.appendChild(renderPropertyGroups(makeGroupsCtx()));
 
   // Richer code section — popout-only. Each code prop renders as a
   // card with its own header (label + line count + Edit) and the
@@ -416,6 +381,27 @@ function renderPropertiesArea(): HTMLElement {
   if (codeSection) wrap.appendChild(codeSection);
 
   return wrap;
+}
+
+/** Controller for the shared property-group renderer (see property-groups.ts). */
+function makeGroupsCtx(): PaneGroupsCtx {
+  const objectType = state!.identity.type;
+  return {
+    objectType,
+    isAvailable: (def) => !def.availableOn || def.availableOn.has(objectType),
+    displayValue: (prop) => currentDisplayValue(prop),
+    serverValue: (prop) => currentServerValue(prop),
+    isDirty: (prop) => draft[prop] != null,
+    setDraft: (prop, value) => setDraft(prop, value),
+    openColorPicker: (def, anchor, currentBid) => openColorPicker({
+      anchor,
+      currentBid,
+      sendMessage: sendFireForget,
+      onPick: (val) => setDraft(def.prop, val),
+    }),
+    styleCollapsed,
+    toggleStyleCollapsed: () => { styleCollapsed = !styleCollapsed; renderPane(); },
+  };
 }
 
 /** Maximum lines to preview per code field. 5 is the sweet spot:
@@ -498,81 +484,6 @@ function renderPopoutCodeCard(prop: string, body: string): HTMLElement {
     isHidden
       ? h('div', { class: 'ov-code-card-fade' }, `+${lines.length - POPOUT_CODE_PREVIEW_LINES} more lines`)
       : null,
-  );
-}
-
-function renderDisplayGroup(defs: PropDef[], titleChildren: (HTMLElement | string | null)[], suppressTitle = false): HTMLElement {
-  const columnsDefs = defs.filter(d =>
-    d.prop === 'columnsLargeScreen' || d.prop === 'columnsMediumScreen' || d.prop === 'columnsSmallScreen',
-  );
-  const otherDefs = defs.filter(d => !columnsDefs.includes(d));
-
-  const columnsRow = columnsDefs.length > 0
-    ? h('div', { class: 'prop-row prop-row--columns', title: 'Responsive width: large / medium / small screens (0–6, 0 = full width)' },
-        h('span', { class: 'prop-label' }, 'Columns'),
-        h('div', { class: 'prop-columns-triplet' },
-          ...columnsDefs.map(def => renderColumnCell(def)),
-        ),
-      )
-    : null;
-
-  return h('div', { class: 'prop-group prop-group--display' },
-    suppressTitle
-      ? null
-      : h('div', { class: 'prop-group-title' }, ...titleChildren.filter(Boolean) as (HTMLElement | string)[]),
-    columnsRow,
-    h('div', { class: 'prop-grid' }, ...otherDefs.map(d => renderPropRow(d))),
-  );
-}
-
-function renderColumnCell(def: PropDef): HTMLElement {
-  const value = currentDisplayValue(def.prop);
-  const original = currentServerValue(def.prop);
-  const dirty = draft[def.prop] != null;
-  const input = h('input', {
-    class: `prop-column-input${dirty ? ' prop-cell--dirty' : ''}`,
-    type: 'number',
-    min: 0,
-    max: 6,
-    step: 1,
-    value: value || '',
-    'aria-label': def.label,
-  }) as HTMLInputElement;
-  input.addEventListener('input', () => setDraft(def.prop, input.value));
-  return h('div', {
-    class: `prop-column-cell${dirty ? ' is-dirty' : ''}`,
-    title: `${def.label} (server: ${original || 'none'})`,
-  }, input, h('span', { class: 'prop-column-label' }, def.label));
-}
-
-function renderPropRow(def: PropDef): HTMLElement {
-  const value = currentDisplayValue(def.prop);
-  const original = currentServerValue(def.prop);
-  const dirty = draft[def.prop] != null;
-  const ctx: PropEditorContext = {
-    value,
-    original,
-    dirty,
-    onChange: (next) => setDraft(def.prop, next),
-  };
-  let editor: HTMLElement;
-  switch (def.kind) {
-    case 'color':   editor = colorEditor(ctx); break;
-    case 'number':  editor = numberEditor(ctx, { unit: def.unit, ...(def.range ?? {}) }); break;
-    case 'enum':    editor = enumEditor(ctx, def.options ?? []); break;
-    case 'boolean': editor = booleanEditor(ctx); break;
-    case 'slider':  editor = sliderEditor(ctx, def.range!); break;
-    case 'text':
-      // Read-only — see detail-view.ts for the rationale.
-      editor = h('span', { class: 'prop-text-value' }, value || h('span', { class: 'prop-text-empty' }, '—'));
-      break;
-  }
-  return h('div', { class: 'prop-row' },
-    h('span', { class: 'prop-label', title: `BMP property: ${def.prop}` }, def.label),
-    editor,
-    dirty && def.kind !== 'text'
-      ? h('button', { class: 'prop-revert', title: `Reset to ${displayValue(original)}`, onClick: () => revertOne(def.prop) }, '↻')
-      : h('span', { class: 'prop-revert', 'aria-hidden': 'true' }),
   );
 }
 
