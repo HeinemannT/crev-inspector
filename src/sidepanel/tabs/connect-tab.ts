@@ -486,7 +486,7 @@ export class ConnectTab implements Tab {
         ),
         h('div', { class: 'field-group' },
           h('label', { class: 'field-label' }, 'BMP URL'),
-          h('input', { class: 'field-input', id: 'pf-url', value: ep.bmpUrl, placeholder: 'e.g. cortex.theinemann.de/Steadfast' }),
+          h('input', { class: 'field-input', id: 'pf-url', value: ep.bmpUrl, placeholder: 'e.g. demo.corporater.dev/CorpoWebserver' }),
           // HTTP downgrade hint — inline, unobtrusive. Visible only when the
           // URL is non-empty and resolves to http:// (or starts with it bare).
           // We don't block save: BMP intranet instances sometimes only listen

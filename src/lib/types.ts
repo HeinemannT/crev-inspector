@@ -495,12 +495,16 @@ export const DEFAULT_SETTINGS: InspectorSettings = {
 
 /** Chart types — all share the same color. Charts are visualizations →
  *  warm/red family per the pill taxonomy below. */
-export const CHART_TYPES = ['BarChart','PieChart','LineChart','AreaChart','WaterfallChart','BubbleChart','RadarChart','TreeChart','GanttChart','NetworkChart','PolarChart','BarLineChart'] as const;
+export const CHART_TYPES = ['BarChart','PieChart','LineChart','AreaChart','WaterfallChart','BubbleChart','RadarChart','TreeChart','GanttChart','NetworkChart','PolarChart','BarLineChart','RiskChart','RiskRadarChart'] as const;
 const CHART_COLOR = '#fa4d56'; // viz red
 const CHART_ABBREVIATIONS: Record<string, string> = {
   BarChart: 'BAR', PieChart: 'PIE', LineChart: 'LIN', AreaChart: 'ARA',
   WaterfallChart: 'WFL', BubbleChart: 'BUB', RadarChart: 'RDR', TreeChart: 'TRE',
   GanttChart: 'GNT', NetworkChart: 'NET', PolarChart: 'PLR', BarLineChart: 'BLC',
+  // RiskChart / RiskRadarChart are HasExtendedExpression charts too — same viz
+  // family, same `expression` code-prop. Explicit abbrs so they don't both
+  // collapse to the "RIS" first-three fallback.
+  RiskChart: 'RKC', RiskRadarChart: 'RRC',
 };
 
 /**
