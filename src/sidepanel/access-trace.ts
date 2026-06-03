@@ -11,9 +11,16 @@
  */
 import { h, render, svg } from '../lib/dom';
 import { ICON_X_CIRCLE, ICON_CHECK_CIRCLE, ICON_CHEVRON } from '../lib/icons';
-import { sendMessage } from './state';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import type { AccessSubject, AccessTraceAction, AccessTraceNode, InspectorMessage } from '../lib/types';
+
+/** How this overlay reaches the SW. Injected by the host surface (the side panel
+ *  routes responses through its port; the popout bridges via sendRequest) so the
+ *  same overlay works on both. Set via {@link initAccessTrace}. */
+let sendMessage: (m: InspectorMessage) => void = () => { /* set by initAccessTrace */ };
+export function initAccessTrace(send: (m: InspectorMessage) => void): void {
+  sendMessage = send;
+}
 
 interface TraceObject { rid: string; name: string; type: string }
 

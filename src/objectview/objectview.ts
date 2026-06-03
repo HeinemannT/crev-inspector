@@ -28,10 +28,22 @@ import { findPropDef } from '../sidepanel/pane-schema';
 import { displayValue } from '../sidepanel/property-editors';
 import { renderPropertyGroups, type PaneGroupsCtx } from '../sidepanel/sections/property-groups';
 import { renderReferenceSection } from '../sidepanel/sections/reference-edges';
+import { openAccessTrace, routeAccessMessage, initAccessTrace } from '../sidepanel/access-trace';
 import { openColorPicker } from '../sidepanel/color-picker';
 import { confirmModal } from '../lib/modal';
 
 installCloseHandshake();
+
+// The Access Trace overlay is shared with the side panel. The SW replies to the
+// sender (respond()), so here we bridge its fire-and-forget sends through
+// sendRequest and route the reply back into the overlay.
+initAccessTrace((msg) => {
+  if (msg.type === 'FETCH_ACCESS_SUBJECTS' || msg.type === 'REQUEST_ACCESS_TRACE') {
+    void sendRequest(msg).then((resp) => { if (resp) routeAccessMessage(resp); });
+  } else {
+    sendFireForget(msg);
+  }
+});
 
 const root = document.getElementById('objectview-root')!;
 const rid = location.hash.slice(1);
@@ -283,6 +295,11 @@ function renderPane(): void {
         hasTemplate
           ? h('button', { class: 'btn btn-small', 'data-action': 'template-diff', title: 'Compare instance to its template' }, 'Vs Template')
           : null,
+        h('button', {
+          class: 'btn btn-small',
+          title: 'Test access — trace whether a user/role can read/write/add/delete this object',
+          onClick: () => openAccessTrace({ rid: s.rid, name: s.identity.name, type: s.identity.type }),
+        }, 'Access ↗'),
         renderLayoutShortcut(),
         targetToggle,
       ),

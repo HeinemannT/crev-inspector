@@ -17,7 +17,7 @@ import { onColorSetsData } from './color-picker';
 import { initReferenceView, showReferenceView, handleReferenceMessage, isReferenceActive } from './reference-view';
 import { S, sendMessage, getActivePanel, getTabPanel, tabPanelId, onPortMessage, onReconnect, connectPanel } from './state';
 import { dispatchBroadcast } from '../lib/handler-registry';
-import { routeAccessMessage } from './access-trace';
+import { routeAccessMessage, initAccessTrace } from './access-trace';
 import { showProfileSwitcher } from './profile-switcher';
 import type { Tab } from './tabs/tab-types';
 import { ConnectTab } from './tabs/connect-tab';
@@ -103,6 +103,9 @@ initReferenceView(
 );
 
 // ── Message routing ──────────────────────────────────────────────
+
+// The Access Trace overlay reaches the SW through the panel's port send.
+initAccessTrace(sendMessage);
 
 onPortMessage((msg: InspectorMessage) => {
   // Access-trace overlay claims its own responses regardless of active tab.

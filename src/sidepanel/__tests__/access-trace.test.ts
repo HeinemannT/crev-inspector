@@ -2,15 +2,16 @@
  * Access Trace overlay — open → subjects → pick → verdict tree.
  * @vitest-environment happy-dom
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 
 const sent: any[] = [];
-vi.mock('../state', () => ({ sendMessage: (m: any) => sent.push(m) }));
 
-import { openAccessTrace, routeAccessMessage, closeAccessTrace, isAccessTraceOpen } from '../access-trace';
+import { openAccessTrace, routeAccessMessage, closeAccessTrace, isAccessTraceOpen, initAccessTrace } from '../access-trace';
 
 beforeEach(() => {
   sent.length = 0;
+  // The overlay's SW reach is injected by the host — capture it for assertions.
+  initAccessTrace((m: any) => sent.push(m));
   closeAccessTrace();
   document.body.innerHTML = '';
 });
