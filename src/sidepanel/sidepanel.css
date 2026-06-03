@@ -4405,3 +4405,17 @@ body.crev-divider-dragging * { user-select: none; }
 .atrace-node-kids { margin-left: 14px; border-left: 1px solid var(--surface-3); padding-left: 4px; }
 .atrace-toolbar { display: flex; gap: 12px; margin-bottom: 6px; }
 .atrace-toolbar .atrace-link { font-size: var(--text-xs); }
+
+/* One-line plain-language summary under the verdict (e.g. "No statement grants
+   Read · 85 rules evaluated") — the takeaway without reading the tree. */
+.atrace-summary { font-size: var(--text-xs); color: var(--text-2); margin: 2px 0 6px; }
+/* Disclosure that hides the non-granting rules so a deny doesn't wall off the
+   verdict behind dozens of identical ✗ rows. */
+.atrace-disclosure {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  margin-top: 4px; padding: 4px 4px; border: 0; background: none;
+  font-size: var(--text-xs); color: var(--text-3); text-align: left; cursor: pointer;
+}
+.atrace-disclosure:hover { color: var(--text-2); }
+.atrace-disclosure-tw { width: 12px; text-align: center; }
+.atrace-others { margin-top: 2px; }

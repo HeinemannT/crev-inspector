@@ -76,6 +76,7 @@ export class WorkshopTab implements Tab {
     const panel = document.getElementById(tabPanelId('workshop'));
     const layoutContainer = panel?.querySelector<HTMLElement>('.workshop-layout');
     const detailContainer = panel?.querySelector<HTMLElement>('.workshop-detail');
+    this.layoutPane.setDetailActive(this.detailView.isActive());
     if (topChanged && layoutContainer) this.layoutPane.render(layoutContainer);
     if (detailContainer && this.detailView.isActive()) {
       this.detailView.handleMessage(msg, detailContainer);
@@ -132,6 +133,7 @@ export class WorkshopTab implements Tab {
     );
 
     // Mount the halves' contents
+    this.layoutPane.setDetailActive(this.detailView.isActive());
     this.layoutPane.render(layoutContainer);
     if (this.detailView.isActive()) {
       this.detailView.refresh(detailContainer);
@@ -168,6 +170,18 @@ export class WorkshopTab implements Tab {
     } else {
       this.detailView.show(obj, detailContainer);
     }
+    // The detail half is now populated — refresh the layout half so its
+    // "pick context" nag collapses, and re-evaluate the split.
+    this.syncLayoutToDetail(panel);
+  }
+
+  /** Re-render the layout half in step with the detail half's active state
+   *  (drops/restores the "pick context" nag) and re-apply the split. */
+  private syncLayoutToDetail(panel: HTMLElement): void {
+    this.layoutPane.setDetailActive(this.detailView.isActive());
+    const layoutContainer = panel.querySelector<HTMLElement>('.workshop-layout');
+    if (layoutContainer) this.layoutPane.render(layoutContainer);
+    this.applySplitMode(panel);
   }
 
   /** Set the layout half's context + highlight a row in the tree.
@@ -197,6 +211,8 @@ export class WorkshopTab implements Tab {
           body: 'Click a widget on the BMP page with Inspect on, right-click a BMP element, or pick a scorecard/tab above to load its detail here.',
         }));
       }
+      // Detail half emptied — bring the layout half's context prompt back.
+      this.syncLayoutToDetail(panel);
     }
   }
 

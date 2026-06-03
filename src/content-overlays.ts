@@ -112,6 +112,15 @@ export function syncOverlays(s: ContentState) {
       label.classList.add('crev-label--flow');
     }
 
+    // Short, inline targets (breadcrumbs, nav links) are mostly text, so the
+    // top-right corner pill lands on top of that text. Tag those to overhang
+    // the top edge instead of covering content (see .crev-label--edge). Tall
+    // widgets keep the in-corner placement — it sits in their header padding.
+    const elHeight = (element as HTMLElement).offsetHeight;
+    if (element.tagName === 'A' || (elHeight > 0 && elHeight <= 26)) {
+      label.classList.add('crev-label--edge');
+    }
+
     // Pill is the affordance for "open this in the sidebar". Modifiers keep
     // the copy paths (Alt = ID, Shift = template, Ctrl = ref); double-click
     // opens the quick-inspector popup. Paint mode still owns clicks first.

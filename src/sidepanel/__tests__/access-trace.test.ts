@@ -38,14 +38,22 @@ describe('Access Trace overlay', () => {
       type: 'ACCESS_TRACE_RESULT', rid: '113',
       node: {
         element: 'TraceRequest', result: true, timedOut: false, details: {},
-        children: [{ element: 'Statement', result: true, timedOut: false, details: { statementIndex: '2' }, children: [] }],
+        children: [{
+          element: 'Statement', result: true, timedOut: false, details: { statementIndex: '2' },
+          children: [{ element: 'Subject', result: true, timedOut: false, details: { original: '[role:role_auditor]' }, children: [] }],
+        }],
       },
     } as any);
 
     const verdict = document.querySelector('.atrace-verdict');
     expect(verdict?.classList.contains('atrace-verdict--ok')).toBe(true);
     expect(verdict?.textContent).toContain('Granted');
-    expect(document.querySelector('.atrace-node')?.textContent).toContain('Statement');
+    // Rows read as "subject · index", not the bare word "Statement"; the
+    // Subject-match child is folded into that line.
+    const node = document.querySelector('.atrace-node')?.textContent ?? '';
+    expect(node).toContain('role:role_auditor');
+    expect(node).toContain('2');
+    expect(node).not.toContain('Statement');
   });
 
   it('switching the action re-fires the trace once a subject is set', () => {

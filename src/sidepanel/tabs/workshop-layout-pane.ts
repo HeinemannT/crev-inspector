@@ -434,6 +434,12 @@ export class WorkshopLayoutPane implements Tab {
   }
 
 
+  /** The orchestrator tells us whether the bottom (detail) half is showing an
+   *  object. When it is, the layout half drops its verbose "pick context" nag —
+   *  the user clearly already has something loaded. */
+  private detailActive = false;
+  setDetailActive(active: boolean): void { this.detailActive = active; }
+
   render(container: HTMLElement) {
     // Skip if the user is mid-drag on a layout-size bar. A re-render
     // would detach the bar element and break pointer capture. The
@@ -512,7 +518,9 @@ export class WorkshopLayoutPane implements Tab {
     // The workshop-ctx-strip above carries the picker + ambient
     // chips; the empty / loading states below render directly when no
     // context is set yet.
-    if (!this.contextRid && !this.contextLoading) {
+    if (!this.contextRid && !this.contextLoading && (this.pickingContext || !this.detailActive)) {
+      // Suppress the verbose prompt when a detail is already open below — it
+      // just nags above a loaded object. Still shown while actively picking.
       children.push(h('div', { class: 'empty-state empty-state--compact' },
         this.pickingContext
           ? 'Click any BMP element on the page to set it as context. Press Escape to cancel.'

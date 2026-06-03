@@ -58,13 +58,14 @@ interface State {
   tracing: boolean;
   traceError: string | null;
   expanded: Set<string>;              // node paths expanded
+  showAllRules: boolean;              // reveal the non-granting statements
   copied: boolean;
 }
 
 const state: State = {
   open: false, obj: null, subjects: null, subjectsLoading: false, canTrace: true, subjectsError: null,
   filter: '', pickerOpen: false, subject: null, action: 'READ',
-  result: null, tracing: false, traceError: null, expanded: new Set(), copied: false,
+  result: null, tracing: false, traceError: null, expanded: new Set(), showAllRules: false, copied: false,
 };
 
 /** Load the subject list once per session; cached across panel re-opens. A
@@ -115,6 +116,14 @@ export function routeAccessMessage(msg: InspectorMessage): boolean {
     state.tracing = false;
     state.result = msg.node;
     state.traceError = msg.error ?? null;
+    state.showAllRules = false;
+    state.expanded = new Set();
+    // Auto-expand the branch(es) that actually granted, so a GRANT shows *why*
+    // without hunting. A DENY has none → nothing auto-opens, and the dozens of
+    // non-granting statements stay collapsed behind a disclosure (renderResult).
+    if (msg.node) {
+      msg.node.children.forEach((c, i) => { if (c.result === true) state.expanded.add(`0.${i}`); });
+    }
     rerender();
     return true;
   }
@@ -254,19 +263,49 @@ function renderResult(): HTMLElement | null {
   if (!state.subject) return h('div', { class: 'atrace-result' }, h('div', { class: 'atrace-msg atrace-msg--hint' }, 'Pick a subject to trace.'));
   if (!state.result) return null;
   const granted = state.result.result === true;
-  const hasTree = state.result.children.length > 0;
+  const kids = state.result.children;
+  // Split top-level rules: the one(s) that granted vs the rest. A grant is
+  // decided by a statement returning true; everything else is noise you only
+  // want on demand. This is what keeps a deny from dumping 80+ identical ✗ rows.
+  const granting: { node: AccessTraceNode; i: number }[] = [];
+  const others: { node: AccessTraceNode; i: number }[] = [];
+  kids.forEach((node, i) => (node.result === true ? granting : others).push({ node, i }));
+  const action = ACTIONS.find(a => a.key === state.action)?.label ?? state.action;
+  const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? '' : 's'}`;
+  const summary = granted
+    ? `${granting.length} of ${kids.length} ${kids.length === 1 ? 'statement grants' : 'statements grant'} ${action}`
+    : `No statement grants ${action} · ${plural(kids.length, 'rule')} evaluated`;
+
   return h('div', { class: 'atrace-result' },
     h('div', { class: `atrace-verdict atrace-verdict--${granted ? 'ok' : 'no'}` },
       h('span', { class: 'atrace-verdict-icon' }, granted ? '✓' : '✗'),
       h('span', null, granted ? 'Granted' : 'Denied'),
-      h('span', { class: 'atrace-verdict-ctx' }, `${state.subject.name} · ${ACTIONS.find(a => a.key === state.action)?.label}`),
+      h('span', { class: 'atrace-verdict-ctx' }, `${state.subject.name} · ${action}`),
     ),
+    kids.length ? h('div', { class: 'atrace-summary' }, summary) : null,
     h('div', { class: 'atrace-toolbar' },
       h('button', { class: 'atrace-link', title: 'Copy verdict + tree as text', onClick: () => copyResult() }, state.copied ? 'Copied ✓' : 'Copy'),
-      hasTree ? h('button', { class: 'atrace-link', onClick: () => expandAll() }, 'Expand all') : null,
-      hasTree ? h('button', { class: 'atrace-link', onClick: () => collapseAll() }, 'Collapse all') : null,
+      kids.length ? h('button', { class: 'atrace-link', onClick: () => expandAll() }, 'Expand all') : null,
+      kids.length ? h('button', { class: 'atrace-link', onClick: () => collapseAll() }, 'Collapse all') : null,
     ),
-    h('div', { class: 'atrace-tree' }, ...state.result.children.map((c, i) => renderNode(c, `0.${i}`))),
+    h('div', { class: 'atrace-tree' },
+      // The granting branch(es) first — auto-expanded, the part you actually want.
+      ...granting.map(({ node, i }) => renderNode(node, `0.${i}`)),
+      // The rest hide behind a disclosure so the verdict isn't buried under
+      // dozens of identical non-granting rows. Full tree still one click + Copy away.
+      others.length
+        ? h('button', {
+            class: 'atrace-disclosure',
+            onClick: () => { state.showAllRules = !state.showAllRules; rerender(); },
+          },
+            h('span', { class: 'atrace-disclosure-tw' }, state.showAllRules ? '▾' : '▸'),
+            `${state.showAllRules ? 'Hide' : 'Show'} ${plural(others.length, granting.length ? 'non-granting statement' : 'evaluated statement')}`,
+          )
+        : null,
+      state.showAllRules
+        ? h('div', { class: 'atrace-others' }, ...others.map(({ node, i }) => renderNode(node, `0.${i}`)))
+        : null,
+    ),
   );
 }
 
@@ -279,12 +318,13 @@ function collectExpandable(nodes: AccessTraceNode[], prefix: string, out: string
 }
 function expandAll(): void {
   if (!state.result) return;
+  state.showAllRules = true; // Expand all implies revealing the collapsed rules too.
   const paths: string[] = [];
   collectExpandable(state.result.children, '0', paths);
   state.expanded = new Set(paths);
   rerender();
 }
-function collapseAll(): void { state.expanded.clear(); rerender(); }
+function collapseAll(): void { state.expanded.clear(); state.showAllRules = false; rerender(); }
 
 /** Serialize the trace to indented text for the clipboard. */
 function nodeToText(n: AccessTraceNode, depth: number): string {
@@ -308,24 +348,52 @@ function copyResult(): void {
   }).catch(() => { /* clipboard blocked — silent */ });
 }
 
+/** The Subject-match child of a statement carries the role/user the statement
+ *  is about, e.g. `original=[role:role_auditor]`. Pull the bare subject out. */
+function statementSubject(node: AccessTraceNode): string | null {
+  const subj = node.children.find(c => c.element === 'Subject' || typeof c.details?.original === 'string');
+  const raw = subj?.details?.original;
+  return raw ? raw.replace(/^\[|\]$/g, '').trim() || null : null;
+}
+
 function renderNode(node: AccessTraceNode, path: string): HTMLElement {
-  const hasKids = node.children.length > 0;
+  // A Statement's identity is *who it grants to* + its index — render that
+  // ("role:role_auditor · 3"), not the bare word "Statement (statementIndex=3)".
+  // The lone Subject-match child just restates the subject, so fold it away;
+  // statements that matched the subject keep their Action/condition children.
+  const isStatement = node.element === 'Statement';
+  const subject = isStatement ? statementSubject(node) : null;
+  const childEntries = node.children
+    .map((c, i) => ({ c, i }))
+    .filter(({ c }) => !(isStatement && c.element === 'Subject'));
+  const hasKids = childEntries.length > 0;
   const isOpen = state.expanded.has(path);
-  const detailKeys = Object.keys(node.details);
   const resClass = node.result === true ? 'ok' : node.result === false ? 'no' : 'na';
+
+  let label: string;
+  let detail: string | null;
+  if (isStatement) {
+    const idx = node.details.statementIndex;
+    label = subject ?? 'statement';
+    detail = idx != null ? `· ${idx}` : null;
+  } else {
+    label = elementLabel(node.element);
+    detail = Object.keys(node.details).length ? summariseDetails(node.details) : null;
+  }
+
   const row = h('div', {
     class: `atrace-node atrace-node--${resClass}`,
     onClick: hasKids ? () => { if (isOpen) state.expanded.delete(path); else state.expanded.add(path); rerender(); } : undefined,
   },
     h('span', { class: 'atrace-node-tw' }, hasKids ? (isOpen ? '▾' : '▸') : '·'),
     h('span', { class: 'atrace-node-icon' }, node.result === true ? '✓' : node.result === false ? '✗' : '–'),
-    h('span', { class: 'atrace-node-label' }, elementLabel(node.element)),
+    h('span', { class: 'atrace-node-label' }, label),
     node.timedOut ? h('span', { class: 'atrace-node-timeout' }, 'timed out') : null,
-    detailKeys.length ? h('span', { class: 'atrace-node-detail' }, summariseDetails(node.details)) : null,
+    detail ? h('span', { class: 'atrace-node-detail' }, detail) : null,
   );
   if (!hasKids || !isOpen) return row;
   return h('div', { class: 'atrace-node-group' }, row,
-    h('div', { class: 'atrace-node-kids' }, ...node.children.map((c, i) => renderNode(c, `${path}.${i}`))),
+    h('div', { class: 'atrace-node-kids' }, ...childEntries.map(({ c, i }) => renderNode(c, `${path}.${i}`))),
   );
 }
 
