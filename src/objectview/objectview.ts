@@ -27,6 +27,7 @@ import { resolveLayoutShortcut } from '../lib/layout-target';
 import { findPropDef } from '../sidepanel/pane-schema';
 import { displayValue } from '../sidepanel/property-editors';
 import { renderPropertyGroups, type PaneGroupsCtx } from '../sidepanel/sections/property-groups';
+import { renderReferenceSection } from '../sidepanel/sections/reference-edges';
 import { openColorPicker } from '../sidepanel/color-picker';
 import { confirmModal } from '../lib/modal';
 
@@ -52,6 +53,8 @@ interface PaneState {
   /** Code-bearing properties (expression / html / javascript) — keyed
    *  by property name. Populated from OBJECT_PANE_DATA.codeFields. */
   codeFields: Record<string, string>;
+  /** Reference-link props (table, dataReference, …) → the linked object. */
+  references: Record<string, ObjectPaneIdentity | null>;
   loaded: boolean;
   error: string | null;
   saving: boolean;
@@ -106,6 +109,7 @@ async function reloadPane(): Promise<void> {
       templateProps: {},
       siblings: [],
       codeFields: {},
+      references: {},
       loaded: true,
       error: 'Failed to load object',
       saving: false,
@@ -122,6 +126,7 @@ async function reloadPane(): Promise<void> {
     templateProps: msg.templateProps,
     siblings: msg.siblings,
     codeFields: msg.codeFields ?? {},
+    references: msg.references ?? {},
     loaded: true,
     error: (msg as any).error ?? null,
     saving: false,
@@ -365,6 +370,14 @@ function renderPropertiesArea(): HTMLElement {
   // the property in the floating editor.
   const codeSection = renderPopoutCodeSection();
   if (codeSection) wrap.appendChild(codeSection);
+
+  // References — shared with the side panel (was missing from the popout).
+  const refSection = renderReferenceSection({
+    type: s.identity.type,
+    references: s.references,
+    onNavigate: (rid) => { location.hash = rid; },
+  });
+  if (refSection) wrap.appendChild(refSection);
 
   return wrap;
 }
