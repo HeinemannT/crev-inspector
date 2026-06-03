@@ -945,6 +945,8 @@ export class DetailView {
       // scroll for the common case where the user only cares about one knob.
       if (group.title === 'Display') {
         wrap.appendChild(this.renderDisplayGroup(visibleDefs, titleChildren, panel, suppressTitle));
+      } else if (group.title === 'Visibility') {
+        wrap.appendChild(this.renderVisibilityGroup(visibleDefs, titleChildren, panel));
       } else {
         wrap.appendChild(
           h('div', { class: 'prop-group' },
@@ -1028,6 +1030,49 @@ export class DetailView {
       class: `prop-column-cell${dirty ? ' is-dirty' : ''}`,
       title: `${def.label} (server: ${original || 'none'})`,
     }, input, h('span', { class: 'prop-column-label' }, def.label));
+  }
+
+  /** Visibility group: "Visible" as a normal row, and the three responsive
+   *  toggles (large / medium / small) collapsed onto ONE row as an L/M/S
+   *  triplet — mirroring the Columns triplet, instead of three stacked rows. */
+  private renderVisibilityGroup(defs: PropDef[], titleChildren: (HTMLElement | string | null)[], panel: HTMLElement): HTMLElement {
+    const RESP: Record<string, string> = {
+      shownOnLargeDisplay: 'L', shownOnMediumDisplay: 'M', shownOnSmallDisplay: 'S',
+    };
+    const respDefs = defs.filter(d => d.prop in RESP);
+    const otherDefs = defs.filter(d => !(d.prop in RESP));
+    const tripletRow = respDefs.length > 0
+      ? h('div', { class: 'prop-row prop-row--columns', title: 'Show on large / medium / small screens' },
+          h('span', { class: 'prop-label' }, 'Show on'),
+          h('div', { class: 'prop-vis-triplet' },
+            ...respDefs.map(d => this.renderVisCell(d, RESP[d.prop], panel)),
+          ),
+        )
+      : null;
+    return h('div', { class: 'prop-group' },
+      h('div', { class: 'prop-group-title' }, ...titleChildren.filter(Boolean) as (HTMLElement | string)[]),
+      ...otherDefs.map(d => this.renderPropRow(d, panel)),
+      tripletRow,
+    );
+  }
+
+  /** One compact L/M/S toggle cell (switch + breakpoint letter under it). */
+  private renderVisCell(def: PropDef, label: string, panel: HTMLElement): HTMLElement {
+    const value = this.currentDisplayValue(def.prop);
+    const dirty = this.draft[def.prop] != null;
+    const checked = value === 'true' || value === 'TRUE';
+    return h('div', { class: 'prop-vis-cell' },
+      h('button', {
+        class: `prop-toggle prop-toggle--compact${checked ? ' prop-toggle--on' : ''}${dirty ? ' prop-cell--dirty' : ''}`,
+        role: 'switch',
+        'aria-checked': checked ? 'true' : 'false',
+        'aria-label': `Show on ${def.label.replace(/^Show on /, '')}`,
+        onClick: () => this.setDraft(def.prop, checked ? 'false' : 'true', panel),
+      },
+        h('span', { class: 'prop-toggle-track' }, h('span', { class: 'prop-toggle-thumb' })),
+      ),
+      h('span', { class: 'prop-vis-cell-label' }, label),
+    );
   }
 
   private renderPropRow(def: PropDef, panel: HTMLElement): HTMLElement {
