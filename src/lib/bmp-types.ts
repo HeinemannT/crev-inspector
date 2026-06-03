@@ -358,6 +358,48 @@ const JAVA_UTIL_HASHSET: JavaClassDesc = {
   parent: null,
 };
 
+// ── Access Trace (admin permission test) ────────────────────────
+// AccessTraceCommand(AccessTraceRequestDTO, SimpleCalculationContext). All
+// records → serialVersionUID = 0L (confirmed via `serialver` against the real
+// 5.6.7.2 bmp-dto). Fields in Java's canonical stream order (primitives first,
+// then references) — deserialization matches by name, so this is belt-and-
+// suspenders. The enum + List + Map are serialized by the existing writers.
+
+const ACCESS_TRACE_ACTION_DTO: JavaClassDesc = {
+  name: 'com.corporater.bmp.dto.command.access.AccessTraceActionDTO',
+  uid: 0n,
+  flags: SC_SERIALIZABLE | SC_ENUM,
+  fields: [],
+  parent: JAVA_LANG_ENUM,
+};
+
+const ACCESS_TRACE_REQUEST_DTO: JavaClassDesc = {
+  name: 'com.corporater.bmp.dto.command.access.AccessTraceRequestDTO',
+  uid: 0n,
+  flags: SC_SERIALIZABLE,
+  fields: [
+    { name: 'indexBasedEvaluation', type: 'Z' },
+    { name: 'requestDepth', type: 'I' },
+    { name: 'action', type: 'L', className: 'Lcom/corporater/bmp/dto/command/access/AccessTraceActionDTO;' },
+    { name: 'allowedStatementPaths', type: 'L', className: 'Ljava/util/List;' },
+    { name: 'entityRid', type: 'L', className: 'Lcom/corporater/base/generation/system/Rid;' },
+    { name: 'resourceRids', type: 'L', className: 'Ljava/util/List;' },
+    { name: 'updates', type: 'L', className: 'Ljava/util/Map;' },
+  ],
+  parent: null,
+};
+
+const ACCESS_TRACE_COMMAND: JavaClassDesc = {
+  name: 'com.corporater.bmp.dto.command.access.AccessTraceCommand',
+  uid: 0n,
+  flags: SC_SERIALIZABLE,
+  fields: [
+    { name: 'accessTraceRequestDTO', type: 'L', className: 'Lcom/corporater/bmp/dto/command/access/AccessTraceRequestDTO;' },
+    { name: 'context', type: 'L', className: 'Lcom/corporater/bmp/base/context/SimpleCalculationContext;' },
+  ],
+  parent: null,
+};
+
 // ── Helpers ─────────────────────────────────────────────────────
 
 /** Build a Rid object for serialization */
@@ -400,6 +442,35 @@ function makeContext(opts?: {
     objectRid: opts?.objectRid ? makeRid(opts.objectRid) : zeroRid,
     orgRid: opts?.orgRid ? makeRid(opts.orgRid) : zeroRid,
     period,
+  };
+}
+
+export type AccessTraceAction = 'READ' | 'UPDATE' | 'DELETE' | 'CREATE';
+
+/** Build an AccessTraceCommand — the admin permission test (the engine behind
+ *  Config Studio's Access Trace). Traces whether `subjectRid` (a user OR role)
+ *  has `action` access to `resourceRid`, returning a recursive PBAC decision
+ *  tree. The trace runs as the logged-in user FOR the given subject — no
+ *  impersonation. */
+export function makeAccessTraceCommand(
+  resourceRid: string,
+  subjectRid: string,
+  action: AccessTraceAction = 'READ',
+  depth = 10,
+): any {
+  return {
+    $type: 'com.corporater.bmp.dto.command.access.AccessTraceCommand',
+    accessTraceRequestDTO: {
+      $type: 'com.corporater.bmp.dto.command.access.AccessTraceRequestDTO',
+      indexBasedEvaluation: false,
+      requestDepth: depth,
+      action: new JavaEnum(ACCESS_TRACE_ACTION_DTO, action),
+      allowedStatementPaths: { $type: 'java.util.ArrayList', $elements: [] },
+      entityRid: makeRid(subjectRid),
+      resourceRids: { $type: 'java.util.ArrayList', $elements: [makeRid(resourceRid)] },
+      updates: { $type: 'java.util.HashMap', $entries: [] },
+    },
+    context: makeContext({ objectRid: BigInt(resourceRid) }),
   };
 }
 
@@ -665,6 +736,11 @@ export function registerBmpTypes() {
   registerType({ desc: INTEGRATION_UPDATE_COMMAND });
   registerType({ desc: EXTENDED_EXECUTE_COMMAND });
   registerType({ desc: TREE_ITEM_COMMAND });
+
+  // Access trace (admin permission test)
+  registerType({ desc: ACCESS_TRACE_ACTION_DTO });
+  registerType({ desc: ACCESS_TRACE_REQUEST_DTO });
+  registerType({ desc: ACCESS_TRACE_COMMAND });
 
   // Responses
   registerType({

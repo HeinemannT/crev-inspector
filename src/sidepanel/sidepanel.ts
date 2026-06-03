@@ -17,6 +17,7 @@ import { onColorSetsData } from './color-picker';
 import { initReferenceView, showReferenceView, handleReferenceMessage, isReferenceActive } from './reference-view';
 import { S, sendMessage, getActivePanel, getTabPanel, tabPanelId, onPortMessage, onReconnect, connectPanel } from './state';
 import { dispatchBroadcast } from '../lib/handler-registry';
+import { routeAccessMessage } from './access-trace';
 import { showProfileSwitcher } from './profile-switcher';
 import type { Tab } from './tabs/tab-types';
 import { ConnectTab } from './tabs/connect-tab';
@@ -104,6 +105,9 @@ initReferenceView(
 // ── Message routing ──────────────────────────────────────────────
 
 onPortMessage((msg: InspectorMessage) => {
+  // Access-trace overlay claims its own responses regardless of active tab.
+  if ((msg.type === 'ACCESS_SUBJECTS_DATA' || msg.type === 'ACCESS_TRACE_RESULT') && routeAccessMessage(msg)) return;
+
   // Reference view gets first crack (code search results)
   if (isReferenceActive()) {
     const panel = getActivePanel();

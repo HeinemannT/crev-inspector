@@ -289,6 +289,31 @@ export interface ObjectPaneIdentity {
  *  not the instance). Shared by ObjectPaneData, the OBJECT_PANE_DATA message,
  *  and the detail-view state so the four sites can't drift. */
 export type ObjectPaneCard = ObjectPaneIdentity & { viaTemplate: boolean };
+
+// ── Access Trace (admin permission test) ─────────────────────────
+
+export type AccessTraceAction = 'READ' | 'UPDATE' | 'DELETE' | 'CREATE';
+
+/** One node of the PBAC decision tree returned by AccessTraceCommand.
+ *  `element` is the node kind (TraceRequest / Statement / Subject / Action /
+ *  HasAccessTo / All / Any / Equal / Contains…), `result` is whether access is
+ *  granted at this node (null when not a boolean leaf), `details` is the
+ *  type-specific "why" (e.g. Statement → policyRid / statementIndex). */
+export interface AccessTraceNode {
+  element: string;
+  result: boolean | null;
+  timedOut: boolean;
+  details: Record<string, string>;
+  children: AccessTraceNode[];
+}
+
+/** A user or role that can be tested as the trace subject. */
+export interface AccessSubject {
+  rid: string;
+  name: string;
+  kind: 'user' | 'role';
+  businessId?: string;
+}
 export interface ObjectPaneSiblingMsg {
   rid: string;
   businessId: string;
@@ -319,7 +344,12 @@ export type ObjectPaneMessage =
   | { type: 'APPLY_OBJECT_CHANGES'; rid: string; target: 'instance' | 'template'; changes: Record<string, string | number | boolean> }
   | { type: 'APPLY_CHANGES_RESULT'; rid: string; ok: boolean; error?: string }
   | { type: 'FETCH_FLOW_CHAIN'; rid: string; objectType: string }
-  | { type: 'FLOW_CHAIN_DATA'; rid: string; chain: FlowChainMsg | null; error?: string };
+  | { type: 'FLOW_CHAIN_DATA'; rid: string; chain: FlowChainMsg | null; error?: string }
+  // Access trace (admin permission test)
+  | { type: 'FETCH_ACCESS_SUBJECTS' }
+  | { type: 'ACCESS_SUBJECTS_DATA'; subjects: AccessSubject[]; canTrace: boolean; error?: string }
+  | { type: 'REQUEST_ACCESS_TRACE'; rid: string; subjectRid: string; action: AccessTraceAction }
+  | { type: 'ACCESS_TRACE_RESULT'; rid: string; node: AccessTraceNode | null; error?: string };
 
 // Flow walker — InputView/ActionButton/Label downstream graph
 export interface FlowCodeFieldMsg {

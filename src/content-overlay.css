@@ -246,6 +246,14 @@
   word-break: break-all;
 }
 
+#crev-tooltip .crev-tt-hint {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid #333;
+  color: #808080;
+  font-size: 9px;
+}
+
 /* ── Environment Indicator Tag ─────────────────────────── */
 
 #crev-env-tag {

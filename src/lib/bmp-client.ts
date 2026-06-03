@@ -8,12 +8,13 @@ import {
   makeUpdateCommand,
   makeExtendedExecuteCommand,
   makeTreeItemCommand,
+  makeAccessTraceCommand,
   parseEcResults,
   parseTreeNodeInfo,
 } from './bmp-types';
 import { deserializeStream } from './java-serial';
 import { COLOR_LINK_PROPS, colorLinkBid } from './types';
-import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity } from './types';
+import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessTraceAction, AccessTraceNode, AccessSubject } from './types';
 import { log } from './logger';
 import { HEALTH_TIMEOUT, BATCH_CHUNK_SIZE, MAX_PARALLEL } from './constants';
 import { BmpAuth } from './bmp-auth';
@@ -208,6 +209,72 @@ function parseIdentityBlock(data: Record<string, string | undefined>, prefix: st
   };
 }
 
+// ── Access-trace parsing ──────────────────────────────────────────
+// The deserialized tree uses boxed java.lang.Boolean ({value}), HashMaps
+// ({$map} / {$entries}), and ArrayLists ({$elements}); java.time.Duration is
+// skipped by the deserializer (cosmetic). These coercers normalise that into
+// a clean AccessTraceNode the UI can render directly.
+
+function atCoerceBool(v: unknown): boolean | null {
+  if (typeof v === 'boolean') return v;
+  if (v && typeof v === 'object' && typeof (v as { value?: unknown }).value === 'boolean') {
+    return (v as { value: boolean }).value;
+  }
+  return null;
+}
+
+function atStringify(v: unknown): string {
+  if (v == null) return '';
+  if (typeof v === 'object') {
+    const o = v as { value?: unknown; identifier?: unknown };
+    if (o.value != null) return String(o.value);
+    if (o.identifier != null) return String(o.identifier);
+    return '';
+  }
+  return String(v);
+}
+
+function atCoerceStringMap(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!v || typeof v !== 'object') return out;
+  const o = v as { $map?: Record<string, unknown>; $entries?: [unknown, unknown][] };
+  if (o.$map && typeof o.$map === 'object') {
+    for (const [k, val] of Object.entries(o.$map)) out[String(k)] = atStringify(val);
+  } else if (Array.isArray(o.$entries)) {
+    for (const [k, val] of o.$entries) out[atStringify(k)] = atStringify(val);
+  }
+  return out;
+}
+
+export function parseAccessTraceNode(dto: any): AccessTraceNode {
+  const kids = dto?.childrenDTOs?.$elements ?? dto?.childrenDTOs ?? [];
+  return {
+    element: String(dto?.element ?? ''),
+    result: atCoerceBool(dto?.result),
+    timedOut: dto?.timedOut === true,
+    details: atCoerceStringMap(dto?.details),
+    children: Array.isArray(kids) ? kids.map(parseAccessTraceNode) : [],
+  };
+}
+
+/** Pull the first trace tree out of a deserialized AccessTraceCommand response
+ *  (`ArrayList<IntegrationObjectResponse>` → `.response.traces`). Throws on a
+ *  server exception. Factored out so the unwrap is unit-testable without BMP. */
+export function extractAccessTrace(objects: any[]): AccessTraceNode | null {
+  for (const obj of objects) {
+    if (obj?.$class?.includes('ServerExceptionResponse')) {
+      throw new Error(obj.message ?? 'Access trace was rejected by BMP');
+    }
+    if (obj?.$class === 'java.util.ArrayList') {
+      const resp = obj.$elements?.[0]?.response;
+      const tracesRaw = resp?.traces;
+      const traces = tracesRaw?.$elements ?? tracesRaw;
+      if (Array.isArray(traces) && traces.length > 0) return parseAccessTraceNode(traces[0]);
+    }
+  }
+  return null;
+}
+
 /** Parse `java.awt.Color[r=219,g=132,b=61]` → `rgb(219,132,61)`, else ''. */
 export function parseAwtColor(s: string): string {
   const m = /r=(\d+),\s*g=(\d+),\s*b=(\d+)/.exec(s);
@@ -341,6 +408,50 @@ export class BmpClient {
     } catch (e) {
       return { ok: false, error: this.transport.formatError(e) };
     }
+  }
+
+  // ── Access trace (admin permission test) ──────────────────────
+
+  /** Run AccessTraceCommand: trace whether `subjectRid` (a user OR role) has
+   *  `action` access to `rid`. Returns the PBAC decision tree, or throws on a
+   *  server-side rejection (e.g. insufficient privilege). */
+  async fetchAccessTrace(
+    rid: string,
+    subjectRid: string,
+    action: AccessTraceAction = 'READ',
+    signal?: AbortSignal,
+  ): Promise<AccessTraceNode | null> {
+    const buffer = await this.transport.sendCommands([makeAccessTraceCommand(rid, subjectRid, action)], signal);
+    return extractAccessTrace(deserializeStream(buffer));
+  }
+
+  /** List users + roles (the possible trace subjects) via EC, sorted by name. */
+  async listAccessSubjects(): Promise<AccessSubject[]> {
+    const ec = [
+      '_out := ""',
+      'root.user.children().forEach(_u:',
+      '     _out := _out + "user|||" + _u.rid + "|||" + _u.id.whenMissing("") + "|||" + _u.name.whenMissing("") + "\\n"',
+      ')',
+      'root.role.children().forEach(_r:',
+      '     _out := _out + "role|||" + _r.rid + "|||" + _r.id.whenMissing("") + "|||" + _r.name.whenMissing("") + "\\n"',
+      ')',
+      '_out',
+    ].join('\n');
+    const result = await this.executeEc(ec);
+    const subjects: AccessSubject[] = [];
+    for (const line of (result.log ?? '').split('\n')) {
+      const parts = line.split('|||');
+      if (parts.length < 4) continue;
+      const [kind, srid, bid, name] = parts;
+      if ((kind !== 'user' && kind !== 'role') || !srid || srid.trim() === 'MISSING') continue;
+      subjects.push({
+        rid: srid.trim(),
+        name: (name?.trim() || bid?.trim() || srid.trim()),
+        kind,
+        businessId: bid?.trim() || undefined,
+      });
+    }
+    return subjects.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   // ── EC operations ────────────────────────────────────────────

@@ -24,6 +24,7 @@ import {
 } from './property-editors';
 import { openColorPicker, lookupColor } from './color-picker';
 import { renderPaneTree, type PaneTreeData } from './pane-tree';
+import { openAccessTrace } from './access-trace';
 import { renderCodeSection } from './sections/code-fields';
 import { renderReferenceSection } from './sections/reference-edges';
 import { renderFlowSection } from './sections/flow-walker';
@@ -608,6 +609,12 @@ export class DetailView {
               onClick: () => this.sendMessage({ type: 'OPEN_EDITOR', rid: s.rid, property: editTargetProp! }),
             }, 'Edit ↗')
           : null,
+        // "Test access" — admin permission test for this object (who can do what).
+        h('button', {
+          class: 'detail-access-btn',
+          title: 'Test access — trace whether a user/role can read/write/add/delete this object',
+          onClick: () => openAccessTrace({ rid: s.rid, name: s.identity.name, type: s.identity.type }),
+        }, 'Access ↗'),
         s.identity.businessId ? h('span', { class: 'pane-id-bid' }, s.identity.businessId) : null,
         h('button', {
           class: `detail-star${isPinned ? ' active' : ''}`,

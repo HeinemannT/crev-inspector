@@ -1,0 +1,339 @@
+/**
+ * Access Trace overlay — the admin permission test, in-panel.
+ *
+ * Launched from the detail-view ("Test access"). A focused, dismissible card:
+ * object (auto) → subject (user/role) + action → verdict + PBAC decision tree.
+ * Kept deliberately small: auto-runs when subject+action are set, no clutter.
+ *
+ * Self-contained: sends FETCH_ACCESS_SUBJECTS / REQUEST_ACCESS_TRACE; the
+ * sidepanel routes ACCESS_SUBJECTS_DATA / ACCESS_TRACE_RESULT back via
+ * `routeAccessMessage`.
+ */
+import { h, render } from '../lib/dom';
+import { sendMessage } from './state';
+import { getTypeAbbr, getTypeColor } from '../lib/types';
+import type { AccessSubject, AccessTraceAction, AccessTraceNode, InspectorMessage } from '../lib/types';
+
+interface TraceObject { rid: string; name: string; type: string }
+
+const ACTIONS: { key: AccessTraceAction; label: string }[] = [
+  { key: 'READ', label: 'Read' },
+  { key: 'UPDATE', label: 'Write' },
+  { key: 'CREATE', label: 'Add' },
+  { key: 'DELETE', label: 'Delete' },
+];
+
+/** Friendly label for a trace node's `element` kind. */
+function elementLabel(el: string): string {
+  switch (el) {
+    case 'TraceRequest': return 'Access request';
+    case 'Access request': return 'Access request';
+    case 'Statement': return 'Statement';
+    case 'Subject': return 'Subject match';
+    case 'Action': return 'Action match';
+    case 'HasAccessTo': return 'Inherited (HasAccessTo)';
+    case 'All': return 'All of';
+    case 'Any': return 'Any of';
+    case 'Equal': return 'Equals';
+    case 'ExactTypeOf': return 'Exact type';
+    case 'Contains': return 'Contains';
+    case 'ContainsAny': return 'Contains any';
+    case 'ContainsAll': return 'Contains all';
+    default: return el || 'Condition';
+  }
+}
+
+interface State {
+  open: boolean;
+  obj: TraceObject | null;
+  subjects: AccessSubject[] | null;   // null = not loaded (cached once loaded)
+  subjectsLoading: boolean;
+  canTrace: boolean;
+  subjectsError: string | null;
+  filter: string;
+  pickerOpen: boolean;
+  subject: AccessSubject | null;
+  action: AccessTraceAction;
+  result: AccessTraceNode | null;
+  tracing: boolean;
+  traceError: string | null;
+  expanded: Set<string>;              // node paths expanded
+  copied: boolean;
+}
+
+const state: State = {
+  open: false, obj: null, subjects: null, subjectsLoading: false, canTrace: true, subjectsError: null,
+  filter: '', pickerOpen: false, subject: null, action: 'READ',
+  result: null, tracing: false, traceError: null, expanded: new Set(), copied: false,
+};
+
+/** Load the subject list once per session; cached across panel re-opens. A
+ *  transient failure leaves `subjects` null so the next open (or Retry) refetches. */
+function loadSubjects(): void {
+  if (state.subjects !== null || state.subjectsLoading) return;
+  state.subjectsLoading = true;
+  state.subjectsError = null;
+  sendMessage({ type: 'FETCH_ACCESS_SUBJECTS' });
+}
+
+let rootEl: HTMLElement | null = null;
+
+export function isAccessTraceOpen(): boolean { return state.open; }
+
+export function openAccessTrace(obj: TraceObject): void {
+  state.open = true;
+  state.obj = obj;
+  state.subject = null;
+  state.result = null;
+  state.traceError = null;
+  state.tracing = false;
+  state.filter = '';
+  state.pickerOpen = false;
+  state.expanded = new Set();
+  loadSubjects();
+  mount();
+}
+
+export function closeAccessTrace(): void {
+  state.open = false;
+  if (rootEl) { rootEl.remove(); rootEl = null; }
+}
+
+/** Route the two access-trace responses from the sidepanel message loop. */
+export function routeAccessMessage(msg: InspectorMessage): boolean {
+  if (msg.type === 'ACCESS_SUBJECTS_DATA') {
+    state.subjectsLoading = false;
+    state.canTrace = msg.canTrace;
+    state.subjectsError = msg.error ?? null;
+    // On error keep `subjects` null so the next open / Retry refetches.
+    state.subjects = msg.error ? null : msg.subjects;
+    if (state.open) rerender();
+    return true;
+  }
+  if (msg.type === 'ACCESS_TRACE_RESULT') {
+    if (!state.open || !state.obj || msg.rid !== state.obj.rid) return true;
+    state.tracing = false;
+    state.result = msg.node;
+    state.traceError = msg.error ?? null;
+    rerender();
+    return true;
+  }
+  return false;
+}
+
+function runTrace(): void {
+  if (!state.obj || !state.subject) return;
+  state.tracing = true;
+  state.result = null;
+  state.traceError = null;
+  rerender();
+  sendMessage({ type: 'REQUEST_ACCESS_TRACE', rid: state.obj.rid, subjectRid: state.subject.rid, action: state.action });
+}
+
+function mount(): void {
+  closeMountOnly();
+  rootEl = h('div', { class: 'atrace-backdrop', onClick: (e: MouseEvent) => { if (e.target === rootEl) closeAccessTrace(); } });
+  document.body.appendChild(rootEl);
+  document.addEventListener('keydown', onKey);
+  rerender();
+}
+function closeMountOnly(): void { if (rootEl) { rootEl.remove(); rootEl = null; } }
+function onKey(e: KeyboardEvent): void {
+  if (!state.open) { document.removeEventListener('keydown', onKey); return; }
+  if (e.key === 'Escape') { e.stopPropagation(); closeAccessTrace(); document.removeEventListener('keydown', onKey); }
+}
+
+function rerender(): void {
+  if (!rootEl) return;
+  render(rootEl, h('div', { class: 'atrace-card', onClick: (e: MouseEvent) => e.stopPropagation() },
+    renderHeader(),
+    renderBody(),
+  ));
+}
+
+function renderHeader(): HTMLElement {
+  const o = state.obj!;
+  return h('div', { class: 'atrace-head' },
+    h('span', { class: 'atrace-title' }, 'Test access'),
+    h('span', { class: 'atrace-obj' },
+      h('span', { class: 'pane-id-chip', style: `--type-color:${getTypeColor(o.type)}`, title: o.type }, getTypeAbbr(o.type)),
+      h('span', { class: 'atrace-obj-name', title: o.name }, o.name || '(unnamed)'),
+    ),
+    h('button', { class: 'atrace-close', title: 'Close (Esc)', onClick: () => closeAccessTrace() }, '✕'),
+  );
+}
+
+function renderBody(): HTMLElement {
+  if (state.subjectsLoading) {
+    return h('div', { class: 'atrace-body' }, h('div', { class: 'atrace-msg' }, 'Loading subjects…'));
+  }
+  if (state.subjectsError) {
+    return h('div', { class: 'atrace-body' },
+      h('div', { class: 'atrace-msg atrace-msg--err' },
+        'Couldn’t load subjects. ',
+        h('button', { class: 'atrace-link', onClick: () => { loadSubjects(); rerender(); } }, 'Retry'),
+        h('div', { class: 'atrace-msg-sub' }, state.subjectsError),
+      ),
+    );
+  }
+  if (!state.canTrace) {
+    return h('div', { class: 'atrace-body' },
+      h('div', { class: 'atrace-msg atrace-msg--warn' },
+        'Access tracing needs admin / Configuration-Studio access on this BMP session.',
+      ),
+    );
+  }
+  return h('div', { class: 'atrace-body' },
+    renderControls(),
+    renderResult(),
+  );
+}
+
+function renderControls(): HTMLElement {
+  return h('div', { class: 'atrace-controls' },
+    h('div', { class: 'atrace-row' },
+      h('span', { class: 'atrace-lbl' }, 'Subject'),
+      renderSubjectPicker(),
+    ),
+    h('div', { class: 'atrace-row' },
+      h('span', { class: 'atrace-lbl' }, 'Action'),
+      h('div', { class: 'atrace-seg' },
+        ...ACTIONS.map(a => h('button', {
+          class: `atrace-seg-btn${state.action === a.key ? ' active' : ''}`,
+          onClick: () => { state.action = a.key; if (state.subject) runTrace(); else rerender(); },
+        }, a.label)),
+      ),
+    ),
+  );
+}
+
+function renderSubjectPicker(): HTMLElement {
+  if (state.subject && !state.pickerOpen) {
+    return h('div', { class: 'atrace-subject-chosen' },
+      h('span', { class: `atrace-kind atrace-kind--${state.subject.kind}` }, state.subject.kind),
+      h('span', { class: 'atrace-subject-name' }, state.subject.name),
+      h('button', { class: 'atrace-link', onClick: () => { state.pickerOpen = true; state.filter = ''; rerender(); } }, 'change'),
+    );
+  }
+  const all = state.subjects ?? [];
+  const q = state.filter.trim().toLowerCase();
+  const matches = (q ? all.filter(s => s.name.toLowerCase().includes(q) || (s.businessId ?? '').toLowerCase().includes(q)) : all).slice(0, 50);
+  const input = h('input', {
+    class: 'atrace-search', type: 'text', placeholder: 'Search user or role…', value: state.filter,
+    onInput: (e: Event) => { state.filter = (e.target as HTMLInputElement).value; renderListOnly(matchesList()); },
+  }) as HTMLInputElement;
+  const list = h('div', { class: 'atrace-list' }, ...matches.map(renderSubjectOption));
+  // Stash the list node so input keystrokes can refresh just it (no focus loss).
+  setTimeout(() => input.focus(), 0);
+  return h('div', { class: 'atrace-picker' }, input, list);
+}
+
+function matchesList(): AccessSubject[] {
+  const all = state.subjects ?? [];
+  const q = state.filter.trim().toLowerCase();
+  return (q ? all.filter(s => s.name.toLowerCase().includes(q) || (s.businessId ?? '').toLowerCase().includes(q)) : all).slice(0, 50);
+}
+function renderListOnly(matches: AccessSubject[]): void {
+  const list = rootEl?.querySelector('.atrace-list');
+  if (list) render(list as HTMLElement, ...matches.map(renderSubjectOption));
+}
+function renderSubjectOption(s: AccessSubject): HTMLElement {
+  return h('button', {
+    class: 'atrace-opt',
+    onClick: () => { state.subject = s; state.pickerOpen = false; runTrace(); },
+  },
+    h('span', { class: `atrace-kind atrace-kind--${s.kind}` }, s.kind),
+    h('span', { class: 'atrace-opt-name' }, s.name),
+    s.businessId ? h('span', { class: 'atrace-opt-bid' }, s.businessId) : null,
+  );
+}
+
+function renderResult(): HTMLElement | null {
+  if (state.tracing) return h('div', { class: 'atrace-result' }, h('div', { class: 'atrace-msg' }, 'Tracing…'));
+  if (state.traceError) return h('div', { class: 'atrace-result' }, h('div', { class: 'atrace-msg atrace-msg--err' }, state.traceError));
+  if (!state.subject) return h('div', { class: 'atrace-result' }, h('div', { class: 'atrace-msg atrace-msg--hint' }, 'Pick a subject to trace.'));
+  if (!state.result) return null;
+  const granted = state.result.result === true;
+  const hasTree = state.result.children.length > 0;
+  return h('div', { class: 'atrace-result' },
+    h('div', { class: `atrace-verdict atrace-verdict--${granted ? 'ok' : 'no'}` },
+      h('span', { class: 'atrace-verdict-icon' }, granted ? '✓' : '✗'),
+      h('span', null, granted ? 'Granted' : 'Denied'),
+      h('span', { class: 'atrace-verdict-ctx' }, `${state.subject.name} · ${ACTIONS.find(a => a.key === state.action)?.label}`),
+    ),
+    h('div', { class: 'atrace-toolbar' },
+      h('button', { class: 'atrace-link', title: 'Copy verdict + tree as text', onClick: () => copyResult() }, state.copied ? 'Copied ✓' : 'Copy'),
+      hasTree ? h('button', { class: 'atrace-link', onClick: () => expandAll() }, 'Expand all') : null,
+      hasTree ? h('button', { class: 'atrace-link', onClick: () => collapseAll() }, 'Collapse all') : null,
+    ),
+    h('div', { class: 'atrace-tree' }, ...state.result.children.map((c, i) => renderNode(c, `0.${i}`))),
+  );
+}
+
+/** Collect the paths of every node that has children (for Expand all). */
+function collectExpandable(nodes: AccessTraceNode[], prefix: string, out: string[]): void {
+  nodes.forEach((n, i) => {
+    const p = `${prefix}.${i}`;
+    if (n.children.length) { out.push(p); collectExpandable(n.children, p, out); }
+  });
+}
+function expandAll(): void {
+  if (!state.result) return;
+  const paths: string[] = [];
+  collectExpandable(state.result.children, '0', paths);
+  state.expanded = new Set(paths);
+  rerender();
+}
+function collapseAll(): void { state.expanded.clear(); rerender(); }
+
+/** Serialize the trace to indented text for the clipboard. */
+function nodeToText(n: AccessTraceNode, depth: number): string {
+  const icon = n.result === true ? '✓' : n.result === false ? '✗' : '–';
+  const det = Object.entries(n.details).map(([k, v]) => `${k}=${v}`).join(', ');
+  let line = `${'  '.repeat(depth)}${icon} ${elementLabel(n.element)}${det ? ` (${det})` : ''}${n.timedOut ? ' [timed out]' : ''}`;
+  for (const c of n.children) line += '\n' + nodeToText(c, depth + 1);
+  return line;
+}
+function copyResult(): void {
+  const { result: r, obj: o, subject: s } = state;
+  if (!r || !o || !s) return;
+  const verdict = r.result === true ? 'GRANTED' : 'DENIED';
+  const action = ACTIONS.find(a => a.key === state.action)?.label;
+  const header = `${verdict} — ${s.kind} "${s.name}" · ${action} — ${o.type} "${o.name}"`;
+  const body = r.children.map(c => nodeToText(c, 1)).join('\n');
+  void navigator.clipboard?.writeText(`${header}\n${body}`).then(() => {
+    state.copied = true;
+    rerender();
+    setTimeout(() => { state.copied = false; if (rootEl) rerender(); }, 1400);
+  }).catch(() => { /* clipboard blocked — silent */ });
+}
+
+function renderNode(node: AccessTraceNode, path: string): HTMLElement {
+  const hasKids = node.children.length > 0;
+  const isOpen = state.expanded.has(path);
+  const detailKeys = Object.keys(node.details);
+  const resClass = node.result === true ? 'ok' : node.result === false ? 'no' : 'na';
+  const row = h('div', {
+    class: `atrace-node atrace-node--${resClass}`,
+    onClick: hasKids ? () => { if (isOpen) state.expanded.delete(path); else state.expanded.add(path); rerender(); } : undefined,
+  },
+    h('span', { class: 'atrace-node-tw' }, hasKids ? (isOpen ? '▾' : '▸') : '·'),
+    h('span', { class: 'atrace-node-icon' }, node.result === true ? '✓' : node.result === false ? '✗' : '–'),
+    h('span', { class: 'atrace-node-label' }, elementLabel(node.element)),
+    node.timedOut ? h('span', { class: 'atrace-node-timeout' }, 'timed out') : null,
+    detailKeys.length ? h('span', { class: 'atrace-node-detail' }, summariseDetails(node.details)) : null,
+  );
+  if (!hasKids || !isOpen) return row;
+  return h('div', { class: 'atrace-node-group' }, row,
+    h('div', { class: 'atrace-node-kids' }, ...node.children.map((c, i) => renderNode(c, `${path}.${i}`))),
+  );
+}
+
+/** A short one-line summary of the most useful detail keys. */
+function summariseDetails(d: Record<string, string>): string {
+  const pick = (k: string) => (d[k] ? `${k}=${d[k]}` : '');
+  const parts = [pick('subject'), pick('action'), pick('statementIndex'), pick('reference'), pick('type')].filter(Boolean);
+  if (parts.length) return parts.join(' · ');
+  // Fall back to the first 1-2 entries.
+  return Object.entries(d).slice(0, 2).map(([k, v]) => `${k}=${v}`).join(' · ');
+}

@@ -26,7 +26,8 @@ function createActionStrip(rid: string, enrichment: { businessId?: string; type?
   const ecBtn = document.createElement('button');
   ecBtn.className = 'crev-ec-btn';
   ecBtn.innerHTML = ICON_CODE;
-  ecBtn.title = 'Open in editor';
+  // No native `title` — it painted a browser tooltip over the hover info card.
+  // `aria-label` keeps the action discoverable to screen readers.
   ecBtn.setAttribute('aria-label', 'Open in editor');
   ecBtn.addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation();
@@ -52,8 +53,8 @@ function createCascadePill(cascade: { rid: string; businessId?: string; type?: s
   const text = document.createElement('span');
   text.className = 'crev-label-text';
   text.textContent = cascade.businessId ?? cascade.name ?? getTypeAbbr(cascade.type);
-  const typeLabel = cascade.type ?? 'object';
-  pill.title = `Open ${typeLabel}${cascade.name ? `: ${cascade.name}` : ''} in sidebar`;
+  // No native `title` — the hover info card (content-tooltip) covers this; a
+  // browser tooltip would just paint over it.
   pill.appendChild(text);
 
   text.addEventListener('click', (e) => {
@@ -100,7 +101,8 @@ export function syncOverlays(s: ContentState) {
     const labelText = document.createElement('span');
     labelText.className = 'crev-label-text';
     labelText.textContent = enrichment?.businessId ?? enrichment?.name ?? getTypeAbbr(enrichment?.type);
-    labelText.title = 'Click: open in sidebar \u00b7 Alt: copy RID \u00b7 Shift: copy template \u00b7 Ctrl: copy reference \u00b7 Double-click: inspector';
+    // The click-modifier hints moved into the hover info card (content-tooltip)
+    // \u2014 a native `title` here painted a browser tooltip over that very card.
     label.appendChild(labelText);
 
     // Flow-graph indicator \u2014 for widgets that have a chain to walk

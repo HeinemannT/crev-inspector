@@ -19,6 +19,7 @@ import './handlers/inspect';
 import './handlers/profiles';
 import './handlers/objects';
 import './handlers/ec';
+import './handlers/access';
 import './handlers/enrichment';
 import './handlers/paint';
 import './handlers/detection';
