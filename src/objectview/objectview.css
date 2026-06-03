@@ -78,23 +78,6 @@ body {
   flex-shrink: 0;
 }
 
-.ov-name {
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semi);
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-
-.ov-header-bid {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--text-3);
-  flex-shrink: 0;
-}
 
 /* .btn base + variants defined in components.css */
 
