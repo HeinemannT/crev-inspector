@@ -229,7 +229,7 @@ body {
 
 /* Block matching highlight */
 .cm-ec-block-match {
-  background: rgba(186, 15, 254, 0.15);
+  background: rgba(139, 92, 246, 0.15);
   border-bottom: 2px solid var(--accent);
 }
 

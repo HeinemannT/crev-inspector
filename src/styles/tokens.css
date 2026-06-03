@@ -47,21 +47,23 @@
   --text-disabled: #5a5c63;
 
   /* ── Accent ───────────────────────────────────────────
-   * One hue (violet) varied only by lightness for resting states; the
-   * vivid magenta is reserved for focus/active punch (see --focus-ring,
-   * --shadow-accent below). Previously the base was a near-max-chroma
-   * magenta that bloomed on thin elements, and dim/bright were a different
-   * hue entirely. */
+   * One violet hue varied only by lightness — and deliberately in the
+   * Catppuccin Mocha mauve family (#cba6f7) so the UI chrome harmonizes with
+   * the EC code palette below. Replaced the old near-max-chroma magenta that
+   * bloomed on thin elements and clashed with Mocha. No magenta anywhere now;
+   * focus rings use the same hue, brighter (see --focus-ring). */
   --accent: #8b5cf6;
   --accent-dim: #7c4ddb;
   --accent-bright: #a78bfa;
   --accent-bg: #221a36;
-  --accent-focus: #c026d3;   /* the one loud magenta — focus/active only */
 
-  /* ── Semantic ─────────────────────────────────────── */
-  --success: #42be65;
-  --warning: #f1c21b;
-  --danger: #fa4d56;
+  /* ── Semantic ─────────────────────────────────────────
+   * Retuned from IBM Carbon (harsh, foreign to this theme) to the Catppuccin
+   * Mocha family so signal colors harmonize with the accent + EC palette. Still
+   * unmistakably green / yellow / red, just softer and of-a-piece. */
+  --success: #a6e3a1;   /* Mocha green */
+  --warning: #f9e2af;   /* Mocha yellow */
+  --danger:  #f38ba8;   /* Mocha red */
 
   /* Latency tiers — used by status-bar latency dot + similar
    * connection-quality indicators. Same hue family as semantic
@@ -75,9 +77,9 @@
 
   /* Editor / code-preview syntax colours. Distinct from semantic
    * (these are tuned for monospace contrast on dark surfaces). */
-  --syntax-string: #4cae4f;
-  --syntax-number: #4c9aff;
-  --info: #78a9ff;
+  --syntax-string: #a6e3a1;  /* matches --ec-str (Mocha green) */
+  --syntax-number: #fab387;  /* matches --ec-num (Mocha peach) */
+  --info: #89b4fa;           /* Mocha blue */
 
   /* ── Extended Code highlight palette ─────────────────
    * Single source of truth for every surface that shows EC: the
@@ -190,11 +192,11 @@
   --shadow-4: 0 8px 24px rgba(0, 0, 0, 0.4), 0 32px 64px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
 
   /* Focused/armed state — accent-tinted halo, used for active overlays + key buttons */
-  --shadow-accent: 0 0 0 1px rgba(186, 15, 254, 0.4), 0 24px 64px rgba(0, 0, 0, 0.45);
+  --shadow-accent: 0 0 0 1px rgba(139, 92, 246, 0.45), 0 24px 64px rgba(0, 0, 0, 0.45);
 
   /* ── Focus ring ───────────────────────────────────── */
-  --focus-ring: 0 0 0 2px rgba(186, 15, 254, 0.4);
-  --focus-ring-strong: 0 0 0 2px rgba(186, 15, 254, 0.7);
+  --focus-ring: 0 0 0 2px rgba(139, 92, 246, 0.55);
+  --focus-ring-strong: 0 0 0 2px rgba(139, 92, 246, 0.85);
 
   /* ── Transitions ──────────────────────────────────── */
   --duration-instant: 80ms;

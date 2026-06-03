@@ -147,9 +147,9 @@
   letter-spacing: 0.1px;
   text-align: left;
   display: none;
-  border: 1px solid rgba(138, 63, 252, 0.55);
+  border: 1px solid rgba(139, 92, 246, 0.55);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(138, 63, 252, 0.18);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(139, 92, 246, 0.18);
 }
 #crev-paint-banner.crev-visible {
   display: block;
@@ -176,15 +176,15 @@
  * BMP_GOTO navigation lands on (e.g. the Extended Code editor's "go to this
  * object" action), so the eye finds it after the page scrolls. */
 .crev-graph-highlight {
-  outline: 3px solid rgba(138, 63, 252, 0.85) !important;
+  outline: 3px solid rgba(139, 92, 246, 0.85) !important;
   outline-offset: 2px;
-  box-shadow: 0 0 0 6px rgba(138, 63, 252, 0.25) !important;
+  box-shadow: 0 0 0 6px rgba(139, 92, 246, 0.25) !important;
   animation: crev-graph-pulse 1.2s ease-in-out 2;
   transition: outline-color 200ms ease-out;
 }
 @keyframes crev-graph-pulse {
-  0%, 100% { box-shadow: 0 0 0 6px rgba(138, 63, 252, 0.25); }
-  50%      { box-shadow: 0 0 0 12px rgba(138, 63, 252, 0.05); }
+  0%, 100% { box-shadow: 0 0 0 6px rgba(139, 92, 246, 0.25); }
+  50%      { box-shadow: 0 0 0 12px rgba(139, 92, 246, 0.05); }
 }
 
 #crev-tooltip {
@@ -633,7 +633,7 @@ body.crev-task-open .crev-outline::after {
 .crev-eo-host.crev-eo--dragging,
 .crev-eo-host.crev-eo--resizing {
   box-shadow:
-    0 0 0 1px rgba(186, 15, 254, 0.45),
+    0 0 0 1px rgba(139, 92, 246, 0.45),
     0 32px 80px rgba(0, 0, 0, 0.55);
   transition: none;
   user-select: none;
@@ -748,8 +748,8 @@ body.crev-task-open .crev-outline::after {
 .crev-eo-snap-ghost {
   position: fixed;
   pointer-events: none;
-  border: 2px dashed rgba(186, 15, 254, 0.6);
-  background: rgba(186, 15, 254, 0.08);
+  border: 2px dashed rgba(139, 92, 246, 0.6);
+  background: rgba(139, 92, 246, 0.08);
   border-radius: 8px;
   z-index: 2147483645;
   transition: left 80ms ease, top 80ms ease, width 80ms ease, height 80ms ease;

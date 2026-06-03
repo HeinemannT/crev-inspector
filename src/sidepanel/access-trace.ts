@@ -9,7 +9,8 @@
  * sidepanel routes ACCESS_SUBJECTS_DATA / ACCESS_TRACE_RESULT back via
  * `routeAccessMessage`.
  */
-import { h, render } from '../lib/dom';
+import { h, render, svg } from '../lib/dom';
+import { ICON_X_CIRCLE, ICON_CHECK_CIRCLE } from '../lib/icons';
 import { sendMessage } from './state';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import type { AccessSubject, AccessTraceAction, AccessTraceNode, InspectorMessage } from '../lib/types';
@@ -278,8 +279,8 @@ function renderResult(): HTMLElement | null {
 
   return h('div', { class: 'atrace-result' },
     h('div', { class: `atrace-verdict atrace-verdict--${granted ? 'ok' : 'no'}` },
-      h('span', { class: 'atrace-verdict-icon' }, granted ? '✓' : '✗'),
-      h('span', null, granted ? 'Granted' : 'Denied'),
+      h('span', { class: 'atrace-verdict-icon', 'aria-hidden': 'true' }, svg(granted ? ICON_CHECK_CIRCLE : ICON_X_CIRCLE)),
+      h('span', { class: 'atrace-verdict-label' }, granted ? 'Granted' : 'Denied'),
       h('span', { class: 'atrace-verdict-ctx' }, `${state.subject.name} · ${action}`),
     ),
     kids.length ? h('div', { class: 'atrace-summary' }, summary) : null,
@@ -303,9 +304,45 @@ function renderResult(): HTMLElement | null {
           )
         : null,
       state.showAllRules
-        ? h('div', { class: 'atrace-others' }, ...others.map(({ node, i }) => renderNode(node, `0.${i}`)))
+        ? h('div', { class: 'atrace-others' }, ...renderOthers(others))
         : null,
     ),
+  );
+}
+
+/** Render the non-granting statements, collapsing the bulk of identical
+ *  subject-mismatch rows (e.g. "✗ role:roleBasic · 0" ×20) into one counted
+ *  row. Statements that actually matched the subject — and only failed later on
+ *  action/conditions — keep their own expandable row: those near-misses are the
+ *  ones worth reading. */
+function renderOthers(others: { node: AccessTraceNode; i: number }[]): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  const groups = new Map<string, { node: AccessTraceNode; i: number; count: number }>();
+  const order: string[] = [];
+  for (const { node, i } of others) {
+    // "Notable" = the subject matched, so deeper conditions were evaluated.
+    if (node.children.some(c => c.element !== 'Subject')) { out.push(renderNode(node, `0.${i}`)); continue; }
+    const key = `${statementSubject(node) ?? 'statement'}|${node.details.statementIndex ?? ''}`;
+    const g = groups.get(key);
+    if (g) g.count++;
+    else { groups.set(key, { node, i, count: 1 }); order.push(key); }
+  }
+  for (const key of order) {
+    const g = groups.get(key)!;
+    out.push(g.count > 1 ? renderCollapsedRow(g.node, g.count) : renderNode(g.node, `0.${g.i}`));
+  }
+  return out;
+}
+
+/** A single non-expandable row standing in for `count` identical statements. */
+function renderCollapsedRow(node: AccessTraceNode, count: number): HTMLElement {
+  const idx = node.details.statementIndex;
+  return h('div', { class: 'atrace-node atrace-node--no' },
+    h('span', { class: 'atrace-node-tw' }, '·'),
+    h('span', { class: 'atrace-node-icon' }, '✗'),
+    h('span', { class: 'atrace-node-label' }, statementSubject(node) ?? 'statement'),
+    idx != null ? h('span', { class: 'atrace-node-detail' }, `· ${idx}`) : null,
+    h('span', { class: 'atrace-node-count', title: `${count} identical statements` }, `×${count}`),
   );
 }
 
