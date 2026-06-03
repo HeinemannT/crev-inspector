@@ -4384,7 +4384,7 @@ body.crev-divider-dragging * { user-select: none; }
 .atrace-link { background: none; border: none; color: var(--accent-bright); cursor: pointer; font-size: var(--text-xs); }
 
 .atrace-result { margin-top: 12px; }
-.atrace-verdict { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-weight: var(--weight-semibold); margin-bottom: 8px; }
+.atrace-verdict { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--radius-sm); font-size: var(--text-lg); font-weight: var(--weight-semi); margin-bottom: 8px; }
 .atrace-verdict--ok { background: color-mix(in srgb, var(--success) 22%, transparent); color: var(--success); }
 .atrace-verdict--no { background: color-mix(in srgb, var(--danger) 22%, transparent); color: var(--danger); }
 .atrace-verdict-icon { font-size: 16px; }

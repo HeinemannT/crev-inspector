@@ -350,7 +350,7 @@ function buildApp(): void {
       // falls back to a capitalised key.
       const TAB_LABELS: Record<string, string> = {
         connect: 'Connect',
-        workshop: 'Workshop',
+        workshop: 'Inspect',
         objects: 'Browse',
         log: 'Log',
       };

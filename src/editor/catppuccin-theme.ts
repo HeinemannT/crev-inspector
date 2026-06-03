@@ -19,7 +19,7 @@ const surface2 = '#585b70'
 const overlay0 = '#6c7086'
 const text     = '#cdd6f4'
 const subtext0 = '#a6adc8'
-const accent   = '#ba0ffe'  // CREV accent, not Catppuccin mauve
+const accent   = '#8b5cf6'  // CREV accent, not Catppuccin mauve
 
 // ── Theme (editor chrome) ───────────────────────────────────
 const theme = EditorView.theme({

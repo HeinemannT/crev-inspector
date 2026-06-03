@@ -462,7 +462,7 @@
   font-weight: 600;
   color: #fff;
   background: #2a1a3e;
-  color: #ba0ffe;
+  color: #8b5cf6;
   margin-bottom: 4px;
 }
 .crev-qi-name {
@@ -524,11 +524,11 @@
   border-color: #444444;
 }
 .crev-qi-btn--accent {
-  border-color: #ba0ffe;
-  color: #ba0ffe;
+  border-color: #8b5cf6;
+  color: #8b5cf6;
 }
 .crev-qi-btn--accent:hover {
-  background: #ba0ffe;
+  background: #8b5cf6;
   color: #fff;
 }
 
@@ -538,12 +538,12 @@
 .crev-qi-btn:focus-visible,
 .crev-qi-star:focus-visible,
 #crev-paint-banner .crev-paint-close:focus-visible {
-  outline: 2px solid #ba0ffe;
+  outline: 2px solid #8b5cf6;
   outline-offset: 2px;
 }
 
 .crev-label-text:focus-visible {
-  outline: 2px solid #ba0ffe;
+  outline: 2px solid #8b5cf6;
   outline-offset: 1px;
 }
 

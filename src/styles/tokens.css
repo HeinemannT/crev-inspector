@@ -31,24 +31,32 @@
 @font-face { font-family: 'JetBrains Mono'; font-weight: 400; font-style: italic;  font-display: swap; src: url('../assets/fonts/jetbrains-mono-400i.woff2') format('woff2'); }
 
 :root {
-  /* ── Surfaces (darkest → lightest) ────────────────── */
-  --surface-0: #111111;
-  --surface-1: #1a1a1a;
-  --surface-2: #252525;
-  --surface-3: #333333;
-  --surface-4: #444444;
+  /* ── Surfaces (darkest → lightest) ──────────────────
+   * Cool-slate-tinted neutrals (not pure gray) with perceptually evened
+   * low-end steps, so stacked panels read as distinct layers. */
+  --surface-0: #0f1014;
+  --surface-1: #17181d;
+  --surface-2: #1f2128;
+  --surface-3: #2b2e38;
+  --surface-4: #3a3e4a;
 
   /* ── Text ─────────────────────────────────────────── */
-  --text-1: #e4e4e4;
-  --text-2: #b0b0b0;
-  --text-3: #707070;
-  --text-disabled: #505050;
+  --text-1: #e6e6ea;
+  --text-2: #b2b4bb;
+  --text-3: #8a8c93;   /* raised to ~4.6:1 on surface-1 (was #707070 ≈ 3.5:1, sub-AA) */
+  --text-disabled: #5a5c63;
 
-  /* ── Accent ───────────────────────────────────────── */
-  --accent: #ba0ffe;
-  --accent-dim: #8a3ffc;
-  --accent-bright: #a76dff;
-  --accent-bg: #2a1a3e;
+  /* ── Accent ───────────────────────────────────────────
+   * One hue (violet) varied only by lightness for resting states; the
+   * vivid magenta is reserved for focus/active punch (see --focus-ring,
+   * --shadow-accent below). Previously the base was a near-max-chroma
+   * magenta that bloomed on thin elements, and dim/bright were a different
+   * hue entirely. */
+  --accent: #8b5cf6;
+  --accent-dim: #7c4ddb;
+  --accent-bright: #a78bfa;
+  --accent-bg: #221a36;
+  --accent-focus: #c026d3;   /* the one loud magenta — focus/active only */
 
   /* ── Semantic ─────────────────────────────────────── */
   --success: #42be65;
@@ -142,11 +150,14 @@
   --font-body: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, ui-monospace, monospace;
 
-  --text-xs: 10px;
-  --text-sm: 11px;
-  --text-base: 12px;
-  --text-lg: 13px;
-  --text-xl: 14px;
+  /* Widened from the old 10–14px (only 4px of total range, so size couldn't
+   * carry hierarchy). Now titles can actually lead while data stays compact. */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-lg: 15px;
+  --text-xl: 18px;
+  --text-2xl: 22px;
 
   --weight-normal: 400;
   --weight-medium: 500;
@@ -158,6 +169,7 @@
   --leading-relaxed: 1.6;
 
   /* ── Spacing (4px grid) ───────────────────────────── */
+  --space-0: 2px;   /* half-step for genuinely tight cases (chip/pill internals) */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
