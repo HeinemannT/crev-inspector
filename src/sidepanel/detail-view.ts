@@ -16,7 +16,7 @@
 import type { BmpObject, InspectorMessage, ObjectPaneIdentity, ObjectPaneCard, ObjectPaneSiblingMsg } from '../lib/types';
 import { getTypeColor, getTypeAbbr, colorLinkBid } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
-import { ICON_PENCIL, ICON_LAYOUT, ICON_SHIELD } from '../lib/icons';
+import { ICON_PENCIL, ICON_LAYOUT, ICON_SHIELD, ICON_CHEVRON, ICON_ARROW_LEFT, ICON_X } from '../lib/icons';
 import { resolveLayoutShortcut } from '../lib/layout-target';
 import { confirmModal } from '../lib/modal';
 import {
@@ -551,15 +551,13 @@ export class DetailView {
     const hasHistory = this.history.length > 0;
     const backButton = h('button', {
       class: `pane-back-inline${hasHistory ? ' pane-back-inline--history' : ''}`,
-      title: hasHistory ? 'Return to the previous object (Backspace)' : 'Close detail view',
+      title: hasHistory ? 'Back to the previous object' : 'Close detail view',
       'aria-label': hasHistory ? 'Back' : 'Close',
       onClick: () => this.goBack(panel),
-    }, hasHistory ? '←' : '✕');
+    }, svg(hasHistory ? ICON_ARROW_LEFT : ICON_X));
 
-    // Breadcrumb trail — clickable chips for every drill-down step plus the
-    // current object. Replaces the text-only Back orientation; the user can
-    // see how deep they are and jump to any prior step in one click.
-    const trail = this.renderBreadcrumbTrail(panel);
+    // (Path breadcrumb trail removed — the back button + the "↑ inside" parent
+    // crumb are the single location model now; the trail duplicated both.)
 
     // Header — title row + parent crumb directly under it. Container as a
     // crumb (not a body section) puts identity context near the title and
@@ -594,61 +592,64 @@ export class DetailView {
     // a secondary identifier; star is the state action on the far
     // right. In narrow panels the name flex-shrinks first; bid
     // gracefully hides if it doesn't fit.
+    // Icon-only header actions — distinct icons + tooltips/aria. (Labels were
+    // clipping the object name; the name now owns its own row below.)
+    const layoutBtn = layout?.selfIsLayout
+      ? h('button', {
+          class: 'detail-action-btn detail-action-btn--icon',
+          title: `Open ${s.identity.type} in the Layout view`,
+          'aria-label': `Open ${s.identity.type} in the Layout view`,
+          onClick: () => { this.onOpenLayout!(layout.target, layout.highlight); },
+        }, svg(ICON_LAYOUT))
+      : null;
+    const editBtn = showEditBtn
+      ? h('button', {
+          class: 'detail-action-btn detail-action-btn--icon',
+          title: `Open .${editTargetProp} in the Extended Code editor`,
+          'aria-label': `Edit ${editTargetProp} in the editor`,
+          onClick: () => this.sendMessage({ type: 'OPEN_EDITOR', rid: s.rid, property: editTargetProp! }),
+        }, svg(ICON_PENCIL))
+      : null;
+    const accessBtn = h('button', {
+      class: 'detail-action-btn detail-action-btn--icon',
+      title: 'Test access — trace whether a user/role can read/write/add/delete this object',
+      'aria-label': 'Test access',
+      onClick: () => openAccessTrace({ rid: s.rid, name: s.identity.name, type: s.identity.type }),
+    }, svg(ICON_SHIELD));
+    const star = h('button', {
+      class: `detail-star${isPinned ? ' active' : ''}`,
+      title: isPinned ? 'Unpin from favorites' : 'Pin to favorites',
+      'aria-label': isPinned ? 'Unpin from favorites' : 'Pin to favorites',
+      'aria-pressed': isPinned ? 'true' : 'false',
+      onClick: () => {
+        this.sendMessage({
+          type: 'TOGGLE_FAVORITE', rid: s.rid, name: s.identity.name,
+          objectType: s.identity.type, businessId: s.identity.businessId,
+        });
+      },
+    }, isPinned ? '★' : '☆');
+
+    // Two-row header:
+    //   Row 1 (context + actions): ← back · ↑parent ·········· edit · access · instance|template
+    //   Row 2 (identity):          [chip] Name ··············· id · ★
     const headerRows: HTMLElement[] = [
-      h('div', { class: 'pane-header-row' },
+      h('div', { class: 'pane-header-nav' },
         backButton,
+        s.parent ? this.renderParentCrumb(s.parent, panel) : null,
+        h('div', { class: 'pane-header-actions' },
+          layoutBtn,
+          editBtn,
+          accessBtn,
+          this.renderTargetToggle(hasTemplate, panel),
+        ),
+      ),
+      h('div', { class: 'pane-header-id' },
         h('span', { class: 'pane-id-chip', title: s.identity.type }, abbr),
         h('span', { class: 'pane-id-name', title: s.identity.name }, s.identity.name || '(unnamed)'),
-        // Only for objects that ARE layout containers (Scorecard / TabSet / Tab /
-        // Container). Leaf widgets used to show it too (routed to the parent's
-        // layout), which was noise on non-layout objects.
-        layout?.selfIsLayout
-          ? h('button', {
-              class: 'detail-action-btn',
-              title: `Open ${s.identity.type} in the Layout view`,
-              onClick: () => { this.onOpenLayout!(layout.target, layout.highlight); },
-            }, svg(ICON_LAYOUT), 'Layout')
-          : null,
-        showEditBtn
-          ? h('button', {
-              class: 'detail-action-btn',
-              title: `Open .${editTargetProp} in the Extended Code editor`,
-              onClick: () => this.sendMessage({ type: 'OPEN_EDITOR', rid: s.rid, property: editTargetProp! }),
-            }, svg(ICON_PENCIL), 'Edit')
-          : null,
-        // "Test access" — admin permission test for this object (who can do what).
-        h('button', {
-          class: 'detail-action-btn',
-          title: 'Test access — trace whether a user/role can read/write/add/delete this object',
-          onClick: () => openAccessTrace({ rid: s.rid, name: s.identity.name, type: s.identity.type }),
-        }, svg(ICON_SHIELD), 'Access'),
         s.identity.businessId ? h('span', { class: 'pane-id-bid' }, s.identity.businessId) : null,
-        h('button', {
-          class: `detail-star${isPinned ? ' active' : ''}`,
-          title: isPinned ? 'Unpin from favorites' : 'Pin to favorites',
-          'aria-label': isPinned ? 'Unpin from favorites' : 'Pin to favorites',
-          'aria-pressed': isPinned ? 'true' : 'false',
-          onClick: () => {
-            this.sendMessage({
-              type: 'TOGGLE_FAVORITE',
-              rid: s.rid,
-              name: s.identity.name,
-              objectType: s.identity.type,
-              businessId: s.identity.businessId,
-            });
-          },
-        }, isPinned ? '★' : '☆'),
-      ),
-      h('div', { class: 'pane-header-meta-row' },
-        this.renderTargetToggle(hasTemplate, panel),
-        // Type label, pushed to the right of the toggle. Shows the BMP class
-        // name in muted text so the user can confirm what the chip abbreviates.
-        h('span', { class: 'pane-header-type-name' }, s.identity.type || ''),
+        star,
       ),
     ];
-    if (s.parent) {
-      headerRows.push(this.renderParentCrumb(s.parent, panel));
-    }
     if (s.card) {
       headerRows.push(this.renderCardCrumb(s.card));
     }
@@ -701,7 +702,6 @@ export class DetailView {
     const split = h('div', { class: 'pane-split' }, propsArea, divider, treeArea);
 
     const children: (HTMLElement | null | false)[] = [
-      trail,
       header,
       split,
     ];
@@ -767,15 +767,13 @@ export class DetailView {
     );
   }
 
-  /** Compact parent crumb under the title row. Tells you WHERE the current
-   *  object lives (its container) without a full body section. Click → swap
-   *  to the parent (same path the old Container chip used). */
+  /** Inline parent reference for the header's nav row: ↑ [type chip] Name.
+   *  The up-arrow + the parent's own type chip are the visual language for
+   *  "this is the container" — no "inside" word needed. Click → swap to it. */
   private renderParentCrumb(parent: ObjectPaneIdentity, panel: HTMLElement): HTMLElement {
-    return h('div', {
-      class: 'pane-parent-crumb',
-      role: 'button',
-      tabindex: '0',
-      title: `Open container: ${parent.name || parent.businessId}`,
+    return h('button', {
+      class: 'pane-parent-inline',
+      title: `Open parent: ${parent.name || parent.businessId}`,
       onClick: () => this.swapTo(parent.rid, {
         rid: parent.rid,
         name: parent.name,
@@ -785,22 +783,13 @@ export class DetailView {
         discoveredAt: Date.now(),
         updatedAt: Date.now(),
       }, panel),
-      onKeydown: (e: KeyboardEvent) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          this.swapTo(parent.rid, null, panel).catch(() => {});
-        }
-      },
     },
-      h('span', { class: 'pane-parent-crumb-arrow' }, '↑ inside'),
+      h('span', { class: 'pane-parent-inline-arrow', 'aria-hidden': 'true' }, '↑'),
       h('span', {
-        class: 'pane-parent-crumb-chip',
+        class: 'pane-parent-inline-chip',
         style: `--type-color:${getTypeColor(parent.type)}`,
       }, getTypeAbbr(parent.type)),
-      h('span', { class: 'pane-parent-crumb-name' }, parent.name || '(unnamed)'),
-      parent.businessId
-        ? h('span', { class: 'pane-parent-crumb-bid' }, parent.businessId)
-        : null,
+      h('span', { class: 'pane-parent-inline-name' }, parent.name || '(unnamed)'),
     );
   }
 
@@ -851,85 +840,6 @@ export class DetailView {
     }
   }
 
-  /** Clickable breadcrumb chips for the drill-down trail + the current
-   *  object. Each prior step is clickable to jump back to that depth (the
-   *  history above that point is preserved as a stack). The current chip is
-   *  visually emphasized; long trails truncate from the left with a "…"
-   *  ellipsis chip so the head fits in the pane width.
-   *
-   *  Returns null when there's nothing to show (no history → bare title is
-   *  enough orientation; the Back button reads "Close" in that case). */
-  private renderBreadcrumbTrail(panel: HTMLElement): HTMLElement | null {
-    if (this.history.length === 0 || !this.state) return null;
-    const current = this.state.identity;
-    const items = [...this.history, current];
-
-    // Truncate from the left if the trail is too long. Keep the FIRST chip
-    // (root context) + an ellipsis + the last few. 5-chip ceiling is plenty
-    // visible without wrapping.
-    const MAX_CHIPS = 5;
-    let truncatedHead: ObjectPaneIdentity | null = null;
-    let visibleItems = items;
-    if (items.length > MAX_CHIPS) {
-      truncatedHead = items[0];
-      visibleItems = items.slice(items.length - (MAX_CHIPS - 1));
-    }
-
-    const chips: (HTMLElement | string | null)[] = [];
-    if (truncatedHead) {
-      chips.push(this.renderTrailChip(truncatedHead, 0, panel, false));
-      chips.push(h('span', { class: 'pane-trail-sep' }, '…'));
-    }
-    for (let i = 0; i < visibleItems.length; i++) {
-      const step = visibleItems[i];
-      const isCurrent = i === visibleItems.length - 1;
-      // The "depth" we'd pop-to when clicked = position in the FULL items
-      // list (not visibleItems), so click handlers truncate history correctly.
-      const fullIndex = truncatedHead ? items.length - visibleItems.length + i : i;
-      if (i > 0) chips.push(h('span', { class: 'pane-trail-sep' }, '›'));
-      chips.push(this.renderTrailChip(step, fullIndex, panel, isCurrent));
-    }
-    return h('nav', {
-      class: 'pane-trail',
-      'aria-label': 'Object history',
-    }, ...chips);
-  }
-
-  private renderTrailChip(
-    step: ObjectPaneIdentity,
-    depthIndex: number,
-    panel: HTMLElement,
-    isCurrent: boolean,
-  ): HTMLElement {
-    // Click on a past chip: truncate history at that depth, then navigate.
-    // The clicked step becomes the new current pane; everything below it in
-    // the history disappears (no forward stack — keeps the model simple).
-    const onClick = isCurrent ? undefined : () => {
-      this.history = this.history.slice(0, depthIndex);
-      this.swapTo(step.rid, {
-        rid: step.rid,
-        businessId: step.businessId,
-        type: step.type,
-        name: step.name,
-        source: 'server',
-        discoveredAt: Date.now(),
-        updatedAt: Date.now(),
-      }, panel, /* confirmIfDirty */ false, /* skipHistory */ true).catch(() => {});
-    };
-    const label = step.name || step.businessId || step.type || '(unnamed)';
-    return h('button', {
-      class: `pane-trail-chip${isCurrent ? ' pane-trail-chip--current' : ''}`,
-      title: isCurrent ? `${step.type}: ${label}` : `Jump back to ${step.type}: ${label}`,
-      disabled: isCurrent,
-      onClick,
-    },
-      h('span', {
-        class: 'pane-trail-chip-type',
-        style: `--type-color:${getTypeColor(step.type)}`,
-      }, getTypeAbbr(step.type)),
-      h('span', { class: 'pane-trail-chip-name' }, label),
-    );
-  }
 
   private renderPropertiesArea(panel: HTMLElement): HTMLElement {
     const wrap = h('div');
@@ -1000,7 +910,15 @@ export class DetailView {
         // static `availableOn` set as fallback.
         if (!isPropAvailable(objectType, def.prop, def.availableOn)) continue;
         const draftPresent = this.draft[def.prop] != null;
-        const serverHas = this.currentServerValue(def.prop) !== '';
+        const serverVal = this.currentServerValue(def.prop);
+        const serverHas = serverVal !== '';
+        // Near-zero px dimensions (Width / Height) are "auto/unset" — 0 or 1px
+        // is never a deliberate layout, so surfacing it is just a noise row.
+        // Hide unless the user is actively editing it.
+        if (def.kind === 'number' && def.unit === 'px' && !draftPresent) {
+          const n = Number(serverVal);
+          if (!serverHas || (Number.isFinite(n) && n <= 1)) continue;
+        }
         // 'text' is read-only — only render the row when the server
         // actually has a value (otherwise we'd surface a permanent "—"
         // on every list/table widget regardless of configuration).
@@ -1073,7 +991,7 @@ export class DetailView {
             'aria-expanded': open ? 'true' : 'false',
             onClick: () => { this.styleCollapsed = !this.styleCollapsed; this.refresh(panel); },
           },
-            h('span', { class: 'prop-substyle-tw' }, open ? '▾' : '▸'),
+            h('span', { class: 'prop-substyle-tw' }, svg(ICON_CHEVRON)),
             h('span', { class: 'prop-substyle-label' }, 'Style'),
             changedCount > 0 ? h('span', { class: 'prop-group-count' }, `${changedCount} changed`) : null,
           ),

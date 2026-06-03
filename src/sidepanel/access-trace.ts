@@ -10,7 +10,7 @@
  * `routeAccessMessage`.
  */
 import { h, render, svg } from '../lib/dom';
-import { ICON_X_CIRCLE, ICON_CHECK_CIRCLE } from '../lib/icons';
+import { ICON_X_CIRCLE, ICON_CHECK_CIRCLE, ICON_CHEVRON } from '../lib/icons';
 import { sendMessage } from './state';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import type { AccessSubject, AccessTraceAction, AccessTraceNode, InspectorMessage } from '../lib/types';
@@ -296,10 +296,10 @@ function renderResult(): HTMLElement | null {
       // dozens of identical non-granting rows. Full tree still one click + Copy away.
       others.length
         ? h('button', {
-            class: 'atrace-disclosure',
+            class: `atrace-disclosure${state.showAllRules ? ' is-open' : ''}`,
             onClick: () => { state.showAllRules = !state.showAllRules; rerender(); },
           },
-            h('span', { class: 'atrace-disclosure-tw' }, state.showAllRules ? '▾' : '▸'),
+            h('span', { class: 'atrace-disclosure-tw' }, svg(ICON_CHEVRON)),
             `${state.showAllRules ? 'Hide' : 'Show'} ${plural(others.length, granting.length ? 'non-granting statement' : 'evaluated statement')}`,
           )
         : null,
