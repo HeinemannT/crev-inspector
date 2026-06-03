@@ -87,6 +87,11 @@ export class DetailView {
   private target: SaveTarget = 'instance';
   /** True while APPLY_OBJECT_CHANGES is in flight. */
   private saving = false;
+
+  /** The cosmetic style controls (Shadow / Header style / Border / Transparency /
+   *  Tool menu / Disable search) fold behind a "Style" disclosure so the common
+   *  Columns control isn't buried in a wall. Auto-expands when one is dirty. */
+  private styleCollapsed = true;
   /** Local tree children expansion state for the current object. */
   private childrenState: PaneChildren | null = null;
   /** Properties-area height as a percentage of the split (40..85).
@@ -1054,14 +1059,34 @@ export class DetailView {
         )
       : null;
 
-    const otherRows = otherDefs.map(d => this.renderPropRow(d, panel));
+    // The remaining controls are cosmetic/behavioural (Shadow, Header style,
+    // Border, Transparency, Tool menu, Disable search) — set-once, not why you
+    // opened the widget. Fold them behind a "Style" disclosure, but keep the
+    // Columns row above always visible. Auto-expand when one carries a draft so
+    // a pending change is never hidden.
+    const changedCount = otherDefs.filter(d => this.draft[d.prop] != null).length;
+    const open = !this.styleCollapsed || changedCount > 0;
+    const styleSection = otherDefs.length > 0
+      ? h('div', { class: 'prop-substyle' },
+          h('button', {
+            class: `prop-substyle-head${open ? ' is-open' : ''}`,
+            'aria-expanded': open ? 'true' : 'false',
+            onClick: () => { this.styleCollapsed = !this.styleCollapsed; this.refresh(panel); },
+          },
+            h('span', { class: 'prop-substyle-tw' }, open ? '▾' : '▸'),
+            h('span', { class: 'prop-substyle-label' }, 'Style'),
+            changedCount > 0 ? h('span', { class: 'prop-group-count' }, `${changedCount} changed`) : null,
+          ),
+          open ? h('div', { class: 'prop-grid' }, ...otherDefs.map(d => this.renderPropRow(d, panel))) : null,
+        )
+      : null;
 
     return h('div', { class: 'prop-group prop-group--display' },
       suppressTitle
         ? null
         : h('div', { class: 'prop-group-title' }, ...titleChildren.filter(Boolean) as (HTMLElement | string)[]),
       columnsRow,
-      h('div', { class: 'prop-grid' }, ...otherRows),
+      styleSection,
     );
   }
 
@@ -1129,7 +1154,7 @@ export class DetailView {
         editor = h('span', { class: 'prop-text-value' }, value || h('span', { class: 'prop-text-empty' }, '—'));
         break;
     }
-    return h('div', { class: 'prop-row' },
+    return h('div', { class: `prop-row prop-row--${def.kind}` },
       h('span', { class: 'prop-label', title: `BMP property: ${def.prop}` }, def.label),
       editor,
       dirty && def.kind !== 'text'

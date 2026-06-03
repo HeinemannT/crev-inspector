@@ -397,10 +397,12 @@ function statementSubject(node: AccessTraceNode): string | null {
 }
 
 function renderNode(node: AccessTraceNode, path: string): HTMLElement {
-  // A Statement's identity is *who it grants to* + its index — render that
-  // ("role:role_auditor · 3"), not the bare word "Statement (statementIndex=3)".
-  // The lone Subject-match child just restates the subject, so fold it away;
-  // statements that matched the subject keep their Action/condition children.
+  // A Statement's identity is *who it grants to* — render that subject, not the
+  // bare "Statement (statementIndex=3)". The lone Subject-match child just
+  // restates the subject, so fold it away; statements that matched the subject
+  // keep their Action/condition children. The statementIndex is dropped: it's a
+  // statement's position within its (unnamed-here) permission, so the same index
+  // repeats across the workspace — meaningless and unactionable on its own.
   const isStatement = node.element === 'Statement';
   const subject = isStatement ? statementSubject(node) : null;
   const childEntries = node.children
@@ -413,9 +415,8 @@ function renderNode(node: AccessTraceNode, path: string): HTMLElement {
   let label: string;
   let detail: string | null;
   if (isStatement) {
-    const idx = node.details.statementIndex;
     label = subject ?? 'statement';
-    detail = idx != null ? `· ${idx}` : null;
+    detail = null;
   } else {
     label = elementLabel(node.element);
     detail = Object.keys(node.details).length ? summariseDetails(node.details) : null;

@@ -4,7 +4,8 @@
  * fields (ref → target.<prop>). [Edit] opens the editor overlay at the field.
  */
 
-import { h } from '../../lib/dom';
+import { h, svg } from '../../lib/dom';
+import { ICON_PENCIL } from '../../lib/icons';
 import { codeFieldsFor, indirectCodeFieldsFor } from '../../lib/widget-metadata';
 import { ecPreviewSpan } from '../../lib/ec-format';
 import type { InspectorMessage } from '../../lib/types';
@@ -100,7 +101,7 @@ function renderCodeRow(opts: {
         class: 'btn btn-small btn-ghost code-row-edit',
         title: `Edit ${opts.label} in the floating editor`,
         onClick: () => opts.sendMessage({ type: 'OPEN_EDITOR', rid: opts.rid, property: opts.editProp ?? opts.prop }),
-      }, 'Edit ↗'),
+      }, svg(ICON_PENCIL), 'Edit'),
     ),
     opts.subtitle ? h('div', { class: 'code-row-subtitle' }, opts.subtitle) : null,
     disabled

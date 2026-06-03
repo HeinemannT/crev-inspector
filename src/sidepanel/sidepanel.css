@@ -1604,12 +1604,25 @@ body.crev-divider-dragging * { user-select: none; }
 /* Leading pin icon on the context strip — labels the chip row as "page
  * context" without spending a whole line on a header. Dim so the colored
  * type chips stay the focal point. */
-.workshop-ctx-icon {
-  display: inline-flex;
-  align-items: center;
+/* Detection status dot — replaces the old "detection %" card. Green = on a BMP
+ * page, amber pulse = detecting, grey = not a BMP page. */
+.workshop-ctx-dot {
   align-self: center;
-  color: var(--text-3);
   flex-shrink: 0;
+  width: 7px; height: 7px;
+  margin: 0 4px 0 2px;
+  border-radius: 999px;
+  background: var(--text-disabled);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-disabled) 22%, transparent);
+}
+.workshop-ctx-dot--on {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 24%, transparent);
+}
+.workshop-ctx-dot--checking {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 24%, transparent);
+  animation: detection-pulse 1.2s ease-in-out infinite;
 }
 /* Leading icon on the Layout / Template-tree section titles — gives the
  * stack a clear, scannable hierarchy (banner → titled section → tree).
@@ -3171,6 +3184,22 @@ body.crev-divider-dragging * { user-select: none; }
   grid-template-columns: minmax(80px, auto) 1fr auto;
   padding: 2px 0;
 }
+/* The transparency slider needs the full row inside the 2-up Style grid. */
+.prop-group--display .prop-grid .prop-row--slider { grid-column: 1 / -1; }
+
+/* "Style" disclosure — folds the cosmetic controls (Shadow / Header style /
+   Border / Transparency / Tool menu / Disable search) under an eyebrow so the
+   Columns row above isn't buried in a wall. */
+.prop-substyle { margin-top: var(--space-2); }
+.prop-substyle-head {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: var(--space-1) 0; border: 0; background: none; cursor: pointer;
+  font-size: var(--text-xs); font-weight: var(--weight-semi);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3);
+}
+.prop-substyle-head:hover { color: var(--text-2); }
+.prop-substyle-tw { width: 10px; text-align: center; font-size: 9px; }
+.prop-substyle .prop-group-count { text-transform: none; letter-spacing: 0; color: var(--accent-bright); }
 .prop-row--columns {
   grid-template-columns: 100px 1fr;
   align-items: center;
@@ -3711,9 +3740,13 @@ body.crev-divider-dragging * { user-select: none; }
 
 .code-row-edit {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 1px 6px !important;
   font-size: var(--text-xs);
 }
+.code-row-edit svg { width: 11px; height: 11px; }
 
 .code-row-preview {
   padding: 2px var(--space-2);

@@ -48,12 +48,13 @@ describe('Access Trace overlay', () => {
     const verdict = document.querySelector('.atrace-verdict');
     expect(verdict?.classList.contains('atrace-verdict--ok')).toBe(true);
     expect(verdict?.textContent).toContain('Granted');
-    // Rows read as "subject · index", not the bare word "Statement"; the
-    // Subject-match child is folded into that line.
+    // Rows read as the subject the statement grants to, not the bare word
+    // "Statement" or a meaningless statement index; the Subject-match child is
+    // folded into that line.
     const node = document.querySelector('.atrace-node')?.textContent ?? '';
     expect(node).toContain('role:role_auditor');
-    expect(node).toContain('2');
     expect(node).not.toContain('Statement');
+    expect(node).not.toContain('statementIndex');
   });
 
   it('switching the action re-fires the trace once a subject is set', () => {

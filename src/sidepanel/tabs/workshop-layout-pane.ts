@@ -13,7 +13,7 @@ import type { InspectorMessage, BmpObject, WidgetInfo, DetectionPhase, LayoutNod
 import { getTypeColor, getTypeAbbr } from '../../lib/types';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
-import { truncRid, ICON_REFRESH, ICON_CROSSHAIR, ICON_PIN, ICON_LAYOUT } from '../utils';
+import { truncRid, ICON_REFRESH, ICON_CROSSHAIR, ICON_LAYOUT } from '../utils';
 import type { Tab, SendFn } from './tab-types';
 import { LAYOUT_BEARING_TYPES } from '../../lib/layout-target';
 
@@ -450,32 +450,28 @@ export class WorkshopLayoutPane implements Tab {
     }
     const children: (HTMLElement | false | null)[] = [];
 
-    // Detection: only surface when the page is NOT detected. When it IS detected,
-    // the user is reading the Page tab — the detection state is already implicit,
-    // and the status strip / status bar carry the confidence reading.
-    if (this.detection.phase === 'not-detected' || this.detection.phase === 'checking' || this.detection.phase === 'unknown') {
-      const card = this.detectionCard();
-      if (card) children.push(card);
-    }
-
-    // Workshop context strip — ambient page chips (scorecard, active
-    // tab) + crosshair picker, on one line above the Layout / Object
-    // sections.
+    // Context band — OUR design. Its job is to carry WHERE you are: the page's
+    // context object (Scorecard / Page / …) and the active Tab, with a subtle
+    // detection dot instead of a meaningless "detection %". Always shown.
     {
+      const detected = this.detection.phase === 'detected';
+      const checking = this.detection.phase === 'checking' || this.detection.phase === 'unknown';
       const resolveName = (rid: string, fallback: string) =>
         this.widgetEnrichments.get(rid)?.name || fallback;
+      // The context object's real type, not a hardcoded "Scorecard" — it may be
+      // a Page, a Template, etc.
+      const pageType = (this.pageRid ? this.widgetEnrichments.get(this.pageRid)?.type : null) || 'Scorecard';
       const chipChildren: HTMLElement[] = [];
-      // Suppress chips that point at the current context — the click
-      // would be a no-op. Common case: auto-detected scorecard is the
-      // context, so the Scorecard chip would self-loop.
+      // Suppress chips that point at the current context — the click would be a
+      // no-op (e.g. the auto-detected scorecard is already the context).
       if (this.pageRid && this.pageRid !== this.contextRid) {
         chipChildren.push(h('button', {
           class: 'workshop-ctx-chip',
           'data-action': 'pick-page-scorecard',
           'data-rid': this.pageRid,
-          title: 'Set the scorecard as context',
+          title: `Set ${pageType} as context`,
         },
-          h('span', { class: 'pane-tree-chip', style: `--type-color:${getTypeColor('Scorecard')}` }, getTypeAbbr('Scorecard')),
+          h('span', { class: 'pane-tree-chip', style: `--type-color:${getTypeColor(pageType)}` }, getTypeAbbr(pageType)),
           h('span', { class: 'workshop-ctx-chip-value' }, resolveName(this.pageRid, truncRid(this.pageRid))),
         ));
       }
@@ -491,19 +487,27 @@ export class WorkshopLayoutPane implements Tab {
           h('span', { class: 'workshop-ctx-chip-value' }, this.pageTabName || resolveName(this.pageTabRid, truncRid(this.pageTabRid))),
         ));
       }
-      // Three states: chips to show, on-a-BMP-page but every chip
-      // self-suppressed, or genuinely off-BMP.
-      let chipsRow: HTMLElement;
+
+      let body: HTMLElement;
       if (chipChildren.length > 0) {
-        chipsRow = h('div', { class: 'workshop-ctx-chips' }, ...chipChildren);
+        body = h('div', { class: 'workshop-ctx-chips' }, ...chipChildren);
+      } else if (checking) {
+        body = h('span', { class: 'workshop-ctx-empty' }, 'Checking page…');
       } else if (this.pageRid) {
-        chipsRow = h('div', { class: 'workshop-ctx-empty' }, 'On the page you are inspecting.');
+        body = h('span', { class: 'workshop-ctx-empty' }, 'On the page you’re inspecting.');
+      } else if (detected) {
+        body = h('span', { class: 'workshop-ctx-empty' }, 'BMP page · no scorecard context.');
       } else {
-        chipsRow = h('div', { class: 'workshop-ctx-empty' }, 'No scorecard detected on the page yet.');
+        body = h('span', { class: 'workshop-ctx-empty' }, 'Not a BMP page.');
       }
+
       children.push(h('div', { class: 'workshop-ctx-strip' },
-        h('span', { class: 'workshop-ctx-icon', title: 'Page context: where you are on the BMP page', 'aria-hidden': 'true' }, svg(ICON_PIN)),
-        chipsRow,
+        h('span', {
+          class: `workshop-ctx-dot workshop-ctx-dot--${detected ? 'on' : checking ? 'checking' : 'off'}`,
+          title: detected ? 'On a BMP page' : checking ? 'Detecting…' : 'Not a BMP page',
+          'aria-hidden': 'true',
+        }),
+        body,
         h('button', {
           class: `workshop-ctx-picker${this.pickingContext ? ' active' : ''}`,
           'data-action': 'pick-context',
@@ -1220,30 +1224,5 @@ export class WorkshopLayoutPane implements Tab {
       }
     }
     return branch;
-  }
-
-  private detectionCard(): HTMLElement | false {
-    const d = this.detection;
-    if (d.phase === 'checking' || d.phase === 'unknown') {
-      return h('div', { class: 'detection-card is-checking' },
-        h('div', { class: 'detection-header' },
-          h('span', { class: 'detection-status checking' }, 'Checking\u2026'),
-          h('span', { class: 'detection-confidence' }, h('span', { class: 'detection-spinner' })),
-        ),
-      );
-    }
-
-    const pct = Math.round(d.confidence * 100);
-    const isDetected = d.phase === 'detected';
-    // Modifier class on the card lets CSS tint the confidence number to match
-    // the state. Without it, 0% on a "not BMP" page rendered in alarming
-    // purple \u2014 same color used for high-confidence detected.
-    return h('div', { class: `detection-card ${isDetected ? 'is-detected' : 'is-not-detected'}` },
-      h('div', { class: 'detection-header' },
-        h('span', { class: `detection-status ${isDetected ? 'detected' : 'not-detected'}` },
-          isDetected ? 'BMP detected' : 'Not detected'),
-        h('span', { class: 'detection-confidence' }, `${pct}%`),
-      ),
-    );
   }
 }
