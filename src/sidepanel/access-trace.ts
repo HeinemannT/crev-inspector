@@ -322,7 +322,10 @@ function renderOthers(others: { node: AccessTraceNode; i: number }[]): HTMLEleme
   for (const { node, i } of others) {
     // "Notable" = the subject matched, so deeper conditions were evaluated.
     if (node.children.some(c => c.element !== 'Subject')) { out.push(renderNode(node, `0.${i}`)); continue; }
-    const key = `${statementSubject(node) ?? 'statement'}|${node.details.statementIndex ?? ''}`;
+    // Group by subject only — the per-statement index is meaningless once you
+    // aggregate ("role:Basic ·0 ×53" reads like all 53 are index 0). A lone
+    // statement still shows its index via renderNode below.
+    const key = statementSubject(node) ?? 'statement';
     const g = groups.get(key);
     if (g) g.count++;
     else { groups.set(key, { node, i, count: 1 }); order.push(key); }
@@ -334,15 +337,15 @@ function renderOthers(others: { node: AccessTraceNode; i: number }[]): HTMLEleme
   return out;
 }
 
-/** A single non-expandable row standing in for `count` identical statements. */
+/** A single non-expandable row standing in for `count` statements that all
+ *  reference the same subject (no index — see renderOthers). */
 function renderCollapsedRow(node: AccessTraceNode, count: number): HTMLElement {
-  const idx = node.details.statementIndex;
-  return h('div', { class: 'atrace-node atrace-node--no' },
+  const subject = statementSubject(node) ?? 'statement';
+  return h('div', { class: 'atrace-node atrace-node--no', title: `${count} statements reference ${subject}; none grant access` },
     h('span', { class: 'atrace-node-tw' }, '·'),
     h('span', { class: 'atrace-node-icon' }, '✗'),
-    h('span', { class: 'atrace-node-label' }, statementSubject(node) ?? 'statement'),
-    idx != null ? h('span', { class: 'atrace-node-detail' }, `· ${idx}`) : null,
-    h('span', { class: 'atrace-node-count', title: `${count} identical statements` }, `×${count}`),
+    h('span', { class: 'atrace-node-label' }, subject),
+    h('span', { class: 'atrace-node-count' }, `${count} statements`),
   );
 }
 

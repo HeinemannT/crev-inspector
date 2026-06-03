@@ -324,22 +324,21 @@ function renderPane(): void {
   ));
 }
 
-/** "Layout ↗" button — visible for layout-bearing types and for
- *  widgets whose immediate parent is layout-bearing. Sends
- *  OPEN_LAYOUT_FOR through the SW; the side panel handler does
- *  the actual tab switch + state priming. */
+/** "Layout ↗" button — only for layout-container types (Scorecard / TabSet /
+ *  Tab / Container). Sends OPEN_LAYOUT_FOR through the SW; the side panel
+ *  handler does the actual tab switch + state priming. */
 function renderLayoutShortcut(): HTMLElement | null {
   const s = state;
   if (!s?.identity?.type) return null;
   // Shared resolver (see lib/layout-target.ts) — identical routing to the
   // side-panel detail view's "Layout ↗" button.
   const layout = resolveLayoutShortcut({ rid: s.rid, type: s.identity.type }, s.parent);
-  if (!layout) return null;
+  // Only for objects that ARE layout containers (Scorecard / TabSet / Tab /
+  // Container) — not leaf widgets routed to their parent's layout.
+  if (!layout?.selfIsLayout) return null;
   return h('button', {
     class: 'btn btn-small',
-    title: layout.selfIsLayout
-      ? 'Open this object in the Page tab\'s Layout view'
-      : `Show this ${s.identity.type} in its ${layout.targetType}'s Layout view`,
+    title: 'Open this object in the Page tab\'s Layout view',
     onClick: () => sendFireForget({ type: 'OPEN_LAYOUT_FOR', rid: layout.target, highlightRid: layout.highlight }),
   }, 'Layout ↗');
 }

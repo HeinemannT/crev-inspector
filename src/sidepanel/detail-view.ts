@@ -15,7 +15,8 @@
 
 import type { BmpObject, InspectorMessage, ObjectPaneIdentity, ObjectPaneCard, ObjectPaneSiblingMsg } from '../lib/types';
 import { getTypeColor, getTypeAbbr, colorLinkBid } from '../lib/types';
-import { h, render } from '../lib/dom';
+import { h, render, svg } from '../lib/dom';
+import { ICON_PENCIL, ICON_LAYOUT, ICON_SHIELD } from '../lib/icons';
 import { resolveLayoutShortcut } from '../lib/layout-target';
 import { confirmModal } from '../lib/modal';
 import {
@@ -593,28 +594,29 @@ export class DetailView {
         backButton,
         h('span', { class: 'pane-id-chip', title: s.identity.type }, abbr),
         h('span', { class: 'pane-id-name', title: s.identity.name }, s.identity.name || '(unnamed)'),
-        layout
+        // Only for objects that ARE layout containers (Scorecard / TabSet / Tab /
+        // Container). Leaf widgets used to show it too (routed to the parent's
+        // layout), which was noise on non-layout objects.
+        layout?.selfIsLayout
           ? h('button', {
-              class: 'detail-layout-btn',
-              title: layout.selfIsLayout
-                ? `Open ${s.identity.type} in the Layout view`
-                : `Show this ${s.identity.type || 'widget'} in its ${layout.targetType}’s Layout view`,
+              class: 'detail-action-btn',
+              title: `Open ${s.identity.type} in the Layout view`,
               onClick: () => { this.onOpenLayout!(layout.target, layout.highlight); },
-            }, 'Layout ↗')
+            }, svg(ICON_LAYOUT), 'Layout')
           : null,
         showEditBtn
           ? h('button', {
-              class: 'detail-edit-btn',
+              class: 'detail-action-btn',
               title: `Open .${editTargetProp} in the Extended Code editor`,
               onClick: () => this.sendMessage({ type: 'OPEN_EDITOR', rid: s.rid, property: editTargetProp! }),
-            }, 'Edit ↗')
+            }, svg(ICON_PENCIL), 'Edit')
           : null,
         // "Test access" — admin permission test for this object (who can do what).
         h('button', {
-          class: 'detail-access-btn',
+          class: 'detail-action-btn',
           title: 'Test access — trace whether a user/role can read/write/add/delete this object',
           onClick: () => openAccessTrace({ rid: s.rid, name: s.identity.name, type: s.identity.type }),
-        }, 'Access ↗'),
+        }, svg(ICON_SHIELD), 'Access'),
         s.identity.businessId ? h('span', { class: 'pane-id-bid' }, s.identity.businessId) : null,
         h('button', {
           class: `detail-star${isPinned ? ' active' : ''}`,
