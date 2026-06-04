@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   refFieldsFromSchema, buildConnectionsEc, parseConnections,
   buildJunctionEc, parseJunctions, pickFarSide,
+  buildInboundEc, parseInbound,
   type SchemaProp, type RefField, type ConnTarget,
 } from '../connections';
 import { FLOW_SEP } from '../ec-codegen';
@@ -145,5 +146,28 @@ describe('junction inlining (C2)', () => {
   it('pickFarSide returns undefined when only the back-edge is present', () => {
     const fars: ConnTarget[] = [{ rid: '111', name: 'R', type: 'CeRiskAssessment', businessId: 'r' }];
     expect(pickFarSide('111', '201', fars)).toBeUndefined();
+  });
+});
+
+describe('inbound scan (C3)', () => {
+  it('buildInboundEc walks rref() emitting identity rows', () => {
+    const ec = buildInboundEc('lookup(123)');
+    expect(ec).toContain('_o := lookup(123)');
+    expect(ec).toContain('_o.rref().forEach(_t:');
+    expect(ec).toContain('_t.rid.whenMissing("")');
+  });
+
+  it('parseInbound parses referrer rows', () => {
+    const log = '201|mit_ddos|DDoS mitigation|CeWorkflow\n402|issue_cap|Capacity issue|CeIssue\n';
+    const { targets, capped } = parseInbound(log);
+    expect(targets.map(t => t.type)).toEqual(['CeWorkflow', 'CeIssue']);
+    expect(capped).toBe(false);
+  });
+
+  it('parseInbound caps and flags when over the limit', () => {
+    const log = Array.from({ length: 5 }, (_, i) => `${i}|b${i}|n${i}|CeIssue`).join('\n');
+    const { targets, capped } = parseInbound(log, 3);
+    expect(targets).toHaveLength(3);
+    expect(capped).toBe(true);
   });
 });

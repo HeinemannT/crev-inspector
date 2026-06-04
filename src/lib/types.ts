@@ -373,6 +373,9 @@ export type ObjectPaneMessage =
   // from the object's class config. The relationship view for domain objects.
   | { type: 'FETCH_CONNECTIONS'; rid: string; className: string }
   | { type: 'CONNECTIONS_RESULT'; rid: string; ok: boolean; groups?: ConnGroup[]; error?: string }
+  // Inbound scan — "who references me" via rref(), incl. undeclared edges.
+  | { type: 'FETCH_INBOUND'; rid: string }
+  | { type: 'INBOUND_RESULT'; rid: string; ok: boolean; targets?: ConnTarget[]; capped?: boolean; error?: string }
   | { type: 'FETCH_FLOW_CHAIN'; rid: string; objectType: string }
   | { type: 'FLOW_CHAIN_DATA'; rid: string; chain: FlowChainMsg | null; error?: string }
   // Access trace (admin permission test)

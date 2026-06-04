@@ -201,3 +201,35 @@ export function parseJunctions(log: string): Map<string, ConnTarget[]> {
 export function pickFarSide(sourceRid: string, junctionRid: string, fars: ConnTarget[]): ConnTarget | undefined {
   return fars.find(f => f.rid && f.rid !== sourceRid && f.rid !== junctionRid && !f.broken);
 }
+
+// ── Inbound scan ("referenced by", C3) ──────────────────────────────
+
+/**
+ * EC for the universal inbound scan: `rref()` returns every object that
+ * references this one, regardless of whether a reverse ref is declared — so it
+ * surfaces edges BMP's own UI can't (an undeclared inbound reference). One row
+ * per referrer: rid|id|name|className.
+ */
+export function buildInboundEc(ref: string): string {
+  return [
+    `_o := ${ref}`,
+    '_r := ""',
+    '_o.rref().forEach(_t:',
+    `     _r := _r + ${ROW('_t')} + "\\n"`,
+    ')',
+    '_r',
+  ].join('\n');
+}
+
+/** Parse the inbound rows, capped (a heavily-referenced object can have many). */
+export function parseInbound(log: string, cap = 100): { targets: ConnTarget[]; capped: boolean } {
+  const targets: ConnTarget[] = [];
+  let capped = false;
+  for (const line of log.split('\n')) {
+    const t = parseRow(line.trim());
+    if (!t) continue;
+    if (targets.length >= cap) { capped = true; break; }
+    targets.push(t);
+  }
+  return { targets, capped };
+}

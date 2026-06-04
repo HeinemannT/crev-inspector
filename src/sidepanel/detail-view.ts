@@ -25,7 +25,7 @@ import { renderPaneTree, type PaneTreeData } from './pane-tree';
 import { openAccessTrace } from './access-trace';
 import { renderCodeSection } from './sections/code-fields';
 import { renderReferenceSection } from './sections/reference-edges';
-import { renderConnections } from './sections/connections';
+import { renderConnections, type ConnInbound } from './sections/connections';
 import { referencesFor } from '../lib/widget-metadata';
 import { renderPropertyGroups, type PaneGroupsCtx } from './sections/property-groups';
 import { renderFlowSection } from './sections/flow-walker';
@@ -68,6 +68,8 @@ interface PaneState {
   /** Connections (generic ref relationships). Populated for domain objects. */
   connections: ConnGroup[] | null;
   connectionsLoading: boolean;
+  /** Inbound "referenced by" scan state (lazy, via rref()). */
+  inbound: ConnInbound | null;
 }
 
 interface PaneChildren {
@@ -283,6 +285,7 @@ export class DetailView {
       flowError: null,
       connections: null,
       connectionsLoading: false,
+      inbound: null,
     };
     this.draft = {};
     this.target = 'instance';
@@ -341,8 +344,11 @@ export class DetailView {
       // Connections (generic ref relationships) — for domain objects only;
       // widget types keep the curated References section instead.
       this.state.connections = null;
+      this.state.inbound = null;
       if (msg.instance.type && referencesFor(msg.instance.type).length === 0) {
         this.state.connectionsLoading = true;
+        // Offer the inbound ("referenced by") scan as a lazy button.
+        this.state.inbound = { loaded: false, targets: [] };
         this.sendMessage({ type: 'FETCH_CONNECTIONS', rid, className: msg.instance.type });
       } else {
         this.state.connectionsLoading = false;
@@ -354,6 +360,19 @@ export class DetailView {
     if (msg.type === 'CONNECTIONS_RESULT' && msg.rid === rid) {
       this.state.connectionsLoading = false;
       this.state.connections = msg.ok ? (msg.groups ?? []) : null;
+      this.renderDetail(panel);
+      return true;
+    }
+
+    if (msg.type === 'INBOUND_RESULT' && msg.rid === rid) {
+      // Dedupe against edges already shown as declared reverse refs — the
+      // inbound section should surface the EXTRA (often undeclared) referrers.
+      const shown = new Set<string>();
+      for (const g of this.state.connections ?? []) {
+        if (g.direction === 'in') for (const t of g.targets) shown.add(t.rid);
+      }
+      const extra = (msg.targets ?? []).filter(t => !shown.has(t.rid));
+      this.state.inbound = { loaded: true, capped: msg.capped, targets: extra };
       this.renderDetail(panel);
       return true;
     }
@@ -917,8 +936,13 @@ export class DetailView {
       // target re-centers the pane (one-hop graph walk).
       if (this.state!.connections && this.state!.connections.length > 0) {
         const connSection = renderConnections({
-          connections: { groups: this.state!.connections },
+          connections: { groups: this.state!.connections, inbound: this.state!.inbound ?? undefined },
           onNavigate: (rid) => this.swapTo(rid, null, panel, true).catch(() => {}),
+          onScanInbound: () => {
+            this.state!.inbound = { loaded: false, scanning: true, targets: [] };
+            this.sendMessage({ type: 'FETCH_INBOUND', rid: this.state!.rid });
+            this.renderDetail(panel);
+          },
         });
         if (connSection) wrap.appendChild(connSection);
       }

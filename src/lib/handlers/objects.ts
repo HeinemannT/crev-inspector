@@ -14,7 +14,7 @@ import { getColorSets, setColorSets } from '../color-set-cache';
 import type { BmpObject } from '../types';
 import type { TemplateResolution } from '../bmp-client';
 import * as schemaCache from '../type-schema-cache';
-import { refFieldsFromSchema, buildConnectionsEc, parseConnections, buildJunctionEc, parseJunctions, pickFarSide, type SchemaProp } from '../connections';
+import { refFieldsFromSchema, buildConnectionsEc, parseConnections, buildJunctionEc, parseJunctions, pickFarSide, buildInboundEc, parseInbound, type SchemaProp } from '../connections';
 import type { ConnGroup } from '../types';
 
 // ── EC builders (exported for tests) ─────────────────────────────
@@ -288,6 +288,20 @@ register('FETCH_CONNECTIONS', async (msg, respond) => {
     respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: true, groups });
   } catch (e) {
     respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: false, error: errorMessage(e) });
+  }
+});
+
+register('FETCH_INBOUND', async (msg, respond) => {
+  const ctx = getCtx();
+  if (!ctx.client) { respond({ type: 'INBOUND_RESULT', rid: msg.rid, ok: false, error: 'Not connected' }); return; }
+  try {
+    const ref = await ctx.client.resolveRef(msg.rid);
+    const result = await ctx.client.executeEc(buildInboundEc(ref), undefined, false);
+    if (!result.ok) { respond({ type: 'INBOUND_RESULT', rid: msg.rid, ok: false, error: result.error || result.log || 'EC execution failed' }); return; }
+    const { targets, capped } = parseInbound(result.log ?? '');
+    respond({ type: 'INBOUND_RESULT', rid: msg.rid, ok: true, targets, capped });
+  } catch (e) {
+    respond({ type: 'INBOUND_RESULT', rid: msg.rid, ok: false, error: errorMessage(e) });
   }
 });
 
