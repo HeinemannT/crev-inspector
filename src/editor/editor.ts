@@ -15,7 +15,7 @@ import { catppuccinMocha } from './catppuccin-theme'
 // Shared types + context helpers
 import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
 import { h, svg, render as renderDom } from '../lib/dom'
-import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK } from '../lib/icons'
+import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROW_OUT } from '../lib/icons'
 import { renderEcOutput, ecOutputToText, parseBmpDurationMs } from './ec-output'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
@@ -72,7 +72,16 @@ let activeProperty = ''
 let bottomPanelOpen = false
 let bottomMode: 'output' | 'history' | 'vars' = 'output'
 let dirty = false
-let outputHeight = 160 // default px, persisted
+let outputHeight = 160 // last manually-dragged px, persisted
+/** How the output panel sizes itself. 'auto' fits the content (capped at a
+ *  fraction of the window) so a one-line result is compact and a long log
+ *  grows then scrolls; 'manual' means the user dragged the divider and we
+ *  respect their height. Maximize is an independent overlay on top of both. */
+let outputSizing: 'auto' | 'manual' = 'auto'
+let outputMaximized = false
+const MIN_OUTPUT_PX = 90
+const OUTPUT_AUTO_FRAC = 0.45 // auto height ceiling, as a fraction of window
+const OUTPUT_MAX_FRAC = 0.78 // maximized height, as a fraction of window
 let previewDone = false // gating: Run unlocked only after successful preview
 let lastMode: 'preview' | 'execute' | 'save' | null = null
 let lastDuration: number | null = null
@@ -196,6 +205,12 @@ async function init() {
   // bottomMode !== 'vars').
   subscribeInference(() => {
     if (bottomPanelOpen && bottomMode === 'vars') renderBottomContent()
+  })
+
+  // Keep the auto / maximized output height proportional as the window
+  // resizes. No-op while the panel is closed or in manual mode.
+  window.addEventListener('resize', () => {
+    if (bottomPanelOpen) applyOutputHeight()
   })
 }
 
@@ -354,18 +369,6 @@ function renderShell() {
         'data-action': 'goto-bmp',
       }, identity.name || '(unnamed)'),
       h('span', { class: 'editor-id-bid' }, bid),
-      // EC execution context (`this`) — the object the page renders for,
-      // which is NOT the widget. Crucial for enterprise templates where the
-      // widget sits on a CeRiskAssessment detail page: `this` is the
-      // assessment, not the table. Surfaced so the user can trust what
-      // preview/execute binds `this` to.
-      ctx.executionContext != null && h('span', {
-        class: 'editor-id-context',
-        title: `EC context — \`this\` binds to ${ctx.executionContext.type || 'object'}${ctx.executionContext.name ? ` '${ctx.executionContext.name}'` : ''} (the object the page renders for, not the widget)`,
-      },
-        h('span', { class: 'editor-id-context-arrow' }, 'this → '),
-        ctx.executionContext.name || ctx.executionContext.businessId || ctx.executionContext.type || ctx.executionContext.rid,
-      ),
     )
   }
 
@@ -377,21 +380,49 @@ function renderShell() {
           'data-target': 'template',
           role: 'tab',
           'aria-selected': ctx.saveTarget === 'template' ? 'true' : 'false',
-          title: `${formatLabel(ctx.template!, 'full')}: changes propagate`,
-        }, 'template'),
+          title: `${formatLabel(ctx.template!, 'full')}: changes propagate to every instance`,
+        }, 'Template'),
         h('button', {
           class: `editor-seg-btn${ctx.saveTarget === 'instance' ? ' active' : ''}`,
           'data-target': 'instance',
           role: 'tab',
           'aria-selected': ctx.saveTarget === 'instance' ? 'true' : 'false',
-          title: formatLabel(ctx.instance, 'full'),
-        }, 'instance'),
+          title: `${formatLabel(ctx.instance, 'full')}: this object only`,
+        }, 'Instance'),
+      )
+    : false
+
+  // EC execution-context fact strip (row 2). `this` for preview/execute
+  // binds to the object the BMP page renders for — NOT the widget being
+  // edited. On an enterprise detail page that's the enterprise instance
+  // (e.g. a CeRiskAssessment), not the table. A real crosshair icon +
+  // "runs against" reads as a fact, distinct from the controls above; the
+  // whole strip carries the full explanation on hover.
+  const exec = !isExtended ? ctx.executionContext : null
+  const contextBar = exec
+    ? h('div', {
+        class: 'editor-header-context',
+        title: `Preview & Execute bind \`this\` to ${exec.type || 'this object'}${exec.name ? ` '${exec.name}'` : ''} — the object the BMP page renders for, not the widget you're editing.`,
+      },
+        h('span', { class: 'editor-ctx-icon' }, svg(ICON_CROSSHAIR)),
+        h('span', { class: 'editor-ctx-label' }, 'runs against'),
+        h('span', { class: 'editor-ctx-target' },
+          exec.name || exec.businessId || exec.type || exec.rid),
+        exec.type && exec.name ? h('span', { class: 'editor-ctx-type' }, exec.type) : null,
       )
     : false
 
   const header = h('div', { class: 'editor-header' },
-    h('div', { class: 'editor-header-id' }, ...headerChildren.filter(Boolean) as (HTMLElement | string)[]),
-    segToggle || h('span'),
+    h('div', { class: 'editor-header-main' },
+      h('div', { class: 'editor-header-id' }, ...headerChildren.filter(Boolean) as (HTMLElement | string)[]),
+      segToggle
+        ? h('div', { class: 'editor-header-target' },
+            h('span', { class: 'editor-target-label' }, 'Editing'),
+            segToggle,
+          )
+        : h('span'),
+    ),
+    contextBar || null,
   )
 
   // Property tabs (tablist with underline indicator)
@@ -489,7 +520,16 @@ function renderShell() {
     propTabs || h('div', { class: 'editor-prop-tabs editor-prop-tabs--empty' }),
     h('div', { class: 'editor-cm-wrap', id: 'cm-container' }),
     actionRow,
-    h('div', { class: 'editor-drag-handle', id: 'drag-handle', style: 'display:none' }),
+    h('div', { class: 'editor-drag-handle', id: 'drag-handle', style: 'display:none' },
+      // Maximize toggle floats on the divider itself — hidden until the
+      // handle is hovered (or while maximized), so it stays out of the way.
+      h('button', {
+        class: 'editor-output-max',
+        id: 'btn-output-max',
+        title: 'Maximize output',
+        'aria-label': 'Maximize output',
+      }, svg(ICON_ARROW_OUT)),
+    ),
     h('div', { class: 'editor-output', id: 'bottom-panel', style: `display:none;height:${outputHeight}px` },
       h('div', { id: 'bottom-panel-content' }),
     ),
@@ -568,6 +608,12 @@ function renderShell() {
     }),
   )
   wireDragHandle()
+  const maxBtn = document.getElementById('btn-output-max')
+  if (maxBtn) {
+    // Don't let a press on the button start a divider drag.
+    maxBtn.addEventListener('pointerdown', (e) => e.stopPropagation())
+    maxBtn.addEventListener('click', toggleMaximizeOutput)
+  }
 
   // Wire template/instance toggle
   for (const btn of document.querySelectorAll<HTMLElement>('.editor-seg-btn')) {
@@ -1259,9 +1305,47 @@ function showOutput(text: string, ok: boolean) {
 function openBottomPanel() {
   const panel = document.getElementById('bottom-panel')
   const handle = document.getElementById('drag-handle')
-  if (panel) { panel.style.display = ''; panel.style.height = `${outputHeight}px` }
+  if (panel) panel.style.display = ''
   if (handle) handle.style.display = ''
+  applyOutputHeight()
   updateBottomBar()
+}
+
+/** Size the output panel per the current mode: maximized → a large fixed
+ *  fraction; manual → the user's dragged height; auto → fit the content,
+ *  capped so a huge log grows to a ceiling then scrolls internally. Called
+ *  on open, after each content render, on maximize toggle, and on resize. */
+function applyOutputHeight() {
+  const panel = document.getElementById('bottom-panel')
+  if (!panel || panel.style.display === 'none') return
+  const winH = window.innerHeight
+  if (outputMaximized) {
+    panel.style.height = `${Math.round(winH * OUTPUT_MAX_FRAC)}px`
+  } else if (outputSizing === 'manual') {
+    panel.style.height = `${Math.min(outputHeight, Math.round(winH * 0.9))}px`
+  } else {
+    // Auto: measure the natural content height (briefly unconstrained),
+    // then clamp to [floor, ceiling]. Synchronous — no paint in between,
+    // so there's no flicker from the transient `auto`.
+    panel.style.height = 'auto'
+    const natural = panel.offsetHeight
+    const capped = Math.min(natural, Math.round(winH * OUTPUT_AUTO_FRAC))
+    panel.style.height = `${Math.max(MIN_OUTPUT_PX, capped)}px`
+  }
+  updateMaximizeButton()
+}
+
+function toggleMaximizeOutput(e?: Event) {
+  e?.stopPropagation()
+  outputMaximized = !outputMaximized
+  applyOutputHeight()
+}
+
+function updateMaximizeButton() {
+  const btn = document.getElementById('btn-output-max')
+  if (!btn) return
+  btn.classList.toggle('editor-output-max--on', outputMaximized)
+  btn.title = outputMaximized ? 'Restore output size' : 'Maximize output'
 }
 
 function hideBottomPanel() {
@@ -1284,6 +1368,13 @@ function updateBottomBar() {
 }
 
 function renderBottomContent() {
+  renderBottomContentInner()
+  // Auto-size tracks the freshly-rendered content (no-op in manual/maximized
+  // modes and when the panel is hidden).
+  applyOutputHeight()
+}
+
+function renderBottomContentInner() {
   const container = document.getElementById('bottom-panel-content')
   if (!container) return
 
@@ -1300,12 +1391,16 @@ function renderBottomContent() {
           h('span', null, ` ${modeLabel}`),
           lastDuration != null ? h('span', {
             class: 'editor-output-pill-dur',
-            // Round-trip = wall-clock incl. SW + network; BMP = server-side
-            // compute. Spelled out in the tooltip, compact in the pill.
+            // RTT = round-trip time (wall-clock incl. SW + network + BMP);
+            // BMP = server-side compute alone. Spelled out in the tooltip,
+            // abbreviated in the pill. RTT label only shows when there's a
+            // BMP figure to contrast it against.
             title: lastBmpMs != null
-              ? `${lastDuration}ms round-trip · ${lastBmpMs}ms BMP compute`
-              : `${lastDuration}ms round-trip`,
-          }, lastBmpMs != null ? `${lastDuration}ms · ${lastBmpMs}ms BMP` : `${lastDuration}ms`) : null,
+              ? `${lastDuration}ms round-trip (RTT) · ${lastBmpMs > 0 ? `${lastBmpMs}ms` : 'sub-millisecond'} BMP compute`
+              : `${lastDuration}ms round-trip (RTT)`,
+          }, lastBmpMs != null
+            ? `${lastDuration}ms RTT · ${lastBmpMs > 0 ? `${lastBmpMs}ms` : '<1ms'} BMP`
+            : `${lastDuration}ms`) : null,
         ),
         // "Stale" pill when the editor's code has diverged from what
         // this output reflects — keeps the user from acting on results
@@ -1867,10 +1962,14 @@ function wireDragHandle() {
   // need document-level move listeners.
   function onMove(e: PointerEvent) {
     const delta = startY - e.clientY
-    const newHeight = Math.max(60, Math.min(window.innerHeight * 0.8, startHeight + delta))
+    const newHeight = Math.max(60, Math.min(window.innerHeight * 0.9, startHeight + delta))
+    // Dragging is an explicit size choice — leave auto/maximized behind.
     outputHeight = newHeight
+    outputSizing = 'manual'
+    outputMaximized = false
     const panel = document.getElementById('bottom-panel')
     if (panel) panel.style.height = `${newHeight}px`
+    updateMaximizeButton()
   }
   function finish() {
     if (pointerId != null) {

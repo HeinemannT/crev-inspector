@@ -313,6 +313,10 @@ describe('parseBmpDurationMs', () => {
     expect(parseBmpDurationMs('   Duration : 120ms  ')).toBe(120); // indented
   });
 
+  it('returns 0 for a present-but-non-numeric footer (BMP "no time" = sub-ms)', () => {
+    expect(parseBmpDurationMs('probe\nDuration : no time')).toBe(0);
+  });
+
   it('returns null when absent or not the metadata line', () => {
     expect(parseBmpDurationMs('hello world')).toBe(null);
     expect(parseBmpDurationMs('')).toBe(null);

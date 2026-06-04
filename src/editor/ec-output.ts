@@ -30,15 +30,24 @@ const LINE_CLASSES: Record<LineType, string> = {
  *  containing any of these is BMP's monospace table art. */
 const BOX_DRAWING_RE = /[─-╿]/;
 
-/** Extract BMP's self-reported compute time (the `Duration : Nms` line)
- *  from raw EC output, in milliseconds. Returns null when absent. This is
- *  BMP's server-side execution time — distinct from the editor's
- *  wall-clock round-trip (which also includes SW + network). The two are
- *  merged in the output pill so the user can see both at a glance. */
+/** Extract BMP's self-reported compute time (the `Duration : …` footer)
+ *  from raw EC output, in milliseconds. This is BMP's server-side execution
+ *  time — distinct from the editor's wall-clock round-trip (which also
+ *  includes SW + network); the two are merged in the output pill.
+ *
+ *  Returns:
+ *   - N    when BMP reports `Duration : Nms`
+ *   - 0    when the footer is present but non-numeric (`Duration : no time`,
+ *          which BMP emits for sub-millisecond runs) — i.e. "ran, <1ms"
+ *   - null when there's no Duration footer at all
+ *  Only matches the bare metadata line, not a `Duration` substring inside
+ *  other output. */
 export function parseBmpDurationMs(text: string): number | null {
   if (!text) return null;
-  const m = text.match(/^\s*Duration\s*:\s*(\d+)\s*ms\b/m);
-  return m ? Number(m[1]) : null;
+  const line = text.match(/^\s*Duration\s*:\s*(.*)$/m);
+  if (!line) return null;
+  const ms = line[1].match(/(\d+)\s*ms/);
+  return ms ? Number(ms[1]) : 0;
 }
 
 /** Decode JSON-style backslash escape sequences that BMP sometimes ships through
