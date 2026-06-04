@@ -545,8 +545,11 @@ const TYPE_COLORS: Record<string, string> = {
   Container: '#9aa3e8',
 
   // ── Visualization (warm family) ───────────────────────────────
+  // Tables all share the bold red so they read as one group that stands out
+  // from the (coral) charts — no need to tell ExtendedTable/ReportTable/
+  // FilterTable apart from each other.
   ExtendedTable:       '#fa4d56',
-  FilterTable:         '#ff6b6b',
+  FilterTable:         '#fa4d56',
   FilteredComments:    '#ff8389',
   ReportTable:         '#fa4d56',
   CustomVisualization: '#ff8389',
