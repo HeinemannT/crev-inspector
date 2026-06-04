@@ -4034,7 +4034,8 @@ body.crev-divider-dragging * { user-select: none; }
 .conn-target {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  flex-wrap: wrap;
+  gap: 2px var(--space-2);
   margin-left: var(--space-3);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
@@ -4065,6 +4066,7 @@ body.crev-divider-dragging * { user-select: none; }
 .conn-chip--via { transform: scale(0.92); opacity: 0.92; }
 .conn-name {
   color: var(--text-1);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4083,8 +4085,14 @@ body.crev-divider-dragging * { user-select: none; }
 }
 .conn-via:hover { background: var(--surface-3); color: var(--text-1); }
 .conn-via--broken { color: var(--danger); cursor: default; }
-.conn-via-arrow { color: var(--text-3); }
-.conn-via-name { font-size: var(--text-xs); }
+.conn-via-arrow { color: var(--text-3); flex-shrink: 0; }
+.conn-via-name {
+  font-size: var(--text-xs);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* Navigability pip. */
 .conn-nav { font-size: 10px; flex-shrink: 0; margin-left: auto; }
