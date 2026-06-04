@@ -25,9 +25,13 @@ function hasRoomAbove(el: Element, needed = 11): boolean {
   const top = el.getBoundingClientRect().top;
   if (top < needed) return false; // viewport top
   for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
-    const cs = getComputedStyle(a);
-    const clips = /(hidden|clip|auto|scroll)/.test(cs.overflow + cs.overflowY + cs.overflowX);
-    if (clips && top - a.getBoundingClientRect().top < needed) return false;
+    // Only VERTICAL overflow clips the top edge — a horizontally-scrolling
+    // container (overflowX:auto, e.g. BMP's wide data tables) must NOT count,
+    // or inline rid elements inside it tuck in needlessly. overflowY resolves
+    // the `overflow` shorthand too.
+    const oy = getComputedStyle(a).overflowY;
+    if ((oy === 'hidden' || oy === 'clip' || oy === 'auto' || oy === 'scroll')
+        && top - a.getBoundingClientRect().top < needed) return false;
   }
   return true;
 }
