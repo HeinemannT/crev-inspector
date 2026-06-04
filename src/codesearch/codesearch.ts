@@ -67,8 +67,70 @@ const TYPE_GROUPS: ReadonlyArray<{ key: string; label: string; types: readonly s
 ];
 const activeGroups = new Set<string>(); // keys; empty = all
 
-// Cursor position to restore after a re-render of the input.
-let queryRefocus: number | null = null;
+// ── Persistent search-shell nodes ────────────────────────────────
+// The search box and its buttons are built ONCE and reused across every
+// re-render, so typing never recreates the input element. That was the old
+// focus bug: each keystroke ran renderUI() → render(root, …), which destroyed
+// and rebuilt the <input>, dropping focus/caret (and characters under fast
+// typing or IME composition). Now keystrokes update state + toggle the buttons
+// imperatively (syncSearchShell) and never rebuild the input. Search still runs
+// only on Enter / the Search button — typing is cheap and local.
+const searchInputEl = h('input', {
+  class: 'cs-search-input',
+  id: 'cs-query',
+  type: 'text',
+  autocomplete: 'off',
+  autocorrect: 'off',
+  spellcheck: 'false',
+  onInput: () => {
+    query = searchInputEl.value;
+    // Editing invalidates the last result set's verdict; it reverts to the
+    // hero/fresh state on the next Enter. We don't re-render here — that's the
+    // whole point — so the prior results simply linger until the next search.
+    hasSearched = false;
+    syncSearchShell();
+  },
+  onKeyDown: (e: KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); fireSearch(); }
+    if (e.key === 'Escape') {
+      if (searching) sendFireForget({ type: 'CODE_SEARCH_STOP' });
+      else if (query) { query = ''; searchInputEl.value = ''; hasSearched = false; syncSearchShell(); }
+    }
+  },
+}) as HTMLInputElement;
+
+const searchClearBtn = h('button', {
+  class: 'cs-search-clear',
+  title: 'Clear',
+  onClick: () => {
+    query = ''; searchInputEl.value = ''; results = []; searched = 0; total = 0; hasSearched = false;
+    renderUI();
+    searchInputEl.focus();
+  },
+}, '✕') as HTMLButtonElement;
+
+const searchStopBtn = h('button', {
+  class: 'cs-search-stop',
+  title: 'Stop search',
+  onClick: () => sendFireForget({ type: 'CODE_SEARCH_STOP' }),
+}, 'Stop') as HTMLButtonElement;
+
+const searchGoBtn = h('button', {
+  class: 'cs-search-go',
+  title: 'Run search (Enter)',
+  onClick: () => fireSearch(),
+}, 'Search') as HTMLButtonElement;
+
+/** Imperatively reflect query/searching/case state in the always-present
+ *  search-shell controls — no DOM rebuild, so the input keeps focus. */
+function syncSearchShell(): void {
+  searchInputEl.placeholder = caseSensitive
+    ? 'Search code (case-sensitive)…'
+    : 'Search code (case-insensitive)…';
+  searchClearBtn.hidden = query.length === 0;
+  searchStopBtn.hidden = !searching;
+  searchGoBtn.hidden = searching || query.trim().length === 0;
+}
 
 // ── Message routing ──────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg: InspectorMessage) => {
@@ -128,17 +190,12 @@ function renderUI() {
     resultFilterRefocus = null;
     return; // filter-input refocus wins; don't pull focus back to query
   }
+  // The search input is a persistent node, so typing never recreates it. A
+  // non-typing rebuild (pills, streaming progress) still detaches/reattaches it;
+  // if that dropped focus to <body>, restore it so the caret doesn't vanish.
   const queryInput = document.getElementById('cs-query') as HTMLInputElement | null;
-  if (queryInput) {
-    if (queryRefocus != null) {
-      try {
-        queryInput.focus();
-        queryInput.setSelectionRange(queryRefocus, queryRefocus);
-      } catch { /* not all browsers */ }
-      queryRefocus = null;
-    } else if (document.activeElement === document.body) {
-      queryInput.focus({ preventScroll: true });
-    }
+  if (queryInput && document.activeElement === document.body) {
+    queryInput.focus({ preventScroll: true });
   }
 }
 
@@ -153,63 +210,16 @@ function renderHeader(): HTMLElement {
 
 function renderToolbar(): HTMLElement {
   // Search shell (hero input) — mirrors Browse's .browse-search-shell.
+  // Uses the persistent input + button nodes (never recreated on keystroke);
+  // syncSearchShell() sets their current state after they're (re)mounted.
   const searchShell = h('div', { class: 'cs-search-shell' },
     h('span', { class: 'cs-search-icon' }, '⌕'),
-    h('input', {
-      class: 'cs-search-input',
-      id: 'cs-query',
-      type: 'text',
-      placeholder: caseSensitive
-        ? 'Search code (case-sensitive)…'
-        : 'Search code (case-insensitive)…',
-      value: query,
-      autocomplete: 'off',
-      autocorrect: 'off',
-      spellcheck: 'false',
-      onInput: (e: Event) => {
-        const el = e.currentTarget as HTMLInputElement;
-        query = el.value;
-        queryRefocus = el.selectionStart ?? el.value.length;
-        // Editing invalidates the last result set's "no matches" verdict —
-        // go back to the hero prompt until the next Enter/Search.
-        hasSearched = false;
-        // Do NOT search on keystroke — code search hits live EC and is too
-        // expensive to run per-character. Runs only on Enter / the Search
-        // button. Re-render so the clear/search buttons reflect the value.
-        renderUI();
-      },
-      onKeyDown: (e: KeyboardEvent) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          fireSearch();
-        }
-        if (e.key === 'Escape') {
-          if (searching) sendFireForget({ type: 'CODE_SEARCH_STOP' });
-          else if (query) { query = ''; renderUI(); }
-        }
-      },
-    }),
-    query
-      ? h('button', {
-          class: 'cs-search-clear',
-          title: 'Clear',
-          onClick: () => { query = ''; results = []; searched = 0; total = 0; hasSearched = false; renderUI(); },
-        }, '✕')
-      : null,
-    searching
-      ? h('button', {
-          class: 'cs-search-stop',
-          title: 'Stop search',
-          onClick: () => sendFireForget({ type: 'CODE_SEARCH_STOP' }),
-        }, 'Stop')
-      : query.trim()
-        ? h('button', {
-            class: 'cs-search-go',
-            title: 'Run search (Enter)',
-            onClick: () => fireSearch(),
-          }, 'Search')
-        : null,
+    searchInputEl,
+    searchClearBtn,
+    searchStopBtn,
+    searchGoBtn,
   );
+  syncSearchShell();
 
   // Filter pills row.
   const pills: HTMLElement[] = [];
