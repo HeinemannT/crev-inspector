@@ -16,6 +16,22 @@ import { sendFireForget, sendRequest } from './lib/messaging';
 import { showQuickInspector } from './lib/quick-inspector';
 import type { ContentState } from './content-state';
 
+/** Is there room above `el` for an upward-overhanging edge pill (~11px), or
+ *  would it be clipped? Clipping happens when the host sits flush against the
+ *  top of a scroll/overflow-clipping ancestor (tab strips, header, breadcrumb
+ *  bar) or the viewport. Walks ancestors checking for a clip boundary within
+ *  the needed gap; returns false if any is too close. */
+function hasRoomAbove(el: Element, needed = 11): boolean {
+  const top = el.getBoundingClientRect().top;
+  if (top < needed) return false; // viewport top
+  for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+    const cs = getComputedStyle(a);
+    const clips = /(hidden|clip|auto|scroll)/.test(cs.overflow + cs.overflowY + cs.overflowX);
+    if (clips && top - a.getBoundingClientRect().top < needed) return false;
+  }
+  return true;
+}
+
 /** Create the action strip below a badge (EC button for code-bearing types). Returns null if no actions. */
 function createActionStrip(rid: string, enrichment: { businessId?: string; type?: string; name?: string }): HTMLSpanElement | null {
   if (!enrichment.type || !TYPES_WITH_CODE.has(enrichment.type)) return null;
@@ -118,7 +134,13 @@ export function syncOverlays(s: ContentState) {
     // widgets keep the in-corner placement — it sits in their header padding.
     const elHeight = (element as HTMLElement).offsetHeight;
     if (element.tagName === 'A' || (elHeight > 0 && elHeight <= 26)) {
-      label.classList.add('crev-label--edge');
+      // The overhang gets sliced off when the host is flush against a
+      // clipping ancestor's top (tab strips, the BMP header, breadcrumb
+      // bars) or the viewport top. Detect that and tuck the pill just
+      // inside the top edge instead, so it stays fully visible. Kept as a
+      // child-of-host placement (not a portal layer) so it scrolls with the
+      // element and doesn't fight the editor/objectview frame overlays.
+      label.classList.add(hasRoomAbove(element) ? 'crev-label--edge' : 'crev-label--edge-inside');
     }
 
     // Pill is the affordance for "open this in the sidebar". Modifiers keep

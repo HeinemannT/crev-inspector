@@ -38,6 +38,11 @@
    the top edge so it badges the element instead of sitting on its text. */
 .crev-label--edge { top: -9px; right: 0; }
 .crev-label--edge:hover { transform: translateY(-2px); }
+/* Fallback when an upward overhang would be clipped (host flush against a
+   clipping ancestor / viewport top — tabs, header, breadcrumb): tuck the
+   pill just inside the top-right corner so it stays fully visible. */
+.crev-label--edge-inside { top: 1px; right: 1px; }
+.crev-label--edge-inside:hover { transform: translateY(-1px); }
 .crev-label-flash-pick { background: #ff832b !important; }
 .crev-label-flash-ok { background: #42be65 !important; }
 .crev-label-flash-error { background: #fa4d56 !important; }
