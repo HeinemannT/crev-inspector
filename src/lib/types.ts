@@ -496,7 +496,11 @@ export const DEFAULT_SETTINGS: InspectorSettings = {
 /** Chart types — all share the same color. Charts are visualizations →
  *  warm/red family per the pill taxonomy below. */
 export const CHART_TYPES = ['BarChart','PieChart','LineChart','AreaChart','WaterfallChart','BubbleChart','RadarChart','TreeChart','GanttChart','NetworkChart','PolarChart','BarLineChart','RiskChart','RiskRadarChart'] as const;
-const CHART_COLOR = '#fa4d56'; // viz red
+// Charts share one softer coral so they read as a family — and so the bold
+// ExtendedTable red (#fa4d56) clearly stands out from them. Risk charts get
+// their own deeper red below (they're a distinct beast from generic charts).
+const CHART_COLOR = '#ff8a80'; // chart coral (lighter than table red)
+const RISK_CHART_COLOR = '#d4374a'; // deeper red — risk charts
 const CHART_ABBREVIATIONS: Record<string, string> = {
   BarChart: 'BAR', PieChart: 'PIE', LineChart: 'LIN', AreaChart: 'ARA',
   WaterfallChart: 'WFL', BubbleChart: 'BUB', RadarChart: 'RDR', TreeChart: 'TRE',
@@ -586,6 +590,10 @@ const TYPE_COLORS: Record<string, string> = {
   Action:      '#ff832b',
 
   ...Object.fromEntries(CHART_TYPES.map(t => [t, CHART_COLOR])),
+  // Risk charts override the generic chart coral with a deeper red so they
+  // stand apart from the other charts at a glance.
+  RiskChart: RISK_CHART_COLOR,
+  RiskRadarChart: RISK_CHART_COLOR,
 };
 
 // All abbreviations normalised to 3 characters so pills render at uniform
