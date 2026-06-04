@@ -135,15 +135,27 @@ describe('renderLinks', () => {
     expect(onScan).toHaveBeenCalled();
   });
 
-  it('renders scanned inbound results as ↰ incoming rows + a cap note', () => {
+  it('renders scanned referrers as ← rows (distinct from declared reverse ↰) + a cap note', () => {
     const { el } = render({
       outgoing: [],
       incoming: [],
       inbound: { loaded: true, capped: true, targets: [{ rid: 'x', name: 'Issue', type: 'CeIssue', businessId: 'i' }] },
     });
-    expect(el!.querySelector('.lk-dir')!.textContent).toBe('↰');
+    const dir = el!.querySelector('.lk-dir')!;
+    expect(dir.textContent).toBe('←');
+    expect(dir.classList.contains('lk-dir--from')).toBe(true);
     expect(el!.querySelector('.lk-name')!.textContent).toBe('Issue');
     expect(el!.querySelector('.lk-note')!.textContent).toContain('first 100');
+  });
+
+  it('distinguishes a declared reverse (↰) from a scanned referrer (←) in the same section', () => {
+    const { el } = render({
+      outgoing: [],
+      incoming: [tgt({ rid: 'rev', name: 'Workflow', type: 'CeWorkflow', field: 'mitigates' })],
+      inbound: { loaded: true, targets: [{ rid: 'ref', name: 'Issue', type: 'CeIssue', businessId: 'i' }] },
+    });
+    const dirs = [...el!.querySelectorAll('.lk-dir')].map(d => d.textContent);
+    expect(dirs).toEqual(['↰', '←']);
   });
 
   it('meta reads "out · in" when there are incoming links', () => {

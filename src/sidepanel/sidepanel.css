@@ -3940,7 +3940,8 @@ body.crev-divider-dragging * { user-select: none; }
   line-height: 1;
 }
 .lk-dir--out { color: var(--text-3); }
-.lk-dir--in { color: var(--info); }
+.lk-dir--in { color: var(--info); }      /* declared reverse — a modeled back-edge */
+.lk-dir--from { color: var(--text-3); }  /* scanned referrer — discovered, not declared */
 
 .lk-chip {
   display: inline-flex;

@@ -10,18 +10,21 @@
  * Layout (name-first, full pane width; direction carried by the leading glyph,
  * so a divider — not a header — splits outgoing from incoming):
  *
- *   LINKS                          3 out · 1 in
+ *   LINKS                          3 out · 2 in
  *   →  [USE] Anna Schmidt                 owner
  *   →  [CER] DDoS attack statement       master
  *   ─────────────────────────────────────────────
  *   ↰  [CEW] DDoS mitigation workflow  mitigates
  *        ↳ [CEC] WAF rate-limit control     via   (junction far side, indented)
+ *   ←  [CEI] Capacity issue                          (scanned referrer)
  *   [ Scan all referrers ]
  *
- * Outgoing links lead with →, incoming with ↰ (bend-up-left "return"). A
- * junction's far side is an indented sub-row. Unset *discovered* links are
- * simply omitted (an empty optional field isn't a relationship); unset *curated*
- * bindings stay visible as a dim "(none)" because that's a real config signal.
+ * Three directions, after Atlas: → outgoing (forward), ↰ a DECLARED reverse
+ * relationship (part of the model), ← a scanned referrer (something that just
+ * happens to point here — discovered via rref, not declared). A junction's far
+ * side is an indented ↳ sub-row. Unset *discovered* links are simply omitted
+ * (an empty optional field isn't a relationship); unset *curated* bindings stay
+ * visible as a dim "(none)" because that's a real config signal.
  *
  * Pure render given the resolved `LinksModel` — see links.test.ts.
  */
@@ -61,7 +64,7 @@ export interface LinkInbound {
 export interface LinksModel {
   /** Outgoing links — "→ References". May include unset curated bindings. */
   outgoing: LinkTarget[];
-  /** Incoming links — "← Referenced by". Declared reverse refs. */
+  /** Declared reverse relationships (↰) — modeled back-edges. */
   incoming: LinkTarget[];
   /** Lazy inbound scan (domain objects only). Omit to hide the affordance. */
   inbound?: LinkInbound;
@@ -99,22 +102,27 @@ export function referencesToLinks(type: string, references: Record<string, Objec
   });
 }
 
-/** Direction glyphs: a plain arrow out, a bend-up-left "return" arrow back in.
- *  Direction is carried per-row by this glyph, so the out/in split needs no
- *  sub-headers — just a divider for hierarchy. */
-const DIR_GLYPH = { out: '→', in: '↰' } as const;
+/** Direction of a link row, after Atlas's trichotomy:
+ *   out  — outgoing/forward reference (this object → target)
+ *   in   — a DECLARED reverse relationship (modeled back-edge)
+ *   from — a scanned referrer (something that points here but isn't declared) */
+type LinkDir = 'out' | 'in' | 'from';
+
+/** Direction glyphs. Direction is carried per-row by this glyph, so the out/in
+ *  split needs no sub-headers — just a divider for hierarchy. */
+const DIR_GLYPH: Record<LinkDir, string> = { out: '→', in: '↰', from: '←' };
 
 export function renderLinks(input: LinksInput): HTMLElement | null {
   const { outgoing, incoming, inbound } = input.links;
   const nav = input.onNavigate;
 
-  const inboundTargets = inbound?.loaded ? inbound.targets : [];
-  const inRows: LinkTarget[] = [
-    ...incoming,
-    ...inboundTargets.map<LinkTarget>(t => ({ ...t, field: '' })),
-  ];
+  // Declared reverse relationships (↰) and scanned referrers (←) are disjoint —
+  // the inbound scan dedupes against the declared set upstream — and render as
+  // distinct kinds so "modeled back-edge" reads apart from "happens to point here".
+  const referrers = inbound?.loaded ? inbound.targets : [];
   const showScan = !!inbound && !inbound.loaded;
-  const hasIn = inRows.length > 0;
+  const inCount = incoming.length + referrers.length;
+  const hasIn = inCount > 0;
 
   if (outgoing.length === 0 && !hasIn && !showScan) return null;
 
@@ -123,7 +131,7 @@ export function renderLinks(input: LinksInput): HTMLElement | null {
   const children: (HTMLElement | string | null)[] = [
     h('div', { class: 'prop-group-title' },
       h('span', { class: 'prop-group-title-text' }, 'Links'),
-      h('span', { class: 'prop-group-title-meta' }, metaLabel(outgoing.length, setOut, inRows.length)),
+      h('span', { class: 'prop-group-title-meta' }, metaLabel(outgoing.length, setOut, inCount)),
     ),
   ];
 
@@ -132,7 +140,8 @@ export function renderLinks(input: LinksInput): HTMLElement | null {
   // Divider, not a header: separates outgoing from incoming when both exist.
   if (outgoing.length > 0 && hasIn) children.push(h('div', { class: 'lk-divider' }));
 
-  for (const t of inRows) children.push(...linkRow('in', t, nav));
+  for (const t of incoming) children.push(...linkRow('in', t, nav));
+  for (const t of referrers) children.push(...linkRow('from', { ...t, field: '' }, nav));
 
   const scan = scanFoot(inbound, input.onScanInbound);
   if (scan) children.push(scan);
@@ -148,17 +157,17 @@ function metaLabel(outTotal: number, outSet: number, inCount: number): string {
 }
 
 /** A link row plus, if present, its junction far-side sub-row. */
-function linkRow(dir: 'out' | 'in', t: LinkTarget, nav: (rid: string) => void): HTMLElement[] {
+function linkRow(dir: LinkDir, t: LinkTarget, nav: (rid: string) => void): HTMLElement[] {
   const rows: HTMLElement[] = [mainRow(dir, t, nav)];
   if (t.via) rows.push(viaRow(t.via, nav));
   return rows;
 }
 
-function dirGlyph(dir: 'out' | 'in'): HTMLElement {
+function dirGlyph(dir: LinkDir): HTMLElement {
   return h('span', { class: `lk-dir lk-dir--${dir}` }, DIR_GLYPH[dir]);
 }
 
-function mainRow(dir: 'out' | 'in', t: LinkTarget, nav: (rid: string) => void): HTMLElement {
+function mainRow(dir: LinkDir, t: LinkTarget, nav: (rid: string) => void): HTMLElement {
   if (t.empty) {
     return h('div', { class: 'lk-row lk-row--empty' },
       dirGlyph(dir),
