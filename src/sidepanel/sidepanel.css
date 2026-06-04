@@ -1308,15 +1308,6 @@ body {
   color: #fff;
 }
 
-.connect-footer {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--surface-4);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
 .connect-meta-bytes {
   color: var(--text-3);
   font-family: var(--font-mono);
@@ -1342,6 +1333,34 @@ body {
 .connect-meta {
   font-size: var(--text-xs);
   color: var(--text-2);
+}
+
+/* Maintenance section: routine cache row (count + Clear cache) … */
+.connect-cache-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* … and the danger-bounded Reset zone, set apart from the routine row so the
+   nuke can't be fat-fingered in place of "Clear cache". */
+.connect-reset-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--surface-3), var(--danger) 32%);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-1), var(--danger) 5%);
+}
+.connect-reset-label {
+  font-size: var(--text-xs);
+  color: var(--text-2);
+  min-width: 0;
 }
 
 /* ── Profile cards ─────────────────────────────── */
@@ -2458,11 +2477,6 @@ body.crev-divider-dragging * { user-select: none; }
 
 .checkbox-accent { accent-color: var(--accent); }
 
-.connect-footer--flat {
-  border: none;
-  padding-top: 4px;
-}
-
 .kbd {
   padding: 1px 4px;
   background: var(--surface-3);
@@ -2634,6 +2648,18 @@ body.crev-divider-dragging * { user-select: none; }
   border: 1px solid var(--surface-3);
   border-radius: var(--radius-md);
   font-size: var(--text-xs);
+}
+
+/* Quiet variant — the reference is reference material, not a primary control,
+   so on the Connect tab it drops the card chrome and reads as a muted footer
+   block separated by a hairline. */
+.reference-card--muted {
+  margin-top: 14px;
+  padding: 12px 0 0;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--surface-3);
+  border-radius: 0;
 }
 .reference-title {
   font-size: var(--text-xs);

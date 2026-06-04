@@ -151,7 +151,11 @@ export class ConnectTab implements Tab {
     }
 
     children.push(
-      h('div', { class: 'field-group field-group--spaced' },
+      // ── Detection ──────────────────────────────────────
+      h('div', { class: 'section-header' },
+        h('span', { class: 'section-title section-title--flush' }, 'Detection'),
+      ),
+      h('div', { class: 'field-group' },
         h('label', { class: 'field-label field-label--inline' },
           h('input', { type: 'checkbox', class: 'checkbox-accent', id: 'auto-detect', checked: shared.settings.autoDetect }),
           'Auto-detect server from page URL',
@@ -162,7 +166,16 @@ export class ConnectTab implements Tab {
           h('input', { type: 'checkbox', class: 'checkbox-accent', id: 'enrich-all', checked: shared.settings.enrichMode === 'all' }),
           'Include non-widget objects',
         ),
-        h('span', { class: 'field-hint' }, 'Also labels inline RID elements that the widget size filter normally hides. Table rows aren’t covered. They navigate via anchor links and are filtered separately.'),
+        // Trimmed to one line; the table-rows caveat moved to the tooltip.
+        h('span', {
+          class: 'field-hint',
+          title: 'Table rows aren’t covered — they navigate via anchor links and are filtered separately.',
+        }, 'Also labels inline RID elements the widget size filter hides.'),
+      ),
+
+      // ── Maintenance ────────────────────────────────────
+      h('div', { class: 'section-header' },
+        h('span', { class: 'section-title section-title--flush' }, 'Maintenance'),
       ),
       this.cacheQuotaWarning
         ? h('div', { class: 'cache-quota-banner' },
@@ -170,7 +183,7 @@ export class ConnectTab implements Tab {
             h('button', { class: 'btn btn-small btn-ghost', 'data-action': 'reset-all', title: 'Wipe cache + enrichment to recover headroom' }, 'Reset'),
           )
         : null,
-      h('div', { class: 'connect-footer' },
+      h('div', { class: 'connect-cache-row' },
         h('span', { class: 'connect-meta' },
           `${shared.cacheCount} cached`,
           this.cacheBytes != null && this.cacheBytes > 0
@@ -185,16 +198,20 @@ export class ConnectTab implements Tab {
           disabled: shared.cacheCount === 0,
           title: shared.cacheCount === 0 ? 'Nothing to clear' : `Clear ${shared.cacheCount} cached objects (keeps activity log, favorites, settings)`,
         }, 'Clear cache'),
-        // Bigger hammer — for when the extension is in a bad state and the
-        // user wants a clean slate without losing server profiles/favorites.
-        // Confirms inline (handler-level) because the action is one-tap-away
-        // from "Clear" and the labels look similar; the title is the warning.
+      ),
+      // "Reset all" is the nuke — pulled out of the routine cache row into its
+      // own danger-bounded strip so it can't be mistaken for "Clear cache"
+      // (they were ghost-button peers one tap apart). Confirms via modal.
+      h('div', { class: 'connect-reset-zone' },
+        h('span', { class: 'connect-reset-label' }, 'Reset all internal state'),
         h('button', {
           class: 'btn btn-ghost btn-small btn-danger-ghost',
           'data-action': 'reset-all',
           title: 'Reset all internal state: cache, enrichment, activity log, context RIDs, history. Favorites + server profiles are kept.',
         }, 'Reset all'),
       ),
+
+      // ── Footer: version/update line, then the quiet reference ──
       this.renderUpdateBanner(),
       this.renderReference(),
     );
@@ -418,7 +435,7 @@ export class ConnectTab implements Tab {
         ],
       },
     ];
-    return h('div', { class: 'reference-card' },
+    return h('div', { class: 'reference-card reference-card--muted' },
       h('div', { class: 'reference-title' }, 'Quick reference'),
       ...groups.map(g => h('div', { class: 'reference-group' },
         h('div', { class: 'reference-group-title' }, g.title),
