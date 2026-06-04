@@ -358,6 +358,11 @@ function renderShell() {
       identity.businessId && h('span', { class: 'editor-id-bid' }, identity.businessId),
     )
   } else {
+    // EC execution context (`this`) \u2014 the object the BMP page renders for,
+    // NOT the widget being edited (on an enterprise detail page that's the
+    // enterprise instance, e.g. a CeRiskAssessment). Shown as a crosshair
+    // chip in the identity row; tooltip is just "context".
+    const exec = ctx.executionContext
     headerChildren.push(
       h('span', { class: 'editor-id-chip', style: `--type-color:${typeColor}`, title: identity.type || '' }, typeAbbr),
       // Identity name doubles as a "show me in BMP" link: clicking
@@ -369,6 +374,12 @@ function renderShell() {
         'data-action': 'goto-bmp',
       }, identity.name || '(unnamed)'),
       h('span', { class: 'editor-id-bid' }, bid),
+      exec
+        ? h('span', { class: 'editor-id-context', title: 'context' },
+            h('span', { class: 'editor-ctx-icon' }, svg(ICON_CROSSHAIR)),
+            h('span', { class: 'editor-ctx-target' }, exec.name || exec.businessId || exec.type || exec.rid),
+          )
+        : false,
     )
   }
 
@@ -392,37 +403,14 @@ function renderShell() {
       )
     : false
 
-  // EC execution-context fact strip (row 2). `this` for preview/execute
-  // binds to the object the BMP page renders for — NOT the widget being
-  // edited. On an enterprise detail page that's the enterprise instance
-  // (e.g. a CeRiskAssessment), not the table. A real crosshair icon +
-  // "runs against" reads as a fact, distinct from the controls above; the
-  // whole strip carries the full explanation on hover.
-  const exec = !isExtended ? ctx.executionContext : null
-  const contextBar = exec
-    ? h('div', {
-        class: 'editor-header-context',
-        title: `Preview & Execute bind \`this\` to ${exec.type || 'this object'}${exec.name ? ` '${exec.name}'` : ''} — the object the BMP page renders for, not the widget you're editing.`,
-      },
-        h('span', { class: 'editor-ctx-icon' }, svg(ICON_CROSSHAIR)),
-        h('span', { class: 'editor-ctx-label' }, 'runs against'),
-        h('span', { class: 'editor-ctx-target' },
-          exec.name || exec.businessId || exec.type || exec.rid),
-        exec.type && exec.name ? h('span', { class: 'editor-ctx-type' }, exec.type) : null,
-      )
-    : false
-
   const header = h('div', { class: 'editor-header' },
-    h('div', { class: 'editor-header-main' },
-      h('div', { class: 'editor-header-id' }, ...headerChildren.filter(Boolean) as (HTMLElement | string)[]),
-      segToggle
-        ? h('div', { class: 'editor-header-target' },
-            h('span', { class: 'editor-target-label' }, 'Editing'),
-            segToggle,
-          )
-        : h('span'),
-    ),
-    contextBar || null,
+    h('div', { class: 'editor-header-id' }, ...headerChildren.filter(Boolean) as (HTMLElement | string)[]),
+    segToggle
+      ? h('div', { class: 'editor-header-target' },
+          h('span', { class: 'editor-target-label' }, 'Editing'),
+          segToggle,
+        )
+      : h('span'),
   )
 
   // Property tabs (tablist with underline indicator)
