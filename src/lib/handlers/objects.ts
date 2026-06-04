@@ -14,7 +14,8 @@ import { getColorSets, setColorSets } from '../color-set-cache';
 import type { BmpObject } from '../types';
 import type { TemplateResolution } from '../bmp-client';
 import * as schemaCache from '../type-schema-cache';
-import { refFieldsFromSchema, buildConnectionsEc, parseConnections, type SchemaProp } from '../connections';
+import { refFieldsFromSchema, buildConnectionsEc, parseConnections, buildJunctionEc, parseJunctions, pickFarSide, type SchemaProp } from '../connections';
+import type { ConnGroup } from '../types';
 
 // ── EC builders (exported for tests) ─────────────────────────────
 
@@ -281,11 +282,54 @@ register('FETCH_CONNECTIONS', async (msg, respond) => {
     const ref = await ctx.client.resolveRef(msg.rid);
     const result = await ctx.client.executeEc(buildConnectionsEc(ref, fields), undefined, false);
     if (!result.ok) { respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: false, error: result.error || result.log || 'EC execution failed' }); return; }
-    respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: true, groups: parseConnections(result.log ?? '', fields) });
+    const groups = parseConnections(result.log ?? '', fields);
+    // 3. Inline junction far-sides (e.g. risk → [workflow] → control).
+    await inlineJunctions(msg.rid, groups);
+    respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: true, groups });
   } catch (e) {
     respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: false, error: errorMessage(e) });
   }
 });
+
+/**
+ * For reverse-ref targets that are join objects (CeWorkflow mitigations, etc.),
+ * read each one's far side and attach it inline so risk → control reads in one
+ * hop. Generic: groups junction targets by type, reads that type's forward
+ * refs, and picks the endpoint that isn't the back-edge. Best-effort + capped;
+ * a failure here never fails the whole Connections fetch.
+ */
+async function inlineJunctions(sourceRid: string, groups: ConnGroup[]): Promise<void> {
+  const ctx = getCtx();
+  if (!ctx.client) return;
+  const JUNCTION_CAP = 24;
+  const byType = new Map<string, { rid: string; target: import('../types').ConnTarget }[]>();
+  let count = 0;
+  for (const g of groups) {
+    if (g.direction !== 'in') continue; // junctions arrive as reverse-ref targets
+    for (const t of g.targets) {
+      if (t.broken || !t.type || !t.rid || count >= JUNCTION_CAP) continue;
+      const arr = byType.get(t.type) ?? [];
+      arr.push({ rid: t.rid, target: t });
+      byType.set(t.type, arr);
+      count++;
+    }
+  }
+  for (const [type, entries] of byType) {
+    try {
+      const schema = await loadSchemaProps(type);
+      if (!schema.ok) continue;
+      const fwd = refFieldsFromSchema(schema.props).filter(f => f.direction === 'out');
+      if (fwd.length === 0) continue;
+      const result = await ctx.client.executeEc(buildJunctionEc(entries.map(e => e.rid), fwd), undefined, false);
+      if (!result.ok) continue;
+      const farByRid = parseJunctions(result.log ?? '');
+      for (const e of entries) {
+        const far = pickFarSide(sourceRid, e.rid, farByRid.get(e.rid) ?? []);
+        if (far) e.target.via = far;
+      }
+    } catch { /* best-effort — leave these targets without a via */ }
+  }
+}
 
 register('RESOLVE_ROOT_CATEGORY', async (msg, respond) => {
   const ctx = getCtx();

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   refFieldsFromSchema, buildConnectionsEc, parseConnections,
-  type SchemaProp, type RefField,
+  buildJunctionEc, parseJunctions, pickFarSide,
+  type SchemaProp, type RefField, type ConnTarget,
 } from '../connections';
 import { FLOW_SEP } from '../ec-codegen';
 
@@ -104,5 +105,45 @@ describe('parseConnections', () => {
     const groups = parseConnections('', fields);
     expect(groups.every(g => g.targets.length === 0)).toBe(true);
     expect(groups).toHaveLength(3);
+  });
+});
+
+describe('junction inlining (C2)', () => {
+  const fwd: RefField[] = [
+    { accessor: 'mitigated_risk', label: 'mitigated risk', direction: 'out' },
+    { accessor: 'mitigating_control', label: 'mitigating control', direction: 'out' },
+  ];
+
+  it('buildJunctionEc reads each junction\'s forward refs, guarding non-numeric rids', () => {
+    const ec = buildJunctionEc(['201', 'bad;rid', '202'], fwd);
+    expect(ec).toContain('_j := lookup(201)');
+    expect(ec).toContain('_j := lookup(202)');
+    expect(ec).not.toContain('bad;rid');
+    expect(ec).toContain('"j:201"');
+    expect(ec).toContain('_j.mitigating_control.forEach(_t:');
+  });
+
+  it('parseJunctions maps junction rid → forward-ref targets', () => {
+    const log = [
+      '', 'j:201', '\n111|loc_ddos|DDoS Risk|CeRiskAssessment\n301|cloc_waf|WAF|CeControlMeasure\n',
+      'j:202', '\n111|loc_ddos|DDoS Risk|CeRiskAssessment\n',
+    ].join(FLOW_SEP);
+    const m = parseJunctions(log);
+    expect(m.get('201')!.map(t => t.rid)).toEqual(['111', '301']);
+    expect(m.get('202')!.map(t => t.rid)).toEqual(['111']);
+  });
+
+  it('pickFarSide returns the ref that is not the source (back-edge) nor the junction', () => {
+    const fars: ConnTarget[] = [
+      { rid: '111', name: 'DDoS Risk', type: 'CeRiskAssessment', businessId: 'loc_ddos' }, // back-edge (source)
+      { rid: '301', name: 'WAF', type: 'CeControlMeasure', businessId: 'cloc_waf' },        // far side
+    ];
+    const far = pickFarSide('111', '201', fars);
+    expect(far?.rid).toBe('301');
+  });
+
+  it('pickFarSide returns undefined when only the back-edge is present', () => {
+    const fars: ConnTarget[] = [{ rid: '111', name: 'R', type: 'CeRiskAssessment', businessId: 'r' }];
+    expect(pickFarSide('111', '201', fars)).toBeUndefined();
   });
 });

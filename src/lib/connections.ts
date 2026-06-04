@@ -150,3 +150,54 @@ export function parseConnections(log: string, fields: RefField[]): ConnGroup[] {
     targets: byAccessor.get(f.accessor) ?? [],
   }));
 }
+
+// ── Junction inlining (C2) ──────────────────────────────────────────
+
+/**
+ * EC that reads the forward refs of a set of junction objects (e.g. the
+ * CeWorkflows that mitigate a risk), so we can inline each junction's far side.
+ * Emits a `{sep}j:<rid>{sep}` header per junction, then its forward-ref rows.
+ */
+export function buildJunctionEc(rids: string[], forwardFields: RefField[]): string {
+  const lines: string[] = [`_sep := "${FLOW_SEP}"`, '_r := ""'];
+  for (const rid of rids) {
+    if (!/^-?\d+$/.test(rid)) continue; // rids are numeric; guard EC interpolation
+    lines.push(`_j := lookup(${rid})`);
+    lines.push(`_r := _r + _sep + "j:${rid}" + _sep + "\\n"`);
+    for (const f of forwardFields) {
+      if (!isSafeAccessor(f.accessor)) continue;
+      lines.push(`_j.${f.accessor}.forEach(_t:`);
+      lines.push(`     _r := _r + ${ROW('_t')} + "\\n"`);
+      lines.push(`)`);
+    }
+  }
+  lines.push('_r');
+  return lines.join('\n');
+}
+
+/** Parse the junction EC into a map of junction-rid → its forward-ref targets. */
+export function parseJunctions(log: string): Map<string, ConnTarget[]> {
+  const out = new Map<string, ConnTarget[]>();
+  const chunks = log.split(FLOW_SEP);
+  for (let i = 0; i < chunks.length - 1; i++) {
+    const head = chunks[i].trim();
+    if (!head.startsWith('j:')) continue;
+    const rid = head.slice(2);
+    const targets: ConnTarget[] = [];
+    for (const line of (chunks[i + 1] ?? '').split('\n')) {
+      const t = parseRow(line.trim());
+      if (t) targets.push(t);
+    }
+    out.set(rid, targets);
+  }
+  return out;
+}
+
+/**
+ * Pick a junction's far side: a forward ref whose target is neither the source
+ * object (that edge is the back-reference we arrived through) nor the junction
+ * itself. Returns undefined when the junction has no distinct far side.
+ */
+export function pickFarSide(sourceRid: string, junctionRid: string, fars: ConnTarget[]): ConnTarget | undefined {
+  return fars.find(f => f.rid && f.rid !== sourceRid && f.rid !== junctionRid && !f.broken);
+}
