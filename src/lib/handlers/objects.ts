@@ -103,6 +103,28 @@ register('GET_CACHE', (msg, respond) => {
   respond({ type: 'CACHE_DATA', objects });
 });
 
+// Live workspace search via BMP's GraphQL quickSearch. Results are also folded
+// into the cache so a hit the user then opens is enriched like any other object.
+register('BROWSE_SEARCH', async (msg, respond) => {
+  const ctx = getCtx();
+  const { query, gen } = msg;
+  if (!query.trim()) {
+    respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: true, objects: [], totalHits: 0 });
+    return;
+  }
+  if (!ctx.client) {
+    respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: false, error: 'Not connected to BMP' });
+    return;
+  }
+  try {
+    const { totalHits, objects } = await ctx.client.quickSearch(query, { page: msg.page, pageSize: msg.pageSize });
+    for (const o of objects) ctx.cache.put(o);
+    respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: true, objects, totalHits });
+  } catch (e) {
+    respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: false, error: e instanceof Error ? e.message : 'Search failed' });
+  }
+});
+
 register('HOVER_LOOKUP', async (msg, respond) => {
   const ctx = getCtx();
   // Fast path: check cache (includes code preview if properties were fetched)

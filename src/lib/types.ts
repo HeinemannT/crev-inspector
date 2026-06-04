@@ -24,6 +24,12 @@ export interface BmpObject {
    *  the chain shape is visible without opening the sidebar. */
   cascade?: { rid: string; businessId?: string; type?: string; name?: string };
   webParentRid?: string;
+  /** Breadcrumb context from a live quickSearch hit: the object's web parent
+   *  and the page it lives on. Lets Browse disambiguate same-named objects. */
+  webParentName?: string;
+  pageRid?: string;
+  pageName?: string;
+  tabRid?: string;
   hasChildren?: boolean;
   properties?: Record<string, unknown>;
   treePath?: string[];
@@ -62,6 +68,10 @@ export type InspectMessage =
 export type CacheMessage =
   | { type: 'GET_CACHE'; filter?: string }
   | { type: 'CACHE_DATA'; objects: BmpObject[] }
+  // Live workspace search via BMP's GraphQL quickSearch (the engine the web
+  // portal's search box uses). gen guards against out-of-order responses.
+  | { type: 'BROWSE_SEARCH'; query: string; page?: number; pageSize?: number; gen: number }
+  | { type: 'BROWSE_SEARCH_RESULT'; query: string; gen: number; ok: boolean; objects?: BmpObject[]; totalHits?: number; error?: string }
   | { type: 'CLEAR_CACHE' }
   // Reset everything except user-facing preferences (favorites, settings).
   // Use this when the extension is in a bad state and you want a clean slate

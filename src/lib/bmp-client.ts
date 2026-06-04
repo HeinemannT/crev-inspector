@@ -14,7 +14,7 @@ import {
 } from './bmp-types';
 import { deserializeStream } from './java-serial';
 import { COLOR_LINK_PROPS, colorLinkBid } from './types';
-import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessTraceAction, AccessTraceNode, AccessSubject } from './types';
+import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessTraceAction, AccessTraceNode, AccessSubject, BmpObject } from './types';
 import { log } from './logger';
 import { HEALTH_TIMEOUT, BATCH_CHUNK_SIZE, MAX_PARALLEL } from './constants';
 import { BmpAuth } from './bmp-auth';
@@ -1327,6 +1327,69 @@ _r
       .replace(/\r/g, '\\r')
       .replace(/\n/g, '\\n');
     return `"${escaped}"`;
+  }
+
+  /**
+   * Live workspace search via BMP's GraphQL `quickSearch` — the exact engine
+   * the web portal's search box uses. Returns NAVIGABLE objects (pages,
+   * scorecards, tasks, enterprise objects) ranked by relevance, with their web
+   * parent + page-location breadcrumb. `totalHits` counts all index matches,
+   * including non-navigable sub-objects that quickSearch does not materialise,
+   * so it can exceed the returned object count.
+   *
+   * Auth rides the user's BMP web session (JSESSIONID cookie via
+   * `credentials: 'include'`), NOT the binary protocol's JWT — same as the
+   * portal. The SW has host permission for the BMP origin, so the cookie is
+   * attached automatically.
+   */
+  async quickSearch(
+    text: string,
+    opts: { page?: number; pageSize?: number; signal?: AbortSignal } = {},
+  ): Promise<{ totalHits: number; objects: BmpObject[] }> {
+    const page = opts.page ?? 1;
+    const pageSize = opts.pageSize ?? 40;
+    const query =
+      'query quickSearch($text: String, $pageSize: Int, $pageNumber: Int, $searchSlotConfigurationRid: String) {' +
+      ' quickSearch(text: $text, pageSize: $pageSize, pageNumber: $pageNumber, searchSlotConfigurationRid: $searchSlotConfigurationRid) {' +
+      ' totalHits hits { epmObject { rid name type webParentRid webParentName hasChildren tabRid } pageLocationInfo { rid name } } } }';
+    const res = await fetch(`${this.bmpUrl}graphql`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        operationName: 'quickSearch',
+        variables: { text, pageNumber: page, pageSize, searchSlotConfigurationRid: '' },
+        query,
+      }),
+      signal: opts.signal,
+    });
+    if (!res.ok) throw new Error(`quickSearch HTTP ${res.status}`);
+    const json = await res.json();
+    if (json.errors?.length) throw new Error(json.errors[0]?.message ?? 'GraphQL error');
+    const q = json?.data?.quickSearch ?? { totalHits: 0, hits: [] };
+    const now = Date.now();
+    const objects: BmpObject[] = (q.hits ?? [])
+      .map((h: Record<string, any>): BmpObject | null => {
+        const e = h.epmObject;
+        const rid = e?.rid != null ? String(e.rid) : '';
+        if (!rid) return null;
+        return {
+          rid,
+          name: e.name ?? undefined,
+          type: e.type ?? undefined,
+          webParentRid: e.webParentRid != null ? String(e.webParentRid) : undefined,
+          webParentName: e.webParentName ?? undefined,
+          hasChildren: !!e.hasChildren,
+          tabRid: e.tabRid != null ? String(e.tabRid) : undefined,
+          pageRid: h.pageLocationInfo?.rid != null ? String(h.pageLocationInfo.rid) : undefined,
+          pageName: h.pageLocationInfo?.name ?? undefined,
+          source: 'server',
+          discoveredAt: now,
+          updatedAt: now,
+        };
+      })
+      .filter((o: BmpObject | null): o is BmpObject => o !== null);
+    return { totalHits: q.totalHits ?? objects.length, objects };
   }
 
   // ── Static health checks ─────────────────────────────────────
