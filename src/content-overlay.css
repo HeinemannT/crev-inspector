@@ -1,14 +1,14 @@
 .crev-outline {
   position: relative !important;
-}
-.crev-outline::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border: 1px solid var(--crev-color, #707070);
-  opacity: 0.35;
-  pointer-events: none;
-  z-index: 9999;
+  /* Draw the box with `outline`, NOT a ::after pseudo-element. BMP renders
+     some hosts' content via their own ::after (e.g. tab labels are
+     `::after { content: "<label>" }`); a .crev-outline::after collided with
+     that single pseudo-element and rendered as a stray top line instead of a
+     box. `outline` is independent of pseudo-elements and doesn't affect
+     layout. Translucency comes from the colour (outline has no opacity), and
+     a slight negative offset insets it like the old inset:0 border. */
+  outline: 1.5px solid color-mix(in srgb, var(--crev-color, #707070) 48%, transparent) !important;
+  outline-offset: -1.5px;
   border-radius: 2px;
 }
 .crev-label {
