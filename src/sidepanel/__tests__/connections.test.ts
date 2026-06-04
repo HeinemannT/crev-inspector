@@ -1,5 +1,5 @@
 /**
- * Renderer tests for the Connections section.
+ * Renderer tests for the Connections "map card".
  *
  * @vitest-environment happy-dom
  */
@@ -16,20 +16,28 @@ function render(conn: Connections, onNavigate = vi.fn(), onScanInbound?: () => v
 }
 
 describe('renderConnections', () => {
-  it('returns null when there are no groups and no inbound', () => {
+  it('returns null when there are no groups and no inbound affordance', () => {
     const { el } = render({ groups: [] });
     expect(el).toBeNull();
+  });
+
+  it('renders the card with a "Relationships" heading', () => {
+    const { el } = render({
+      groups: [{ field: 'owner', label: 'owner', direction: 'out', targets: [tgt()] }],
+    });
+    expect(el!.classList.contains('conn-card')).toBe(true);
+    expect(el!.querySelector('.conn-card-title')!.textContent).toBe('Relationships');
   });
 
   it('renders a forward (out) edge as a clickable target that navigates', () => {
     const { el, onNavigate } = render({
       groups: [{ field: 'mitigating_control', label: 'mitigating control', direction: 'out', targets: [tgt()] }],
     });
-    const t = el!.querySelector<HTMLElement>('.conn-target')!;
-    expect(t.textContent).toContain('Monthly patching');
-    expect(t.textContent).toContain('cecme.31');
-    expect(el!.querySelector('.conn-dir')!.textContent).toBe('→');
-    t.click();
+    const edge = el!.querySelector<HTMLElement>('.conn-edge')!;
+    expect(edge.querySelector('.conn-edge-name')!.textContent).toBe('Monthly patching');
+    expect(edge.querySelector('.conn-edge-label')!.textContent).toBe('mitigating control');
+    expect(edge.querySelector('.conn-edge-dir')!.textContent).toBe('→');
+    edge.click();
     expect(onNavigate).toHaveBeenCalledWith('111');
   });
 
@@ -37,106 +45,95 @@ describe('renderConnections', () => {
     const { el } = render({
       groups: [{ field: 'risk_mitigations', label: 'risk mitigations', direction: 'in', targets: [tgt({ type: 'CeWorkflow' })] }],
     });
-    expect(el!.querySelector('.conn-dir')!.textContent).toBe('←');
+    expect(el!.querySelector('.conn-edge-dir')!.textContent).toBe('←');
   });
 
-  it('multi-value edges show a count and one row per target', () => {
+  it('multi-value edges show one row per target, label only on the first', () => {
     const { el } = render({
       groups: [{ field: 'risk_mitigations', label: 'risk mitigations', direction: 'in', targets: [tgt({ rid: '1' }), tgt({ rid: '2' })] }],
     });
-    expect(el!.querySelector('.conn-count')!.textContent).toBe('2');
-    expect(el!.querySelectorAll('.conn-target').length).toBe(2);
+    const edges = el!.querySelectorAll('.conn-edge');
+    expect(edges.length).toBe(2);
+    expect(edges[0].querySelector('.conn-edge-label')!.textContent).toBe('risk mitigations');
+    expect(edges[1].querySelector('.conn-edge-label')!.textContent).toBe('');
   });
 
-  it('an unset forward ref shows (none) and does not navigate', () => {
+  it('unset edges are hidden and summarised as "N unset"', () => {
     const { el, onNavigate } = render({
-      groups: [{ field: 'owner', label: 'owner', direction: 'out', targets: [] }],
+      groups: [
+        { field: 'owner', label: 'owner', direction: 'out', targets: [tgt()] },
+        { field: 'org', label: 'org', direction: 'out', targets: [] },
+        { field: 'master', label: 'master', direction: 'out', targets: [] },
+      ],
     });
-    const empty = el!.querySelector<HTMLElement>('.conn-row--empty')!;
-    expect(empty.textContent).toContain('(none)');
-    empty.click();
+    // only the one SET edge is rendered
+    expect(el!.querySelectorAll('.conn-edge').length).toBe(1);
+    expect(el!.querySelector('.conn-card-foot')!.textContent).toContain('2 unset');
+    // nothing in the footer is a navigation target
+    onNavigate.mockClear();
+    el!.querySelector('.conn-card-foot')!.dispatchEvent(new Event('click'));
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
-  it('an unset REQUIRED forward ref is flagged as a defect', () => {
+  it('separates outgoing from incoming with a hairline rule', () => {
     const { el } = render({
-      groups: [{ field: 'mitigating_control', label: 'mitigating control', direction: 'out', required: true, targets: [] }],
+      groups: [
+        { field: 'owner', label: 'owner', direction: 'out', targets: [tgt({ rid: 'o1' })] },
+        { field: 'risk_mitigations', label: 'risk mitigations', direction: 'in', targets: [tgt({ rid: 'i1', type: 'CeWorkflow' })] },
+      ],
     });
-    const row = el!.querySelector('.conn-row--empty')!;
-    expect(row.classList.contains('conn-row--flag')).toBe(true);
-    expect(row.textContent).toContain('required, empty');
-  });
-
-  it('an empty reverse edge reads "(nothing)" not "(none)"', () => {
-    const { el } = render({
-      groups: [{ field: 'control_mitigations', label: 'control mitigations', direction: 'in', targets: [] }],
-    });
-    expect(el!.querySelector('.conn-row--empty')!.textContent).toContain('(nothing)');
+    expect(el!.querySelector('.conn-card-rule')).toBeTruthy();
   });
 
   it('a broken target shows ⚠ and is not a navigation button', () => {
     const { el, onNavigate } = render({
       groups: [{ field: 'owner', label: 'owner', direction: 'out', targets: [tgt({ broken: true, rid: '999' })] }],
     });
-    const broken = el!.querySelector<HTMLElement>('.conn-target--broken')!;
+    const broken = el!.querySelector<HTMLElement>('.conn-edge--broken')!;
     expect(broken.textContent).toContain('⚠');
     expect(broken.textContent).toContain('999');
     broken.click();
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
-  it('renders navigability pips (·page / ⌀)', () => {
-    const { el } = render({
-      groups: [{ field: 'a', label: 'a', direction: 'out', targets: [
-        tgt({ rid: '1', navigable: true }),
-        tgt({ rid: '2', navigable: false }),
-      ] }],
-    });
-    expect(el!.querySelector('.conn-nav--page')).toBeTruthy();
-    expect(el!.querySelector('.conn-nav--nopage')).toBeTruthy();
-  });
-
-  it('inlines a junction far-side (via) as a separate clickable hop', () => {
+  it('inlines a junction far-side (via) as a separate clickable sub-row', () => {
     const onNavigate = vi.fn();
     const { el } = render({
       groups: [{ field: 'risk_mitigations', label: 'risk mitigations', direction: 'in', targets: [
         tgt({ rid: 'wf1', name: 'Patch SMB', type: 'CeWorkflow', via: tgt({ rid: 'ctl1', name: 'Monthly patching' }) }),
       ] }],
     }, onNavigate);
-    const via = el!.querySelector<HTMLElement>('.conn-via')!;
-    expect(via.textContent).toContain('Monthly patching');
+    const via = el!.querySelector<HTMLElement>('.conn-edge--via')!;
+    expect(via.querySelector('.conn-via-arrow')!.textContent).toBe('→');
+    expect(via.querySelector('.conn-edge-name')!.textContent).toBe('Monthly patching');
     // Clicking the via navigates to the far side, NOT the junction.
     via.click();
     expect(onNavigate).toHaveBeenCalledWith('ctl1');
     expect(onNavigate).not.toHaveBeenCalledWith('wf1');
   });
 
-  it('inbound: offers a scan button when not loaded', () => {
+  it('inbound: offers a scan button in the footer when not loaded', () => {
     const onScan = vi.fn();
     const { el } = render({ groups: [], inbound: { loaded: false, targets: [] } }, vi.fn(), onScan);
-    const btn = el!.querySelector<HTMLElement>('.conn-scan')!;
-    expect(btn.textContent).toContain('scan');
+    const btn = el!.querySelector<HTMLElement>('.conn-foot-scan')!;
+    expect(btn.textContent).toContain('referenced by');
     btn.click();
     expect(onScan).toHaveBeenCalled();
   });
 
-  it('inbound: shows results once loaded, with a cap marker', () => {
+  it('inbound: shows results once loaded as incoming edges with a cap marker', () => {
     const { el } = render({
       groups: [],
       inbound: { loaded: true, capped: true, targets: [tgt({ rid: 'x' })] },
     });
-    expect(el!.querySelector('.conn-inbound, .conn-group')).toBeTruthy();
-    expect(el!.textContent).toContain('referenced by');
-    expect(el!.querySelector('.conn-count')!.textContent).toContain('+');
+    expect(el!.textContent).toContain('Monthly patching');
+    expect(el!.querySelectorAll('.conn-edge').length).toBe(1);
+    expect(el!.querySelector('.conn-card-foot')!.textContent).toContain('first 100 shown');
   });
 
-  it('summary counts connected vs total groups', () => {
-    const { el } = render({
-      groups: [
-        { field: 'a', label: 'a', direction: 'out', targets: [tgt()] },
-        { field: 'b', label: 'b', direction: 'out', targets: [] },
-      ],
-    });
-    expect(el!.querySelector('.prop-group-title-meta')!.textContent).toContain('1/2 connected');
+  it('inbound: shows the scan affordance even with no outgoing edges', () => {
+    const onScan = vi.fn();
+    const { el } = render({ groups: [], inbound: { loaded: false, targets: [] } }, vi.fn(), onScan);
+    expect(el!.querySelector('.conn-foot-scan')).toBeTruthy();
   });
 });

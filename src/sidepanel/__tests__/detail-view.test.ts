@@ -416,7 +416,7 @@ describe('DetailView — Connections (relationships)', () => {
       }],
     } as InspectorMessage, panel);
 
-    const conn = panel.querySelector('.conn-section');
+    const conn = panel.querySelector('.conn-card');
     expect(conn).toBeTruthy();
     expect(conn!.textContent).toContain('DDoS mitigation');
     expect(conn!.textContent).toContain('WAF control'); // junction far side inlined
@@ -432,7 +432,7 @@ describe('DetailView — Connections (relationships)', () => {
         { rid: '5', name: 'Alice', type: 'User', businessId: 'u_alice' },
       ] }],
     } as InspectorMessage, panel);
-    const scan = panel.querySelector<HTMLElement>('.conn-scan');
+    const scan = panel.querySelector<HTMLElement>('.conn-foot-scan');
     expect(scan).toBeTruthy();
     scan!.click();
     expect(sent.find(m => m.type === 'FETCH_INBOUND' && (m as { rid: string }).rid === '100')).toBeTruthy();

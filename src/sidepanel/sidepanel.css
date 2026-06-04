@@ -3993,63 +3993,76 @@ body.crev-divider-dragging * { user-select: none; }
   font-size: var(--text-xs);
 }
 
-/* ── Connections (relationship graph, one hop at a time) ───────────── */
+/* ── Connections — a distinct "relationship map" card ──────────────── */
 
-.conn-section .prop-group-title { margin-bottom: var(--space-1); }
+/* Tinted, accent-railed card so it reads as the relationship view, NOT as
+   more of the object's own property groups. */
+.conn-card {
+  margin: var(--space-3) 0;
+  padding: var(--space-1) var(--space-2) var(--space-1) calc(var(--space-2) + 2px);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface-1));
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--surface-3));
+  border-left: 2px solid color-mix(in srgb, var(--accent) 60%, var(--surface-3));
+  border-radius: var(--radius-md);
+}
 
-/* Grouped edge: a label/direction head + one or more target rows. */
-.conn-group { margin-bottom: 2px; }
-.conn-grouphead {
+.conn-card-head {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: 2px var(--space-2) 0;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 2px 4px;
 }
-.conn-label {
-  color: var(--text-2);
-  font-weight: var(--weight-medium);
-  font-size: var(--text-sm);
-}
-.conn-dir { color: var(--text-3); font-size: var(--text-sm); }
-.conn-count {
+.conn-card-icon { display: inline-flex; color: var(--accent); }
+.conn-card-icon svg { display: block; }
+.conn-card-title {
   font-size: var(--text-xs);
-  color: var(--accent);
   font-weight: var(--weight-semi);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-2);
 }
 
-/* A single-edge row (empty edge, or the inbound affordance). */
-.conn-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-sm);
+/* Hairline between the outgoing and incoming halves. */
+.conn-card-rule {
+  height: 0;
+  border-top: 1px dashed color-mix(in srgb, var(--accent) 22%, var(--surface-3));
+  margin: 3px 2px;
 }
-.conn-row--empty { opacity: 0.6; }
-.conn-row--flag { opacity: 1; }
-.conn-empty { color: var(--text-3); font-style: italic; font-size: var(--text-xs); }
-.conn-empty--required { color: var(--warning); font-style: normal; }
 
-/* A resolved target: clickable, re-centers the pane. */
-.conn-target {
+/* One edge = one line: direction · field (muted caption) · type chip · target
+   name (the hero). Clicking re-centers the pane. */
+.conn-edge {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 2px var(--space-2);
-  margin-left: var(--space-3);
-  padding: var(--space-1) var(--space-2);
+  gap: 6px;
+  padding: 2px 4px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: var(--text-sm);
   transition: background var(--duration-fast) var(--ease-default);
 }
-.conn-target:hover { background: var(--surface-2); }
-.conn-target--broken { cursor: default; color: var(--danger); }
-.conn-target--broken:hover { background: none; }
-.conn-flag { color: var(--warning); }
-.conn-broken { font-family: var(--font-mono); font-size: var(--text-xs); }
+.conn-edge:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.conn-edge--via { padding-top: 0; padding-bottom: 3px; }
+.conn-edge--broken { cursor: default; color: var(--danger); }
+.conn-edge--broken:hover { background: none; }
 
-.conn-chip {
+.conn-edge-dir {
+  width: 10px;
+  flex-shrink: 0;
+  text-align: center;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+.conn-edge-label {
+  width: 78px;
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conn-edge-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4063,52 +4076,35 @@ body.crev-divider-dragging * { user-select: none; }
   line-height: 1;
   flex-shrink: 0;
 }
-.conn-chip--via { transform: scale(0.92); opacity: 0.92; }
-.conn-name {
+.conn-edge-chip--via { transform: scale(0.9); opacity: 0.9; }
+.conn-edge-name {
+  flex: 1;
+  min-width: 0;
   color: var(--text-1);
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.conn-bid { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-3); }
-
-/* Junction far-side inlined on the same row. */
-.conn-via {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0 4px;
-  border-radius: var(--radius-sm);
-  color: var(--text-2);
-  cursor: pointer;
-}
-.conn-via:hover { background: var(--surface-3); color: var(--text-1); }
-.conn-via--broken { color: var(--danger); cursor: default; }
 .conn-via-arrow { color: var(--text-3); flex-shrink: 0; }
-.conn-via-name {
+.conn-edge-broken { font-family: var(--font-mono); font-size: var(--text-xs); }
+
+/* Footer: "N unset" + the lazy inbound scan affordance. */
+.conn-card-foot {
+  padding: 4px 2px 2px;
+  margin-top: 2px;
   font-size: var(--text-xs);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--text-3);
 }
-
-/* Navigability pip. */
-.conn-nav { font-size: 10px; flex-shrink: 0; margin-left: auto; }
-.conn-nav--page { color: var(--success); font-family: var(--font-mono); }
-.conn-nav--nopage { color: var(--text-3); }
-
-.conn-inbound { opacity: 0.85; }
-.conn-scan {
+.conn-foot-sep { color: var(--text-3); opacity: 0.6; }
+.conn-foot-scan {
   background: none;
   border: none;
   color: var(--accent);
   cursor: pointer;
   padding: 0;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
 }
-.conn-scan:hover { text-decoration: underline; }
+.conn-foot-scan:hover { text-decoration: underline; }
 
 /* ── Flow walker ───────────────────────────────── */
 
