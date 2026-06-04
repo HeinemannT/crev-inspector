@@ -244,11 +244,6 @@ export class ConnectTab implements Tab {
     }
 
     delegate(container, {
-      test: () => {
-        const btn = container.querySelector('[data-action="test"]');
-        if (btn) btn.classList.add('spinning');
-        this.send({ type: 'CONNECTION_TEST' });
-      },
       'add-profile': () => {
         this.editing = { id: null, label: '', bmpUrl: '', bmpUser: '', bmpPass: '' };
         rerender();
