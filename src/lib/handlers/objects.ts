@@ -14,6 +14,7 @@ import { getColorSets, setColorSets } from '../color-set-cache';
 import type { BmpObject } from '../types';
 import type { TemplateResolution } from '../bmp-client';
 import * as schemaCache from '../type-schema-cache';
+import { refFieldsFromSchema, buildConnectionsEc, parseConnections, type SchemaProp } from '../connections';
 
 // ── EC builders (exported for tests) ─────────────────────────────
 
@@ -193,89 +194,96 @@ register('FETCH_COLOR_SETS', async (msg) => {
   }
 });
 
-register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
+/**
+ * EC that enumerates a class's property configs:
+ * `accessor|||label|||configClass|||systemobject` per property, with a leading
+ * `__canon__|||<fq>` line carrying the canonical class name. `c.get(X.name)`
+ * resolves the ClassConfig case-insensitively; the two-step `.linkedTo.id`
+ * yields the accessor (the one-step form returns display names). Triple-pipe
+ * so user labels containing `|` don't shift columns. Live-verified.
+ * Shared by FETCH_TYPE_SCHEMA and FETCH_CONNECTIONS so the EC can't drift.
+ */
+function buildSchemaEc(className: string): string {
+  return [
+    `_cls := c.get(${className}.name)`,
+    '_out := "__canon__|||" + _cls.id.whenMissing("") + "\\n"',
+    '_kids := _cls.children()',
+    '_kids.forEach(_k:',
+    '     _out := _out + _k.linkedTo.id + "|||" + _k.name + "|||" + _k.className + "|||" + _k.systemobject + "\\n"',
+    ')',
+    '_out',
+  ].join('\n');
+}
+
+function parseSchemaPropsLog(log: string): { props: SchemaProp[]; canonical?: string } {
+  const props: SchemaProp[] = [];
+  let canonical: string | undefined;
+  for (const line of (log || '').split('\n')) {
+    const parts = line.split('|||');
+    // Canonical-name marker — require exactly 2 fields so a real `__canon__`
+    // accessor can't be swallowed.
+    if (parts.length === 2 && parts[0] === '__canon__') {
+      const seg = parts[1].trim().split('.').pop();
+      if (seg) canonical = seg;
+      continue;
+    }
+    if (parts.length < 4) continue;
+    const [accessor, label, configClass, sysFlag] = parts;
+    if (!accessor || !configClass) continue;
+    props.push({ accessor: accessor.trim(), label: label.trim(), configClass: configClass.trim(), systemobject: sysFlag.trim() === 'true' });
+  }
+  return { props, canonical };
+}
+
+/** Cache-or-fetch a type's schema props. `refresh` bypasses the cache. */
+async function loadSchemaProps(className: string, refresh = false): Promise<
+  { ok: true; props: SchemaProp[]; canonical?: string } | { ok: false; error: string }
+> {
   const ctx = getCtx();
   const serverId = ctx.settings.activeProfileId || '';
-  if (!ctx.client) {
-    respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: 'Not connected' });
-    return;
-  }
-  // Cache hit short-circuit — instant. Refresh=true bypasses.
-  if (!msg.refresh) {
+  if (!ctx.client) return { ok: false, error: 'Not connected' };
+  if (!refresh) {
     await schemaCache.load();
-    const cached = schemaCache.get(serverId, msg.className);
-    if (cached) {
-      respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: true, props: cached, canonicalClassName: schemaCache.getCanonical(serverId, msg.className) });
-      return;
-    }
+    const cached = schemaCache.get(serverId, className);
+    if (cached) return { ok: true, props: cached, canonical: schemaCache.getCanonical(serverId, className) };
   }
-  // Validate the className so we don't ship an arbitrary user string
-  // into EC. BMP class names are PascalCase identifiers.
-  if (!/^[A-Z][A-Za-z0-9]{0,63}$/.test(msg.className)) {
-    respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: `Invalid class name: ${msg.className}` });
-    return;
-  }
+  // BMP class names are PascalCase — guard against shipping an arbitrary
+  // string into EC.
+  if (!/^[A-Z][A-Za-z0-9]{0,63}$/.test(className)) return { ok: false, error: `Invalid class name: ${className}` };
+  const result = await ctx.client.executeEc(buildSchemaEc(className), undefined, false);
+  if (!result.ok) return { ok: false, error: result.error || result.log || 'EC execution failed' };
+  const { props, canonical } = parseSchemaPropsLog(result.log ?? '');
+  if (props.length === 0) return { ok: false, error: 'No properties returned (unknown class?)' };
+  schemaCache.set(serverId, className, props, canonical);
+  return { ok: true, props, canonical };
+}
+
+register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
   try {
-    // The EC verified live: produces one line per property with
-    // accessor|||label|||configClass|||systemobject. Note the two-step
-    // `.as(linkedTo).as(id)` form is critical — the one-step
-    // `.as(linkedTo.id)` returns DISPLAY names instead of accessors.
-    // Triple-pipe delimiter so user-set labels containing `|` don't
-    // shift the column count (HOVER_RESOLVE uses the same pattern).
-    // First line carries the canonical class name: `c.get(X)` resolves the
-    // ClassConfig case-insensitively, and its `.id` is the fully-qualified
-    // Java name (`…enterprise.CeControlMeasure`) whose last segment is the
-    // canonical PascalCase the client should display/cache, regardless of
-    // what casing the user typed (`CECONTROLMEASURE`, `ceControlMeasure`, …).
-    const ec = [
-      `_cls := c.get(${msg.className}.name)`,
-      '_out := "__canon__|||" + _cls.id.whenMissing("") + "\\n"',
-      '_kids := _cls.children()',
-      '_kids.forEach(_k:',
-      '     _out := _out + _k.linkedTo.id + "|||" + _k.name + "|||" + _k.className + "|||" + _k.systemobject + "\\n"',
-      ')',
-      '_out',
-    ].join('\n');
-    const result = await ctx.client.executeEc(ec, undefined, false);
-    if (!result.ok) {
-      // Transient failure — don't cache. Future calls will retry.
-      respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: result.error || result.log });
-      return;
-    }
-    // Parse the body. `result.log` already has parseEcResults's
-    // "Result : " prefix stripped, so we can split lines directly.
-    // The trailing "Duration : Nms" line has 0 `|||` separators and
-    // is filtered out by the parts-count check below.
-    const props = [] as Array<{ accessor: string; label: string; configClass: string; systemobject: boolean }>;
-    let canonicalClassName: string | undefined;
-    for (const line of (result.log || '').split('\n')) {
-      const parts = line.split('|||');
-      // Canonical-name marker line — last segment of the FQ Java id. Require
-      // exactly 2 fields so a (vanishingly unlikely) real prop accessor named
-      // `__canon__` can't be swallowed as the marker.
-      if (parts.length === 2 && parts[0] === '__canon__') {
-        const seg = parts[1].trim().split('.').pop();
-        if (seg) canonicalClassName = seg;
-        continue;
-      }
-      if (parts.length < 4) continue;
-      const [accessor, label, configClass, sysFlag] = parts;
-      if (!accessor || !configClass) continue;
-      props.push({
-        accessor: accessor.trim(),
-        label: label.trim(),
-        configClass: configClass.trim(),
-        systemobject: sysFlag.trim() === 'true',
-      });
-    }
-    if (props.length === 0) {
-      respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: 'No properties returned (unknown class?)' });
-      return;
-    }
-    schemaCache.set(serverId, msg.className, props, canonicalClassName);
-    respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: true, props, canonicalClassName });
+    const r = await loadSchemaProps(msg.className, msg.refresh);
+    if (r.ok) respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: true, props: r.props, canonicalClassName: r.canonical });
+    else respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: r.error });
   } catch (e) {
     respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: errorMessage(e) });
+  }
+});
+
+register('FETCH_CONNECTIONS', async (msg, respond) => {
+  const ctx = getCtx();
+  if (!ctx.client) { respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: false, error: 'Not connected' }); return; }
+  try {
+    // 1. Discover the type's reference fields (cached schema).
+    const schema = await loadSchemaProps(msg.className);
+    if (!schema.ok) { respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: false, error: schema.error }); return; }
+    const fields = refFieldsFromSchema(schema.props);
+    if (fields.length === 0) { respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: true, groups: [] }); return; }
+    // 2. Read the current endpoints for this object.
+    const ref = await ctx.client.resolveRef(msg.rid);
+    const result = await ctx.client.executeEc(buildConnectionsEc(ref, fields), undefined, false);
+    if (!result.ok) { respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: false, error: result.error || result.log || 'EC execution failed' }); return; }
+    respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: true, groups: parseConnections(result.log ?? '', fields) });
+  } catch (e) {
+    respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: false, error: errorMessage(e) });
   }
 });
 

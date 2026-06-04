@@ -3993,6 +3993,115 @@ body.crev-divider-dragging * { user-select: none; }
   font-size: var(--text-xs);
 }
 
+/* ── Connections (relationship graph, one hop at a time) ───────────── */
+
+.conn-section .prop-group-title { margin-bottom: var(--space-1); }
+
+/* Grouped edge: a label/direction head + one or more target rows. */
+.conn-group { margin-bottom: 2px; }
+.conn-grouphead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 2px var(--space-2) 0;
+}
+.conn-label {
+  color: var(--text-2);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+}
+.conn-dir { color: var(--text-3); font-size: var(--text-sm); }
+.conn-count {
+  font-size: var(--text-xs);
+  color: var(--accent);
+  font-weight: var(--weight-semi);
+}
+
+/* A single-edge row (empty edge, or the inbound affordance). */
+.conn-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+}
+.conn-row--empty { opacity: 0.6; }
+.conn-row--flag { opacity: 1; }
+.conn-empty { color: var(--text-3); font-style: italic; font-size: var(--text-xs); }
+.conn-empty--required { color: var(--warning); font-style: normal; }
+
+/* A resolved target: clickable, re-centers the pane. */
+.conn-target {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  transition: background var(--duration-fast) var(--ease-default);
+}
+.conn-target:hover { background: var(--surface-2); }
+.conn-target--broken { cursor: default; color: var(--danger); }
+.conn-target--broken:hover { background: none; }
+.conn-flag { color: var(--warning); }
+.conn-broken { font-family: var(--font-mono); font-size: var(--text-xs); }
+
+.conn-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--type-color, var(--surface-3));
+  color: #fff;
+  font-size: 9px;
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.3px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.conn-chip--via { transform: scale(0.92); opacity: 0.92; }
+.conn-name {
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conn-bid { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-3); }
+
+/* Junction far-side inlined on the same row. */
+.conn-via {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.conn-via:hover { background: var(--surface-3); color: var(--text-1); }
+.conn-via--broken { color: var(--danger); cursor: default; }
+.conn-via-arrow { color: var(--text-3); }
+.conn-via-name { font-size: var(--text-xs); }
+
+/* Navigability pip. */
+.conn-nav { font-size: 10px; flex-shrink: 0; margin-left: auto; }
+.conn-nav--page { color: var(--success); font-family: var(--font-mono); }
+.conn-nav--nopage { color: var(--text-3); }
+
+.conn-inbound { opacity: 0.85; }
+.conn-scan {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font-size: var(--text-sm);
+}
+.conn-scan:hover { text-decoration: underline; }
+
 /* ── Flow walker ───────────────────────────────── */
 
 /* No purple band, no left rail — those ate horizontal space and competed

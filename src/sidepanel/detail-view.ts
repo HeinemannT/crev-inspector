@@ -25,13 +25,15 @@ import { renderPaneTree, type PaneTreeData } from './pane-tree';
 import { openAccessTrace } from './access-trace';
 import { renderCodeSection } from './sections/code-fields';
 import { renderReferenceSection } from './sections/reference-edges';
+import { renderConnections } from './sections/connections';
+import { referencesFor } from '../lib/widget-metadata';
 import { renderPropertyGroups, type PaneGroupsCtx } from './sections/property-groups';
 import { renderFlowSection } from './sections/flow-walker';
 import { renderContextSection } from './sections/context-fields';
 import { S } from './state';
 import { LOOKUP_WATCHDOG_TIMEOUT } from '../lib/constants';
 import { hasFlow } from '../lib/widget-metadata';
-import type { FlowChainMsg } from '../lib/types';
+import type { FlowChainMsg, ConnGroup } from '../lib/types';
 
 type SendFn = (msg: InspectorMessage) => void;
 type SaveTarget = 'instance' | 'template';
@@ -63,6 +65,9 @@ interface PaneState {
   flow: FlowChainMsg | null;
   flowLoading: boolean;
   flowError: string | null;
+  /** Connections (generic ref relationships). Populated for domain objects. */
+  connections: ConnGroup[] | null;
+  connectionsLoading: boolean;
 }
 
 interface PaneChildren {
@@ -276,6 +281,8 @@ export class DetailView {
       flow: null,
       flowLoading: false,
       flowError: null,
+      connections: null,
+      connectionsLoading: false,
     };
     this.draft = {};
     this.target = 'instance';
@@ -331,10 +338,25 @@ export class DetailView {
       // consumed in pane-schema-runtime's broadcast subscriber; we
       // re-render via subscribePaneSchema.
       if (msg.instance.type) requestSchema(msg.instance.type, this.sendMessage);
+      // Connections (generic ref relationships) — for domain objects only;
+      // widget types keep the curated References section instead.
+      this.state.connections = null;
+      if (msg.instance.type && referencesFor(msg.instance.type).length === 0) {
+        this.state.connectionsLoading = true;
+        this.sendMessage({ type: 'FETCH_CONNECTIONS', rid, className: msg.instance.type });
+      } else {
+        this.state.connectionsLoading = false;
+      }
       this.renderDetail(panel);
       return true;
     }
 
+    if (msg.type === 'CONNECTIONS_RESULT' && msg.rid === rid) {
+      this.state.connectionsLoading = false;
+      this.state.connections = msg.ok ? (msg.groups ?? []) : null;
+      this.renderDetail(panel);
+      return true;
+    }
 
     if (msg.type === 'FLOW_CHAIN_DATA' && msg.rid === rid) {
       this.state.flow = msg.chain;
@@ -890,6 +912,16 @@ export class DetailView {
         onNavigate: (rid) => this.swapTo(rid, null, panel, true).catch(() => {}),
       });
       if (refSection) wrap.appendChild(refSection);
+
+      // Connections — the generic relationship view for domain objects. Each
+      // target re-centers the pane (one-hop graph walk).
+      if (this.state!.connections && this.state!.connections.length > 0) {
+        const connSection = renderConnections({
+          connections: { groups: this.state!.connections },
+          onNavigate: (rid) => this.swapTo(rid, null, panel, true).catch(() => {}),
+        });
+        if (connSection) wrap.appendChild(connSection);
+      }
     }
 
 

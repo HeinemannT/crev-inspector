@@ -321,6 +321,32 @@ export interface ObjectPaneSiblingMsg {
   type: string;
   isCurrent: boolean;
 }
+// ── Connections (generic reference relationships) ───────────────────
+
+/** A resolved endpoint of a relationship edge. */
+export interface ConnTarget {
+  rid: string;
+  name: string;
+  type: string;
+  businessId: string;
+  /** Has its own web page (computed in C2). Undefined = not computed. */
+  navigable?: boolean;
+  /** The rid resolved to nothing (dangling/deleted reference). */
+  broken?: boolean;
+  /** Junction far-side (C2): the object on the other side of a thin junction. */
+  via?: ConnTarget;
+}
+
+/** One relationship field and its current endpoints. */
+export interface ConnGroup {
+  field: string;
+  label: string;
+  /** out = forward ref (this → target); in = reverse ref (target → this). */
+  direction: 'out' | 'in';
+  required?: boolean;
+  targets: ConnTarget[];
+}
+
 export type ObjectPaneMessage =
   | { type: 'FETCH_OBJECT_PANE'; rid: string }
   | { type: 'CANCEL_FETCH_OBJECT_PANE'; rid: string }
@@ -343,6 +369,10 @@ export type ObjectPaneMessage =
       error?: string }
   | { type: 'APPLY_OBJECT_CHANGES'; rid: string; target: 'instance' | 'template'; changes: Record<string, string | number | boolean> }
   | { type: 'APPLY_CHANGES_RESULT'; rid: string; ok: boolean; error?: string }
+  // Connections — generic reference relationships (forward + reverse) resolved
+  // from the object's class config. The relationship view for domain objects.
+  | { type: 'FETCH_CONNECTIONS'; rid: string; className: string }
+  | { type: 'CONNECTIONS_RESULT'; rid: string; ok: boolean; groups?: ConnGroup[]; error?: string }
   | { type: 'FETCH_FLOW_CHAIN'; rid: string; objectType: string }
   | { type: 'FLOW_CHAIN_DATA'; rid: string; chain: FlowChainMsg | null; error?: string }
   // Access trace (admin permission test)
