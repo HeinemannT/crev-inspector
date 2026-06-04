@@ -386,3 +386,64 @@ describe('DetailView — tree navigation', () => {
     expect(sent.find(m => m.type === 'FETCH_OBJECT_PANE' && (m as { rid: string }).rid === '50')).toBeTruthy();
   });
 });
+
+describe('DetailView — Connections (relationships)', () => {
+  function domainPane(rid: string) {
+    const pd = paneData(rid) as InspectorMessage & { instance: { type: string } };
+    pd.instance.type = 'CeRiskAssessment'; // a domain object (no curated widget refs)
+    return pd;
+  }
+
+  it('a domain object fires FETCH_CONNECTIONS on pane load', () => {
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('100', { type: 'CeRiskAssessment' }), panel);
+    dv.handleMessage(domainPane('100'), panel);
+    expect(sent.find(m => m.type === 'FETCH_CONNECTIONS' && (m as { rid: string }).rid === '100')).toBeTruthy();
+  });
+
+  it('renders the Connections section from CONNECTIONS_RESULT, inlining the junction far side', () => {
+    const { dv, panel } = makeDetailView();
+    dv.show(makeObj('100', { type: 'CeRiskAssessment' }), panel);
+    dv.handleMessage(domainPane('100'), panel);
+    dv.handleMessage({
+      type: 'CONNECTIONS_RESULT', rid: '100', ok: true,
+      groups: [{
+        field: 'risk_mitigations', label: 'risk mitigations', direction: 'in',
+        targets: [{
+          rid: '201', name: 'DDoS mitigation', type: 'CeWorkflow', businessId: 'mit_ddos',
+          via: { rid: '301', name: 'WAF control', type: 'CeControlMeasure', businessId: 'cloc_waf' },
+        }],
+      }],
+    } as InspectorMessage, panel);
+
+    const conn = panel.querySelector('.conn-section');
+    expect(conn).toBeTruthy();
+    expect(conn!.textContent).toContain('DDoS mitigation');
+    expect(conn!.textContent).toContain('WAF control'); // junction far side inlined
+  });
+
+  it('renders the lazy inbound scan button and fires FETCH_INBOUND on click', () => {
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('100', { type: 'CeRiskAssessment' }), panel);
+    dv.handleMessage(domainPane('100'), panel);
+    dv.handleMessage({
+      type: 'CONNECTIONS_RESULT', rid: '100', ok: true,
+      groups: [{ field: 'owner_reference', label: 'owner', direction: 'out', targets: [
+        { rid: '5', name: 'Alice', type: 'User', businessId: 'u_alice' },
+      ] }],
+    } as InspectorMessage, panel);
+    const scan = panel.querySelector<HTMLElement>('.conn-scan');
+    expect(scan).toBeTruthy();
+    scan!.click();
+    expect(sent.find(m => m.type === 'FETCH_INBOUND' && (m as { rid: string }).rid === '100')).toBeTruthy();
+  });
+
+  it('a widget type with curated refs does NOT fetch connections', () => {
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('100', { type: 'CustomVisualization' }), panel);
+    const pd = paneData('100') as InspectorMessage & { instance: { type: string } };
+    pd.instance.type = 'CustomVisualization'; // has a TYPE_META reference (data binding)
+    dv.handleMessage(pd, panel);
+    expect(sent.find(m => m.type === 'FETCH_CONNECTIONS')).toBeFalsy();
+  });
+});
