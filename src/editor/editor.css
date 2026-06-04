@@ -47,31 +47,36 @@ body {
   font-weight: var(--weight-medium);
 }
 
-/* EC execution-context chip — the object `this` binds to on preview/execute.
-   Crosshair icon + the bound object's name, accent-tinted, sitting in the
-   identity row. Tooltip is just "context". */
+/* EC execution-context — the object `this` binds to on preview/execute.
+   Sits in the identity row, set off from the widget identity by a divider
+   (not a pill — that read as out of place). Crosshair icon marks it as the
+   render context; name + type tell you what it is. Tooltip: "context". */
 .editor-id-context {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  padding: 1px 8px 1px 6px;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--surface-4));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  gap: 5px;
+  flex-shrink: 1;
+  min-width: 0;
+  margin-left: 4px;
+  padding-left: 10px;
+  border-left: 1px solid var(--surface-4);
   font-size: var(--text-sm);
-  color: var(--text-2);
   cursor: default;
-  max-width: 220px;
 }
 .editor-ctx-icon { display: inline-flex; color: var(--accent); flex-shrink: 0; }
 .editor-ctx-icon svg { width: 13px; height: 13px; display: block; }
 .editor-ctx-target {
-  color: var(--text-1);
+  color: var(--text-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+.editor-ctx-type {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
 }
 
 .editor-header-id {

@@ -378,6 +378,7 @@ function renderShell() {
         ? h('span', { class: 'editor-id-context', title: 'context' },
             h('span', { class: 'editor-ctx-icon' }, svg(ICON_CROSSHAIR)),
             h('span', { class: 'editor-ctx-target' }, exec.name || exec.businessId || exec.type || exec.rid),
+            exec.type && (exec.name || exec.businessId) ? h('span', { class: 'editor-ctx-type' }, exec.type) : null,
           )
         : false,
     )
