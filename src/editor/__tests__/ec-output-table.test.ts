@@ -13,7 +13,7 @@
  * @vitest-environment happy-dom
  */
 import { describe, it, expect } from 'vitest';
-import { splitTableRow, renderEcOutput, ecOutputToText, parseEcOutput, parseBmpDurationMs } from '../ec-output';
+import { splitTableRow, renderEcOutput, ecOutputToText, parseEcOutput, parseBmpDurationMs, formatRunTiming } from '../ec-output';
 
 // ── splitTableRow (pure) ───────────────────────────────────────────
 
@@ -321,5 +321,25 @@ describe('parseBmpDurationMs', () => {
     expect(parseBmpDurationMs('hello world')).toBe(null);
     expect(parseBmpDurationMs('')).toBe(null);
     expect(parseBmpDurationMs('Message : Duration : 14ms')).toBe(null);
+  });
+});
+
+describe('formatRunTiming', () => {
+  it('shows RTT + BMP compute when BMP reported a time', () => {
+    const t = formatRunTiming(648, 2);
+    expect(t.text).toBe('648ms RTT · 2ms BMP');
+    expect(t.title).toBe('648ms round-trip (RTT) · 2ms BMP compute');
+  });
+
+  it('renders a sub-millisecond BMP run as <1ms', () => {
+    const t = formatRunTiming(362, 0);
+    expect(t.text).toBe('362ms RTT · <1ms BMP');
+    expect(t.title).toContain('sub-millisecond');
+  });
+
+  it('drops the RTT label when there is no BMP figure to contrast', () => {
+    const t = formatRunTiming(120, null);
+    expect(t.text).toBe('120ms');
+    expect(t.title).toBe('120ms round-trip (RTT)');
   });
 });

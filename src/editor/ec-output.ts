@@ -50,6 +50,24 @@ export function parseBmpDurationMs(text: string): number | null {
   return ms ? Number(ms[1]) : 0;
 }
 
+/** Format the editor's timing pill. `rttMs` is the editor's wall-clock
+ *  round-trip (incl. SW + network + BMP); `bmpMs` is BMP's own compute from
+ *  parseBmpDurationMs — N ms, 0 for a sub-millisecond "no time" run, or null
+ *  when BMP reported no Duration. Returns the compact pill text plus a
+ *  spelled-out tooltip. The "RTT" label only appears when there's a BMP
+ *  figure to contrast it against. */
+export function formatRunTiming(rttMs: number, bmpMs: number | null): { text: string; title: string } {
+  if (bmpMs == null) {
+    return { text: `${rttMs}ms`, title: `${rttMs}ms round-trip (RTT)` };
+  }
+  const bmp = bmpMs > 0 ? `${bmpMs}ms` : '<1ms';
+  const bmpTitle = bmpMs > 0 ? `${bmpMs}ms` : 'sub-millisecond';
+  return {
+    text: `${rttMs}ms RTT · ${bmp} BMP`,
+    title: `${rttMs}ms round-trip (RTT) · ${bmpTitle} BMP compute`,
+  };
+}
+
 /** Decode JSON-style backslash escape sequences that BMP sometimes ships through
  *  (\n, \r, \t, \", \\, \/, \uXXXX). Only triggers when at least one such sequence
  *  is present so plain output is untouched. */

@@ -16,7 +16,7 @@ import { catppuccinMocha } from './catppuccin-theme'
 import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROW_OUT } from '../lib/icons'
-import { renderEcOutput, ecOutputToText, parseBmpDurationMs } from './ec-output'
+import { renderEcOutput, ecOutputToText, parseBmpDurationMs, formatRunTiming } from './ec-output'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
 import { installCloseHandshake } from '../lib/frame-close-handshake'
@@ -681,6 +681,30 @@ function getStashedPropState(): PropEditState | undefined {
 
 // ── CodeMirror setup ─────────────────────────────────────────────
 
+/** Whether the active slot runs Extended Code — either a widget's
+ *  `.expression` property or the standalone scratch window. EC slots get the
+ *  EC language, linter, variable tracker, hover docs, etc.; everything else
+ *  (HTML / JS / CSS) is plain. Drives both the extension set in
+ *  `createEditor` and the swap-vs-rebuild decision in `loadEditorDoc`. */
+function isEcContext(): boolean {
+  return activeProperty === 'expression' || ctx?.extended === true
+}
+
+/** Prime (or wipe) the Vars + type-inference trackers for a freshly-loaded
+ *  doc. The trackers' own updateListeners only fire on user edits, so both
+ *  the initial construction and an in-place doc swap have to seed them by
+ *  hand; for non-EC slots we clear instead, so the Vars panel doesn't show
+ *  a previous EC property's variables. */
+function primeTrackers(doc: EditorState['doc'], isEc: boolean): void {
+  if (isEc) {
+    scanVariables(doc)
+    scanDocForInferences(doc)
+  } else {
+    clearTrackedVariables()
+    clearInferences()
+  }
+}
+
 function createEditor(code: string) {
   const container = document.getElementById('cm-container')
   if (!container) return
@@ -701,7 +725,7 @@ function createEditor(code: string) {
   // style, variable tracker, hover docs, type inference, etc.
   // Before this check included ctx.extended, the scratch window had
   // ZERO syntax highlighting + a permanently-empty Vars panel.
-  const isEc = activeProperty === 'expression' || (ctx?.extended === true)
+  const isEc = isEcContext()
   currentIsEc = isEc
 
   const extensions = [
@@ -845,20 +869,7 @@ function createEditor(code: string) {
     parent: container,
   })
 
-  // Initial variable scan — the variableTracker updateListener only
-  // fires on docChanged, which isn't true for the first doc we hand
-  // EditorView at construction time. Without this prime call the Vars
-  // panel stays empty until the user types something.
-  // When the property ISN'T EC (HTML / JS / CSS), explicitly wipe the
-  // tracked-vars state so the Vars panel doesn't show the previous
-  // EC property's variables.
-  if (isEc) {
-    scanVariables(state.doc)
-    scanDocForInferences(state.doc)
-  } else {
-    clearTrackedVariables()
-    clearInferences()
-  }
+  primeTrackers(state.doc, isEc)
 
   // Restore the per-property selection + scroll. The doc body is the
   // caller's responsibility (passed in via `code`); we only restore
@@ -923,7 +934,7 @@ function createEditor(code: string) {
  *  Falls back to a full `createEditor` only when the language must change
  *  (EC ⇄ HTML/JS need a different extension set) or there's no view yet. */
 function loadEditorDoc(code: string): void {
-  const isEc = activeProperty === 'expression' || (ctx?.extended === true)
+  const isEc = isEcContext()
   if (!editorView || isEc !== currentIsEc) {
     createEditor(code)
     return
@@ -932,12 +943,12 @@ function loadEditorDoc(code: string): void {
   const view = editorView
   const stash = getStashedPropState()
   const hasStash = !!(stash && stash.docText === code)
-  const docLen = code.length
-  const anchor = hasStash ? Math.min(stash!.selection.anchor, docLen) : 0
-  const head = hasStash ? Math.min(stash!.selection.head, docLen) : 0
+  const anchor = hasStash ? Math.min(stash!.selection.anchor, code.length) : 0
+  const head = hasStash ? Math.min(stash!.selection.head, code.length) : 0
 
   // Single atomic swap: replace the whole doc + place the cursor. Flagged
-  // programmatic so the updateListener doesn't treat it as a user edit.
+  // programmatic so the updateListener doesn't treat it as a user edit
+  // (try/finally so a thrown dispatch can't leave the flag stuck on).
   // When we have a remembered scroll for this target, suppress CM's own
   // scroll-into-view and restore the exact offset ourselves below (the
   // view kept its layout, so scrollDOM has a real height this same frame —
@@ -945,28 +956,24 @@ function loadEditorDoc(code: string): void {
   // top), which is steadier than poking scrollTop, since a doc-replace
   // makes CM re-anchor the viewport.
   programmaticDocSwap = true
-  view.dispatch({
-    changes: { from: 0, to: view.state.doc.length, insert: code },
-    selection: { anchor, head },
-    scrollIntoView: !hasStash,
-  })
-  programmaticDocSwap = false
+  try {
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: code },
+      selection: { anchor, head },
+      scrollIntoView: !hasStash,
+    })
+  } finally {
+    programmaticDocSwap = false
+  }
 
   if (hasStash && view.scrollDOM) view.scrollDOM.scrollTop = stash!.scrollTop
   dirty = hasStash ? stash!.dirty : false
 
-  // Re-prime the trackers for the new doc, exactly like createEditor does
-  // at construction (the updateListener only fires for user edits).
-  if (isEc) {
-    scanVariables(view.state.doc)
-    scanDocForInferences(view.state.doc)
-  } else {
-    clearTrackedVariables()
-    clearInferences()
-  }
+  // The swap dispatch already updated the status bar via the updateListener;
+  // we just need to re-seed the trackers and clear stale error markers.
+  primeTrackers(view.state.doc, isEc)
   clearRuntimeErrors(view)
   updateSaveButton()
-  updateStatusBar(view)
   view.focus()
 }
 
@@ -1319,18 +1326,25 @@ function applyOutputHeight() {
   const panel = document.getElementById('bottom-panel')
   if (!panel || panel.style.display === 'none') return
   const winH = window.innerHeight
+  // Manual drag and the Vars / History tabs both use a fixed height (the
+  // user's dragged size, clamped). Only the Output tab in auto mode fits
+  // its content.
+  const fixedHeight = Math.min(outputHeight, Math.round(winH * 0.9))
   if (outputMaximized) {
     panel.style.height = `${Math.round(winH * OUTPUT_MAX_FRAC)}px`
-  } else if (outputSizing === 'manual') {
-    panel.style.height = `${Math.min(outputHeight, Math.round(winH * 0.9))}px`
-  } else {
+  } else if (outputSizing === 'auto' && bottomMode === 'output') {
     // Auto: measure the natural content height (briefly unconstrained),
     // then clamp to [floor, ceiling]. Synchronous — no paint in between,
-    // so there's no flicker from the transient `auto`.
+    // so there's no flicker from the transient `auto`. Scoped to the
+    // Output tab only: Vars / History re-render on every inference update,
+    // so measuring them each time would jitter the panel and force sync
+    // layout in a hot path.
     panel.style.height = 'auto'
     const natural = panel.offsetHeight
     const capped = Math.min(natural, Math.round(winH * OUTPUT_AUTO_FRAC))
     panel.style.height = `${Math.max(MIN_OUTPUT_PX, capped)}px`
+  } else {
+    panel.style.height = `${fixedHeight}px`
   }
   updateMaximizeButton()
 }
@@ -1381,6 +1395,7 @@ function renderBottomContentInner() {
   if (bottomMode === 'output') {
     const modeLabel = lastMode === 'save' ? 'Saved' : lastMode === 'execute' ? 'Executed' : 'Preview'
     const cls = lastOutputOk ? 'ok' : 'error'
+    const timing = lastDuration != null ? formatRunTiming(lastDuration, lastBmpMs) : null
     const outputContent = lastOutputOk
       ? renderEcOutput(lastOutputText, tablePreview, decodePreview)
       : h('div', { class: 'editor-output-content error' }, lastOutputText)
@@ -1389,18 +1404,7 @@ function renderBottomContentInner() {
         h('span', { class: `editor-output-pill ${cls}` },
           svg(lastOutputOk ? ICON_CHECK : ICON_X),
           h('span', null, ` ${modeLabel}`),
-          lastDuration != null ? h('span', {
-            class: 'editor-output-pill-dur',
-            // RTT = round-trip time (wall-clock incl. SW + network + BMP);
-            // BMP = server-side compute alone. Spelled out in the tooltip,
-            // abbreviated in the pill. RTT label only shows when there's a
-            // BMP figure to contrast it against.
-            title: lastBmpMs != null
-              ? `${lastDuration}ms round-trip (RTT) · ${lastBmpMs > 0 ? `${lastBmpMs}ms` : 'sub-millisecond'} BMP compute`
-              : `${lastDuration}ms round-trip (RTT)`,
-          }, lastBmpMs != null
-            ? `${lastDuration}ms RTT · ${lastBmpMs > 0 ? `${lastBmpMs}ms` : '<1ms'} BMP`
-            : `${lastDuration}ms`) : null,
+          timing ? h('span', { class: 'editor-output-pill-dur', title: timing.title }, timing.text) : null,
         ),
         // "Stale" pill when the editor's code has diverged from what
         // this output reflects — keeps the user from acting on results
