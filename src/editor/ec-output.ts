@@ -10,7 +10,10 @@ type LineType = 'result' | 'duration' | 'warning' | 'error' | 'data' | 'text';
 function classifyLine(line: string): LineType {
   const trimmed = line.trimStart();
   if (trimmed.startsWith('Result : ') || trimmed.startsWith('Result: ')) return 'result';
-  if (trimmed.startsWith('Duration : ') || trimmed.startsWith('Duration: ')) return 'duration';
+  // Flexible whitespace so it agrees with parseBmpDurationMs — otherwise a
+  // `Duration  :  59ms` (odd padding) would parse into the pill yet survive
+  // in the body, showing the number twice.
+  if (/^Duration\s*:/.test(trimmed)) return 'duration';
   if (trimmed.startsWith('Warning : ') || trimmed.startsWith('Warning: ')) return 'warning';
   if (trimmed.startsWith('Error : ') || trimmed.startsWith('Error: ') || /Exception[:\s]/.test(trimmed)) return 'error';
   if (line.includes('|||')) return 'data';

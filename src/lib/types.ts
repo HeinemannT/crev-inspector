@@ -503,7 +503,7 @@ const CHART_COLOR = '#ff8a80'; // chart coral (lighter than table red)
 const RISK_CHART_COLOR = '#d4374a'; // deeper red — risk charts
 const CHART_ABBREVIATIONS: Record<string, string> = {
   BarChart: 'BAR', PieChart: 'PIE', LineChart: 'LIN', AreaChart: 'ARA',
-  WaterfallChart: 'WFL', BubbleChart: 'BUB', RadarChart: 'RDR', TreeChart: 'TRE',
+  WaterfallChart: 'WFC', BubbleChart: 'BUB', RadarChart: 'RDR', TreeChart: 'TRE',
   GanttChart: 'GNT', NetworkChart: 'NET', PolarChart: 'PLR', BarLineChart: 'BLC',
   // RiskChart / RiskRadarChart are HasExtendedExpression charts too — same viz
   // family, same `expression` code-prop. Explicit abbrs so they don't both
@@ -543,6 +543,9 @@ const TYPE_COLORS: Record<string, string> = {
   TabSet:    '#5d6bc7',
   Tab:       '#7e8ce0',
   Container: '#9aa3e8',
+
+  // ── Logic / code (purple family) — transport sits with its EC siblings ──
+  ExtendedTransport: '#9b7bff',
 
   // ── Visualization (warm family) ───────────────────────────────
   // Tables all share the bold red so they read as one group that stands out
@@ -615,6 +618,7 @@ const TYPE_ABBREVIATIONS: Record<string, string> = {
   EditPage:            'EPG',
   ModelPage:           'MPG',
   Container:           'CON',
+  TabSet:              'TBS',
   Tab:                 'TAB',
   StatusType:          'STA',
   Strategy:            'STR',

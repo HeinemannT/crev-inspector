@@ -299,6 +299,13 @@ describe('parseEcOutput — block model', () => {
     expect(lines.some(l => l.startsWith('Duration'))).toBe(false);
   });
 
+  it('strips a Duration line with odd whitespace padding (agrees with parseBmpDurationMs)', () => {
+    const blocks = parseEcOutput('hello\nDuration  :  59ms');
+    const lines = blocks.filter(b => b.kind === 'line').map(b => (b as { text: string }).text);
+    expect(lines).toContain('hello');
+    expect(lines.some(l => /Duration/.test(l))).toBe(false);
+  });
+
   it('keeps a "Duration"-bearing line that is not pure metadata', () => {
     // "Message : Duration : 14ms" is a text line, not the meta footer.
     const blocks = parseEcOutput('Message : Duration : 14ms');

@@ -547,8 +547,14 @@ function renderShell() {
   if (editorView) {
     const cont = document.getElementById('cm-container')
     if (cont && editorView.dom.parentElement !== cont) {
+      // renderDom() detached the view's DOM, dropping its keyboard focus.
+      // Re-grab focus after re-attaching IF it was focused before — otherwise
+      // a renderShell() that fires while the user is typing (e.g. the
+      // save-label fade timer) silently steals the cursor mid-edit.
+      const hadFocus = editorView.hasFocus
       cont.appendChild(editorView.dom)
       editorView.requestMeasure()
+      if (hadFocus) editorView.focus()
     }
   }
 

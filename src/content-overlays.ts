@@ -25,10 +25,12 @@ function hasRoomAbove(el: Element, needed = 11): boolean {
   const top = el.getBoundingClientRect().top;
   if (top < needed) return false; // viewport top
   for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
-    // Only VERTICAL overflow clips the top edge — a horizontally-scrolling
-    // container (overflowX:auto, e.g. BMP's wide data tables) must NOT count,
-    // or inline rid elements inside it tuck in needlessly. overflowY resolves
-    // the `overflow` shorthand too.
+    // A vertical clip boundary slices the upward overhang. Check overflowY
+    // (resolves the `overflow` shorthand). Note CSS couples the axes:
+    // overflow-x:hidden/auto + overflow-y:visible computes overflow-y to
+    // `auto` — but such an element IS then a scroll container that clips
+    // vertically too, so counting it is correct. The `needed`-px distance
+    // check keeps elements far from any boundary on the overhang variant.
     const oy = getComputedStyle(a).overflowY;
     if ((oy === 'hidden' || oy === 'clip' || oy === 'auto' || oy === 'scroll')
         && top - a.getBoundingClientRect().top < needed) return false;

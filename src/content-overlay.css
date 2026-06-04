@@ -600,12 +600,6 @@ body.crev-task-open #crev-paint-banner.crev-overlay-blocked {
   pointer-events: none;
 }
 
-/* The outline overlay rendered on every inspected widget is purely
- * visual and is `pointer-events: none` everywhere — no gate needed,
- * but kept here for symmetry with the original rule. */
-body.crev-task-open .crev-outline::after {
-  pointer-events: none;
-}
 
 .crev-eo-host {
   position: fixed;
