@@ -119,9 +119,11 @@ function renderDisplayGroup(
           'aria-expanded': open ? 'true' : 'false',
           onClick: () => ctx.toggleStyleCollapsed(),
         },
-          h('span', { class: 'prop-substyle-tw' }, svg(ICON_CHEVRON)),
+          // Label first (aligns with the other group eyebrows like VISIBILITY);
+          // the disclosure chevron sits at the far right, accordion-style.
           h('span', { class: 'prop-substyle-label' }, 'Style'),
           changedCount > 0 ? h('span', { class: 'prop-group-count' }, `${changedCount} changed`) : null,
+          h('span', { class: 'prop-substyle-tw' }, svg(ICON_CHEVRON)),
         ),
         open ? h('div', { class: 'prop-grid' }, ...otherDefs.map(d => renderPropRow(ctx, d))) : null,
       )

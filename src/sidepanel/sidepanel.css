@@ -3184,12 +3184,24 @@ body.crev-divider-dragging * { user-select: none; }
    "Visibility" read as the same kind of section header. */
 .prop-substyle-head {
   display: flex; align-items: center; gap: var(--space-1); width: 100%;
-  padding: 0; margin: 0 0 var(--space-2); border: 0; background: none; cursor: pointer;
+  padding: 3px 6px; margin: 0 -6px var(--space-2); border: 0; cursor: pointer;
+  border-radius: var(--radius-sm);
+  background: none;
   font-size: var(--text-xs); font-weight: var(--weight-semi);
   text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-2);
-  transition: color var(--duration-fast) var(--ease-default);
+  transition: color var(--duration-fast) var(--ease-default),
+              background var(--duration-fast) var(--ease-default);
 }
-.prop-substyle-head:hover { color: var(--text-1); }
+/* Label takes the row so the chevron lands at the far right (accordion). */
+.prop-substyle-label { flex: 1; text-align: left; }
+/* Reads as a button: full-row hover wash + brighter text, like a header you
+   can click. The -6px side margins put the wash slightly proud of the rows
+   while the text stays aligned with the VISIBILITY eyebrow. */
+.prop-substyle-head:hover {
+  color: var(--text-1);
+  background: var(--surface-2);
+}
+.prop-substyle-head:hover .prop-substyle-tw { opacity: 1; }
 .prop-substyle .prop-group-count { text-transform: none; letter-spacing: 0; color: var(--accent-bright); }
 
 /* Shared disclosure-twisty (chevron) treatment — rotates 90° when open. */
