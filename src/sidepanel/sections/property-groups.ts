@@ -15,8 +15,7 @@
  * between the two surfaces and stay per-module. Only the property GROUPS are
  * shared here.
  */
-import { h, svg } from '../../lib/dom';
-import { ICON_CHEVRON } from '../../lib/icons';
+import { h } from '../../lib/dom';
 import { PROP_GROUPS, type PropDef } from '../pane-schema';
 import {
   colorLinkEditor, numberEditor, enumEditor, booleanEditor, sliderEditor,
@@ -39,9 +38,6 @@ export interface PaneGroupsCtx {
   setDraft(prop: string, value: string): void;
   /** Open the colour-link picker for a colour prop (host wires its own messaging). */
   openColorPicker(def: PropDef, anchor: HTMLElement, currentBid: string | null): void;
-  /** Collapse state for the "Style" disclosure (host owns it + re-renders). */
-  styleCollapsed: boolean;
-  toggleStyleCollapsed(): void;
 }
 
 const RESP_VIS: Record<string, string> = {
@@ -95,8 +91,9 @@ export function renderPropertyGroups(ctx: PaneGroupsCtx): HTMLElement {
   return wrap;
 }
 
-/** Display group: Columns triplet always visible; the cosmetic controls fold
- *  behind a collapsible "Style" disclosure (auto-expands when one is dirty). */
+/** Display group: Columns triplet, then the cosmetic ("Style") controls as a
+ *  flat always-open grid. A hairline divider — not a sub-header — separates the
+ *  two, so the controls integrate as plainly as Visibility's rows do. */
 function renderDisplayGroup(
   ctx: PaneGroupsCtx, defs: PropDef[], titleChildren: (HTMLElement | string | null)[], suppressTitle: boolean,
 ): HTMLElement {
@@ -110,29 +107,17 @@ function renderDisplayGroup(
       )
     : null;
 
-  const changedCount = otherDefs.filter(d => ctx.isDirty(d.prop)).length;
-  const open = !ctx.styleCollapsed || changedCount > 0;
-  const styleSection = otherDefs.length > 0
-    ? h('div', { class: 'prop-substyle' },
-        h('button', {
-          class: `prop-substyle-head${open ? ' is-open' : ''}`,
-          'aria-expanded': open ? 'true' : 'false',
-          onClick: () => ctx.toggleStyleCollapsed(),
-        },
-          // Label first (aligns with the other group eyebrows like VISIBILITY);
-          // the disclosure chevron sits at the far right, accordion-style.
-          h('span', { class: 'prop-substyle-label' }, 'Style'),
-          changedCount > 0 ? h('span', { class: 'prop-group-count' }, `${changedCount} changed`) : null,
-          h('span', { class: 'prop-substyle-tw' }, svg(ICON_CHEVRON)),
-        ),
-        open ? h('div', { class: 'prop-grid' }, ...otherDefs.map(d => renderPropRow(ctx, d))) : null,
-      )
+  const styleGrid = otherDefs.length > 0
+    ? h('div', { class: 'prop-grid' }, ...otherDefs.map(d => renderPropRow(ctx, d)))
     : null;
+  // Divider only when both halves are present (gives the hierarchy a reason).
+  const divider = columnsRow && styleGrid ? h('div', { class: 'prop-divider' }) : null;
 
   return h('div', { class: 'prop-group prop-group--display' },
     suppressTitle ? null : h('div', { class: 'prop-group-title' }, ...titleChildren.filter(Boolean) as (HTMLElement | string)[]),
     columnsRow,
-    styleSection,
+    divider,
+    styleGrid,
   );
 }
 

@@ -3175,43 +3175,22 @@ body.crev-divider-dragging * { user-select: none; }
 /* The transparency slider needs the full row inside the 2-up Style grid. */
 .prop-group--display .prop-grid .prop-row--slider { grid-column: 1 / -1; }
 
-/* "Style" disclosure — folds the cosmetic controls (Shadow / Header style /
-   Border / Transparency / Tool menu / Disable search) under an eyebrow so the
-   Columns row above isn't buried in a wall. */
-.prop-substyle { margin-top: var(--space-2); }
-/* Matches the .prop-group-title eyebrow (e.g. VISIBILITY) exactly — same size,
-   weight, colour, tracking — just with a collapse chevron. So "Style" and
-   "Visibility" read as the same kind of section header. */
-.prop-substyle-head {
-  display: flex; align-items: center; gap: var(--space-1); width: 100%;
-  padding: 3px 6px; margin: 0 -6px var(--space-2); border: 0; cursor: pointer;
-  border-radius: var(--radius-sm);
-  background: none;
-  font-size: var(--text-xs); font-weight: var(--weight-semi);
-  text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-2);
-  transition: color var(--duration-fast) var(--ease-default),
-              background var(--duration-fast) var(--ease-default);
+/* Hairline between the Columns control and the cosmetic ("Style") grid — gives
+   the Display group internal hierarchy without spending a sub-header. Bleeds to
+   the group's padding edges so it reads as a full-width rule. */
+.prop-divider {
+  height: 0;
+  border-top: 1px solid var(--surface-3);
+  margin: var(--space-2) calc(var(--space-3) * -1);
 }
-/* Label takes the row so the chevron lands at the far right (accordion). */
-.prop-substyle-label { flex: 1; text-align: left; }
-/* Reads as a button: full-row hover wash + brighter text, like a header you
-   can click. The -6px side margins put the wash slightly proud of the rows
-   while the text stays aligned with the VISIBILITY eyebrow. */
-.prop-substyle-head:hover {
-  color: var(--text-1);
-  background: var(--surface-2);
-}
-.prop-substyle-head:hover .prop-substyle-tw { opacity: 1; }
-.prop-substyle .prop-group-count { text-transform: none; letter-spacing: 0; color: var(--accent-bright); }
 
 /* Shared disclosure-twisty (chevron) treatment — rotates 90° when open. */
-.prop-substyle-tw, .atrace-disclosure-tw {
+.atrace-disclosure-tw {
   display: inline-flex; align-items: center; justify-content: center;
   width: 14px; height: 14px; color: currentColor; opacity: 0.7; flex-shrink: 0;
   transition: transform var(--duration-fast) var(--ease-default);
 }
-.prop-substyle-tw svg, .atrace-disclosure-tw svg { width: 11px; height: 11px; }
-.prop-substyle-head.is-open .prop-substyle-tw,
+.atrace-disclosure-tw svg { width: 11px; height: 11px; }
 .atrace-disclosure.is-open .atrace-disclosure-tw { transform: rotate(90deg); }
 .prop-row--columns {
   grid-template-columns: 100px 1fr;
@@ -3925,144 +3904,45 @@ body.crev-divider-dragging * { user-select: none; }
   color: var(--text-3);
 }
 
-/* ── References section ────────────────────────── */
+/* ── Links — the one object-relationship section ───────────────────── */
 
-.ref-row {
+/* No card, no rail, no tint: a peer of every other property group. The pane
+   stays one coherent stack of eyebrow-titled sections. Object→object links
+   (both curated data bindings and discovered relationships) live here. Each
+   row leads with a direction glyph (→ out, ↰ back in), so a hairline DIVIDER —
+   not a sub-header — is enough to split outgoing from incoming. Rows run the
+   full pane width, name-first, so the target reads as the hero; the carrying
+   field is a muted caption hugging the right edge. */
+
+/* Full-bleed row: hover + content span edge to edge of the group padding. */
+.lk-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  margin: 0 calc(var(--space-3) * -1);
   cursor: pointer;
   font-size: var(--text-sm);
   transition: background var(--duration-fast) var(--ease-default);
 }
-.ref-row:hover { background: var(--surface-2); }
+.lk-row:hover { background: var(--surface-2); }
+.lk-row--empty { cursor: default; opacity: 0.5; }
+.lk-row--empty:hover { background: none; }
+.lk-row--broken { cursor: default; color: var(--danger); }
+.lk-row--broken:hover { background: none; }
 
-.ref-row--empty {
-  cursor: default;
-  opacity: 0.55;
-}
-.ref-row--empty:hover { background: none; }
-
-.ref-row-label {
-  color: var(--text-2);
-  font-weight: var(--weight-medium);
-  min-width: 100px;
-}
-
-.ref-row-arrow { color: var(--text-3); }
-
-.ref-row-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1px 5px;
-  border-radius: var(--radius-sm);
-  background: var(--type-color, var(--surface-3));
-  color: #fff;
-  font-size: 9px;
-  font-weight: var(--weight-semi);
-  letter-spacing: 0.3px;
-  line-height: 1;
-}
-
-.ref-row-name {
-  flex: 1;
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ref-row-bid {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-3);
-}
-
-.ref-row-open {
-  color: var(--text-3);
-  font-size: var(--text-xs);
-}
-.ref-row:hover .ref-row-open { color: var(--accent); }
-
-.ref-row-empty {
-  color: var(--text-3);
-  font-style: italic;
-  font-size: var(--text-xs);
-}
-
-/* ── Connections — a distinct "relationship map" card ──────────────── */
-
-/* Tinted, accent-railed card so it reads as the relationship view, NOT as
-   more of the object's own property groups. */
-.conn-card {
-  margin: var(--space-3) 0;
-  padding: var(--space-1) var(--space-2) var(--space-1) calc(var(--space-2) + 2px);
-  background: color-mix(in srgb, var(--accent) 5%, var(--surface-1));
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--surface-3));
-  border-left: 2px solid color-mix(in srgb, var(--accent) 60%, var(--surface-3));
-  border-radius: var(--radius-md);
-}
-
-.conn-card-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 2px 4px;
-}
-.conn-card-icon { display: inline-flex; color: var(--accent); }
-.conn-card-icon svg { display: block; }
-.conn-card-title {
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semi);
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--text-2);
-}
-
-/* Hairline between the outgoing and incoming halves. */
-.conn-card-rule {
-  height: 0;
-  border-top: 1px dashed color-mix(in srgb, var(--accent) 22%, var(--surface-3));
-  margin: 3px 2px;
-}
-
-/* One edge = one line: direction · field (muted caption) · type chip · target
-   name (the hero). Clicking re-centers the pane. */
-.conn-edge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 4px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  transition: background var(--duration-fast) var(--ease-default);
-}
-.conn-edge:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.conn-edge--via { padding-top: 0; padding-bottom: 3px; }
-.conn-edge--broken { cursor: default; color: var(--danger); }
-.conn-edge--broken:hover { background: none; }
-
-.conn-edge-dir {
-  width: 10px;
+/* Direction glyph — the only marker of out vs in. Sized up so it reads. */
+.lk-dir {
   flex-shrink: 0;
+  width: 16px;
   text-align: center;
-  color: var(--text-3);
-  font-size: var(--text-xs);
+  font-size: 15px;
+  line-height: 1;
 }
-.conn-edge-label {
-  width: 78px;
-  flex-shrink: 0;
-  color: var(--text-3);
-  font-size: var(--text-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.conn-edge-chip {
+.lk-dir--out { color: var(--text-3); }
+.lk-dir--in { color: var(--info); }
+
+.lk-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4076,8 +3956,9 @@ body.crev-divider-dragging * { user-select: none; }
   line-height: 1;
   flex-shrink: 0;
 }
-.conn-edge-chip--via { transform: scale(0.9); opacity: 0.9; }
-.conn-edge-name {
+.lk-chip--via { transform: scale(0.9); opacity: 0.9; }
+
+.lk-name {
   flex: 1;
   min-width: 0;
   color: var(--text-1);
@@ -4085,26 +3966,52 @@ body.crev-divider-dragging * { user-select: none; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.conn-via-arrow { color: var(--text-3); flex-shrink: 0; }
-.conn-edge-broken { font-family: var(--font-mono); font-size: var(--text-xs); }
 
-/* Footer: "N unset" + the lazy inbound scan affordance. */
-.conn-card-foot {
-  padding: 4px 2px 2px;
-  margin-top: 2px;
-  font-size: var(--text-xs);
+/* The carrying field, demoted to a dim caption hugging the right edge. */
+.lk-field {
+  flex-shrink: 0;
+  max-width: 40%;
   color: var(--text-3);
-}
-.conn-foot-sep { color: var(--text-3); opacity: 0.6; }
-.conn-foot-scan {
-  background: none;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  padding: 0;
   font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.conn-foot-scan:hover { text-decoration: underline; }
+/* On an unset curated binding the field leads (no name to anchor on). */
+.lk-field--lead { flex: 1; max-width: none; color: var(--text-2); }
+.lk-none { color: var(--text-3); font-style: italic; font-size: var(--text-xs); flex-shrink: 0; }
+
+.lk-broken { font-family: var(--font-mono); font-size: var(--text-xs); flex: 1; min-width: 0; }
+
+/* Hairline splitting outgoing from incoming — hierarchy without a header. */
+.lk-divider {
+  height: 0;
+  border-top: 1px solid var(--surface-3);
+  margin: var(--space-2) calc(var(--space-3) * -1);
+}
+
+/* Junction far side, indented under its junction row (past the dir glyph). */
+.lk-row--via { padding-left: calc(var(--space-3) + 16px + var(--space-2)); }
+.lk-row--via .lk-name { color: var(--text-2); }
+.lk-via-arrow { flex-shrink: 0; width: 12px; text-align: center; color: var(--text-3); }
+
+/* Lazy inbound scan — a real button. Status notes replace it once scanned. */
+.lk-scan-btn {
+  display: inline-flex;
+  align-items: center;
+  margin-top: var(--space-2);
+  padding: 3px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  transition: border-color var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);
+}
+.lk-scan-btn:hover { border-color: var(--accent); color: var(--text-1); }
+.lk-note { padding: 5px 0 0; font-size: var(--text-xs); color: var(--text-3); }
 
 /* ── Flow walker ───────────────────────────────── */
 

@@ -24,8 +24,7 @@ import { openColorPicker } from './color-picker';
 import { renderPaneTree, type PaneTreeData } from './pane-tree';
 import { openAccessTrace } from './access-trace';
 import { renderCodeSection } from './sections/code-fields';
-import { renderReferenceSection } from './sections/reference-edges';
-import { renderConnections, type ConnInbound } from './sections/connections';
+import { renderLinks, connectionsToLinks, referencesToLinks, type LinkInbound, type LinksModel } from './sections/links';
 import { referencesFor } from '../lib/widget-metadata';
 import { renderPropertyGroups, type PaneGroupsCtx } from './sections/property-groups';
 import { renderFlowSection } from './sections/flow-walker';
@@ -69,7 +68,7 @@ interface PaneState {
   connections: ConnGroup[] | null;
   connectionsLoading: boolean;
   /** Inbound "referenced by" scan state (lazy, via rref()). */
-  inbound: ConnInbound | null;
+  inbound: LinkInbound | null;
 }
 
 interface PaneChildren {
@@ -93,10 +92,6 @@ export class DetailView {
   /** True while APPLY_OBJECT_CHANGES is in flight. */
   private saving = false;
 
-  /** The cosmetic style controls (Shadow / Header style / Border / Transparency /
-   *  Tool menu / Disable search) fold behind a "Style" disclosure so the common
-   *  Columns control isn't buried in a wall. Auto-expands when one is dirty. */
-  private styleCollapsed = true;
   /** Local tree children expansion state for the current object. */
   private childrenState: PaneChildren | null = null;
   /** Properties-area height as a percentage of the split (40..85).
@@ -925,27 +920,21 @@ export class DetailView {
       });
       if (codeSection) wrap.appendChild(codeSection);
 
-      const refSection = renderReferenceSection({
-        type: this.state!.identity.type,
-        references: this.state!.references,
+      // Links — the one object-relationship section. Widget types feed their
+      // curated bindings (data set, InputSet, …) as outgoing links; domain
+      // types feed discovered relationships (out + in) plus the lazy inbound
+      // scan. Both render in the same name-first grammar. Each row re-centers
+      // the pane (one-hop graph walk).
+      const linksSection = renderLinks({
+        links: this.buildLinksModel(),
         onNavigate: (rid) => this.swapTo(rid, null, panel, true).catch(() => {}),
+        onScanInbound: () => {
+          this.state!.inbound = { loaded: false, scanning: true, targets: [] };
+          this.sendMessage({ type: 'FETCH_INBOUND', rid: this.state!.rid });
+          this.renderDetail(panel);
+        },
       });
-      if (refSection) wrap.appendChild(refSection);
-
-      // Connections — the generic relationship view for domain objects. Each
-      // target re-centers the pane (one-hop graph walk).
-      if (this.state!.connections && this.state!.connections.length > 0) {
-        const connSection = renderConnections({
-          connections: { groups: this.state!.connections, inbound: this.state!.inbound ?? undefined },
-          onNavigate: (rid) => this.swapTo(rid, null, panel, true).catch(() => {}),
-          onScanInbound: () => {
-            this.state!.inbound = { loaded: false, scanning: true, targets: [] };
-            this.sendMessage({ type: 'FETCH_INBOUND', rid: this.state!.rid });
-            this.renderDetail(panel);
-          },
-        });
-        if (connSection) wrap.appendChild(connSection);
-      }
+      if (linksSection) wrap.appendChild(linksSection);
     }
 
 
@@ -955,6 +944,20 @@ export class DetailView {
     wrap.appendChild(renderPropertyGroups(this.makeGroupsCtx(panel)));
 
     return wrap;
+  }
+
+  /** Normalize this object's links into the unified model: widget types use
+   *  their curated bindings (outgoing only); domain types use discovered
+   *  relationships plus the lazy inbound scan. The two are mutually exclusive
+   *  (curated refs exist iff the type has reference metadata). */
+  private buildLinksModel(): LinksModel {
+    const type = this.state!.identity.type;
+    const curated = referencesToLinks(type, this.state!.references);
+    if (curated.length > 0) {
+      return { outgoing: curated, incoming: [] };
+    }
+    const { outgoing, incoming } = connectionsToLinks(this.state!.connections ?? []);
+    return { outgoing, incoming, inbound: this.state!.inbound ?? undefined };
   }
 
   /** Build the controller the shared property-group renderer needs. */
@@ -972,8 +975,6 @@ export class DetailView {
         sendMessage: this.sendMessage,
         onPick: (val) => this.setDraft(def.prop, val, panel),
       }),
-      styleCollapsed: this.styleCollapsed,
-      toggleStyleCollapsed: () => { this.styleCollapsed = !this.styleCollapsed; this.refresh(panel); },
     };
   }
 

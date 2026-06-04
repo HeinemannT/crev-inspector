@@ -27,7 +27,7 @@ import { resolveLayoutShortcut } from '../lib/layout-target';
 import { findPropDef } from '../sidepanel/pane-schema';
 import { displayValue } from '../sidepanel/property-editors';
 import { renderPropertyGroups, type PaneGroupsCtx } from '../sidepanel/sections/property-groups';
-import { renderReferenceSection } from '../sidepanel/sections/reference-edges';
+import { renderLinks, referencesToLinks } from '../sidepanel/sections/links';
 import { openAccessTrace, routeAccessMessage, initAccessTrace } from '../sidepanel/access-trace';
 import { openColorPicker } from '../sidepanel/color-picker';
 import { confirmModal } from '../lib/modal';
@@ -77,8 +77,6 @@ type SaveTarget = 'instance' | 'template';
 let state: PaneState | null = null;
 let draft: Record<string, string> = {};
 let target: SaveTarget = 'instance';
-/** Collapse state for the shared "Style" disclosure (see property-groups.ts). */
-let styleCollapsed = true;
 
 if (!rid) {
   render(root, h('div', { class: 'ov-error' }, 'No RID specified'));
@@ -388,13 +386,13 @@ function renderPropertiesArea(): HTMLElement {
   const codeSection = renderPopoutCodeSection();
   if (codeSection) wrap.appendChild(codeSection);
 
-  // References — shared with the side panel (was missing from the popout).
-  const refSection = renderReferenceSection({
-    type: s.identity.type,
-    references: s.references,
+  // Links — shared with the side panel. The popout only knows curated
+  // bindings (no discovered-relationship scan), so it's outgoing-only.
+  const linksSection = renderLinks({
+    links: { outgoing: referencesToLinks(s.identity.type, s.references), incoming: [] },
     onNavigate: (rid) => { location.hash = rid; },
   });
-  if (refSection) wrap.appendChild(refSection);
+  if (linksSection) wrap.appendChild(linksSection);
 
   return wrap;
 }
@@ -415,8 +413,6 @@ function makeGroupsCtx(): PaneGroupsCtx {
       sendMessage: sendFireForget,
       onPick: (val) => setDraft(def.prop, val),
     }),
-    styleCollapsed,
-    toggleStyleCollapsed: () => { styleCollapsed = !styleCollapsed; renderPane(); },
   };
 }
 
