@@ -25,6 +25,15 @@ export class ObjectsTab implements Tab {
   private history: HistoryEntry[] = [];
   private quickRailExpanded = false;
   private displayLimit = DISPLAY_LIMIT_STEP;
+  /** Persistent search <input>. Built once and reused across every render so
+   *  re-renders (CACHE_DATA arriving mid-type) never recreate it — recreating
+   *  it reset its value to the lagging `this.filter` and dropped the caret. */
+  private searchInputEl: HTMLInputElement | null = null;
+  /** Timestamp of the last keystroke in the search field. Used to restore focus
+   *  by *intent* after a re-render: a debounced result can arrive a tick after
+   *  an unrelated render already blurred the field to <body>, so checking live
+   *  focus misses it — but "typed within the last second" reliably does not. */
+  private lastTypedAt = 0;
   /** Latches true on `activate()`, consumed by the first `render()` call
    *  to autofocus the search field. Avoids re-focusing on every render
    *  (which would steal the cursor + selection when CACHE_DATA arrives
@@ -46,6 +55,34 @@ export class ObjectsTab implements Tab {
   }
 
   deactivate() {}
+
+  /** Lazily build the persistent search input, attaching its debounced
+   *  listener exactly once (not per render — that would stack listeners on the
+   *  reused node and fire GET_CACHE many times per keystroke). */
+  private getSearchInput(): HTMLInputElement {
+    if (this.searchInputEl) return this.searchInputEl;
+    const input = h('input', {
+      class: 'browse-search-input',
+      id: 'objects-search',
+      placeholder: 'Search by name, type, business ID, or RID',
+      value: this.filter,
+      autocomplete: 'off',
+      autocorrect: 'off',
+      spellcheck: 'false',
+    }) as HTMLInputElement;
+    let searchTimer: ReturnType<typeof setTimeout> | null = null;
+    input.addEventListener('input', () => {
+      this.lastTypedAt = Date.now();
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        this.displayLimit = DISPLAY_LIMIT_STEP;
+        this.filter = input.value;
+        this.send({ type: 'GET_CACHE', filter: input.value });
+      }, SEARCH_DEBOUNCE);
+    });
+    this.searchInputEl = input;
+    return input;
+  }
 
   findObject(rid: string) {
     return this.objects.find(o => o.rid === rid) ?? null;
@@ -145,15 +182,7 @@ export class ObjectsTab implements Tab {
     // The primary surface — wide, with a leading search icon and a
     // count hint on the right. Type-filter chips render directly
     // below on demand.
-    const searchInput = h('input', {
-      class: 'browse-search-input',
-      id: 'objects-search',
-      placeholder: 'Search by name, type, business ID, or RID',
-      value: this.filter,
-      autocomplete: 'off',
-      autocorrect: 'off',
-      spellcheck: 'false',
-    }) as HTMLInputElement;
+    const searchInput = this.getSearchInput();
     const totalCount = this.objects.length;
     const countHint = totalCount > 0
       ? h('span', { class: 'browse-search-count' }, `${totalCount}`)
@@ -279,26 +308,30 @@ export class ObjectsTab implements Tab {
       }
     }
 
+    // render() clears the container, detaching the (persistent) search input and
+    // dropping its focus + caret. Restore by INTENT, not live focus: an unrelated
+    // render can blur the field to <body> a tick before the debounced result
+    // re-renders, so `activeElement === input` is already false here. "Was the
+    // user just typing?" (lastTypedAt) survives that. The input node persists, so
+    // its value is never reset; we only restore focus + caret.
+    const editing = document.activeElement === searchInput
+      || (document.activeElement === document.body && Date.now() - this.lastTypedAt < 1000);
+    const selStart = searchInput.selectionStart;
+    const selEnd = searchInput.selectionEnd;
+
     render(container, ...children);
 
-    // Autofocus only on the first render after activate() — subsequent
-    // re-renders (CACHE_DATA arrivals during typing, sort/filter clicks)
-    // must NOT steal focus or the user loses their cursor position
-    // mid-edit.
     if (this.pendingFocus) {
+      // First render after activate() — autofocus the field.
       this.pendingFocus = false;
       try { searchInput.focus({ preventScroll: true }); } catch { /* fine */ }
+    } else if (editing) {
+      // Re-render while the user was typing — put focus + caret back.
+      try {
+        searchInput.focus({ preventScroll: true });
+        if (selStart != null) searchInput.setSelectionRange(selStart, selEnd ?? selStart);
+      } catch { /* fine */ }
     }
-
-    let searchTimer: ReturnType<typeof setTimeout> | null = null;
-    searchInput.addEventListener('input', () => {
-      if (searchTimer) clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => {
-        this.displayLimit = DISPLAY_LIMIT_STEP;
-        this.filter = searchInput.value;
-        this.send({ type: 'GET_CACHE', filter: searchInput.value });
-      }, SEARCH_DEBOUNCE);
-    });
 
     delegate(container, {
       'pinned-click': (el, e) => {
@@ -315,6 +348,7 @@ export class ObjectsTab implements Tab {
       'recent-click': (el) => { const rid = el.dataset.rid; if (rid) this.onNavigate(rid); },
       'clear-search': () => {
         this.filter = '';
+        if (this.searchInputEl) this.searchInputEl.value = '';
         this.displayLimit = DISPLAY_LIMIT_STEP;
         this.send({ type: 'GET_CACHE', filter: '' });
         rerender();
