@@ -504,6 +504,11 @@ function renderShell() {
     }, '?'),
   )
 
+  // Capture focus BEFORE renderDom detaches the editor's DOM — reading it
+  // afterwards always yields false (the node is no longer in the document).
+  // Restored after the view is re-attached below.
+  const hadFocus = editorView?.hasFocus ?? false
+
   renderDom(root,
     header,
     propTabs || h('div', { class: 'editor-prop-tabs editor-prop-tabs--empty' }),
@@ -548,10 +553,10 @@ function renderShell() {
     const cont = document.getElementById('cm-container')
     if (cont && editorView.dom.parentElement !== cont) {
       // renderDom() detached the view's DOM, dropping its keyboard focus.
-      // Re-grab focus after re-attaching IF it was focused before — otherwise
-      // a renderShell() that fires while the user is typing (e.g. the
-      // save-label fade timer) silently steals the cursor mid-edit.
-      const hadFocus = editorView.hasFocus
+      // Re-grab it after re-attaching IF it was focused before the re-render
+      // (hadFocus captured above the renderDom call) — otherwise a
+      // renderShell() that fires while the user is typing (e.g. the save-label
+      // fade timer) silently steals the cursor mid-edit.
       cont.appendChild(editorView.dom)
       editorView.requestMeasure()
       if (hadFocus) editorView.focus()
