@@ -16,7 +16,7 @@ import { catppuccinMocha } from './catppuccin-theme'
 import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK } from '../lib/icons'
-import { renderEcOutput, ecOutputToText } from './ec-output'
+import { renderEcOutput, ecOutputToText, parseBmpDurationMs } from './ec-output'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
 import { installCloseHandshake } from '../lib/frame-close-handshake'
@@ -56,6 +56,18 @@ import { selectNextOccurrence } from './ec/renameVariable'
 
 let ctx: EditorContext | null = null
 let editorView: EditorView | null = null
+/** Whether the live editor view is configured for Extended Code (EC gets
+ *  the EC language, linter, var tracker, etc.). Tracked so a target /
+ *  property switch can tell whether it can swap the doc in-place (same
+ *  language) or must rebuild the view (EC ⇄ plain HTML/JS — different
+ *  extension set). See `loadEditorDoc`. */
+let currentIsEc = false
+/** Set true around a programmatic doc-replace (target / property switch)
+ *  so the editor's updateListener doesn't treat the swap as a user edit
+ *  (which would flip `dirty`, reset the preview gate, and mark the output
+ *  stale). dispatch() runs the listener synchronously, so this flag is
+ *  always back to false before any user interaction. */
+let programmaticDocSwap = false
 let activeProperty = ''
 let bottomPanelOpen = false
 let bottomMode: 'output' | 'history' | 'vars' = 'output'
@@ -64,6 +76,11 @@ let outputHeight = 160 // default px, persisted
 let previewDone = false // gating: Run unlocked only after successful preview
 let lastMode: 'preview' | 'execute' | 'save' | null = null
 let lastDuration: number | null = null
+/** BMP's self-reported server-side compute time (the `Duration : Nms` line
+ *  parsed out of the output), in ms. Shown next to the round-trip time in
+ *  the output pill — e.g. `286ms · 59ms BMP` — so the user can tell network
+ *  + SW overhead apart from BMP's own execution cost. */
+let lastBmpMs: number | null = null
 let lastOutputText = ''
 let lastOutputOk = true
 let historyEntries: ScriptHistoryEntry[] = []
@@ -491,6 +508,21 @@ function renderShell() {
     ),
   )
 
+  // Re-attach the live CodeMirror view into the freshly-rendered shell
+  // instead of leaving an empty #cm-container for createEditor to rebuild.
+  // renderDom() just replaced the whole shell DOM, detaching editorView.dom;
+  // moving it back in keeps the view (doc, history, selection, scroll) alive
+  // so a target/property switch can swap the doc in place via loadEditorDoc
+  // rather than tearing CodeMirror down and reflowing it. On first paint
+  // editorView is null, so createEditor mounts fresh as before.
+  if (editorView) {
+    const cont = document.getElementById('cm-container')
+    if (cont && editorView.dom.parentElement !== cont) {
+      cont.appendChild(editorView.dom)
+      editorView.requestMeasure()
+    }
+  }
+
   // Wire toolbar
   document.getElementById('btn-preview')?.addEventListener('click', doPreview)
   document.getElementById('btn-preview-more')?.addEventListener('click', toggleRunMenu)
@@ -552,7 +584,7 @@ function renderShell() {
       }
       updateWindowTitle()
       renderShell()
-      createEditor(newCode[activeProperty] ?? '')
+      loadEditorDoc(newCode[activeProperty] ?? '')
     })
   }
 
@@ -566,7 +598,7 @@ function renderShell() {
       previewDone = false
       renderShell()
       const code = getActiveCode(ctx)
-      createEditor(code[prop] ?? '')
+      loadEditorDoc(code[prop] ?? '')
     })
   }
 }
@@ -624,6 +656,7 @@ function createEditor(code: string) {
   // Before this check included ctx.extended, the scratch window had
   // ZERO syntax highlighting + a permanently-empty Vars panel.
   const isEc = activeProperty === 'expression' || (ctx?.extended === true)
+  currentIsEc = isEc
 
   const extensions = [
     // Base
@@ -709,6 +742,11 @@ function createEditor(code: string) {
         if (btn) { btn.innerHTML = ''; btn.append(svg(ICON_PLAY), from !== to ? ' Preview \u00b7' : ' Preview'); }
       }
       if (update.docChanged) {
+        // A target/property switch replaces the whole doc programmatically.
+        // That's not a user edit — don't flip dirty, don't reset the
+        // preview gate, don't mark the output stale. loadEditorDoc handles
+        // dirty/scroll/var-rescan for the swapped-in doc itself.
+        if (programmaticDocSwap) return
         if (!dirty) {
           dirty = true
           updateSaveButton()
@@ -824,6 +862,68 @@ function createEditor(code: string) {
   editorView.focus()
 }
 
+/** Load `code` into the editor for a target / property switch.
+ *
+ *  When the live view already exists and stays in the SAME language family
+ *  (EC→EC or plain→plain — true for every instance⇄template switch, since
+ *  that's the same property), we swap the document IN PLACE with a single
+ *  transaction instead of tearing the view down and rebuilding it. The old
+ *  path (`renderShell()` rebuilt the `#cm-container`, then `createEditor`
+ *  destroyed + recreated the CodeMirror view, restoring scroll a frame
+ *  later via rAF) made the editor visibly reflow and left the cursor a few
+ *  pixels off target. An in-place swap keeps the view mounted, so selection
+ *  and scroll restore synchronously in the same frame — no flash, no jump.
+ *
+ *  Falls back to a full `createEditor` only when the language must change
+ *  (EC ⇄ HTML/JS need a different extension set) or there's no view yet. */
+function loadEditorDoc(code: string): void {
+  const isEc = activeProperty === 'expression' || (ctx?.extended === true)
+  if (!editorView || isEc !== currentIsEc) {
+    createEditor(code)
+    return
+  }
+
+  const view = editorView
+  const stash = getStashedPropState()
+  const hasStash = !!(stash && stash.docText === code)
+  const docLen = code.length
+  const anchor = hasStash ? Math.min(stash!.selection.anchor, docLen) : 0
+  const head = hasStash ? Math.min(stash!.selection.head, docLen) : 0
+
+  // Single atomic swap: replace the whole doc + place the cursor. Flagged
+  // programmatic so the updateListener doesn't treat it as a user edit.
+  // When we have a remembered scroll for this target, suppress CM's own
+  // scroll-into-view and restore the exact offset ourselves below (the
+  // view kept its layout, so scrollDOM has a real height this same frame —
+  // no rAF jump). With no memory, let CM reveal the cursor (lands at the
+  // top), which is steadier than poking scrollTop, since a doc-replace
+  // makes CM re-anchor the viewport.
+  programmaticDocSwap = true
+  view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: code },
+    selection: { anchor, head },
+    scrollIntoView: !hasStash,
+  })
+  programmaticDocSwap = false
+
+  if (hasStash && view.scrollDOM) view.scrollDOM.scrollTop = stash!.scrollTop
+  dirty = hasStash ? stash!.dirty : false
+
+  // Re-prime the trackers for the new doc, exactly like createEditor does
+  // at construction (the updateListener only fires for user edits).
+  if (isEc) {
+    scanVariables(view.state.doc)
+    scanDocForInferences(view.state.doc)
+  } else {
+    clearTrackedVariables()
+    clearInferences()
+  }
+  clearRuntimeErrors(view)
+  updateSaveButton()
+  updateStatusBar(view)
+  view.focus()
+}
+
 // ── Status bar ───────────────────────────────────────────────────
 
 function updateStatusBar(view: EditorView) {
@@ -854,6 +954,7 @@ async function executeEc(transactional: boolean) {
 
   lastMode = transactional ? 'execute' : 'preview'
   lastDuration = null
+  lastBmpMs = null
   staleAfterPreview = false
   showOutput(transactional ? 'Executing\u2026' : 'Previewing\u2026', true)
 
@@ -1024,6 +1125,7 @@ async function doSave() {
 
   lastMode = 'save'
   lastDuration = null
+  lastBmpMs = null
   const btn = document.getElementById('btn-save') as HTMLButtonElement | null
   if (btn) { btn.disabled = true; btn.dataset.saving = '1' }
 
@@ -1141,6 +1243,10 @@ function confirmModal(opts: ConfirmOpts): Promise<boolean> {
 function showOutput(text: string, ok: boolean) {
   lastOutputText = text
   lastOutputOk = ok
+  // Pull BMP's own compute time out of the output so the pill can show it
+  // next to the round-trip. Null for the "Previewing…" placeholder (no
+  // Duration line yet) and for outputs BMP didn't time.
+  lastBmpMs = parseBmpDurationMs(text)
   // Non-preview output (executes, saves) makes the prior "stale" cue
   // meaningless — it referred to a preview that's now superseded.
   if (lastMode !== 'preview') staleAfterPreview = false
@@ -1192,7 +1298,14 @@ function renderBottomContent() {
         h('span', { class: `editor-output-pill ${cls}` },
           svg(lastOutputOk ? ICON_CHECK : ICON_X),
           h('span', null, ` ${modeLabel}`),
-          lastDuration != null ? h('span', { class: 'editor-output-pill-dur' }, `${lastDuration}ms`) : null,
+          lastDuration != null ? h('span', {
+            class: 'editor-output-pill-dur',
+            // Round-trip = wall-clock incl. SW + network; BMP = server-side
+            // compute. Spelled out in the tooltip, compact in the pill.
+            title: lastBmpMs != null
+              ? `${lastDuration}ms round-trip · ${lastBmpMs}ms BMP compute`
+              : `${lastDuration}ms round-trip`,
+          }, lastBmpMs != null ? `${lastDuration}ms · ${lastBmpMs}ms BMP` : `${lastDuration}ms`) : null,
         ),
         // "Stale" pill when the editor's code has diverged from what
         // this output reflects — keeps the user from acting on results
@@ -1650,6 +1763,7 @@ function doClear() {
   lastOutputOk = true
   lastMode = null
   lastDuration = null
+  lastBmpMs = null
   previewDone = false
   updateRunButton()
   if (editorView) {

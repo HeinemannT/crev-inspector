@@ -13,7 +13,7 @@
  * @vitest-environment happy-dom
  */
 import { describe, it, expect } from 'vitest';
-import { splitTableRow, renderEcOutput, ecOutputToText, parseEcOutput } from '../ec-output';
+import { splitTableRow, renderEcOutput, ecOutputToText, parseEcOutput, parseBmpDurationMs } from '../ec-output';
 
 // ── splitTableRow (pure) ───────────────────────────────────────────
 
@@ -289,5 +289,33 @@ describe('parseEcOutput — block model', () => {
     const domTables = el.querySelectorAll('table.ec-out-table').length;
     const parsedTables = parseEcOutput(DEMO_TABLE).filter(b => b.kind === 'table').length;
     expect(domTables).toBe(parsedTables);
+  });
+
+  it('strips the bare "Duration : Nms" line — it lives in the output pill now', () => {
+    const blocks = parseEcOutput('hello\nResult : 0\nDuration : 59ms');
+    const lines = blocks.filter(b => b.kind === 'line').map(b => (b as { text: string }).text);
+    expect(lines).toContain('hello');
+    expect(lines).toContain('Result : 0'); // other meta stays
+    expect(lines.some(l => l.startsWith('Duration'))).toBe(false);
+  });
+
+  it('keeps a "Duration"-bearing line that is not pure metadata', () => {
+    // "Message : Duration : 14ms" is a text line, not the meta footer.
+    const blocks = parseEcOutput('Message : Duration : 14ms');
+    expect((blocks[0] as { text: string }).text).toBe('Message : Duration : 14ms');
+  });
+});
+
+describe('parseBmpDurationMs', () => {
+  it('extracts BMP compute ms from the Duration footer', () => {
+    expect(parseBmpDurationMs('Result : 0\nDuration : 59ms')).toBe(59);
+    expect(parseBmpDurationMs('Duration: 3ms')).toBe(3); // no space variant
+    expect(parseBmpDurationMs('   Duration : 120ms  ')).toBe(120); // indented
+  });
+
+  it('returns null when absent or not the metadata line', () => {
+    expect(parseBmpDurationMs('hello world')).toBe(null);
+    expect(parseBmpDurationMs('')).toBe(null);
+    expect(parseBmpDurationMs('Message : Duration : 14ms')).toBe(null);
   });
 });

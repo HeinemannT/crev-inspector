@@ -30,6 +30,17 @@ const LINE_CLASSES: Record<LineType, string> = {
  *  containing any of these is BMP's monospace table art. */
 const BOX_DRAWING_RE = /[─-╿]/;
 
+/** Extract BMP's self-reported compute time (the `Duration : Nms` line)
+ *  from raw EC output, in milliseconds. Returns null when absent. This is
+ *  BMP's server-side execution time — distinct from the editor's
+ *  wall-clock round-trip (which also includes SW + network). The two are
+ *  merged in the output pill so the user can see both at a glance. */
+export function parseBmpDurationMs(text: string): number | null {
+  if (!text) return null;
+  const m = text.match(/^\s*Duration\s*:\s*(\d+)\s*ms\b/m);
+  return m ? Number(m[1]) : null;
+}
+
 /** Decode JSON-style backslash escape sequences that BMP sometimes ships through
  *  (\n, \r, \t, \", \\, \/, \uXXXX). Only triggers when at least one such sequence
  *  is present so plain output is untouched. */
@@ -118,7 +129,12 @@ export function parseEcOutput(text: string, tableMode = true, decode = true): Ou
         continue;
       }
     }
-    blocks.push({ kind: 'line', type: classifyLine(line), text: line });
+    const type = classifyLine(line);
+    // The Duration metadata line is surfaced in the output pill (round-trip
+    // + BMP compute), so drop it from the parsed body — no point showing
+    // the same number twice. Other meta (Result, Warning) stays.
+    if (type === 'duration') continue;
+    blocks.push({ kind: 'line', type, text: line });
   }
   if (inTable) flushTable(); // unclosed / truncated table
   return blocks;
