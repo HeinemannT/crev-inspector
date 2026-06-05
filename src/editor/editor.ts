@@ -443,22 +443,23 @@ function renderShell() {
   const saveJustHappened = !dirty && saveLabel === 'Saved'
   const saveClass = `btn ${dirty ? 'btn-success' : saveJustHappened ? 'btn-success btn-saved' : 'btn-ghost'}`
   const actionRow = h('div', { class: 'editor-actions' },
-    // Split button: primary Preview + chevron revealing Execute.
-    // The Execute item is disabled until a successful preview arms
-    // it \u2014 the gate is physical (greyed dropdown row) rather than a
-    // separate top-level button that's almost always disabled.
-    h('div', { class: 'editor-split' },
-      h('button', { class: 'btn btn-accent editor-split-main', id: 'btn-preview', title: `Preview (dry-run, safe) \u00b7 ${KBD_MOD}+Enter` },
+    // Preview | Execute \u2014 two grouped buttons (one segmented control). Execute
+    // is disabled until a successful, non-stale preview arms it (editing the
+    // code resets previewDone, so the gate already means "no-stale preview").
+    h('div', { class: 'editor-run-group' },
+      h('button', { class: 'btn btn-accent editor-run-preview', id: 'btn-preview', title: `Preview (dry-run, safe) \u00b7 ${KBD_MOD}+Enter` },
         svg(ICON_PLAY), ' Preview ',
         h('kbd', null, `${KBD_MOD}\u21b5`),
       ),
       h('button', {
-        class: 'btn btn-accent editor-split-chev',
-        id: 'btn-preview-more',
-        title: 'More run actions',
-        'aria-haspopup': 'menu',
-        'aria-expanded': 'false',
-      }, '\u25be'),
+        class: 'btn btn-accent editor-run-execute',
+        id: 'btn-execute',
+        disabled: !previewDone,
+        title: previewDone ? `Execute the previewed code (${KBD_MOD}+Shift+Enter)` : 'Preview successfully first to unlock',
+      },
+        svg(ICON_LIGHTNING), ' Execute ',
+        h('kbd', null, `${KBD_MOD}\u21e7\u21b5`),
+      ),
     ),
     !isExtended && h('button', {
       class: saveClass,
@@ -518,16 +519,9 @@ function renderShell() {
     propTabs || h('div', { class: 'editor-prop-tabs editor-prop-tabs--empty' }),
     h('div', { class: 'editor-cm-wrap', id: 'cm-container' }),
     actionRow,
-    h('div', { class: 'editor-drag-handle', id: 'drag-handle', style: 'display:none' },
-      // Maximize toggle floats on the divider itself — hidden until the
-      // handle is hovered (or while maximized), so it stays out of the way.
-      h('button', {
-        class: 'editor-output-max',
-        id: 'btn-output-max',
-        title: 'Maximize output',
-        'aria-label': 'Maximize output',
-      }, svg(ICON_ARROW_OUT)),
-    ),
+    // Resize divider. (The maximize toggle now lives in the output panel header,
+    // beside Minimize — see renderBottomContentInner.)
+    h('div', { class: 'editor-drag-handle', id: 'drag-handle', style: 'display:none' }),
     h('div', { class: 'editor-output', id: 'bottom-panel', style: `display:none;height:${outputHeight}px` },
       h('div', { id: 'bottom-panel-content' }),
     ),
@@ -569,7 +563,7 @@ function renderShell() {
 
   // Wire toolbar
   document.getElementById('btn-preview')?.addEventListener('click', doPreview)
-  document.getElementById('btn-preview-more')?.addEventListener('click', toggleRunMenu)
+  document.getElementById('btn-execute')?.addEventListener('click', () => { if (previewDone) doRun() })
   document.getElementById('btn-save')?.addEventListener('click', doSave)
   document.getElementById('btn-discard')?.addEventListener('click', doDiscard)
   for (const el of document.querySelectorAll<HTMLElement>('[data-action="goto-bmp"]')) {
@@ -1057,13 +1051,15 @@ async function executeEc(transactional: boolean) {
   })
 }
 
-/** Update Run button disabled state and tooltip */
+/** Arm/disarm the Execute button — enabled only after a successful, non-stale
+ *  preview (previewDone resets the moment the code is edited). */
 function updateRunButton() {
-  // The split-button chevron lights up subtly when Execute is armed.
-  // We track this via a class so the user gets a passive cue without
-  // a separate top-level button.
-  const chev = document.getElementById('btn-preview-more')
-  if (chev) chev.classList.toggle('editor-split-chev--armed', previewDone)
+  const exec = document.getElementById('btn-execute') as HTMLButtonElement | null
+  if (!exec) return
+  exec.disabled = !previewDone
+  exec.title = previewDone
+    ? `Execute the previewed code (${KBD_MOD}+Shift+Enter)`
+    : 'Preview successfully first to unlock'
 }
 
 /** Update Save button disabled state and dirty styling */
@@ -1091,50 +1087,6 @@ function updateSaveButton() {
  *  The "saved" value comes from ctx — the snapshot we got at editor
  *  boot. After save, that snapshot was already updated to the new
  *  value, so Discard rolls back to the most recent SUCCESSFUL save. */
-/** Show or hide the split-button's overflow menu (Execute action). */
-function toggleRunMenu(): void {
-  const existing = document.getElementById('run-menu')
-  if (existing) { existing.remove(); return }
-  const anchor = document.getElementById('btn-preview-more')
-  if (!anchor) return
-  anchor.setAttribute('aria-expanded', 'true')
-  const rect = anchor.getBoundingClientRect()
-  const menu = document.createElement('div')
-  menu.id = 'run-menu'
-  menu.className = 'editor-run-menu'
-  menu.role = 'menu'
-  menu.style.top = `${rect.bottom + 4}px`
-  menu.style.left = `${rect.left - 120}px`
-  const item = h('button', {
-    class: `editor-run-menu-item${previewDone ? '' : ' disabled'}`,
-    role: 'menuitem',
-    title: previewDone ? `Execute the previewed code (${KBD_MOD}+Shift+Enter)` : 'Preview successfully first to unlock',
-    onClick: () => {
-      menu.remove()
-      anchor.setAttribute('aria-expanded', 'false')
-      if (previewDone) doRun()
-    },
-  },
-    svg(ICON_LIGHTNING),
-    h('span', { class: 'editor-run-menu-label' }, ' Execute'),
-    h('kbd', null, `${KBD_MOD}⇧↵`),
-  )
-  menu.appendChild(item)
-  document.body.appendChild(menu)
-  // Dismiss on outside click + Esc. Self-cleans on close.
-  const dismiss = (e: Event) => {
-    if (e instanceof KeyboardEvent && e.key !== 'Escape') return
-    if (e instanceof MouseEvent && (e.target === menu || menu.contains(e.target as Node))) return
-    menu.remove()
-    anchor.setAttribute('aria-expanded', 'false')
-    document.removeEventListener('mousedown', dismiss, true)
-    document.removeEventListener('keydown', dismiss, true)
-  }
-  setTimeout(() => {
-    document.addEventListener('mousedown', dismiss, true)
-    document.addEventListener('keydown', dismiss, true)
-  }, 0)
-}
 
 async function doDiscard(): Promise<void> {
   if (!ctx || !editorView || !dirty) return
@@ -1366,7 +1318,7 @@ function toggleMaximizeOutput(e?: Event) {
 function updateMaximizeButton() {
   const btn = document.getElementById('btn-output-max')
   if (!btn) return
-  btn.classList.toggle('editor-output-max--on', outputMaximized)
+  btn.classList.toggle('active', outputMaximized)
   btn.title = outputMaximized ? 'Restore output size' : 'Maximize output'
 }
 
@@ -1451,6 +1403,15 @@ function renderBottomContentInner() {
             flashCopy(btn, copyText, () => {})
           },
         }, svg(ICON_COPY)),
+        // Divider: the content controls (\n / table / copy) are about the
+        // OUTPUT TEXT; the panel controls (maximize / minimize) are about the
+        // PANEL. A subtle rule + gap separates the two groups, both on the right.
+        h('div', { class: 'editor-output-header-div' }),
+        h('button', {
+          class: 'btn-micro', id: 'btn-output-max',
+          title: 'Maximize output', 'aria-label': 'Maximize output',
+          onClick: toggleMaximizeOutput,
+        }, svg(ICON_ARROW_OUT)),
         // Minimize (not close): collapses the panel to the bottom tab bar,
         // preserving the output — click a tab to restore. A down-chevron, not an
         // ✕, so it doesn't read as "discard" (that's the bottom-bar Clear).
