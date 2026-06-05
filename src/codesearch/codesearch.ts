@@ -18,6 +18,7 @@ import { emptyState } from '../lib/empty-state';
 import { installCloseHandshake } from '../lib/frame-close-handshake';
 import { sendFireForget } from '../lib/messaging';
 import { tokenizeEcLine, renderTokens } from '../lib/ec-format';
+import { captureTypingFocus } from '../lib/focus-keep';
 
 installCloseHandshake();
 
@@ -49,12 +50,10 @@ const collapsedSections = new Set<string>();
  *  name / businessId / matched line text — no extra round-trip. */
 let resultFilter = '';
 
-// Typing-intent tracking so focus survives a render that's NOT triggered by the
-// keystroke itself (e.g. a streamed CODE_SEARCH_PROGRESS arriving mid-type can
-// blur the input to <body> before our capture runs — pure activeElement misses
-// it, but "typed within the last second" reliably catches it).
-const FOCUS_INTENT_MS = 1000;
-let lastTypedId: 'cs-query' | 'cs-filter' | null = null;
+// Typing-intent tracking so focus survives a render NOT triggered by the
+// keystroke itself (a streamed CODE_SEARCH_PROGRESS can blur the input to <body>
+// before capture). The shared captureTypingFocus reclaims it; see focus-keep.ts.
+let lastTyped: HTMLInputElement | null = null;
 let lastTypedAt = 0;
 
 // Multi-select type-group filter pills. Empty set = all groups
@@ -90,7 +89,7 @@ const searchInputEl = h('input', {
   autocorrect: 'off',
   spellcheck: 'false',
   onInput: () => {
-    lastTypedId = 'cs-query'; lastTypedAt = Date.now();
+    lastTyped = searchInputEl; lastTypedAt = Date.now();
     query = searchInputEl.value;
     // Editing invalidates the last result set's verdict; it reverts to the
     // hero/fresh state on the next Enter. We don't re-render here — that's the
@@ -138,7 +137,7 @@ const filterInputEl = h('input', {
   autocomplete: 'off', autocorrect: 'off', spellcheck: 'false',
 }) as HTMLInputElement;
 filterInputEl.addEventListener('input', () => {
-  lastTypedId = 'cs-filter'; lastTypedAt = Date.now();
+  lastTyped = filterInputEl; lastTypedAt = Date.now();
   resultFilter = filterInputEl.value;
   renderUI();
 });
@@ -195,36 +194,18 @@ function renderUI() {
     elements.push(renderHeroEmpty());
   }
 
-  // Both inputs (search + result-filter) are persistent nodes, but render()
-  // wipes the container and reattaches them, dropping focus. Restore by INTENT:
-  // an input the user just typed in (within FOCUS_INTENT_MS) is reclaimed even
-  // if a prior streamed-progress render already blurred it to <body> before we
-  // captured. Caret comes from the live node where available.
-  const active = document.activeElement as HTMLInputElement | null;
-  const activeId = active && (active.id === 'cs-query' || active.id === 'cs-filter') ? active.id : null;
-  const recentId = (Date.now() - lastTypedAt < FOCUS_INTENT_MS) ? lastTypedId : null;
-  // Prefer the live focused input; else the recently-typed one (if focus is
-  // currently nowhere meaningful — body — so we don't yank it off a button).
-  const restoreId = activeId ?? (active === document.body || active === null ? recentId : null);
-  const selStart = active && activeId ? active.selectionStart : null;
-  const selEnd = active && activeId ? active.selectionEnd : null;
+  // The search + result-filter inputs are persistent nodes that render() wipes
+  // and reattaches, dropping focus. Reclaim the recently-typed one (shared helper).
+  const restoreFocus = captureTypingFocus({ el: lastTyped, at: lastTypedAt });
 
   render(root, ...elements.filter(Boolean) as HTMLElement[]);
 
-  if (restoreId) {
-    const el = document.getElementById(restoreId) as HTMLInputElement | null;
-    if (el) {
-      try {
-        el.focus({ preventScroll: true });
-        if (selStart != null) el.setSelectionRange(selStart, selEnd ?? selStart);
-        else el.setSelectionRange(el.value.length, el.value.length);
-      } catch { /* not all browsers */ }
-    }
-  } else {
-    // First paint / a non-typing rebuild that dropped focus to body → keep the
-    // search box ready for typing.
+  restoreFocus();
+  // First paint / a non-typing rebuild that dropped focus to <body> (and the
+  // helper didn't reclaim a typed input) → keep the search box ready for typing.
+  if (document.activeElement === document.body) {
     const queryInput = document.getElementById('cs-query') as HTMLInputElement | null;
-    if (queryInput && document.activeElement === document.body) queryInput.focus({ preventScroll: true });
+    queryInput?.focus({ preventScroll: true });
   }
 }
 

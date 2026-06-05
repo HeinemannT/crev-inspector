@@ -29,13 +29,10 @@ import {
   blendResults, filterTypeOptions, provenance,
   type BrowseSource, type BrowseSort, type BrowseResult,
 } from '../../lib/browse-blend';
+import { captureTypingFocus } from '../../lib/focus-keep';
 import type { Tab, SendFn } from './tab-types';
 
 type DropdownKind = 'ce' | 'web' | null;
-
-/** How long after a keystroke a render is still allowed to reclaim focus to the
- *  input the user was typing in (covers a streamed result blurring it). */
-const FOCUS_INTENT_MS = 1000;
 
 export class ObjectsTab implements Tab {
   private query = '';
@@ -207,29 +204,21 @@ export class ObjectsTab implements Tab {
       children.push(this.renderHome());
     }
 
-    // Capture focus intent BEFORE the wipe; restore AFTER (the inputs are
-    // persistent nodes, so their value survives; only focus/caret need help).
-    // Only reclaim focus when it's currently on the typed input itself or has
-    // fallen to <body> (a streamed render blurred it) — NOT when the user
-    // deliberately moved focus to another control (e.g. clicked Sort), so a
-    // recent keystroke can't yank the caret back off a button.
-    const active = document.activeElement;
-    const focusEl = this.lastTypedEl;
-    const recent = Date.now() - this.lastTypedAt < FOCUS_INTENT_MS
-      && (active === focusEl || active === document.body);
-    const selStart = focusEl?.selectionStart ?? null;
-    const selEnd = focusEl?.selectionEnd ?? null;
+    // Persistent inputs keep their value across the wipe; only focus/caret need
+    // help. captureTypingFocus reclaims the recently-typed input (search box or
+    // type-filter) even if a streamed result already blurred it to <body>.
+    const restoreFocus = captureTypingFocus(
+      { el: this.lastTypedEl, at: this.lastTypedAt },
+      (el) => container.contains(el),
+    );
 
     render(container, ...children.filter(Boolean) as HTMLElement[]);
 
     if (this.pendingFocus) {
       this.pendingFocus = false;
       try { searchInput.focus({ preventScroll: true }); } catch { /* fine */ }
-    } else if (recent && focusEl && container.contains(focusEl)) {
-      try {
-        focusEl.focus({ preventScroll: true });
-        if (selStart != null) focusEl.setSelectionRange(selStart, selEnd ?? selStart);
-      } catch { /* fine */ }
+    } else {
+      restoreFocus();
     }
 
     this.bindOutsideClick(container, rerender);
