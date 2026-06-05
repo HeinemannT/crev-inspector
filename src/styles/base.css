@@ -70,7 +70,10 @@ body {
 /* ── Selection ────────────────────────────────────────── */
 
 ::selection {
-  background: var(--accent-bg);
+  /* A translucent accent — clearly visible on the dark input/surface backgrounds
+     (the old --accent-bg was nearly the same colour as the inputs, so selections
+     were invisible) while keeping the selected text readable. */
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
   color: var(--text-1);
 }
 

@@ -75,7 +75,9 @@ body {
 .editor-ctx-type {
   flex-shrink: 0;
   color: var(--text-3);
-  font-size: var(--text-xs);
+  /* Match the object's .editor-id-bid (text-sm mono) so the two secondary
+     identifiers read as one consistent treatment, not two font sizes. */
+  font-size: var(--text-sm);
   font-family: var(--font-mono);
 }
 

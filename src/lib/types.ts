@@ -94,6 +94,10 @@ export type CacheMessage =
   // button (no reload) and scroll-and-highlights the target widget. Sent by
   // the Extended Code editor's "go to this object" action.
   | { type: 'BMP_GOTO'; bmpTabId?: number; rid?: string; tabRid?: string; tabName?: string }
+  // Open a top-level object (a card / page / scorecard) in the BMP portal by
+  // navigating the tab to ?rid=<rid>. Unlike BMP_GOTO (which highlights a widget
+  // on the CURRENT page), this loads the object's own page.
+  | { type: 'BMP_OPEN_OBJECT'; rid: string; bmpTabId?: number }
   // Hard-reload the BMP tab. Out-of-band EC writes (property/colour/style
   // edits from the detail view) do NOT re-render BMP's React DOM — verified
   // live: the committed change is invisible until a full page reload. So

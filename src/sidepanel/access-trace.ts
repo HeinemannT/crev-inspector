@@ -162,10 +162,18 @@ function onKey(e: KeyboardEvent): void {
 
 function rerender(): void {
   if (!rootEl) return;
+  // rerender() rebuilds the whole card, which resets the scrollable body to the
+  // top — jarring when the user expands a trace statement deep in the list.
+  // Preserve the body's scroll position across the rebuild.
+  const prevScroll = (rootEl.querySelector('.atrace-body') as HTMLElement | null)?.scrollTop ?? 0;
   render(rootEl, h('div', { class: 'atrace-card', onClick: (e: MouseEvent) => e.stopPropagation() },
     renderHeader(),
     renderBody(),
   ));
+  if (prevScroll > 0) {
+    const body = rootEl.querySelector('.atrace-body') as HTMLElement | null;
+    if (body) body.scrollTop = prevScroll;
+  }
 }
 
 function renderHeader(): HTMLElement {

@@ -423,7 +423,7 @@ export class ConnectTab implements Tab {
         ],
       },
       {
-        title: 'Page tab',
+        title: 'Inspect',
         rows: [
           { kind: 'note', action: 'Right-click an element', key: 'set context' },
           { kind: 'note', action: 'Crosshair icon', key: 'pick context from any pill' },
@@ -431,7 +431,6 @@ export class ConnectTab implements Tab {
       },
     ];
     return h('div', { class: 'reference-card reference-card--muted' },
-      h('div', { class: 'reference-title' }, 'Quick reference'),
       ...groups.map(g => h('div', { class: 'reference-group' },
         h('div', { class: 'reference-group-title' }, g.title),
         h('dl', { class: 'reference-list' },

@@ -18,7 +18,8 @@
 
 import type { ObjectPaneIdentity, ObjectPaneSiblingMsg } from '../lib/types';
 import { getTypeColor, getTypeAbbr } from '../lib/types';
-import { h, render } from '../lib/dom';
+import { h, render, svg } from '../lib/dom';
+import { ICON_ARROW_LINE_UP } from '../lib/icons';
 import { resolveCopyText, getModifier } from '../lib/namespace';
 import { appendEcPreview } from '../lib/ec-format';
 import { installCloseHandshake } from '../lib/frame-close-handshake';
@@ -351,10 +352,10 @@ function renderParentCrumb(parent: ObjectPaneIdentity): HTMLElement {
     class: 'pane-parent-crumb',
     role: 'button',
     tabindex: '0',
-    title: `Open container: ${parent.name || parent.businessId}`,
+    title: `Open parent: ${parent.businessId || parent.rid}`,
     onClick: () => sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid: parent.rid }),
   },
-    h('span', { class: 'pane-parent-crumb-arrow' }, '↑ inside'),
+    h('span', { class: 'pane-parent-crumb-arrow' }, svg(ICON_ARROW_LINE_UP)),
     h('span', {
       class: 'pane-parent-crumb-chip',
       style: `--type-color:${getTypeColor(parent.type)}`,

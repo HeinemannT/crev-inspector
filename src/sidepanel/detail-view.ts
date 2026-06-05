@@ -16,7 +16,7 @@
 import type { BmpObject, InspectorMessage, ObjectPaneIdentity, ObjectPaneCard, ObjectPaneSiblingMsg } from '../lib/types';
 import { getTypeColor, getTypeAbbr } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
-import { ICON_PENCIL, ICON_LAYOUT, ICON_SHIELD, ICON_ARROW_LEFT, ICON_X } from '../lib/icons';
+import { ICON_PENCIL, ICON_LAYOUT, ICON_SHIELD, ICON_ARROW_LEFT, ICON_ARROW_LINE_UP, ICON_X } from '../lib/icons';
 import { resolveLayoutShortcut } from '../lib/layout-target';
 import { confirmModal } from '../lib/modal';
 import { displayValue } from './property-editors';
@@ -803,7 +803,7 @@ export class DetailView {
   private renderParentCrumb(parent: ObjectPaneIdentity, panel: HTMLElement): HTMLElement {
     return h('button', {
       class: 'pane-parent-inline',
-      title: `Open parent: ${parent.name || parent.businessId}`,
+      title: `Open parent: ${parent.businessId || parent.rid}`,
       onClick: () => this.swapTo(parent.rid, {
         rid: parent.rid,
         name: parent.name,
@@ -814,7 +814,7 @@ export class DetailView {
         updatedAt: Date.now(),
       }, panel),
     },
-      h('span', { class: 'pane-parent-inline-arrow', 'aria-hidden': 'true' }, '↑'),
+      h('span', { class: 'pane-parent-inline-arrow', 'aria-hidden': 'true' }, svg(ICON_ARROW_LINE_UP)),
       h('span', {
         class: 'pane-parent-inline-chip',
         style: `--type-color:${getTypeColor(parent.type)}`,
@@ -828,25 +828,25 @@ export class DetailView {
    *  from its template. Clicking navigates the BMP tab to the card so the
    *  user can see/edit the layout that renders for this object. */
   private renderCardCrumb(card: ObjectPaneCard): HTMLElement {
-    const goto = () => this.sendMessage({ type: 'BMP_GOTO', rid: card.rid });
+    // Loads the card's own page in the BMP portal (a card is a page, not a
+    // widget on the current one — so this navigates, it doesn't highlight).
+    const goto = () => this.sendMessage({ type: 'BMP_OPEN_OBJECT', rid: card.rid });
     return h('div', {
-      class: 'pane-parent-crumb pane-card-crumb',
+      class: 'pane-card-crumb',
       role: 'button',
       tabindex: '0',
-      title: `Navigate BMP to the detail card '${card.name || card.businessId}'`
-        + (card.viaTemplate ? " — inherited from this object's template" : ''),
       onClick: goto,
       onKeydown: (e: KeyboardEvent) => {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto(); }
       },
     },
-      // `↗` signals this opens the BMP tab (vs the parent crumb's `↑ inside`,
-      // which drills the inspector) — distinct action, distinct cue.
-      h('span', { class: 'pane-parent-crumb-arrow' }, card.viaTemplate ? '▦ card · via template ↗' : '▦ card ↗'),
-      h('span', { class: 'pane-parent-crumb-name' }, card.name || '(unnamed)'),
-      card.businessId
-        ? h('span', { class: 'pane-parent-crumb-bid' }, card.businessId)
-        : null,
+      // Compact card glyph; the NAME is the hero (flexes), the via-template note
+      // is a small muted tag so it can't crowd out the name, bid + ↗ trail.
+      h('span', { class: 'pane-card-crumb-icon' }, '▦'),
+      h('span', { class: 'pane-card-crumb-name' }, card.name || '(unnamed)'),
+      card.viaTemplate ? h('span', { class: 'pane-card-crumb-tag' }, 'via template') : null,
+      card.businessId ? h('span', { class: 'pane-card-crumb-bid' }, card.businessId) : null,
+      h('span', { class: 'pane-card-crumb-open' }, '↗'),
     );
   }
 

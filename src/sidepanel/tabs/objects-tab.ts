@@ -279,9 +279,20 @@ export class ObjectsTab implements Tab {
     const all = kind === 'ce' ? CE_TYPES : WEB_OBJECT_TYPES;
     const selected = kind === 'ce' ? this.ceTypes : this.webTypes;
     const shown = filterTypeOptions(all, this.typeSearch);
+    const allShownSelected = shown.length > 0 && shown.every(t => selected.has(t));
     const input = this.getTypeFilterInput();
     return h('div', { class: 'bx-dd-pop' },
-      h('div', { class: 'bx-dd-search' }, h('span', null, '⌕'), input),
+      // Filter input + a "select all (shown)" toggle on the RIGHT so it costs no
+      // extra vertical space. Toggles the currently-filtered set on/off.
+      h('div', { class: 'bx-dd-search' },
+        h('span', { class: 'bx-dd-search-icon' }, '⌕'),
+        input,
+        h('button', {
+          class: `bx-dd-all${allShownSelected ? ' on' : ''}`,
+          'data-action': 'type-all', 'data-fam': kind,
+          title: allShownSelected ? 'Deselect all shown' : 'Select all shown',
+        }, h('span', { class: 'bx-dd-box' }, allShownSelected ? '✓' : ''), 'All'),
+      ),
       h('div', { class: 'bx-dd-list' },
         shown.length === 0
           ? h('div', { class: 'bx-dd-empty' }, 'No matching type')
@@ -381,16 +392,18 @@ export class ObjectsTab implements Tab {
 
   private renderHome(): HTMLElement {
     const pinned = shared.favoriteEntries;
-    const recent = this.history.slice(0, 8);
+    const recent = this.history.slice(0, 12);
     const sections: (HTMLElement | null)[] = [];
 
+    // Pinned + Recent render as the SAME row table as search results, so the
+    // empty/home state reads continuously with a query result set.
     if (pinned.length > 0) {
       sections.push(h('div', { class: 'bx-rail-h' }, 'Pinned'));
-      sections.push(h('div', { class: 'bx-pills' }, ...pinned.map(f => this.renderPill(f.rid, f.name, f.type, 'pinned-click'))));
+      sections.push(h('div', { class: 'bx-list' }, ...pinned.map(f => this.renderHomeRow(f.rid, f.name, f.type, f.businessId))));
     }
     if (recent.length > 0) {
       sections.push(h('div', { class: 'bx-rail-h' }, 'Recent'));
-      sections.push(h('div', { class: 'bx-pills' }, ...recent.map(e => this.renderPill(e.rid, e.name, e.type, 'recent-click'))));
+      sections.push(h('div', { class: 'bx-list' }, ...recent.map(e => this.renderHomeRow(e.rid, e.name, e.type, e.businessId))));
     }
 
     if (sections.length === 0) {
@@ -404,10 +417,20 @@ export class ObjectsTab implements Tab {
     return h('div', { class: 'bx-home' }, ...sections.filter(Boolean) as HTMLElement[]);
   }
 
-  private renderPill(rid: string, name: string | undefined, type: string | undefined, action: string): HTMLElement {
-    return h('button', { class: 'bx-pill', 'data-action': action, 'data-rid': rid, title: name ?? truncRid(rid) },
-      h('span', { class: 'bx-chip bx-chip--sm', style: `--tc:${getTypeColor(type)}` }, getTypeAbbr(type)),
-      h('span', { class: 'bx-pill-name' }, name ?? 'unnamed'),
+  /** A pinned/recent entry as a result-style row (chip · name · id · copy). Uses
+   *  the shared row-click handler to navigate. */
+  private renderHomeRow(rid: string, name?: string, type?: string, businessId?: string): HTMLElement {
+    return h('div', { class: 'bx-row', 'data-action': 'row-click', 'data-rid': rid, title: name ?? truncRid(rid) },
+      h('span', { class: 'bx-chip', style: `--tc:${getTypeColor(type)}`, title: type ?? '' }, getTypeAbbr(type)),
+      h('span', { class: 'bx-name' }, name ?? '(unnamed)'),
+      businessId ? h('span', { class: 'bx-crumb', title: businessId }, businessId) : null,
+      h('div', { class: 'bx-row-actions' },
+        h('button', {
+          class: 'bx-iconbtn', 'data-action': 'copy',
+          'data-copy': businessId ?? rid, 'data-copy-rid': rid, 'data-copy-type': type ?? '',
+          title: COPY_TOOLTIP,
+        }, svg(ICON_COPY)),
+      ),
     );
   }
 
@@ -480,6 +503,16 @@ export class ObjectsTab implements Tab {
         if (this.query.trim()) this.fireSearch();
         rerender();
       },
+      'type-all': (el) => {
+        const fam = el.dataset.fam;
+        const set = fam === 'ce' ? this.ceTypes : this.webTypes;
+        const shown = filterTypeOptions(fam === 'ce' ? CE_TYPES : WEB_OBJECT_TYPES, this.typeSearch);
+        const allOn = shown.length > 0 && shown.every(t => set.has(t));
+        for (const t of shown) { if (allOn) set.delete(t); else set.add(t); }
+        this.displayLimit = DISPLAY_LIMIT_STEP;
+        if (this.query.trim()) this.fireSearch();
+        rerender();
+      },
       'type-clear': (el) => {
         const fam = el.dataset.fam;
         (fam === 'ce' ? this.ceTypes : this.webTypes).clear();
@@ -491,11 +524,6 @@ export class ObjectsTab implements Tab {
         this.sort = this.sort === 'relevance' ? 'name' : this.sort === 'name' ? 'type' : 'relevance';
         rerender();
       },
-      'pinned-click': (el, e) => {
-        if ((e.target as HTMLElement).closest('[data-action="unpin"]')) return;
-        const rid = el.dataset.rid; if (rid) this.onNavigate(rid);
-      },
-      'recent-click': (el) => { const rid = el.dataset.rid; if (rid) this.onNavigate(rid); },
       'show-more': () => { this.displayLimit += DISPLAY_LIMIT_STEP; rerender(); },
     });
   }

@@ -326,19 +326,17 @@ function buildApp(): void {
       class: 'header-icon-btn',
       id: 'open-codesearch',
       'aria-label': 'Code Search',
-      title: 'Code Search: find code across objects (RID or namespace.bid scope)',
     }, svg(ICON_SEARCH)),
     h('button', {
       class: 'header-icon-btn',
       id: 'open-extended',
       'aria-label': 'Open Extended Code',
-      title: 'Open Extended Code (Ctrl+Shift+E by default: rebind at chrome://extensions/shortcuts)',
     }, svg(ICON_LIGHTNING)),
     h('button', {
       class: `paint-btn ${S.paintPhase !== 'off' ? 'active' : ''}`,
       id: 'toggle-paint',
       'aria-label': 'Paint Format',
-      title: 'Paint Format: copy visual style between objects.\nApplies: headerColor, fontColor, transparency, shadow, headerStyle, borderStyle.\nPick a source widget, then click targets to apply.\nRight-click to choose which styles get painted.',
+      title: 'Right-click to choose which styles get painted',
     }, svg(ICON_PAINT)),
     h('button', {
       class: `inspect-toggle ${S.inspectActive ? 'active' : ''}`,

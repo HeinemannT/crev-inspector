@@ -124,16 +124,17 @@ describe('DetailView — fetch flow', () => {
     expect(dv.handleMessage(paneData('999'), panel)).toBe(false);
   });
 
-  it('renders the card crumb and navigates BMP on click', () => {
+  it('renders the card crumb and opens the card in BMP on click', () => {
     const { dv, panel, sent } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100', { cardRid: '777', cardViaTemplate: true }), panel);
     const crumb = panel.querySelector<HTMLElement>('.pane-card-crumb');
     expect(crumb).toBeTruthy();
     expect(crumb!.textContent).toContain('Detail card');
-    expect(crumb!.textContent).toContain('via template'); // inherited badge
+    expect(crumb!.textContent).toContain('via template'); // inherited tag
     crumb!.click();
-    expect(sent.find(m => m.type === 'BMP_GOTO' && (m as { rid?: string }).rid === '777')).toBeTruthy();
+    // Loads the card's own page (not the widget-highlight BMP_GOTO).
+    expect(sent.find(m => m.type === 'BMP_OPEN_OBJECT' && (m as { rid?: string }).rid === '777')).toBeTruthy();
   });
 
   it('shows no card crumb when the object has no card', () => {
