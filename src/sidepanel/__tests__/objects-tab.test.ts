@@ -92,6 +92,21 @@ describe('ObjectsTab — search wiring', () => {
     expect(names).toEqual(expect.arrayContaining(['Shared', 'CacheOnly', 'LiveOnly']));
   });
 
+  it('drops a CACHE_DATA whose filter no longer matches the current query', () => {
+    const { tab, panel } = setup();
+    type(panel, 'risk'); // this.query === 'risk'
+    // A late response for an older query must be ignored…
+    const staleChanged = tab.handleMessage({ type: 'CACHE_DATA', filter: 'ri', objects: [obj('x', { name: 'StaleCache', type: 'Task' })] } as InspectorMessage);
+    expect(staleChanged).toBe(false);
+    tab.render(panel);
+    expect(panel.textContent).not.toContain('StaleCache');
+    // …while the matching response applies.
+    const okChanged = tab.handleMessage({ type: 'CACHE_DATA', filter: 'risk', objects: [obj('y', { name: 'FreshCache', type: 'Task' })] } as InspectorMessage);
+    expect(okChanged).toBe(true);
+    tab.render(panel);
+    expect(panel.textContent).toContain('FreshCache');
+  });
+
   it('empty query shows the home rail, not a search', () => {
     const { tab, panel, sent } = setup();
     tab.handleMessage({ type: 'HISTORY_DATA', entries: [{ rid: '9', name: 'Recent Thing', type: 'Scorecard', action: 'viewed', timestamp: 0 }] } as InspectorMessage);

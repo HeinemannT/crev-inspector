@@ -67,7 +67,9 @@ export type InspectMessage =
 // ── Cache ────────────────────────────────────────────────────────
 export type CacheMessage =
   | { type: 'GET_CACHE'; filter?: string }
-  | { type: 'CACHE_DATA'; objects: BmpObject[] }
+  // `filter` echoes the GET_CACHE filter so a consumer can drop a late/reordered
+  // response that no longer matches the current query.
+  | { type: 'CACHE_DATA'; objects: BmpObject[]; filter?: string }
   // Live workspace search via BMP's GraphQL quickSearch (the engine the web
   // portal's search box uses). gen guards against out-of-order responses.
   | { type: 'BROWSE_SEARCH'; query: string; page?: number; pageSize?: number; gen: number }

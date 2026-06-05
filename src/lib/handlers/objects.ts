@@ -100,7 +100,7 @@ export function getLinkedDefs(objectType: string): LinkedObjectDef[] {
 register('GET_CACHE', (msg, respond) => {
   const ctx = getCtx();
   const objects = msg.filter ? ctx.cache.search(msg.filter) : ctx.cache.getAll();
-  respond({ type: 'CACHE_DATA', objects });
+  respond({ type: 'CACHE_DATA', objects, filter: msg.filter ?? '' });
 });
 
 // Live workspace search via BMP's GraphQL quickSearch. Results are also folded

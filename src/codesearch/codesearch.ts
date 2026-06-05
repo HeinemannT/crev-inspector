@@ -49,6 +49,14 @@ const collapsedSections = new Set<string>();
  *  name / businessId / matched line text — no extra round-trip. */
 let resultFilter = '';
 
+// Typing-intent tracking so focus survives a render that's NOT triggered by the
+// keystroke itself (e.g. a streamed CODE_SEARCH_PROGRESS arriving mid-type can
+// blur the input to <body> before our capture runs — pure activeElement misses
+// it, but "typed within the last second" reliably catches it).
+const FOCUS_INTENT_MS = 1000;
+let lastTypedId: 'cs-query' | 'cs-filter' | null = null;
+let lastTypedAt = 0;
+
 // Multi-select type-group filter pills. Empty set = all groups
 // active (default — same convention as Browse's kind pills).
 // `actions` covers click-handler EC (ActionButton / ButtonInput / Label).
@@ -82,6 +90,7 @@ const searchInputEl = h('input', {
   autocorrect: 'off',
   spellcheck: 'false',
   onInput: () => {
+    lastTypedId = 'cs-query'; lastTypedAt = Date.now();
     query = searchInputEl.value;
     // Editing invalidates the last result set's verdict; it reverts to the
     // hero/fresh state on the next Enter. We don't re-render here — that's the
@@ -128,7 +137,11 @@ const filterInputEl = h('input', {
   placeholder: 'Filter results by name / id / matched line…',
   autocomplete: 'off', autocorrect: 'off', spellcheck: 'false',
 }) as HTMLInputElement;
-filterInputEl.addEventListener('input', () => { resultFilter = filterInputEl.value; renderUI(); });
+filterInputEl.addEventListener('input', () => {
+  lastTypedId = 'cs-filter'; lastTypedAt = Date.now();
+  resultFilter = filterInputEl.value;
+  renderUI();
+});
 
 /** Imperatively reflect query/searching/case state in the always-present
  *  search-shell controls — no DOM rebuild, so the input keeps focus. */
@@ -183,27 +196,33 @@ function renderUI() {
   }
 
   // Both inputs (search + result-filter) are persistent nodes, but render()
-  // wipes the container and reattaches them, which drops focus. Capture which
-  // input was focused + its caret BEFORE the wipe and restore it AFTER, so
-  // typing in either field never loses the cursor.
+  // wipes the container and reattaches them, dropping focus. Restore by INTENT:
+  // an input the user just typed in (within FOCUS_INTENT_MS) is reclaimed even
+  // if a prior streamed-progress render already blurred it to <body> before we
+  // captured. Caret comes from the live node where available.
   const active = document.activeElement as HTMLInputElement | null;
-  const focusedId = active && (active.id === 'cs-query' || active.id === 'cs-filter') ? active.id : null;
-  const selStart = focusedId ? active!.selectionStart : null;
-  const selEnd = focusedId ? active!.selectionEnd : null;
+  const activeId = active && (active.id === 'cs-query' || active.id === 'cs-filter') ? active.id : null;
+  const recentId = (Date.now() - lastTypedAt < FOCUS_INTENT_MS) ? lastTypedId : null;
+  // Prefer the live focused input; else the recently-typed one (if focus is
+  // currently nowhere meaningful — body — so we don't yank it off a button).
+  const restoreId = activeId ?? (active === document.body || active === null ? recentId : null);
+  const selStart = active && activeId ? active.selectionStart : null;
+  const selEnd = active && activeId ? active.selectionEnd : null;
 
   render(root, ...elements.filter(Boolean) as HTMLElement[]);
 
-  if (focusedId) {
-    const el = document.getElementById(focusedId) as HTMLInputElement | null;
+  if (restoreId) {
+    const el = document.getElementById(restoreId) as HTMLInputElement | null;
     if (el) {
       try {
         el.focus({ preventScroll: true });
         if (selStart != null) el.setSelectionRange(selStart, selEnd ?? selStart);
+        else el.setSelectionRange(el.value.length, el.value.length);
       } catch { /* not all browsers */ }
     }
   } else {
-    // No input focused (first paint, or a rebuild that dropped focus to body) →
-    // keep the search box focused so the user can just start typing.
+    // First paint / a non-typing rebuild that dropped focus to body → keep the
+    // search box ready for typing.
     const queryInput = document.getElementById('cs-query') as HTMLInputElement | null;
     if (queryInput && document.activeElement === document.body) queryInput.focus({ preventScroll: true });
   }
@@ -432,7 +451,7 @@ function renderResults(): HTMLElement {
         `No results match the filter "${resultFilter}". `,
         h('button', {
           class: 'cs-link',
-          onClick: () => { resultFilter = ''; renderUI(); },
+          onClick: () => { resultFilter = ''; filterInputEl.value = ''; renderUI(); },
         }, 'Clear filter'),
       ),
     );
@@ -690,6 +709,7 @@ function fireSearch(): void {
   expandedGroups.clear();
   collapsedSections.clear();
   resultFilter = '';
+  filterInputEl.value = ''; // persistent node — clear it too, or it shows stale filter text
 
   sendFireForget({
     type: 'CODE_SEARCH_START',

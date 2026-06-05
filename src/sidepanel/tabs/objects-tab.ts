@@ -100,6 +100,10 @@ export class ObjectsTab implements Tab {
   handleMessage(msg: InspectorMessage): boolean {
     switch (msg.type) {
       case 'CACHE_DATA':
+        // Drop a late/reordered response whose filter no longer matches the
+        // current query — otherwise stale cache rows (substring-filtered by the
+        // SW for an older query) could render under the visible one.
+        if (msg.filter != null && msg.filter !== this.query) return false;
         this.cacheObjects = msg.objects;
         return true;
       case 'BROWSE_SEARCH_RESULT':
@@ -205,8 +209,14 @@ export class ObjectsTab implements Tab {
 
     // Capture focus intent BEFORE the wipe; restore AFTER (the inputs are
     // persistent nodes, so their value survives; only focus/caret need help).
-    const recent = Date.now() - this.lastTypedAt < FOCUS_INTENT_MS;
+    // Only reclaim focus when it's currently on the typed input itself or has
+    // fallen to <body> (a streamed render blurred it) — NOT when the user
+    // deliberately moved focus to another control (e.g. clicked Sort), so a
+    // recent keystroke can't yank the caret back off a button.
+    const active = document.activeElement;
     const focusEl = this.lastTypedEl;
+    const recent = Date.now() - this.lastTypedAt < FOCUS_INTENT_MS
+      && (active === focusEl || active === document.body);
     const selStart = focusEl?.selectionStart ?? null;
     const selEnd = focusEl?.selectionEnd ?? null;
 
