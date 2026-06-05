@@ -9,8 +9,14 @@
  */
 import { register } from '../handler-registry';
 
+/** Resolve the BMP tab to act on: an explicit bmpTabId, else the active tab in
+ *  the last-focused window (where the docked side panel lives). */
+async function resolveBmpTab(bmpTabId?: number): Promise<number | undefined> {
+  return bmpTabId ?? (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id;
+}
+
 register('BMP_GOTO', async (msg) => {
-  const tabId = msg.bmpTabId ?? (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id;
+  const tabId = await resolveBmpTab(msg.bmpTabId);
   if (tabId == null) return;
   chrome.tabs.sendMessage(tabId, msg).catch(() => { /* content script not injected */ });
 });
@@ -19,7 +25,7 @@ register('BMP_GOTO', async (msg) => {
 // rewriting the tab URL's ?rid= param. A card/scorecard/page isn't a widget on
 // the current page, so BMP_GOTO's highlight does nothing for it; this navigates.
 register('BMP_OPEN_OBJECT', async (msg) => {
-  const tabId = msg.bmpTabId ?? (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id;
+  const tabId = await resolveBmpTab(msg.bmpTabId);
   if (tabId == null) return;
   try {
     const tab = await chrome.tabs.get(tabId);
@@ -34,7 +40,7 @@ register('BMP_OPEN_OBJECT', async (msg) => {
 // RELOAD_BMP_TAB — hard-reload the BMP tab so a committed (but DOM-invisible)
 // property/colour/style edit becomes visible. Same tab resolution as BMP_GOTO.
 register('RELOAD_BMP_TAB', async (msg) => {
-  const tabId = msg.bmpTabId ?? (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id;
+  const tabId = await resolveBmpTab(msg.bmpTabId);
   if (tabId == null) return;
   chrome.tabs.reload(tabId).catch(() => { /* tab gone */ });
 });
