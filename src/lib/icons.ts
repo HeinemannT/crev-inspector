@@ -48,6 +48,8 @@ export const ICON_EYE_OPEN = '<svg width="14" height="14" viewBox="0 0 24 24" fi
 // Chevron — disclosure twisty. Points right when collapsed; CSS rotates it 90°
 // when open. Cleaner than a text ▸/▾.
 export const ICON_CHEVRON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+// Down chevron — used as a "minimize/collapse the panel" affordance.
+export const ICON_CHEVRON_DOWN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
 // Shield — "Test access" / permission affordance.
 export const ICON_SHIELD = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
 // Status icons for verdicts (access trace etc.) — a circled glyph reads as a

@@ -16,7 +16,7 @@ import { catppuccinMocha } from './catppuccin-theme'
 import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { captureTypingFocus } from '../lib/focus-keep'
-import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROW_OUT } from '../lib/icons'
+import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROW_OUT, ICON_CHEVRON_DOWN } from '../lib/icons'
 import { renderEcOutput, ecOutputToText, parseBmpDurationMs, formatRunTiming } from './ec-output'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
@@ -81,6 +81,7 @@ let outputHeight = 160 // last manually-dragged px, persisted
 let outputSizing: 'auto' | 'manual' = 'auto'
 let outputMaximized = false
 const MIN_OUTPUT_PX = 90
+const OUTPUT_DEFAULT_FRAC = 0.33 // auto floor: a fresh preview opens to ~1/3 of the window
 const OUTPUT_AUTO_FRAC = 0.45 // auto height ceiling, as a fraction of window
 const OUTPUT_MAX_FRAC = 0.78 // maximized height, as a fraction of window
 let previewDone = false // gating: Run unlocked only after successful preview
@@ -1345,7 +1346,11 @@ function applyOutputHeight() {
     panel.style.height = 'auto'
     const natural = panel.offsetHeight
     const capped = Math.min(natural, Math.round(winH * OUTPUT_AUTO_FRAC))
-    panel.style.height = `${Math.max(MIN_OUTPUT_PX, capped)}px`
+    // Floor at ~1/3 of the window so a fresh preview opens to a comfortable
+    // default size (a one-line result no longer opens as a thin sliver); longer
+    // output still grows to the OUTPUT_AUTO_FRAC ceiling, then scrolls.
+    const floor = Math.max(MIN_OUTPUT_PX, Math.round(winH * OUTPUT_DEFAULT_FRAC))
+    panel.style.height = `${Math.max(floor, capped)}px`
   } else {
     panel.style.height = `${fixedHeight}px`
   }
@@ -1446,7 +1451,10 @@ function renderBottomContentInner() {
             flashCopy(btn, copyText, () => {})
           },
         }, svg(ICON_COPY)),
-        h('button', { class: 'btn-micro', title: 'Close', onClick: hideBottomPanel }, svg(ICON_X)),
+        // Minimize (not close): collapses the panel to the bottom tab bar,
+        // preserving the output — click a tab to restore. A down-chevron, not an
+        // ✕, so it doesn't read as "discard" (that's the bottom-bar Clear).
+        h('button', { class: 'btn-micro', title: 'Minimize', 'aria-label': 'Minimize panel', onClick: hideBottomPanel }, svg(ICON_CHEVRON_DOWN)),
       ),
       outputContent,
     )
