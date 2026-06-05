@@ -160,12 +160,17 @@ function onKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') { e.stopPropagation(); closeAccessTrace(); document.removeEventListener('keydown', onKey); }
 }
 
-function rerender(): void {
+/**
+ * Rebuild the whole card. By default the scrollable body resets to the top,
+ * which is right for NEW content (a fresh trace, action/subject change). For
+ * IN-PLACE updates — expanding a statement, show-all-rules, the copy flash —
+ * pass `keepScroll: true` so the rebuild doesn't yank the user back to the top.
+ */
+function rerender(opts?: { keepScroll?: boolean }): void {
   if (!rootEl) return;
-  // rerender() rebuilds the whole card, which resets the scrollable body to the
-  // top — jarring when the user expands a trace statement deep in the list.
-  // Preserve the body's scroll position across the rebuild.
-  const prevScroll = (rootEl.querySelector('.atrace-body') as HTMLElement | null)?.scrollTop ?? 0;
+  const prevScroll = opts?.keepScroll
+    ? (rootEl.querySelector('.atrace-body') as HTMLElement | null)?.scrollTop ?? 0
+    : 0;
   render(rootEl, h('div', { class: 'atrace-card', onClick: (e: MouseEvent) => e.stopPropagation() },
     renderHeader(),
     renderBody(),
@@ -312,7 +317,7 @@ function renderResult(): HTMLElement | null {
       others.length
         ? h('button', {
             class: `atrace-disclosure${state.showAllRules ? ' is-open' : ''}`,
-            onClick: () => { state.showAllRules = !state.showAllRules; rerender(); },
+            onClick: () => { state.showAllRules = !state.showAllRules; rerender({ keepScroll: true }); },
           },
             h('span', { class: 'atrace-disclosure-tw' }, svg(ICON_CHEVRON)),
             `${state.showAllRules ? 'Hide' : 'Show'} ${plural(others.length, granting.length ? 'non-granting statement' : 'evaluated statement')}`,
@@ -377,9 +382,9 @@ function expandAll(): void {
   const paths: string[] = [];
   collectExpandable(state.result.children, '0', paths);
   state.expanded = new Set(paths);
-  rerender();
+  rerender({ keepScroll: true });
 }
-function collapseAll(): void { state.expanded.clear(); state.showAllRules = false; rerender(); }
+function collapseAll(): void { state.expanded.clear(); state.showAllRules = false; rerender({ keepScroll: true }); }
 
 /** Serialize the trace to indented text for the clipboard. */
 function nodeToText(n: AccessTraceNode, depth: number): string {
@@ -398,8 +403,8 @@ function copyResult(): void {
   const body = r.children.map(c => nodeToText(c, 1)).join('\n');
   void navigator.clipboard?.writeText(`${header}\n${body}`).then(() => {
     state.copied = true;
-    rerender();
-    setTimeout(() => { state.copied = false; if (rootEl) rerender(); }, 1400);
+    rerender({ keepScroll: true });
+    setTimeout(() => { state.copied = false; if (rootEl) rerender({ keepScroll: true }); }, 1400);
   }).catch(() => { /* clipboard blocked — silent */ });
 }
 
@@ -439,7 +444,7 @@ function renderNode(node: AccessTraceNode, path: string): HTMLElement {
 
   const row = h('div', {
     class: `atrace-node atrace-node--${resClass}`,
-    onClick: hasKids ? () => { if (isOpen) state.expanded.delete(path); else state.expanded.add(path); rerender(); } : undefined,
+    onClick: hasKids ? () => { if (isOpen) state.expanded.delete(path); else state.expanded.add(path); rerender({ keepScroll: true }); } : undefined,
   },
     h('span', { class: 'atrace-node-tw' }, hasKids ? (isOpen ? '▾' : '▸') : '·'),
     h('span', { class: 'atrace-node-icon' }, node.result === true ? '✓' : node.result === false ? '✗' : '–'),

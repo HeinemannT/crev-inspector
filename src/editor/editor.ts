@@ -15,6 +15,7 @@ import { catppuccinMocha } from './catppuccin-theme'
 // Shared types + context helpers
 import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
 import { h, svg, render as renderDom } from '../lib/dom'
+import { captureTypingFocus } from '../lib/focus-keep'
 import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROW_OUT } from '../lib/icons'
 import { renderEcOutput, ecOutputToText, parseBmpDurationMs, formatRunTiming } from './ec-output'
 import { showBookPopover } from './book'
@@ -111,9 +112,11 @@ let varsFilter = ''
 // RichText both fall under "text"; Number and HistoricalNumber both
 // under "num"; etc.).
 const varsKindFilter = new Set<string>()
-// Cursor position to restore in the filter input after a re-render.
-// null = don't restore (no recent edit).
-let varsFilterRefocus: number | null = null
+// The props filter is a PERSISTENT input node (built once, reused across the
+// vars-panel rebuilds), with focus restored by the shared captureTypingFocus —
+// same approach as the Browse + code-search inputs.
+let varsFilterInputEl: HTMLInputElement | null = null
+let varsFilterTypedAt = 0
 // Scroll position of the props list, captured before a re-render so we
 // can restore it after. Without this, clicking a property to insert
 // at the cursor (which triggers docChanged → re-render) bounced the
@@ -1517,6 +1520,27 @@ function renderBottomContentInner() {
  *  right 60% = property list for the selected var's inferred type.
  *  Click a property row \u2192 inserts `<accessor>` at the editor cursor.
  *  Highlights occurrences in the editor on var hover (via varHighlight). */
+/** Persistent props-filter input — built once and reused across vars-panel
+ *  rebuilds, so typing never recreates the node (focus is reclaimed by
+ *  captureTypingFocus in renderVarsPanel). */
+function getVarsFilterInput(): HTMLInputElement {
+  if (varsFilterInputEl) return varsFilterInputEl
+  const input = h('input', {
+    class: 'editor-vars-props-filter',
+    id: 'vars-filter-input',
+    placeholder: 'Filter properties…',
+    autocomplete: 'off', autocorrect: 'off', spellcheck: 'false',
+  }) as HTMLInputElement
+  input.value = varsFilter
+  input.addEventListener('input', () => {
+    varsFilterTypedAt = Date.now()
+    varsFilter = input.value
+    renderBottomContent()
+  })
+  varsFilterInputEl = input
+  return input
+}
+
 function renderVarsPanel(container: HTMLElement): void {
   const vars = getTrackedVariables()
   if (vars.length === 0) {
@@ -1547,6 +1571,13 @@ function renderVarsPanel(container: HTMLElement): void {
   const prevList = container.querySelector<HTMLElement>('.editor-vars-props-list')
   if (prevList) varsPropsScrollTop = prevList.scrollTop
 
+  // The props filter input is detached + reattached by this render; reclaim its
+  // focus + caret if the user was just typing in it (shared helper).
+  const restoreFilterFocus = captureTypingFocus(
+    { el: varsFilterInputEl, at: varsFilterTypedAt },
+    el => container.contains(el),
+  )
+
   renderDom(container,
     h('div', { class: 'editor-vars-split' },
       renderVarsList(vars, inferences, selected),
@@ -1558,17 +1589,7 @@ function renderVarsPanel(container: HTMLElement): void {
   const nextList = container.querySelector<HTMLElement>('.editor-vars-props-list')
   if (nextList && varsPropsScrollTop > 0) nextList.scrollTop = varsPropsScrollTop
 
-  // Filter input was recreated by the render — restore focus + caret
-  // so the user can type continuously. Only fires when the previous
-  // event was a filter edit (varsFilterRefocus is non-null).
-  if (varsFilterRefocus != null) {
-    const input = document.getElementById('vars-filter-input') as HTMLInputElement | null
-    if (input) {
-      input.focus()
-      try { input.setSelectionRange(varsFilterRefocus, varsFilterRefocus) } catch { /* not all browsers */ }
-    }
-    varsFilterRefocus = null
-  }
+  restoreFilterFocus()
 }
 
 function renderVarsList(
@@ -1736,21 +1757,7 @@ function renderVarsProps(selected: string | null, inferences: Map<string, TypeIn
       }, svg(ICON_REFRESH)),
     ),
     h('div', { class: 'editor-vars-props-controls' },
-      h('input', {
-        class: 'editor-vars-props-filter',
-        id: 'vars-filter-input',
-        placeholder: 'Filter properties\u2026',
-        value: varsFilter,
-        // Live-update \u2014 re-render below recreates this element, so we
-        // mark it for focus-restoration so the user can keep typing
-        // without losing the caret position.
-        onInput: (e: Event) => {
-          const el = e.currentTarget as HTMLInputElement
-          varsFilter = el.value
-          varsFilterRefocus = el.selectionStart ?? el.value.length
-          renderBottomContent()
-        },
-      }),
+      getVarsFilterInput(),
     ),
     // Pill row \u2014 System toggle + multi-select kind filters.
     h('div', { class: 'editor-vars-props-pills', role: 'group', 'aria-label': 'Property kind filters' },
