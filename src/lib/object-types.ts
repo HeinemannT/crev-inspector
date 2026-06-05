@@ -31,15 +31,3 @@ export const WEB_OBJECT_TYPES: readonly string[] = [
   'Action', 'Page', 'ModelPage', 'EditPage', 'Dashboard', 'DashboardSet', 'Node',
 ];
 
-const CE_SET = new Set(CE_TYPES);
-const WEB_SET = new Set(WEB_OBJECT_TYPES);
-
-export type TypeFamily = 'ce' | 'web' | 'other';
-
-/** Which dropdown a type belongs to (anything Ce*-prefixed is enterprise). */
-export function typeFamily(type: string | undefined): TypeFamily {
-  if (!type) return 'other';
-  if (CE_SET.has(type) || type.startsWith('Ce')) return 'ce';
-  if (WEB_SET.has(type)) return 'web';
-  return 'other';
-}

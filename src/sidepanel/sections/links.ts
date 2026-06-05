@@ -33,9 +33,8 @@ import { h } from '../../lib/dom';
 import { getTypeColor, getTypeAbbr } from '../../lib/types';
 import type { ObjectPaneIdentity } from '../../lib/types';
 import type { ConnTarget, ConnGroup } from '../../lib/connections';
+import { INBOUND_CAP } from '../../lib/connections';
 import { referencesFor } from '../../lib/widget-metadata';
-
-export type { ConnTarget, ConnGroup } from '../../lib/connections';
 
 /** One link in the unified model: a target plus the field that carries it. */
 export interface LinkTarget {
@@ -197,13 +196,9 @@ function mainRow(dir: LinkDir, t: LinkTarget, nav: (rid: string) => void): HTMLE
   );
 }
 
+// A junction's far side only ever reaches here via pickFarSide, which already
+// excludes broken targets — so no broken branch is needed (or reachable).
 function viaRow(via: ConnTarget, nav: (rid: string) => void): HTMLElement {
-  if (via.broken) {
-    return h('div', { class: 'lk-row lk-row--via lk-row--broken' },
-      h('span', { class: 'lk-via-arrow' }, '↳'),
-      h('span', { class: 'lk-broken' }, '⚠ missing'),
-    );
-  }
   return h('div', {
     class: 'lk-row lk-row--via',
     role: 'button',
@@ -226,7 +221,7 @@ function scanFoot(inbound: LinkInbound | undefined, onScan?: () => void): HTMLEl
   if (!inbound.loaded) {
     return onScan ? h('button', { class: 'lk-scan-btn', onClick: () => onScan() }, 'Scan all referrers') : null;
   }
-  if (inbound.capped) return h('div', { class: 'lk-note' }, 'first 100 referrers shown');
+  if (inbound.capped) return h('div', { class: 'lk-note' }, `first ${INBOUND_CAP} referrers shown`);
   if (inbound.targets.length === 0) return h('div', { class: 'lk-note' }, 'no other objects reference this');
   return null;
 }

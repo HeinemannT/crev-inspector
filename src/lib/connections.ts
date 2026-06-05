@@ -221,8 +221,12 @@ export function buildInboundEc(ref: string): string {
   ].join('\n');
 }
 
+/** Max inbound referrers surfaced — single source of truth so the parser cap
+ *  and the "first N referrers shown" UI note can never drift apart. */
+export const INBOUND_CAP = 100;
+
 /** Parse the inbound rows, capped (a heavily-referenced object can have many). */
-export function parseInbound(log: string, cap = 100): { targets: ConnTarget[]; capped: boolean } {
+export function parseInbound(log: string, cap = INBOUND_CAP): { targets: ConnTarget[]; capped: boolean } {
   const targets: ConnTarget[] = [];
   let capped = false;
   for (const line of log.split('\n')) {

@@ -147,6 +147,16 @@ describe('junction inlining (C2)', () => {
     const fars: ConnTarget[] = [{ rid: '111', name: 'R', type: 'CeRiskAssessment', businessId: 'r' }];
     expect(pickFarSide('111', '201', fars)).toBeUndefined();
   });
+
+  it('pickFarSide skips a broken far-side (so viaRow never sees one)', () => {
+    const fars: ConnTarget[] = [
+      { rid: '301', name: '', type: '', businessId: '', broken: true }, // dangling
+      { rid: '302', name: 'WAF', type: 'CeControlMeasure', businessId: 'waf' },
+    ];
+    expect(pickFarSide('111', '201', fars)?.rid).toBe('302');
+    // …and undefined when the only candidate is broken.
+    expect(pickFarSide('111', '201', [{ rid: '301', name: '', type: '', businessId: '', broken: true }])).toBeUndefined();
+  });
 });
 
 describe('inbound scan (C3)', () => {

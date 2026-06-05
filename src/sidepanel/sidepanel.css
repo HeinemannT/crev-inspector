@@ -2236,49 +2236,6 @@ body.crev-divider-dragging * { user-select: none; }
   50%      { box-shadow: 0 0 0 3px rgba(218, 30, 40, 0); }
 }
 
-/* ── Type filter chips ─────────────────────────── */
-
-.type-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 8px;
-  max-height: 56px;
-  overflow-y: auto;
-}
-
-.type-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border: 1px solid var(--surface-4);
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--text-2);
-  font-family: var(--font-body);
-  font-size: var(--text-xs);
-  cursor: pointer;
-}
-
-.type-chip:hover {
-  background: rgba(139, 92, 246, 0.05);
-  color: var(--text-1);
-}
-
-.type-chip.active {
-  background: var(--accent-bg);
-  color: var(--text-1);
-  border-color: var(--accent-bg);
-}
-
-.chip-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--type-color, #707070);
-}
 
 /* ── Log tab flex fill ─────────────────────────── */
 

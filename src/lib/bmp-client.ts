@@ -27,6 +27,18 @@ import {
   parsePipeRow, parsePipeRowWithKey, parseAbRow, makeCodeField,
 } from './flow-parser';
 import type { FlowChain, FlowStep, FlowIdentity, FlowCodeField } from './flow-parser';
+
+/** The subset of BMP's GraphQL quickSearch response we read (external, evolving
+ *  schema — fields are optional and loosely typed on purpose). */
+interface QuickSearchHit {
+  epmObject?: {
+    rid?: string | number; name?: string; type?: string;
+    webParentRid?: string | number; webParentName?: string;
+    hasChildren?: boolean; tabRid?: string | number;
+  };
+  pageLocationInfo?: { rid?: string | number; name?: string };
+}
+interface QuickSearchData { totalHits?: number; hits?: QuickSearchHit[]; }
 import {
   buildInputViewFlowEc, buildInputSetFlowEc, buildTransportGroupFlowEc,
   buildActionButtonFlowEc, buildLabelFlowEc, buildObjectPaneEc, FLOW_SEP,
@@ -1366,29 +1378,28 @@ _r
     if (!res.ok) throw new Error(`quickSearch HTTP ${res.status}`);
     const json = await res.json();
     if (json.errors?.length) throw new Error(json.errors[0]?.message ?? 'GraphQL error');
-    const q = json?.data?.quickSearch ?? { totalHits: 0, hits: [] };
+    const q: QuickSearchData = json?.data?.quickSearch ?? { totalHits: 0, hits: [] };
     const now = Date.now();
     const objects: BmpObject[] = (q.hits ?? [])
-      .map((h: Record<string, any>): BmpObject | null => {
-        const e = h.epmObject;
-        const rid = e?.rid != null ? String(e.rid) : '';
-        if (!rid) return null;
+      .map((hit): BmpObject | null => {
+        const e = hit.epmObject;
+        if (e?.rid == null) return null;
         return {
-          rid,
+          rid: String(e.rid),
           name: e.name ?? undefined,
           type: e.type ?? undefined,
           webParentRid: e.webParentRid != null ? String(e.webParentRid) : undefined,
           webParentName: e.webParentName ?? undefined,
           hasChildren: !!e.hasChildren,
           tabRid: e.tabRid != null ? String(e.tabRid) : undefined,
-          pageRid: h.pageLocationInfo?.rid != null ? String(h.pageLocationInfo.rid) : undefined,
-          pageName: h.pageLocationInfo?.name ?? undefined,
+          pageRid: hit.pageLocationInfo?.rid != null ? String(hit.pageLocationInfo.rid) : undefined,
+          pageName: hit.pageLocationInfo?.name ?? undefined,
           source: 'server',
           discoveredAt: now,
           updatedAt: now,
         };
       })
-      .filter((o: BmpObject | null): o is BmpObject => o !== null);
+      .filter((o): o is BmpObject => o !== null);
     return { totalHits: q.totalHits ?? objects.length, objects };
   }
 

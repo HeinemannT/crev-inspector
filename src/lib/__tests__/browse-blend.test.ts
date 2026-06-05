@@ -65,6 +65,16 @@ describe('blendResults', () => {
     const r = blendResults([obj('')], [obj('')], filters());
     expect(r).toEqual([]);
   });
+
+  it('does not mutate its input arrays', () => {
+    const live = [obj('1', { name: 'A' })];
+    const cache = [obj('1', { name: 'A' })];
+    const liveCopy = JSON.parse(JSON.stringify(live));
+    const cacheCopy = JSON.parse(JSON.stringify(cache));
+    blendResults(cache, live, filters({ sort: 'name' }));
+    expect(live).toEqual(liveCopy);
+    expect(cache).toEqual(cacheCopy);
+  });
 });
 
 describe('filterTypeOptions', () => {
@@ -74,5 +84,6 @@ describe('filterTypeOptions', () => {
     expect(filterTypeOptions(types, 'in')).toEqual(['CeIncident', 'CeIndicator']);
     expect(filterTypeOptions(types, 'RISK')).toEqual(['CeRiskAssessment']);
     expect(filterTypeOptions(types, 'zzz')).toEqual([]);
+    expect(filterTypeOptions(types, '  in  ')).toEqual(['CeIncident', 'CeIndicator']); // trimmed
   });
 });

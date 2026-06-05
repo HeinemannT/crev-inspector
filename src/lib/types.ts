@@ -339,8 +339,6 @@ export interface ConnTarget {
   name: string;
   type: string;
   businessId: string;
-  /** Has its own web page (computed in C2). Undefined = not computed. */
-  navigable?: boolean;
   /** The rid resolved to nothing (dangling/deleted reference). */
   broken?: boolean;
   /** Junction far-side (C2): the object on the other side of a thin junction. */
@@ -353,7 +351,6 @@ export interface ConnGroup {
   label: string;
   /** out = forward ref (this → target); in = reverse ref (target → this). */
   direction: 'out' | 'in';
-  required?: boolean;
   targets: ConnTarget[];
 }
 

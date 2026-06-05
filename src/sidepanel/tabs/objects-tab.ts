@@ -33,6 +33,10 @@ import type { Tab, SendFn } from './tab-types';
 
 type DropdownKind = 'ce' | 'web' | null;
 
+/** How long after a keystroke a render is still allowed to reclaim focus to the
+ *  input the user was typing in (covers a streamed result blurring it). */
+const FOCUS_INTENT_MS = 1000;
+
 export class ObjectsTab implements Tab {
   private query = '';
   private cacheObjects: BmpObject[] = [];
@@ -62,6 +66,7 @@ export class ObjectsTab implements Tab {
   private lastTypedAt = 0;
   private lastTypedEl: HTMLInputElement | null = null;
   private pendingFocus = false;
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Outside-click closer for the open dropdown.
   private outsideClickHandler: ((e: MouseEvent) => void) | null = null;
@@ -124,30 +129,32 @@ export class ObjectsTab implements Tab {
       placeholder: 'Search the workspace — name, type, ID, RID',
       autocomplete: 'off', autocorrect: 'off', spellcheck: 'false',
     }) as HTMLInputElement;
-    let timer: ReturnType<typeof setTimeout> | null = null;
     input.addEventListener('input', () => {
       this.lastTypedAt = Date.now();
       this.lastTypedEl = input;
       this.query = input.value;
       this.displayLimit = DISPLAY_LIMIT_STEP;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
+      if (this.searchTimer) clearTimeout(this.searchTimer);
+      this.searchTimer = setTimeout(() => {
         this.send({ type: 'GET_CACHE', filter: input.value });
         this.fireSearch();
       }, SEARCH_DEBOUNCE);
     });
     input.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && this.query) {
-        this.query = '';
-        input.value = '';
-        this.displayLimit = DISPLAY_LIMIT_STEP;
-        this.fireSearch();
-        this.send({ type: 'GET_CACHE', filter: '' });
-        this.rerenderSelf();
-      }
+      if (e.key === 'Escape' && this.query) { this.resetQuery(); this.rerenderSelf(); }
     });
     this.searchInputEl = input;
     return input;
+  }
+
+  /** Clear the query + any pending debounce, and reset the live search. */
+  private resetQuery(): void {
+    if (this.searchTimer) { clearTimeout(this.searchTimer); this.searchTimer = null; }
+    this.query = '';
+    if (this.searchInputEl) this.searchInputEl.value = '';
+    this.displayLimit = DISPLAY_LIMIT_STEP;
+    this.fireSearch();
+    this.send({ type: 'GET_CACHE', filter: '' });
   }
 
   private fireSearch(): void {
@@ -190,6 +197,7 @@ export class ObjectsTab implements Tab {
     if (hasQuery) {
       children.push(this.renderFilterBar());
       if (this.openDropdown) children.push(this.renderTypeDropdown());
+      children.push(this.renderErrorBanner());
       children.push(this.renderResults());
     } else {
       children.push(this.renderHome());
@@ -197,7 +205,7 @@ export class ObjectsTab implements Tab {
 
     // Capture focus intent BEFORE the wipe; restore AFTER (the inputs are
     // persistent nodes, so their value survives; only focus/caret need help).
-    const recent = Date.now() - this.lastTypedAt < 1000;
+    const recent = Date.now() - this.lastTypedAt < FOCUS_INTENT_MS;
     const focusEl = this.lastTypedEl;
     const selStart = focusEl?.selectionStart ?? null;
     const selEnd = focusEl?.selectionEnd ?? null;
@@ -220,16 +228,26 @@ export class ObjectsTab implements Tab {
 
   private renderSearchShell(input: HTMLInputElement, hasQuery: boolean): HTMLElement {
     const blended = hasQuery ? this.results().length : 0;
-    const count = hasQuery
-      ? (this.totalHits > blended ? `${blended} of ${this.totalHits}` : `${blended}`)
-      : '';
+    // "N of total" only when nothing client-side is narrowing the set — otherwise
+    // the two numbers have different denominators (filtered shown vs raw indexed).
+    const clientFiltered = this.typeFilterActive() || this.source !== 'all';
+    const count = !hasQuery ? ''
+      : (!clientFiltered && this.totalHits > blended) ? `${blended} of ${this.totalHits}`
+      : `${blended}`;
     return h('div', { class: 'bx-shell' },
       h('span', { class: 'bx-shell-icon' }, svg(ICON_SEARCH)),
       input,
       this.searching ? h('span', { class: 'bx-spin', title: 'Searching the workspace…' }) : null,
-      count ? h('span', { class: 'bx-count', title: `${blended} shown${this.totalHits > blended ? ` · ${this.totalHits} total matches` : ''}` }, count) : null,
+      count ? h('span', { class: 'bx-count', title: `${blended} shown${this.totalHits > blended ? ` · ${this.totalHits} total index matches` : ''}` }, count) : null,
       hasQuery ? h('button', { class: 'bx-clear', 'data-action': 'clear-search', title: 'Clear (Esc)' }, '✕') : null,
     );
+  }
+
+  /** A non-blocking banner when the LIVE search failed — shown even if the cache
+   *  still produced rows, so the user knows the workspace wasn't fully searched. */
+  private renderErrorBanner(): HTMLElement | null {
+    if (!this.searchError) return null;
+    return h('div', { class: 'bx-state bx-state--err' }, `Workspace search unavailable: ${this.searchError}`);
   }
 
   private renderFilterBar(): HTMLElement {
@@ -246,7 +264,7 @@ export class ObjectsTab implements Tab {
         h('button', { class: `bx-dd${this.webTypes.size > 0 ? ' active' : ''}${this.openDropdown === 'web' ? ' open' : ''}`, 'data-action': 'toggle-web' },
           webLabel, h('span', { class: 'bx-dd-cv' }, '▾')),
       ),
-      h('div', { class: 'bx-frow bx-frow--sub' },
+      h('div', { class: 'bx-frow' },
         h('div', { class: 'bx-seg' },
           ...(['all', 'touched', 'workspace'] as BrowseSource[]).map(s =>
             h('button', { class: `bx-seg-btn${this.source === s ? ' active' : ''}`, 'data-action': 'source', 'data-source': s },
@@ -288,7 +306,9 @@ export class ObjectsTab implements Tab {
    *  is open) so typing to filter types doesn't lose focus on re-render. */
   private getTypeFilterInput(): HTMLInputElement {
     if (this.typeFilterInputEl) {
-      this.typeFilterInputEl.value = this.typeSearch;
+      // Sync the value only when the field isn't being actively typed in (e.g.
+      // on (re)open, where typeSearch was reset) — never clobber a live caret.
+      if (document.activeElement !== this.typeFilterInputEl) this.typeFilterInputEl.value = this.typeSearch;
       return this.typeFilterInputEl;
     }
     const input = h('input', {
@@ -316,25 +336,22 @@ export class ObjectsTab implements Tab {
     const all = this.results();
 
     if (all.length === 0) {
+      // The error (if any) is shown by the banner above; here we only cover the
+      // searching and genuinely-empty states.
       if (this.searching) return h('div', { class: 'bx-state' }, h('span', { class: 'bx-spin' }), ' Searching…');
-      if (this.searchError) {
-        return h('div', { class: 'bx-state bx-state--err' }, `Search failed: ${this.searchError}`);
-      }
+      if (this.searchError) return h('div'); // banner already explains it
       return emptyState({ variant: 'inline', body: `No matches for “${this.query}”.` });
     }
 
     const visible = all.slice(0, this.displayLimit);
-    const rows = visible.map(r => this.renderRow(r));
-    const list = h('div', { class: 'bx-list' }, ...rows);
-
-    const out: HTMLElement[] = [list];
+    const out: (HTMLElement | null)[] = [h('div', { class: 'bx-list' }, ...visible.map(r => this.renderRow(r)))];
     if (all.length > this.displayLimit) {
       out.push(h('div', { class: 'bx-more' },
         `Showing ${this.displayLimit} of ${all.length} `,
         h('button', { class: 'btn btn-small', 'data-action': 'show-more' }, 'Show more'),
       ));
     }
-    return h('div', { class: 'bx-results' }, ...out);
+    return h('div', null, ...out.filter(Boolean) as HTMLElement[]);
   }
 
   private renderRow(r: BrowseResult): HTMLElement {
@@ -422,14 +439,7 @@ export class ObjectsTab implements Tab {
   private bindDelegates(container: HTMLElement, rerender: () => void): void {
     this.lastContainer = container;
     delegate(container, {
-      'clear-search': () => {
-        this.query = '';
-        if (this.searchInputEl) this.searchInputEl.value = '';
-        this.displayLimit = DISPLAY_LIMIT_STEP;
-        this.fireSearch();
-        this.send({ type: 'GET_CACHE', filter: '' });
-        rerender();
-      },
+      'clear-search': () => { this.resetQuery(); rerender(); },
       'row-click': (el, e) => {
         if ((e.target as HTMLElement).closest('[data-action="copy"], [data-action="search-ref"]')) return;
         const rid = el.dataset.rid;
@@ -474,6 +484,7 @@ export class ObjectsTab implements Tab {
       'type-clear': (el) => {
         const fam = el.dataset.fam;
         (fam === 'ce' ? this.ceTypes : this.webTypes).clear();
+        this.displayLimit = DISPLAY_LIMIT_STEP;
         rerender();
       },
       source: (el) => { this.source = (el.dataset.source as BrowseSource) ?? 'all'; this.displayLimit = DISPLAY_LIMIT_STEP; rerender(); },
