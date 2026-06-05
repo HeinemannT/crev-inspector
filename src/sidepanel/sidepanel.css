@@ -2767,34 +2767,33 @@ body.crev-divider-dragging * { user-select: none; }
   color: var(--text-2);
   opacity: 0.75;
 }
-/* The card crumb opens the object's page in the BMP portal. Full-width row so
- * the NAME is the hero; the via-template note is a compact muted tag that can't
- * crowd it; bid + ↗ trail on the right. */
+/* The card crumb opens the card OBJECT in the inspector sidebar (like any other
+ * object) — so it's a QUIET, muted secondary line, not a special accent link. */
 .pane-card-crumb {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 2px 0 0 18px; /* align under the type pill */
-  padding: 3px 6px;
-  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  gap: 5px;
+  margin: 1px 0 0 18px; /* align under the type pill */
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
   font-size: var(--text-xs);
+  color: var(--text-3);
   cursor: pointer;
   user-select: none;
-  transition: background var(--duration-fast) var(--ease-default);
+  transition: background var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
 }
 .pane-card-crumb:hover,
-.pane-card-crumb:focus-visible { background: var(--surface-2); outline: none; }
-.pane-card-crumb-icon { color: var(--accent); opacity: 0.9; flex-shrink: 0; }
+.pane-card-crumb:focus-visible { background: var(--surface-2); color: var(--text-1); outline: none; }
+.pane-card-crumb-icon { flex-shrink: 0; opacity: 0.6; }
 .pane-card-crumb-name {
-  flex: 1;
   min-width: 0;
-  font-weight: var(--weight-medium);
-  color: var(--text-1);
+  color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.pane-card-crumb:hover .pane-card-crumb-name { color: var(--text-1); }
 .pane-card-crumb-tag {
   flex-shrink: 0;
   padding: 0 5px;
@@ -2810,7 +2809,6 @@ body.crev-divider-dragging * { user-select: none; }
   font-size: 10px;
   color: var(--text-3);
 }
-.pane-card-crumb-open { flex-shrink: 0; color: var(--accent); opacity: 0.8; }
 .pane-parent-crumb-chip {
   display: inline-flex;
   align-items: center;
@@ -2871,6 +2869,29 @@ body.crev-divider-dragging * { user-select: none; }
   font-size: var(--text-sm);
   flex-shrink: 0;
 }
+
+/* Pill + name are a single click target that opens the object in the BMP portal.
+   Transparent button so it reads as the title, with a hover underline cue. */
+.pane-id-open {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.pane-id-open:hover .pane-id-name {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.pane-id-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
 
 .pane-target-toggle {
   display: inline-flex;

@@ -124,7 +124,7 @@ describe('DetailView — fetch flow', () => {
     expect(dv.handleMessage(paneData('999'), panel)).toBe(false);
   });
 
-  it('renders the card crumb and opens the card in BMP on click', () => {
+  it('renders the card crumb and opens the card object in the inspector on click', () => {
     const { dv, panel, sent } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100', { cardRid: '777', cardViaTemplate: true }), panel);
@@ -133,8 +133,18 @@ describe('DetailView — fetch flow', () => {
     expect(crumb!.textContent).toContain('Detail card');
     expect(crumb!.textContent).toContain('via template'); // inherited tag
     crumb!.click();
-    // Loads the card's own page (not the widget-highlight BMP_GOTO).
-    expect(sent.find(m => m.type === 'BMP_OPEN_OBJECT' && (m as { rid?: string }).rid === '777')).toBeTruthy();
+    // The card is a detail-view object — it opens in the sidebar like any other.
+    expect(sent.find(m => m.type === 'FETCH_OBJECT_PANE' && (m as { rid?: string }).rid === '777')).toBeTruthy();
+  });
+
+  it('the header pill+name opens THIS object in the BMP portal', () => {
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('100'), panel);
+    dv.handleMessage(paneData('100'), panel);
+    const open = panel.querySelector<HTMLElement>('.pane-id-open');
+    expect(open).toBeTruthy();
+    open!.click();
+    expect(sent.find(m => m.type === 'BMP_OPEN_OBJECT' && (m as { rid?: string }).rid === '100')).toBeTruthy();
   });
 
   it('shows no card crumb when the object has no card', () => {

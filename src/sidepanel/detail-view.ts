@@ -674,14 +674,21 @@ export class DetailView {
         ),
       ),
       h('div', { class: 'pane-header-id' },
-        h('span', { class: 'pane-id-chip', title: s.identity.type }, abbr),
-        h('span', { class: 'pane-id-name', title: s.identity.name }, s.identity.name || '(unnamed)'),
+        // The pill + name open THIS object's page in the BMP portal (?rid=).
+        h('button', {
+          class: 'pane-id-open',
+          'aria-label': 'Open in BMP',
+          onClick: () => this.sendMessage({ type: 'BMP_OPEN_OBJECT', rid: s.rid }),
+        },
+          h('span', { class: 'pane-id-chip', title: s.identity.type }, abbr),
+          h('span', { class: 'pane-id-name', title: s.identity.name }, s.identity.name || '(unnamed)'),
+        ),
         s.identity.businessId ? h('span', { class: 'pane-id-bid' }, s.identity.businessId) : null,
         star,
       ),
     ];
     if (s.card) {
-      headerRows.push(this.renderCardCrumb(s.card));
+      headerRows.push(this.renderCardCrumb(s.card, panel));
     }
     const header = h('div', { class: 'pane-header', style: `--type-color:${color}` }, ...headerRows);
 
@@ -823,30 +830,29 @@ export class DetailView {
     );
   }
 
-  /** The object's effective detail card — its own `.card`, or (for
-   *  enterprise objects whose instance card is empty) the card inherited
-   *  from its template. Clicking navigates the BMP tab to the card so the
-   *  user can see/edit the layout that renders for this object. */
-  private renderCardCrumb(card: ObjectPaneCard): HTMLElement {
-    // Loads the card's own page in the BMP portal (a card is a page, not a
-    // widget on the current one — so this navigates, it doesn't highlight).
-    const goto = () => this.sendMessage({ type: 'BMP_OPEN_OBJECT', rid: card.rid });
+  /** The object's effective detail card — its own `.card`, or (for enterprise
+   *  objects whose instance card is empty) the card inherited from its template.
+   *  The card is the mouseover detail view; clicking opens that card OBJECT in
+   *  the inspector sidebar like any other object (a quiet, muted crumb — not a
+   *  special portal link). */
+  private renderCardCrumb(card: ObjectPaneCard, panel: HTMLElement): HTMLElement {
+    const open = () => this.swapTo(card.rid, {
+      rid: card.rid, name: card.name, type: card.type, businessId: card.businessId,
+      source: 'server', discoveredAt: Date.now(), updatedAt: Date.now(),
+    }, panel).catch(() => {});
     return h('div', {
       class: 'pane-card-crumb',
       role: 'button',
       tabindex: '0',
-      onClick: goto,
+      onClick: open,
       onKeydown: (e: KeyboardEvent) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto(); }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
       },
     },
-      // Compact card glyph; the NAME is the hero (flexes), the via-template note
-      // is a small muted tag so it can't crowd out the name, bid + ↗ trail.
       h('span', { class: 'pane-card-crumb-icon' }, '▦'),
       h('span', { class: 'pane-card-crumb-name' }, card.name || '(unnamed)'),
       card.viaTemplate ? h('span', { class: 'pane-card-crumb-tag' }, 'via template') : null,
       card.businessId ? h('span', { class: 'pane-card-crumb-bid' }, card.businessId) : null,
-      h('span', { class: 'pane-card-crumb-open' }, '↗'),
     );
   }
 
