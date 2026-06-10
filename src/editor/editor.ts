@@ -31,6 +31,14 @@ import {
   getSaveTarget,
 } from './editor-types'
 
+// Plain-language support for CVO code fields (html / javascript / css).
+// These slots get the parser only; token colours come from the base
+// HighlightStyle baked into `catppuccinMocha` ("base tokens for non-EC
+// languages"). No linter, var tracker, or completions — that's EC-only.
+import { html } from '@codemirror/lang-html'
+import { javascript } from '@codemirror/lang-javascript'
+import { css } from '@codemirror/lang-css'
+
 // EC-specific extensions
 import { extendedLanguage } from './ec/language'
 import { extendedHighlighting } from './ec/highlight'
@@ -57,12 +65,13 @@ import { selectNextOccurrence } from './ec/renameVariable'
 
 let ctx: EditorContext | null = null
 let editorView: EditorView | null = null
-/** Whether the live editor view is configured for Extended Code (EC gets
- *  the EC language, linter, var tracker, etc.). Tracked so a target /
- *  property switch can tell whether it can swap the doc in-place (same
- *  language) or must rebuild the view (EC ⇄ plain HTML/JS — different
- *  extension set). See `loadEditorDoc`. */
-let currentIsEc = false
+/** Language family the live editor view is configured for. EC gets the EC
+ *  language, linter, var tracker, etc.; html/javascript/css get a parser +
+ *  base highlight only; 'plain' gets nothing. Tracked so a target / property
+ *  switch can tell whether it can swap the doc in-place (same family) or must
+ *  rebuild the view (different extension set). See `loadEditorDoc`. */
+type SlotLang = 'ec' | 'html' | 'javascript' | 'css' | 'plain'
+let currentLang: SlotLang = 'plain'
 /** Set true around a programmatic doc-replace (target / property switch)
  *  so the editor's updateListener doesn't treat the swap as a user edit
  *  (which would flip `dirty`, reset the preview gate, and mark the output
@@ -579,13 +588,18 @@ function getStashedPropState(): PropEditState | undefined {
 
 // ── CodeMirror setup ─────────────────────────────────────────────
 
-/** Whether the active slot runs Extended Code — either a widget's
- *  `.expression` property or the standalone scratch window. EC slots get the
- *  EC language, linter, variable tracker, hover docs, etc.; everything else
- *  (HTML / JS / CSS) is plain. Drives both the extension set in
+/** Language family for the active slot. EC covers either a widget's
+ *  `.expression` property or the standalone scratch window (`ctx.extended`);
+ *  those get the EC language, linter, variable tracker, hover docs, etc. CVO
+ *  code fields (`html` / `javascript` / `css`) get a parser + base highlight
+ *  only. Anything else is `plain`. Drives both the extension set in
  *  `createEditor` and the swap-vs-rebuild decision in `loadEditorDoc`. */
-function isEcContext(): boolean {
-  return activeProperty === 'expression' || ctx?.extended === true
+function slotLanguage(): SlotLang {
+  if (activeProperty === 'expression' || ctx?.extended === true) return 'ec'
+  if (activeProperty === 'html') return 'html'
+  if (activeProperty === 'javascript') return 'javascript'
+  if (activeProperty === 'css') return 'css'
+  return 'plain'
 }
 
 /** Prime (or wipe) the Vars + type-inference trackers for a freshly-loaded
@@ -623,8 +637,9 @@ function createEditor(code: string) {
   // style, variable tracker, hover docs, type inference, etc.
   // Before this check included ctx.extended, the scratch window had
   // ZERO syntax highlighting + a permanently-empty Vars panel.
-  const isEc = isEcContext()
-  currentIsEc = isEc
+  const lang = slotLanguage()
+  const isEc = lang === 'ec'
+  currentLang = lang
 
   const extensions = [
     // Base
@@ -749,6 +764,14 @@ function createEditor(code: string) {
       ecFoldService,
       lintGutter(),
     )
+  } else if (lang === 'html') {
+    // lang-html bundles the embedded CSS + JS grammars, so <style> and
+    // <script> blocks inside a CVO's html field highlight too.
+    extensions.push(html())
+  } else if (lang === 'javascript') {
+    extensions.push(javascript())
+  } else if (lang === 'css') {
+    extensions.push(css())
   }
 
   const state = EditorState.create({
@@ -826,8 +849,12 @@ function createEditor(code: string) {
  *  Falls back to a full `createEditor` only when the language must change
  *  (EC ⇄ HTML/JS need a different extension set) or there's no view yet. */
 function loadEditorDoc(code: string): void {
-  const isEc = isEcContext()
-  if (!editorView || isEc !== currentIsEc) {
+  const lang = slotLanguage()
+  const isEc = lang === 'ec'
+  // Same family → swap the doc in place. A family change (EC ⇄ html/js/css,
+  // or html ⇄ js when stepping across a CVO's property tabs) needs a fresh
+  // extension set, so fall back to a full rebuild.
+  if (!editorView || lang !== currentLang) {
     createEditor(code)
     return
   }
