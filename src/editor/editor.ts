@@ -436,78 +436,7 @@ function renderShell() {
       )
     : false
 
-  // Action toolbar \u2014 split Preview/Execute button + smart Save + wrap.
-  // Save label flips to "Saved" briefly after a successful save, then
-  // back to "Save" \u2014 keeps the user informed without a separate toast.
-  const saveLabel = dirty ? 'Save' : (lastSavedAt && Date.now() - lastSavedAt < 4000 ? 'Saved' : 'Save')
-  const saveJustHappened = !dirty && saveLabel === 'Saved'
-  const saveClass = `btn ${dirty ? 'btn-success' : saveJustHappened ? 'btn-success btn-saved' : 'btn-ghost'}`
-  const actionRow = h('div', { class: 'editor-actions' },
-    // Preview | Execute \u2014 two grouped buttons (one segmented control). Execute
-    // is disabled until a successful, non-stale preview arms it (editing the
-    // code resets previewDone, so the gate already means "no-stale preview").
-    h('div', { class: 'editor-run-group' },
-      h('button', { class: 'btn btn-accent editor-run-preview', id: 'btn-preview', title: `Preview (dry-run, safe) \u00b7 ${KBD_MOD}+Enter` },
-        svg(ICON_PLAY), ' Preview ',
-        h('kbd', null, `${KBD_MOD}\u21b5`),
-      ),
-      h('button', {
-        class: 'btn btn-accent editor-run-execute',
-        id: 'btn-execute',
-        disabled: !previewDone,
-        title: previewDone ? `Execute the previewed code (${KBD_MOD}+Shift+Enter)` : 'Preview successfully first to unlock',
-      },
-        svg(ICON_LIGHTNING), ' Execute ',
-        h('kbd', null, `${KBD_MOD}\u21e7\u21b5`),
-      ),
-    ),
-    !isExtended && h('button', {
-      class: saveClass,
-      id: 'btn-save',
-      disabled: !dirty,
-      title: dirty ? `Save (${KBD_MOD}+S)` : saveJustHappened ? 'Just saved' : 'No changes to save',
-    },
-      saveJustHappened ? svg(ICON_CHECK) : null,
-      ` ${saveLabel} `,
-      dirty ? h('kbd', null, `${KBD_MOD}S`) : null,
-    ),
-    !isExtended && h('button', {
-      class: 'btn btn-ghost',
-      id: 'btn-discard',
-      disabled: !dirty,
-      title: dirty ? 'Revert to the saved BMP value (discards your edits)' : 'Nothing to discard',
-    }, ' Discard'),
-    h('div', { class: 'editor-actions-spacer' }),
-    h('span', { class: 'editor-status', id: 'status-bar' }, 'Ln 1, Col 1'),
-    // Editor-meta utilities — wrap toggle + help — sit at the far
-    // right, separated from the action verbs (Preview/Save/Discard).
-    // Previously btn-wrap sat between Discard and the spacer which
-    // read as another action.
-    h('button', {
-      class: `btn-micro${wrapLines ? ' active' : ''}`,
-      id: 'btn-wrap',
-      title: 'Toggle line wrapping (editor only)',
-    }, svg(ICON_WRAP)),
-    // Book — EC quick-lookup overlay. Three tabs: Namespaces
-    // (live help() output, cached), EC syntax cheat, and curated
-    // snippets. Sits next to the `?` help button — together they
-    // form the "I forgot the syntax" surface.
-    h('button', {
-      class: 'btn-micro editor-book-btn',
-      id: 'btn-book',
-      title: 'EC quick reference: namespaces, syntax cheat, snippets',
-      'aria-label': 'Open EC quick reference',
-    }, svg(ICON_BOOK)),
-    // Discoverable feature reference. Hover shows the cheat sheet inline as a
-    // browser tooltip; click opens a richer popover (see wireHelpButton).
-    // Without this, every shortcut lived in CLAUDE.md / the README.
-    h('button', {
-      class: 'btn-micro editor-help-btn',
-      id: 'btn-help',
-      title: editorHelpText(),
-      'aria-label': 'Editor features and shortcuts',
-    }, '?'),
-  )
+  const actionRow = buildActionRow()
 
   // Capture focus BEFORE renderDom detaches the editor's DOM — reading it
   // afterwards always yields false (the node is no longer in the document).
@@ -562,10 +491,6 @@ function renderShell() {
   }
 
   // Wire toolbar
-  document.getElementById('btn-preview')?.addEventListener('click', doPreview)
-  document.getElementById('btn-execute')?.addEventListener('click', () => { if (previewDone) doRun() })
-  document.getElementById('btn-save')?.addEventListener('click', doSave)
-  document.getElementById('btn-discard')?.addEventListener('click', doDiscard)
   for (const el of document.querySelectorAll<HTMLElement>('[data-action="goto-bmp"]')) {
     el.addEventListener('click', () => {
       if (!ctx) return
@@ -576,35 +501,10 @@ function renderShell() {
       sendFireForget({ type: 'BMP_GOTO', rid: target.rid })
     })
   }
-  document.getElementById('btn-output-tab')?.addEventListener('click', toggleOutput)
+  document.getElementById('btn-output-tab')?.addEventListener('click', () => togglePanel('output'))
   document.getElementById('btn-clear')?.addEventListener('click', doClear)
-  document.getElementById('btn-vars')?.addEventListener('click', toggleVars)
-  document.getElementById('btn-history')?.addEventListener('click', toggleHistory)
-  document.getElementById('btn-wrap')?.addEventListener('click', toggleWrap)
-  document.getElementById('btn-table')?.addEventListener('click', toggleTable)
-  document.getElementById('btn-decode')?.addEventListener('click', toggleDecode)
-  document.getElementById('btn-help')?.addEventListener('click', (e) => showEditorHelp(e.currentTarget as HTMLElement))
-  document.getElementById('btn-book')?.addEventListener('click', (e) =>
-    showBookPopover(e.currentTarget as HTMLElement, {
-      // Insert at the current cursor position. The editor never
-      // loses focus when the popover opens (we don't .focus() any
-      // element), so the cursor / selection from when the user was
-      // typing is exactly what gets replaced here.
-      insertAtCursor: (text: string) => {
-        if (!editorView) return false
-        const { from, to } = editorView.state.selection.main
-        editorView.dispatch({
-          changes: { from, to, insert: text },
-          selection: { anchor: from + text.length },
-        })
-        // Keep keyboard focus on the editor so the user can continue
-        // typing immediately — the popover stays open but isn't
-        // grabbing keys.
-        editorView.focus()
-        return true
-      },
-    }),
-  )
+  document.getElementById('btn-vars')?.addEventListener('click', () => togglePanel('vars'))
+  document.getElementById('btn-history')?.addEventListener('click', () => togglePanel('history'))
   wireDragHandle()
   const maxBtn = document.getElementById('btn-output-max')
   if (maxBtn) {
@@ -805,9 +705,7 @@ function createEditor(code: string) {
     EditorView.updateListener.of(update => {
       if (update.selectionSet || update.docChanged) {
         updateStatusBar(update.view)
-        const { from, to } = update.state.selection.main
-        const btn = document.getElementById('btn-preview')
-        if (btn) { btn.innerHTML = ''; btn.append(svg(ICON_PLAY), from !== to ? ' Preview \u00b7' : ' Preview'); }
+        updatePreviewSelDot()
       }
       if (update.docChanged) {
         // A target/property switch replaces the whole doc programmatically.
@@ -815,15 +713,11 @@ function createEditor(code: string) {
         // preview gate, don't mark the output stale. loadEditorDoc handles
         // dirty/scroll/var-rescan for the swapped-in doc itself.
         if (programmaticDocSwap) return
-        if (!dirty) {
-          dirty = true
-          updateSaveButton()
-        }
+        let actionsChanged = false
+        if (!dirty) { dirty = true; actionsChanged = true }
         // Reset preview gate when code changes
-        if (previewDone) {
-          previewDone = false
-          updateRunButton()
-        }
+        if (previewDone) { previewDone = false; actionsChanged = true }
+        if (actionsChanged) refreshActions()
         // Flag the output panel "stale" so the user knows the
         // displayed result no longer matches the editor's code.
         if (!staleAfterPreview && lastMode === 'preview' && lastOutputOk) {
@@ -913,7 +807,7 @@ function createEditor(code: string) {
       dirty = false
     }
   }
-  updateSaveButton()
+  refreshActions()
   editorView.focus()
 }
 
@@ -971,7 +865,7 @@ function loadEditorDoc(code: string): void {
   // we just need to re-seed the trackers and clear stale error markers.
   primeTrackers(view.state.doc, isEc)
   clearRuntimeErrors(view)
-  updateSaveButton()
+  refreshActions()
   view.focus()
 }
 
@@ -1043,7 +937,7 @@ async function executeEc(transactional: boolean) {
   } else {
     previewDone = ok
   }
-  updateRunButton()
+  refreshActions()
 
   // Refresh history in background
   sendRequest({ type: 'GET_SCRIPT_HISTORY' }).then(r => {
@@ -1051,35 +945,110 @@ async function executeEc(transactional: boolean) {
   })
 }
 
-/** Arm/disarm the Execute button — enabled only after a successful, non-stale
- *  preview (previewDone resets the moment the code is edited). */
-function updateRunButton() {
-  const exec = document.getElementById('btn-execute') as HTMLButtonElement | null
-  if (!exec) return
-  exec.disabled = !previewDone
-  exec.title = previewDone
-    ? `Execute the previewed code (${KBD_MOD}+Shift+Enter)`
-    : 'Preview successfully first to unlock'
+/** Re-render the action toolbar in place from current state — the single
+ *  source of truth for Save / Discard / Execute / Preview enablement. Safe to
+ *  call any time: it never touches #cm-container, so editor focus is untouched.
+ *  Replaces the old updateSaveButton / updateRunButton imperative patchers. */
+function refreshActions(): void {
+  const existing = document.querySelector('.editor-actions')
+  if (!existing) return
+  existing.replaceWith(buildActionRow())
+  if (editorView) updateStatusBar(editorView)
 }
 
-/** Update Save button disabled state and dirty styling */
-function updateSaveButton() {
-  const btn = document.getElementById('btn-save') as HTMLButtonElement | null
-  if (btn) {
-    btn.disabled = !dirty
-    btn.title = dirty ? `Save (${KBD_MOD}+S)` : 'No changes to save'
-    btn.classList.toggle('btn-success', dirty)
-    btn.classList.toggle('btn-ghost', !dirty)
-  }
-  // Discard is dirty-gated too — only it was rendered once at boot
-  // with `disabled: !dirty` and nothing kept it in sync as the user
-  // typed. Sync both buttons from the same place so a future
-  // dirty-tracking change can't drift them apart again.
-  const discardBtn = document.getElementById('btn-discard') as HTMLButtonElement | null
-  if (discardBtn) {
-    discardBtn.disabled = !dirty
-    discardBtn.title = dirty ? 'Revert to the saved BMP value (discards your edits)' : 'Nothing to discard'
-  }
+/** Toggle the "runs selection" dot on the Preview button. Cheap class flip —
+ *  no rebuild — so it can run on every selection change without churn. */
+function updatePreviewSelDot(): void {
+  const btn = document.getElementById('btn-preview')
+  if (btn && editorView) btn.classList.toggle('editor-run-preview--sel', !editorView.state.selection.main.empty)
+}
+
+/** Build the action toolbar (.editor-actions) from current state. Re-rendered
+ *  wholesale by refreshActions(); buttons carry inline handlers so a rebuild
+ *  re-wires them automatically. */
+function buildActionRow(): HTMLElement {
+  const isExtended = !!ctx?.extended
+  const hasSel = !!editorView && !editorView.state.selection.main.empty
+  const saveLabel = !dirty && lastSavedAt && Date.now() - lastSavedAt < 4000 ? 'Saved' : 'Save'
+  const saveJustHappened = !dirty && saveLabel === 'Saved'
+  const saveClass = `btn ${dirty ? 'btn-success' : saveJustHappened ? 'btn-success btn-saved' : 'btn-ghost'}`
+  return h('div', { class: 'editor-actions' },
+    // Preview | Execute — one segmented control. Execute stays disabled until a
+    // successful, non-stale preview arms it (editing resets previewDone).
+    h('div', { class: 'editor-run-group' },
+      h('button', {
+        class: `btn btn-accent editor-run-preview${hasSel ? ' editor-run-preview--sel' : ''}`,
+        id: 'btn-preview',
+        title: `Preview (dry-run, safe) · ${KBD_MOD}+Enter`,
+        onClick: doPreview,
+      },
+        svg(ICON_PLAY), ' ', h('span', { class: 'editor-run-label' }, 'Preview'), ' ', h('kbd', null, `${KBD_MOD}↵`),
+      ),
+      h('button', {
+        class: 'btn btn-accent editor-run-execute',
+        id: 'btn-execute',
+        disabled: !previewDone,
+        title: previewDone ? `Execute the previewed code (${KBD_MOD}+Shift+Enter)` : 'Preview successfully first to unlock',
+        onClick: () => { if (previewDone) doRun() },
+      },
+        svg(ICON_LIGHTNING), ' Execute ', h('kbd', null, `${KBD_MOD}⇧↵`),
+      ),
+    ),
+    !isExtended && h('button', {
+      class: saveClass,
+      id: 'btn-save',
+      disabled: !dirty,
+      title: dirty ? `Save (${KBD_MOD}+S)` : saveJustHappened ? 'Just saved' : 'No changes to save',
+      onClick: doSave,
+    },
+      saveJustHappened ? svg(ICON_CHECK) : null,
+      ` ${saveLabel} `,
+      dirty ? h('kbd', null, `${KBD_MOD}S`) : null,
+    ),
+    !isExtended && h('button', {
+      class: 'btn btn-ghost',
+      id: 'btn-discard',
+      disabled: !dirty,
+      title: dirty ? 'Revert to the saved BMP value (discards your edits)' : 'Nothing to discard',
+      onClick: doDiscard,
+    }, ' Discard'),
+    h('div', { class: 'editor-actions-spacer' }),
+    h('span', { class: 'editor-status', id: 'status-bar' }, 'Ln 1, Col 1'),
+    // Editor-meta utilities — wrap, EC reference, help — far right, separated
+    // from the action verbs.
+    h('button', {
+      class: `btn-micro${wrapLines ? ' active' : ''}`,
+      id: 'btn-wrap',
+      title: 'Toggle line wrapping (editor only)',
+      onClick: toggleWrap,
+    }, svg(ICON_WRAP)),
+    h('button', {
+      class: 'btn-micro editor-book-btn',
+      id: 'btn-book',
+      title: 'EC quick reference: namespaces, syntax cheat, snippets',
+      'aria-label': 'Open EC quick reference',
+      onClick: (e: Event) => openBook(e.currentTarget as HTMLElement),
+    }, svg(ICON_BOOK)),
+    h('button', {
+      class: 'btn-micro editor-help-btn',
+      id: 'btn-help',
+      title: editorHelpText(),
+      'aria-label': 'Editor features and shortcuts',
+      onClick: (e: Event) => showEditorHelp(e.currentTarget as HTMLElement),
+    }, '?'),
+  )
+}
+
+/** Open the EC quick-reference book popover anchored under its button. Inserts
+ *  a chosen snippet at the editor cursor (reusing insertAtCursor). */
+function openBook(anchor: HTMLElement): void {
+  showBookPopover(anchor, {
+    insertAtCursor: (text: string) => {
+      if (!editorView) return false
+      insertAtCursor(text)
+      return true
+    },
+  })
 }
 
 /** Revert the editor to the BMP-loaded value for the active property.
@@ -1110,8 +1079,7 @@ async function doDiscard(): Promise<void> {
   dirty = false
   staleAfterPreview = false
   previewDone = false
-  updateSaveButton()
-  updateRunButton()
+  refreshActions()
   editorView.focus()
 }
 
@@ -1154,7 +1122,7 @@ async function doSave() {
       // the action toolbar so the button reverts to its default look
       // without flashing the user's eyes mid-edit.
       if (saveLabelTimer) clearTimeout(saveLabelTimer)
-      saveLabelTimer = setTimeout(() => { renderShell() }, 4200)
+      saveLabelTimer = setTimeout(() => { refreshActions() }, 4200)
       const activeCodeMap = getActiveCode(ctx)
       activeCodeMap[activeProperty] = code
       // Refresh the "BMP knows about this" snapshot so Discard reverts
@@ -1183,7 +1151,7 @@ async function doSave() {
     }
   } finally {
     if (btn) { delete btn.dataset.saving }
-    updateSaveButton()
+    refreshActions()
   }
 }
 
@@ -1380,12 +1348,12 @@ function renderBottomContentInner() {
         h('button', {
           class: `btn-micro${decodePreview ? ' active' : ''}`,
           title: 'Decode escape sequences (\\n, \\t, \\", \\\\)',
-          onClick: toggleDecode,
+          onClick: () => toggleOutputPref('decode'),
         }, h('span', { class: 'btn-micro-label' }, '\\n')),
         h('button', {
           class: `btn-micro${tablePreview ? ' active' : ''}`,
           title: 'Toggle table rendering for | -separated rows',
-          onClick: toggleTable,
+          onClick: () => toggleOutputPref('table'),
         }, svg(ICON_TABLE)),
         h('button', {
           class: 'btn-micro',
@@ -1840,36 +1808,27 @@ function doClear() {
   lastDuration = null
   lastBmpMs = null
   previewDone = false
-  updateRunButton()
   if (editorView) {
     editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: '' } })
     editorView.focus()
   }
   hideBottomPanel()
   dirty = false
-  updateSaveButton()
+  refreshActions()
 }
 
-function toggleVars() {
-  if (bottomPanelOpen && bottomMode === 'vars') {
+/** Open the bottom panel to `mode`, or collapse it if that mode is already
+ *  showing. Unifies the former toggleOutput / toggleVars / toggleHistory. */
+function togglePanel(mode: typeof bottomMode): void {
+  if (bottomPanelOpen && bottomMode === mode) {
     hideBottomPanel()
-  } else {
-    bottomMode = 'vars'
-    bottomPanelOpen = true
-    openBottomPanel()
-    renderBottomContent()
+    return
   }
-}
-
-function toggleHistory() {
-  if (bottomPanelOpen && bottomMode === 'history') {
-    hideBottomPanel()
-  } else {
-    bottomMode = 'history'
-    bottomPanelOpen = true
-    openBottomPanel()
-    loadHistory()
-  }
+  bottomMode = mode
+  bottomPanelOpen = true
+  openBottomPanel()
+  if (mode === 'history') loadHistory()
+  else renderBottomContent()
 }
 
 function toggleWrap() {
@@ -1882,31 +1841,14 @@ function toggleWrap() {
   chrome.storage.local.set({ crev_editor_wrap: wrapLines }).catch(() => {})
 }
 
-function toggleTable() {
-  tablePreview = !tablePreview
-  const btn = document.getElementById('btn-table')
-  if (btn) btn.className = `btn-micro${tablePreview ? ' active' : ''}`
+function toggleOutputPref(which: 'table' | 'decode'): void {
+  if (which === 'table') tablePreview = !tablePreview
+  else decodePreview = !decodePreview
   if (bottomPanelOpen && bottomMode === 'output') renderBottomContent()
-  chrome.storage.local.set({ crev_editor_table: tablePreview }).catch(() => {})
-}
-
-function toggleDecode() {
-  decodePreview = !decodePreview
-  const btn = document.getElementById('btn-decode')
-  if (btn) btn.className = `btn-micro${decodePreview ? ' active' : ''}`
-  if (bottomPanelOpen && bottomMode === 'output') renderBottomContent()
-  chrome.storage.local.set({ crev_editor_decode: decodePreview }).catch(() => {})
-}
-
-function toggleOutput() {
-  if (bottomPanelOpen && bottomMode === 'output') {
-    hideBottomPanel()
-  } else {
-    bottomMode = 'output'
-    bottomPanelOpen = true
-    openBottomPanel()
-    renderBottomContent()
-  }
+  const payload: Record<string, boolean> = which === 'table'
+    ? { crev_editor_table: tablePreview }
+    : { crev_editor_decode: decodePreview }
+  chrome.storage.local.set(payload).catch(() => {})
 }
 
 function loadHistory() {

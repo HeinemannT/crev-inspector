@@ -439,9 +439,6 @@ body {
 
 .editor-actions-spacer { flex: 1; }
 
-/* Split button — Preview (primary) + chevron revealing Execute. Two
- * buttons share a border so they read as one unit; the chevron is
- * narrower and reuses the same accent gradient. */
 /* Preview | Execute — two grouped buttons forming one segmented control. */
 .editor-run-group {
   display: inline-flex;
@@ -461,6 +458,13 @@ body {
 .editor-run-group .editor-run-execute:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+/* Selection-aware Preview: a trailing dot appears when the editor has a
+ * non-empty selection, signalling that Preview/Execute run only the selection.
+ * Driven by updatePreviewSelDot() flipping --sel; no DOM rebuild. */
+.editor-run-group .editor-run-preview--sel .editor-run-label::after {
+  content: ' ·';
+  opacity: 0.85;
 }
 
 /* Saved-flash state — Save button briefly shows a check + "Saved"
