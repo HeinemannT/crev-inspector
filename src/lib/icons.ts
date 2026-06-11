@@ -23,6 +23,11 @@ export const ICON_LIGHTNING = ph('M219.71,117.38a12,12,0,0,0-7.25-8.52L161.28,88
 export const ICON_PENCIL = ph('M230.14,70.54,185.46,25.85a20,20,0,0,0-28.29,0L33.86,149.17A19.85,19.85,0,0,0,28,163.31V208a20,20,0,0,0,20,20H92.69a19.86,19.86,0,0,0,14.14-5.86L230.14,98.82a20,20,0,0,0,0-28.28ZM91,204H52V165l84-84,39,39ZM192,103,153,64l18.34-18.34,39,39Z');
 export const ICON_TABLE = ph('M224,48H32A16,16,0,0,0,16,64V192a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V64A16,16,0,0,0,224,48ZM32,80H88v40H32Zm72,0H224v40H104ZM32,136H88v40H32Zm72,0H224v40H104Z');
 export const ICON_ARROW_OUT = ph('M228,104a12,12,0,0,1-24,0V69l-59.51,59.51a12,12,0,0,1-17-17L187,52H152a12,12,0,0,1,0-24h64a12,12,0,0,1,12,12Zm-44,24a12,12,0,0,0-12,12v64H52V84h64a12,12,0,0,0,0-24H48A20,20,0,0,0,28,80V208a20,20,0,0,0,20,20H176a20,20,0,0,0,20-20V140A12,12,0,0,0,184,128Z');
+// ArrowsOutSimple / ArrowsInSimple — the maximize ↔ restore toggle pair for
+// the editor output panel. The icon always shows what CLICKING will do:
+// arrows-out = maximize, arrows-in = restore.
+export const ICON_ARROWS_OUT_SIMPLE = ph('M220,48V96a12,12,0,0,1-24,0V77l-39.51,39.52a12,12,0,0,1-17-17L179,60H160a12,12,0,0,1,0-24h48A12,12,0,0,1,220,48ZM99.51,139.51,60,179V160a12,12,0,0,0-24,0v48a12,12,0,0,0,12,12H96a12,12,0,0,0,0-24H77l39.52-39.51a12,12,0,0,0-17-17Z');
+export const ICON_ARROWS_IN_SIMPLE = ph('M216.49,56.48,177,96h19a12,12,0,0,1,0,24H148a12,12,0,0,1-12-12V60a12,12,0,0,1,24,0V79l39.51-39.52a12,12,0,0,1,17,17ZM108,136H60a12,12,0,0,0,0,24H79L39.51,199.51a12,12,0,0,0,17,17L96,177v19a12,12,0,0,0,24,0V148A12,12,0,0,0,108,136Z');
 // Phosphor Fill "Tornado" — the inspector mascot. Used as the header
 // brand mark. Rendered at 16px (one notch up from the 14px icons) so the
 // stacked-bar silhouette reads clearly at small sizes.
@@ -48,8 +53,6 @@ export const ICON_EYE_OPEN = '<svg width="14" height="14" viewBox="0 0 24 24" fi
 // Chevron — disclosure twisty. Points right when collapsed; CSS rotates it 90°
 // when open. Cleaner than a text ▸/▾.
 export const ICON_CHEVRON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
-// Down chevron — used as a "minimize/collapse the panel" affordance.
-export const ICON_CHEVRON_DOWN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
 // Shield — "Test access" / permission affordance.
 export const ICON_SHIELD = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
 // Status icons for verdicts (access trace etc.) — a circled glyph reads as a

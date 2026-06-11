@@ -16,7 +16,7 @@ import { catppuccinMocha } from './catppuccin-theme'
 import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { captureTypingFocus } from '../lib/focus-keep'
-import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROW_OUT, ICON_CHEVRON_DOWN } from '../lib/icons'
+import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE } from '../lib/icons'
 import { renderEcOutput, ecOutputToText, parseBmpDurationMs, formatRunTiming } from './ec-output'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
@@ -457,24 +457,22 @@ function renderShell() {
     propTabs || h('div', { class: 'editor-prop-tabs editor-prop-tabs--empty' }),
     h('div', { class: 'editor-cm-wrap', id: 'cm-container' }),
     actionRow,
-    // Resize divider. (The maximize toggle now lives in the output panel header,
-    // beside Minimize — see renderBottomContentInner.)
+    // Resize divider. (The panel size toggle lives in the output panel
+    // header — see renderBottomContentInner.)
     h('div', { class: 'editor-drag-handle', id: 'drag-handle', style: 'display:none' }),
     h('div', { class: 'editor-output', id: 'bottom-panel', style: `display:none;height:${outputHeight}px` },
       h('div', { id: 'bottom-panel-content' }),
     ),
     h('div', { class: 'editor-bottom-bar', id: 'bottom-bar' },
-      // Bottom bar carries ONLY the panel tabs + close. Output-specific
-      // controls (decode / table / copy) moved into the Output content
-      // header where they actually apply. Wrap moved to the editor
-      // toolbar where it belongs.
+      // Bottom bar carries ONLY the panel tabs. Output-specific controls
+      // (decode / table / copy) live in the Output content header where
+      // they actually apply; the panel size toggle sits beside them.
+      // Clicking the active tab collapses the panel (togglePanel).
       h('div', { class: 'editor-panel-tabs', role: 'tablist', 'aria-label': 'Bottom panel' },
         h('button', { class: `editor-panel-tab${bottomPanelOpen && bottomMode === 'output' ? ' active' : ''}`, id: 'btn-output-tab', role: 'tab' }, 'Output'),
         h('button', { class: `editor-panel-tab${bottomPanelOpen && bottomMode === 'vars' ? ' active' : ''}`, id: 'btn-vars', role: 'tab' }, svg(ICON_VARIABLE), ' Vars'),
         h('button', { class: `editor-panel-tab${bottomPanelOpen && bottomMode === 'history' ? ' active' : ''}`, id: 'btn-history', role: 'tab' }, svg(ICON_CLOCK), ' History'),
       ),
-      h('div', { class: 'editor-bottom-spacer' }),
-      h('button', { class: 'btn-micro', id: 'btn-clear', title: 'Clear editor and output' }, svg(ICON_X)),
     ),
   )
 
@@ -511,7 +509,6 @@ function renderShell() {
     })
   }
   document.getElementById('btn-output-tab')?.addEventListener('click', () => togglePanel('output'))
-  document.getElementById('btn-clear')?.addEventListener('click', doClear)
   document.getElementById('btn-vars')?.addEventListener('click', () => togglePanel('vars'))
   document.getElementById('btn-history')?.addEventListener('click', () => togglePanel('history'))
   wireDragHandle()
@@ -1313,8 +1310,12 @@ function toggleMaximizeOutput(e?: Event) {
 function updateMaximizeButton() {
   const btn = document.getElementById('btn-output-max')
   if (!btn) return
-  btn.classList.toggle('active', outputMaximized)
-  btn.title = outputMaximized ? 'Restore output size' : 'Maximize output'
+  // Flip the icon with the state so the button always shows what clicking
+  // will do: arrows-out = maximize, arrows-in = restore.
+  btn.innerHTML = outputMaximized ? ICON_ARROWS_IN_SIMPLE : ICON_ARROWS_OUT_SIMPLE
+  const label = outputMaximized ? 'Restore output size' : 'Maximize output'
+  btn.title = label
+  btn.setAttribute('aria-label', label)
 }
 
 function hideBottomPanel() {
@@ -1399,18 +1400,19 @@ function renderBottomContentInner() {
           },
         }, svg(ICON_COPY)),
         // Divider: the content controls (\n / table / copy) are about the
-        // OUTPUT TEXT; the panel controls (maximize / minimize) are about the
-        // PANEL. A subtle rule + gap separates the two groups, both on the right.
+        // OUTPUT TEXT; the size toggle is about the PANEL. A subtle rule +
+        // gap separates the two groups, both on the right.
         h('div', { class: 'editor-output-header-div' }),
+        // Single maximize ↔ restore toggle. The icon shows what clicking
+        // will do (arrows-out = maximize, arrows-in = restore) and flips
+        // with the state — see updateMaximizeButton. Collapsing the panel
+        // entirely is the bottom bar's job: click the active tab.
         h('button', {
           class: 'btn-micro', id: 'btn-output-max',
-          title: 'Maximize output', 'aria-label': 'Maximize output',
+          title: outputMaximized ? 'Restore output size' : 'Maximize output',
+          'aria-label': outputMaximized ? 'Restore output size' : 'Maximize output',
           onClick: toggleMaximizeOutput,
-        }, svg(ICON_ARROW_OUT)),
-        // Minimize (not close): collapses the panel to the bottom tab bar,
-        // preserving the output — click a tab to restore. A down-chevron, not an
-        // ✕, so it doesn't read as "discard" (that's the bottom-bar Clear).
-        h('button', { class: 'btn-micro', title: 'Minimize', 'aria-label': 'Minimize panel', onClick: hideBottomPanel }, svg(ICON_CHEVRON_DOWN)),
+        }, svg(outputMaximized ? ICON_ARROWS_IN_SIMPLE : ICON_ARROWS_OUT_SIMPLE)),
       ),
       outputContent,
     )
@@ -1826,22 +1828,6 @@ function insertAtCursor(text: string): void {
     selection: { anchor: from + text.length },
   })
   editorView.focus()
-}
-
-function doClear() {
-  lastOutputText = ''
-  lastOutputOk = true
-  lastMode = null
-  lastDuration = null
-  lastBmpMs = null
-  previewDone = false
-  if (editorView) {
-    editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: '' } })
-    editorView.focus()
-  }
-  hideBottomPanel()
-  dirty = false
-  refreshActions()
 }
 
 /** Open the bottom panel to `mode`, or collapse it if that mode is already

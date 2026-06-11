@@ -677,7 +677,6 @@ body {
   background: var(--accent);
 }
 
-.editor-bottom-spacer { flex: 1; }
 
 /* Micro actions (right side) — borderless icon buttons */
 .editor-micro-actions {
