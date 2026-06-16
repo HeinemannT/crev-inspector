@@ -17,7 +17,8 @@ import { COLOR_LINK_PROPS, colorLinkBid } from './types';
 import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessTraceAction, AccessTraceNode, AccessSubject, BmpObject } from './types';
 import { log } from './logger';
 import { HEALTH_TIMEOUT, BATCH_CHUNK_SIZE, MAX_PARALLEL } from './constants';
-import { BmpAuth } from './bmp-auth';
+import { BmpAuth, AuthError } from './bmp-auth';
+import type { AuthMode, AuthErrorCode } from './bmp-auth';
 import { BmpTransport } from './bmp-transport';
 import { pMap, compareVersions } from './util';
 import { parsePipeLines, parseSepBlocks, parseSepMultiObject } from './ec-parser';
@@ -97,6 +98,8 @@ export interface ConnectionResult {
   ok: boolean;
   message: string;
   authenticated: boolean;
+  /** Machine-readable cause on failure — drives the connection UI state. */
+  code?: AuthErrorCode;
 }
 
 export interface EcResult {
@@ -315,16 +318,18 @@ export class BmpClient {
     bmpUser: string,
     bmpPass: string,
     profileId?: string,
+    authMode: AuthMode = 'auto',
   ) {
-    this.auth = new BmpAuth(bmpUrl, bmpUser, bmpPass, profileId);
+    this.auth = new BmpAuth(bmpUrl, bmpUser, bmpPass, profileId, authMode);
     this.transport = new BmpTransport(bmpUrl, this.auth);
   }
 
   get jwt(): string | null { return this.auth.jwt; }
   get serverUrl(): string { return this.bmpUrl; }
   get username(): string { return this.auth.username; }
-  updateCredentials(user: string, pass: string): void {
-    this.auth.updateCredentials(user, pass);
+  get authMode(): AuthMode { return this.auth.authMode; }
+  updateCredentials(user: string, pass: string, authMode?: AuthMode): void {
+    this.auth.updateCredentials(user, pass, authMode);
   }
 
   /** Inject enrichment cache for resolveRef lookups. */
@@ -352,6 +357,11 @@ export class BmpClient {
       await this.auth.login();
       return { ok: true, message: 'Authenticated', authenticated: true };
     } catch (e) {
+      // AuthError carries a precise cause; everything else (network throw,
+      // serializer error) is reported via the transport's generic formatter.
+      if (e instanceof AuthError) {
+        return { ok: false, message: e.message, authenticated: false, code: e.code };
+      }
       return { ok: false, message: this.transport.formatError(e), authenticated: false };
     }
   }

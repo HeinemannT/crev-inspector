@@ -511,8 +511,9 @@ function statusDotClass(): string {
   switch (S.connState.display) {
     case 'connected': return 'ok';
     case 'online': return 'online';
+    case 'needs-login': return 'warn';
     case 'unreachable': return S.connState.networkOffline ? 'warn' : 'fail';
-    case 'server-down': case 'auth-failed': return 'fail';
+    case 'server-down': case 'auth-failed': case 'no-config-access': return 'fail';
     default: return '';
   }
 }
@@ -523,6 +524,8 @@ function statusText(): string {
     case 'checking': return 'Checking\u2026';
     case 'connected': return S.connState.profileLabel ?? 'Connected';
     case 'online': return 'Online';
+    case 'needs-login': return 'Log into BMP';
+    case 'no-config-access': return 'No CS access';
     case 'auth-failed': return 'Auth failed';
     case 'server-down': return 'Server down';
     case 'unreachable': return S.connState.networkOffline ? 'No network' : 'Unreachable';
@@ -540,8 +543,9 @@ function connectDotClass(): string {
   switch (S.connState.display) {
     case 'connected': return 'tab-dot--ok';
     case 'online': return 'tab-dot--ok tab-dot--dim';
+    case 'needs-login': return 'tab-dot--warn';
     case 'unreachable': return S.connState.networkOffline ? 'tab-dot--warn' : 'tab-dot--fail';
-    case 'server-down': case 'auth-failed': return 'tab-dot--fail';
+    case 'server-down': case 'auth-failed': case 'no-config-access': return 'tab-dot--fail';
     default: return 'tab-dot--gray';
   }
 }
@@ -560,8 +564,9 @@ function statusStripClass(): string {
   switch (S.connState.display) {
     case 'connected': return 'ok';
     case 'online': return 'online';
+    case 'needs-login': return 'offline';
     case 'unreachable': return S.connState.networkOffline ? 'offline' : 'fail';
-    case 'server-down': case 'auth-failed': return 'fail';
+    case 'server-down': case 'auth-failed': case 'no-config-access': return 'fail';
     default: return '';
   }
 }
@@ -579,6 +584,8 @@ function statusStripText(): string {
       return parts.join(' \u00b7 ');
     }
     case 'online': return 'Online (not authenticated)';
+    case 'needs-login': return 'Not logged into BMP \u2014 open BMP in a tab and log in';
+    case 'no-config-access': return 'Logged in, but this user lacks Configuration Access';
     case 'auth-failed': return 'Auth failed';
     case 'server-down': return 'Server down';
     case 'unreachable': return s.networkOffline ? 'No network' : 'Unreachable';

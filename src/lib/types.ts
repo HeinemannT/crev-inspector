@@ -1,6 +1,9 @@
+import type { AuthMode } from './bmp-auth';
+export type { AuthMode };
+
 /** Unified connection state — single source of truth for health + auth */
 export interface ConnectionState {
-  display: 'not-configured' | 'checking' | 'connected' | 'online' | 'auth-failed' | 'server-down' | 'unreachable';
+  display: 'not-configured' | 'checking' | 'connected' | 'online' | 'auth-failed' | 'server-down' | 'unreachable' | 'needs-login' | 'no-config-access';
   version: string | null;
   responseMs: number | null;
   profileLabel: string | null;
@@ -510,8 +513,13 @@ export interface ServerProfile {
   id: string;
   label: string;
   bmpUrl: string;
+  /** Username/password are optional — a `session` profile carries neither and
+   *  borrows the browser's live BMP session instead. Empty string = unset. */
   bmpUser: string;
   bmpPass: string;
+  /** How this profile authenticates. Defaults to `auto` (session-first, then
+   *  password) for migrated profiles; `session` for credential-less ones. */
+  authMode?: AuthMode;
 }
 
 export interface InspectorSettings {
@@ -528,7 +536,7 @@ export interface InspectorSettings {
 }
 
 export const DEFAULT_SETTINGS: InspectorSettings = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   profiles: [],
   activeProfileId: '',
   autoDetect: true,

@@ -77,6 +77,16 @@ export async function loadSettingsFrom(stored: unknown): Promise<void> {
         s.schemaVersion = 1;
       }
       if (!s.schemaVersion) s.schemaVersion = 1;
+      // v1 → v2: every profile gains an explicit authMode. A profile with a
+      // stored password keeps password reach (but now tries session first):
+      // `auto`. A credential-less profile is `session`-only.
+      if ((s.schemaVersion as number) < 2 && Array.isArray(s.profiles)) {
+        s.profiles = (s.profiles as ServerProfile[]).map(p => ({
+          ...p,
+          authMode: p.authMode ?? (p.bmpPass ? 'auto' : 'session'),
+        }));
+        s.schemaVersion = 2;
+      }
       ctx.settings = { ...ctx.settings, ...s } as InspectorSettings;
       // Decrypt passwords after loading from storage
       ctx.settings.profiles = await Promise.all(ctx.settings.profiles.map(async p => ({
@@ -146,19 +156,22 @@ export async function rebuildClient(clearCache = false) {
  *  same profileId) we evict the stale entry and rebuild. */
 function getOrCreateClient(profile: ServerProfile): BmpClient {
   const bmpUrl = normalizeUrl(profile.bmpUrl);
+  const authMode = profile.authMode ?? (profile.bmpPass ? 'auto' : 'session');
   const existing = clientPool.get(profile.id);
-  // Stale if the URL or username changed under the same profileId. Password
-  // changes don't invalidate the in-memory JWT — refresh handles that.
-  if (existing && existing.serverUrl === bmpUrl && existing.username === profile.bmpUser) {
+  // Stale if the URL, username, or auth mode changed under the same profileId.
+  // Password changes don't invalidate the in-memory JWT — refresh handles that;
+  // but a mode flip (session ↔ password) changes which strategy runs, so the
+  // mode must match for reuse.
+  if (existing && existing.serverUrl === bmpUrl && existing.username === profile.bmpUser && existing.authMode === authMode) {
     // Refresh password in case it was rotated since the client was minted.
-    existing.updateCredentials(profile.bmpUser, profile.bmpPass);
+    existing.updateCredentials(profile.bmpUser, profile.bmpPass, authMode);
     return existing;
   }
   if (existing) {
     existing.logout();
     clientPool.delete(profile.id);
   }
-  const client = new BmpClient(bmpUrl, profile.bmpUser, profile.bmpPass, profile.id);
+  const client = new BmpClient(bmpUrl, profile.bmpUser, profile.bmpPass, profile.id, authMode);
   clientPool.set(profile.id, client);
   return client;
 }
@@ -173,7 +186,10 @@ async function rebuildClientInternal(clearCache: boolean) {
   const ctx = getCtx();
   const profile = getActiveProfile();
 
-  if (profile?.bmpUrl && profile?.bmpUser) {
+  // A URL is the only hard requirement now — a `session` profile carries no
+  // username (it borrows the browser session), so gating on bmpUser would
+  // wrongly null out the client for SSO/session profiles.
+  if (profile?.bmpUrl) {
     ctx.client = getOrCreateClient(profile);
     ctx.client.cache = ctx.cache;
   } else {

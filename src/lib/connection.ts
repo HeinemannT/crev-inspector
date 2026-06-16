@@ -1,4 +1,5 @@
 import type { ConnectionState } from './types';
+import type { AuthErrorCode } from './bmp-auth';
 import { getCtx } from './sw-context';
 import { BmpClient } from './bmp-client';
 import { log, errorMessage } from './logger';
@@ -14,6 +15,7 @@ let healthVersion: string | null = null;
 let healthResponseMs: number | null = null;
 let authResult: 'pending' | 'ok' | 'failed' = 'pending';
 let authError: string | null = null;
+let authErrorCode: AuthErrorCode | null = null;
 let healthTimer: ReturnType<typeof setInterval> | null = null;
 let networkOffline = false;
 let lastPollTime = 0;
@@ -49,6 +51,7 @@ export function resetConnectionState() {
   healthResponseMs = null;
   authResult = 'pending';
   authError = null;
+  authErrorCode = null;
   lastBroadcastDisplay = null;
   lastPollTime = 0;
   // Reset version flags — will be re-evaluated when version is detected
@@ -61,13 +64,21 @@ export function resetConnectionState() {
 export function computeConnectionState(): ConnectionState {
   const ctx = getCtx();
   const profile = ctx.settings.profiles.find(p => p.id === ctx.settings.activeProfileId);
-  if (!profile?.bmpUser) {
+  // A URL alone configures a profile now — `session` profiles have no username.
+  if (!profile?.bmpUrl) {
     return { display: 'not-configured', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, networkOffline: false, lastUpdate: Date.now() };
   }
 
   let display: ConnectionState['display'];
   if (authResult === 'ok') display = 'connected';
-  else if (authResult === 'failed') display = healthUp === 'unreachable' ? 'unreachable' : 'auth-failed';
+  else if (authResult === 'failed') {
+    // Health can only downgrade to unreachable; otherwise the auth-error code
+    // picks the precise state (open-BMP-and-login vs no-access vs bad-creds).
+    if (healthUp === 'unreachable') display = 'unreachable';
+    else if (authErrorCode === 'needs-login') display = 'needs-login';
+    else if (authErrorCode === 'no-config-access') display = 'no-config-access';
+    else display = 'auth-failed';
+  }
   else if (healthUp === 'unreachable') display = 'unreachable';
   else if (healthUp === 'up') display = 'online';
   else if (healthUp === 'down') display = 'server-down';
@@ -115,9 +126,10 @@ export function pushConnectionState() {
 export async function runAuthTest() {
   const ctx = getCtx();
   const profile = ctx.settings.profiles.find(p => p.id === ctx.settings.activeProfileId);
-  if (!profile?.bmpUrl || !profile?.bmpUser) {
+  if (!profile?.bmpUrl) {
     authResult = 'pending';
     authError = null;
+    authErrorCode = null;
     pushConnectionState();
     return;
   }
@@ -168,12 +180,14 @@ export async function runAuthTest() {
   }
 
   ctx.logActivity('info', 'Testing connection\u2026');
-  const testClient = new BmpClient(bmpUrl, profile.bmpUser, profile.bmpPass);
+  const authMode = profile.authMode ?? (profile.bmpPass ? 'auto' : 'session');
+  const testClient = new BmpClient(bmpUrl, profile.bmpUser, profile.bmpPass, profile.id, authMode);
   try {
     const result = await testClient.testConnection();
     if (ctx.client !== clientAtStart) return;
     authResult = result.ok ? 'ok' : 'failed';
     authError = result.ok ? null : result.message;
+    authErrorCode = result.ok ? null : (result.code ?? null);
     ctx.logActivity(result.ok ? 'success' : 'warn', result.ok ? `Connected to ${profile.label}` : 'Connection failed', result.message);
     if (result.ok && ctx.client) {
       ctx.client.absorbAuth(testClient);
@@ -186,6 +200,7 @@ export async function runAuthTest() {
     if (ctx.client !== clientAtStart) return;
     authResult = 'failed';
     authError = errorMessage(e);
+    authErrorCode = null;
   }
   pushConnectionState();
   if (authResult === 'ok' && ctx.client) {
