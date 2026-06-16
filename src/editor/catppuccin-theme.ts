@@ -62,23 +62,25 @@ const theme = EditorView.theme({
     borderRadius: '2px',
     padding: '2px 4px',
   },
-  // The three option toggles render as compact glyph pills (Aa / .* / W) instead
-  // of the jargon labels "match case / regexp / by word". CM's real label text
-  // stays in the DOM for screen readers (font-size:0 hides it visually only);
-  // the glyph is overlaid via ::after, keyed on the stable checkbox `name` so
-  // control order can't break the mapping.
+  // The three option toggles show compact glyphs (Aa / .* / \b) instead of the
+  // jargon "match case / regexp / by word". The glyph TEXT itself comes from CM
+  // phrases (see editor.ts) so it's a real text node that always paints; here we
+  // only turn each label into a pill that hides the native checkbox and
+  // highlights when active.
   '.cm-panel.cm-search label': {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: '22px',
+    minWidth: '24px',
     height: '20px',
     margin: '0 4px 0 0',
-    padding: '0 5px',
-    fontSize: '0',
+    padding: '0 6px',
+    fontSize: '12px',
+    fontFamily: 'monospace',
+    fontWeight: '700',
     border: `1px solid ${surface1}`,
     borderRadius: '2px',
-    color: subtext0,
+    color: text,
     cursor: 'pointer',
     userSelect: 'none',
     verticalAlign: 'middle',
@@ -90,20 +92,10 @@ const theme = EditorView.theme({
     margin: '0',
     position: 'absolute',
   },
-  '.cm-panel.cm-search label::after': {
-    fontSize: '11px',
-    fontFamily: 'monospace',
-    fontWeight: '600',
-    lineHeight: '1',
-  },
-  '.cm-panel.cm-search label:has(input[name=case])::after': { content: '"Aa"' },
-  '.cm-panel.cm-search label:has(input[name=re])::after': { content: '".*"' },
-  '.cm-panel.cm-search label:has(input[name=word])::after': { content: '"W"' },
-  '.cm-panel.cm-search label:hover': { borderColor: surface2, color: text },
+  '.cm-panel.cm-search label:hover': { borderColor: surface2 },
   '.cm-panel.cm-search label:has(input:checked)': {
     backgroundColor: `${accent}33`,
     borderColor: accent,
-    color: text,
   },
   // next / previous / all / replace buttons (NOT the close ×).
   '.cm-panel.cm-search button:not([name=close]), .cm-button': {

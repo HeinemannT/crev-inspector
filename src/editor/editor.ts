@@ -679,6 +679,10 @@ function createEditor(code: string) {
     // output panel / a toolbar button (where it would otherwise fall through
     // to Chrome's native find — which can't navigate the virtualized editor).
     search({ top: true }),
+    // Replace the search panel's jargon toggle labels with compact, recognizable
+    // glyphs. These become the real label text (so they always paint) and the
+    // toggles render as pills via the theme.
+    EditorState.phrases.of({ 'match case': 'Aa', 'regexp': '.*', 'by word': '\\b' }),
     // Two completion sources for EC:
     //   - starExpansion: type `*` inside `.table(`/`.forEach(`/etc.
     //     surfaces the "expand to all properties" snippet.
