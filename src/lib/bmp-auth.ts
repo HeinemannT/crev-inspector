@@ -41,6 +41,12 @@ export function resolveAuthMode(p: { authMode?: AuthMode; bmpPass?: string }): A
   return p.authMode ?? (p.bmpPass && p.bmpPass.trim() ? 'auto' : 'session');
 }
 
+/** chrome.storage.session key holding a profile's minted token chain. Exported
+ *  so the cookie-teardown can clear it for a profile that has no pooled client. */
+export function sessionTokenKey(profileId: string): string {
+  return `crev_jwt_${profileId}`;
+}
+
 /** Outcome of one auth strategy in the chain.
  *  - `ok`   — got a JWT; `via` records how.
  *  - `skip` — strategy not applicable (no session to borrow / no creds set);
@@ -51,6 +57,21 @@ type AuthAttempt =
   | { status: 'ok'; jwt: string; via: AuthVia }
   | { status: 'skip' }
   | { status: 'fail'; error: AuthError; via: AuthVia };
+
+/** When several strategies fail, surface the most diagnostic cause rather than
+ *  whichever failed last. `no-config-access` (an authenticated identity reached
+ *  BMP but lacks the role) and `auth-failed` (bad credentials) both pinpoint a
+ *  fixable cause; `exchange-failed`/`needs-login` are vaguer. */
+const ERROR_RANK: Record<AuthErrorCode, number> = {
+  'no-config-access': 3,
+  'auth-failed': 2,
+  'exchange-failed': 1,
+  'needs-login': 0,
+};
+function mostDiagnostic(prev: AuthError | null, next: AuthError): AuthError {
+  if (!prev) return next;
+  return ERROR_RANK[next.code] > ERROR_RANK[prev.code] ? next : prev;
+}
 
 export class BmpAuth {
   private _jwt: string | null = null;
@@ -73,7 +94,7 @@ export class BmpAuth {
     this._authMode = authMode;
   }
 
-  private get _sessionKey(): string { return `crev_jwt_${this._profileId}`; }
+  private get _sessionKey(): string { return sessionTokenKey(this._profileId); }
 
   get jwt(): string | null { return this._jwt; }
 
@@ -102,18 +123,18 @@ export class BmpAuth {
     if (this._authMode !== 'password') strategies.push(() => this._attemptSession());
     if (this._authMode !== 'session') strategies.push(() => this._attemptPassword());
 
-    let deepestFailure: AuthError | null = null;
+    let failure: AuthError | null = null;
     for (const run of strategies) {
       const attempt = await run();
       if (attempt.status === 'ok') {
         this._via = attempt.via;
         return attempt.jwt;
       }
-      if (attempt.status === 'fail') deepestFailure = attempt.error;
+      if (attempt.status === 'fail') failure = mostDiagnostic(failure, attempt.error);
       // 'skip' → strategy not applicable; try the next one.
     }
 
-    if (deepestFailure) throw deepestFailure;
+    if (failure) throw failure;
     throw new AuthError('No active BMP session. Open BMP in a tab and log in, then retry.', 'needs-login');
   }
 
@@ -131,7 +152,7 @@ export class BmpAuth {
     }
     if (!hasCookie) return { status: 'skip' };
     try {
-      const jwt = await this._completeTokenExchange();
+      const jwt = await this._completeTokenExchange('session');
       if (jwt == null) return { status: 'skip' };  // stale session (401) — fall through
       return { status: 'ok', jwt, via: 'session' };
     } catch (e) {
@@ -146,7 +167,7 @@ export class BmpAuth {
     if (!this.bmpUser || !this.bmpPass) return { status: 'skip' };
     try {
       await this._passwordLogin();
-      const jwt = await this._completeTokenExchange();
+      const jwt = await this._completeTokenExchange('password');
       if (jwt == null) {
         return { status: 'fail', error: new AuthError('Logged in but could not obtain a Configuration Studio token.', 'exchange-failed'), via: 'password' };
       }
@@ -163,8 +184,10 @@ export class BmpAuth {
    *  Mints an INDEPENDENT refresh chain; never touches the SPA's token.
    *  Returns null when the session is missing/stale (GraphQL 401) so callers
    *  can fall back; throws AuthError('no-config-access') when the user is
-   *  logged in but lacks the Configuration Access role. */
-  private async _completeTokenExchange(): Promise<string | null> {
+   *  logged in but lacks the Configuration Access role. `via` records how the
+   *  session was obtained and is set BEFORE the token is persisted, so the
+   *  stored blob carries the correct `via` from the very first login. */
+  private async _completeTokenExchange(via: AuthVia): Promise<string | null> {
     const gqlResp = await fetch(`${this.bmpUrl}graphql`, {
       method: 'POST',
       credentials: 'include',
@@ -199,13 +222,23 @@ export class BmpAuth {
 
     this._jwt = tokenBody.accessToken;
     this._refreshToken = tokenBody.refreshToken ?? null;
+    this._via = via;            // set before persist so the stored blob is correct
     this._persistTokens();
     return this._jwt;
   }
 
   /** Bootstrap a web session from stored credentials (legacy Path B step 1).
    *  We no longer extract JSESSIONID manually — the cookie lands in the SW's
-   *  cookie jar and `credentials:'include'` on the exchange carries it. */
+   *  cookie jar and `credentials:'include'` on the exchange carries it.
+   *
+   *  SIDE EFFECT: that jar is the browser's shared cookie store, so a password
+   *  login REPLACES the user's current BMP session cookie with the stored
+   *  account's. On a deployment where the profile credentials differ from the
+   *  human's browser login, their BMP tabs become the stored account. MV3 can't
+   *  isolate the jar per-fetch, so this is inherent to password auth. It only
+   *  bites the fallback when `auto` couldn't borrow a usable session — which is
+   *  exactly when there's no live session worth preserving. Documented so it's
+   *  a known trade-off, not a surprise. */
   private async _passwordLogin(): Promise<void> {
     const body = `username=${encodeURIComponent(this.bmpUser)}&password=${encodeURIComponent(this.bmpPass)}`;
     const authResp = await fetch(`${this.bmpUrl}cs/authentication`, {
@@ -261,7 +294,16 @@ export class BmpAuth {
         body: `grantType=refreshToken&refreshToken=${encodeURIComponent(this._refreshToken!)}`,
         signal: AbortSignal.timeout(AUTH_TIMEOUT),
       });
-      if (resp.status === 401 || resp.status === 403) { this._refreshToken = null; return null; }
+      if (resp.status === 401 || resp.status === 403) {
+        // Refresh hard-rejected: the whole chain is dead. Clear everything
+        // (not just the refresh token) so we don't leave a stale jwt/via in
+        // memory or in the persisted blob for restoreFromSession to pick up.
+        this._jwt = null;
+        this._refreshToken = null;
+        this._via = null;
+        this._clearPersistedTokens();
+        return null;
+      }
       if (!resp.ok) return null;
       const body = await resp.json();
       if (!body?.accessToken) return null;

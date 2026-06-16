@@ -516,7 +516,8 @@ function statusDotClass(): string {
     case 'needs-login': return 'warn';
     case 'unreachable': return S.connState.networkOffline ? 'warn' : 'fail';
     case 'server-down': case 'auth-failed': case 'no-config-access': return 'fail';
-    default: return '';
+    case 'not-configured': case 'checking': return '';
+    default: { const _e: never = S.connState.display; void _e; return ''; }
   }
 }
 
@@ -548,7 +549,8 @@ function connectDotClass(): string {
     case 'needs-login': return 'tab-dot--warn';
     case 'unreachable': return S.connState.networkOffline ? 'tab-dot--warn' : 'tab-dot--fail';
     case 'server-down': case 'auth-failed': case 'no-config-access': return 'tab-dot--fail';
-    default: return 'tab-dot--gray';
+    case 'not-configured': case 'checking': return 'tab-dot--gray';
+    default: { const _e: never = S.connState.display; void _e; return 'tab-dot--gray'; }
   }
 }
 
@@ -569,7 +571,8 @@ function statusStripClass(): string {
     case 'needs-login': return 'offline';
     case 'unreachable': return S.connState.networkOffline ? 'offline' : 'fail';
     case 'server-down': case 'auth-failed': case 'no-config-access': return 'fail';
-    default: return '';
+    case 'not-configured': case 'checking': return '';
+    default: { const _e: never = S.connState.display; void _e; return ''; }
   }
 }
 

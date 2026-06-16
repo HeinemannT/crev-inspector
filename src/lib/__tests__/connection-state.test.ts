@@ -16,19 +16,22 @@ import { describe, it, expect, vi } from 'vitest';
 import { mockChromeStorage } from './chrome-mock';
 import { ObjectCache } from '../object-cache';
 import type { InspectorSettings } from '../types';
+import type { AuthErrorCode, AuthVia } from '../bmp-auth';
+
+type TestConn = { ok: boolean; message: string; authenticated: boolean; code?: AuthErrorCode; via?: AuthVia };
 
 interface ConnHarness {
   ctx: any;
   conn: typeof import('../connection');
   setHealthResult: (r: { up: boolean; reachable: boolean; responseMs?: number }) => void;
   setBuildNumber: (v: string | null) => void;
-  setTestConnection: (r: { ok: boolean; message: string; authenticated: boolean }) => void;
+  setTestConnection: (r: TestConn) => void;
   setNavigatorOnline: (online: boolean) => void;
 }
 
 let healthResult = { up: false, reachable: false, responseMs: 0 };
 let buildNumber: string | null = null;
-let testConnResult = { ok: true, message: 'Authenticated', authenticated: true };
+let testConnResult: TestConn = { ok: true, message: 'Authenticated', authenticated: true };
 
 async function createHarness(opts: { withProfile?: boolean; withClient?: boolean } = {}): Promise<ConnHarness> {
   vi.resetModules();
@@ -71,8 +74,12 @@ async function createHarness(opts: { withProfile?: boolean; withClient?: boolean
       jwt: null, // default: no JWT yet
     };
     vi.spyOn(bmpModule.BmpClient.prototype, 'testConnection').mockImplementation(async function (this: any) {
-      // BmpAuth.jwt is a getter — write to the backing field _jwt
-      this.auth._jwt = 'mock-jwt';
+      // BmpAuth.jwt/via are getters — write to the backing fields. `this` is the
+      // throwaway testClient (a real BmpClient), so authVia reads back from here.
+      if (testConnResult.ok) {
+        this.auth._jwt = 'mock-jwt';
+        this.auth._via = testConnResult.via ?? 'password';
+      }
       return testConnResult;
     });
   }
@@ -191,6 +198,57 @@ describe('computeConnectionState — auth result precedence', () => {
 
     // Per connection.ts:70: failed + (healthUp != unreachable) → auth-failed
     expect(h.conn.computeConnectionState().display).toBe('auth-failed');
+  });
+});
+
+describe('computeConnectionState — session-piggyback states + authVia', () => {
+  it('failed + code needs-login + health up → needs-login', async () => {
+    const h = await createHarness();
+    h.setTestConnection({ ok: false, message: 'no session', authenticated: false, code: 'needs-login' });
+    h.setHealthResult({ up: true, reachable: true });
+    await h.conn.runAuthTest();
+    await h.conn.pollHealth();
+    expect(h.conn.computeConnectionState().display).toBe('needs-login');
+  });
+
+  it('failed + code no-config-access + health up → no-config-access', async () => {
+    const h = await createHarness();
+    h.setTestConnection({ ok: false, message: 'no role', authenticated: false, code: 'no-config-access' });
+    h.setHealthResult({ up: true, reachable: true });
+    await h.conn.runAuthTest();
+    await h.conn.pollHealth();
+    expect(h.conn.computeConnectionState().display).toBe('no-config-access');
+  });
+
+  it('health unreachable overrides a needs-login auth code', async () => {
+    const h = await createHarness();
+    h.setTestConnection({ ok: false, message: 'no session', authenticated: false, code: 'needs-login' });
+    h.setHealthResult({ up: false, reachable: false });
+    h.setNavigatorOnline(true);
+    await h.conn.runAuthTest();
+    await h.conn.pollHealth();
+    expect(h.conn.computeConnectionState().display).toBe('unreachable');
+  });
+
+  it('connected via session surfaces authVia=session; via=password when bootstrapped', async () => {
+    const h = await createHarness();
+    h.setTestConnection({ ok: true, message: 'OK', authenticated: true, via: 'session' });
+    await h.conn.runAuthTest();
+    expect(h.conn.computeConnectionState().authVia).toBe('session');
+
+    const h2 = await createHarness();
+    h2.setTestConnection({ ok: true, message: 'OK', authenticated: true, via: 'password' });
+    await h2.conn.runAuthTest();
+    expect(h2.conn.computeConnectionState().authVia).toBe('password');
+  });
+
+  it('authVia is null when not connected', async () => {
+    const h = await createHarness();
+    h.setTestConnection({ ok: false, message: 'no role', authenticated: false, code: 'no-config-access' });
+    h.setHealthResult({ up: true, reachable: true });
+    await h.conn.runAuthTest();
+    await h.conn.pollHealth();
+    expect(h.conn.computeConnectionState().authVia).toBeNull();
   });
 });
 

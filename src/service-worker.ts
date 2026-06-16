@@ -279,8 +279,9 @@ onProfileSwitch(() => {
 chrome.tabs.onRemoved.addListener((tabId) => { deleteContextRid(tabId); });
 
 // When a BMP session cookie disappears (logout/expiry), release any borrowed
-// (session-mode) token chain so the extension's access tracks the user's login.
-chrome.cookies.onChanged.addListener(handleSessionCookieRemoved);
+// token chain so the extension's access tracks the user's login. The handler is
+// async (it awaits settingsReady + re-probes the cookie); swallow its promise.
+chrome.cookies.onChanged.addListener((info) => { void handleSessionCookieRemoved(info); });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const tabId = tab?.id;

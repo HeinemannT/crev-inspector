@@ -5,7 +5,7 @@
 import type { InspectorSettings, ServerProfile } from './types';
 import { getCtx } from './sw-context';
 import { BmpClient } from './bmp-client';
-import { resolveAuthMode } from './bmp-auth';
+import { resolveAuthMode, sessionTokenKey } from './bmp-auth';
 import { normalizeUrl, resetConnectionState, pushConnectionState, runAuthTest, startHealthPolling, stopHealthPolling } from './connection';
 import { incrementGeneration } from './enrichment';
 import { clearAllContextRids } from './context-rid';
@@ -55,40 +55,43 @@ export function createSettingsReady(): { settingsReady: Promise<void>; resolveSe
   return { settingsReady: settingsReadyPromise, resolveSettings };
 }
 
+/** Apply schema migrations to a raw stored settings object, in place. Returns
+ *  true if anything changed (so the caller can persist once). Pure + exported
+ *  for unit testing — no ctx, no I/O.
+ *  - v0 → v1: flat {bmpUrl,bmpUser,bmpPass} → a single profile in `profiles[]`.
+ *  - v1 → v2: every profile gains an explicit `authMode` (password → `auto`,
+ *    none → `session`). */
+export function migrateStoredSettings(s: Record<string, unknown>): boolean {
+  let migrated = false;
+  if (!s.profiles && (s.bmpUrl || s.bmpUser)) {
+    const id = crypto.randomUUID();
+    s.profiles = [{ id, label: 'Default', bmpUrl: s.bmpUrl || '', bmpUser: s.bmpUser || '', bmpPass: s.bmpPass || '' }];
+    s.activeProfileId = id;
+    s.autoDetect = true;
+    delete s.bmpUrl; delete s.bmpUser; delete s.bmpPass;
+    s.schemaVersion = 1;
+    migrated = true;
+  }
+  if (!s.schemaVersion) s.schemaVersion = 1;
+  if ((s.schemaVersion as number) < 2 && Array.isArray(s.profiles)) {
+    s.profiles = (s.profiles as ServerProfile[]).map(p => ({ ...p, authMode: resolveAuthMode(p) }));
+    s.schemaVersion = 2;
+    migrated = true;
+  }
+  return migrated;
+}
+
 export async function loadSettingsFrom(stored: unknown): Promise<void> {
   const ctx = getCtx();
+  let migrated = false;
   try {
     if (stored && typeof stored === 'object') {
       const s = stored as Record<string, unknown>;
-      // v0 → v1: Migrate old flat fields → profiles array
-      if (!s.profiles && (s.bmpUrl || s.bmpUser)) {
-        const id = crypto.randomUUID();
-        s.profiles = [{
-          id,
-          label: 'Default',
-          bmpUrl: s.bmpUrl || '',
-          bmpUser: s.bmpUser || '',
-          bmpPass: s.bmpPass || '',
-        }];
-        s.activeProfileId = id;
-        s.autoDetect = true;
-        delete s.bmpUrl;
-        delete s.bmpUser;
-        delete s.bmpPass;
-        s.schemaVersion = 1;
-      }
-      if (!s.schemaVersion) s.schemaVersion = 1;
-      // v1 → v2: every profile gains an explicit authMode. A profile with a
-      // stored password keeps password reach (but now tries session first):
-      // `auto`. A credential-less profile is `session`-only.
-      if ((s.schemaVersion as number) < 2 && Array.isArray(s.profiles)) {
-        s.profiles = (s.profiles as ServerProfile[]).map(p => ({
-          ...p,
-          authMode: resolveAuthMode(p),
-        }));
-        s.schemaVersion = 2;
-      }
+      migrated = migrateStoredSettings(s);
       ctx.settings = { ...ctx.settings, ...s } as InspectorSettings;
+      // Defend against malformed stored data — a non-array `profiles` would
+      // throw in the map below and silently wipe settings. Recover to empty.
+      if (!Array.isArray(ctx.settings.profiles)) ctx.settings.profiles = [];
       // Decrypt passwords after loading from storage
       ctx.settings.profiles = await Promise.all(ctx.settings.profiles.map(async p => ({
         ...p,
@@ -96,6 +99,9 @@ export async function loadSettingsFrom(stored: unknown): Promise<void> {
       })));
     }
     await rebuildClient();
+    // Persist a migration once so stored data advances (idempotent re-runs each
+    // boot are harmless, but read-only users would otherwise stay at v1 forever).
+    if (migrated) void saveSettings();
   } catch (e) {
     log.swallow('settings:load', e);
   }
@@ -183,24 +189,48 @@ export function evictPooledClient(profileId: string): void {
   if (c) { c.logout(); clientPool.delete(profileId); }
 }
 
-/** When the BMP session cookie for a profile's workspace is removed (the user
- *  logged out of BMP, or it expired), a `session`-mode profile's borrowed
- *  authority is gone — drop its minted token chain so the extension can't keep
- *  Configuration Access after the user logged out. `auto`/`password` profiles
- *  hold their own credentials and re-auth on their own, so they're left alone.
- *  The transient `overwrite` removal that precedes a cookie update is ignored
- *  (the session continues). */
-export function handleSessionCookieRemoved(info: chrome.cookies.CookieChangeInfo): void {
-  if (info.cookie.name !== 'JSESSIONID' || !info.removed || info.cause === 'overwrite') return;
+/** When a BMP session cookie is removed (the user logged out, or it expired),
+ *  any profile whose LIVE connection was borrowed from that session must drop
+ *  its minted token chain — otherwise the extension keeps Configuration Access
+ *  after the user logged out.
+ *
+ *  Robustness notes:
+ *  - Only `explicit` (logout / API removal) and `expired` (true expiry) mean the
+ *    session is gone. `overwrite` / `expired_overwrite` (a cookie being
+ *    replaced, e.g. on session refresh, or by our own password login) and
+ *    `evicted` (jar pressure) are NOT logouts and must not tear down.
+ *  - Gated on `settingsReady`: a removal arriving during SW boot must not be
+ *    evaluated against empty settings (it would be silently dropped, leaving a
+ *    usable token behind).
+ *  - Rather than hand-matching the event's domain/path (which mis-fires on
+ *    `/Foo` vs `/Foo2`, ports, and domain cookies), we RE-PROBE each candidate
+ *    profile's own cookie via `chrome.cookies.get({url: bmpUrl})` — that applies
+ *    RFC-correct host+path scoping for free.
+ *  - "Borrowed" = a `session`-mode profile, or an `auto` profile whose pooled
+ *    client actually connected via the session (`authVia === 'session'`). A
+ *    password-authed connection holds its own chain and is left alone. */
+export async function handleSessionCookieRemoved(info: chrome.cookies.CookieChangeInfo): Promise<void> {
+  if (info.cookie.name !== 'JSESSIONID' || !info.removed) return;
+  if (info.cause !== 'explicit' && info.cause !== 'expired') return;
+
   const ctx = getCtx();
-  const host = info.cookie.domain.replace(/^\./, '');
-  const cookiePath = info.cookie.path || '/';
+  await ctx.settingsReady;
+
   for (const p of ctx.settings.profiles) {
-    if (resolveAuthMode(p) !== 'session') continue;
-    let u: URL;
-    try { u = new URL(normalizeUrl(p.bmpUrl)); } catch { continue; }
-    if (u.hostname !== host || !u.pathname.startsWith(cookiePath)) continue;
-    clientPool.get(p.id)?.logout();
+    const client = clientPool.get(p.id);
+    const borrowed = resolveAuthMode(p) === 'session' || client?.authVia === 'session';
+    if (!borrowed) continue;
+
+    let stillPresent = false;
+    try {
+      stillPresent = (await chrome.cookies.get({ url: normalizeUrl(p.bmpUrl), name: 'JSESSIONID' })) != null;
+    } catch (e) { log.warn('settings:cookieReprobe', e, 'cookie re-probe failed; treating as gone'); }
+    if (stillPresent) continue;  // the cookie that changed wasn't this profile's
+
+    client?.logout();
+    // Clear the persisted chain even when no client is pooled (logout already
+    // does this for a pooled client; this covers a warm-but-unpooled profile).
+    chrome.storage.session.remove(sessionTokenKey(p.id)).catch(e => log.swallow('settings:clearTeardownToken', e));
     log.info('settings:sessionCookieGone', `BMP session ended for ${p.label}; cleared the borrowed token`);
     if (p.id === ctx.settings.activeProfileId) {
       resetConnectionState();

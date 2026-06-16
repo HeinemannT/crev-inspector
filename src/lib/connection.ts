@@ -166,7 +166,10 @@ export async function runAuthTest() {
         authResult = 'ok';
         authError = null;
         authErrorCode = null;
-        authVia = ctx.client.authVia;  // refresh keeps the via the chain recorded at login
+        // Refresh keeps the via the chain recorded at login. A token restored
+        // from a pre-upgrade blob may lack it — infer from the profile so a
+        // connected state never shows a blank "via".
+        authVia = ctx.client.authVia ?? (resolveAuthMode(profile) === 'session' ? 'session' : 'password');
         if (!healthVersion) {
           healthVersion = await BmpClient.getBuildNumber(bmpUrl, ctx.client.jwt ?? undefined);
           applyVersionFlags(healthVersion, healthVersion ? undefined : '/buildNum not available (likely old BMP)');
