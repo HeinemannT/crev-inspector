@@ -3,6 +3,7 @@
  */
 
 import type { InspectorMessage, ServerProfile, AuthMode } from '../../lib/types';
+import { resolveAuthMode } from '../../lib/bmp-auth';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { ICON_EYE_OPEN, ICON_EYE_CLOSED } from '../utils';
@@ -278,17 +279,14 @@ export class ConnectTab implements Tab {
 
         if (!bmpUrl.trim()) { flashInvalid(urlInput); return; }
 
-        // Credentials are optional. With a password the profile authenticates
-        // with stored creds but still tries the live browser session first
-        // ('auto'); without one it relies purely on the browser session
-        // ('session'). This is the only place authMode is set from the UI —
-        // there's no reason to expose a "password-only" mode (session-first is
-        // strictly better: faster, no creds, and works under SSO/VPN/mTLS).
-        const authMode: AuthMode = bmpPass.trim() ? 'auto' : 'session';
-
+        // Credentials are optional. resolveAuthMode encodes the rule: a password
+        // means session-first with password fallback ('auto'), none means
+        // session-only. There's no UI for a "password-only" mode because
+        // session-first is strictly better (faster, no creds, works under
+        // SSO/VPN/mTLS).
         const profile: ServerProfile = {
           id: this.editing.id ?? crypto.randomUUID(),
-          label, bmpUrl, bmpUser, bmpPass, authMode,
+          label, bmpUrl, bmpUser, bmpPass, authMode: resolveAuthMode({ bmpPass }),
         };
         const profiles = [...shared.settings.profiles];
         const idx = profiles.findIndex(p => p.id === profile.id);

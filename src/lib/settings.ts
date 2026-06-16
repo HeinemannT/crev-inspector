@@ -5,6 +5,7 @@
 import type { InspectorSettings, ServerProfile } from './types';
 import { getCtx } from './sw-context';
 import { BmpClient } from './bmp-client';
+import { resolveAuthMode } from './bmp-auth';
 import { normalizeUrl, resetConnectionState, pushConnectionState, runAuthTest, startHealthPolling, stopHealthPolling } from './connection';
 import { incrementGeneration } from './enrichment';
 import { clearAllContextRids } from './context-rid';
@@ -83,7 +84,7 @@ export async function loadSettingsFrom(stored: unknown): Promise<void> {
       if ((s.schemaVersion as number) < 2 && Array.isArray(s.profiles)) {
         s.profiles = (s.profiles as ServerProfile[]).map(p => ({
           ...p,
-          authMode: p.authMode ?? (p.bmpPass ? 'auto' : 'session'),
+          authMode: resolveAuthMode(p),
         }));
         s.schemaVersion = 2;
       }
@@ -156,7 +157,7 @@ export async function rebuildClient(clearCache = false) {
  *  same profileId) we evict the stale entry and rebuild. */
 function getOrCreateClient(profile: ServerProfile): BmpClient {
   const bmpUrl = normalizeUrl(profile.bmpUrl);
-  const authMode = profile.authMode ?? (profile.bmpPass ? 'auto' : 'session');
+  const authMode = resolveAuthMode(profile);
   const existing = clientPool.get(profile.id);
   // Stale if the URL, username, or auth mode changed under the same profileId.
   // Password changes don't invalidate the in-memory JWT — refresh handles that;
@@ -180,6 +181,32 @@ function getOrCreateClient(profile: ServerProfile): BmpClient {
 export function evictPooledClient(profileId: string): void {
   const c = clientPool.get(profileId);
   if (c) { c.logout(); clientPool.delete(profileId); }
+}
+
+/** When the BMP session cookie for a profile's workspace is removed (the user
+ *  logged out of BMP, or it expired), a `session`-mode profile's borrowed
+ *  authority is gone — drop its minted token chain so the extension can't keep
+ *  Configuration Access after the user logged out. `auto`/`password` profiles
+ *  hold their own credentials and re-auth on their own, so they're left alone.
+ *  The transient `overwrite` removal that precedes a cookie update is ignored
+ *  (the session continues). */
+export function handleSessionCookieRemoved(info: chrome.cookies.CookieChangeInfo): void {
+  if (info.cookie.name !== 'JSESSIONID' || !info.removed || info.cause === 'overwrite') return;
+  const ctx = getCtx();
+  const host = info.cookie.domain.replace(/^\./, '');
+  const cookiePath = info.cookie.path || '/';
+  for (const p of ctx.settings.profiles) {
+    if (resolveAuthMode(p) !== 'session') continue;
+    let u: URL;
+    try { u = new URL(normalizeUrl(p.bmpUrl)); } catch { continue; }
+    if (u.hostname !== host || !u.pathname.startsWith(cookiePath)) continue;
+    clientPool.get(p.id)?.logout();
+    log.info('settings:sessionCookieGone', `BMP session ended for ${p.label}; cleared the borrowed token`);
+    if (p.id === ctx.settings.activeProfileId) {
+      resetConnectionState();
+      if (ctx.hasPanel) runAuthTest(); else pushConnectionState();
+    }
+  }
 }
 
 async function rebuildClientInternal(clearCache: boolean) {

@@ -395,7 +395,7 @@ function buildApp(): void {
 
   // 'needs-login' is recoverable in place (log into BMP, then retry), so it
   // gets the prominent Reconnect button alongside the hard-error states.
-  const isError = ['unreachable', 'server-down', 'auth-failed', 'needs-login'].includes(S.connState.display);
+  const isError = ['unreachable', 'server-down', 'auth-failed', 'needs-login', 'no-config-access'].includes(S.connState.display);
   const statusStrip = h('div', { class: `status-strip ${statusStripClass()}`, id: 'status-strip' },
     h('span', { class: `status-dot ${statusDotClass()}`, id: 'strip-dot' }),
     h('span', { class: 'status-strip-text', id: 'strip-text' }, statusStripText()),
@@ -606,7 +606,7 @@ function refreshStatusStrip() {
   if (reconnect) {
     // 'needs-login' is recoverable in place (log into BMP, then retry), so it
   // gets the prominent Reconnect button alongside the hard-error states.
-  const isError = ['unreachable', 'server-down', 'auth-failed', 'needs-login'].includes(S.connState.display);
+  const isError = ['unreachable', 'server-down', 'auth-failed', 'needs-login', 'no-config-access'].includes(S.connState.display);
     reconnect.classList.toggle('hidden', !isError);
   }
   const btn = strip.querySelector('.status-strip-btn');

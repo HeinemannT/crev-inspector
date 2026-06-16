@@ -18,7 +18,7 @@ import { log } from './lib/logger';
 import { loadTabDetection, getTabDetection } from './lib/detection';
 import { startHealthPolling, runAuthTest, stopHealthPolling, pollHealth } from './lib/connection';
 import { restoreActivity, logActivity } from './lib/activity';
-import { createSettingsReady, loadSettingsFrom, onProfileSwitch } from './lib/settings';
+import { createSettingsReady, loadSettingsFrom, onProfileSwitch, handleSessionCookieRemoved } from './lib/settings';
 import { registerTabListeners, sendPageInfoToPanel } from './lib/tab-awareness';
 import { handleContentMessage, handlePanelMessage, handleOneShotMessage, toggleInspect } from './lib/message-router';
 import { setContextRid, getContextRid, deleteContextRid } from './lib/context-rid';
@@ -277,6 +277,10 @@ onProfileSwitch(() => {
 
 // Clean up context menu state when tabs close
 chrome.tabs.onRemoved.addListener((tabId) => { deleteContextRid(tabId); });
+
+// When a BMP session cookie disappears (logout/expiry), release any borrowed
+// (session-mode) token chain so the extension's access tracks the user's login.
+chrome.cookies.onChanged.addListener(handleSessionCookieRemoved);
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const tabId = tab?.id;

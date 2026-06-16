@@ -1,5 +1,5 @@
 import type { ConnectionState } from './types';
-import type { AuthErrorCode } from './bmp-auth';
+import { resolveAuthMode, type AuthErrorCode } from './bmp-auth';
 import { getCtx } from './sw-context';
 import { BmpClient } from './bmp-client';
 import { log, errorMessage } from './logger';
@@ -100,7 +100,7 @@ export function computeConnectionState(): ConnectionState {
     version: healthVersion || null,
     responseMs: healthResponseMs,
     profileLabel: profile.label,
-    user: authResult === 'ok' ? profile.bmpUser : null,
+    user: authResult === 'ok' ? (profile.bmpUser || null) : null,
     workspace,
     authError: authResult === 'failed' ? authError : null,
     networkOffline,
@@ -162,6 +162,7 @@ export async function runAuthTest() {
       if (refreshed) {
         authResult = 'ok';
         authError = null;
+        authErrorCode = null;
         if (!healthVersion) {
           healthVersion = await BmpClient.getBuildNumber(bmpUrl, ctx.client.jwt ?? undefined);
           applyVersionFlags(healthVersion, healthVersion ? undefined : '/buildNum not available (likely old BMP)');
@@ -180,8 +181,7 @@ export async function runAuthTest() {
   }
 
   ctx.logActivity('info', 'Testing connection\u2026');
-  const authMode = profile.authMode ?? (profile.bmpPass ? 'auto' : 'session');
-  const testClient = new BmpClient(bmpUrl, profile.bmpUser, profile.bmpPass, profile.id, authMode);
+  const testClient = new BmpClient(bmpUrl, profile.bmpUser, profile.bmpPass, profile.id, resolveAuthMode(profile));
   try {
     const result = await testClient.testConnection();
     if (ctx.client !== clientAtStart) return;

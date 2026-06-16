@@ -27,6 +27,15 @@ export class AuthError extends Error {
   }
 }
 
+/** The one place the "how does this profile authenticate" rule lives: an
+ *  explicit authMode wins; otherwise a stored password means session-first
+ *  with password fallback ('auto'), and no password means session-only. Used
+ *  by the client pool, the auth test, the settings migration, and the profile
+ *  form so the rule can't drift between them. */
+export function resolveAuthMode(p: { authMode?: AuthMode; bmpPass?: string }): AuthMode {
+  return p.authMode ?? (p.bmpPass && p.bmpPass.trim() ? 'auto' : 'session');
+}
+
 export class BmpAuth {
   private _jwt: string | null = null;
   private _refreshToken: string | null = null;

@@ -11,6 +11,8 @@ export function updateBadge(display: ConnectionState['display']): void {
     case 'auth-failed':
     case 'server-down':
     case 'unreachable':
+    case 'needs-login':
+    case 'no-config-access':
       chrome.action.setBadgeText({ text: '!' });
       chrome.action.setBadgeBackgroundColor({ color: '#f2b8b5' });
       break;
@@ -18,5 +20,12 @@ export function updateBadge(display: ConnectionState['display']): void {
       chrome.action.setBadgeText({ text: '?' });
       chrome.action.setBadgeBackgroundColor({ color: '#938f99' });
       break;
+    default: {
+      // Exhaustiveness guard: a new ConnectionState['display'] must add a case
+      // here (this is what silently went stale for needs-login/no-config-access).
+      const _exhaustive: never = display;
+      void _exhaustive;
+      chrome.action.setBadgeText({ text: '' });
+    }
   }
 }
