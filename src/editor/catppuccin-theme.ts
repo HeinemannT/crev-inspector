@@ -53,6 +53,26 @@ const theme = EditorView.theme({
   '.cm-searchMatch.cm-searchMatch-selected': {
     backgroundColor: `${surface2}a0`,
   },
+  // Search/replace panel controls — inherit the dark chrome instead of the
+  // browser default white inputs + CM's light button gradient.
+  '.cm-panel.cm-search input[type=text]': {
+    backgroundColor: base,
+    color: text,
+    border: `1px solid ${surface1}`,
+    borderRadius: '2px',
+    padding: '2px 4px',
+  },
+  '.cm-panel.cm-search label': { color: subtext0 },
+  '.cm-panel.cm-search button, .cm-button': {
+    backgroundImage: 'none',
+    backgroundColor: surface0,
+    color: text,
+    border: `1px solid ${surface1}`,
+    borderRadius: '2px',
+  },
+  '.cm-panel.cm-search button:hover, .cm-button:hover': {
+    backgroundColor: surface1,
+  },
   '.cm-activeLine': {
     backgroundColor: `${surface0}40`,  // 25% opacity
   },

@@ -8,7 +8,7 @@ import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightAc
 import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirror/commands'
 import { bracketMatching, foldGutter, indentOnInput, foldKeymap, indentUnit } from '@codemirror/language'
 import { closeBrackets, closeBracketsKeymap, autocompletion, startCompletion } from '@codemirror/autocomplete'
-import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
+import { highlightSelectionMatches, searchKeymap, search, openSearchPanel } from '@codemirror/search'
 import { lintGutter } from '@codemirror/lint'
 import { catppuccinMocha } from './catppuccin-theme'
 
@@ -29,6 +29,7 @@ import {
   getActiveIdentity,
   getExecutionRid,
   getSaveTarget,
+  pickNearestLine,
 } from './editor-types'
 
 // Plain-language support for CVO code fields (html / javascript / css).
@@ -224,6 +225,21 @@ async function init() {
   window.addEventListener('resize', () => {
     if (bottomPanelOpen) applyOutputHeight()
   })
+
+  // Route Ctrl/Cmd+F to CodeMirror's search panel from ANYWHERE in the editor
+  // window. searchKeymap already binds it when the code area is focused, but if
+  // focus is on the output panel or a toolbar button the key falls through to
+  // Chrome's native find — which can only see the lines CodeMirror has rendered
+  // (it virtualizes the document), so it can't reach off-screen matches. Capture
+  // the key first and open the (document-aware) CM panel instead.
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+      if (editorView) {
+        e.preventDefault()
+        openSearchPanel(editorView)
+      }
+    }
+  }, true)
 }
 
 // ── Window title ────────────────────────────────────────────────
@@ -657,6 +673,12 @@ function createEditor(code: string) {
     history(),
     foldGutter(),
     highlightSelectionMatches(),
+    // CodeMirror's own find/replace panel, docked at the top so it's
+    // discoverable. We reuse this rather than building a custom find bar; the
+    // Ctrl+F routing below guarantees it opens even when focus is on the
+    // output panel / a toolbar button (where it would otherwise fall through
+    // to Chrome's native find — which can't navigate the virtualized editor).
+    search({ top: true }),
     // Two completion sources for EC:
     //   - starExpansion: type `*` inside `.table(`/`.forEach(`/etc.
     //     surfaces the "expand to all properties" snippet.
@@ -792,12 +814,23 @@ function createEditor(code: string) {
   // field is then consumed (set back to undefined) so it doesn't keep
   // pulling them back on subsequent property switches.
   const scrollToLine = ctx?.scrollToLine
-  if (scrollToLine && scrollToLine > 0) {
+  const scrollToText = ctx?.scrollToText?.trim()
+  if ((scrollToLine && scrollToLine > 0) || scrollToText) {
     requestAnimationFrame(() => {
       if (!editorView) return
       const doc = editorView.state.doc
-      const lineNum = Math.max(1, Math.min(scrollToLine, doc.lines))
-      const line = doc.line(lineNum)
+      let targetLine = scrollToLine ? Math.max(1, Math.min(scrollToLine, doc.lines)) : 1
+      // Prefer locating the matched TEXT over trusting the line NUMBER. Code
+      // Search and the editor reconstruct the body via independent fetches, so
+      // the same match can sit a few lines apart between them; landing purely
+      // on the number can miss (and the old code silently clamped to the last
+      // line). Pick the occurrence nearest the hinted line so duplicate lines
+      // (e.g. a lone `}`) still resolve to the intended hit.
+      if (scrollToText) {
+        const best = pickNearestLine(i => doc.line(i).text, doc.lines, scrollToText, scrollToLine)
+        if (best > 0) targetLine = best
+      }
+      const line = doc.line(targetLine)
       editorView.dispatch({
         selection: { anchor: line.from, head: line.from },
         // `EditorView.scrollIntoView` is a transaction effect; we ask
@@ -808,7 +841,7 @@ function createEditor(code: string) {
       })
       editorView.focus()
     })
-    if (ctx) ctx.scrollToLine = undefined
+    if (ctx) { ctx.scrollToLine = undefined; ctx.scrollToText = undefined }
     dirty = false
   } else {
     const stash = getStashedPropState()

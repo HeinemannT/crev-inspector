@@ -72,7 +72,7 @@ export async function openEditorWindow(
   rid: string,
   preferredProperty?: string,
   target?: { tabId?: number; windowId?: number },
-  opts?: { scrollToLine?: number },
+  opts?: { scrollToLine?: number; scrollToText?: string },
 ) {
   const swCtx = getCtx();
   await swCtx.settingsReady;
@@ -137,6 +137,7 @@ export async function openEditorWindow(
     executionContext,
     useLookup: swCtx.client?.supportsLookup !== false,
     scrollToLine: opts?.scrollToLine,
+    scrollToText: opts?.scrollToText,
   };
 
   const storageKey = `crev_editor_ctx_${rid}`;

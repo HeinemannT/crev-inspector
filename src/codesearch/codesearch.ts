@@ -535,6 +535,7 @@ function renderResults(): HTMLElement {
                   rid,
                   property: r.property,
                   scrollToLine: line.lineNum,
+                  scrollToText: line.text,
                 }),
               },
                 h('span', { class: 'cs-line-num' }, String(line.lineNum)),

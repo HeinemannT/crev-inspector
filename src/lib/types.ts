@@ -183,7 +183,7 @@ export type EcMessage =
   | { type: 'EC_RESULT'; ok: boolean; log?: string; hasError?: boolean; hasWarning?: boolean; error?: string; durationMs?: number }
   | { type: 'SAVE_PROPERTY'; rid: string; objectType: string; property: string; value: string }
   | { type: 'SAVE_RESULT'; ok: boolean; error?: string }
-  | { type: 'OPEN_EDITOR'; rid: string; property?: string; scrollToLine?: number }
+  | { type: 'OPEN_EDITOR'; rid: string; property?: string; scrollToLine?: number; scrollToText?: string }
   | { type: 'OPEN_EXTENDED' };
 
 // ── Frame Overlay (in-page floating iframes for editor/diff/objectview/codesearch) ─

@@ -92,7 +92,7 @@ register('OPEN_EDITOR', (msg, _respond, meta) => {
     msg.rid,
     msg.property,
     { tabId: meta.senderTabId, windowId: meta.panelWindowId },
-    { scrollToLine: msg.scrollToLine },
+    { scrollToLine: msg.scrollToLine, scrollToText: msg.scrollToText },
   );
   const ctx = getCtx();
   const cached = ctx.cache.get(msg.rid);

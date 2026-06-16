@@ -37,6 +37,12 @@ export interface EditorContext {
    *  actual hit instead of line 1. Cleared after consumption so a
    *  subsequent property switch on the same context doesn't re-scroll. */
   scrollToLine?: number
+  /** The matched line's TEXT, when the jump came from Code Search. The editor's
+   *  body can differ from the search-side body by a few lines (the two paths
+   *  reconstruct `output()` independently), so landing on a line NUMBER alone
+   *  can miss. When present, the editor locates this text nearest to
+   *  `scrollToLine` and lands on the real match instead of silently clamping. */
+  scrollToText?: string
 }
 
 // ── Label formatting ─────────────────────────────────────────────
@@ -106,4 +112,30 @@ export function computeOverrides(
     }
   }
   return overrides
+}
+
+/** Find the 1-based line whose text contains `needle`, nearest to `hint` (the
+ *  line number Code Search reported). Returns 0 when no line matches. Used to
+ *  land a Code-Search jump on the real match even when the editor's body is a
+ *  few lines off from the search-side body — and to resolve duplicate lines
+ *  (e.g. a lone `}`) to the intended hit. `lineText` is 1-based. */
+export function pickNearestLine(
+  lineText: (oneBasedIndex: number) => string,
+  lineCount: number,
+  needle: string,
+  hint?: number,
+): number {
+  if (!needle) return 0
+  let best = 0
+  let bestDist = Infinity
+  for (let i = 1; i <= lineCount; i++) {
+    if (!lineText(i).includes(needle)) continue
+    const dist = hint ? Math.abs(i - hint) : i
+    if (dist < bestDist) {
+      bestDist = dist
+      best = i
+      if (dist === 0) break
+    }
+  }
+  return best
 }
