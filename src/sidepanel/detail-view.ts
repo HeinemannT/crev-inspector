@@ -642,7 +642,7 @@ export class DetailView {
       : null;
     const accessBtn = h('button', {
       class: 'detail-action-btn detail-action-btn--icon',
-      title: 'Test access — trace whether a user/role can read/write/add/delete this object',
+      title: 'Test access: trace whether a user or role can read, write, add, or delete this object',
       'aria-label': 'Test access',
       onClick: () => openAccessTrace({ rid: s.rid, name: s.identity.name, type: s.identity.type }),
     }, svg(ICON_SHIELD));

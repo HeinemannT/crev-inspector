@@ -172,7 +172,7 @@ export class ConnectTab implements Tab {
         // Trimmed to one line; the table-rows caveat moved to the tooltip.
         h('span', {
           class: 'field-hint',
-          title: 'Table rows aren’t covered — they navigate via anchor links and are filtered separately.',
+          title: 'Table rows are not covered; they navigate via anchor links and are filtered separately.',
         }, 'Also labels inline RID elements the widget size filter hides.'),
       ),
 
@@ -549,8 +549,8 @@ export class ConnectTab implements Tab {
         // anything.
         h('span', { class: 'field-hint' },
           ep.bmpPass.trim()
-            ? 'Signs in with these credentials, but uses your live browser session first when available.'
-            : 'Leave blank to use your existing BMP browser login (works with SSO). Add a password only for headless/no-tab use.'),
+            ? 'Uses your current BMP login if you have one, otherwise signs in with these credentials.'
+            : 'Leave blank to use your current BMP login in this browser (works with SSO). Add a password to connect even when you are not logged in.'),
         h('div', { class: 'profile-form-actions' },
           h('button', { class: 'btn btn-accent btn-small', 'data-action': 'pf-save' }, 'Save'),
           h('button', { class: 'btn btn-small', 'data-action': 'pf-cancel' }, 'Cancel'),

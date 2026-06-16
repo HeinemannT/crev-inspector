@@ -127,7 +127,7 @@ export class ObjectsTab implements Tab {
     if (this.searchInputEl) return this.searchInputEl;
     const input = h('input', {
       class: 'bx-input', id: 'objects-search', type: 'text',
-      placeholder: 'Search the workspace — name, type, ID, RID',
+      placeholder: 'Search the workspace by name, type, ID, or RID',
       autocomplete: 'off', autocorrect: 'off', spellcheck: 'false',
     }) as HTMLInputElement;
     input.addEventListener('input', () => {

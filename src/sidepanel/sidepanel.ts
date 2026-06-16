@@ -393,7 +393,9 @@ function buildApp(): void {
     }),
   );
 
-  const isError = ['unreachable', 'server-down', 'auth-failed'].includes(S.connState.display);
+  // 'needs-login' is recoverable in place (log into BMP, then retry), so it
+  // gets the prominent Reconnect button alongside the hard-error states.
+  const isError = ['unreachable', 'server-down', 'auth-failed', 'needs-login'].includes(S.connState.display);
   const statusStrip = h('div', { class: `status-strip ${statusStripClass()}`, id: 'status-strip' },
     h('span', { class: `status-dot ${statusDotClass()}`, id: 'strip-dot' }),
     h('span', { class: 'status-strip-text', id: 'strip-text' }, statusStripText()),
@@ -525,7 +527,7 @@ function statusText(): string {
     case 'connected': return S.connState.profileLabel ?? 'Connected';
     case 'online': return 'Online';
     case 'needs-login': return 'Log into BMP';
-    case 'no-config-access': return 'No CS access';
+    case 'no-config-access': return 'No config access';
     case 'auth-failed': return 'Auth failed';
     case 'server-down': return 'Server down';
     case 'unreachable': return S.connState.networkOffline ? 'No network' : 'Unreachable';
@@ -584,8 +586,8 @@ function statusStripText(): string {
       return parts.join(' \u00b7 ');
     }
     case 'online': return 'Online (not authenticated)';
-    case 'needs-login': return 'Not logged into BMP \u2014 open BMP in a tab and log in';
-    case 'no-config-access': return 'Logged in, but this user lacks Configuration Access';
+    case 'needs-login': return 'Not logged in. Open BMP in a tab, log in, then retry.';
+    case 'no-config-access': return 'Logged in, but this user has no Configuration Access role.';
     case 'auth-failed': return 'Auth failed';
     case 'server-down': return 'Server down';
     case 'unreachable': return s.networkOffline ? 'No network' : 'Unreachable';
@@ -602,7 +604,9 @@ function refreshStatusStrip() {
   if (text) text.textContent = statusStripText();
   const reconnect = document.getElementById('strip-reconnect');
   if (reconnect) {
-    const isError = ['unreachable', 'server-down', 'auth-failed'].includes(S.connState.display);
+    // 'needs-login' is recoverable in place (log into BMP, then retry), so it
+  // gets the prominent Reconnect button alongside the hard-error states.
+  const isError = ['unreachable', 'server-down', 'auth-failed', 'needs-login'].includes(S.connState.display);
     reconnect.classList.toggle('hidden', !isError);
   }
   const btn = strip.querySelector('.status-strip-btn');
@@ -648,7 +652,7 @@ function updateStatusBar() {
  *  Click jumps to the detail view. Hidden when there's nothing in context. */
 function renderContextPill(): HTMLElement | null {
   const c = S.context;
-  if (!c?.rid) return h('div', { class: 'status-bar-context status-bar-context--empty', id: 'status-bar-context', title: 'No object open — click a widget (Inspect on), right-click a BMP element, or pick one to inspect it' }, 'no object');
+  if (!c?.rid) return h('div', { class: 'status-bar-context status-bar-context--empty', id: 'status-bar-context', title: 'No object open. Click a widget (Inspect on), right-click a BMP element, or pick one to inspect it.' }, 'no object');
   const label = c.name || c.businessId || c.rid;
   // When the context is a Tab, prefix the label so it's distinguishable
   // from a same-named widget at a glance — tabs live alongside scorecards
