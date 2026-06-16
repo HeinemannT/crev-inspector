@@ -59,7 +59,6 @@ import { runtimeErrorLinter, setRuntimeError, parseEcErrorLocation, clearRuntime
 import { ecBlockMatching } from './ec/blockMatching'
 import { ecFoldService } from './ec/foldRegions'
 import { wrapInIf, wrapInForEach } from './ec/wrapCommands'
-import { selectNextOccurrence } from './ec/renameVariable'
 
 // ── State ────────────────────────────────────────────────────────
 
@@ -277,8 +276,7 @@ function showEditorHelp(anchor: HTMLElement): void {
       rows: [
         [`${KBD_MOD}+D`,        'Select next occurrence (multi-cursor)'],
         [`${KBD_MOD}+/`,        'Toggle line comment'],
-        [`${KBD_MOD}+F`,        'Find in editor'],
-        [`${KBD_MOD}+Shift+F`,  'Find & replace'],
+        [`${KBD_MOD}+F`,        'Find / replace (in-editor panel)'],
         ['Tab',        'Indent selection'],
         ['Shift+Tab',  'Outdent selection'],
         ['Esc',        'Close editor window'],
@@ -691,10 +689,10 @@ function createEditor(code: string) {
       // EC-specific
       { key: 'Ctrl-Shift-x', run: wrapInIf },
       { key: 'Ctrl-Shift-e', run: wrapInForEach },
-      // F2 rename-all-occurrences removed in v0.20.11 — the
-      // identifier-rewrite logic was buggy in EC's tokeniser. Use
-      // Ctrl-D (select next occurrence) + multi-cursor edit instead.
-      { key: 'Ctrl-d', run: selectNextOccurrence },
+      // Select-next-occurrence (Mod-d) and the find/replace panel (Mod-f) come
+      // from searchKeymap above — we deliberately don't bind our own. CM's
+      // built-ins handle scroll-into-view, multi-cursor, and platform mod-keys
+      // correctly; a custom Ctrl-d here only duplicated and shadowed them.
       // Preview / Run / Save shortcuts
       { key: 'Ctrl-Enter', run: () => { doPreview(); return true } },
       { key: 'F5', run: () => { doPreview(); return true }, preventDefault: true },
