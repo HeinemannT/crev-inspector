@@ -36,7 +36,7 @@ export function selectNextOccurrence(view: EditorView): boolean {
   if (main.empty) {
     const word = wordAt(state, main.head)
     if (!word) return false
-    view.dispatch({ selection: EditorSelection.single(word.from, word.to) })
+    view.dispatch({ selection: EditorSelection.single(word.from, word.to), scrollIntoView: true })
     return true
   }
 
@@ -66,6 +66,11 @@ export function selectNextOccurrence(view: EditorView): boolean {
   const newRange = EditorSelection.range(next.from, next.to)
   view.dispatch({
     selection: EditorSelection.create([...existing, newRange], existing.length),
+    // Scroll the newly added (primary) occurrence into view. Without this a
+    // match outside the viewport — a later line, or further along one very long
+    // line — gets a cursor but the editor never scrolls to it, so it looks like
+    // the jump "didn't happen". CM6 does NOT auto-scroll programmatic selections.
+    scrollIntoView: true,
   })
   return true
 }
