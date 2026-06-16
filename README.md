@@ -68,9 +68,18 @@ Rebind at `chrome://extensions/shortcuts`.
   </tr>
 </table>
 
+## Authentication
+
+A profile needs only a **BMP URL** — username and password are optional. Each profile authenticates by one of two strategies:
+
+- **Session borrow (default when no password).** The inspector reuses the BMP session you already have in the browser: it reads the workspace's `JSESSIONID` cookie and mints its own short-lived token from it (GraphQL `authorizationCode` → `/cstoken`). No credentials are stored, and it inherits your browser's reachability — so it works under SSO, VPN, and client-certificate deployments without any setup. The minted token is an **independent** chain (it never touches the page's own token, so it can't disturb your BMP tabs).
+- **Password (when credentials are set).** The profile is `auto`: it tries the browser session first and falls back to a stored-credential login only when there's no usable session. A password-only mode is not exposed because session-first is strictly better.
+
+The status strip shows which path is live ("… · via browser session" / "… · via stored login"). When you log out of BMP, a `cookies.onChanged` listener drops any borrowed token so the inspector's access tracks your login (state → "Not logged in"). States surface precisely: `needs-login` (open BMP and log in), `no-config-access` (logged in but missing the Configuration Access role), `auth-failed` (bad credentials).
+
 ## Security
 
-Passwords are AES-GCM encrypted at rest in `chrome.storage.local`. HTTP profile URLs trigger an inline warning. "Reset all state" wipes the cache, log, and history while keeping profiles and favourites.
+Minted tokens live only in `chrome.storage.session` (cleared when the browser closes), never on disk. Stored passwords are AES-GCM encrypted at rest in `chrome.storage.local`. HTTP profile URLs trigger an inline warning. Note: a password login goes through the shared browser cookie jar, so it replaces the tab's current BMP session with the stored account — relevant only when the stored credentials differ from your browser login. "Reset all state" wipes the cache, log, and history while keeping profiles and favourites.
 
 ## Development
 
