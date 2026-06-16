@@ -83,21 +83,25 @@ describe('absorbAuth persists tokens', () => {
     const source = new BmpAuth('https://bmp.test/', 'admin', 'pass', 'prof-src');
     (source as any)._jwt = 'jwt-from-source';
     (source as any)._refreshToken = 'refresh-from-source';
+    (source as any)._via = 'session';
 
     const target = new BmpAuth('https://bmp.test/', 'admin', 'pass', 'prof-tgt');
     target.absorbAuth(source);
 
     expect(target.jwt).toBe('jwt-from-source');
+    // absorbAuth also carries the "how we connected" marker.
+    expect(target.via).toBe('session');
 
     // Wait for the async persist to complete
     await vi.waitFor(() => {
       expect(chrome.storage.session.set).toHaveBeenCalled();
     });
 
-    // Verify the stored data
+    // Verify the stored data (the via is persisted alongside the tokens so it
+    // survives refresh + SW restart).
     const setCall = (chrome.storage.session.set as any).mock.calls[0][0];
     const key = Object.keys(setCall)[0];
-    expect(setCall[key]).toEqual({ jwt: 'jwt-from-source', refreshToken: 'refresh-from-source' });
+    expect(setCall[key]).toEqual({ jwt: 'jwt-from-source', refreshToken: 'refresh-from-source', via: 'session' });
   });
 
   it('tokens survive session restore after absorbAuth', async () => {

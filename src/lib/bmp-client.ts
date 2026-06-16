@@ -18,7 +18,7 @@ import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessTraceActio
 import { log } from './logger';
 import { HEALTH_TIMEOUT, BATCH_CHUNK_SIZE, MAX_PARALLEL } from './constants';
 import { BmpAuth, AuthError } from './bmp-auth';
-import type { AuthMode, AuthErrorCode } from './bmp-auth';
+import type { AuthMode, AuthErrorCode, AuthVia } from './bmp-auth';
 import { BmpTransport } from './bmp-transport';
 import { pMap, compareVersions } from './util';
 import { parsePipeLines, parseSepBlocks, parseSepMultiObject } from './ec-parser';
@@ -328,6 +328,8 @@ export class BmpClient {
   get serverUrl(): string { return this.bmpUrl; }
   get username(): string { return this.auth.username; }
   get authMode(): AuthMode { return this.auth.authMode; }
+  /** How the live session was actually obtained (session-borrow vs password). */
+  get authVia(): AuthVia | null { return this.auth.via; }
   updateCredentials(user: string, pass: string, authMode?: AuthMode): void {
     this.auth.updateCredentials(user, pass, authMode);
   }

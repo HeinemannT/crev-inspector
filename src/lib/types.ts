@@ -1,9 +1,11 @@
-import type { AuthMode } from './bmp-auth';
-export type { AuthMode };
+import type { AuthMode, AuthVia } from './bmp-auth';
+export type { AuthMode, AuthVia };
 
 /** Unified connection state — single source of truth for health + auth */
 export interface ConnectionState {
   display: 'not-configured' | 'checking' | 'connected' | 'online' | 'auth-failed' | 'server-down' | 'unreachable' | 'needs-login' | 'no-config-access';
+  /** How the live connection was established (only meaningful when connected). */
+  authVia: AuthVia | null;
   version: string | null;
   responseMs: number | null;
   profileLabel: string | null;

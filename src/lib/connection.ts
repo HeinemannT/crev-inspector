@@ -1,5 +1,5 @@
 import type { ConnectionState } from './types';
-import { resolveAuthMode, type AuthErrorCode } from './bmp-auth';
+import { resolveAuthMode, type AuthErrorCode, type AuthVia } from './bmp-auth';
 import { getCtx } from './sw-context';
 import { BmpClient } from './bmp-client';
 import { log, errorMessage } from './logger';
@@ -16,6 +16,7 @@ let healthResponseMs: number | null = null;
 let authResult: 'pending' | 'ok' | 'failed' = 'pending';
 let authError: string | null = null;
 let authErrorCode: AuthErrorCode | null = null;
+let authVia: AuthVia | null = null;
 let healthTimer: ReturnType<typeof setInterval> | null = null;
 let networkOffline = false;
 let lastPollTime = 0;
@@ -52,6 +53,7 @@ export function resetConnectionState() {
   authResult = 'pending';
   authError = null;
   authErrorCode = null;
+  authVia = null;
   lastBroadcastDisplay = null;
   lastPollTime = 0;
   // Reset version flags — will be re-evaluated when version is detected
@@ -66,7 +68,7 @@ export function computeConnectionState(): ConnectionState {
   const profile = ctx.settings.profiles.find(p => p.id === ctx.settings.activeProfileId);
   // A URL alone configures a profile now — `session` profiles have no username.
   if (!profile?.bmpUrl) {
-    return { display: 'not-configured', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, networkOffline: false, lastUpdate: Date.now() };
+    return { display: 'not-configured', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, authVia: null, networkOffline: false, lastUpdate: Date.now() };
   }
 
   let display: ConnectionState['display'];
@@ -103,6 +105,7 @@ export function computeConnectionState(): ConnectionState {
     user: authResult === 'ok' ? (profile.bmpUser || null) : null,
     workspace,
     authError: authResult === 'failed' ? authError : null,
+    authVia: authResult === 'ok' ? authVia : null,
     networkOffline,
     lastUpdate: Date.now(),
   };
@@ -163,6 +166,7 @@ export async function runAuthTest() {
         authResult = 'ok';
         authError = null;
         authErrorCode = null;
+        authVia = ctx.client.authVia;  // refresh keeps the via the chain recorded at login
         if (!healthVersion) {
           healthVersion = await BmpClient.getBuildNumber(bmpUrl, ctx.client.jwt ?? undefined);
           applyVersionFlags(healthVersion, healthVersion ? undefined : '/buildNum not available (likely old BMP)');
@@ -188,6 +192,7 @@ export async function runAuthTest() {
     authResult = result.ok ? 'ok' : 'failed';
     authError = result.ok ? null : result.message;
     authErrorCode = result.ok ? null : (result.code ?? null);
+    authVia = result.ok ? testClient.authVia : null;
     ctx.logActivity(result.ok ? 'success' : 'warn', result.ok ? `Connected to ${profile.label}` : 'Connection failed', result.message);
     if (result.ok && ctx.client) {
       ctx.client.absorbAuth(testClient);
@@ -201,6 +206,7 @@ export async function runAuthTest() {
     authResult = 'failed';
     authError = errorMessage(e);
     authErrorCode = null;
+    authVia = null;
   }
   pushConnectionState();
   if (authResult === 'ok' && ctx.client) {

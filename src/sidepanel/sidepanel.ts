@@ -583,6 +583,7 @@ function statusStripText(): string {
       if (s.profileLabel) parts[0] = s.profileLabel;
       if (s.workspace) parts.push(s.workspace);
       if (s.version) parts.push(`BMP ${s.version}`);
+      if (s.authVia) parts.push(s.authVia === 'session' ? 'via browser session' : 'via stored login');
       return parts.join(' \u00b7 ');
     }
     case 'online': return 'Online (not authenticated)';

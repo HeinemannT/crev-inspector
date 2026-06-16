@@ -12,6 +12,11 @@ import { AUTH_TIMEOUT } from './constants';
  *  - `auto`     — try session piggyback first, fall back to password. */
 export type AuthMode = 'session' | 'password' | 'auto';
 
+/** How a connection was actually established (the winning strategy), as opposed
+ *  to how the profile is configured (`AuthMode`). Surfaced so the user can see
+ *  whether they're connected as their browser self or via stored credentials. */
+export type AuthVia = 'session' | 'password';
+
 /** Auth failure with a machine-readable cause, so the connection layer can map
  *  it to a precise UI state instead of a generic "failed". */
 export type AuthErrorCode =
@@ -36,6 +41,17 @@ export function resolveAuthMode(p: { authMode?: AuthMode; bmpPass?: string }): A
   return p.authMode ?? (p.bmpPass && p.bmpPass.trim() ? 'auto' : 'session');
 }
 
+/** Outcome of one auth strategy in the chain.
+ *  - `ok`   — got a JWT; `via` records how.
+ *  - `skip` — strategy not applicable (no session to borrow / no creds set);
+ *             the chain moves on with no error recorded.
+ *  - `fail` — strategy was tried and failed; the chain remembers the error but
+ *             KEEPS GOING so a later strategy can still succeed. */
+type AuthAttempt =
+  | { status: 'ok'; jwt: string; via: AuthVia }
+  | { status: 'skip' }
+  | { status: 'fail'; error: AuthError; via: AuthVia };
+
 export class BmpAuth {
   private _jwt: string | null = null;
   private _refreshToken: string | null = null;
@@ -44,6 +60,7 @@ export class BmpAuth {
   private _refreshPromise: Promise<string | null> | null = null;
   private _profileId: string;
   private _authMode: AuthMode;
+  private _via: AuthVia | null = null;
 
   constructor(
     private bmpUrl: string,
@@ -73,42 +90,71 @@ export class BmpAuth {
    *  cookie, never a password — so for an in-browser tool the primary path is to
    *  BORROW the user's existing browser session and only fall back to a password
    *  bootstrap when there's no session (or the profile is password-only). */
+  /** Run the auth strategies in order and return the first JWT. A strategy that
+   *  `fail`s does NOT stop the chain — its error is remembered and the next
+   *  strategy still runs. That's what lets `auto` fall back to the password
+   *  when the borrowed session exists but lacks Configuration Access. Only when
+   *  every strategy has skipped/failed do we surface a failure (the deepest
+   *  one tried, which is the user's configured path when they set a password).
+   *  The winning strategy's `via` is recorded for the UI. */
   private async _doLogin(): Promise<string> {
-    const tryHarvest = this._authMode !== 'password';
-    const tryPassword = this._authMode !== 'session' && !!this.bmpUser && !!this.bmpPass;
+    const strategies: Array<() => Promise<AuthAttempt>> = [];
+    if (this._authMode !== 'password') strategies.push(() => this._attemptSession());
+    if (this._authMode !== 'session') strategies.push(() => this._attemptPassword());
 
-    // Strategy 1: piggyback on the live browser session.
-    if (tryHarvest) {
-      const jwt = await this._harvestSession();   // null = no usable session; throws on no-config-access
-      if (jwt) return jwt;
+    let deepestFailure: AuthError | null = null;
+    for (const run of strategies) {
+      const attempt = await run();
+      if (attempt.status === 'ok') {
+        this._via = attempt.via;
+        return attempt.jwt;
+      }
+      if (attempt.status === 'fail') deepestFailure = attempt.error;
+      // 'skip' → strategy not applicable; try the next one.
     }
 
-    // Strategy 2: bootstrap a session with stored credentials, then exchange.
-    if (tryPassword) {
-      await this._passwordLogin();
-      const jwt = await this._completeTokenExchange();
-      if (jwt) return jwt;
-      throw new AuthError('Logged in but could not obtain a Configuration Studio token.', 'exchange-failed');
-    }
-
-    // Nothing available.
-    if (tryHarvest) throw new AuthError('No active BMP session. Open BMP in a tab and log in, then retry.', 'needs-login');
-    throw new AuthError('No credentials configured for this profile.', 'auth-failed');
+    if (deepestFailure) throw deepestFailure;
+    throw new AuthError('No active BMP session. Open BMP in a tab and log in, then retry.', 'needs-login');
   }
 
-  /** Borrow the browser's JSESSIONID for this workspace and mint OUR OWN token
-   *  chain from it. Returns null when there's no (usable) session so the chain
-   *  can fall through to a password bootstrap. */
-  private async _harvestSession(): Promise<string | null> {
+  /** Strategy: borrow the browser's live BMP session for this workspace.
+   *  `skip` when there's no session to borrow (no cookie, or a stale one that
+   *  the exchange rejects with 401) so the chain falls through to credentials;
+   *  `fail` when the session is real but unusable (e.g. no Configuration
+   *  Access) — recorded, but the chain still tries the password. */
+  private async _attemptSession(): Promise<AuthAttempt> {
     let hasCookie = false;
     try {
-      const c = await chrome.cookies.get({ url: this.bmpUrl, name: 'JSESSIONID' });
-      hasCookie = c != null;
+      hasCookie = (await chrome.cookies.get({ url: this.bmpUrl, name: 'JSESSIONID' })) != null;
     } catch (e) {
-      log.warn('auth:cookieGet', e, 'chrome.cookies.get failed — falling through');
+      log.warn('auth:cookieGet', e, 'chrome.cookies.get failed; treating as no session');
     }
-    if (!hasCookie) return null;
-    return this._completeTokenExchange();
+    if (!hasCookie) return { status: 'skip' };
+    try {
+      const jwt = await this._completeTokenExchange();
+      if (jwt == null) return { status: 'skip' };  // stale session (401) — fall through
+      return { status: 'ok', jwt, via: 'session' };
+    } catch (e) {
+      if (e instanceof AuthError) return { status: 'fail', error: e, via: 'session' };
+      throw e;
+    }
+  }
+
+  /** Strategy: bootstrap a session from stored credentials, then exchange.
+   *  `skip` when the profile carries no credentials. */
+  private async _attemptPassword(): Promise<AuthAttempt> {
+    if (!this.bmpUser || !this.bmpPass) return { status: 'skip' };
+    try {
+      await this._passwordLogin();
+      const jwt = await this._completeTokenExchange();
+      if (jwt == null) {
+        return { status: 'fail', error: new AuthError('Logged in but could not obtain a Configuration Studio token.', 'exchange-failed'), via: 'password' };
+      }
+      return { status: 'ok', jwt, via: 'password' };
+    } catch (e) {
+      if (e instanceof AuthError) return { status: 'fail', error: e, via: 'password' };
+      throw e;
+    }
   }
 
   /** The shared token tail: GraphQL authorizationCode → /cstoken exchange.
@@ -245,10 +291,11 @@ export class BmpAuth {
     if (this._jwt) return true;
     try {
       const result = await chrome.storage.session.get(this._sessionKey);
-      const saved = result[this._sessionKey] as { jwt: string; refreshToken: string } | undefined;
+      const saved = result[this._sessionKey] as { jwt: string; refreshToken: string; via?: AuthVia } | undefined;
       if (saved?.jwt) {
         this._jwt = saved.jwt;
         this._refreshToken = saved.refreshToken ?? null;
+        this._via = saved.via ?? null;
         return true;
       }
     } catch (e) {
@@ -266,6 +313,11 @@ export class BmpAuth {
    *  mode change (session ↔ password ↔ auto) under the same profileId. */
   get authMode(): AuthMode { return this._authMode; }
 
+  /** How the current session was actually established (null until a successful
+   *  login). Survives refresh and SW restart because it's persisted with the
+   *  token. Drives the "Connected via …" hint. */
+  get via(): AuthVia | null { return this._via; }
+
   /** Update the credentials in-place. Used when the user edits a
    *  pooled profile's password — we keep the JWT (refresh-token flow
    *  handles password rotation cleanly) but record the new password
@@ -280,6 +332,7 @@ export class BmpAuth {
   absorbAuth(other: BmpAuth) {
     this._jwt = other._jwt;
     this._refreshToken = other._refreshToken;
+    this._via = other._via;
     this._loginTicket = null; // Ticket is derived from JWT — re-derive on demand
     this._persistTokens();
   }
@@ -288,6 +341,7 @@ export class BmpAuth {
   logout() {
     this._jwt = null;
     this._refreshToken = null;
+    this._via = null;
     this._loginTicket = null;
     this._loginPromise = null;
     this._refreshPromise = null;
@@ -317,7 +371,7 @@ export class BmpAuth {
   }
 
   private _persistTokens() {
-    chrome.storage.session.set({ [this._sessionKey]: { jwt: this._jwt, refreshToken: this._refreshToken } }).catch(e => log.swallow('auth:persistTokens', e));
+    chrome.storage.session.set({ [this._sessionKey]: { jwt: this._jwt, refreshToken: this._refreshToken, via: this._via } }).catch(e => log.swallow('auth:persistTokens', e));
   }
 
   private _clearPersistedTokens() {
