@@ -122,7 +122,7 @@ export async function startCodeSearch(
     const resolved = await resolveScope(ctx.client, subtreeRid);
     if (aborted()) return;
     if (!resolved) {
-      broadcastScope(null, `Couldn't resolve scope "${subtreeRid}" — use a numeric RID or namespace.bid (e.g. t.118)`);
+      broadcastScope(null, `Couldn't resolve scope "${subtreeRid}". Use a numeric RID or namespace.bid (e.g. t.118).`);
       broadcastDone(0, 0);
       return;
     }

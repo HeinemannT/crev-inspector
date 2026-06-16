@@ -60,7 +60,7 @@ export function colorLinkEditor(
 ): HTMLElement {
   const btn = h('button', {
     class: 'prop-color-link',
-    title: opts.name ? `${opts.name} — click to change the linked colour` : 'No colour linked — click to pick one',
+    title: opts.name ? `Linked colour: ${opts.name}. Click to change.` : 'No linked colour. Click to pick one.',
     onClick: (e: Event) => opts.onOpen(e.currentTarget as HTMLElement),
   },
     h('span', { class: `prop-color-swatch${opts.rgb ? '' : ' prop-color-swatch--none'}`, style: opts.rgb ? `background:${opts.rgb}` : '' }),

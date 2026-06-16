@@ -390,7 +390,7 @@ export class DetailView {
         // (verified live — the committed change is invisible until a full
         // page reload). Rather than fight it with a fragile per-component
         // optimistic DOM patch, offer a one-click reload of the BMP tab.
-        showToast('Saved — reload the BMP page to see it', 'success', {
+        showToast('Saved. Reload the BMP page to see it.', 'success', {
           label: 'Reload',
           onClick: () => this.sendMessage({ type: 'RELOAD_BMP_TAB' }),
         });

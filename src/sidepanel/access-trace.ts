@@ -399,7 +399,7 @@ function copyResult(): void {
   if (!r || !o || !s) return;
   const verdict = r.result === true ? 'GRANTED' : 'DENIED';
   const action = ACTIONS.find(a => a.key === state.action)?.label;
-  const header = `${verdict} — ${s.kind} "${s.name}" · ${action} — ${o.type} "${o.name}"`;
+  const header = `${verdict}: ${s.kind} "${s.name}" · ${action} · ${o.type} "${o.name}"`;
   const body = r.children.map(c => nodeToText(c, 1)).join('\n');
   void navigator.clipboard?.writeText(`${header}\n${body}`).then(() => {
     state.copied = true;

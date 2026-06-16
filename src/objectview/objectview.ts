@@ -296,7 +296,7 @@ function renderPane(): void {
           : null,
         h('button', {
           class: 'btn btn-small',
-          title: 'Test access — trace whether a user/role can read/write/add/delete this object',
+          title: 'Test access: trace whether a user or role can read, write, add, or delete this object',
           onClick: () => openAccessTrace({ rid: s.rid, name: s.identity.name, type: s.identity.type }),
         }, 'Access ↗'),
         renderLayoutShortcut(),

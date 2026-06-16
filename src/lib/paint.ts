@@ -133,7 +133,7 @@ export async function handlePaintApply(rid: string) {
 
   const props = activePaintProps(ctx);
   if (props.length === 0) {
-    broadcastApplyResult(rid, false, 'No styles selected — right-click the paint button to choose');
+    broadcastApplyResult(rid, false, 'No styles selected. Right-click the paint button to choose which to copy.');
     return;
   }
 

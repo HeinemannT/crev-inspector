@@ -410,7 +410,7 @@ export class ObjectsTab implements Tab {
       return emptyState({
         variant: 'hero',
         title: 'Browse the workspace',
-        body: 'Search every object by name, type, business ID, or RID — pages, scorecards, tasks, and Ce* enterprise objects. Pinned and recent items appear here as you go.',
+        body: 'Search every object by name, type, business ID, or RID: pages, scorecards, tasks, and Ce* enterprise objects. Pinned and recent items appear here as you go.',
         hint: 'Tip: toggle Inspect on a BMP page to harvest visible widgets into your cache.',
       });
     }

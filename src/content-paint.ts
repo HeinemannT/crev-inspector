@@ -89,7 +89,7 @@ export function flashApplyResult(rid: string, ok: boolean, error?: string) {
     // BMP's React DOM doesn't re-render on out-of-band EC writes, so the
     // painted style is invisible until a full reload. Offer one-click reload —
     // mirrors the object-detail save toast (detail-view.ts).
-    showToast('Style painted — reload the BMP page to see it', 'success', {
+    showToast('Style painted. Reload the BMP page to see it.', 'success', {
       label: 'Reload',
       onClick: () => location.reload(),
     });

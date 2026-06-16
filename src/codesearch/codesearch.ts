@@ -273,7 +273,7 @@ function renderToolbar(): HTMLElement {
     h('input', {
       class: 'cs-scope-input',
       type: 'text',
-      placeholder: 'whole workspace — RID or t.bid',
+      placeholder: 'RID or t.bid (blank = whole workspace)',
       value: subtreeRid,
       title: 'Limit to a subtree: numeric RID or namespace.bid (e.g. t.118). Empty = whole workspace. Press Enter or Search to apply.',
       onInput: (e: Event) => { subtreeRid = (e.currentTarget as HTMLInputElement).value; hasSearched = false; },
