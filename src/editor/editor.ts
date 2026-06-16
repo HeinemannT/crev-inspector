@@ -235,7 +235,11 @@ async function init() {
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
       if (editorView) {
+        // We are the single owner of Ctrl+F in this window: stop here so the
+        // key neither reaches Chrome's native find nor double-fires via
+        // searchKeymap's own Mod-f binding when the code area is focused.
         e.preventDefault()
+        e.stopPropagation()
         openSearchPanel(editorView)
       }
     }
@@ -682,7 +686,7 @@ function createEditor(code: string) {
     // Replace the search panel's jargon toggle labels with compact, recognizable
     // glyphs. These become the real label text (so they always paint) and the
     // toggles render as pills via the theme.
-    EditorState.phrases.of({ 'match case': 'Aa', 'regexp': '.*', 'by word': '\\b' }),
+    EditorState.phrases.of({ 'match case': 'Aa', 'regexp': '.*', 'by word': 'W' }),
     // Two completion sources for EC:
     //   - starExpansion: type `*` inside `.table(`/`.forEach(`/etc.
     //     surfaces the "expand to all properties" snippet.

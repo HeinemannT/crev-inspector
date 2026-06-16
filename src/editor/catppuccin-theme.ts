@@ -62,7 +62,7 @@ const theme = EditorView.theme({
     borderRadius: '2px',
     padding: '2px 4px',
   },
-  // The three option toggles show compact glyphs (Aa / .* / \b) instead of the
+  // The three option toggles show compact glyphs (Aa / .* / W) instead of the
   // jargon "match case / regexp / by word". The glyph TEXT itself comes from CM
   // phrases (see editor.ts) so it's a real text node that always paints; here we
   // only turn each label into a pill that hides the native checkbox and
