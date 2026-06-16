@@ -2,7 +2,7 @@
  * Connect tab — server profiles, connection status, settings.
  */
 
-import type { InspectorMessage, ServerProfile } from '../../lib/types';
+import type { InspectorMessage, ServerProfile, AuthMode } from '../../lib/types';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { ICON_EYE_OPEN, ICON_EYE_CLOSED } from '../utils';
@@ -12,7 +12,7 @@ import { confirmModal } from '../../lib/modal';
 import { getUpdateStatus, refresh as refreshUpdate, type UpdateStatus } from '../../lib/version-check';
 import type { Tab, SendFn } from './tab-types';
 
-type EditingProfile = { id: string | null; label: string; bmpUrl: string; bmpUser: string; bmpPass: string };
+type EditingProfile = { id: string | null; label: string; bmpUrl: string; bmpUser: string; bmpPass: string; authMode?: AuthMode };
 
 export class ConnectTab implements Tab {
   private editing: EditingProfile | null = null;
@@ -127,6 +127,9 @@ export class ConnectTab implements Tab {
         children.push(this.renderProfileForm(rerender));
       } else {
         const urlDisplay = profile.bmpUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+        // A credential-less profile borrows the browser session — say so
+        // instead of the old "(no user)" which read like a misconfiguration.
+        const whoDisplay = profile.bmpUser || 'browser session';
         children.push(
           h('div', {
             class: `profile-card${isActive ? ' active' : ''}`,
@@ -138,7 +141,7 @@ export class ConnectTab implements Tab {
             ),
             h('div', { class: 'profile-info' },
               h('div', { class: 'profile-label' }, profile.label),
-              h('div', { class: 'profile-detail' }, `${urlDisplay} \u00b7 ${profile.bmpUser || '(no user)'}`),
+              h('div', { class: 'profile-detail' }, `${urlDisplay} \u00b7 ${whoDisplay}`),
             ),
             h('button', { class: 'btn btn-small profile-edit-btn', 'data-action': 'edit-profile', 'data-edit-profile': profile.id }, 'Edit'),
           ),
@@ -274,11 +277,18 @@ export class ConnectTab implements Tab {
         const bmpPass = (container.querySelector('#pf-pass') as HTMLInputElement)?.value || '';
 
         if (!bmpUrl.trim()) { flashInvalid(urlInput); return; }
-        if (!bmpUser.trim()) { flashInvalid(userInput); return; }
+
+        // Credentials are optional. With a password the profile authenticates
+        // with stored creds but still tries the live browser session first
+        // ('auto'); without one it relies purely on the browser session
+        // ('session'). This is the only place authMode is set from the UI —
+        // there's no reason to expose a "password-only" mode (session-first is
+        // strictly better: faster, no creds, and works under SSO/VPN/mTLS).
+        const authMode: AuthMode = bmpPass.trim() ? 'auto' : 'session';
 
         const profile: ServerProfile = {
           id: this.editing.id ?? crypto.randomUUID(),
-          label, bmpUrl, bmpUser, bmpPass,
+          label, bmpUrl, bmpUser, bmpPass, authMode,
         };
         const profiles = [...shared.settings.profiles];
         const idx = profiles.findIndex(p => p.id === profile.id);
@@ -512,7 +522,7 @@ export class ConnectTab implements Tab {
         h('div', { class: 'field-row' },
           h('div', { class: 'field-group' },
             h('label', { class: 'field-label' }, 'Username'),
-            h('input', { class: 'field-input', id: 'pf-user', value: ep.bmpUser, placeholder: 'admin' }),
+            h('input', { class: 'field-input', id: 'pf-user', value: ep.bmpUser, placeholder: 'optional' }),
           ),
           h('div', { class: 'field-group' },
             h('label', { class: 'field-label' }, 'Password'),
@@ -533,6 +543,14 @@ export class ConnectTab implements Tab {
             ),
           ),
         ),
+        // Discoverability: credentials are optional. Leaving them blank makes
+        // the profile borrow whatever BMP session the browser already has —
+        // the path that works under SSO / VPN / client-cert without storing
+        // anything.
+        h('span', { class: 'field-hint' },
+          ep.bmpPass.trim()
+            ? 'Signs in with these credentials, but uses your live browser session first when available.'
+            : 'Leave blank to use your existing BMP browser login (works with SSO). Add a password only for headless/no-tab use.'),
         h('div', { class: 'profile-form-actions' },
           h('button', { class: 'btn btn-accent btn-small', 'data-action': 'pf-save' }, 'Save'),
           h('button', { class: 'btn btn-small', 'data-action': 'pf-cancel' }, 'Cancel'),
