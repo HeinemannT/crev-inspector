@@ -62,16 +62,81 @@ const theme = EditorView.theme({
     borderRadius: '2px',
     padding: '2px 4px',
   },
-  '.cm-panel.cm-search label': { color: subtext0 },
-  '.cm-panel.cm-search button, .cm-button': {
+  // The three option toggles render as compact glyph pills (Aa / .* / W) instead
+  // of the jargon labels "match case / regexp / by word". CM's real label text
+  // stays in the DOM for screen readers (font-size:0 hides it visually only);
+  // the glyph is overlaid via ::after, keyed on the stable checkbox `name` so
+  // control order can't break the mapping.
+  '.cm-panel.cm-search label': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '22px',
+    height: '20px',
+    margin: '0 4px 0 0',
+    padding: '0 5px',
+    fontSize: '0',
+    border: `1px solid ${surface1}`,
+    borderRadius: '2px',
+    color: subtext0,
+    cursor: 'pointer',
+    userSelect: 'none',
+    verticalAlign: 'middle',
+  },
+  '.cm-panel.cm-search label input': {  // hide the native checkbox — the pill is the control
+    appearance: 'none',
+    width: '0',
+    height: '0',
+    margin: '0',
+    position: 'absolute',
+  },
+  '.cm-panel.cm-search label::after': {
+    fontSize: '11px',
+    fontFamily: 'monospace',
+    fontWeight: '600',
+    lineHeight: '1',
+  },
+  '.cm-panel.cm-search label:has(input[name=case])::after': { content: '"Aa"' },
+  '.cm-panel.cm-search label:has(input[name=re])::after': { content: '".*"' },
+  '.cm-panel.cm-search label:has(input[name=word])::after': { content: '"W"' },
+  '.cm-panel.cm-search label:hover': { borderColor: surface2, color: text },
+  '.cm-panel.cm-search label:has(input:checked)': {
+    backgroundColor: `${accent}33`,
+    borderColor: accent,
+    color: text,
+  },
+  // next / previous / all / replace buttons (NOT the close ×).
+  '.cm-panel.cm-search button:not([name=close]), .cm-button': {
     backgroundImage: 'none',
     backgroundColor: surface0,
     color: text,
     border: `1px solid ${surface1}`,
     borderRadius: '2px',
   },
-  '.cm-panel.cm-search button:hover, .cm-button:hover': {
+  '.cm-panel.cm-search button:not([name=close]):hover, .cm-button:hover': {
     backgroundColor: surface1,
+  },
+  // Close ×: CM's base CSS pins it to top:0 (looks misaligned in the 2-row
+  // panel). Centre it vertically and give it a real hit target + hover.
+  '.cm-panel.cm-search [name=close]': {
+    top: '0',
+    bottom: '0',
+    right: '6px',
+    margin: 'auto 0',
+    width: '22px',
+    height: '22px',
+    padding: '0',
+    border: 'none',
+    background: 'none',
+    color: subtext0,
+    fontSize: '18px',
+    lineHeight: '1',
+    borderRadius: '2px',
+    cursor: 'pointer',
+  },
+  '.cm-panel.cm-search [name=close]:hover': {
+    backgroundColor: surface1,
+    color: text,
   },
   '.cm-activeLine': {
     backgroundColor: `${surface0}40`,  // 25% opacity
