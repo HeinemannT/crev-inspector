@@ -43,6 +43,19 @@ interface FrameState {
 
 const frames = new Map<FrameKind, FrameState>();
 
+// Kinds with a mount in flight. mountFrameOverlay awaits readBounds()
+// before it can register in `frames`, so two MOUNT_FRAME messages for the
+// same kind arriving back-to-back would both pass the `frames.get` guard
+// and each append a host → two identical overlays. Reserve the slot
+// synchronously here to close that window.
+const mounting = new Set<FrameKind>();
+
+// Set by teardownFrameOverlayModule(). A mount that was awaiting readBounds()
+// when re-injection tore the module down must NOT append its host afterwards —
+// that host (and its document/window listeners) would belong to a dead module
+// and never get cleaned. Checked right after the await.
+let moduleTorn = false;
+
 // ── Geometric overlap gate ────────────────────────────────────────
 //
 // CREV injects several floating elements onto the BMP page:
@@ -165,20 +178,31 @@ export async function mountFrameOverlay(opts: MountFrameOptions): Promise<void> 
     return;
   }
 
-  const bounds = await readBounds(opts);
-  const state = createFrame(opts, bounds);
-  frames.set(opts.kind, state);
-  document.documentElement.appendChild(state.host);
-  document.addEventListener('keydown', state.onKeydown, true);
-  window.addEventListener('resize', state.onViewportResize);
-  // Mark the body so CSS can hide stacking-context-trapped overlays
-  // (the in-page widget labels) that BMP renders inside transformed
-  // ancestors. z-index alone can't escape those — the labels would
-  // float above the task surface despite our 2147483646 setting.
-  document.body.classList.add('crev-task-open');
-  ensureOverlapObserver();
-  updateOverlayBlockState();
-  focus(state);
+  // Another mount for this kind is already resolving its bounds — drop the
+  // duplicate rather than racing it to append a second host.
+  if (mounting.has(opts.kind)) return;
+  mounting.add(opts.kind);
+  try {
+    const bounds = await readBounds(opts);
+    // Re-injection tore the module down while we were resolving bounds —
+    // drop this mount so we don't append a host to a dead module.
+    if (moduleTorn) return;
+    const state = createFrame(opts, bounds);
+    frames.set(opts.kind, state);
+    document.documentElement.appendChild(state.host);
+    document.addEventListener('keydown', state.onKeydown, true);
+    window.addEventListener('resize', state.onViewportResize);
+    // Mark the body so CSS can hide stacking-context-trapped overlays
+    // (the in-page widget labels) that BMP renders inside transformed
+    // ancestors. z-index alone can't escape those — the labels would
+    // float above the task surface despite our 2147483646 setting.
+    document.body.classList.add('crev-task-open');
+    ensureOverlapObserver();
+    updateOverlayBlockState();
+    focus(state);
+  } finally {
+    mounting.delete(opts.kind);
+  }
 }
 
 export function unmountFrameOverlay(kind: FrameKind): void {
@@ -198,6 +222,17 @@ export function unmountFrameOverlay(kind: FrameKind): void {
 
 export function unmountAllFrameOverlays(): void {
   for (const kind of [...frames.keys()]) unmountFrameOverlay(kind);
+}
+
+/** Full module teardown for content-script re-injection: unmount every
+ *  overlay AND detach the module-level CREV_OVERLAY_CLOSE_PLEASE message
+ *  listener. unmountAllFrameOverlays alone leaves that window listener
+ *  attached, so each re-injection would stack another (harmless but
+ *  accumulating) listener over a fresh module's `frames` Map. */
+export function teardownFrameOverlayModule(): void {
+  moduleTorn = true;
+  unmountAllFrameOverlays();
+  window.removeEventListener('message', onClosePleaseMessage);
 }
 
 // ── Construction ──────────────────────────────────────────────
@@ -327,7 +362,7 @@ function isFocused(state: FrameState): boolean {
 // which kind owns the source contentWindow and run the normal close
 // handshake. Without this, the help text "Close (Esc)" lies — the
 // shortcut only works when the iframe DOESN'T have focus.
-window.addEventListener('message', (e: MessageEvent) => {
+function onClosePleaseMessage(e: MessageEvent): void {
   const msg = e.data as { type?: string } | undefined;
   if (msg?.type !== 'CREV_OVERLAY_CLOSE_PLEASE') return;
   for (const [kind, state] of frames) {
@@ -336,7 +371,8 @@ window.addEventListener('message', (e: MessageEvent) => {
       return;
     }
   }
-});
+}
+window.addEventListener('message', onClosePleaseMessage);
 
 /** Ask the iframe whether it's safe to close.
  *

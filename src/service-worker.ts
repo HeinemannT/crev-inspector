@@ -448,7 +448,15 @@ chrome.runtime.onConnect.addListener((port) => {
     const tabId = port.sender?.tab?.id;
     if (tabId != null) {
       contentPorts.set(tabId, port);
-      port.onDisconnect.addListener(() => contentPorts.delete(tabId));
+      // Identity-guarded delete: a re-injection disconnects the old port and
+      // connects a new one for the SAME tabId. If the old port's (possibly
+      // out-of-order) onDisconnect deleted unconditionally, it would evict the
+      // live new port — leaving contentPorts empty so ensureContentScript
+      // re-injects again (loop) and toggleInspect/broadcastToContent can't
+      // reach the tab. Only delete if THIS port is still the registered one.
+      port.onDisconnect.addListener(() => {
+        if (contentPorts.get(tabId) === port) contentPorts.delete(tabId);
+      });
     }
     initContentPort(port, tabId ?? undefined);
   }

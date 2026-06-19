@@ -38,6 +38,12 @@ export interface ReconnectingPort {
    *  port was down (caller may then choose a one-shot fallback or accept
    *  the queueing semantics). */
   send: (msg: InspectorMessage) => boolean;
+  /** Permanently tear down: cancel any pending reconnect, disconnect the
+   *  live port, and detach the bfcache window listeners. Used by the
+   *  content-script re-injection teardown so a stale instance's port
+   *  doesn't keep reconnecting (and receiving INSPECT_STATE) alongside
+   *  the fresh one. After destroy() the port is dead — send() no-ops. */
+  destroy: () => void;
 }
 
 export function createReconnectingPort(opts: ReconnectingPortOptions): ReconnectingPort {
@@ -48,8 +54,10 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
   let port: chrome.runtime.Port | null = null;
   let reconnectDelay = RECONNECT_INITIAL_DELAY;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let destroyed = false;
 
   function scheduleReconnect(reason: 'initial' | 'disconnect'): void {
+    if (destroyed) return;
     const wasDelayed = reconnectDelay > RECONNECT_INITIAL_DELAY;
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(() => {
@@ -60,6 +68,7 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
   }
 
   function connect(): void {
+    if (destroyed) return;
     try {
       port = chrome.runtime.connect({ name: opts.name });
       reconnectDelay = RECONNECT_INITIAL_DELAY;
@@ -101,6 +110,7 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
   }
 
   function send(msg: InspectorMessage): boolean {
+    if (destroyed) return false;
     if (port) {
       try { port.postMessage(msg); return true; }
       catch (e) { log.swallow(`${ctx}:send`, e); port = null; }
@@ -122,34 +132,48 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
   // the fact; the listeners below preempt the close ourselves so the
   // bfcache transition is graceful from both Chrome's and our side.
   //
+  // `pagehide` with `persisted === true` is Chrome's "I'm about to
+  // bfcache this page" signal. Tear down the port voluntarily —
+  // saves Chrome the forced-close + warning. We still get
+  // onDisconnect → scheduleReconnect, but the reconnect timer
+  // is paused with the rest of the page until pageshow.
+  const onPageHide = (e: PageTransitionEvent) => {
+    if (!e.persisted) return;
+    try { port?.disconnect(); } catch { /* port already gone */ }
+    port = null;
+  };
+  // `pageshow` with `persisted === true` fires when the page comes
+  // BACK from bfcache. Frozen timers resume, but we kick the
+  // reconnect immediately so panel/content don't sit in the
+  // "disconnected" state for the leftover delay.
+  const onPageShow = (e: PageTransitionEvent) => {
+    if (!e.persisted) return;
+    if (port) return; // already reconnected somehow
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectDelay = RECONNECT_INITIAL_DELAY;
+    connect();
+    opts.onReconnect?.({ wasDelayed: false });
+  };
   // Wrapped in a `typeof addEventListener === 'function'` check so this
   // file stays usable in worker contexts (the SW imports the same
   // primitive — there's no DOM there).
-  if (typeof addEventListener === 'function') {
-    // `pagehide` with `persisted === true` is Chrome's "I'm about to
-    // bfcache this page" signal. Tear down the port voluntarily —
-    // saves Chrome the forced-close + warning. We still get
-    // onDisconnect → scheduleReconnect, but the reconnect timer
-    // is paused with the rest of the page until pageshow.
-    addEventListener('pagehide', (e: PageTransitionEvent) => {
-      if (!e.persisted) return;
-      try { port?.disconnect(); } catch { /* port already gone */ }
-      port = null;
-    });
-    // `pageshow` with `persisted === true` fires when the page comes
-    // BACK from bfcache. Frozen timers resume, but we kick the
-    // reconnect immediately so panel/content don't sit in the
-    // "disconnected" state for the leftover delay.
-    addEventListener('pageshow', (e: PageTransitionEvent) => {
-      if (!e.persisted) return;
-      if (port) return; // already reconnected somehow
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      reconnectDelay = RECONNECT_INITIAL_DELAY;
-      connect();
-      opts.onReconnect?.({ wasDelayed: false });
-    });
+  const hasDom = typeof addEventListener === 'function';
+  if (hasDom) {
+    addEventListener('pagehide', onPageHide);
+    addEventListener('pageshow', onPageShow);
+  }
+
+  function destroy(): void {
+    destroyed = true;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = undefined; }
+    try { port?.disconnect(); } catch { /* already gone */ }
+    port = null;
+    if (hasDom) {
+      removeEventListener('pagehide', onPageHide);
+      removeEventListener('pageshow', onPageShow);
+    }
   }
 
   connect();
-  return { send };
+  return { send, destroy };
 }

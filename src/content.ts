@@ -7,12 +7,12 @@ import type { InspectorMessage, ConnectionState, WidgetInfo, PaintPhase } from '
 import { extractUrlRids, scanPageWidgets, detectBmpPage, findTabButton, isTabActive } from './lib/dom-scanner';
 import { h } from './lib/dom';
 import { log } from './lib/logger';
-import { connectPort, sendToSW, onPortMessage, onReconnect } from './lib/content-port';
+import { connectPort, disconnectPort, sendToSW, onPortMessage, onReconnect } from './lib/content-port';
 import { dispatchBroadcast } from './lib/handler-registry';
 import { initEnvTag, updateEnvTag, destroyEnvTag } from './lib/env-tag';
 import { showToast } from './lib/toast';
 import { hideQuickInspector, isQuickInspectorVisible } from './lib/quick-inspector';
-import { broadcast, onSync } from './lib/cross-tab';
+import { broadcast, onSync, teardownCrossTab } from './lib/cross-tab';
 import OVERLAY_CSS from './content-overlay.css';
 
 import { ContentState } from './content-state';
@@ -20,13 +20,22 @@ import { syncOverlays, removeOverlays, updateLabels } from './content-overlays';
 import { updatePaintCursors, flashApplyResult } from './content-paint';
 import { showTooltipForElement, hideTooltip, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
-import { mountFrameOverlay, unmountAllFrameOverlays } from './content-frame-overlay';
+import { mountFrameOverlay, teardownFrameOverlayModule } from './content-frame-overlay';
 import { sendFireForget } from './lib/messaging';
 
 declare global {
   interface Window {
     __crev_content_loaded?: boolean;
     __crev_observer?: MutationObserver;
+    /** Teardown for the CURRENT content-script instance. A re-injection
+     *  (chrome.scripting.executeScript re-runs this file in the same
+     *  isolated world) calls the PREVIOUS instance's teardown — reachable
+     *  only via window, since module closures don't survive the re-run —
+     *  to dispose its port, observer, and listeners before booting fresh.
+     *  Without this, every SW idle→reinject cycle stacks another live
+     *  instance (duplicate MOUNT_FRAME → two editor windows; a stale
+     *  observer/port that re-paints overlays after inspect is toggled off). */
+    __crev_teardown?: () => void;
   }
 }
 
@@ -314,7 +323,7 @@ document.body.addEventListener('contextmenu', (e) => {
       sendFireForget({ type: 'SELECT_OBJECT', rid });
     }
   }
-}, true);
+}, { capture: true, signal: s.listenerLifetime.signal });
 
 // ── Escape + click-outside dismiss quick inspector ───────────────
 
@@ -328,14 +337,14 @@ document.addEventListener('keydown', (e) => {
   if (s.paintPhase !== 'off') {
     sendToSW({ type: 'TOGGLE_PAINT' } as InspectorMessage);
   }
-});
+}, { signal: s.listenerLifetime.signal });
 
 document.addEventListener('click', (e) => {
   if (!isQuickInspectorVisible()) return;
   const target = e.target as HTMLElement;
   if (target.closest('#crev-quick-inspector')) return;
   hideQuickInspector();
-}, true);
+}, { capture: true, signal: s.listenerLifetime.signal });
 
 // ── Messages from MAIN world interceptor (via CustomEvent) ───────
 
@@ -355,11 +364,11 @@ document.addEventListener('crev-interceptor', ((event: CustomEvent) => {
       sendToSW({ type: 'DETECTION_RESULT', confidence, signals: allSignals, isBmp });
     }
   }
-}) as EventListener);
+}) as EventListener, { signal: s.listenerLifetime.signal });
 
 // ── One-shot message handler for side panel requests ─────────────
 
-chrome.runtime.onMessage.addListener((msg: InspectorMessage, _sender, sendResponse) => {
+function oneShotMessageListener(msg: InspectorMessage, _sender: chrome.runtime.MessageSender, sendResponse: (response?: unknown) => void): boolean {
   if (msg.type === 'INSPECT_STATE') {
     setInspectMode(msg.active);
     return false;
@@ -392,7 +401,8 @@ chrome.runtime.onMessage.addListener((msg: InspectorMessage, _sender, sendRespon
     return false;
   }
   return false;
-});
+}
+chrome.runtime.onMessage.addListener(oneShotMessageListener);
 
 function handleBmpGoto(msg: { rid?: string; tabRid?: string; tabName?: string }): void {
   for (const el of document.querySelectorAll('.crev-graph-highlight')) {
@@ -446,7 +456,7 @@ function resetContentState() {
   removeOverlays(s);
   hideQuickInspector();
   destroyEnvTag();
-  unmountAllFrameOverlays();
+  teardownFrameOverlayModule();
   document.getElementById('crev-inspector-styles')?.remove();
   document.getElementById('crev-tooltip')?.remove();
   document.getElementById('crev-paint-banner')?.remove();
@@ -457,11 +467,31 @@ function resetContentState() {
   s.resetAll();
 }
 
-// Guard against double injection
-if (window.__crev_content_loaded) {
+/** Fully dispose THIS content-script instance. Stored on `window` so the
+ *  next injection can reach it. resetContentState() handles the DOM +
+ *  ContentState + lifetime-bound document listeners; the rest tears down
+ *  the module-scoped registrations that resetContentState() can't see
+ *  (they live in other modules' closures): the one-shot message listener,
+ *  the reconnecting port, and the cross-tab storage subscriptions. */
+function teardown() {
   resetContentState();
+  try { chrome.runtime.onMessage.removeListener(oneShotMessageListener); } catch (e) { log.swallow('content:teardown:onMessage', e); }
+  try { disconnectPort(); } catch (e) { log.swallow('content:teardown:port', e); }
+  try { teardownCrossTab(); } catch (e) { log.swallow('content:teardown:crossTab', e); }
+}
+
+// Guard against double injection. A re-injection re-runs this file in the
+// same isolated world but with FRESH module closures — so we can't reach
+// the previous instance's port/observer/listeners from here. The previous
+// instance parked its teardown on window; run it to dispose that instance
+// completely before we boot, otherwise both stay live (two MOUNT_FRAME
+// handlers → duplicate editor windows; a stale observer/port that re-paints
+// overlays after inspect is toggled off).
+if (window.__crev_content_loaded) {
+  try { window.__crev_teardown?.(); } catch (e) { log.swallow('content:init:teardownPrev', e); }
 }
 window.__crev_content_loaded = true;
+window.__crev_teardown = teardown;
 
 try { connectPort(); } catch (e) { log.swallow('content:init:port', e); }
 try { runDetection(); } catch (e) { log.swallow('content:init:detection', e); }

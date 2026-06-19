@@ -67,6 +67,17 @@ function enqueue(queue: InspectorMessage[], msg: InspectorMessage): void {
   // Other message types are dropped while disconnected.
 }
 
+/** Permanently tear down the content port — used by the re-injection
+ *  teardown so a stale content-script instance's port stops reconnecting
+ *  (and receiving INSPECT_STATE) once a fresh instance has taken over.
+ *  Idempotent; connectPort() can rebuild afterwards. */
+export function disconnectPort(): void {
+  portInstance?.destroy();
+  portInstance = null;
+  messageHandler = null;
+  reconnectHandler = null;
+}
+
 /** Connect (or reconnect) the content port to the service worker */
 export function connectPort(): void {
   if (portInstance) return; // idempotent

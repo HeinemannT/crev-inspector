@@ -27,7 +27,7 @@ export function onSync(channel: string, handler: SyncHandler) {
 }
 
 // Single global listener that dispatches to registered handlers
-window.addEventListener('storage', (e) => {
+function onStorageEvent(e: StorageEvent) {
   if (!e.key || !e.newValue) return;
   const list = handlers.get(e.key);
   if (!list || list.length === 0) return;
@@ -39,4 +39,15 @@ window.addEventListener('storage', (e) => {
   } catch {
     // Ignore malformed data
   }
-});
+}
+window.addEventListener('storage', onStorageEvent);
+
+/** Detach the global storage listener and drop all registered handlers.
+ *  Called by the content-script re-injection teardown so a stale instance's
+ *  onSync subscriptions don't keep re-rendering overlays alongside the
+ *  fresh instance (each re-injection otherwise leaks a new closure over its
+ *  own ContentState). */
+export function teardownCrossTab(): void {
+  window.removeEventListener('storage', onStorageEvent);
+  handlers.clear();
+}
