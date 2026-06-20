@@ -31,6 +31,12 @@ export class ContentState {
   lastUrl = typeof window !== 'undefined' ? window.location.href : '';
   lastDetection: DetectionResult | null = null;
 
+  /** Page context from the MAIN-world interceptor (React fiber). The bound
+   *  object + active tab — the only source on BMP's custom-routed pages where
+   *  the URL/DOM are blank. Fed by PAGE_CONTEXT, consumed by resolvePageContext.
+   *  Cleared on URL change so a stale page object can't outlive a navigation. */
+  fiberPageContext: { rid?: string; tabRid?: string } | null = null;
+
   // Enrichment data from server (RID → identity)
   enrichments = new Map<string, EnrichmentData>();
 
@@ -95,6 +101,7 @@ export class ContentState {
     this.prevConnDisplay = null;
     this.lastUrl = typeof window !== 'undefined' ? window.location.href : '';
     this.lastDetection = null;
+    this.fiberPageContext = null;
     this.enrichments.clear();
     this.resetOverlays();
     this.resetDiscovery();

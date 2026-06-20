@@ -3,8 +3,9 @@
  * State lives in ContentState, logic in content-overlays/paint/tooltip/observer.
  */
 
-import type { InspectorMessage, ConnectionState, WidgetInfo, PaintPhase } from './lib/types';
+import type { InspectorMessage, ConnectionState, WidgetInfo, PaintPhase, PageContext } from './lib/types';
 import { extractUrlRids, scanPageWidgets, detectBmpPage, findTabButton, isTabActive } from './lib/dom-scanner';
+import { resolvePageContext } from './lib/page-context';
 import { h } from './lib/dom';
 import { log } from './lib/logger';
 import { connectPort, disconnectPort, sendToSW, onPortMessage, onReconnect } from './lib/content-port';
@@ -157,7 +158,7 @@ function runDetection() {
 
 // ── Page info for side panel ─────────────────────────────────────
 
-function handlePageInfoRequest(): { url: string; rid?: string; tabRid?: string; tabName?: string; widgets: WidgetInfo[]; detection?: { confidence: number; signals: string[]; isBmp: boolean } } {
+function handlePageInfoRequest(): { url: string; rid?: string; tabRid?: string; tabName?: string; contextSource?: PageContext['source']; widgets: WidgetInfo[]; detection?: { confidence: number; signals: string[]; isBmp: boolean } } {
   const urlRids = extractUrlRids();
   const det = s.lastDetection ?? detectBmpPage();
   // Always scan widgets when there ARE data-rid elements, regardless of the
@@ -171,14 +172,32 @@ function handlePageInfoRequest(): { url: string; rid?: string; tabRid?: string; 
     document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'EXTRACT_FIBERS' } }));
   }
 
+  // Single resolution — URL ⊕ fiber. On a custom-routed page (no `?rid=`) the
+  // bound object comes from the fiber context the interceptor posted; the
+  // EXTRACT_FIBERS dispatch above keeps it fresh (a late PAGE_CONTEXT triggers
+  // a re-query, see the PAGE_CONTEXT handler).
+  const ctx = resolvePageContext(urlRids, s.fiberPageContext);
+
   return {
     url: window.location.href,
-    rid: urlRids.rid,
-    tabRid: urlRids.tabRid,
-    tabName: urlRids.tabName,
+    rid: ctx.rid,
+    tabRid: ctx.tabRid,
+    tabName: ctx.tabName,
+    contextSource: ctx.source,
     widgets,
     detection: { confidence: det.confidence, signals: det.signals, isBmp: det.isBmp },
   };
+}
+
+/** Fiber page context arrived from the interceptor. Cache it locally (for the
+ *  next PAGE_INFO) and forward to the SW, which caches it per tab for the
+ *  footer + editor EC `this` and refreshes the panel when it changes. Deduped
+ *  so a re-scan that yields the same context doesn't churn the SW/panel. */
+function handleFiberPageContext(rid?: string, tabRid?: string) {
+  const prev = s.fiberPageContext;
+  if (prev?.rid === rid && prev?.tabRid === tabRid) return;
+  s.fiberPageContext = (rid || tabRid) ? { rid, tabRid } : null;
+  sendToSW({ type: 'PAGE_CONTEXT', rid, tabRid });
 }
 
 // ── Service worker message handling ──────────────────────────────
@@ -352,6 +371,10 @@ document.addEventListener('crev-interceptor', ((event: CustomEvent) => {
   const msg = event.detail;
   if (msg.type === 'OBJECTS_DISCOVERED') {
     sendToSW(msg);
+  }
+
+  if (msg.type === 'PAGE_CONTEXT') {
+    handleFiberPageContext(msg.rid, msg.tabRid);
   }
 
   if (msg.type === 'BMP_SIGNALS_RESULT') {

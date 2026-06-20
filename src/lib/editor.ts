@@ -1,4 +1,5 @@
 import { getCtx } from './sw-context';
+import { getPageContext } from './context-rid';
 import { log } from './logger';
 import { type EditorContext, type ObjectIdentity } from '../editor/editor-types';
 import { computeOverrides } from '../editor/editor-types';
@@ -6,36 +7,47 @@ import { launchFrame } from './frame-launcher';
 
 // ── Public API ────────────────────────────────────────────────────
 
-/** Read the object the BMP page is currently rendering — its `?rid=` URL
- *  param — from the relevant tab. This is the real EC execution context
- *  (`this`): the object the page is bound to at runtime (e.g. the
+/** The object the BMP page is currently rendering — the real EC execution
+ *  context (`this`): the object the page is bound to at runtime (e.g. the
  *  CeRiskAssessment whose detail page hosts the widget). The widget's
  *  `.location` can't give this — it returns the page/template, not the
- *  enterprise instance the template renders for. Returns undefined when
- *  there's no current page object (editor opened with no BMP page loaded).
- *  Defensive: never throws (tab may be gone / chrome.tabs absent in tests). */
+ *  enterprise instance the template renders for.
+ *
+ *  Two sources, in priority order:
+ *    1. The SW's fiber-resolved page context for the tab (`webParentRid`) —
+ *       works on BMP's custom-routed pages where the URL has no `?rid=`.
+ *    2. The tab's `?rid=` URL param — the classic deep-link source.
+ *
+ *  Returns undefined when there's no current page object (editor opened with
+ *  no BMP page loaded). Defensive: never throws (tab may be gone / chrome.tabs
+ *  absent in tests). */
 async function getCurrentPageRid(
   target?: { tabId?: number; windowId?: number },
 ): Promise<string | undefined> {
   try {
     if (typeof chrome === 'undefined' || !chrome.tabs) return undefined;
+    // Resolve the effective tab first, so the cache lookup and the URL fallback
+    // both key off the same tab.
+    let tabId = target?.tabId;
     let url: string | undefined;
-    if (target?.tabId != null && typeof chrome.tabs.get === 'function') {
-      const tab = await chrome.tabs.get(target.tabId);
-      url = tab?.url;
+    if (tabId != null && typeof chrome.tabs.get === 'function') {
+      url = (await chrome.tabs.get(tabId))?.url;
     } else if (typeof chrome.tabs.query === 'function') {
       const q: chrome.tabs.QueryInfo = target?.windowId != null
         ? { active: true, windowId: target.windowId }
         : { active: true, lastFocusedWindow: true };
-      const tabs = await chrome.tabs.query(q);
-      url = tabs[0]?.url;
+      const tab = (await chrome.tabs.query(q))[0];
+      tabId = tab?.id;
+      url = tab?.url;
     }
+    // 1. Fiber-resolved page context (the bound object on routed pages).
+    const pcRid = tabId != null ? getPageContext(tabId)?.rid : undefined;
+    if (pcRid && /^-?\d+$/.test(pcRid)) return pcRid;
+    // 2. URL `?rid=`. Only trust a BMP-shaped rid (Java long: digits, optionally
+    // negative) — a non-BMP tab whose URL happens to carry `?rid=foo` must not
+    // bind `this` to a coincidental object or break `BigInt()` in executeEc.
     if (!url) return undefined;
     const rid = new URL(url).searchParams.get('rid');
-    // Only trust a BMP-shaped rid (Java long: digits, optionally negative).
-    // A non-BMP active tab whose URL happens to carry `?rid=foo` must not
-    // inject a foreign context that then breaks `BigInt()` in executeEc or
-    // binds `this` to a coincidental object.
     return rid && /^-?\d+$/.test(rid) ? rid : undefined;
   } catch {
     return undefined;

@@ -6,7 +6,7 @@ import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import { getTabDetection, setTabDetection, updateBadge } from '../detection';
 import { sendPageInfoToPanel, handleGetDetection } from '../tab-awareness';
-import { getContextRid } from '../context-rid';
+import { getContextRid, getPageContext, setPageContext, deletePageContext } from '../context-rid';
 import type { DetectionPhase } from '../types';
 
 register('DETECTION_RESULT', (msg, respond, meta) => {
@@ -65,10 +65,37 @@ register('BMP_URL_CHANGED', (_msg, _respond, meta) => {
   // window A's tab id was the global "active". sendPageInfoToPanel
   // routes the response to the panel in the navigating tab's window
   // via sendToPanelByTab, so other windows' panels stay quiet.
+  // SPA navigation changed the bound object — drop the stale fiber page
+  // context (the content script re-posts PAGE_CONTEXT for the new page).
+  deletePageContext(tabId);
   chrome.tabs.get(tabId, (tab) => {
     if (chrome.runtime.lastError || !tab?.windowId) return;
     chrome.tabs.query({ active: true, windowId: tab.windowId }, (actives) => {
       if (actives[0]?.id === tabId) sendPageInfoToPanel(tabId);
+    });
+  });
+});
+
+// Fiber-derived page context from the content script (the bound object + active
+// tab). Cache it per tab for the footer (GET_CONTEXT_RID) and the editor's EC
+// `this` (getCurrentPageRid), then refresh the panel that represents this tab.
+register('PAGE_CONTEXT', (msg, _respond, meta) => {
+  const tabId = meta.senderTabId;
+  if (tabId == null) return;
+  const prev = getPageContext(tabId);
+  if (prev?.rid === msg.rid && prev?.tabRid === msg.tabRid) return; // no change
+  setPageContext(tabId, { rid: msg.rid, tabRid: msg.tabRid });
+  const ctx = getCtx();
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab?.windowId) return;
+    chrome.tabs.query({ active: true, windowId: tab.windowId }, (actives) => {
+      if (actives[0]?.id !== tabId) return; // only the active tab's panel
+      sendPageInfoToPanel(tabId); // Page tab + Workshop
+      // Footer/status chip — but only when the user hasn't pinned a right-click
+      // context (that's the higher-priority intent; same order as GET_CONTEXT_RID).
+      if (msg.rid && !getContextRid(tabId)) {
+        ctx.sendToPanelByTab(tabId, { type: 'CONTEXT_RID_DATA', rid: msg.rid });
+      }
     });
   });
 });
@@ -93,7 +120,10 @@ register('GET_CONTEXT_RID', async (_msg, respond, meta) => {
   //      current scorecard's context without a prior right-click.
   let entry = tabId != null ? getContextRid(tabId) : undefined;
   if (!entry && tabId != null) {
-    entry = await readContextFromTabUrl(tabId);
+    // Fiber-resolved page context (works on custom-routed pages where the URL
+    // has no `?rid=`), then the tab URL as a last resort.
+    const pc = getPageContext(tabId);
+    entry = (pc?.rid ? { rid: pc.rid } : undefined) ?? await readContextFromTabUrl(tabId);
   }
   // The object type is carried via 'objectType' to avoid collision with the
   // 'type' message discriminant (duplicate key would overwrite the discriminant).

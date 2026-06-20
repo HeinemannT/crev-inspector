@@ -57,6 +57,10 @@ export function startObserver(s: ContentState, onUrlChange: () => void) {
       s.lastUrl = window.location.href;
       s.resetOverlays();
       s.resetDiscovery();
+      // The bound object changed — drop the stale fiber page context so the
+      // resolver falls back to the (new) URL until the interceptor re-posts
+      // PAGE_CONTEXT for the new page.
+      s.fiberPageContext = null;
       onUrlChange();
       sendToSW({ type: 'BMP_URL_CHANGED' } as InspectorMessage);
     }

@@ -48,11 +48,35 @@ type ObjectSource = 'dom' | 'fiber' | 'server';
 /** Messages between content script, interceptor, and service worker.
  *  Grouped by domain — each group is a standalone type for narrowing in handlers. */
 
+// ── Page context ─────────────────────────────────────────────────
+
+/** Which provider supplied the resolved page object. `none` = no provider
+ *  had one (truly contextless page). Ordered by authority in resolution. */
+export type PageContextSource = 'url' | 'fiber' | 'dom' | 'none';
+
+/** The single answer to "what object is BMP rendering right now, in what tab".
+ *  Resolved once (URL ⊕ fiber ⊕ DOM) and shared by every surface — Page tab,
+ *  footer/status chip, Workshop, and the editor's EC execution `this` — so they
+ *  can't drift apart. `rid` granularity matches `?rid=`: a scorecard on a
+ *  landing page, an enterprise object on a detail page. */
+export interface PageContext {
+  rid?: string;
+  tabRid?: string;
+  tabName?: string;
+  source: PageContextSource;
+}
+
 // ── Page & Object Discovery ──────────────────────────────────────
 export type PageMessage =
   | { type: 'OBJECTS_DISCOVERED'; objects: BmpObject[] }
   | { type: 'GET_PAGE_INFO' }
-  | { type: 'PAGE_INFO'; url: string; rid?: string; tabRid?: string; tabName?: string; widgets: WidgetInfo[]; detection?: { confidence: number; signals: string[]; isBmp: boolean } }
+  | { type: 'PAGE_INFO'; url: string; rid?: string; tabRid?: string; tabName?: string; contextSource?: PageContextSource; widgets: WidgetInfo[]; detection?: { confidence: number; signals: string[]; isBmp: boolean } }
+  // Page context from the MAIN-world interceptor (React fiber). On BMP's
+  // custom-routed pages the bound object lives only in the fiber
+  // (`webParentRid` / `selectedTabRid`), never in the URL/DOM. The interceptor
+  // posts this to the content script, which both resolves it locally (Page
+  // tab) and forwards it to the SW (footer + editor EC `this`).
+  | { type: 'PAGE_CONTEXT'; rid?: string; tabRid?: string }
   // Content-script signal: BMP did an SPA route change (URL param flipped).
   // SW forwards by re-running sendPageInfoToPanel so the Page tab's widget
   // list refreshes — without this, post-route widgets show grey "?" until
