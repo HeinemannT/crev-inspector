@@ -46,6 +46,7 @@ interface PaneState {
   instanceProps: Record<string, string>;
   templateProps: Record<string, string>;
   siblings: ObjectPaneSiblingMsg[];
+  siblingTotal: number;
   codeFields: Record<string, string>;
   references: Record<string, ObjectPaneIdentity | null>;
   indirectCode: Record<string, string>;
@@ -265,6 +266,7 @@ export class DetailView {
       instanceProps: {},
       templateProps: {},
       siblings: [],
+      siblingTotal: 0,
       codeFields: {},
       references: {},
       indirectCode: {},
@@ -311,6 +313,7 @@ export class DetailView {
       this.state.instanceProps = msg.instanceProps;
       this.state.templateProps = msg.templateProps;
       this.state.siblings = msg.siblings;
+      this.state.siblingTotal = msg.siblingTotal ?? msg.siblings.length;
       this.state.codeFields = msg.codeFields ?? {};
       this.state.references = msg.references ?? {};
       this.state.indirectCode = msg.indirectCode ?? {};
@@ -990,6 +993,7 @@ export class DetailView {
       parent: s.parent,
       current: s.identity,
       siblings: s.siblings,
+      siblingTotal: s.siblingTotal,
       children: this.childrenState?.items,
       loadingChildren: this.childrenState?.loading,
       childrenExpanded: this.childrenState?.expanded,

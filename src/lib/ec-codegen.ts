@@ -28,6 +28,14 @@ import { validateEcIdentifier } from './ec-guards';
  *  user input) so it can't be injected via EC values. */
 export const FLOW_SEP = '<<<CREV_SEP>>>';
 
+/** Max sibling rows emitted by the object-pane EC. The sibling navigator only
+ *  needs a browseable slice; without this, an object under a parent with
+ *  thousands of children paid O(N) per-child property reads + concat + payload
+ *  on every pane open (the dominant cost behind "clicking an object is slow in
+ *  this workspace"). We still count ALL children so the UI can show the true
+ *  total — see `sibTotal` in buildObjectPaneEc / ObjectPaneData.siblingTotal. */
+export const SIBLING_CAP = 25;
+
 // ── Atom helpers ─────────────────────────────────────────────────
 
 /** EC fragment that emits one `{sep}label{sep}rid|id|name|className\n` row. */
@@ -314,19 +322,30 @@ export function buildObjectPaneEc(ref: string, paneProps: readonly string[]): st
   }
   // Siblings — children of webParent. IF-guard means top-level objects (no
   // parent) skip the loop entirely; statement-form IF is the only flavor.
+  // Capped at SIBLING_CAP rows: _sibN counts EVERY child (so `sibTotal` is the
+  // true count for the UI), but the expensive per-child reads + row concat only
+  // run for the first SIBLING_CAP. Avoids O(N) work + a huge payload when the
+  // parent has thousands of children.
   lines.push(`_r := _r + _sep + "siblings" + _sep + "\\n"`);
   lines.push('_curRid := _o.rid');
+  lines.push('_sibN := 0');
   lines.push('IF _p != MISSING THEN');
   lines.push('  _p.children().forEach(_s:');
-  lines.push(`    _r := _r + _s.rid.whenMissing("") + "|" + _s.id.whenMissing("") + "|" + _s.name.whenMissing("") + "|" + _s.className.whenMissing("") + "|"`);
-  lines.push('    IF _s.rid = _curRid THEN');
-  lines.push('      _r := _r + "1"');
-  lines.push('    ELSE');
-  lines.push('      _r := _r + "0"');
+  lines.push('    _sibN := _sibN + 1');
+  lines.push(`    IF _sibN <= ${SIBLING_CAP} THEN`);
+  lines.push(`      _r := _r + _s.rid.whenMissing("") + "|" + _s.id.whenMissing("") + "|" + _s.name.whenMissing("") + "|" + _s.className.whenMissing("") + "|"`);
+  lines.push('      IF _s.rid = _curRid THEN');
+  lines.push('        _r := _r + "1"');
+  lines.push('      ELSE');
+  lines.push('        _r := _r + "0"');
+  lines.push('      ENDIF');
+  lines.push(`      _r := _r + "\\n"`);
   lines.push('    ENDIF');
-  lines.push(`    _r := _r + "\\n"`);
   lines.push('  )');
   lines.push('ENDIF');
+  // True total (all children, not just the emitted slice) so the navigator can
+  // show "showing N of M". output() stringifies the number for bare concat.
+  lines.push(scalarBlock('sibTotal', 'output(_sibN)'));
   lines.push(...footer());
   return lines.join('\n');
 }

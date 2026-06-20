@@ -376,6 +376,8 @@ export type ObjectPaneMessage =
       instanceProps: Record<string, string>;
       templateProps: Record<string, string>;
       siblings: ObjectPaneSiblingMsg[];
+      /** True child count under the parent; `siblings` may be a capped slice. */
+      siblingTotal: number;
       codeFields: Record<string, string>;
       references: Record<string, ObjectPaneIdentity | null>;
       indirectCode: Record<string, string>;

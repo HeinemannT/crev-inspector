@@ -82,6 +82,7 @@ function paneData(rid: string, over: Partial<{
     siblings: (over.siblings ?? [{ rid, isCurrent: true }]).map(s => ({
       rid: s.rid, businessId: `bid-${s.rid}`, name: `Sib-${s.rid}`, type: 'ExtendedTable', isCurrent: s.isCurrent,
     })),
+    siblingTotal: (over.siblings ?? [{ rid, isCurrent: true }]).length,
     codeFields: {},
     references: {},
     indirectCode: {},

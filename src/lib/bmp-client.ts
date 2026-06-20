@@ -154,8 +154,12 @@ export interface ObjectPaneData {
   /** Property values keyed by name. Empty string means "not set" on server. */
   instanceProps: Record<string, string>;
   templateProps: Record<string, string>;
-  /** Siblings under the same parent — empty if parent is null. */
+  /** Siblings under the same parent — empty if parent is null. Capped at
+   *  SIBLING_CAP rows; `siblingTotal` carries the true count. */
   siblings: ObjectPaneSibling[];
+  /** True number of children under the parent (siblings may be a capped
+   *  slice). Equals siblings.length when nothing was truncated. */
+  siblingTotal: number;
   /** Code field full content keyed by property (only non-empty entries). */
   codeFields: Record<string, string>;
   /** Reference edges keyed by property → target identity (or null if unset). */
@@ -954,9 +958,16 @@ _r
       });
     }
 
+    // True child count from the EC (counts all children, not the capped slice).
+    // Fall back to the emitted row count if the field is absent/garbled.
+    const parsedTotal = Number((data.sibTotal ?? '').trim());
+    const siblingTotal = Number.isFinite(parsedTotal) && parsedTotal >= siblings.length
+      ? parsedTotal
+      : siblings.length;
+
     return {
       instance, parent, template, card,
-      instanceProps, templateProps, siblings,
+      instanceProps, templateProps, siblings, siblingTotal,
       codeFields, references,
       indirectCode, indirectCodeRids, contextValues, gateValues, lists,
     };

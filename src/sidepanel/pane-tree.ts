@@ -14,6 +14,10 @@ export interface PaneTreeData {
   parent: ObjectPaneIdentity | null;
   current: ObjectPaneIdentity;
   siblings: ObjectPaneSiblingMsg[];
+  /** True child count under the parent; `siblings` may be a capped slice.
+   *  When it exceeds siblings.length the navigator shows a "showing N of M"
+   *  note instead of silently hiding the rest. */
+  siblingTotal?: number;
   /** Children of the current object, populated lazily after expand. */
   children?: Array<{ rid: string; businessId?: string; name?: string; type?: string }>;
   /** True while a FETCH_CHILDREN is in flight. */
@@ -116,6 +120,18 @@ export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): 
         }
       }
     }
+  }
+
+  // Truncation note — the sibling list is capped server-side (SIBLING_CAP).
+  // Show the real total so a parent with many children doesn't look like it
+  // only has 25, rather than silently hiding the rest.
+  const shown = data.siblings.length;
+  const total = data.siblingTotal ?? shown;
+  if (total > shown) {
+    siblingList.appendChild(
+      h('div', { class: 'pane-tree-siblings-more', role: 'note' },
+        `showing first ${shown} of ${total}`),
+    );
   }
 
   root.appendChild(siblingList);

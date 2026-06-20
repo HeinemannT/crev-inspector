@@ -28,6 +28,10 @@ function buildPaneLog(opts: {
   code?: Partial<Record<string, string>>;
   card?: { rid: string; id: string; name: string; type: string };
   instCardRid?: string;
+  /** Raw sibling rows (`rid|id|name|className|cur`). */
+  siblingRows?: string[];
+  /** Emitted `sibTotal` value; omit to simulate an EC without the block. */
+  sibTotal?: number;
 }) {
   const props: string[] = [
     `${SEP}instRid${SEP}${opts.instRid}`,
@@ -66,7 +70,8 @@ function buildPaneLog(opts: {
     props.push(`${SEP}ref_${rf}_name${SEP}${r?.name ?? ''}`);
     props.push(`${SEP}ref_${rf}_type${SEP}${r?.type ?? ''}`);
   }
-  props.push(`${SEP}siblings${SEP}`);
+  props.push(`${SEP}siblings${SEP}${(opts.siblingRows ?? []).join('\n')}`);
+  if (opts.sibTotal != null) props.push(`${SEP}sibTotal${SEP}${opts.sibTotal}`);
   props.push(`${SEP}DONE`);
   return props.join('\n');
 }
@@ -149,6 +154,42 @@ describe('fetchObjectPane — reference parsing', () => {
     expect(data!.codeFields.javascript).toBe('console.log(1)');
     expect(data!.codeFields.css).toBeUndefined();
     expect(data!.codeFields.expression).toBeUndefined();
+  });
+});
+
+describe('fetchObjectPane — sibling cap', () => {
+  it('reports the true total from sibTotal when the list is capped', async () => {
+    const rows = Array.from({ length: 25 }, (_, i) =>
+      `${100 + i}|b${i}|Sib ${i}|ExtendedTable|${i === 0 ? '1' : '0'}`);
+    const log = buildPaneLog({
+      instRid: '100', instId: 'b0', instName: 'Sib 0', instType: 'ExtendedTable',
+      siblingRows: rows, sibTotal: 312,
+    });
+    const { c } = makeClient(log);
+    const data = await c.fetchObjectPane('100');
+    expect(data!.siblings).toHaveLength(25);   // capped slice
+    expect(data!.siblingTotal).toBe(312);      // true count for "showing 25 of 312"
+  });
+
+  it('falls back to the row count when sibTotal is absent or smaller', async () => {
+    const rows = ['100|b0|Sib 0|ExtendedTable|1', '101|b1|Sib 1|ExtendedTable|0'];
+    const log = buildPaneLog({
+      instRid: '100', instId: 'b0', instName: 'Sib 0', instType: 'ExtendedTable',
+      siblingRows: rows, // no sibTotal
+    });
+    const { c } = makeClient(log);
+    const data = await c.fetchObjectPane('100');
+    expect(data!.siblingTotal).toBe(2);
+  });
+});
+
+describe('buildObjectPaneEc — sibling cap', () => {
+  it('emits a counted, capped sibling loop plus the true total', async () => {
+    const { buildObjectPaneEc, SIBLING_CAP } = await import('../ec-codegen');
+    const ec = buildObjectPaneEc('lookup(100)', PANE_PROPS);
+    expect(ec).toContain('_sibN := _sibN + 1');
+    expect(ec).toContain(`IF _sibN <= ${SIBLING_CAP} THEN`);
+    expect(ec).toContain('"sibTotal"');
   });
 });
 
