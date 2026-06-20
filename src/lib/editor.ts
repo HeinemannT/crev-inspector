@@ -1,5 +1,5 @@
 import { getCtx } from './sw-context';
-import { getPageContext } from './context-rid';
+import { resolveTabPageContext } from './page-context-resolver';
 import { log } from './logger';
 import { type EditorContext, type ObjectIdentity } from '../editor/editor-types';
 import { computeOverrides } from '../editor/editor-types';
@@ -13,41 +13,26 @@ import { launchFrame } from './frame-launcher';
  *  `.location` can't give this — it returns the page/template, not the
  *  enterprise instance the template renders for.
  *
- *  Two sources, in priority order:
- *    1. The SW's fiber-resolved page context for the tab (`webParentRid`) —
- *       works on BMP's custom-routed pages where the URL has no `?rid=`.
- *    2. The tab's `?rid=` URL param — the classic deep-link source.
- *
- *  Returns undefined when there's no current page object (editor opened with
- *  no BMP page loaded). Defensive: never throws (tab may be gone / chrome.tabs
- *  absent in tests). */
+ *  Resolves the effective tab (explicit `tabId`, else the active tab of the
+ *  window), then defers to the shared page-context resolver — the SAME rule the
+ *  footer and Page tab use (URL deep-link wins; fiber fills routed pages).
+ *  Returns undefined when there's no current page object. Defensive: never
+ *  throws (tab may be gone / chrome.tabs absent in tests). */
 async function getCurrentPageRid(
   target?: { tabId?: number; windowId?: number },
 ): Promise<string | undefined> {
   try {
     if (typeof chrome === 'undefined' || !chrome.tabs) return undefined;
-    // Resolve the effective tab first, so the cache lookup and the URL fallback
-    // both key off the same tab.
     let tabId = target?.tabId;
-    let url: string | undefined;
-    if (tabId != null && typeof chrome.tabs.get === 'function') {
-      url = (await chrome.tabs.get(tabId))?.url;
-    } else if (typeof chrome.tabs.query === 'function') {
+    if (tabId == null && typeof chrome.tabs.query === 'function') {
       const q: chrome.tabs.QueryInfo = target?.windowId != null
         ? { active: true, windowId: target.windowId }
         : { active: true, lastFocusedWindow: true };
-      const tab = (await chrome.tabs.query(q))[0];
-      tabId = tab?.id;
-      url = tab?.url;
+      tabId = (await chrome.tabs.query(q))[0]?.id;
     }
-    // 1. Fiber-resolved page context (the bound object on routed pages).
-    const pcRid = tabId != null ? getPageContext(tabId)?.rid : undefined;
-    if (pcRid && /^-?\d+$/.test(pcRid)) return pcRid;
-    // 2. URL `?rid=`. Only trust a BMP-shaped rid (Java long: digits, optionally
-    // negative) — a non-BMP tab whose URL happens to carry `?rid=foo` must not
-    // bind `this` to a coincidental object or break `BigInt()` in executeEc.
-    if (!url) return undefined;
-    const rid = new URL(url).searchParams.get('rid');
+    if (tabId == null) return undefined;
+    const rid = (await resolveTabPageContext(tabId)).rid;
+    // Final BMP-shape guard for `BigInt()` safety in executeEc.
     return rid && /^-?\d+$/.test(rid) ? rid : undefined;
   } catch {
     return undefined;
@@ -169,10 +154,16 @@ export async function openEditorWindow(
   });
 }
 
-/** Open a standalone Extended Code overlay with optional page context */
-export async function openExtendedWindow(pageRid?: string, target?: { tabId?: number; windowId?: number }) {
+/** Open a standalone Extended Code overlay bound to the page's execution
+ *  context. When the caller doesn't pass an explicit `pageRid`, it's resolved
+ *  through the shared resolver — so the console gets the right `this` on BMP's
+ *  custom-routed pages (where the URL has no `?rid=`) instead of opening
+ *  contextless. */
+export async function openExtendedWindow(pageRidOverride?: string, target?: { tabId?: number; windowId?: number }) {
   const swCtx = getCtx();
   await swCtx.settingsReady;
+
+  const pageRid = pageRidOverride ?? await getCurrentPageRid(target);
 
   let name = '';
   let type = '';

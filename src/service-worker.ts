@@ -502,20 +502,11 @@ chrome.commands.onCommand.addListener((command) => {
     toggleInspect();
   }
   if (command === 'open-extended') {
-    // Mount on the user's most-recently-focused window's active tab.
-    // This is the closest we can get from a keyboard shortcut (we have
-    // no panel context). Pass tabId so launcher targets exactly that tab.
+    // Mount on the user's most-recently-focused window's active tab. We have no
+    // panel context from a keyboard shortcut; openExtendedWindow resolves the
+    // page context itself (shared resolver) from the targeted tab.
     chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-      const tab = tabs[0];
-      const tabUrl = tab?.url;
-      let pageRid: string | undefined;
-      if (tabUrl) {
-        try {
-          const params = new URL(tabUrl).searchParams;
-          pageRid = params.get('rid') ?? undefined;
-        } catch { /* ignore invalid URLs */ }
-      }
-      openExtendedWindow(pageRid, { tabId: tab?.id }).catch(e => log.swallow('sw:openExtended', e));
+      openExtendedWindow(undefined, { tabId: tabs[0]?.id }).catch(e => log.swallow('sw:openExtended', e));
     });
   }
 });
