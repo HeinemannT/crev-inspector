@@ -159,7 +159,7 @@ describe('fetchObjectPane — reference parsing', () => {
 
 describe('fetchObjectPane — sibling cap', () => {
   it('reports the true total from sibTotal when the list is capped', async () => {
-    const rows = Array.from({ length: 25 }, (_, i) =>
+    const rows = Array.from({ length: 50 }, (_, i) =>
       `${100 + i}|b${i}|Sib ${i}|ExtendedTable|${i === 0 ? '1' : '0'}`);
     const log = buildPaneLog({
       instRid: '100', instId: 'b0', instName: 'Sib 0', instType: 'ExtendedTable',
@@ -167,8 +167,8 @@ describe('fetchObjectPane — sibling cap', () => {
     });
     const { c } = makeClient(log);
     const data = await c.fetchObjectPane('100');
-    expect(data!.siblings).toHaveLength(25);   // capped slice
-    expect(data!.siblingTotal).toBe(312);      // true count for "showing 25 of 312"
+    expect(data!.siblings).toHaveLength(50);   // capped slice
+    expect(data!.siblingTotal).toBe(312);      // true count for "showing 50 of 312"
   });
 
   it('falls back to the row count when sibTotal is absent or smaller', async () => {

@@ -34,7 +34,7 @@ export const FLOW_SEP = '<<<CREV_SEP>>>';
  *  on every pane open (the dominant cost behind "clicking an object is slow in
  *  this workspace"). We still count ALL children so the UI can show the true
  *  total — see `sibTotal` in buildObjectPaneEc / ObjectPaneData.siblingTotal. */
-export const SIBLING_CAP = 25;
+export const SIBLING_CAP = 50;
 
 // ── Atom helpers ─────────────────────────────────────────────────
 
