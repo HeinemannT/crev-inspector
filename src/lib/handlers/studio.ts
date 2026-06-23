@@ -6,7 +6,7 @@
 import { register } from '../handler-registry'
 import { getCtx } from '../sw-context'
 import { openCvoStudioWindow } from '../cvo-studio'
-import { log } from '../logger'
+import { errorMessage, log } from '../logger'
 
 register('OPEN_CVO_STUDIO', (msg, _respond, meta) => {
   openCvoStudioWindow(msg.rid, msg.property, { tabId: meta.senderTabId, windowId: meta.panelWindowId })
@@ -15,5 +15,16 @@ register('OPEN_CVO_STUDIO', (msg, _respond, meta) => {
   const cached = ctx.cache.get(msg.rid)
   if (cached) {
     ctx.history.record({ rid: msg.rid, name: cached.name, type: cached.type, businessId: cached.businessId, action: 'edited', timestamp: Date.now() })
+  }
+})
+
+register('STUDIO_FETCH_CODE', async (msg, respond) => {
+  const ctx = getCtx()
+  if (!ctx.client) { respond({ type: 'STUDIO_CODE_DATA', ok: false, error: 'Not connected' }); return }
+  try {
+    const code = await ctx.client.fetchCodeViaEc(msg.rid, ['html', 'javascript'])
+    respond({ type: 'STUDIO_CODE_DATA', ok: true, code })
+  } catch (e) {
+    respond({ type: 'STUDIO_CODE_DATA', ok: false, error: errorMessage(e) })
   }
 })

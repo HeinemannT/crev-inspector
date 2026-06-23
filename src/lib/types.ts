@@ -216,7 +216,11 @@ export type EcMessage =
 // SAVE_PROPERTY (html/javascript route through saveCodeViaEc), so this family
 // only carries the open gesture for now.
 export type StudioMessage =
-  | { type: 'OPEN_CVO_STUDIO'; rid: string; property?: string };
+  | { type: 'OPEN_CVO_STUDIO'; rid: string; property?: string }
+  // Re-fetch a CVO's code after a save, to confirm what actually landed (the
+  // save->reload pattern: catches a silent in-script rollback) and re-seed.
+  | { type: 'STUDIO_FETCH_CODE'; rid: string }
+  | { type: 'STUDIO_CODE_DATA'; ok: boolean; code?: Record<string, string>; error?: string };
 
 // ── Frame Overlay (in-page floating iframes for editor/diff/objectview/codesearch/cvo-studio) ─
 export type FrameOverlayMessage =

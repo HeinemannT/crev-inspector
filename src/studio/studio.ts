@@ -139,6 +139,7 @@ function renderShell() {
           svg(ICON_PLAY), ' Run'),
         h('button', { class: 'btn', id: 'studio-save', disabled: !anyDirty(), title: `Save the active field · ${KBD_MOD}+S`, onClick: doSave }, 'Save'),
         h('button', { class: 'btn btn-ghost', id: 'studio-discard', disabled: !surface?.isDirty(activeProp), title: 'Revert this field to the saved BMP value', onClick: doDiscard }, 'Discard'),
+        h('button', { class: 'btn btn-ghost', id: 'studio-download', title: 'Download the CVO source (html + javascript) as a .cvo.json bundle', onClick: doDownload }, 'Download'),
         h('div', { class: 'studio-actions-spacer' }),
         h('button', { class: `btn-micro${previewVisible ? ' active' : ''}`, id: 'studio-toggle-preview', title: 'Show / hide the live preview', onClick: togglePreview }, previewVisible ? 'Hide preview' : 'Show preview'),
       ),
@@ -284,12 +285,52 @@ async function doSave() {
     surface.markSaved(activeProp)
     activeCode()[activeProp] = value
     consoleLines.push({ level: 'info', text: `Saved ${activeProp} to BMP` })
+    refreshActions()
+    renderConsole()
+    // Save->reload: re-read from BMP to confirm what actually landed. A BMP
+    // in-script .change() can return HTTP 200 yet silently roll back; comparing
+    // the re-fetched value catches that, and reloadSlots re-seeds every slot to
+    // the server-canonical text.
+    const verify = await sendRequest({ type: 'STUDIO_FETCH_CODE', rid: target.rid })
+    if (verify?.type === 'STUDIO_CODE_DATA' && verify.ok && verify.code) {
+      const fresh = verify.code
+      surface.reloadSlots(CODE_PROPS.map(p => ({ key: p, lang: p, code: fresh[p] ?? '' })))
+      for (const p of CODE_PROPS) activeCode()[p] = fresh[p] ?? ''
+      if ((fresh[activeProp] ?? '') !== value) {
+        consoleLines.push({ level: 'error', text: `Warning: BMP's ${activeProp} differs from what was saved — possible silent rollback. The editor now shows BMP's value.` })
+        renderConsole()
+      }
+    }
   } else {
     const err = resp?.type === 'SAVE_RESULT' ? resp.error : 'no response'
     consoleLines.push({ level: 'error', text: `Save failed: ${err ?? '(unknown)'}` })
+    refreshActions()
+    renderConsole()
   }
-  refreshActions()
-  renderConsole()
+}
+
+/** Export the CVO's source (both fields) as a single round-trippable bundle —
+ *  one download (no multi-file browser prompt), good for backup/sharing. */
+function doDownload() {
+  if (!ctx || !surface) return
+  const base = ctx.instance.businessId || ctx.instance.rid || 'cvo'
+  const bundle = {
+    schema: 'crev-cvo-source/1',
+    id: ctx.instance.businessId || null,
+    rid: ctx.instance.rid,
+    name: ctx.instance.name || null,
+    html: surface.textFor('html'),
+    javascript: surface.textFor('javascript'),
+  }
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${base}.cvo.json`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 async function doDiscard() {
