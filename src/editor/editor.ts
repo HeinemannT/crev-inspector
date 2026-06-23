@@ -20,6 +20,7 @@ import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
 import { installCloseHandshake } from '../lib/frame-close-handshake'
 import { sendFireForget, sendRequest } from '../lib/messaging'
+import { confirmModal } from '../lib/modal'
 import {
   type EditorContext,
   formatLabel,
@@ -1179,57 +1180,6 @@ function flashCopy(btn: HTMLElement, text: string, restore: () => void) {
   btn.innerHTML = ''
   btn.append(svg(ICON_CHECK))
   setTimeout(() => { btn.innerHTML = prev; restore() }, 900)
-}
-
-// ── Modal ───────────────────────────────────────────────────────
-
-interface ConfirmOpts {
-  title: string;
-  body: string;
-  confirmLabel?: string;
-  cancelLabel?: string;
-  confirmVariant?: 'accent' | 'danger' | 'success';
-}
-
-/** In-app confirmation modal. Replaces window.confirm() — native confirm in
- *  iframes can be styled poorly by some BMP themes and is suppressed by
- *  SPA navigation. Returns Promise<boolean>. */
-function confirmModal(opts: ConfirmOpts): Promise<boolean> {
-  return new Promise(resolve => {
-    const variant = opts.confirmVariant ?? 'accent'
-    let resolved = false
-    const settle = (v: boolean) => {
-      if (resolved) return
-      resolved = true
-      document.removeEventListener('keydown', onKey, true)
-      backdrop.remove()
-      resolve(v)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.stopPropagation(); settle(false) }
-      else if (e.key === 'Enter') { e.stopPropagation(); settle(true) }
-    }
-    const cancelBtn = h('button', {
-      class: 'btn',
-      onClick: () => settle(false),
-    }, opts.cancelLabel ?? 'Cancel')
-    const confirmBtn = h('button', {
-      class: `btn btn-${variant}`,
-      onClick: () => settle(true),
-    }, opts.confirmLabel ?? 'OK')
-    const dialog = h('div', { class: 'editor-modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'editor-modal-title' },
-      h('h2', { class: 'editor-modal-title', id: 'editor-modal-title' }, opts.title),
-      h('p', { class: 'editor-modal-body' }, opts.body),
-      h('div', { class: 'editor-modal-actions' }, cancelBtn, confirmBtn),
-    )
-    const backdrop = h('div', {
-      class: 'editor-modal-backdrop',
-      onClick: (e: MouseEvent) => { if (e.target === backdrop) settle(false) },
-    }, dialog)
-    document.body.appendChild(backdrop)
-    document.addEventListener('keydown', onKey, true)
-    requestAnimationFrame(() => confirmBtn.focus())
-  })
 }
 
 // ── Bottom panel (output / vars / history) ──────────────────────

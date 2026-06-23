@@ -1563,60 +1563,7 @@ body {
   margin-top: 4px;
 }
 
-/* ── Modal (replaces window.confirm in iframe) ─── */
-
-.editor-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  animation: editor-modal-fade-in var(--duration-fast) var(--ease-default);
-}
-
-@keyframes editor-modal-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.editor-modal {
-  min-width: 320px;
-  max-width: 480px;
-  margin: var(--space-4);
-  padding: var(--space-4);
-  background: var(--surface-1);
-  border: 1px solid var(--surface-4);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-3);
-  animation: editor-modal-slide-up var(--duration-normal) var(--ease-decelerate);
-}
-
-@keyframes editor-modal-slide-up {
-  from { transform: translateY(8px); opacity: 0; }
-  to   { transform: translateY(0);    opacity: 1; }
-}
-
-.editor-modal-title {
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semi);
-  color: var(--text-1);
-}
-
-.editor-modal-body {
-  margin: 0 0 var(--space-4);
-  font-size: var(--text-sm);
-  line-height: var(--leading-relaxed);
-  color: var(--text-2);
-  word-wrap: break-word;
-}
-
-.editor-modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
+/* Confirm modal styles live in styles/components.css (.crev-modal*), shared
+ * via lib/modal — editor.html loads components.css. */
 
 /* Scrollbars defined in base.css */
