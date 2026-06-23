@@ -236,7 +236,11 @@ export type StudioMessage =
   // Download a FileResource's decoded content (a hosted JS library) to inject
   // into the sandbox preview.
   | { type: 'STUDIO_FETCH_RESOURCE'; rid: string }
-  | { type: 'STUDIO_RESOURCE'; ok: boolean; rid: string; text?: string; error?: string };
+  | { type: 'STUDIO_RESOURCE'; ok: boolean; rid: string; text?: string; error?: string }
+  // Host a file as a FileResource: write content via EC .change(content :=
+  // "name;mime;base64") — the GraphQL path silently writes empty (footgun).
+  | { type: 'STUDIO_WRITE_RESOURCE'; resId: string; name: string; mime: string; base64: string }
+  | { type: 'STUDIO_RESOURCE_WRITTEN'; ok: boolean; rid?: string; error?: string };
 
 export interface StudioChild {
   /** rid as a string (Java long — never a JS number). */

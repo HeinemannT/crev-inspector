@@ -112,6 +112,18 @@ html, body { height: 100%; margin: 0; }
 }
 .studio-inputs-add:hover { background: var(--surface-2); }
 
+/* Dependency rows */
+.studio-dep-row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); padding: 1px 0; }
+.studio-dep-kind {
+  flex: 0 0 auto; padding: 1px 5px; border-radius: var(--radius-sm);
+  font-size: 9px; font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: .3px;
+  color: var(--teal, #2C6E8F); background: var(--surface-2);
+}
+.studio-dep-kind--cdn { color: #b08400; }
+.studio-dep-id { flex: 1; min-width: 0; font-family: var(--font-mono); color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-dep-status { flex: 0 0 auto; color: #2f8a44; }
+.studio-dep-status.studio-dep-warn { color: #b08400; }
+
 .studio-sandbox { flex: 1; width: 100%; border: 0; background: #fff; }
 
 /* ── Console strip ──────────────────────────────────────────────── */

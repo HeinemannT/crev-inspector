@@ -17,7 +17,7 @@
 import { EditorView, keymap } from '@codemirror/view'
 import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha, type CodeLang } from '../editor-core/cm-scaffold'
 import { CodeSurface, isProgrammaticSwap } from '../editor-core/code-surface'
-import { detectFileResourceRids } from './dep-detect'
+import { detectFileResourceRids, detectCdnUrls } from './dep-detect'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
@@ -59,6 +59,7 @@ let childrenOpen = false
 // but unavailable). lastLibs is the resolved set passed to the sandbox.
 const libCache = new Map<string, string>()
 let lastLibs: string[] = []
+let resourcesOpen = false
 
 // Sandbox handshake: hold the latest render until the sandbox says it's ready.
 let sandboxReady = false
@@ -184,6 +185,7 @@ function renderShell() {
         ? h('div', { class: 'studio-preview' },
             renderDataBar(),
             renderDataInputs(),
+            renderResources(),
             h('iframe', { id: 'studio-sandbox', class: 'studio-sandbox', src: 'sandbox.html', title: 'CVO preview' }),
             h('div', { class: 'studio-console', id: 'studio-console' }),
           )
@@ -439,6 +441,75 @@ async function doRemoveChild(c: StudioChild): Promise<void> {
     consoleLines.push({ level: 'error', text: `Remove failed: ${(resp?.type === 'STUDIO_CHILD_DELETED' ? resp.error : '') ?? ''}` })
     renderConsole()
   }
+}
+
+// ── Dependencies + resource hosting ──────────────────────────────
+function renderResources(): HTMLElement {
+  const html = surface?.textFor('html') ?? ''
+  const js = surface?.textFor('javascript') ?? ''
+  const fileRes = detectFileResourceRids(html, js)
+  const cdns = detectCdnUrls(html, js)
+  const n = fileRes.length + cdns.length
+  const header = h('button', {
+    class: 'studio-inputs-header',
+    title: 'Hosted FileResource libraries + external scripts this CVO loads',
+    onClick: () => { resourcesOpen = !resourcesOpen; renderShell() },
+  }, `${resourcesOpen ? '▾' : '▸'} Dependencies (${n})`)
+  if (!resourcesOpen) return h('div', { class: 'studio-inputs' }, header)
+  return h('div', { class: 'studio-inputs studio-inputs--open' },
+    header,
+    h('div', { class: 'studio-inputs-list' },
+      n === 0 ? h('div', { class: 'studio-inputs-empty' }, 'No external dependencies') : null,
+      ...fileRes.map(rid => {
+        const cached = libCache.get(rid)
+        const status = cached === undefined ? '…' : cached ? '✓ loaded' : '✗ unavailable'
+        return h('div', { class: 'studio-dep-row' },
+          h('span', { class: 'studio-dep-kind' }, 'FileResource'),
+          h('span', { class: 'studio-dep-id', title: 'rid ' + rid }, rid),
+          h('span', { class: `studio-dep-status${cached === '' ? ' studio-dep-warn' : ''}` }, status),
+        )
+      }),
+      ...cdns.map(u => h('div', { class: 'studio-dep-row' },
+        h('span', { class: 'studio-dep-kind studio-dep-kind--cdn' }, 'CDN'),
+        h('span', { class: 'studio-dep-id', title: u }, u),
+        h('span', { class: 'studio-dep-status studio-dep-warn' }, "⚠ won't load if air-gapped"),
+      )),
+      h('button', { class: 'studio-inputs-add', title: 'Host a JS/asset file as a BMP FileResource', onClick: doHostResource }, '+ Host resource'),
+    ),
+  )
+}
+
+/** Base64-encode bytes in chunks (avoids the arg-count limit of a single
+ *  String.fromCharCode(...bytes) on large files). */
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  return btoa(bin)
+}
+
+function doHostResource(): void {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.onchange = async () => {
+    const file = input.files?.[0]
+    if (!file) return
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const resId = 'fr_' + file.name.replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48)
+    const mime = file.type || 'application/octet-stream'
+    consoleLines.push({ level: 'info', text: `Hosting ${file.name} (${Math.round(bytes.length / 1024)} KB)…` })
+    renderConsole()
+    const resp = await sendRequest({ type: 'STUDIO_WRITE_RESOURCE', resId, name: file.name, mime, base64: bytesToBase64(bytes) })
+    if (resp?.type === 'STUDIO_RESOURCE_WRITTEN' && resp.ok && resp.rid) {
+      const snippet = `<script src="/<workspace>/web/download?propName=content&rid=${resp.rid}"></script>`
+      navigator.clipboard?.writeText(snippet).catch(() => {})
+      consoleLines.push({ level: 'info', text: `Hosted "${file.name}" as rid ${resp.rid}. Reference snippet copied (set <workspace>, or build it at runtime like the ERMQ host):\n${snippet}` })
+    } else {
+      consoleLines.push({ level: 'error', text: `Host failed: ${(resp?.type === 'STUDIO_RESOURCE_WRITTEN' ? resp.error : '') ?? ''}` })
+    }
+    renderConsole()
+  }
+  input.click()
 }
 
 window.addEventListener('message', ev => {

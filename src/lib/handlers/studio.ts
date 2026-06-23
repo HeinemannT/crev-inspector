@@ -101,6 +101,31 @@ register('STUDIO_FETCH_RESOURCE', async (msg, respond) => {
   respond({ type: 'STUDIO_RESOURCE', ok: r.ok, rid: msg.rid, text: r.text, error: r.error })
 })
 
+register('STUDIO_WRITE_RESOURCE', async (msg, respond) => {
+  const ctx = getCtx()
+  if (!ctx.client) { respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: 'Not connected' }); return }
+  // name/mime must not contain the ';' triplet delimiter or quotes that would
+  // break the EC string literal; base64 is [A-Za-z0-9+/=] only, so it's safe.
+  const name = msg.name.replace(/["';]/g, '') || 'resource'
+  const mime = msg.mime.replace(/["';]/g, '') || 'application/octet-stream'
+  const id = ident(msg.resId)
+  const content = `${name};${mime};${msg.base64}`
+  const code = [
+    `_any := SELECT FileResource`,
+    `_fld := _any.first().parent`,
+    `_new := _fld.add(FileResource, id := '${id}', name := '${name}')`,
+    `_new.change(content := "${content}")`,
+    `output(str(_new.rid))`,
+  ].join('\n')
+  try {
+    const res = await ctx.client.executeEc(code, undefined, true)
+    if (!res.ok) { respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: res.error }); return }
+    respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: true, rid: (res.log ?? '').trim() })
+  } catch (e) {
+    respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: errorMessage(e) })
+  }
+})
+
 register('STUDIO_DELETE_CHILD', async (msg, respond) => {
   const ctx = getCtx()
   if (!ctx.client) { respond({ type: 'STUDIO_CHILD_DELETED', ok: false, error: 'Not connected' }); return }

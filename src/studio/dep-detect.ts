@@ -16,6 +16,7 @@
 
 const DOWNLOAD_RID = /\/web\/download\?[^"'`\s]*\brid=(\d{6,})/g
 const BOOTSTRAP_RID = /__[A-Za-z0-9_]*RID[A-Za-z0-9_]*\s*=\s*["'](\d{6,})["']/g
+const CDN_SRC = /\bsrc\s*=\s*["'](https?:\/\/[^"'\s]+)["']/g
 
 /** Unique FileResource rids referenced by a CVO's html + javascript. */
 export function detectFileResourceRids(...sources: string[]): string[] {
@@ -27,4 +28,16 @@ export function detectFileResourceRids(...sources: string[]): string[] {
     while ((m = re.exec(blob)) !== null) rids.add(m[1])
   }
   return [...rids]
+}
+
+/** External (http/https) script sources a CVO loads — these won't load in an
+ *  air-gapped BMP, so the studio flags them and offers to vendor them into a
+ *  FileResource. */
+export function detectCdnUrls(...sources: string[]): string[] {
+  const urls = new Set<string>()
+  const blob = sources.join('\n')
+  CDN_SRC.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = CDN_SRC.exec(blob)) !== null) urls.add(m[1])
+  return [...urls]
 }

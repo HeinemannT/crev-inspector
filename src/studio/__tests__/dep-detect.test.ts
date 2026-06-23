@@ -3,7 +3,7 @@
  * dependency loader (fetch the bytes, inject before the CVO).
  */
 import { describe, it, expect } from 'vitest'
-import { detectFileResourceRids } from '../dep-detect'
+import { detectFileResourceRids, detectCdnUrls } from '../dep-detect'
 
 describe('detectFileResourceRids', () => {
   it('finds rids in /web/download?propName=content&rid= script srcs', () => {
@@ -23,5 +23,20 @@ describe('detectFileResourceRids', () => {
 
   it('ignores short numbers and matches nothing when absent', () => {
     expect(detectFileResourceRids('rid=42 and __X_RID="9" and plain text')).toEqual([])
+  })
+})
+
+describe('detectCdnUrls', () => {
+  it('flags external http(s) script sources, deduped', () => {
+    const html = `<script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>`
+    const js = `s.src='https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js'; t.src="http://x.com/a.js"`
+    expect(detectCdnUrls(html, js).sort()).toEqual([
+      'http://x.com/a.js',
+      'https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js',
+    ])
+  })
+
+  it('does not flag the same-origin download servlet', () => {
+    expect(detectCdnUrls(`<script src="/ws/web/download?propName=content&rid=111111111111">`)).toEqual([])
   })
 })
