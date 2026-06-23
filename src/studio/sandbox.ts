@@ -73,6 +73,11 @@ export function runCvo(root: HTMLElement, req: RenderRequest, emit: Emit): void 
   const data = { ...req.data, element: root }
 
   try {
+    // innerHTML deliberately does NOT execute inline <script> or inline event
+    // handlers in the html — this matches BMP (dangerouslySetInnerHTML) and is
+    // the intended threat model: all behaviour comes from the `javascript` field
+    // run below. Do NOT "fix" this by switching to a method that runs inline
+    // scripts (insertAdjacentHTML/range.createContextualFragment + script eval).
     root.innerHTML = req.html
   } catch (e) {
     emit({ type: 'CVO_ERROR', runId, message: `Failed to set html: ${(e as Error).message}` })

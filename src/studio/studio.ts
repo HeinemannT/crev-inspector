@@ -16,7 +16,7 @@
  */
 import { EditorView, keymap } from '@codemirror/view'
 import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha, type CodeLang } from '../editor-core/cm-scaffold'
-import { CodeSurface } from '../editor-core/code-surface'
+import { CodeSurface, isProgrammaticSwap } from '../editor-core/code-surface'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
@@ -50,7 +50,9 @@ let consoleLines: ConsoleLine[] = []
 /** Mock `_data` used until live data lands (Phase 3). Mirrors the shape the
  *  data servlet returns; `.element` is attached inside the sandbox. */
 const mockData = {
-  context: { orgid: 'org_demo', period: 'M', start: Date.now(), end: Date.now(), yearToDate: false },
+  // A real (non-zero-width) period so a CVO that buckets/ranges by date sees a
+  // plausible window in preview. Last 365 days ending now.
+  context: { orgid: 'org_demo', period: 'M', start: Date.now() - 365 * 24 * 3600 * 1000, end: Date.now(), yearToDate: false },
   expressions: {} as Record<string, string>,
   tables: {} as Record<string, unknown>,
   serverConnections: {} as Record<string, string>,
@@ -99,7 +101,9 @@ function ensureSurface() {
         { key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { runPreview(); return true } },
         { key: 'Escape', run: () => { try { window.parent.postMessage({ type: 'CREV_OVERLAY_CLOSE_PLEASE' }, '*') } catch { /* ignore */ } return true } },
       ]),
-      EditorView.updateListener.of(u => { if (u.docChanged) schedulePreview() }),
+      // Re-render on user edits only — a programmatic slot-swap (tab switch)
+      // carries CodeSurface's annotation and must not trigger a preview rebuild.
+      EditorView.updateListener.of(u => { if (u.docChanged && !isProgrammaticSwap(u)) schedulePreview() }),
     ],
     onDirtyChange: () => refreshActions(),
   })
@@ -144,6 +148,7 @@ function renderShell() {
       ...CODE_PROPS.map(p => h('button', {
         class: `studio-prop-tab${p === activeProp ? ' active' : ''}`,
         role: 'tab',
+        'data-prop': p,
         'aria-selected': p === activeProp ? 'true' : 'false',
         onClick: () => switchProp(p),
       }, h('span', null, p), surface?.isDirty(p) ? h('span', { class: 'studio-prop-dot', 'aria-label': 'unsaved' }) : null)),
@@ -171,7 +176,7 @@ function refreshActions() {
   const discard = document.getElementById('studio-discard') as HTMLButtonElement | null
   if (discard) discard.disabled = !surface?.isDirty(activeProp)
   for (const tab of document.querySelectorAll<HTMLElement>('.studio-prop-tab')) {
-    const p = tab.querySelector('span')?.textContent as StudioCodeProp | undefined
+    const p = tab.getAttribute('data-prop') as StudioCodeProp | null
     if (p) tab.querySelector('.studio-prop-dot')?.classList.toggle('studio-prop-dot--hidden', !surface?.isDirty(p))
   }
 }
@@ -209,6 +214,9 @@ function postRender() {
   const runId = ++runCounter
   // textFor() pulls the live doc for the active slot and the stashed text for
   // the inactive one — so a render always uses the latest of both fields.
+  // NOTE (Phase 3): the payload is mock data today, so a '*' target origin is
+  // safe. Once real BMP `_data` (possibly sensitive) flows here, target the
+  // sandbox's specific origin instead of '*' to avoid leaking to other frames.
   frame.contentWindow.postMessage({
     type: 'CVO_RENDER',
     runId,
@@ -300,7 +308,10 @@ async function doDiscard() {
 
 function togglePreview() {
   previewVisible = !previewVisible
-  sandboxReady = false // the iframe is recreated by renderShell
+  // The iframe is recreated by renderShell — reset the handshake + any queued
+  // render so the fresh sandbox's READY drives a clean first render.
+  sandboxReady = false
+  pendingRender = false
   renderShell()
   ensureSurface()
   if (previewVisible) schedulePreview()

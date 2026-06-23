@@ -17,8 +17,21 @@
  * (doc ≠ loaded text) and pushed back through `onDirtyChange` — Save/Discard
  * are `markSaved()` / `discard()`, so the app needn't track an "original" copy.
  */
-import { EditorState, Compartment, type Extension } from '@codemirror/state'
-import { EditorView } from '@codemirror/view'
+import { EditorState, Compartment, Annotation, type Extension, type TransactionSpec } from '@codemirror/state'
+import { EditorView, type ViewUpdate } from '@codemirror/view'
+import { pickNearestLine } from './text-nav'
+
+/** Tags the transaction CodeSurface uses to swap a slot's document in place, so
+ *  app-supplied update listeners can tell a programmatic slot-swap from a real
+ *  user edit (and skip preview/dirty/stale reactions accordingly). */
+export const programmaticSwap = Annotation.define<boolean>()
+
+/** True when `update` carries CodeSurface's programmatic-swap annotation — i.e.
+ *  the docChange came from `activate()`, not the user typing. App listeners
+ *  passed via `buildExtensions` should early-return on this. */
+export function isProgrammaticSwap(update: ViewUpdate): boolean {
+  return update.transactions.some(t => t.annotation(programmaticSwap) === true)
+}
 
 export interface CodeSlot {
   /** App-chosen identity, unique per editable document. */
@@ -56,11 +69,10 @@ interface SlotState {
 }
 
 export class CodeSurface {
-  private view: EditorView | null = null
+  private _view: EditorView | null = null
   private slots = new Map<string, SlotState>()
   private activeKey: string | null = null
   private currentLang = ''
-  private programmaticSwap = false
   private wrap = false
   private readonly wrapCompartment = new Compartment()
 
@@ -69,9 +81,11 @@ export class CodeSurface {
   constructor(private readonly getParent: () => HTMLElement | null, private readonly cb: CodeSurfaceCallbacks) {}
 
   /** Register (or refresh) the set of editable slots. New keys are seeded from
-   *  `code`; existing keys have their loaded baseline + text reset to `code`
-   *  (a fresh load from BMP), clearing dirty. Does not change which slot is
-   *  active — call activate() after. */
+   *  `code`; existing keys have their loaded baseline + working text reset to
+   *  `code` (a fresh load from BMP), clearing dirty. If a re-seeded key is the
+   *  ACTIVE slot with a live view, the view's doc is replaced too, so state and
+   *  view never diverge. Does not change which slot is active — call activate()
+   *  after. (Typically called once at load, before the first activate().) */
   setSlots(slots: CodeSlot[]): void {
     for (const s of slots) {
       this.slots.set(s.key, {
@@ -82,7 +96,24 @@ export class CodeSurface {
         scrollTop: 0,
         dirty: false,
       })
+      if (s.key === this.activeKey && this._view && this._view.state.doc.toString() !== s.code) {
+        this._view.dispatch({
+          changes: { from: 0, to: this._view.state.doc.length, insert: s.code },
+          annotations: programmaticSwap.of(true),
+        })
+      }
     }
+  }
+
+  /** Re-seed slots from a fresh BMP fetch after a save (the save→reload pattern):
+   *  updates each slot's loaded baseline + working text and clears dirty. For
+   *  the ACTIVE slot, also replaces the live doc so the view shows the
+   *  server-canonical value. Use this instead of markSaved() when the caller has
+   *  re-read from BMP (the safe path: a save that doesn't reload can act on a
+   *  stale baseline). */
+  reloadSlots(slots: CodeSlot[]): void {
+    this.setSlots(slots)   // re-seeds baselines/text/dirty + syncs the active view
+    if (this.activeKey) this.cb.onDirtyChange?.(this.isDirty(this.activeKey))
   }
 
   /** Make `key` the active slot, swapping the doc in place when the language
@@ -94,7 +125,7 @@ export class CodeSurface {
     const cs: CodeSlot = { key, lang: slot.lang, code: slot.text }
 
     const sameFamily = this.cb.sameLangFamily ?? ((a, b) => a === b)
-    if (!this.view || !sameFamily(slot.lang, this.currentLang)) {
+    if (!this._view || !sameFamily(slot.lang, this.currentLang)) {
       this.rebuild(cs)
     } else {
       this.swapDoc(cs)
@@ -102,13 +133,13 @@ export class CodeSurface {
     this.activeKey = key
     this.currentLang = slot.lang
     if (opts?.scrollToLine || opts?.scrollToText) this.jumpTo(opts.scrollToLine ?? 1, opts.scrollToText)
-    this.cb.onAfterLoad?.(this.view!, cs)
+    this.cb.onAfterLoad?.(this._view!, cs)
   }
 
   private rebuild(slot: CodeSlot): void {
     const parent = this.getParent()
     if (!parent) return
-    this.view?.destroy()
+    this._view?.destroy()
     const state = EditorState.create({
       doc: slot.code,
       extensions: [
@@ -117,28 +148,29 @@ export class CodeSurface {
         EditorView.updateListener.of(u => this.onUpdate(u)),
       ],
     })
-    this.view = new EditorView({ state, parent })
+    this._view = new EditorView({ state, parent })
     this.restoreNav(slot.code)
-    this.view.focus()
+    this._view.focus()
   }
 
   private swapDoc(slot: CodeSlot): void {
-    const view = this.view!
-    this.programmaticSwap = true
-    try {
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: slot.code }, scrollIntoView: false })
-    } finally {
-      this.programmaticSwap = false
-    }
+    const view = this._view!
+    // Annotated so both our own onUpdate and app-supplied listeners can tell
+    // this is a programmatic slot-swap, not a user edit.
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: slot.code },
+      scrollIntoView: false,
+      annotations: programmaticSwap.of(true),
+    })
     this.restoreNav(slot.code)
-    this.view!.focus()
+    this._view!.focus()
   }
 
   /** Restore the stashed cursor + scroll for the active slot, when the stashed
    *  text still matches the loaded body. */
   private restoreNav(code: string): void {
     const st = this.activeKey ? this.slots.get(this.activeKey) : undefined
-    const view = this.view
+    const view = this._view
     if (!view) return
     if (st && st.text === code) {
       const len = view.state.doc.length
@@ -149,13 +181,13 @@ export class CodeSurface {
     }
   }
 
-  private onUpdate(u: import('@codemirror/view').ViewUpdate): void {
+  private onUpdate(u: ViewUpdate): void {
     if ((u.selectionSet || u.docChanged) && this.cb.onCursor) {
       const pos = u.state.selection.main.head
       const line = u.state.doc.lineAt(pos)
       this.cb.onCursor(line.number, pos - line.from + 1)
     }
-    if (!u.docChanged || this.programmaticSwap) return
+    if (!u.docChanged || isProgrammaticSwap(u)) return
     const st = this.activeKey ? this.slots.get(this.activeKey) : undefined
     if (!st) return
     st.text = u.state.doc.toString()
@@ -169,31 +201,31 @@ export class CodeSurface {
   /** Write the live view's text + cursor + scroll into the active slot's cache
    *  (so a switch away preserves them and textFor() stays accurate). */
   stash(): void {
-    if (!this.view || !this.activeKey) return
+    if (!this._view || !this.activeKey) return
     const st = this.slots.get(this.activeKey)
     if (!st) return
-    st.text = this.view.state.doc.toString()
-    const sel = this.view.state.selection.main
+    st.text = this._view.state.doc.toString()
+    const sel = this._view.state.selection.main
     st.selection = { anchor: sel.anchor, head: sel.head }
-    st.scrollTop = this.view.scrollDOM?.scrollTop ?? 0
+    st.scrollTop = this._view.scrollDOM?.scrollTop ?? 0
   }
 
   /** Live text for a slot — the view's doc when active, else the cached text. */
   textFor(key: string): string {
-    if (key === this.activeKey && this.view) return this.view.state.doc.toString()
+    if (key === this.activeKey && this._view) return this._view.state.doc.toString()
     return this.slots.get(key)?.text ?? ''
   }
 
   /** Active slot's current text. */
   getDoc(): string {
-    return this.view?.state.doc.toString() ?? ''
+    return this._view?.state.doc.toString() ?? ''
   }
 
   /** Selected text if any, else the whole active document. */
   getRunCode(): string {
-    if (!this.view) return ''
-    const { from, to } = this.view.state.selection.main
-    return from !== to ? this.view.state.doc.sliceString(from, to) : this.view.state.doc.toString()
+    if (!this._view) return ''
+    const { from, to } = this._view.state.selection.main
+    return from !== to ? this._view.state.doc.sliceString(from, to) : this._view.state.doc.toString()
   }
 
   isDirty(key?: string): boolean {
@@ -202,45 +234,53 @@ export class CodeSurface {
     return false
   }
 
-  /** Mark the active slot saved: its current text becomes the loaded baseline,
-   *  dirty clears. Call after a successful BMP write. */
+  /** Baseline-move only: the slot's current text becomes the loaded baseline and
+   *  dirty clears — it does NOT re-read from BMP. Fine when the saved value is
+   *  authoritative (a plain string write). When BMP may have transformed the
+   *  value, prefer reloadSlots() with a fresh fetch. For a NON-active key the
+   *  baseline moves to the slot's last-stashed text, so the caller must have
+   *  stashed (or saved the active slot) first; otherwise it could pin a stale
+   *  baseline. */
   markSaved(key = this.activeKey): void {
     if (!key) return
     const st = this.slots.get(key)
     if (!st) return
-    st.loaded = key === this.activeKey && this.view ? this.view.state.doc.toString() : st.text
+    st.loaded = key === this.activeKey && this._view ? this._view.state.doc.toString() : st.text
     st.text = st.loaded
     if (st.dirty) { st.dirty = false; if (key === this.activeKey) this.cb.onDirtyChange?.(false) }
   }
 
   /** Revert the active slot to its loaded (BMP) value. */
   discard(): void {
-    if (!this.view || !this.activeKey) return
+    if (!this._view || !this.activeKey) return
     const st = this.slots.get(this.activeKey)
     if (!st) return
-    this.view.dispatch({ changes: { from: 0, to: this.view.state.doc.length, insert: st.loaded } })
+    this._view.dispatch({ changes: { from: 0, to: this._view.state.doc.length, insert: st.loaded } })
     st.text = st.loaded
     if (st.dirty) { st.dirty = false; this.cb.onDirtyChange?.(false) }
-    this.view.focus()
+    this._view.focus()
   }
 
   insertAtCursor(text: string): void {
-    if (!this.view) return
-    const { from, to } = this.view.state.selection.main
-    this.view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length } })
-    this.view.focus()
+    if (!this._view) return
+    const { from, to } = this._view.state.selection.main
+    this._view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length } })
+    this._view.focus()
   }
 
+  /** Jump to a line, or to the occurrence of `text` NEAREST to `line` (the hint).
+   *  Nearest-match — not first-match — so duplicate lines (a lone `}`, repeated
+   *  `"id"`) resolve to the intended hit even when the body is a few lines off
+   *  from the caller's line number (e.g. a code-search jump). */
   jumpTo(line: number, text?: string): void {
-    const view = this.view
+    const view = this._view
     if (!view) return
     requestAnimationFrame(() => {
       const doc = view.state.doc
       let target = Math.max(1, Math.min(line, doc.lines))
       if (text) {
-        for (let i = 1; i <= doc.lines; i++) {
-          if (doc.line(i).text.includes(text)) { target = i; break }
-        }
+        const best = pickNearestLine(i => doc.line(i).text, doc.lines, text, line)
+        if (best > 0) target = best
       }
       const l = doc.line(target)
       view.dispatch({ selection: { anchor: l.from, head: l.from }, effects: EditorView.scrollIntoView(l.from, { y: 'center' }) })
@@ -250,23 +290,33 @@ export class CodeSurface {
 
   setWrap(wrap: boolean): void {
     this.wrap = wrap
-    this.view?.dispatch({ effects: this.wrapCompartment.reconfigure(wrap ? EditorView.lineWrapping : []) })
+    this._view?.dispatch({ effects: this.wrapCompartment.reconfigure(wrap ? EditorView.lineWrapping : []) })
   }
 
   /** Re-attach the view's DOM into the (current) parent after the app re-rendered
    *  its shell, which detaches it. No-op when already attached or no parent yet. */
   reattach(): void {
     const parent = this.getParent()
-    if (this.view && parent && this.view.dom.parentElement !== parent) parent.appendChild(this.view.dom)
+    if (this._view && parent && this._view.dom.parentElement !== parent) parent.appendChild(this._view.dom)
   }
 
-  focus(): void { this.view?.focus() }
+  focus(): void { this._view?.focus() }
+
+  /** The live EditorView, for app-specific extensions that need it directly
+   *  (hover, var highlight, runtime-error markers, history-load dispatch).
+   *  Null before the first activate(). Prefer the surface's own methods for
+   *  lifecycle; this is the escape hatch for read-only / feature dispatches. */
+  get view(): EditorView | null { return this._view }
+
+  /** Passthrough for app feature code that needs to dispatch against the live
+   *  view without holding its own reference. No-op when there's no view. */
+  dispatch(spec: TransactionSpec): void { this._view?.dispatch(spec) }
 
   get current(): string | null { return this.activeKey }
 
   destroy(): void {
-    this.view?.destroy()
-    this.view = null
+    this._view?.destroy()
+    this._view = null
     this.slots.clear()
     this.activeKey = null
   }

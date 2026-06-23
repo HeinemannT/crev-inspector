@@ -81,4 +81,70 @@ describe('CodeSurface', () => {
     surface.activate('javascript')
     expect(surface.getRunCode()).toBe('var x=1')
   })
+
+  it('setSlots re-seed clears dirty on an already-dirty active slot', () => {
+    const { surface, onDirtyChange } = mount()
+    surface.activate('html')
+    surface.insertAtCursor('X')
+    expect(surface.isDirty('html')).toBe(true)
+    // A fresh load from BMP for the same key resets the baseline + clears dirty.
+    surface.setSlots([{ key: 'html', lang: 'html', code: '<p>fresh</p>' }])
+    expect(surface.isDirty('html')).toBe(false)
+    expect(surface.textFor('html')).toBe('<p>fresh</p>')
+    onDirtyChange.mockClear()
+  })
+
+  it('reloadSlots moves the baseline, clears dirty, and replaces the active doc', () => {
+    const { surface, onDirtyChange } = mount()
+    surface.activate('html')
+    surface.insertAtCursor('X')
+    expect(surface.isDirty('html')).toBe(true)
+    surface.reloadSlots([{ key: 'html', lang: 'html', code: '<p>server</p>' }])
+    expect(surface.isDirty('html')).toBe(false)
+    expect(surface.getDoc()).toBe('<p>server</p>')        // live view replaced
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('markSaved on a NON-active slot pins its last-stashed text as the baseline', () => {
+    const { surface } = mount()
+    surface.activate('html')
+    surface.insertAtCursor('X')        // html now 'X<p>a</p>', dirty
+    surface.activate('javascript')     // stashes html
+    surface.markSaved('html')          // non-active: baseline := stashed text
+    expect(surface.isDirty('html')).toBe(false)
+    surface.activate('html')
+    expect(surface.getDoc()).toBe('X<p>a</p>')
+    expect(surface.isDirty('html')).toBe(false)
+  })
+
+  it('jumpTo lands on the occurrence nearest the hinted line, not the first', async () => {
+    const parent = document.createElement('div')
+    document.body.appendChild(parent)
+    const surface = new CodeSurface(() => parent, { buildExtensions: () => [] })
+    // 'x' appears on lines 1 and 5; hint near line 5 should pick line 5.
+    surface.setSlots([{ key: 'doc', lang: 'javascript', code: 'x\n\n\n\nx' }])
+    surface.activate('doc', { scrollToLine: 5, scrollToText: 'x' })
+    await new Promise<void>(r => requestAnimationFrame(() => r()))
+    const head = surface.view!.state.selection.main.head
+    const line = surface.view!.state.doc.lineAt(head).number
+    expect(line).toBe(5)
+  })
+})
+
+describe('isProgrammaticSwap', () => {
+  it('a slot switch does not mark the destination dirty', () => {
+    const parent = document.createElement('div')
+    document.body.appendChild(parent)
+    const onDirtyChange = vi.fn()
+    const surface = new CodeSurface(() => parent, { buildExtensions: () => [], onDirtyChange })
+    surface.setSlots([
+      { key: 'a', lang: 'x', code: 'aaa' },
+      { key: 'b', lang: 'x', code: 'bbb' },  // same lang family → swapDoc, not rebuild
+    ])
+    surface.activate('a')
+    onDirtyChange.mockClear()
+    surface.activate('b')  // programmatic swap of the doc
+    expect(surface.isDirty('b')).toBe(false)
+    expect(onDirtyChange).not.toHaveBeenCalled()
+  })
 })

@@ -17,6 +17,7 @@ dist/
 /graphview/
 /objectview/
 /sidepanel/
+/studio/
 
 # Internal docs
 ARCHITECTURE.md

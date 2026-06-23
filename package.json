@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite build --watch",
     "build": "vite build",
-    "clean": "rm -rf dist content.js interceptor.js service-worker.js assets/ chunks/ codesearch/ diff/ editor/ objectview/ sidepanel/",
+    "clean": "rm -rf dist content.js interceptor.js service-worker.js assets/ chunks/ codesearch/ diff/ editor/ objectview/ sidepanel/ studio/",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts"

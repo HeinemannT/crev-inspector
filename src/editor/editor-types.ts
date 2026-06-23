@@ -114,28 +114,6 @@ export function computeOverrides(
   return overrides
 }
 
-/** Find the 1-based line whose text contains `needle`, nearest to `hint` (the
- *  line number Code Search reported). Returns 0 when no line matches. Used to
- *  land a Code-Search jump on the real match even when the editor's body is a
- *  few lines off from the search-side body — and to resolve duplicate lines
- *  (e.g. a lone `}`) to the intended hit. `lineText` is 1-based. */
-export function pickNearestLine(
-  lineText: (oneBasedIndex: number) => string,
-  lineCount: number,
-  needle: string,
-  hint?: number,
-): number {
-  if (!needle) return 0
-  let best = 0
-  let bestDist = Infinity
-  for (let i = 1; i <= lineCount; i++) {
-    if (!lineText(i).includes(needle)) continue
-    const dist = hint ? Math.abs(i - hint) : i
-    if (dist < bestDist) {
-      bestDist = dist
-      best = i
-      if (dist === 0) break
-    }
-  }
-  return best
-}
+// Shared with CodeSurface's load-time jump; canonical home is editor-core.
+// Re-exported here so existing editor.ts / test imports keep resolving.
+export { pickNearestLine } from '../editor-core/text-nav'
