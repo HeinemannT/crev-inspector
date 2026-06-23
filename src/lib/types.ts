@@ -210,12 +210,20 @@ export type EcMessage =
   | { type: 'OPEN_EDITOR'; rid: string; property?: string; scrollToLine?: number; scrollToText?: string }
   | { type: 'OPEN_EXTENDED' };
 
-// ── Frame Overlay (in-page floating iframes for editor/diff/objectview/codesearch) ─
+// ── CVO Studio ───────────────────────────────────────────────────
+// The CVO studio is the editor's CustomVisualization sibling: it opens a CVO's
+// html + javascript as files with a live sandbox preview. Saving reuses
+// SAVE_PROPERTY (html/javascript route through saveCodeViaEc), so this family
+// only carries the open gesture for now.
+export type StudioMessage =
+  | { type: 'OPEN_CVO_STUDIO'; rid: string; property?: string };
+
+// ── Frame Overlay (in-page floating iframes for editor/diff/objectview/codesearch/cvo-studio) ─
 export type FrameOverlayMessage =
   | { type: 'MOUNT_FRAME'; kind: FrameKind; url: string; label: string; defaultWidth: number; defaultHeight: number };
 
 // Frame kinds are the in-page iframe surfaces.
-export type FrameKind = 'editor' | 'diff' | 'objectview' | 'codesearch';
+export type FrameKind = 'editor' | 'diff' | 'objectview' | 'codesearch' | 'cvo-studio';
 
 // ── Enrichment ───────────────────────────────────────────────────
 export type EnrichMessage =
@@ -519,7 +527,7 @@ export type NotificationMessage =
 // ── Full union (backward-compatible) ─────────────────────────────
 export type InspectorMessage =
   | PageMessage | InspectMessage | CacheMessage | ServerLookupMessage
-  | ConnectionMessage | ProfileMessage | EcMessage | FrameOverlayMessage | EnrichMessage
+  | ConnectionMessage | ProfileMessage | EcMessage | StudioMessage | FrameOverlayMessage | EnrichMessage
   | PaintMessage | DetectionMessage | ActivityMessage
   | HistoryMessage | FavoritesMessage | ContextMenuMessage
   | OverlayModeMessage | ObjectViewMessage | ObjectPaneMessage

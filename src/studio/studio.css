@@ -1,0 +1,79 @@
+/* CVO Studio layout. Sits inside the in-page overlay iframe; fills it. */
+
+html, body { height: 100%; margin: 0; }
+#studio-root { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+.studio-loading {
+  display: flex; align-items: center; justify-content: center;
+  height: 100vh; color: var(--text-3); font-size: var(--text-sm);
+}
+
+/* ── Header ─────────────────────────────────────────────────────── */
+.studio-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--surface-4);
+  background: var(--surface-1);
+  flex-shrink: 0;
+}
+.studio-id { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.studio-id-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 22px; height: 18px; padding: 0 5px;
+  font-size: 10px; font-weight: var(--weight-bold); color: #fff;
+  background: var(--type-color, var(--surface-5)); border-radius: var(--radius-sm);
+}
+.studio-id-name { font-weight: var(--weight-semi); color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-id-bid { font-size: var(--text-xs); color: var(--text-3); font-family: var(--font-mono); }
+
+.studio-actions { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
+.studio-actions-spacer { width: var(--space-2); }
+
+/* ── Property tabs ──────────────────────────────────────────────── */
+.studio-prop-tabs {
+  display: flex; gap: 2px;
+  padding: 0 var(--space-3); background: var(--surface-1);
+  border-bottom: 1px solid var(--surface-4); flex-shrink: 0;
+}
+.studio-prop-tab {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm); color: var(--text-3);
+  background: none; border: none; border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.studio-prop-tab:hover { color: var(--text-1); }
+.studio-prop-tab.active { color: var(--text-1); border-bottom-color: var(--accent); }
+.studio-prop-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.studio-prop-dot--hidden { display: none; }
+
+/* ── Split: editor | preview ────────────────────────────────────── */
+.studio-split { display: flex; flex: 1; min-height: 0; }
+.studio-editor { flex: 1 1 50%; min-width: 0; overflow: hidden; }
+.studio-split--no-preview .studio-editor { flex-basis: 100%; }
+.studio-editor .cm-editor { height: 100%; }
+
+.studio-preview {
+  flex: 1 1 50%; min-width: 0;
+  display: flex; flex-direction: column;
+  border-left: 1px solid var(--surface-4);
+}
+.studio-sandbox { flex: 1; width: 100%; border: 0; background: #fff; }
+
+/* ── Console strip ──────────────────────────────────────────────── */
+.studio-console {
+  height: 120px; flex-shrink: 0; overflow-y: auto;
+  border-top: 1px solid var(--surface-4);
+  background: var(--surface-0);
+  font-family: var(--font-mono); font-size: var(--text-xs);
+  padding: var(--space-1) 0;
+}
+.studio-console-empty { padding: var(--space-2) var(--space-3); color: var(--text-4); }
+.studio-console-line {
+  padding: 1px var(--space-3); white-space: pre-wrap; word-break: break-word;
+  border-left: 2px solid transparent; color: var(--text-2);
+}
+.studio-console-line--warn { color: #b08400; border-left-color: #e0a800; background: rgba(224,168,0,0.06); }
+.studio-console-line--error { color: var(--danger, #c0392b); border-left-color: var(--danger, #c0392b); background: rgba(192,57,43,0.06); }
+.studio-console-line--info { color: var(--text-3); }

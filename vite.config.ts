@@ -67,19 +67,27 @@ function extensionPlugin(): Plugin {
       // and rewrite the references to be relative to the new location.
       // All seven entry points share the same rewrite pattern — one helper
       // instead of seven near-identical 8-line blocks.
-      const HTML_ENTRIES = [
-        'sidepanel', 'editor', 'objectview', 'diff',
-        'codesearch',
+      // Most surfaces are one html per dir (dir === file); studio is the
+      // exception — two pages (studio + the sandboxed sandbox) share studio/ —
+      // so entries are {dir,file}.
+      const HTML_ENTRIES: Array<{ dir: string; file: string }> = [
+        { dir: 'sidepanel', file: 'sidepanel' },
+        { dir: 'editor', file: 'editor' },
+        { dir: 'objectview', file: 'objectview' },
+        { dir: 'diff', file: 'diff' },
+        { dir: 'codesearch', file: 'codesearch' },
+        { dir: 'studio', file: 'studio' },
+        { dir: 'studio', file: 'sandbox' },
       ];
-      for (const name of HTML_ENTRIES) {
-        const srcHtml = resolve(dist, `src/${name}/${name}.html`);
-        const destDir = resolve(dist, name);
-        const destHtml = resolve(destDir, `${name}.html`);
+      for (const { dir, file } of HTML_ENTRIES) {
+        const srcHtml = resolve(dist, `src/${dir}/${file}.html`);
+        const destDir = resolve(dist, dir);
+        const destHtml = resolve(destDir, `${file}.html`);
         if (!existsSync(srcHtml)) continue;
         if (!existsSync(destDir)) mkdirSync(destDir, { recursive: true });
         let html = readFileSync(srcHtml, 'utf-8');
         // Self-folder reference: `../../foo/` → `./`
-        html = html.replace(new RegExp(`\\.\\.\\/\\.\\.\\/${name}\\/`, 'g'), './');
+        html = html.replace(new RegExp(`\\.\\.\\/\\.\\.\\/${dir}\\/`, 'g'), './');
         // Shared chunks + assets, one level up
         html = html.replace(/\.\.\/\.\.\/chunks\//g, '../chunks/');
         html = html.replace(/\.\.\/\.\.\/assets\//g, '../assets/');
@@ -100,7 +108,7 @@ function extensionPlugin(): Plugin {
       }
 
       // Directories: chunks/, assets/, sidepanel/, editor/, objectview/, …
-      for (const dir of ['chunks', 'assets', 'sidepanel', 'editor', 'objectview', 'diff', 'codesearch']) {
+      for (const dir of ['chunks', 'assets', 'sidepanel', 'editor', 'objectview', 'diff', 'codesearch', 'studio']) {
         const src = resolve(dist, dir);
         if (existsSync(src)) copyDirSync(src, resolve(root, dir));
       }
@@ -129,6 +137,9 @@ export default defineConfig({
         'objectview/objectview': resolve(__dirname, 'src/objectview/objectview.html'),
         'diff/diff': resolve(__dirname, 'src/diff/diff.html'),
         'codesearch/codesearch': resolve(__dirname, 'src/codesearch/codesearch.html'),
+        'studio/studio': resolve(__dirname, 'src/studio/studio.html'),
+        // Sandboxed page (manifest sandbox.pages) — runs arbitrary CVO code.
+        'studio/sandbox': resolve(__dirname, 'src/studio/sandbox.html'),
       },
       output: {
         entryFileNames: '[name].js',

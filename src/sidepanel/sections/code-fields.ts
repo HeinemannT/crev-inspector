@@ -29,6 +29,9 @@ export interface CodeSectionInput {
 export function renderCodeSection(input: CodeSectionInput): HTMLElement | null {
   const direct = codeFieldsFor(input.type);
   const indirect = indirectCodeFieldsFor(input.type);
+  // CustomVisualization code fields (html/javascript) open in the CVO studio;
+  // everything else opens in the EC editor.
+  const isCvo = input.type === 'CustomVisualization';
   const rows: HTMLElement[] = [];
 
   for (const def of direct) {
@@ -43,6 +46,7 @@ export function renderCodeSection(input: CodeSectionInput): HTMLElement | null {
       content,
       rid: input.rid,
       sendMessage: input.sendMessage,
+      isCvo,
       gateProp: disabled ? gateProp : undefined,
       gateValue: disabled ? gateValue ?? '' : undefined,
     }));
@@ -84,6 +88,8 @@ function renderCodeRow(opts: {
    *  (e.g. row label says `showExpression` but edit opens `.expression`). */
   editProp?: string;
   sendMessage: SendFn;
+  /** CustomVisualization rows open the CVO studio rather than the EC editor. */
+  isCvo?: boolean;
   subtitle?: string;
   /** Set when the field is gated by an `enabledBy` flag that's currently false. */
   gateProp?: string;
@@ -99,8 +105,10 @@ function renderCodeRow(opts: {
       h('span', { class: 'code-row-meta' }, `${lines} ${lines === 1 ? 'line' : 'lines'}`),
       h('button', {
         class: 'btn btn-small btn-ghost code-row-edit',
-        title: `Edit ${opts.label} in the floating editor`,
-        onClick: () => opts.sendMessage({ type: 'OPEN_EDITOR', rid: opts.rid, property: opts.editProp ?? opts.prop }),
+        title: opts.isCvo ? `Open ${opts.label} in the CVO studio` : `Edit ${opts.label} in the floating editor`,
+        onClick: () => opts.sendMessage(opts.isCvo
+          ? { type: 'OPEN_CVO_STUDIO', rid: opts.rid, property: opts.editProp ?? opts.prop }
+          : { type: 'OPEN_EDITOR', rid: opts.rid, property: opts.editProp ?? opts.prop }),
       }, svg(ICON_PENCIL), 'Edit'),
     ),
     opts.subtitle ? h('div', { class: 'code-row-subtitle' }, opts.subtitle) : null,

@@ -16,7 +16,7 @@
 import type { BmpObject, InspectorMessage, ObjectPaneIdentity, ObjectPaneCard, ObjectPaneSiblingMsg } from '../lib/types';
 import { getTypeColor, getTypeAbbr } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
-import { ICON_PENCIL, ICON_LAYOUT, ICON_SHIELD, ICON_ARROW_LEFT, ICON_ARROW_LINE_UP, ICON_X } from '../lib/icons';
+import { ICON_PENCIL, ICON_PAINT, ICON_LAYOUT, ICON_SHIELD, ICON_ARROW_LEFT, ICON_ARROW_LINE_UP, ICON_X } from '../lib/icons';
 import { resolveLayoutShortcut } from '../lib/layout-target';
 import { confirmModal } from '../lib/modal';
 import { displayValue } from './property-editors';
@@ -635,13 +635,18 @@ export class DetailView {
           onClick: () => { this.onOpenLayout!(layout.target, layout.highlight); },
         }, svg(ICON_LAYOUT))
       : null;
+    // CustomVisualization routes to the CVO studio (html/js + live preview)
+    // instead of the EC editor; every other code-bearing type opens the editor.
+    const isCvo = s.identity.type === 'CustomVisualization';
     const editBtn = showEditBtn
       ? h('button', {
           class: 'detail-action-btn detail-action-btn--icon',
-          title: `Open .${editTargetProp} in the Extended Code editor`,
-          'aria-label': `Edit ${editTargetProp} in the editor`,
-          onClick: () => this.sendMessage({ type: 'OPEN_EDITOR', rid: s.rid, property: editTargetProp! }),
-        }, svg(ICON_PENCIL))
+          title: isCvo ? 'Open in the CVO studio' : `Open .${editTargetProp} in the Extended Code editor`,
+          'aria-label': isCvo ? 'Open in the CVO studio' : `Edit ${editTargetProp} in the editor`,
+          onClick: () => this.sendMessage(isCvo
+            ? { type: 'OPEN_CVO_STUDIO', rid: s.rid, property: editTargetProp! }
+            : { type: 'OPEN_EDITOR', rid: s.rid, property: editTargetProp! }),
+        }, svg(isCvo ? ICON_PAINT : ICON_PENCIL))
       : null;
     const accessBtn = h('button', {
       class: 'detail-action-btn detail-action-btn--icon',
