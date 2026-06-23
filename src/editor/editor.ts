@@ -3,12 +3,13 @@
  * CodeMirror 6 editor for Extended Code, HTML, and JavaScript properties.
  * Communicates with service worker for preview/save operations.
  */
-import { EditorState, Compartment } from '@codemirror/state'
+import { EditorState, type Extension } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { autocompletion, startCompletion } from '@codemirror/autocomplete'
 import { openSearchPanel } from '@codemirror/search'
 import { lintGutter } from '@codemirror/lint'
-import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha } from '../editor-core/cm-scaffold'
+import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha, type CodeLang } from '../editor-core/cm-scaffold'
+import { CodeSurface, isProgrammaticSwap, type CodeSlot } from '../editor-core/code-surface'
 
 // Shared types + context helpers
 import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
@@ -28,7 +29,6 @@ import {
   getActiveIdentity,
   getExecutionRid,
   getSaveTarget,
-  pickNearestLine,
 } from './editor-types'
 
 // EC-specific extensions
@@ -55,24 +55,18 @@ import { wrapInIf, wrapInForEach } from './ec/wrapCommands'
 // ── State ────────────────────────────────────────────────────────
 
 let ctx: EditorContext | null = null
-let editorView: EditorView | null = null
-/** Language family the live editor view is configured for. EC gets the EC
- *  language, linter, var tracker, etc.; html/javascript/css get a parser +
- *  base highlight only; 'plain' gets nothing. Tracked so a target / property
- *  switch can tell whether it can swap the doc in-place (same family) or must
- *  rebuild the view (different extension set). See `loadEditorDoc`. */
+/** The shared multi-slot editing engine. Owns the live CodeMirror view, the
+ *  per-slot loaded baseline / working text / cursor / dirty, swap-vs-rebuild,
+ *  and save/discard. Slots are keyed `${target}:${prop}` (or "extended" for the
+ *  scratch window). Replaces the editor's former editorView + propStateCache +
+ *  originalCode + dirty + programmaticDocSwap machinery. */
+let surface: CodeSurface | null = null
+/** Language family for a slot. EC covers the `expression` prop + the scratch
+ *  window; html/javascript/css get grammar-only; else plain. */
 type SlotLang = 'ec' | 'html' | 'javascript' | 'css' | 'plain'
-let currentLang: SlotLang = 'plain'
-/** Set true around a programmatic doc-replace (target / property switch)
- *  so the editor's updateListener doesn't treat the swap as a user edit
- *  (which would flip `dirty`, reset the preview gate, and mark the output
- *  stale). dispatch() runs the listener synchronously, so this flag is
- *  always back to false before any user interaction. */
-let programmaticDocSwap = false
 let activeProperty = ''
 let bottomPanelOpen = false
 let bottomMode: 'output' | 'history' | 'vars' = 'output'
-let dirty = false
 let outputHeight = 160 // last manually-dragged px, persisted
 /** How the output panel sizes itself. 'auto' fits the content (capped at a
  *  fraction of the window) so a one-line result is compact and a long log
@@ -95,7 +89,6 @@ let lastBmpMs: number | null = null
 let lastOutputText = ''
 let lastOutputOk = true
 let historyEntries: ScriptHistoryEntry[] = []
-const wrapCompartment = new Compartment()
 let wrapLines = false
 let tablePreview = true
 let decodePreview = true
@@ -130,17 +123,23 @@ let staleAfterPreview = false
  *  "Saved" label on the Save button (fades back after a few seconds). */
 let lastSavedAt: number | null = null
 let saveLabelTimer: ReturnType<typeof setTimeout> | null = null
-/** Per-property cursor + scroll + undo snapshot. Keyed by `${target}:${prop}`
- *  so template vs instance keeps independent state for the same property.
- *  Lets the user tab between properties without losing where they were. */
-interface PropEditState { docText: string; selection: { anchor: number; head: number }; scrollTop: number; dirty: boolean }
-const propStateCache = new Map<string, PropEditState>()
-const propStateKey = (target: SaveTarget | 'extended', prop: string): string => `${target}:${prop}`
-/** Snapshot of what BMP returned at editor boot (and after each
- *  successful save). Survives stashCurrentPropState() — which writes
- *  the LIVE buffer back into ctx — so doDiscard can revert to the
- *  actual server-side value, not a buffer the user just typed. */
-const originalCode = new Map<string, string>()
+/** CodeSurface slot key for a (target, prop) pair. The scratch window is the
+ *  single "extended" slot. (Per-slot cursor/scroll/dirty + the loaded baseline
+ *  for Discard now live inside CodeSurface, keyed by these strings.) */
+const slotKey = (target: SaveTarget | 'extended', prop: string): string =>
+  target === 'extended' ? 'extended' : `${target}:${prop}`
+/** Key of the currently-active slot. */
+const activeKey = (): string => ctx?.extended ? 'extended' : slotKey(ctx?.saveTarget ?? 'instance', activeProperty)
+/** Language family for a property (or the scratch window). */
+function langFor(prop: string, extended: boolean): SlotLang {
+  if (extended || prop === 'expression') return 'ec'
+  if (prop === 'html' || prop === 'javascript' || prop === 'css') return prop
+  return 'plain'
+}
+/** Dirty state of the active slot (drives Save/Discard); anyDirty spans all
+ *  slots (drives the close / unload guards so a dirty inactive prop isn't lost). */
+const curDirty = (): boolean => surface?.isDirty(activeKey()) ?? false
+const anyDirty = (): boolean => surface?.isDirty() ?? false
 
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform)
 const KBD_MOD = isMac ? '⌘' : 'Ctrl'
@@ -176,31 +175,18 @@ async function init() {
     return
   }
 
-  // Snapshot what BMP gave us so Discard can revert. Cache by
-  // `${target}:${prop}` — instance and template buffers are
-  // independent, the user may switch between them mid-edit.
-  for (const [prop, val] of Object.entries(ctx.instanceCode ?? {})) {
-    originalCode.set(propStateKey('instance', prop), val)
-  }
-  for (const [prop, val] of Object.entries(ctx.templateCode ?? {})) {
-    originalCode.set(propStateKey('template', prop), val)
-  }
-
   if (ctx.extended) {
     activeProperty = ''
-    updateWindowTitle()
-    renderShell()
-    createEditor('')
   } else {
     const activeCode = getActiveCode(ctx)
     activeProperty = ctx.property ?? Object.keys(activeCode)[0] ?? 'expression'
     if (!activeCode[activeProperty]) {
       activeProperty = Object.keys(activeCode)[0] ?? 'expression'
     }
-    updateWindowTitle()
-    renderShell()
-    createEditor(activeCode[activeProperty] ?? '')
   }
+  updateWindowTitle()
+  renderShell()
+  ensureSurface()
 
   // Re-render the Vars panel whenever type inferences or schemas
   // change. The subscription is permanent — Vars is the only panel
@@ -225,13 +211,13 @@ async function init() {
   // the key first and open the (document-aware) CM panel instead.
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
-      if (editorView) {
+      if (surface?.view) {
         // We are the single owner of Ctrl+F in this window: stop here so the
         // key neither reaches Chrome's native find nor double-fires via
         // searchKeymap's own Mod-f binding when the code area is focused.
         e.preventDefault()
         e.stopPropagation()
-        openSearchPanel(editorView)
+        openSearchPanel(surface.view)
       }
     }
   }, true)
@@ -459,7 +445,7 @@ function renderShell() {
   // Capture focus BEFORE renderDom detaches the editor's DOM — reading it
   // afterwards always yields false (the node is no longer in the document).
   // Restored after the view is re-attached below.
-  const hadFocus = editorView?.hasFocus ?? false
+  const hadFocus = surface?.view?.hasFocus ?? false
 
   renderDom(root,
     header,
@@ -485,25 +471,18 @@ function renderShell() {
     ),
   )
 
-  // Re-attach the live CodeMirror view into the freshly-rendered shell
-  // instead of leaving an empty #cm-container for createEditor to rebuild.
-  // renderDom() just replaced the whole shell DOM, detaching editorView.dom;
-  // moving it back in keeps the view (doc, history, selection, scroll) alive
-  // so a target/property switch can swap the doc in place via loadEditorDoc
-  // rather than tearing CodeMirror down and reflowing it. On first paint
-  // editorView is null, so createEditor mounts fresh as before.
-  if (editorView) {
-    const cont = document.getElementById('cm-container')
-    if (cont && editorView.dom.parentElement !== cont) {
-      // renderDom() detached the view's DOM, dropping its keyboard focus.
-      // Re-grab it after re-attaching IF it was focused before the re-render
-      // (hadFocus captured above the renderDom call) — otherwise a
-      // renderShell() that fires while the user is typing (e.g. the save-label
-      // fade timer) silently steals the cursor mid-edit.
-      cont.appendChild(editorView.dom)
-      editorView.requestMeasure()
-      if (hadFocus) editorView.focus()
-    }
+  // Re-attach the live CodeMirror view into the freshly-rendered shell.
+  // renderDom() replaced the whole shell DOM, detaching the view; moving it
+  // back in keeps the view (doc, history, selection, scroll) alive so a
+  // target/property switch can swap the doc in place rather than rebuilding.
+  // On first paint surface is null (ensureSurface mounts fresh afterwards).
+  if (surface) {
+    surface.reattach()
+    surface.view?.requestMeasure()
+    // renderDom() dropped keyboard focus; re-grab it only if the view was
+    // focused before the re-render — otherwise a renderShell() that fires
+    // mid-edit (e.g. the save-label fade timer) would steal the cursor.
+    if (hadFocus) surface.focus()
   }
 
   // Wire toolbar
@@ -528,12 +507,12 @@ function renderShell() {
     maxBtn.addEventListener('click', toggleMaximizeOutput)
   }
 
-  // Wire template/instance toggle
+  // Wire template/instance toggle. CodeSurface stashes the outgoing slot and
+  // swaps/rebuilds the incoming one; we just point it at the new slot key.
   for (const btn of document.querySelectorAll<HTMLElement>('.editor-seg-btn')) {
     btn.addEventListener('click', () => {
       const target = btn.dataset.target as SaveTarget
       if (!target || !ctx || target === ctx.saveTarget) return
-      stashCurrentPropState()
       ctx.saveTarget = target
       previewDone = false
       // Re-determine active property from new target's code
@@ -543,7 +522,7 @@ function renderShell() {
       }
       updateWindowTitle()
       renderShell()
-      loadEditorDoc(newCode[activeProperty] ?? '')
+      surface?.activate(activeKey())
     })
   }
 
@@ -552,61 +531,15 @@ function renderShell() {
     tab.addEventListener('click', () => {
       const prop = tab.dataset.prop
       if (!prop || prop === activeProperty || !ctx) return
-      stashCurrentPropState()
       activeProperty = prop
       previewDone = false
       renderShell()
-      const code = getActiveCode(ctx)
-      loadEditorDoc(code[prop] ?? '')
+      surface?.activate(activeKey())
     })
   }
 }
 
-/** Save the live EditorView's text + cursor + scroll into the per-property
- *  cache so we can restore them when the user comes back to this slot.
- *  Also writes the buffer into ctx so save-target / property switching
- *  doesn't lose typed-but-unsaved work. */
-function stashCurrentPropState(): void {
-  if (!ctx || !editorView) return
-  const text = editorView.state.doc.toString()
-  // Keep the in-memory ctx copy in sync so the seg/property toggle's
-  // own "save current code to current target" logic still works.
-  const currentCode = getActiveCode(ctx)
-  currentCode[activeProperty] = text
-  const target: SaveTarget | 'extended' = ctx.extended ? 'extended' : ctx.saveTarget
-  const sel = editorView.state.selection.main
-  const scrollEl = editorView.scrollDOM
-  propStateCache.set(propStateKey(target, activeProperty), {
-    docText: text,
-    selection: { anchor: sel.anchor, head: sel.head },
-    scrollTop: scrollEl?.scrollTop ?? 0,
-    dirty,
-  })
-}
-
-/** Look up the stashed state for the active property + target. Used by
- *  createEditor to restore cursor / scroll / dirty after a tab switch. */
-function getStashedPropState(): PropEditState | undefined {
-  if (!ctx) return undefined
-  const target: SaveTarget | 'extended' = ctx.extended ? 'extended' : ctx.saveTarget
-  return propStateCache.get(propStateKey(target, activeProperty))
-}
-
-// ── CodeMirror setup ─────────────────────────────────────────────
-
-/** Language family for the active slot. EC covers either a widget's
- *  `.expression` property or the standalone scratch window (`ctx.extended`);
- *  those get the EC language, linter, variable tracker, hover docs, etc. CVO
- *  code fields (`html` / `javascript` / `css`) get a parser + base highlight
- *  only. Anything else is `plain`. Drives both the extension set in
- *  `createEditor` and the swap-vs-rebuild decision in `loadEditorDoc`. */
-function slotLanguage(): SlotLang {
-  if (activeProperty === 'expression' || ctx?.extended === true) return 'ec'
-  if (activeProperty === 'html') return 'html'
-  if (activeProperty === 'javascript') return 'javascript'
-  if (activeProperty === 'css') return 'css'
-  return 'plain'
-}
+// ── Editing surface (CodeSurface) ────────────────────────────────
 
 /** Prime (or wipe) the Vars + type-inference trackers for a freshly-loaded
  *  doc. The trackers' own updateListeners only fire on user edits, so both
@@ -623,44 +556,20 @@ function primeTrackers(doc: EditorState['doc'], isEc: boolean): void {
   }
 }
 
-function createEditor(code: string) {
-  const container = document.getElementById('cm-container')
-  if (!container) return
-
-  // Destroy previous instance
-  if (editorView) {
-    editorView.destroy()
-    editorView = null
-  }
-
-  // EC mode covers TWO entry points:
-  //   - editing a widget's `.expression` property (activeProperty set
-  //     when opened from the side panel)
-  //   - the standalone "Extended Code" scratch window (ctx.extended
-  //     === true; activeProperty is empty since there's no property
-  //     to save back to)
-  // Both run Extended Code, so both get the EC language, highlight
-  // style, variable tracker, hover docs, type inference, etc.
-  // Before this check included ctx.extended, the scratch window had
-  // ZERO syntax highlighting + a permanently-empty Vars panel.
-  const lang = slotLanguage()
-  const isEc = lang === 'ec'
-  currentLang = lang
-
-  const extensions = [
-    // Base editing scaffold (gutters, brackets, history, fold, search panel,
-    // 5-space indent, search-panel glyph phrases) shared with the CVO studio.
+/** Build the per-slot extension set: base scaffold + language layer + EC keymap
+ *  + an app-reactions listener. CodeSurface appends line wrapping and its own
+ *  dirty/cursor listener on top, so they're deliberately absent here. The full
+ *  keymap (Preview/Run/Save/Esc) is attached to every slot, matching the old
+ *  single-view editor. */
+function buildExtensions(slot: CodeSlot): Extension[] {
+  const isEc = slot.lang === 'ec'
+  const exts: Extension[] = [
     ...baseEditingExtensions(),
-    // Two completion sources for EC:
-    //   - starExpansion: type `*` inside `.table(`/`.forEach(`/etc.
-    //     surfaces the "expand to all properties" snippet.
-    //   - extendedCompletions: the existing identifier/method-name
-    //     suggestions (and the scaffold completions).
-    // starExpansion is listed first so it wins on the rare `*` case.
+    // EC gets the `*`-expansion + identifier/method completions; other slots get
+    // CM's default completion only.
     autocompletion({ override: isEc ? [starExpansionCompletions, extendedCompletions] : undefined }),
-    // `*` doesn't count as an "identifier char" so the autocomplete
-    // extension won't auto-activate when typed. Kick it explicitly so
-    // the `*`-expansion snippet surfaces immediately.
+    // `*` isn't an identifier char, so kick autocomplete explicitly so the
+    // `*`-expansion snippet surfaces immediately on type.
     isEc ? EditorView.updateListener.of((update) => {
       if (!update.docChanged) return
       let typedStar = false
@@ -670,27 +579,16 @@ function createEditor(code: string) {
       if (typedStar) startCompletion(update.view)
     }) : [],
     catppuccinMocha,
-    wrapCompartment.of(wrapLines ? EditorView.lineWrapping : []),
-
-    // Keymaps
     keymap.of([
       ...baseKeymapBindings,
-      // EC-specific
       { key: 'Ctrl-Shift-x', run: wrapInIf },
       { key: 'Ctrl-Shift-e', run: wrapInForEach },
-      // Select-next-occurrence (Mod-d) and the find/replace panel (Mod-f) come
-      // from searchKeymap above — we deliberately don't bind our own. CM's
-      // built-ins handle scroll-into-view, multi-cursor, and platform mod-keys
-      // correctly; a custom Ctrl-d here only duplicated and shadowed them.
-      // Preview / Run / Save shortcuts
       { key: 'Ctrl-Enter', run: () => { doPreview(); return true } },
       { key: 'F5', run: () => { doPreview(); return true }, preventDefault: true },
       { key: 'Ctrl-Shift-Enter', run: () => { doRun(); return true } },
       { key: 'Ctrl-s', run: () => { doSave(); return true } },
-      // Esc — close the host overlay. CodeMirror's own Esc handlers
-      // (search panel close, etc.) run earlier in the keymap chain
-      // and return true when they consume the event, so this only
-      // fires when the user actually means "close the window".
+      // Esc closes the host overlay. CM's own Esc handlers (search-panel close,
+      // etc.) run earlier in the chain and consume the event first.
       {
         key: 'Escape',
         run: () => {
@@ -700,40 +598,25 @@ function createEditor(code: string) {
       },
     ]),
 
-    // Cursor position + selection tracking + previewDone gating
+    // App-specific reactions only. Cursor + dirty are handled by CodeSurface's
+    // onCursor / onDirtyChange callbacks; here we do the preview-gate / stale /
+    // runtime-error bookkeeping — and only for REAL user edits (a programmatic
+    // slot-swap carries CodeSurface's annotation, which we skip).
     EditorView.updateListener.of(update => {
-      if (update.selectionSet || update.docChanged) {
-        updateStatusBar(update.view)
-        updatePreviewSelDot()
+      if (update.selectionSet || update.docChanged) updatePreviewSelDot()
+      if (!update.docChanged || isProgrammaticSwap(update)) return
+      if (previewDone) { previewDone = false; refreshActions() }
+      if (!staleAfterPreview && lastMode === 'preview' && lastOutputOk) {
+        staleAfterPreview = true
+        if (bottomPanelOpen && bottomMode === 'output') renderBottomContent()
       }
-      if (update.docChanged) {
-        // A target/property switch replaces the whole doc programmatically.
-        // That's not a user edit — don't flip dirty, don't reset the
-        // preview gate, don't mark the output stale. loadEditorDoc handles
-        // dirty/scroll/var-rescan for the swapped-in doc itself.
-        if (programmaticDocSwap) return
-        let actionsChanged = false
-        if (!dirty) { dirty = true; actionsChanged = true }
-        // Reset preview gate when code changes
-        if (previewDone) { previewDone = false; actionsChanged = true }
-        if (actionsChanged) refreshActions()
-        // Flag the output panel "stale" so the user knows the
-        // displayed result no longer matches the editor's code.
-        if (!staleAfterPreview && lastMode === 'preview' && lastOutputOk) {
-          staleAfterPreview = true
-          if (bottomPanelOpen && bottomMode === 'output') renderBottomContent()
-        }
-        // Line numbers in any pending runtime-error marker are now
-        // stale — clear it so the user doesn't chase a squiggle that
-        // doesn't point at the real offender anymore.
-        clearRuntimeErrors(editorView)
-      }
+      // A pending runtime-error marker now points at stale line numbers.
+      clearRuntimeErrors(update.view)
     }),
   ]
 
-  // EC-specific extensions
   if (isEc) {
-    extensions.push(
+    exts.push(
       extendedLanguage,
       extendedHighlighting,
       variableTracker,
@@ -748,148 +631,61 @@ function createEditor(code: string) {
       ecFoldService,
       lintGutter(),
     )
-  } else if (lang === 'html' || lang === 'javascript' || lang === 'css') {
-    // Grammar-only slots for CVO code fields. lang-html bundles the embedded
-    // CSS + JS grammars, so <style>/<script> inside an html field highlight too.
-    extensions.push(languageExtension(lang))
+  } else if (slot.lang === 'html' || slot.lang === 'javascript' || slot.lang === 'css') {
+    // Grammar-only slots. lang-html bundles the embedded CSS + JS grammars.
+    exts.push(languageExtension(slot.lang as CodeLang))
   }
-
-  const state = EditorState.create({
-    doc: code,
-    extensions,
-  })
-
-  editorView = new EditorView({
-    state,
-    parent: container,
-  })
-
-  primeTrackers(state.doc, isEc)
-
-  // Restore the per-property selection + scroll. The doc body is the
-  // caller's responsibility (passed in via `code`); we only restore
-  // the navigation state on top of it. Skipped when the stash's text
-  // diverges from the loaded body (could happen if BMP changed under us).
-  //
-  // The Code-Search `scrollToLine` overrides the stash for one paint
-  // so a user who clicks "L42" in the popup lands on line 42 even if
-  // they had previously scrolled the same property elsewhere. The
-  // field is then consumed (set back to undefined) so it doesn't keep
-  // pulling them back on subsequent property switches.
-  const scrollToLine = ctx?.scrollToLine
-  const scrollToText = ctx?.scrollToText?.trim()
-  if ((scrollToLine && scrollToLine > 0) || scrollToText) {
-    requestAnimationFrame(() => {
-      if (!editorView) return
-      const doc = editorView.state.doc
-      let targetLine = scrollToLine ? Math.max(1, Math.min(scrollToLine, doc.lines)) : 1
-      // Prefer locating the matched TEXT over trusting the line NUMBER. Code
-      // Search and the editor reconstruct the body via independent fetches, so
-      // the same match can sit a few lines apart between them; landing purely
-      // on the number can miss (and the old code silently clamped to the last
-      // line). Pick the occurrence nearest the hinted line so duplicate lines
-      // (e.g. a lone `}`) still resolve to the intended hit.
-      if (scrollToText) {
-        const best = pickNearestLine(i => doc.line(i).text, doc.lines, scrollToText, scrollToLine)
-        if (best > 0) targetLine = best
-      }
-      const line = doc.line(targetLine)
-      editorView.dispatch({
-        selection: { anchor: line.from, head: line.from },
-        // `EditorView.scrollIntoView` is a transaction effect; we ask
-        // for the matched line to land in the centre so the user sees
-        // its context (lines above + below) without having to scroll
-        // further on arrival.
-        effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
-      })
-      editorView.focus()
-    })
-    if (ctx) { ctx.scrollToLine = undefined; ctx.scrollToText = undefined }
-    dirty = false
-  } else {
-    const stash = getStashedPropState()
-    if (stash && stash.docText === code) {
-      dirty = stash.dirty
-      const docLen = editorView.state.doc.length
-      const a = Math.min(stash.selection.anchor, docLen)
-      const hd = Math.min(stash.selection.head, docLen)
-      editorView.dispatch({ selection: { anchor: a, head: hd } })
-      requestAnimationFrame(() => {
-        if (editorView?.scrollDOM) editorView.scrollDOM.scrollTop = stash.scrollTop
-      })
-    } else {
-      dirty = false
-    }
-  }
-  refreshActions()
-  editorView.focus()
+  return exts
 }
 
-/** Load `code` into the editor for a target / property switch.
- *
- *  When the live view already exists and stays in the SAME language family
- *  (EC→EC or plain→plain — true for every instance⇄template switch, since
- *  that's the same property), we swap the document IN PLACE with a single
- *  transaction instead of tearing the view down and rebuilding it. The old
- *  path (`renderShell()` rebuilt the `#cm-container`, then `createEditor`
- *  destroyed + recreated the CodeMirror view, restoring scroll a frame
- *  later via rAF) made the editor visibly reflow and left the cursor a few
- *  pixels off target. An in-place swap keeps the view mounted, so selection
- *  and scroll restore synchronously in the same frame — no flash, no jump.
- *
- *  Falls back to a full `createEditor` only when the language must change
- *  (EC ⇄ HTML/JS need a different extension set) or there's no view yet. */
-function loadEditorDoc(code: string): void {
-  const lang = slotLanguage()
-  const isEc = lang === 'ec'
-  // Same family → swap the doc in place. A family change (EC ⇄ html/js/css,
-  // or html ⇄ js when stepping across a CVO's property tabs) needs a fresh
-  // extension set, so fall back to a full rebuild.
-  if (!editorView || lang !== currentLang) {
-    createEditor(code)
-    return
+/** Create the editing surface once (registering every property as a slot, keyed
+ *  `${target}:${prop}`) and activate the initial slot, or — when it already
+ *  exists — re-attach its view after a shell re-render. */
+function ensureSurface(): void {
+  if (surface) { surface.reattach(); return }
+  if (!ctx) return
+  surface = new CodeSurface(() => document.getElementById('cm-container'), {
+    buildExtensions,
+    onDirtyChange: () => refreshActions(),
+    onCursor: () => updateStatusBar(),
+    onAfterLoad: (view, slot) => primeTrackers(view.state.doc, slot.lang === 'ec'),
+  })
+  surface.setWrap(wrapLines)
+
+  const slots: CodeSlot[] = []
+  if (ctx.extended) {
+    slots.push({ key: 'extended', lang: 'ec', code: '' })
+  } else {
+    for (const [prop, val] of Object.entries(ctx.instanceCode ?? {})) {
+      slots.push({ key: slotKey('instance', prop), lang: langFor(prop, false), code: val })
+    }
+    for (const [prop, val] of Object.entries(ctx.templateCode ?? {})) {
+      slots.push({ key: slotKey('template', prop), lang: langFor(prop, false), code: val })
+    }
+    // Guarantee the initial active slot exists even if its code map is empty
+    // (matches the old createEditor, which always mounted a view).
+    if (!slots.some(s => s.key === activeKey())) {
+      slots.push({ key: activeKey(), lang: langFor(activeProperty, false), code: getActiveCode(ctx)[activeProperty] ?? '' })
+    }
   }
+  surface.setSlots(slots)
 
-  const view = editorView
-  const stash = getStashedPropState()
-  const hasStash = !!(stash && stash.docText === code)
-  const anchor = hasStash ? Math.min(stash!.selection.anchor, code.length) : 0
-  const head = hasStash ? Math.min(stash!.selection.head, code.length) : 0
-
-  // Single atomic swap: replace the whole doc + place the cursor. Flagged
-  // programmatic so the updateListener doesn't treat it as a user edit
-  // (try/finally so a thrown dispatch can't leave the flag stuck on).
-  // When we have a remembered scroll for this target, suppress CM's own
-  // scroll-into-view and restore the exact offset ourselves below (the
-  // view kept its layout, so scrollDOM has a real height this same frame —
-  // no rAF jump). With no memory, let CM reveal the cursor (lands at the
-  // top), which is steadier than poking scrollTop, since a doc-replace
-  // makes CM re-anchor the viewport.
-  programmaticDocSwap = true
-  try {
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: code },
-      selection: { anchor, head },
-      scrollIntoView: !hasStash,
-    })
-  } finally {
-    programmaticDocSwap = false
-  }
-
-  if (hasStash && view.scrollDOM) view.scrollDOM.scrollTop = stash!.scrollTop
-  dirty = hasStash ? stash!.dirty : false
-
-  // The swap dispatch already updated the status bar via the updateListener;
-  // we just need to re-seed the trackers and clear stale error markers.
-  primeTrackers(view.state.doc, isEc)
-  clearRuntimeErrors(view)
+  // Consume the one-shot Code-Search jump on the INITIAL load only; subsequent
+  // tab/target switches must not re-jump. CodeSurface.jumpTo lands on the
+  // occurrence nearest the hinted line.
+  surface.activate(activeKey(), { scrollToLine: ctx.scrollToLine, scrollToText: ctx.scrollToText })
+  ctx.scrollToLine = undefined
+  ctx.scrollToText = undefined
   refreshActions()
-  view.focus()
 }
 
 // ── Status bar ───────────────────────────────────────────────────
 
-function updateStatusBar(view: EditorView) {
+/** Update the Ln/Col readout from the live view's cursor. Driven by
+ *  CodeSurface's onCursor and a refreshActions rebuild. */
+function updateStatusBar(): void {
+  const view = surface?.view
+  if (!view) return
   const pos = view.state.selection.main.head
   const line = view.state.doc.lineAt(pos)
   const col = pos - line.from + 1
@@ -901,17 +697,14 @@ function updateStatusBar(view: EditorView) {
 
 /** Return selected text if any, otherwise full document. */
 function getRunCode(): string {
-  if (!editorView) return ''
-  const { from, to } = editorView.state.selection.main
-  if (from !== to) return editorView.state.doc.sliceString(from, to)
-  return editorView.state.doc.toString()
+  return surface?.getRunCode() ?? ''
 }
 
 async function doPreview() { await executeEc(false) }
 async function doRun() { if (previewDone) await executeEc(true) }
 
 async function executeEc(transactional: boolean) {
-  if (!editorView || !ctx) return
+  if (!surface || !ctx) return
   const code = getRunCode()
   const startTime = Date.now()
 
@@ -935,7 +728,7 @@ async function executeEc(transactional: boolean) {
       showOutput(response.log ?? 'No output', true)
       // Successful run wipes any lingering error marker — the line
       // that previously failed now runs fine.
-      clearRuntimeErrors(editorView)
+      if (surface.view) clearRuntimeErrors(surface.view)
     } else {
       const errText = response.error ?? response.log ?? 'Execution failed'
       showOutput(errText, false)
@@ -943,7 +736,7 @@ async function executeEc(transactional: boolean) {
       // Parser tries both `response.error` and `response.log` since
       // structural errors land in different fields.
       const loc = parseEcErrorLocation(errText) ?? parseEcErrorLocation(response.log ?? '')
-      if (loc && editorView) setRuntimeError(editorView, loc.line, loc.column, errText.split('\n')[0])
+      if (loc && surface.view) setRuntimeError(surface.view, loc.line, loc.column, errText.split('\n')[0])
     }
   } else {
     showOutput('No response from service worker', false)
@@ -971,14 +764,14 @@ function refreshActions(): void {
   const existing = document.querySelector('.editor-actions')
   if (!existing) return
   existing.replaceWith(buildActionRow())
-  if (editorView) updateStatusBar(editorView)
+  updateStatusBar()
 }
 
 /** Toggle the "runs selection" dot on the Preview button. Cheap class flip —
  *  no rebuild — so it can run on every selection change without churn. */
 function updatePreviewSelDot(): void {
   const btn = document.getElementById('btn-preview')
-  if (btn && editorView) btn.classList.toggle('editor-run-preview--sel', !editorView.state.selection.main.empty)
+  if (btn && surface?.view) btn.classList.toggle('editor-run-preview--sel', !surface.view.state.selection.main.empty)
 }
 
 /** Build the action toolbar (.editor-actions) from current state. Re-rendered
@@ -986,10 +779,11 @@ function updatePreviewSelDot(): void {
  *  re-wires them automatically. */
 function buildActionRow(): HTMLElement {
   const isExtended = !!ctx?.extended
-  const hasSel = !!editorView && !editorView.state.selection.main.empty
-  const saveLabel = !dirty && lastSavedAt && Date.now() - lastSavedAt < 4000 ? 'Saved' : 'Save'
-  const saveJustHappened = !dirty && saveLabel === 'Saved'
-  const saveClass = `btn ${dirty ? 'btn-success' : saveJustHappened ? 'btn-success btn-saved' : 'btn-ghost'}`
+  const hasSel = !!surface?.view && !surface.view.state.selection.main.empty
+  const isDirty = curDirty()
+  const saveLabel = !isDirty && lastSavedAt && Date.now() - lastSavedAt < 4000 ? 'Saved' : 'Save'
+  const saveJustHappened = !isDirty && saveLabel === 'Saved'
+  const saveClass = `btn ${isDirty ? 'btn-success' : saveJustHappened ? 'btn-success btn-saved' : 'btn-ghost'}`
   return h('div', { class: 'editor-actions' },
     // Preview | Execute — one segmented control. Execute stays disabled until a
     // successful, non-stale preview arms it (editing resets previewDone).
@@ -1015,19 +809,19 @@ function buildActionRow(): HTMLElement {
     !isExtended && h('button', {
       class: saveClass,
       id: 'btn-save',
-      disabled: !dirty,
-      title: dirty ? `Save (${KBD_MOD}+S)` : saveJustHappened ? 'Just saved' : 'No changes to save',
+      disabled: !isDirty,
+      title: isDirty ? `Save (${KBD_MOD}+S)` : saveJustHappened ? 'Just saved' : 'No changes to save',
       onClick: doSave,
     },
       saveJustHappened ? svg(ICON_CHECK) : null,
       ` ${saveLabel} `,
-      dirty ? h('kbd', null, `${KBD_MOD}S`) : null,
+      isDirty ? h('kbd', null, `${KBD_MOD}S`) : null,
     ),
     !isExtended && h('button', {
       class: 'btn btn-ghost',
       id: 'btn-discard',
-      disabled: !dirty,
-      title: dirty ? 'Revert to the saved BMP value (discards your edits)' : 'Nothing to discard',
+      disabled: !isDirty,
+      title: isDirty ? 'Revert to the saved BMP value (discards your edits)' : 'Nothing to discard',
       onClick: doDiscard,
     }, ' Discard'),
     h('div', { class: 'editor-actions-spacer' }),
@@ -1062,7 +856,7 @@ function buildActionRow(): HTMLElement {
 function openBook(anchor: HTMLElement): void {
   showBookPopover(anchor, {
     insertAtCursor: (text: string) => {
-      if (!editorView) return false
+      if (!surface?.view) return false
       insertAtCursor(text)
       return true
     },
@@ -1076,9 +870,7 @@ function openBook(anchor: HTMLElement): void {
  *  value, so Discard rolls back to the most recent SUCCESSFUL save. */
 
 async function doDiscard(): Promise<void> {
-  if (!ctx || !editorView || !dirty) return
-  const target: SaveTarget = ctx.saveTarget
-  const original = originalCode.get(propStateKey(target, activeProperty)) ?? ''
+  if (!ctx || !surface || !curDirty()) return
   const ok = await confirmModal({
     title: 'Discard changes?',
     body: `Revert "${activeProperty}" to the value BMP last reported. Your edits will be lost.`,
@@ -1086,24 +878,20 @@ async function doDiscard(): Promise<void> {
     confirmVariant: 'danger',
   })
   if (!ok) return
-  editorView.dispatch({
-    changes: { from: 0, to: editorView.state.doc.length, insert: original },
-  })
-  // Also bring ctx's buffer back in sync — otherwise a subsequent
-  // property switch would re-stash the now-discarded edits.
-  const code = getActiveCode(ctx)
-  code[activeProperty] = original
-  propStateCache.delete(propStateKey(target, activeProperty))
-  dirty = false
+  // CodeSurface reverts the active slot to its loaded (last-saved) baseline.
+  surface.discard()
+  // Keep ctx's buffer in sync so a later property switch doesn't re-stash the
+  // now-discarded edits.
+  getActiveCode(ctx)[activeProperty] = surface.textFor(activeKey())
   staleAfterPreview = false
   previewDone = false
   refreshActions()
-  editorView.focus()
+  surface.focus()
 }
 
 async function doSave() {
-  if (!editorView || !ctx) return
-  const code = editorView.state.doc.toString()
+  if (!surface || !ctx) return
+  const code = surface.getDoc()
 
   const target = getSaveTarget(ctx)
   const targetLabel = ctx.saveTarget === 'template' && ctx.template
@@ -1134,7 +922,11 @@ async function doSave() {
     })
     if (response?.type === 'SAVE_RESULT' && response.ok) {
       showOutput(`Saved to ${targetLabel}`, true)
-      dirty = false
+      // Move the active slot's baseline to the saved value (clears dirty +
+      // makes Discard revert to what just landed on the server). markSaved is
+      // a baseline-move only — fine here: a property string write is
+      // authoritative, BMP doesn't transform it.
+      surface.markSaved(activeKey())
       lastSavedAt = Date.now()
       // Fade the Save → Saved → Save label back after ~4s. Re-render
       // the action toolbar so the button reverts to its default look
@@ -1143,10 +935,6 @@ async function doSave() {
       saveLabelTimer = setTimeout(() => { refreshActions() }, 4200)
       const activeCodeMap = getActiveCode(ctx)
       activeCodeMap[activeProperty] = code
-      // Refresh the "BMP knows about this" snapshot so Discard reverts
-      // to what just landed on the server, not the editor's pre-save
-      // value.
-      originalCode.set(propStateKey(ctx.saveTarget, activeProperty), code)
       const rid = location.hash.slice(1)
       if (rid) {
         await chrome.storage.local.set({ [`crev_editor_ctx_${rid}`]: ctx })
@@ -1390,12 +1178,13 @@ function renderBottomContentInner() {
           h('div', {
             class: 'editor-history-item',
             onClick: async () => {
-              if (!editorView) return
+              const view = surface?.view
+              if (!view) return
               // Replacing the editor doc nukes whatever the user has
               // typed. Confirm when there's unsaved work to avoid
               // silent data loss — this exact path was the #1 bug in
               // the editor audit.
-              if (dirty) {
+              if (curDirty()) {
                 const ok = await confirmModal({
                   title: 'Discard current changes?',
                   body: 'Loading from history replaces the editor content. Unsaved edits will be lost.',
@@ -1404,8 +1193,10 @@ function renderBottomContentInner() {
                 })
                 if (!ok) return
               }
-              editorView.dispatch({ changes: { from: 0, to: editorView.state.doc.length, insert: e.code } })
-              editorView.focus()
+              // A real user action (not a programmatic swap) — flows through
+              // CodeSurface's listener and marks the slot dirty.
+              view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: e.code } })
+              view.focus()
             },
           },
             h('span', { class: 'editor-history-icon' }, svg(e.mode === 'execute' ? ICON_LIGHTNING : ICON_PLAY)),
@@ -1520,14 +1311,15 @@ function renderVarsList(
         // Double-click jumps to the assignment line \u2014 preserves the
         // old single-click behaviour, just shifted.
         onDblclick: () => {
-          if (editorView) {
-            const line = editorView.state.doc.line(Math.min(v.line, editorView.state.doc.lines))
-            editorView.dispatch({ selection: { anchor: line.from }, scrollIntoView: true })
-            editorView.focus()
+          const view = surface?.view
+          if (view) {
+            const line = view.state.doc.line(Math.min(v.line, view.state.doc.lines))
+            view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true })
+            view.focus()
           }
         },
-        onMouseenter: () => { if (editorView) setHighlightedVar(editorView, v.name) },
-        onMouseleave: () => { if (editorView) setHighlightedVar(editorView, null) },
+        onMouseenter: () => { if (surface?.view) setHighlightedVar(surface.view, v.name) },
+        onMouseleave: () => { if (surface?.view) setHighlightedVar(surface.view, null) },
         title: `${v.name} := ${v.rhs} (line ${v.line}). Double-click to jump`,
       },
         h('span', { class: 'editor-vars-name' }, v.name),
@@ -1764,13 +1556,7 @@ const KIND_FILTER_PILLS: ReadonlyArray<{ family: PropFamily; label: string; titl
  *  click-to-insert. Focuses the editor after insertion so the user
  *  keeps typing without an alt-tab. */
 function insertAtCursor(text: string): void {
-  if (!editorView) return
-  const { from, to } = editorView.state.selection.main
-  editorView.dispatch({
-    changes: { from, to, insert: text },
-    selection: { anchor: from + text.length },
-  })
-  editorView.focus()
+  surface?.insertAtCursor(text)
 }
 
 /** Open the bottom panel to `mode`, or collapse it if that mode is already
@@ -1789,9 +1575,7 @@ function togglePanel(mode: typeof bottomMode): void {
 
 function toggleWrap() {
   wrapLines = !wrapLines
-  if (editorView) {
-    editorView.dispatch({ effects: wrapCompartment.reconfigure(wrapLines ? EditorView.lineWrapping : []) })
-  }
+  surface?.setWrap(wrapLines)
   const btn = document.getElementById('btn-wrap')
   if (btn) btn.className = `btn-micro${wrapLines ? ' active' : ''}`
   chrome.storage.local.set({ crev_editor_wrap: wrapLines }).catch(() => {})
@@ -1883,7 +1667,7 @@ function wireDragHandle() {
 // ── Overlay close-request handshake ─────────────────────────────
 
 installCloseHandshake(async () => {
-  if (!dirty) return true
+  if (!anyDirty()) return true
   return confirmModal({
     title: 'Discard unsaved changes?',
     body: 'This editor has unsaved changes. Close anyway?',
@@ -1897,7 +1681,7 @@ installCloseHandshake(async () => {
 // a link in BMP. The browser's native prompt is the only reliable signal here
 // — modals would race the navigation.
 window.addEventListener('beforeunload', (e) => {
-  if (!dirty) return
+  if (!anyDirty()) return
   e.preventDefault()
   // Some browsers ignore returnValue but still honor preventDefault.
   e.returnValue = ''
