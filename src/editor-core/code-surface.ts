@@ -64,7 +64,9 @@ export class CodeSurface {
   private wrap = false
   private readonly wrapCompartment = new Compartment()
 
-  constructor(private readonly parent: HTMLElement, private readonly cb: CodeSurfaceCallbacks) {}
+  /** `getParent` is resolved on every (re)build / reattach rather than captured
+   *  once — apps re-render their shell, which replaces the editor container. */
+  constructor(private readonly getParent: () => HTMLElement | null, private readonly cb: CodeSurfaceCallbacks) {}
 
   /** Register (or refresh) the set of editable slots. New keys are seeded from
    *  `code`; existing keys have their loaded baseline + text reset to `code`
@@ -104,6 +106,8 @@ export class CodeSurface {
   }
 
   private rebuild(slot: CodeSlot): void {
+    const parent = this.getParent()
+    if (!parent) return
     this.view?.destroy()
     const state = EditorState.create({
       doc: slot.code,
@@ -113,7 +117,7 @@ export class CodeSurface {
         EditorView.updateListener.of(u => this.onUpdate(u)),
       ],
     })
-    this.view = new EditorView({ state, parent: this.parent })
+    this.view = new EditorView({ state, parent })
     this.restoreNav(slot.code)
     this.view.focus()
   }
@@ -249,10 +253,11 @@ export class CodeSurface {
     this.view?.dispatch({ effects: this.wrapCompartment.reconfigure(wrap ? EditorView.lineWrapping : []) })
   }
 
-  /** Re-attach the view's DOM into `parent` after the app re-rendered its shell
-   *  (which detaches it). No-op when already attached. */
-  reattach(parent: HTMLElement): void {
-    if (this.view && this.view.dom.parentElement !== parent) parent.appendChild(this.view.dom)
+  /** Re-attach the view's DOM into the (current) parent after the app re-rendered
+   *  its shell, which detaches it. No-op when already attached or no parent yet. */
+  reattach(): void {
+    const parent = this.getParent()
+    if (this.view && parent && this.view.dom.parentElement !== parent) parent.appendChild(this.view.dom)
   }
 
   focus(): void { this.view?.focus() }

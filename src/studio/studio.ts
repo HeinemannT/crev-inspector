@@ -14,9 +14,9 @@
  * code-surface engine is extracted (against this studio + the EC editor), this
  * file adopts it and the local createEditor goes away.
  */
-import { EditorState, Compartment } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
-import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha } from '../editor-core/cm-scaffold'
+import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha, type CodeLang } from '../editor-core/cm-scaffold'
+import { CodeSurface } from '../editor-core/code-surface'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
@@ -33,15 +33,11 @@ const KBD_MOD = isMac ? '⌘' : 'Ctrl'
 
 // ── State ────────────────────────────────────────────────────────
 let ctx: StudioContext | null = null
-let view: EditorView | null = null
+/** Shared multi-slot editing engine (html + javascript slots). Owns the view,
+ *  per-slot dirty, stash/restore, and save/discard baselines. */
+let surface: CodeSurface | null = null
 let activeProp: StudioCodeProp = 'html'
-/** Working buffers — start from the loaded code, diverge as the user types. */
-const buffers: Record<StudioCodeProp, string> = { html: '', javascript: '' }
-/** Loaded-from-BMP snapshot for Discard + dirty comparison. */
-const original: Record<StudioCodeProp, string> = { html: '', javascript: '' }
-const dirty: Record<StudioCodeProp, boolean> = { html: false, javascript: false }
 let previewVisible = true
-const wrapCompartment = new Compartment()
 
 // Sandbox handshake: hold the latest render until the sandbox says it's ready.
 let sandboxReady = false
@@ -80,17 +76,36 @@ async function init() {
     return
   }
 
-  const code = activeCode()
-  for (const p of CODE_PROPS) {
-    buffers[p] = code[p] ?? ''
-    original[p] = code[p] ?? ''
-  }
   activeProp = ctx.property ?? 'html'
   document.title = ctx.instance.name ? `CVO · ${ctx.instance.name}` : 'CVO Studio'
 
   renderShell()
-  createEditor()
+  ensureSurface()
   schedulePreview()
+}
+
+/** Create the editing surface (once) with the html + javascript slots, or
+ *  re-attach its view after a shell re-render. */
+function ensureSurface() {
+  if (surface) { surface.reattach(); return }
+  surface = new CodeSurface(() => document.getElementById('studio-cm'), {
+    buildExtensions: (slot) => [
+      ...baseEditingExtensions(),
+      languageExtension(slot.lang as CodeLang),
+      catppuccinMocha,
+      keymap.of([
+        ...baseKeymapBindings,
+        { key: 'Ctrl-s', mac: 'Cmd-s', run: () => { doSave(); return true } },
+        { key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { runPreview(); return true } },
+        { key: 'Escape', run: () => { try { window.parent.postMessage({ type: 'CREV_OVERLAY_CLOSE_PLEASE' }, '*') } catch { /* ignore */ } return true } },
+      ]),
+      EditorView.updateListener.of(u => { if (u.docChanged) schedulePreview() }),
+    ],
+    onDirtyChange: () => refreshActions(),
+  })
+  const code = activeCode()
+  surface.setSlots(CODE_PROPS.map(p => ({ key: p, lang: p, code: code[p] ?? '' })))
+  surface.activate(activeProp)
 }
 
 /** Code map for the current save target (keystone always edits the instance;
@@ -119,7 +134,7 @@ function renderShell() {
         h('button', { class: 'btn btn-accent', id: 'studio-run', title: `Re-render preview · ${KBD_MOD}+Enter`, onClick: () => runPreview() },
           svg(ICON_PLAY), ' Run'),
         h('button', { class: 'btn', id: 'studio-save', disabled: !anyDirty(), title: `Save the active field · ${KBD_MOD}+S`, onClick: doSave }, 'Save'),
-        h('button', { class: 'btn btn-ghost', id: 'studio-discard', disabled: !dirty[activeProp], title: 'Revert this field to the saved BMP value', onClick: doDiscard }, 'Discard'),
+        h('button', { class: 'btn btn-ghost', id: 'studio-discard', disabled: !surface?.isDirty(activeProp), title: 'Revert this field to the saved BMP value', onClick: doDiscard }, 'Discard'),
         h('div', { class: 'studio-actions-spacer' }),
         h('button', { class: `btn-micro${previewVisible ? ' active' : ''}`, id: 'studio-toggle-preview', title: 'Show / hide the live preview', onClick: togglePreview }, previewVisible ? 'Hide preview' : 'Show preview'),
       ),
@@ -131,7 +146,7 @@ function renderShell() {
         role: 'tab',
         'aria-selected': p === activeProp ? 'true' : 'false',
         onClick: () => switchProp(p),
-      }, h('span', null, p), dirty[p] ? h('span', { class: 'studio-prop-dot', 'aria-label': 'unsaved' }) : null)),
+      }, h('span', null, p), surface?.isDirty(p) ? h('span', { class: 'studio-prop-dot', 'aria-label': 'unsaved' }) : null)),
     ),
     // Split: editor | preview
     h('div', { class: `studio-split${previewVisible ? '' : ' studio-split--no-preview'}` },
@@ -146,10 +161,7 @@ function renderShell() {
   )
 
   // Re-attach the live editor view into the freshly-rendered shell.
-  if (view) {
-    const cont = document.getElementById('studio-cm')
-    if (cont && view.dom.parentElement !== cont) cont.appendChild(view.dom)
-  }
+  surface?.reattach()
   renderConsole()
 }
 
@@ -157,56 +169,23 @@ function refreshActions() {
   const save = document.getElementById('studio-save') as HTMLButtonElement | null
   if (save) save.disabled = !anyDirty()
   const discard = document.getElementById('studio-discard') as HTMLButtonElement | null
-  if (discard) discard.disabled = !dirty[activeProp]
+  if (discard) discard.disabled = !surface?.isDirty(activeProp)
   for (const tab of document.querySelectorAll<HTMLElement>('.studio-prop-tab')) {
     const p = tab.querySelector('span')?.textContent as StudioCodeProp | undefined
-    if (p) tab.querySelector('.studio-prop-dot')?.classList.toggle('studio-prop-dot--hidden', !dirty[p])
+    if (p) tab.querySelector('.studio-prop-dot')?.classList.toggle('studio-prop-dot--hidden', !surface?.isDirty(p))
   }
 }
 
-const anyDirty = () => CODE_PROPS.some(p => dirty[p])
+const anyDirty = () => !!surface?.isDirty()
 
 // ── Editor ───────────────────────────────────────────────────────
 let previewTimer: ReturnType<typeof setTimeout> | null = null
 
-function createEditor() {
-  const container = document.getElementById('studio-cm')
-  if (!container) return
-  if (view) { view.destroy(); view = null }
-
-  const state = EditorState.create({
-    doc: buffers[activeProp],
-    extensions: [
-      ...baseEditingExtensions(),
-      languageExtension(activeProp),
-      catppuccinMocha,
-      wrapCompartment.of([]),
-      keymap.of([
-        ...baseKeymapBindings,
-        { key: 'Ctrl-s', mac: 'Cmd-s', run: () => { doSave(); return true } },
-        { key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { runPreview(); return true } },
-        { key: 'Escape', run: () => { try { window.parent.postMessage({ type: 'CREV_OVERLAY_CLOSE_PLEASE' }, '*') } catch { /* ignore */ } return true } },
-      ]),
-      EditorView.updateListener.of(update => {
-        if (!update.docChanged) return
-        buffers[activeProp] = update.state.doc.toString()
-        const nowDirty = buffers[activeProp] !== original[activeProp]
-        if (nowDirty !== dirty[activeProp]) { dirty[activeProp] = nowDirty; refreshActions() }
-        else dirty[activeProp] = nowDirty
-        schedulePreview()
-      }),
-    ],
-  })
-  view = new EditorView({ state, parent: container })
-  view.focus()
-}
-
 function switchProp(p: StudioCodeProp) {
-  if (p === activeProp || !view) return
-  buffers[activeProp] = view.state.doc.toString()
+  if (p === activeProp) return
   activeProp = p
   renderShell()
-  createEditor()
+  surface?.activate(p)
 }
 
 // ── Preview (sandbox) ────────────────────────────────────────────
@@ -218,9 +197,6 @@ function schedulePreview() {
 function runPreview() {
   if (previewTimer) { clearTimeout(previewTimer); previewTimer = null }
   if (!previewVisible) return
-  // Pull the live buffer for the active prop (the updateListener keeps the
-  // others in sync as the user leaves them).
-  if (view) buffers[activeProp] = view.state.doc.toString()
   consoleLines = []
   renderConsole()
   if (!sandboxReady) { pendingRender = true; return }
@@ -231,11 +207,13 @@ function postRender() {
   const frame = document.getElementById('studio-sandbox') as HTMLIFrameElement | null
   if (!frame?.contentWindow) { pendingRender = true; return }
   const runId = ++runCounter
+  // textFor() pulls the live doc for the active slot and the stashed text for
+  // the inactive one — so a render always uses the latest of both fields.
   frame.contentWindow.postMessage({
     type: 'CVO_RENDER',
     runId,
-    html: buffers.html,
-    javascript: buffers.javascript,
+    html: surface?.textFor('html') ?? '',
+    javascript: surface?.textFor('javascript') ?? '',
     data: mockData,
   }, '*')
 }
@@ -275,9 +253,8 @@ function renderConsole() {
 
 // ── Save / discard / preview toggle ──────────────────────────────
 async function doSave() {
-  if (!ctx || !view) return
-  buffers[activeProp] = view.state.doc.toString()
-  if (!dirty[activeProp]) return
+  if (!ctx || !surface || !surface.isDirty(activeProp)) return
+  const value = surface.textFor(activeProp)
   const target = ctx.saveTarget === 'template' && ctx.template ? ctx.template : ctx.instance
   const ok = await confirmModal({
     title: `Save ${activeProp}`,
@@ -293,12 +270,11 @@ async function doSave() {
     rid: target.rid,
     objectType: target.type || 'CustomVisualization',
     property: activeProp,
-    value: buffers[activeProp],
+    value,
   })
   if (resp?.type === 'SAVE_RESULT' && resp.ok) {
-    original[activeProp] = buffers[activeProp]
-    dirty[activeProp] = false
-    activeCode()[activeProp] = buffers[activeProp]
+    surface.markSaved(activeProp)
+    activeCode()[activeProp] = value
     consoleLines.push({ level: 'info', text: `Saved ${activeProp} to BMP` })
   } else {
     const err = resp?.type === 'SAVE_RESULT' ? resp.error : 'no response'
@@ -309,7 +285,7 @@ async function doSave() {
 }
 
 async function doDiscard() {
-  if (!ctx || !view || !dirty[activeProp]) return
+  if (!ctx || !surface || !surface.isDirty(activeProp)) return
   const ok = await confirmModal({
     title: 'Discard changes?',
     body: `Revert ${activeProp} to the value BMP last reported. Your edits will be lost.`,
@@ -317,9 +293,7 @@ async function doDiscard() {
     confirmVariant: 'danger',
   })
   if (!ok) return
-  buffers[activeProp] = original[activeProp]
-  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: original[activeProp] } })
-  dirty[activeProp] = false
+  surface.discard()
   refreshActions()
   schedulePreview()
 }
@@ -328,7 +302,7 @@ function togglePreview() {
   previewVisible = !previewVisible
   sandboxReady = false // the iframe is recreated by renderShell
   renderShell()
-  createEditor()
+  ensureSurface()
   if (previewVisible) schedulePreview()
 }
 

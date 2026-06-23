@@ -13,7 +13,7 @@ function mount() {
   const parent = document.createElement('div')
   document.body.appendChild(parent)
   const onDirtyChange = vi.fn()
-  const surface = new CodeSurface(parent, { buildExtensions: () => [], onDirtyChange })
+  const surface = new CodeSurface(() => parent, { buildExtensions: () => [], onDirtyChange })
   surface.setSlots([
     { key: 'html', lang: 'html', code: '<p>a</p>' },
     { key: 'javascript', lang: 'javascript', code: 'var x=1' },
