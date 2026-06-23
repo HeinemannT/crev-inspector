@@ -8,7 +8,7 @@
  * locks the behaviour the studio depends on.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { runCvo, freshRoot, installConsoleCapture, type OutboundMessage, type RenderRequest } from '../sandbox'
+import { runCvo, freshRoot, injectLibs, installConsoleCapture, type OutboundMessage, type RenderRequest } from '../sandbox'
 
 function req(over: Partial<RenderRequest>): RenderRequest {
   return { type: 'CVO_RENDER', runId: 1, html: '', javascript: '', data: {}, ...over }
@@ -80,6 +80,23 @@ describe('freshRoot', () => {
     // Only one #cvo-root exists after teardown.
     expect(document.querySelectorAll('#cvo-root').length).toBe(1)
     expect(document.getElementById('cvo-root')).toBe(b)
+  })
+})
+
+describe('injectLibs', () => {
+  it('appends each lib as a tagged <script> in document order', () => {
+    document.head.innerHTML = ''
+    injectLibs(document, ['window.__A = 1', 'window.__B = 2'])
+    const scripts = document.head.querySelectorAll('script[data-cvo-lib]')
+    expect(scripts.length).toBe(2)
+    expect(scripts[0].textContent).toBe('window.__A = 1')
+    expect(scripts[1].textContent).toBe('window.__B = 2')
+  })
+
+  it('no-ops on an empty lib list', () => {
+    document.head.innerHTML = ''
+    injectLibs(document, [])
+    expect(document.head.querySelectorAll('script[data-cvo-lib]').length).toBe(0)
   })
 })
 

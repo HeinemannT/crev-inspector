@@ -17,6 +17,7 @@
 import { EditorView, keymap } from '@codemirror/view'
 import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha, type CodeLang } from '../editor-core/cm-scaffold'
 import { CodeSurface, isProgrammaticSwap } from '../editor-core/code-surface'
+import { detectFileResourceRids } from './dep-detect'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
@@ -53,6 +54,11 @@ let liveError: string | null = null
 // preview carries the real slot keys.
 let children: StudioChild[] = []
 let childrenOpen = false
+
+// Hosted FileResource libraries the CVO depends on, cached by rid ('' = fetched
+// but unavailable). lastLibs is the resolved set passed to the sandbox.
+const libCache = new Map<string, string>()
+let lastLibs: string[] = []
 
 // Sandbox handshake: hold the latest render until the sandbox says it's ready.
 let sandboxReady = false
@@ -229,13 +235,37 @@ function schedulePreview() {
   previewTimer = setTimeout(() => runPreview(), PREVIEW_DEBOUNCE_MS)
 }
 
-function runPreview() {
+async function runPreview() {
   if (previewTimer) { clearTimeout(previewTimer); previewTimer = null }
   if (!previewVisible) return
   consoleLines = []
   renderConsole()
+  // Resolve the CVO's hosted FileResource libraries (cached) before rendering,
+  // so the sandbox can run them before the CVO. Done before the ready-gate so a
+  // queued render flushes with libs ready.
+  await ensureLibs()
   if (!sandboxReady) { pendingRender = true; return }
   postRender()
+}
+
+/** Detect the FileResource libraries the CVO loads and fetch their bytes via
+ *  the SW (cookie-authed download), caching by rid. Unavailable deps (e.g. no
+ *  BMP session) are cached as '' and warned once, so the CVO degrades rather
+ *  than blocking — matching the portal's graceful-degradation guidance. */
+async function ensureLibs(): Promise<void> {
+  const rids = detectFileResourceRids(surface?.textFor('html') ?? '', surface?.textFor('javascript') ?? '')
+  for (const rid of rids) {
+    if (libCache.has(rid)) continue
+    const resp = await sendRequest({ type: 'STUDIO_FETCH_RESOURCE', rid })
+    if (resp?.type === 'STUDIO_RESOURCE' && resp.ok && resp.text != null) {
+      libCache.set(rid, resp.text)
+    } else {
+      libCache.set(rid, '')
+      consoleLines.push({ level: 'warn', text: `Dependency ${rid} unavailable (${(resp?.type === 'STUDIO_RESOURCE' ? resp.error : 'no response') ?? ''}) — preview runs without it` })
+      renderConsole()
+    }
+  }
+  lastLibs = rids.map(r => libCache.get(r) ?? '').filter(Boolean)
 }
 
 function postRender() {
@@ -256,6 +286,7 @@ function postRender() {
     html: surface?.textFor('html') ?? '',
     javascript: surface?.textFor('javascript') ?? '',
     data,
+    libs: lastLibs,
   }, '*')
 }
 

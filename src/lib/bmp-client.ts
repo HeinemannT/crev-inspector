@@ -475,6 +475,25 @@ export class BmpClient {
     }
   }
 
+  /** Download a FileResource's decoded `content` bytes as text — the
+   *  /web/download servlet decodes the stored `name;mime;base64` triplet and
+   *  serves the real bytes (no nosniff), so a hosted JS library comes back as
+   *  runnable source. Session-cookie auth (same as cvoData), so it's a plain
+   *  credentials:'include' GET. Used by the studio to inject a CVO's hosted
+   *  libraries into the sandbox preview. rid stays a string (Java long). */
+  async downloadResource(rid: string): Promise<{ ok: boolean; text?: string; error?: string; status?: number }> {
+    const u = new URL(`${this.transport.baseUrl}web/download`);
+    u.searchParams.set('propName', 'content');
+    u.searchParams.set('rid', rid);
+    try {
+      const res = await fetch(u.toString(), { credentials: 'include', cache: 'no-store' });
+      if (!res.ok) return { ok: false, status: res.status, error: `Download HTTP ${res.status}` };
+      return { ok: true, text: await res.text() };
+    } catch (e) {
+      return { ok: false, error: this.transport.formatError(e) };
+    }
+  }
+
   // ── Access trace (admin permission test) ──────────────────────
 
   /** Run AccessTraceCommand: trace whether `subjectRid` (a user OR role) has

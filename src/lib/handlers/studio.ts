@@ -94,6 +94,13 @@ register('STUDIO_ADD_CHILD', async (msg, respond) => {
   }
 })
 
+register('STUDIO_FETCH_RESOURCE', async (msg, respond) => {
+  const ctx = getCtx()
+  if (!ctx.client) { respond({ type: 'STUDIO_RESOURCE', ok: false, rid: msg.rid, error: 'Not connected' }); return }
+  const r = await ctx.client.downloadResource(msg.rid)
+  respond({ type: 'STUDIO_RESOURCE', ok: r.ok, rid: msg.rid, text: r.text, error: r.error })
+})
+
 register('STUDIO_DELETE_CHILD', async (msg, respond) => {
   const ctx = getCtx()
   if (!ctx.client) { respond({ type: 'STUDIO_CHILD_DELETED', ok: false, error: 'Not connected' }); return }

@@ -232,7 +232,11 @@ export type StudioMessage =
   | { type: 'STUDIO_ADD_CHILD'; cvoBid: string; childId: string; key: string }
   | { type: 'STUDIO_CHILD_ADDED'; ok: boolean; rid?: string; error?: string }
   | { type: 'STUDIO_DELETE_CHILD'; childId: string }
-  | { type: 'STUDIO_CHILD_DELETED'; ok: boolean; error?: string };
+  | { type: 'STUDIO_CHILD_DELETED'; ok: boolean; error?: string }
+  // Download a FileResource's decoded content (a hosted JS library) to inject
+  // into the sandbox preview.
+  | { type: 'STUDIO_FETCH_RESOURCE'; rid: string }
+  | { type: 'STUDIO_RESOURCE'; ok: boolean; rid: string; text?: string; error?: string };
 
 export interface StudioChild {
   /** rid as a string (Java long — never a JS number). */

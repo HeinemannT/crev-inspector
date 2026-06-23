@@ -33,6 +33,10 @@ export interface RenderRequest {
   javascript: string
   /** The mock (later: real) `_data`, minus `.element` which we attach here. */
   data: Record<string, unknown>
+  /** Hosted FileResource libraries (decoded JS source) to run BEFORE the CVO,
+   *  so their globals (e.g. `echarts`) are ready — mirrors the portal loading
+   *  them same-origin. The studio fetches these via the SW. */
+  libs?: string[]
 }
 
 export type OutboundMessage =
@@ -47,6 +51,18 @@ export function fmtArg(a: unknown): string {
   if (typeof a === 'string') return a
   if (a instanceof Error) return a.stack || a.message
   try { return JSON.stringify(a) } catch { return String(a) }
+}
+
+/** Inject hosted libraries as classic <script> elements (global-scope eval, so
+ *  UMD globals like `echarts` attach to window) BEFORE the CVO runs. Tagged
+ *  `data-cvo-lib` so they can be cleared + re-injected when the set changes. */
+export function injectLibs(doc: Document, libs: string[]): void {
+  for (const lib of libs) {
+    const s = doc.createElement('script')
+    s.setAttribute('data-cvo-lib', '')
+    s.textContent = lib
+    doc.head.appendChild(s)
+  }
 }
 
 /** Replace the render container wholesale so teardown is total — no stale
@@ -131,11 +147,25 @@ if (typeof window !== 'undefined' && window.parent !== window) {
     post({ type: 'CVO_ERROR', runId: currentRunId, message: reason instanceof Error ? reason.message : `Unhandled rejection: ${fmtArg(reason)}`, stack: reason instanceof Error ? reason.stack : undefined })
   })
 
+  // Inject hosted libs only when the set changes — the iframe gets many renders
+  // (one per edit) but the deps rarely change; re-parsing a 1 MB lib each
+  // keystroke would be wasteful.
+  let libsFingerprint = ''
+  const maybeInjectLibs = (libs: string[]) => {
+    const fp = libs.length + ':' + libs.reduce((n, l) => n + l.length, 0)
+    if (fp === libsFingerprint) return
+    document.querySelectorAll('script[data-cvo-lib]').forEach(s => s.remove())
+    injectLibs(document, libs)
+    libsFingerprint = fp
+  }
+
   window.addEventListener('message', ev => {
     if (ev.source !== parent) return
     const msg = ev.data as RenderRequest | undefined
     if (msg && msg.type === 'CVO_RENDER') {
       currentRunId = msg.runId
+      // Libs first (sync <script> execution defines globals), then the CVO.
+      maybeInjectLibs(msg.libs ?? [])
       runCvo(freshRoot(document), msg, post)
     }
   })
