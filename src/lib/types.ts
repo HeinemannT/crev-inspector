@@ -220,7 +220,10 @@ export type StudioMessage =
   // Re-fetch a CVO's code after a save, to confirm what actually landed (the
   // save->reload pattern: catches a silent in-script rollback) and re-seed.
   | { type: 'STUDIO_FETCH_CODE'; rid: string }
-  | { type: 'STUDIO_CODE_DATA'; ok: boolean; code?: Record<string, string>; error?: string };
+  | { type: 'STUDIO_CODE_DATA'; ok: boolean; code?: Record<string, string>; error?: string }
+  // Fetch live `_data` from the CVO data servlet for the chosen render context.
+  | { type: 'STUDIO_FETCH_DATA'; cvoRid: string; businessObjectRid: string; periodMillis?: number }
+  | { type: 'STUDIO_DATA'; ok: boolean; data?: unknown; error?: string; status?: number };
 
 // ── Frame Overlay (in-page floating iframes for editor/diff/objectview/codesearch/cvo-studio) ─
 export type FrameOverlayMessage =

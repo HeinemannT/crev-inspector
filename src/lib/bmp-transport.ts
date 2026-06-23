@@ -16,6 +16,10 @@ export class BmpTransport {
     private auth: BmpAuth,
   ) {}
 
+  /** The workspace base URL (trailing slash), e.g. `https://host/Workspace/`.
+   *  Used to build non-command servlet URLs like the CVO data servlet. */
+  get baseUrl(): string { return this.bmpUrl }
+
   /** Send serialized body, using JWT Bearer or LOGIN_TICKET depending on useTicketAuth */
   async sendRequest(body: Uint8Array, timeout: number, signal?: AbortSignal): Promise<ArrayBuffer> {
     const timeoutSignal = AbortSignal.timeout(timeout);

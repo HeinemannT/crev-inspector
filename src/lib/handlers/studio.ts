@@ -28,3 +28,10 @@ register('STUDIO_FETCH_CODE', async (msg, respond) => {
     respond({ type: 'STUDIO_CODE_DATA', ok: false, error: errorMessage(e) })
   }
 })
+
+register('STUDIO_FETCH_DATA', async (msg, respond) => {
+  const ctx = getCtx()
+  if (!ctx.client) { respond({ type: 'STUDIO_DATA', ok: false, error: 'Not connected' }); return }
+  const r = await ctx.client.cvoData(msg.cvoRid, msg.businessObjectRid, 'M', msg.periodMillis)
+  respond({ type: 'STUDIO_DATA', ok: r.ok, data: r.data, error: r.error, status: r.status })
+})

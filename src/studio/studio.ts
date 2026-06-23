@@ -39,6 +39,15 @@ let surface: CodeSurface | null = null
 let activeProp: StudioCodeProp = 'html'
 let previewVisible = true
 
+// Preview data source. 'mock' uses the local mockData; 'live' fetches the real
+// `_data` from BMP's data servlet for renderContextRid (org-rooted). liveData
+// caches the last successful fetch; liveError holds the last failure (e.g. the
+// org-gating 400) for display.
+let dataMode: 'mock' | 'live' = 'mock'
+let renderContextRid = ''
+let liveData: Record<string, unknown> | null = null
+let liveError: string | null = null
+
 // Sandbox handshake: hold the latest render until the sandbox says it's ready.
 let sandboxReady = false
 let pendingRender = false
@@ -79,6 +88,7 @@ async function init() {
   }
 
   activeProp = ctx.property ?? 'html'
+  renderContextRid = ctx.renderContextRid ?? ''
   document.title = ctx.instance.name ? `CVO · ${ctx.instance.name}` : 'CVO Studio'
 
   renderShell()
@@ -159,6 +169,7 @@ function renderShell() {
       h('div', { class: 'studio-editor', id: 'studio-cm' }),
       previewVisible
         ? h('div', { class: 'studio-preview' },
+            renderDataBar(),
             h('iframe', { id: 'studio-sandbox', class: 'studio-sandbox', src: 'sandbox.html', title: 'CVO preview' }),
             h('div', { class: 'studio-console', id: 'studio-console' }),
           )
@@ -169,6 +180,16 @@ function renderShell() {
   // Re-attach the live editor view into the freshly-rendered shell.
   surface?.reattach()
   renderConsole()
+  // renderShell built a FRESH sandbox iframe (renderDom replaced the DOM), so the
+  // prior handshake is void — reset it and re-render once the new iframe is ready
+  // (pendingRender flushes on CVO_SANDBOX_READY). Guarded on `surface` so init's
+  // first renderShell (pre-ensureSurface) doesn't fire an empty render — init
+  // schedules the first preview itself.
+  if (previewVisible) {
+    sandboxReady = false
+    pendingRender = false
+    if (surface) schedulePreview()
+  }
 }
 
 function refreshActions() {
@@ -215,16 +236,72 @@ function postRender() {
   const runId = ++runCounter
   // textFor() pulls the live doc for the active slot and the stashed text for
   // the inactive one — so a render always uses the latest of both fields.
-  // NOTE (Phase 3): the payload is mock data today, so a '*' target origin is
-  // safe. Once real BMP `_data` (possibly sensitive) flows here, target the
-  // sandbox's specific origin instead of '*' to avoid leaking to other frames.
+  // In live mode render against the real servlet `_data` (falling back to mock
+  // until the first successful fetch); otherwise the mock.
+  // NOTE: target origin is '*'. Live `_data` can be sensitive; the sandbox is
+  // the only embedded frame and validates ev.source, but if other frames are
+  // ever embedded here, target the sandbox's specific origin instead.
+  const data = dataMode === 'live' && liveData ? liveData : mockData
   frame.contentWindow.postMessage({
     type: 'CVO_RENDER',
     runId,
     html: surface?.textFor('html') ?? '',
     javascript: surface?.textFor('javascript') ?? '',
-    data: mockData,
+    data,
   }, '*')
+}
+
+// ── Preview data source (mock / live `_data`) ────────────────────
+function renderDataBar(): HTMLElement {
+  const ctxInput = h('input', {
+    class: 'studio-ctx-input',
+    id: 'studio-ctx-rid',
+    placeholder: 'render-context rid',
+    value: renderContextRid,
+    spellcheck: 'false', autocomplete: 'off',
+    title: 'Org-rooted object (scorecard/page) the CVO renders under — the data servlet is gated on it',
+  }) as HTMLInputElement
+  ctxInput.addEventListener('change', () => {
+    renderContextRid = ctxInput.value.trim()
+    if (dataMode === 'live') fetchLiveData()
+  })
+  return h('div', { class: 'studio-databar' },
+    h('span', { class: 'studio-databar-label' }, 'Data'),
+    h('button', { class: `studio-databar-btn${dataMode === 'mock' ? ' active' : ''}`, title: 'Render against local mock _data', onClick: () => setDataMode('mock') }, 'Mock'),
+    h('button', { class: `studio-databar-btn${dataMode === 'live' ? ' active' : ''}`, title: 'Render against real BMP _data for the render context', onClick: () => setDataMode('live') }, 'Live'),
+    dataMode === 'live' ? ctxInput : null,
+    dataMode === 'live' ? h('button', { class: 'studio-databar-btn', title: 'Re-fetch live data', onClick: () => fetchLiveData() }, '↻') : null,
+    dataMode === 'live' && liveError ? h('span', { class: 'studio-databar-error', title: liveError }, '⚠ ' + (liveError.length > 70 ? liveError.slice(0, 70) + '…' : liveError)) : null,
+    dataMode === 'live' && !liveError && liveData ? h('span', { class: 'studio-databar-ok', title: 'Rendering against live BMP data' }, 'live') : null,
+  )
+}
+
+function setDataMode(mode: 'mock' | 'live'): void {
+  if (mode === dataMode) return
+  dataMode = mode
+  liveError = null
+  renderShell() // re-renders the data bar + the fresh iframe (which schedules a render)
+  if (mode === 'live' && !liveData) fetchLiveData()
+}
+
+async function fetchLiveData(): Promise<void> {
+  if (!ctx) return
+  if (!renderContextRid) {
+    liveData = null
+    liveError = 'Set a render-context rid (an org-rooted scorecard/page) to fetch live data.'
+    renderShell()
+    return
+  }
+  liveError = null
+  const resp = await sendRequest({ type: 'STUDIO_FETCH_DATA', cvoRid: ctx.instance.rid, businessObjectRid: renderContextRid })
+  if (resp?.type === 'STUDIO_DATA' && resp.ok && resp.data) {
+    liveData = resp.data as Record<string, unknown>
+    liveError = null
+  } else {
+    liveData = null
+    liveError = (resp?.type === 'STUDIO_DATA' ? resp.error : undefined) ?? 'Live data fetch failed'
+  }
+  renderShell() // reflect status; the fresh iframe schedules a render with the new data
 }
 
 window.addEventListener('message', ev => {

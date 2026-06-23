@@ -25,6 +25,11 @@ export interface StudioContext {
   saveTarget: SaveTarget
   /** Property the open gesture preferred (html / javascript). */
   property?: StudioCodeProp
+  /** Default render context for the live-`_data` fetch — the org-rooted object
+   *  (scorecard/page) the CVO was being viewed on. The data servlet is gated on
+   *  this resolving under an Organisation. Captured by the launcher; editable in
+   *  the studio. Undefined when the CVO wasn't opened from a rendered page. */
+  renderContextRid?: string
 }
 
 export const STUDIO_CTX_PREFIX = 'crev_cvo_studio_ctx_'

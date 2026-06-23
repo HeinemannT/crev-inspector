@@ -8,7 +8,30 @@
 import { getCtx } from './sw-context'
 import { log } from './logger'
 import { launchFrame } from './frame-launcher'
+import { resolveTabPageContext } from './page-context-resolver'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from '../studio/studio-types'
+
+/** The object the BMP page is currently rendering — the default render context
+ *  for the live-`_data` fetch (the data servlet is gated on it being org-rooted).
+ *  Mirrors the editor's getCurrentPageRid; defensive (tab may be gone / no
+ *  chrome.tabs in tests). Returns undefined when there's no current page object. */
+async function getRenderContextRid(target?: { tabId?: number; windowId?: number }): Promise<string | undefined> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.tabs) return undefined
+    let tabId = target?.tabId
+    if (tabId == null && typeof chrome.tabs.query === 'function') {
+      const q: chrome.tabs.QueryInfo = target?.windowId != null
+        ? { active: true, windowId: target.windowId }
+        : { active: true, lastFocusedWindow: true }
+      tabId = (await chrome.tabs.query(q))[0]?.id
+    }
+    if (tabId == null) return undefined
+    const rid = (await resolveTabPageContext(tabId)).rid
+    return rid && /^-?\d+$/.test(rid) ? rid : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const CVO_CODE_PROPS: readonly StudioCodeProp[] = ['html', 'javascript']
 
@@ -42,6 +65,7 @@ export async function openCvoStudioWindow(
 
   const { instance, template, instanceCode, templateCode } = data
   const property: StudioCodeProp = preferredProperty === 'javascript' ? 'javascript' : 'html'
+  const renderContextRid = await getRenderContextRid(target)
 
   const ctx: StudioContext = {
     instance,
@@ -50,6 +74,7 @@ export async function openCvoStudioWindow(
     templateCode,
     saveTarget: swCtx.settings.saveTarget,
     property,
+    renderContextRid,
   }
 
   await chrome.storage.local.set({ [`${STUDIO_CTX_PREFIX}${rid}`]: ctx })

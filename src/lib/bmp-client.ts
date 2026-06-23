@@ -438,6 +438,43 @@ export class BmpClient {
     }
   }
 
+  /** Fetch a CustomVisualization's live `_data` from the data servlet. Unlike
+   *  the binary command channel (JWT/ticket), this servlet auths by the BMP
+   *  SESSION COOKIE — so it's a plain credentials:'include' GET that rides the
+   *  browser's BMP session (the SW has host + cookies permissions). Returns the
+   *  servlet JSON (expressions/tables/serverConnections/context). A 400 means
+   *  the render context isn't org-rooted (the CVO must resolve under an
+   *  Organisation) — surfaced as a clear message for the studio's live toggle. */
+  async cvoData(
+    cvoRid: string,
+    businessObjectRid: string,
+    periodType = 'M',
+    periodMillis?: number,
+  ): Promise<{ ok: boolean; data?: unknown; error?: string; status?: number }> {
+    const u = new URL(`${this.transport.baseUrl}web/customvisualizationdata`);
+    u.searchParams.set('customvizrid', cvoRid);
+    u.searchParams.set('businessobjectrid', businessObjectRid);
+    u.searchParams.set('selectedPeriodType', periodType);
+    u.searchParams.set('selectedPeriod', String(periodMillis ?? Date.now()));
+    u.searchParams.set('ytd', 'false');
+    u.searchParams.set('_t', String(Date.now())); // cache-buster
+    try {
+      const res = await fetch(u.toString(), { credentials: 'include', cache: 'no-store' });
+      if (!res.ok) {
+        return {
+          ok: false,
+          status: res.status,
+          error: res.status === 400
+            ? 'Data servlet returned 400 — the render context is not org-rooted. The CVO must resolve under an Organisation; pick an org-rooted scorecard/page rid as the render context.'
+            : `Data servlet HTTP ${res.status}`,
+        };
+      }
+      return { ok: true, data: await res.json() };
+    } catch (e) {
+      return { ok: false, error: this.transport.formatError(e) };
+    }
+  }
+
   // ── Access trace (admin permission test) ──────────────────────
 
   /** Run AccessTraceCommand: trace whether `subjectRid` (a user OR role) has
