@@ -13,6 +13,10 @@
  * clean teardown is the whole reason for normalising every CVO — bundle-shaped
  * or inline — into this one harness.
  *
+ * The render core (freshRoot / runCvo / installConsoleCapture) is exported and
+ * exercised by sandbox-runtime.test.ts; the module body below is the thin
+ * postMessage shell that wires those to the embedder.
+ *
  * Network (real feeds, FileResource libraries) is NOT wired here yet: the
  * keystone runs against a mock `_data` and offline CVOs. When live data lands,
  * the sandbox will request it from the studio (which relays to the SW), never
@@ -21,7 +25,7 @@
 
 // ── Messages (mirrored, by hand, in studio.ts — sandbox can't import the
 //    privileged types module without dragging chrome.* typings in) ──────────
-interface RenderRequest {
+export interface RenderRequest {
   type: 'CVO_RENDER'
   /** Monotonic id so late console/errors from a superseded run can be ignored. */
   runId: number
@@ -31,113 +35,106 @@ interface RenderRequest {
   data: Record<string, unknown>
 }
 
-type OutboundMessage =
+export type OutboundMessage =
   | { type: 'CVO_CONSOLE'; runId: number; level: 'log' | 'warn' | 'error' | 'info'; text: string }
   | { type: 'CVO_ERROR'; runId: number; message: string; stack?: string; line?: number; column?: number }
   | { type: 'CVO_RENDERED'; runId: number; ok: boolean }
 
-let currentRunId = 0
-
-function post(msg: OutboundMessage): void {
-  // The embedder is the studio page; '*' is safe because the payload carries no
-  // secrets and the sandbox only ever has one embedder.
-  parent.postMessage(msg, '*')
-}
+export type Emit = (msg: OutboundMessage) => void
 
 /** Serialise a console argument compactly for the studio's console strip. */
-function fmtArg(a: unknown): string {
+export function fmtArg(a: unknown): string {
   if (typeof a === 'string') return a
   if (a instanceof Error) return a.stack || a.message
   try { return JSON.stringify(a) } catch { return String(a) }
 }
 
-/** Container we render each CVO into. Replaced wholesale per run so teardown is
- *  total — no stale nodes, listeners, or `dataset` guard flags survive. */
-function freshRoot(): HTMLElement {
-  const old = document.getElementById('cvo-root')
+/** Replace the render container wholesale so teardown is total — no stale
+ *  nodes, listeners, or `dataset` guard flags survive between runs. */
+export function freshRoot(doc: Document): HTMLElement {
+  const old = doc.getElementById('cvo-root')
   if (old) old.remove()
-  const root = document.createElement('div')
+  const root = doc.createElement('div')
   root.id = 'cvo-root'
-  document.body.appendChild(root)
+  doc.body.appendChild(root)
   return root
 }
 
-function render(req: RenderRequest): void {
-  currentRunId = req.runId
+/** Run one CVO into `root`: reproduce the `_data` contract (`.element` = root),
+ *  inject the html, then run the javascript with `_data` in scope. Reports a
+ *  thrown error (the silent-blank-widget failure, surfaced) and the terminal
+ *  CVO_RENDERED. Console capture is installed separately (see below) so it also
+ *  catches async logs after this returns. */
+export function runCvo(root: HTMLElement, req: RenderRequest, emit: Emit): void {
   const runId = req.runId
-  const root = freshRoot()
-
-  // Reproduce the CVO contract: a single `_data` global whose `.element` is the
-  // container. html is injected first (BMP uses dangerouslySetInnerHTML), then
-  // javascript runs with `_data` in scope.
+  // `_data` is provided as a parameter — equivalent to BMP's eval-with-_data-
+  // in-scope for any code that reads the global, but scoped to this call so
+  // top-level `var`s don't leak between runs.
   const data = { ...req.data, element: root }
 
   try {
     root.innerHTML = req.html
   } catch (e) {
-    post({ type: 'CVO_ERROR', runId, message: `Failed to set html: ${(e as Error).message}` })
+    emit({ type: 'CVO_ERROR', runId, message: `Failed to set html: ${(e as Error).message}` })
   }
 
   if (req.javascript.trim()) {
     try {
-      // `_data` is provided as a parameter — equivalent to BMP's eval-with-_data
-      // -in-scope for any code that reads the global, but scoped to this call so
-      // top-level `var`s don't leak between runs. A function body legally allows
-      // the IIFE-or-not shapes CVOs use.
+      // A function body legally allows the IIFE-or-not shapes CVOs use.
       // eslint-disable-next-line @typescript-eslint/no-implied-eval
       const run = new Function('_data', req.javascript)
       run(data)
     } catch (e) {
       const err = e as Error
-      post({ type: 'CVO_ERROR', runId, message: err.message, stack: err.stack })
-      post({ type: 'CVO_RENDERED', runId, ok: false })
+      emit({ type: 'CVO_ERROR', runId, message: err.message, stack: err.stack })
+      emit({ type: 'CVO_RENDERED', runId, ok: false })
       return
     }
   }
-  post({ type: 'CVO_RENDERED', runId, ok: true })
+  emit({ type: 'CVO_RENDERED', runId, ok: true })
 }
 
-// ── Console + error capture ────────────────────────────────────────────────
-// Forward the sandbox's console to the studio so a CVO's logs/warnings are
-// visible, and turn the silent-blank-widget failure (a thrown CVO) into a
-// surfaced error. Guarded by runId so a stale async log from a superseded run
-// is tagged and can be dropped upstream.
-;(['log', 'warn', 'error', 'info'] as const).forEach(level => {
-  const orig = console[level].bind(console)
-  console[level] = (...args: unknown[]) => {
-    orig(...args)
-    post({ type: 'CVO_CONSOLE', runId: currentRunId, level, text: args.map(fmtArg).join(' ') })
-  }
-})
-
-window.addEventListener('error', ev => {
-  post({
-    type: 'CVO_ERROR',
-    runId: currentRunId,
-    message: ev.message || 'Uncaught error',
-    stack: ev.error?.stack,
-    line: ev.lineno,
-    column: ev.colno,
+/** Forward the sandbox's console to the studio so a CVO's logs/warnings are
+ *  visible. Permanent (not scoped to one run) so async logs are caught too;
+ *  `getRunId` tags each line with the live run so superseded output can be
+ *  dropped upstream. Returns a restore fn (used by tests). */
+export function installConsoleCapture(emit: Emit, getRunId: () => number): () => void {
+  const levels = ['log', 'warn', 'error', 'info'] as const
+  const originals = levels.map(l => console[l])
+  levels.forEach((level, i) => {
+    console[level] = (...args: unknown[]) => {
+      originals[i](...args)
+      emit({ type: 'CVO_CONSOLE', runId: getRunId(), level, text: args.map(fmtArg).join(' ') })
+    }
   })
-})
+  return () => { levels.forEach((level, i) => { console[level] = originals[i] }) }
+}
 
-window.addEventListener('unhandledrejection', ev => {
-  const reason = ev.reason
-  post({
-    type: 'CVO_ERROR',
-    runId: currentRunId,
-    message: reason instanceof Error ? reason.message : `Unhandled rejection: ${fmtArg(reason)}`,
-    stack: reason instanceof Error ? reason.stack : undefined,
+// ── Module shell: wire the render core to the embedder over postMessage ─────
+// Skipped under test (no parent embedder); the exports above are tested directly.
+if (typeof window !== 'undefined' && window.parent !== window) {
+  let currentRunId = 0
+  const post: Emit = msg => parent.postMessage(msg, '*')
+
+  installConsoleCapture(post, () => currentRunId)
+
+  window.addEventListener('error', ev => {
+    post({ type: 'CVO_ERROR', runId: currentRunId, message: ev.message || 'Uncaught error', stack: ev.error?.stack, line: ev.lineno, column: ev.colno })
   })
-})
+  window.addEventListener('unhandledrejection', ev => {
+    const reason = (ev as PromiseRejectionEvent).reason
+    post({ type: 'CVO_ERROR', runId: currentRunId, message: reason instanceof Error ? reason.message : `Unhandled rejection: ${fmtArg(reason)}`, stack: reason instanceof Error ? reason.stack : undefined })
+  })
 
-window.addEventListener('message', ev => {
-  // Only the embedder (studio page) drives renders. Sandbox has one parent.
-  if (ev.source !== parent) return
-  const msg = ev.data as RenderRequest | undefined
-  if (msg && msg.type === 'CVO_RENDER') render(msg)
-})
+  window.addEventListener('message', ev => {
+    if (ev.source !== parent) return
+    const msg = ev.data as RenderRequest | undefined
+    if (msg && msg.type === 'CVO_RENDER') {
+      currentRunId = msg.runId
+      runCvo(freshRoot(document), msg, post)
+    }
+  })
 
-// Tell the studio we're ready to receive renders (it may have a request queued
-// before this script ran).
-parent.postMessage({ type: 'CVO_SANDBOX_READY' }, '*')
+  // Tell the studio we're ready (it may have queued a render before this ran).
+  parent.postMessage({ type: 'CVO_SANDBOX_READY' }, '*')
+}
