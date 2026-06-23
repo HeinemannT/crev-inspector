@@ -83,6 +83,35 @@ html, body { height: 100%; margin: 0; }
 .studio-databar-error { color: var(--danger, #c0392b); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .studio-databar-ok { color: #2f8a44; font-weight: var(--weight-semi); }
 
+/* Data inputs (CVO children) */
+.studio-inputs { flex-shrink: 0; border-bottom: 1px solid var(--surface-4); background: var(--surface-1); }
+.studio-inputs-header {
+  width: 100%; text-align: left; padding: 4px var(--space-2);
+  font-size: var(--text-xs); color: var(--text-2);
+  background: none; border: none; cursor: pointer;
+}
+.studio-inputs-header:hover { color: var(--text-1); }
+.studio-inputs-list { padding: 4px var(--space-2) var(--space-2); display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
+.studio-inputs-empty { color: var(--text-4); font-size: var(--text-xs); padding: 2px 0; }
+.studio-child-row { display: flex; align-items: center; gap: 4px; }
+.studio-child-key-input {
+  flex: 0 0 110px; min-width: 0; padding: 2px 6px;
+  font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-1);
+  background: var(--surface-0); border: 1px solid var(--surface-4); border-radius: var(--radius-sm);
+}
+.studio-child-expr {
+  flex: 1; min-width: 0; padding: 2px 6px;
+  font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-2);
+  background: var(--surface-0); border: 1px solid var(--surface-4); border-radius: var(--radius-sm);
+}
+.studio-child-del { color: var(--danger, #c0392b); }
+.studio-inputs-add {
+  align-self: flex-start; margin-top: 2px; padding: 2px 8px;
+  font-size: var(--text-xs); color: var(--accent);
+  background: none; border: 1px dashed var(--surface-5); border-radius: var(--radius-sm); cursor: pointer;
+}
+.studio-inputs-add:hover { background: var(--surface-2); }
+
 .studio-sandbox { flex: 1; width: 100%; border: 0; background: #fff; }
 
 /* ── Console strip ──────────────────────────────────────────────── */

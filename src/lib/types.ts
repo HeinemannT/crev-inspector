@@ -223,7 +223,27 @@ export type StudioMessage =
   | { type: 'STUDIO_CODE_DATA'; ok: boolean; code?: Record<string, string>; error?: string }
   // Fetch live `_data` from the CVO data servlet for the chosen render context.
   | { type: 'STUDIO_FETCH_DATA'; cvoRid: string; businessObjectRid: string; periodMillis?: number }
-  | { type: 'STUDIO_DATA'; ok: boolean; data?: unknown; error?: string; status?: number };
+  | { type: 'STUDIO_DATA'; ok: boolean; data?: unknown; error?: string; status?: number }
+  // CVO data-input children (CustomVisualizationExpression) — referenced by
+  // businessId (rids exceed JS safe-int). Edits go through SAVE_PROPERTY; only
+  // add (id+key) and delete (childId) need generated EC, on simple identifiers.
+  | { type: 'STUDIO_FETCH_CHILDREN'; cvoBid: string }
+  | { type: 'STUDIO_CHILDREN'; ok: boolean; children?: StudioChild[]; error?: string }
+  | { type: 'STUDIO_ADD_CHILD'; cvoBid: string; childId: string; key: string }
+  | { type: 'STUDIO_CHILD_ADDED'; ok: boolean; rid?: string; error?: string }
+  | { type: 'STUDIO_DELETE_CHILD'; childId: string }
+  | { type: 'STUDIO_CHILD_DELETED'; ok: boolean; error?: string };
+
+export interface StudioChild {
+  /** rid as a string (Java long — never a JS number). */
+  rid: string
+  /** businessId. */
+  id: string
+  /** JS-side key → `_data.expressions[key]`. */
+  key: string
+  /** Reporter-token expression (raw text), or '' for non-expression children. */
+  expression: string
+}
 
 // ── Frame Overlay (in-page floating iframes for editor/diff/objectview/codesearch/cvo-studio) ─
 export type FrameOverlayMessage =

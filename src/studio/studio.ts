@@ -21,7 +21,7 @@ import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
 import { installCloseHandshake } from '../lib/frame-close-handshake'
-import { getTypeAbbr, getTypeColor } from '../lib/types'
+import { getTypeAbbr, getTypeColor, type StudioChild } from '../lib/types'
 import { ICON_PLAY } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
 
@@ -47,6 +47,12 @@ let dataMode: 'mock' | 'live' = 'mock'
 let renderContextRid = ''
 let liveData: Record<string, unknown> | null = null
 let liveError: string | null = null
+
+// The CVO's data-input children (CustomVisualizationExpression). Each defines a
+// `_data.expressions[key]` slot; editable here. Seeded into mockData so the mock
+// preview carries the real slot keys.
+let children: StudioChild[] = []
+let childrenOpen = false
 
 // Sandbox handshake: hold the latest render until the sandbox says it's ready.
 let sandboxReady = false
@@ -94,6 +100,7 @@ async function init() {
   renderShell()
   ensureSurface()
   schedulePreview()
+  fetchChildren()
 }
 
 /** Create the editing surface (once) with the html + javascript slots, or
@@ -170,6 +177,7 @@ function renderShell() {
       previewVisible
         ? h('div', { class: 'studio-preview' },
             renderDataBar(),
+            renderDataInputs(),
             h('iframe', { id: 'studio-sandbox', class: 'studio-sandbox', src: 'sandbox.html', title: 'CVO preview' }),
             h('div', { class: 'studio-console', id: 'studio-console' }),
           )
@@ -302,6 +310,104 @@ async function fetchLiveData(): Promise<void> {
     liveError = (resp?.type === 'STUDIO_DATA' ? resp.error : undefined) ?? 'Live data fetch failed'
   }
   renderShell() // reflect status; the fresh iframe schedules a render with the new data
+}
+
+// ── Data inputs (CVO children → _data.expressions) ───────────────
+async function fetchChildren(): Promise<void> {
+  if (!ctx?.instance.businessId) return
+  const resp = await sendRequest({ type: 'STUDIO_FETCH_CHILDREN', cvoBid: ctx.instance.businessId })
+  if (resp?.type === 'STUDIO_CHILDREN' && resp.ok && resp.children) {
+    children = resp.children
+    seedMockFromChildren()
+    renderShell()
+  }
+}
+
+/** Give the mock `_data.expressions` the real slot keys (empty placeholder
+ *  values), so a mock-mode preview sees the same shape as live. */
+function seedMockFromChildren(): void {
+  const ex: Record<string, string> = {}
+  for (const c of children) if (c.key) ex[c.key] = mockData.expressions[c.key] ?? ''
+  mockData.expressions = ex
+}
+
+function renderDataInputs(): HTMLElement {
+  const header = h('button', {
+    class: 'studio-inputs-header',
+    title: 'CustomVisualizationExpression children — each maps to _data.expressions[key]',
+    onClick: () => { childrenOpen = !childrenOpen; renderShell() },
+  }, `${childrenOpen ? '▾' : '▸'} Data inputs (${children.length})`)
+  if (!childrenOpen) return h('div', { class: 'studio-inputs' }, header)
+  return h('div', { class: 'studio-inputs studio-inputs--open' },
+    header,
+    h('div', { class: 'studio-inputs-list' },
+      children.length === 0 ? h('div', { class: 'studio-inputs-empty' }, 'No expression inputs') : null,
+      ...children.map(renderChildRow),
+      h('button', { class: 'studio-inputs-add', title: 'Add a CustomVisualizationExpression input', onClick: doAddChild }, '+ Add input'),
+    ),
+  )
+}
+
+function renderChildRow(c: StudioChild): HTMLElement {
+  const keyInput = h('input', { class: 'studio-child-key-input', value: c.key, spellcheck: 'false', autocomplete: 'off', title: 'JS key — _data.expressions.' + (c.key || '?') }) as HTMLInputElement
+  const exprInput = h('input', { class: 'studio-child-expr', value: c.expression, spellcheck: 'false', autocomplete: 'off', title: c.expression || 'Reporter token, e.g. ${t.my_expr.expression}' }) as HTMLInputElement
+  return h('div', { class: 'studio-child-row' },
+    keyInput,
+    exprInput,
+    h('button', { class: 'studio-databar-btn', title: 'Save key + expression', onClick: () => doSaveChild(c, keyInput.value.trim(), exprInput.value) }, 'Save'),
+    h('button', { class: 'studio-databar-btn studio-child-del', title: 'Remove this input', onClick: () => doRemoveChild(c) }, '✕'),
+  )
+}
+
+async function doSaveChild(c: StudioChild, key: string, expression: string): Promise<void> {
+  let okAll = true
+  if (key && key !== c.key) {
+    const r = await sendRequest({ type: 'SAVE_PROPERTY', rid: c.rid, objectType: 'CustomVisualizationExpression', property: 'key', value: key })
+    if (r?.type === 'SAVE_RESULT' && r.ok) c.key = key
+    else { okAll = false; consoleLines.push({ level: 'error', text: `Key save failed: ${(r?.type === 'SAVE_RESULT' ? r.error : '') ?? ''}` }) }
+  }
+  if (expression !== c.expression) {
+    const r = await sendRequest({ type: 'SAVE_PROPERTY', rid: c.rid, objectType: 'CustomVisualizationExpression', property: 'expression', value: expression })
+    if (r?.type === 'SAVE_RESULT' && r.ok) c.expression = expression
+    else { okAll = false; consoleLines.push({ level: 'error', text: `Expression save failed: ${(r?.type === 'SAVE_RESULT' ? r.error : '') ?? ''}` }) }
+  }
+  if (okAll) consoleLines.push({ level: 'info', text: `Saved input "${c.key}"` })
+  seedMockFromChildren()
+  renderShell()
+  if (dataMode === 'live') fetchLiveData()
+}
+
+async function doAddChild(): Promise<void> {
+  if (!ctx?.instance.businessId) return
+  const n = children.length + 1
+  const key = `input_${n}`
+  const childId = `cve_${(ctx.instance.businessId || 'cvo').replace(/[^\w-]/g, '')}_${key}`
+  const resp = await sendRequest({ type: 'STUDIO_ADD_CHILD', cvoBid: ctx.instance.businessId, childId, key })
+  if (resp?.type === 'STUDIO_CHILD_ADDED' && resp.ok) {
+    consoleLines.push({ level: 'info', text: `Added input "${key}"` })
+    await fetchChildren()
+  } else {
+    consoleLines.push({ level: 'error', text: `Add failed: ${(resp?.type === 'STUDIO_CHILD_ADDED' ? resp.error : '') ?? ''}` })
+    renderConsole()
+  }
+}
+
+async function doRemoveChild(c: StudioChild): Promise<void> {
+  const ok = await confirmModal({
+    title: 'Remove input?',
+    body: `Delete the "${c.key}" expression input (${c.id}) from this CVO? This removes the _data.expressions.${c.key} slot.`,
+    confirmLabel: 'Remove',
+    confirmVariant: 'danger',
+  })
+  if (!ok) return
+  const resp = await sendRequest({ type: 'STUDIO_DELETE_CHILD', childId: c.id })
+  if (resp?.type === 'STUDIO_CHILD_DELETED' && resp.ok) {
+    consoleLines.push({ level: 'info', text: `Removed input "${c.key}"` })
+    await fetchChildren()
+  } else {
+    consoleLines.push({ level: 'error', text: `Remove failed: ${(resp?.type === 'STUDIO_CHILD_DELETED' ? resp.error : '') ?? ''}` })
+    renderConsole()
+  }
 }
 
 window.addEventListener('message', ev => {
