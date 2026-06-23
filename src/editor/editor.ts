@@ -4,13 +4,11 @@
  * Communicates with service worker for preview/save operations.
  */
 import { EditorState, Compartment } from '@codemirror/state'
-import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection } from '@codemirror/view'
-import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirror/commands'
-import { bracketMatching, foldGutter, indentOnInput, foldKeymap, indentUnit } from '@codemirror/language'
-import { closeBrackets, closeBracketsKeymap, autocompletion, startCompletion } from '@codemirror/autocomplete'
-import { highlightSelectionMatches, searchKeymap, search, openSearchPanel } from '@codemirror/search'
+import { EditorView, keymap } from '@codemirror/view'
+import { autocompletion, startCompletion } from '@codemirror/autocomplete'
+import { openSearchPanel } from '@codemirror/search'
 import { lintGutter } from '@codemirror/lint'
-import { catppuccinMocha } from './catppuccin-theme'
+import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha } from '../editor-core/cm-scaffold'
 
 // Shared types + context helpers
 import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
@@ -31,14 +29,6 @@ import {
   getSaveTarget,
   pickNearestLine,
 } from './editor-types'
-
-// Plain-language support for CVO code fields (html / javascript / css).
-// These slots get the parser only; token colours come from the base
-// HighlightStyle baked into `catppuccinMocha` ("base tokens for non-EC
-// languages"). No linter, var tracker, or completions — that's EC-only.
-import { html } from '@codemirror/lang-html'
-import { javascript } from '@codemirror/lang-javascript'
-import { css } from '@codemirror/lang-css'
 
 // EC-specific extensions
 import { extendedLanguage } from './ec/language'
@@ -657,36 +647,9 @@ function createEditor(code: string) {
   currentLang = lang
 
   const extensions = [
-    // Base
-    lineNumbers(),
-    highlightActiveLineGutter(),
-    highlightActiveLine(),
-    drawSelection(),
-    bracketMatching(),
-    closeBrackets(),
-    indentOnInput(),
-    // Indent unit + visual tab width = 5 spaces. EC scripts in the
-    // BMP Config Studio default to 5-space indentation (and the
-    // Architect workflow doc has the same convention), so matching
-    // it means copy-pasted EC keeps its alignment when it lands in
-    // the editor. `indentUnit` is what indentOnInput / Tab key
-    // insert; `tabSize` is how literal `\t` characters render —
-    // setting both keeps both forms 5-wide.
-    indentUnit.of('     '),
-    EditorState.tabSize.of(5),
-    history(),
-    foldGutter(),
-    highlightSelectionMatches(),
-    // CodeMirror's own find/replace panel, docked at the top so it's
-    // discoverable. We reuse this rather than building a custom find bar; the
-    // Ctrl+F routing below guarantees it opens even when focus is on the
-    // output panel / a toolbar button (where it would otherwise fall through
-    // to Chrome's native find — which can't navigate the virtualized editor).
-    search({ top: true }),
-    // Replace the search panel's jargon toggle labels with compact, recognizable
-    // glyphs. These become the real label text (so they always paint) and the
-    // toggles render as pills via the theme.
-    EditorState.phrases.of({ 'match case': 'Aa', 'regexp': '.*', 'by word': 'W' }),
+    // Base editing scaffold (gutters, brackets, history, fold, search panel,
+    // 5-space indent, search-panel glyph phrases) shared with the CVO studio.
+    ...baseEditingExtensions(),
     // Two completion sources for EC:
     //   - starExpansion: type `*` inside `.table(`/`.forEach(`/etc.
     //     surfaces the "expand to all properties" snippet.
@@ -710,12 +673,7 @@ function createEditor(code: string) {
 
     // Keymaps
     keymap.of([
-      ...closeBracketsKeymap,
-      ...defaultKeymap,
-      ...searchKeymap,
-      ...historyKeymap,
-      ...foldKeymap,
-      indentWithTab,
+      ...baseKeymapBindings,
       // EC-specific
       { key: 'Ctrl-Shift-x', run: wrapInIf },
       { key: 'Ctrl-Shift-e', run: wrapInForEach },
@@ -789,14 +747,10 @@ function createEditor(code: string) {
       ecFoldService,
       lintGutter(),
     )
-  } else if (lang === 'html') {
-    // lang-html bundles the embedded CSS + JS grammars, so <style> and
-    // <script> blocks inside a CVO's html field highlight too.
-    extensions.push(html())
-  } else if (lang === 'javascript') {
-    extensions.push(javascript())
-  } else if (lang === 'css') {
-    extensions.push(css())
+  } else if (lang === 'html' || lang === 'javascript' || lang === 'css') {
+    // Grammar-only slots for CVO code fields. lang-html bundles the embedded
+    // CSS + JS grammars, so <style>/<script> inside an html field highlight too.
+    extensions.push(languageExtension(lang))
   }
 
   const state = EditorState.create({

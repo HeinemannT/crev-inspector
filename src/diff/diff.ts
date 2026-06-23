@@ -16,7 +16,7 @@ installCloseHandshake();
 let MergeView: typeof import('@codemirror/merge').MergeView | null = null;
 let EditorState: typeof import('@codemirror/state').EditorState | null = null;
 let EditorView: typeof import('@codemirror/view').EditorView | null = null;
-let catppuccinMocha: typeof import('../editor/catppuccin-theme').catppuccinMocha | null = null;
+let catppuccinMocha: typeof import('../editor-core/theme').catppuccinMocha | null = null;
 
 const root = document.getElementById('diff-root')!;
 
@@ -273,7 +273,7 @@ async function updateMergeView() {
       import('@codemirror/merge'),
       import('@codemirror/state'),
       import('@codemirror/view'),
-      import('../editor/catppuccin-theme'),
+      import('../editor-core/theme'),
     ]);
     MergeView = mergeModule.MergeView;
     EditorState = stateModule.EditorState;
