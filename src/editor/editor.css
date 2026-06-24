@@ -674,14 +674,6 @@ body {
 
 /* Sized to read at a glance without scrolling. Anchored to the right edge of
  * the editor window so it stays put when the window resizes. */
-.editor-help-btn {
-  font-family: var(--font-body);
-  font-weight: var(--weight-semi);
-  font-size: var(--text-base);
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-}
 
 .editor-help-popover {
   position: fixed;
@@ -693,10 +685,6 @@ body {
   box-shadow: 0 12px 32px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04);
   padding: var(--space-3) var(--space-4);
   animation: crev-help-in 120ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes crev-help-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
 }
 
 .editor-help-title {

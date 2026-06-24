@@ -833,7 +833,7 @@ function buildActionRow(): HTMLElement {
       onClick: (e: Event) => openBook(e.currentTarget as HTMLElement),
     }, svg(ICON_BOOK)),
     h('button', {
-      class: 'btn-micro editor-help-btn',
+      class: 'btn-micro help-btn',
       id: 'btn-help',
       title: editorHelpText(),
       'aria-label': 'Editor features and shortcuts',

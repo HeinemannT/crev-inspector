@@ -123,6 +123,31 @@
 .icon-btn:hover { color: var(--text-1); }
 .icon-btn--accent:hover { color: var(--accent); }
 
+/* Micro button — compact, borderless, mono. Toolbar/inline actions shared by
+ * the EC editor and the CVO studio (child-row Save/x, the ? button base). */
+.btn-micro {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 22px; min-width: 22px; padding: 0 var(--space-xs);
+  border: none; background: none; color: var(--text-3);
+  font-family: var(--font-mono); font-size: var(--text-xs);
+  border-radius: var(--radius-sm); cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
+}
+.btn-micro:hover { background: var(--surface-3); color: var(--text-1); }
+.btn-micro.active { background: var(--accent-bg); color: var(--accent); }
+.btn-micro-label { font-weight: var(--weight-semi); letter-spacing: 0.5px; }
+
+/* Round "?" help button — a btn-micro variant; identical in both editors. */
+.help-btn {
+  font-family: var(--font-body); font-weight: var(--weight-semi);
+  font-size: var(--text-base); width: 22px; height: 22px; border-radius: 50%;
+}
+@keyframes crev-help-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* Just-saved pulse — the brief feedback after a Save commits. */
 .btn.btn-saved { animation: btn-save-pulse 0.45s ease-out; }
 @keyframes btn-save-pulse {

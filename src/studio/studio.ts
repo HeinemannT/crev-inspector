@@ -359,7 +359,7 @@ function refreshActions() {
       h('button', { class: `seg-btn${layout === 'split' ? ' active' : ''}`, title: 'Editor and preview', onClick: () => setLayout('split') }, 'Split'),
       h('button', { class: `seg-btn${layout === 'preview' ? ' active' : ''}`, title: 'Preview only', onClick: () => setLayout('preview') }, 'Preview'),
     ),
-    h('button', { class: 'studio-help-btn', title: 'Quick reference', 'aria-label': 'Quick reference', onClick: (e: Event) => showStudioHelp(e.currentTarget as HTMLElement, KBD_MOD) }, '?'),
+    h('button', { class: 'btn-micro help-btn', title: 'Quick reference', 'aria-label': 'Quick reference', onClick: (e: Event) => showStudioHelp(e.currentTarget as HTMLElement, KBD_MOD) }, '?'),
   )
 }
 
