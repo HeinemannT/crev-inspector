@@ -269,7 +269,7 @@ function createFrame(opts: MountFrameOptions, bounds: Bounds): FrameState {
     h('div', { class: 'crev-eo-titlebar-spacer' }),
     maxBtn,
     h('button', {
-      class: 'crev-eo-btn',
+      class: 'crev-eo-btn crev-eo-close',
       title: 'Close (Esc)',
       'aria-label': `Close ${opts.label}`,
       onClick: () => requestClose(opts.kind),

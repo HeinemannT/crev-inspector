@@ -62,7 +62,12 @@ export interface SandboxLib extends CvoLib {
  *  so for a dynamic `import()`, which a global <script> injection can't satisfy.
  *  Rewriting to a same-content blob URL makes both import() and <script src>
  *  resolve. Matches a contiguous url token (no quotes/space/parens) so it works
- *  whether the url is absolute (`/web/download?...`) or relative (`web/...`). */
+ *  whether the url is absolute (`/web/download?...`) or relative (`web/...`).
+ *
+ *  Known gap: a url assembled at runtime (`import("web/download?rid=" + ridVar)`)
+ *  has no literal token to rewrite, so it still 404s — the lib is fetched (the
+ *  rid is found via the bootstrap-global shape) but the import can't be redirected.
+ *  Documented consumers use a literal url, so this is out of the blast radius. */
 export function rewriteDownloadUrls(text: string, libs: SandboxLib[]): string {
   let out = text
   for (const lib of libs) {
@@ -163,6 +168,13 @@ if (typeof window !== 'undefined' && window.parent !== window) {
   // UMD globals) and given a blob URL so the CVO's own download-url references
   // can be rewritten to it (so dynamic import()/script-src resolve — see
   // rewriteDownloadUrls). Blob URLs are revoked when the set changes.
+  //
+  // Both paths are needed: innerHTML never runs the rewritten <script src=blob>,
+  // so the global injection is the only thing that executes a script-src lib;
+  // the blob is for import(). A CVO that BOTH script-srcs and import()s the same
+  // lib therefore evals it twice — harmless for idempotent UMD, but a lib with
+  // global side effects (customElements.define) would throw on the 2nd eval.
+  // That both-ways shape is rare; accepted over the complexity of deduping.
   let libsFingerprint = ''
   let sandboxLibs: SandboxLib[] = []
   const maybeInjectLibs = (libs: CvoLib[]) => {

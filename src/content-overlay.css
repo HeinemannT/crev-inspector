@@ -703,6 +703,13 @@ body.crev-task-open #crev-paint-banner.crev-overlay-blocked {
 }
 
 .crev-eo-btn:hover {
+  background: #e0e0e0;
+  color: #161616;
+}
+
+/* Only the Close button gets the destructive red hover — Maximize and any
+   other titlebar control share the neutral hover above. */
+.crev-eo-close:hover {
   background: #fa4d56;
   color: #fff;
 }
