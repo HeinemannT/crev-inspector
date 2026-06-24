@@ -152,7 +152,7 @@ function ensureSurface() {
       // carries CodeSurface's annotation and must not trigger a preview rebuild.
       EditorView.updateListener.of(u => { if (u.docChanged && !isProgrammaticSwap(u)) schedulePreview() }),
     ],
-    onDirtyChange: () => refreshActions(),
+    onDirtyChange: () => { refreshActions(); updatePropTabs() },
   })
   const code = activeCode()
   surface.setSlots(CODE_PROPS.map(p => ({ key: p, lang: p, code: code[p] ?? '' })))
@@ -261,7 +261,7 @@ function refreshActions() {
   if (!el) return
   renderDom(el,
     h('button', { class: 'btn btn-ghost', id: 'studio-run', title: `Re-render preview · ${KBD_MOD}+Enter`, onClick: () => void runPreview() }, svg(ICON_PLAY), ' Re-render'),
-    h('button', { class: 'btn', id: 'studio-save', disabled: !anyDirty(), title: `Save the active field · ${KBD_MOD}+S`, onClick: doSave }, 'Save'),
+    h('button', { class: 'btn', id: 'studio-save', disabled: !anyDirty(), title: `Save every changed field (html + javascript) · ${KBD_MOD}+S`, onClick: doSave }, dirtyCount() > 1 ? `Save ${dirtyCount()}` : 'Save'),
     h('button', { class: 'btn btn-ghost', id: 'studio-discard', disabled: !surface?.isDirty(activeProp), title: 'Revert this field to the saved BMP value', onClick: doDiscard }, 'Discard'),
     h('button', { class: 'btn btn-ghost', id: 'studio-download', title: 'Download the CVO source (html + javascript) as a .cvo.json bundle', onClick: doDownload }, 'Download'),
     h('div', { class: 'studio-actions-spacer' }),
@@ -282,6 +282,7 @@ function updatePropTabs() {
 }
 
 const anyDirty = () => !!surface?.isDirty()
+const dirtyCount = () => CODE_PROPS.filter(p => surface?.isDirty(p)).length
 
 let previewTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -639,47 +640,60 @@ window.addEventListener('message', ev => {
 
 // ── Save / discard / preview toggle ──────────────────────────────
 async function doSave() {
-  if (!ctx || !surface || !surface.isDirty(activeProp)) return
-  const value = surface.textFor(activeProp)
+  if (!ctx || !surface) return
+  // A CVO is html + javascript as ONE object. Commit every dirty code field in
+  // one gesture — saving only the active field silently stranded the other,
+  // an easy way to lose edits when switching tabs before saving.
+  const dirty = CODE_PROPS.filter(p => surface!.isDirty(p))
+  if (!dirty.length) return
   const target = ctx.saveTarget === 'template' && ctx.template ? ctx.template : ctx.instance
   const ok = await confirmModal({
-    title: `Save ${activeProp}`,
-    body: `Write ${activeProp} to "${target.name || target.businessId || target.rid}"?`,
+    title: dirty.length > 1 ? `Save ${dirty.join(' + ')}` : `Save ${dirty[0]}`,
+    body: `Write ${dirty.join(' and ')} to "${target.name || target.businessId || target.rid}"?`,
     confirmLabel: 'Save',
     confirmVariant: 'success',
   })
   if (!ok) return
   const save = document.getElementById('studio-save') as HTMLButtonElement | null
   if (save) save.disabled = true
-  const resp = await sendRequest({
-    type: 'SAVE_PROPERTY',
-    rid: target.rid,
-    objectType: target.type || 'CustomVisualization',
-    property: activeProp,
-    value,
-  })
-  if (resp?.type === 'SAVE_RESULT' && resp.ok) {
-    surface.markSaved(activeProp)
-    activeCode()[activeProp] = value
-    refreshActions()
-    logConsole('info', `Saved ${activeProp} to BMP`)
-    // Save->reload: re-read from BMP to confirm what actually landed. A BMP
-    // in-script .change() can return HTTP 200 yet silently roll back; comparing
-    // the re-fetched value catches that, and reloadSlots re-seeds every slot to
-    // the server-canonical text.
-    const verify = await sendRequest({ type: 'STUDIO_FETCH_CODE', rid: target.rid })
-    if (verify?.type === 'STUDIO_CODE_DATA' && verify.ok && verify.code) {
-      const fresh = verify.code
-      surface.reloadSlots(CODE_PROPS.map(p => ({ key: p, lang: p, code: fresh[p] ?? '' })))
-      for (const p of CODE_PROPS) activeCode()[p] = fresh[p] ?? ''
-      if ((fresh[activeProp] ?? '') !== value) {
-        logConsole('error', `Warning: BMP's ${activeProp} differs from what was saved — possible silent rollback. The editor now shows BMP's value.`)
+
+  const savedValues = new Map<StudioCodeProp, string>()
+  for (const p of dirty) {
+    const value = surface.textFor(p)
+    const resp = await sendRequest({
+      type: 'SAVE_PROPERTY',
+      rid: target.rid,
+      objectType: target.type || 'CustomVisualization',
+      property: p,
+      value,
+    })
+    if (resp?.type === 'SAVE_RESULT' && resp.ok) {
+      surface.markSaved(p)
+      activeCode()[p] = value
+      savedValues.set(p, value)
+      logConsole('info', `Saved ${p} to BMP`)
+    } else {
+      const err = resp?.type === 'SAVE_RESULT' ? resp.error : 'no response'
+      logConsole('error', `Save failed for ${p}: ${err ?? '(unknown)'}`)
+    }
+  }
+  refreshActions()
+  if (!savedValues.size) return
+
+  // Save->reload: re-read from BMP once to confirm what actually landed. A BMP
+  // in-script .change() can return HTTP 200 yet silently roll back; comparing
+  // the re-fetched value catches that, and reloadSlots re-seeds every slot to
+  // the server-canonical text.
+  const verify = await sendRequest({ type: 'STUDIO_FETCH_CODE', rid: target.rid })
+  if (verify?.type === 'STUDIO_CODE_DATA' && verify.ok && verify.code) {
+    const fresh = verify.code
+    surface.reloadSlots(CODE_PROPS.map(p => ({ key: p, lang: p, code: fresh[p] ?? '' })))
+    for (const p of CODE_PROPS) activeCode()[p] = fresh[p] ?? ''
+    for (const [p, value] of savedValues) {
+      if ((fresh[p] ?? '') !== value) {
+        logConsole('error', `Warning: BMP's ${p} differs from what was saved — possible silent rollback. The editor now shows BMP's value.`)
       }
     }
-  } else {
-    const err = resp?.type === 'SAVE_RESULT' ? resp.error : 'no response'
-    refreshActions()
-    logConsole('error', `Save failed: ${err ?? '(unknown)'}`)
   }
 }
 
