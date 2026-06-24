@@ -214,7 +214,7 @@ function renderShell() {
   renderDom(root,
     h('div', { class: 'studio-header' },
       h('div', { class: 'studio-id' },
-        h('span', { class: 'studio-id-icon', title: 'CVO studio — HTML + JavaScript' }, svg(ICON_FILE_JS)),
+        h('span', { class: 'studio-id-icon', title: 'CVO studio: HTML + JavaScript' }, svg(ICON_FILE_JS)),
         h('span', { class: 'studio-id-chip', style: `--type-color:${getTypeColor(id.type)}`, title: id.type || '' }, getTypeAbbr(id.type)),
         h('span', { class: 'studio-id-name' }, id.name || '(unnamed)'),
         h('span', { class: 'studio-id-bid' }, id.businessId || id.rid),
@@ -446,7 +446,7 @@ async function ensureLibs(): Promise<string[]> {
       libCache.set(rid, resp.text)
     } else {
       libCache.set(rid, null)
-      logConsole('warn', `Dependency ${rid} unavailable (${respError(resp, 'no response')}) — preview runs without it`)
+      logConsole('warn', `Dependency ${rid} unavailable (${respError(resp, 'no response')}). Preview runs without it.`)
     }
   }
   return rids.map(r => libCache.get(r)).filter((t): t is string => !!t)
@@ -484,7 +484,7 @@ function updateStrip(): void {
     placeholder: 'scorecard or page rid',
     value: renderContextRid,
     spellcheck: 'false', autocomplete: 'off',
-    title: 'Org-rooted object (scorecard/page) the CVO renders under — the data servlet is gated on it',
+    title: 'Org-rooted object (scorecard or page) the CVO renders under. The data servlet is gated on it.',
   }) as HTMLInputElement
   ctxInput.addEventListener('change', () => { renderContextRid = ctxInput.value.trim(); if (dataMode === 'live') fetchLiveData() })
   const live = dataMode === 'live'
@@ -554,7 +554,7 @@ async function fetchLiveData(): Promise<void> {
   if (!renderContextRid) {
     liveData = null
     liveError = 'no render context'
-    logConsole('error', 'Live data needs an org-rooted render context — paste a scorecard/page rid in the Live field.')
+    logConsole('error', 'Live data needs an org-rooted render context. Paste a scorecard or page rid in the Live field.')
     updateStrip()
     return
   }
@@ -658,7 +658,7 @@ function renderInputsInto(el: HTMLElement): void {
 }
 
 function renderChildRow(c: StudioChild): HTMLElement {
-  const keyInput = h('input', { class: 'studio-child-key-input', value: c.key, spellcheck: 'false', autocomplete: 'off', placeholder: 'key', title: 'JS key — _data.expressions.' + (c.key || '?') }) as HTMLInputElement
+  const keyInput = h('input', { class: 'studio-child-key-input', value: c.key, spellcheck: 'false', autocomplete: 'off', placeholder: 'key', title: 'JS key for _data.expressions.' + (c.key || '?') }) as HTMLInputElement
   const exprInput = h('input', { class: 'studio-child-expr', value: c.expression, spellcheck: 'false', autocomplete: 'off', placeholder: 'Reporter token, e.g. ${t.my_expr.expression}', title: 'Reporter token whose value fills this input' }) as HTMLInputElement
   return h('div', { class: 'studio-child-row' },
     keyInput,
@@ -846,7 +846,7 @@ async function doSaveInner(target: StudioContext['instance'], dirty: StudioCodeP
     const fresh = verify.code
     for (const [p, value] of savedValues) {
       if ((fresh[p] ?? '') !== value) {
-        logConsole('error', `Warning: BMP's ${p} differs from what was saved — possible silent rollback. The editor now shows BMP's value.`)
+        logConsole('error', `Warning: BMP's ${p} differs from what was saved. Possible silent rollback; the editor now shows BMP's value.`)
       }
       if (!surface.isDirty(p)) {
         surface.reloadSlots([{ key: p, lang: p, code: fresh[p] ?? '' }])

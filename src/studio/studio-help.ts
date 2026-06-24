@@ -19,7 +19,7 @@ export function showStudioHelp(anchor: HTMLElement, mod: string): void {
       [`${mod}+S`, 'Save every changed field (html + javascript)'],
     ]},
     { id: 'view', label: 'View', rows: [
-      ['Wrap', 'Soft-wrap long lines so they stay in view — no change to the file'],
+      ['Wrap', 'Soft-wrap long lines so they stay in view, without changing the file'],
       [`Format · ${mod}+Shift+F`, 'Reindent and reflow the active file (HTML or JavaScript)'],
       ['Code / Split / Preview', 'Show the editor only, both, or the preview only'],
       ['Full / 1280 / 768 / 375', 'Render the CVO at a container width to check responsiveness'],
