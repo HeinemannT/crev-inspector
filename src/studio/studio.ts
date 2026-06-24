@@ -36,6 +36,7 @@ import { syntaxErrorLinter, makeCvoApiSource } from './studio-editor-ext'
 import { formatCode } from './studio-format'
 import { showStudioHelp } from './studio-help'
 import { reconcileSavedSlots } from './studio-save'
+import { makeDataHover } from './data-hover'
 
 const CODE_PROPS: readonly StudioCodeProp[] = ['html', 'javascript']
 const PREVIEW_DEBOUNCE_MS = 400
@@ -133,6 +134,12 @@ const mockData = {
   queryEndpoint: '',
 }
 
+/** The data object currently feeding the preview — live when fetched, else mock.
+ *  Shared by postRender and the `_data` hover so they always agree. */
+function currentData(): Record<string, unknown> {
+  return dataMode === 'live' && liveData ? liveData : mockData
+}
+
 const root = document.getElementById('studio-root')!
 
 // ── Init ─────────────────────────────────────────────────────────
@@ -180,6 +187,8 @@ function ensureSurface() {
       // keys); plain CM completion elsewhere. Plus a dep-free syntax-error
       // linter (flags parse errors inline) + the lint gutter.
       slot.lang === 'javascript' ? autocompletion({ override: [cvoApiSource] }) : autocompletion(),
+      // Hover a `_data.…` path (in the JS slot) to see its resolved value.
+      slot.lang === 'javascript' ? makeDataHover(currentData, () => dataMode) : [],
       syntaxErrorLinter,
       lintGutter(),
       keymap.of([
@@ -471,7 +480,7 @@ function postRender() {
   // NOTE: target origin is '*'. Live `_data` can be sensitive; the sandbox is
   // the only embedded frame and validates ev.source, but if other frames are
   // ever embedded here, target the sandbox's specific origin instead.
-  const data = dataMode === 'live' && liveData ? liveData : mockData
+  const data = currentData()
   const req: CvoRenderRequest = {
     type: 'CVO_RENDER',
     runId,
