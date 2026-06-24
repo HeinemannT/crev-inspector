@@ -135,7 +135,7 @@ register('STUDIO_WRITE_RESOURCE', async (msg, respond) => {
     `IF _hits.size() > 0 THEN`,
     `     _f := _hits.first()`,
     `     _f.change(content := "${contentLit}")`,
-    `     output(str(_f.rid))`,
+    `     output("RID=" + str(_f.rid))`,
     `ELSE`,
     `     _fhits := _froot.descendants().filter(self.id = '${STUDIO_ASSET_FOLDER_ID}')`,
     `     IF _fhits.size() > 0 THEN`,
@@ -145,13 +145,17 @@ register('STUDIO_WRITE_RESOURCE', async (msg, respond) => {
     `     ENDIF`,
     `     _new := _folder.add(FileResource, id := '${id}', name := "${nameLit}")`,
     `     _new.change(content := "${contentLit}")`,
-    `     output(str(_new.rid))`,
+    `     output("RID=" + str(_new.rid))`,
     `ENDIF`,
   ].join('\n')
   try {
     const res = await ctx.client.executeEc(code, undefined, true)
     if (!res.ok) { respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: res.error }); return }
-    respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: true, rid: (res.log ?? '').trim() })
+    // executeEc's log mixes change-tracking lines with the output value, so the
+    // rid can't be read by trimming the whole log — pull it from the RID= marker.
+    const rid = (res.log ?? '').match(/RID=(\d+)/)?.[1]
+    if (!rid) { respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: 'Hosted, but could not read the new resource rid from BMP' }); return }
+    respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: true, rid })
   } catch (e) {
     respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: errorMessage(e) })
   }
