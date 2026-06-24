@@ -4,7 +4,7 @@
  */
 
 import { resolveCopyText, getModifier, COPY_TOOLTIP } from './namespace';
-import { ICON_PENCIL, ICON_ARROW_OUT, ICON_CHECK } from './icons';
+import { ICON_CODE, ICON_ARROW_OUT, ICON_CHECK } from './icons';
 
 const PANEL_ID = 'crev-quick-inspector';
 
@@ -128,7 +128,7 @@ export function showQuickInspector(
 
   const editorBtn = document.createElement('button');
   editorBtn.className = 'crev-qi-btn crev-qi-btn--accent';
-  editorBtn.innerHTML = `${ICON_PENCIL} Editor`;
+  editorBtn.innerHTML = `${ICON_CODE} Editor`;
   editorBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     onOpenEditor(data.rid);

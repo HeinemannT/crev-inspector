@@ -18,6 +18,8 @@ html, body { height: 100%; margin: 0; }
   flex-shrink: 0;
 }
 .studio-id { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.studio-id-icon { display: inline-flex; align-items: center; color: var(--accent); flex-shrink: 0; }
+.studio-id-icon svg { width: 15px; height: 15px; }
 .studio-id-chip {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 22px; height: 18px; padding: 0 5px;

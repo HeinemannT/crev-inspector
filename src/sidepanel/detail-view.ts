@@ -16,7 +16,7 @@
 import type { BmpObject, InspectorMessage, ObjectPaneIdentity, ObjectPaneCard, ObjectPaneSiblingMsg } from '../lib/types';
 import { getTypeColor, getTypeAbbr } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
-import { ICON_PENCIL, ICON_PAINT, ICON_LAYOUT, ICON_SHIELD, ICON_ARROW_LEFT, ICON_ARROW_LINE_UP, ICON_X } from '../lib/icons';
+import { ICON_FILE_JS, ICON_CODE, ICON_LAYOUT, ICON_SHIELD, ICON_ARROW_LEFT, ICON_ARROW_LINE_UP, ICON_X } from '../lib/icons';
 import { resolveLayoutShortcut } from '../lib/layout-target';
 import { confirmModal } from '../lib/modal';
 import { displayValue } from './property-editors';
@@ -646,7 +646,7 @@ export class DetailView {
           onClick: () => this.sendMessage(isCvo
             ? { type: 'OPEN_CVO_STUDIO', rid: s.rid, property: editTargetProp! }
             : { type: 'OPEN_EDITOR', rid: s.rid, property: editTargetProp! }),
-        }, svg(isCvo ? ICON_PAINT : ICON_PENCIL))
+        }, svg(isCvo ? ICON_FILE_JS : ICON_CODE))
       : null;
     const accessBtn = h('button', {
       class: 'detail-action-btn detail-action-btn--icon',

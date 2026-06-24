@@ -17,7 +17,7 @@ import { closeOverlayKeyBinding, installDirtyGuards } from '../editor-core/overl
 import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { captureTypingFocus } from '../lib/focus-keep'
-import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE } from '../lib/icons'
+import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_CODE } from '../lib/icons'
 import { renderEcOutput, ecOutputToText, parseBmpDurationMs, formatRunTiming } from './ec-output'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
@@ -411,7 +411,9 @@ function renderShell() {
     : false
 
   const header = h('div', { class: 'editor-header' },
-    h('div', { class: 'editor-header-id' }, ...headerChildren.filter(Boolean) as (HTMLElement | string)[]),
+    h('div', { class: 'editor-header-id' },
+      h('span', { class: 'editor-id-icon', title: 'Extended Code editor' }, svg(ICON_CODE)),
+      ...headerChildren.filter(Boolean) as (HTMLElement | string)[]),
     segToggle
       ? h('div', { class: 'editor-header-target' },
           h('span', { class: 'editor-target-label' }, 'Editing'),

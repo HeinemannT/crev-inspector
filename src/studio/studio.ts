@@ -28,7 +28,7 @@ import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
 import { getTypeAbbr, getTypeColor, type StudioChild } from '../lib/types'
-import { ICON_PLAY, ICON_REFRESH } from '../lib/icons'
+import { ICON_PLAY, ICON_REFRESH, ICON_FILE_JS } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
 
 const CODE_PROPS: readonly StudioCodeProp[] = ['html', 'javascript']
@@ -208,6 +208,7 @@ function renderShell() {
   renderDom(root,
     h('div', { class: 'studio-header' },
       h('div', { class: 'studio-id' },
+        h('span', { class: 'studio-id-icon', title: 'CVO studio — HTML + JavaScript' }, svg(ICON_FILE_JS)),
         h('span', { class: 'studio-id-chip', style: `--type-color:${getTypeColor(id.type)}`, title: id.type || '' }, getTypeAbbr(id.type)),
         h('span', { class: 'studio-id-name' }, id.name || '(unnamed)'),
         h('span', { class: 'studio-id-bid' }, id.businessId || id.rid),

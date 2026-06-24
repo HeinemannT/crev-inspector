@@ -5,7 +5,7 @@
  */
 
 import { h, svg } from '../../lib/dom';
-import { ICON_PENCIL } from '../../lib/icons';
+import { ICON_FILE_JS, ICON_CODE } from '../../lib/icons';
 import { codeFieldsFor, indirectCodeFieldsFor } from '../../lib/widget-metadata';
 import { ecPreviewSpan } from '../../lib/ec-format';
 import type { InspectorMessage } from '../../lib/types';
@@ -109,7 +109,7 @@ function renderCodeRow(opts: {
         onClick: () => opts.sendMessage(opts.isCvo
           ? { type: 'OPEN_CVO_STUDIO', rid: opts.rid, property: opts.editProp ?? opts.prop }
           : { type: 'OPEN_EDITOR', rid: opts.rid, property: opts.editProp ?? opts.prop }),
-      }, svg(ICON_PENCIL), 'Edit'),
+      }, svg(opts.isCvo ? ICON_FILE_JS : ICON_CODE), 'Edit'),
     ),
     opts.subtitle ? h('div', { class: 'code-row-subtitle' }, opts.subtitle) : null,
     disabled

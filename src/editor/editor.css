@@ -90,6 +90,14 @@ body {
   overflow: hidden;
 }
 
+.editor-id-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.editor-id-icon svg { width: 15px; height: 15px; }
+
 .editor-id-chip {
   display: inline-flex;
   align-items: center;
