@@ -15,16 +15,16 @@ export async function formatCode(prop: StudioCodeProp, code: string): Promise<st
   const mod = await import('js-beautify')
   const beautify = mod.default ?? mod
   if (prop === 'html') {
-    // The studio editor pane is narrow (often a half-width split), so bias
-    // toward vertical: wrap lines at a modest width and let long, attribute-
-    // heavy tags spill their attributes onto their own (aligned) lines, rather
-    // than emit a wide line the user has to scroll or soft-wrap to read.
+    // Indent structure, but keep each tag on one line — never hard-wrap or
+    // split a tag's attributes onto their own lines (that produced jarring
+    // `<div\n  style=…>` breaks). The Wrap toggle handles visual fit in the
+    // narrow pane; Format only fixes indentation/structure.
     return beautify.html(code, {
       indent_size: INDENT,
       preserve_newlines: true,
       max_preserve_newlines: 2,
-      wrap_line_length: 80,
-      wrap_attributes: 'auto',          // break attrs only when the tag exceeds the width
+      wrap_line_length: 0,              // 0 = never hard-wrap a line
+      wrap_attributes: 'preserve',      // keep attributes on the tag's line
       end_with_newline: false,
     })
   }
