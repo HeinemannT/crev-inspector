@@ -27,7 +27,7 @@ import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
 import { installCloseHandshake } from '../lib/frame-close-handshake'
 import { getTypeAbbr, getTypeColor, type StudioChild } from '../lib/types'
-import { ICON_PLAY } from '../lib/icons'
+import { ICON_PLAY, ICON_REFRESH } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
 
 const CODE_PROPS: readonly StudioCodeProp[] = ['html', 'javascript']
@@ -57,13 +57,20 @@ let liveError: string | null = null
 // `_data.expressions[key]` slot; editable here. Seeded into mockData so the mock
 // preview carries the real slot keys.
 let children: StudioChild[] = []
-let childrenOpen = false
 
-// Hosted FileResource libraries the CVO depends on, cached by rid ('' = fetched
-// but unavailable). lastLibs is the resolved set passed to the sandbox.
-const libCache = new Map<string, string>()
+// Hosted FileResource libraries the CVO depends on, cached by rid (null =
+// fetched but unavailable). lastLibs is the resolved set passed to the sandbox.
+const libCache = new Map<string, string | null>()
 let lastLibs: string[] = []
-let resourcesOpen = false
+
+// The bottom panel is a single toggleable area with three tabs; null = collapsed
+// so the canvas owns the preview pane. Auto-opens to 'console' on a CVO error.
+type PanelTab = 'console' | 'inputs' | 'deps'
+let panelTab: PanelTab | null = null
+/** The persistent sandbox iframe — created once and re-attached across shell
+ *  re-renders (like the editor reattaches its view), so toggling a panel /
+ *  data mode / width never reloads the sandbox or flashes the preview. */
+let sandboxFrame: HTMLIFrameElement | null = null
 
 // Preview width for breakpoint testing (0 = full). The CVO re-renders at the
 // chosen width, since container width changes how a responsive CVO lays out.
@@ -74,6 +81,9 @@ const PREVIEW_WIDTHS: ReadonlyArray<[string, number]> = [['Full', 0], ['1280', 1
 let sandboxReady = false
 let pendingRender = false
 let runCounter = 0
+/** Bumped on each runPreview so an in-flight one can bail if superseded during
+ *  its async lib fetch (avoids two concurrent renders racing the ready-gate). */
+let renderGen = 0
 /** Console + error lines from the current run, newest last. */
 interface ConsoleLine { level: 'log' | 'warn' | 'error' | 'info'; text: string }
 let consoleLines: ConsoleLine[] = []
@@ -189,92 +199,99 @@ function activeCode(): Record<string, string> {
 }
 
 // ── Shell ────────────────────────────────────────────────────────
+// renderShell does the FULL build (init + preview toggle only). The frequent
+// interactions (panel toggle, data mode, width, tab switch, dirty) update their
+// own sub-container in place — so the sandbox iframe (created once, appended to
+// #studio-canvas here) is never detached, never reloads, and never flashes.
 function renderShell() {
   if (!ctx) return
   const id = ctx.instance
-  const typeColor = getTypeColor(id.type)
-  const typeAbbr = getTypeAbbr(id.type)
 
   renderDom(root,
-    // Header: identity + actions
     h('div', { class: 'studio-header' },
       h('div', { class: 'studio-id' },
-        h('span', { class: 'studio-id-chip', style: `--type-color:${typeColor}`, title: id.type || '' }, typeAbbr),
+        h('span', { class: 'studio-id-chip', style: `--type-color:${getTypeColor(id.type)}`, title: id.type || '' }, getTypeAbbr(id.type)),
         h('span', { class: 'studio-id-name' }, id.name || '(unnamed)'),
         h('span', { class: 'studio-id-bid' }, id.businessId || id.rid),
       ),
-      h('div', { class: 'studio-actions' },
-        h('button', { class: 'btn btn-accent', id: 'studio-run', title: `Re-render preview · ${KBD_MOD}+Enter`, onClick: () => runPreview() },
-          svg(ICON_PLAY), ' Run'),
-        h('button', { class: 'btn', id: 'studio-save', disabled: !anyDirty(), title: `Save the active field · ${KBD_MOD}+S`, onClick: doSave }, 'Save'),
-        h('button', { class: 'btn btn-ghost', id: 'studio-discard', disabled: !surface?.isDirty(activeProp), title: 'Revert this field to the saved BMP value', onClick: doDiscard }, 'Discard'),
-        h('button', { class: 'btn btn-ghost', id: 'studio-download', title: 'Download the CVO source (html + javascript) as a .cvo.json bundle', onClick: doDownload }, 'Download'),
-        h('div', { class: 'studio-actions-spacer' }),
-        h('button', { class: `btn-micro${previewVisible ? ' active' : ''}`, id: 'studio-toggle-preview', title: 'Show / hide the live preview', onClick: togglePreview }, previewVisible ? 'Hide preview' : 'Show preview'),
-      ),
+      h('div', { class: 'studio-actions', id: 'studio-actions' }),
     ),
-    // Property tabs (html / javascript)
-    h('div', { class: 'studio-prop-tabs', role: 'tablist' },
-      ...CODE_PROPS.map(p => h('button', {
-        class: `studio-prop-tab${p === activeProp ? ' active' : ''}`,
-        role: 'tab',
-        'data-prop': p,
-        'aria-selected': p === activeProp ? 'true' : 'false',
-        onClick: () => switchProp(p),
-      }, h('span', null, p), surface?.isDirty(p) ? h('span', { class: 'studio-prop-dot', 'aria-label': 'unsaved' }) : null)),
-    ),
-    // Split: editor | preview
+    h('div', { class: 'studio-prop-tabs', id: 'studio-prop-tabs', role: 'tablist' }),
     h('div', { class: `studio-split${previewVisible ? '' : ' studio-split--no-preview'}` },
       h('div', { class: 'studio-editor', id: 'studio-cm' }),
       previewVisible
         ? h('div', { class: 'studio-preview' },
-            renderDataBar(),
-            renderDataInputs(),
-            renderResources(),
-            h('div', { class: 'studio-sandbox-wrap', style: previewWidth ? `max-width:${previewWidth}px` : '' },
-              h('iframe', { id: 'studio-sandbox', class: 'studio-sandbox', src: 'sandbox.html', title: 'CVO preview' }),
+            h('div', { class: 'studio-strip', id: 'studio-strip' }),
+            h('div', { class: 'studio-canvas-outer' },
+              h('div', { class: 'studio-canvas', id: 'studio-canvas', style: previewWidth ? `max-width:${previewWidth}px` : '' }),
             ),
-            h('div', { class: 'studio-console', id: 'studio-console' }),
+            h('div', { class: 'studio-ptabs', id: 'studio-ptabs' }),
+            h('div', { class: `studio-panel${panelTab ? '' : ' studio-panel--collapsed'}`, id: 'studio-panel' }),
           )
         : null,
     ),
   )
 
-  // Re-attach the live editor view into the freshly-rendered shell.
   surface?.reattach()
-  renderConsole()
-  // renderShell built a FRESH sandbox iframe (renderDom replaced the DOM), so the
-  // prior handshake is void — reset it and re-render once the new iframe is ready
-  // (pendingRender flushes on CVO_SANDBOX_READY). Guarded on `surface` so init's
-  // first renderShell (pre-ensureSurface) doesn't fire an empty render — init
-  // schedules the first preview itself.
+  surface?.view?.requestMeasure()
   if (previewVisible) {
+    // Re-mounting the (persistent) iframe after a full rebuild reloads it, so
+    // reset the handshake; the first preview re-renders once it's ready again.
+    document.getElementById('studio-canvas')?.appendChild(ensureSandboxFrame())
     sandboxReady = false
     pendingRender = false
-    if (surface) schedulePreview()
   }
+  refreshActions()
+  updatePropTabs()
+  updateStrip()
+  updatePanelTabs()
+  renderPanelContent()
+  if (previewVisible && surface) schedulePreview()
 }
 
-function refreshActions() {
-  const save = document.getElementById('studio-save') as HTMLButtonElement | null
-  if (save) save.disabled = !anyDirty()
-  const discard = document.getElementById('studio-discard') as HTMLButtonElement | null
-  if (discard) discard.disabled = !surface?.isDirty(activeProp)
-  for (const tab of document.querySelectorAll<HTMLElement>('.studio-prop-tab')) {
-    const p = tab.getAttribute('data-prop') as StudioCodeProp | null
-    if (p) tab.querySelector('.studio-prop-dot')?.classList.toggle('studio-prop-dot--hidden', !surface?.isDirty(p))
+function ensureSandboxFrame(): HTMLIFrameElement {
+  if (!sandboxFrame) {
+    sandboxFrame = h('iframe', { id: 'studio-sandbox', class: 'studio-sandbox', src: 'sandbox.html', title: 'CVO preview' }) as HTMLIFrameElement
   }
+  return sandboxFrame
+}
+
+/** Header action buttons + their enabled state — re-rendered in place on dirty
+ *  change (never touches the canvas). */
+function refreshActions() {
+  const el = document.getElementById('studio-actions')
+  if (!el) return
+  renderDom(el,
+    h('button', { class: 'btn btn-ghost', id: 'studio-run', title: `Re-render preview · ${KBD_MOD}+Enter`, onClick: () => void runPreview() }, svg(ICON_PLAY), ' Re-render'),
+    h('button', { class: 'btn', id: 'studio-save', disabled: !anyDirty(), title: `Save the active field · ${KBD_MOD}+S`, onClick: doSave }, 'Save'),
+    h('button', { class: 'btn btn-ghost', id: 'studio-discard', disabled: !surface?.isDirty(activeProp), title: 'Revert this field to the saved BMP value', onClick: doDiscard }, 'Discard'),
+    h('button', { class: 'btn btn-ghost', id: 'studio-download', title: 'Download the CVO source (html + javascript) as a .cvo.json bundle', onClick: doDownload }, 'Download'),
+    h('div', { class: 'studio-actions-spacer' }),
+    h('button', { class: `btn-micro${previewVisible ? ' active' : ''}`, title: 'Show / hide the live preview', onClick: togglePreview }, previewVisible ? 'Hide preview' : 'Show preview'),
+  )
+}
+
+function updatePropTabs() {
+  const el = document.getElementById('studio-prop-tabs')
+  if (!el) return
+  renderDom(el, ...CODE_PROPS.map(p => h('button', {
+    class: `studio-prop-tab${p === activeProp ? ' active' : ''}`,
+    role: 'tab',
+    'data-prop': p,
+    'aria-selected': p === activeProp ? 'true' : 'false',
+    onClick: () => switchProp(p),
+  }, h('span', null, p), surface?.isDirty(p) ? h('span', { class: 'studio-prop-dot', 'aria-label': 'unsaved' }) : null)))
 }
 
 const anyDirty = () => !!surface?.isDirty()
 
-// ── Editor ───────────────────────────────────────────────────────
 let previewTimer: ReturnType<typeof setTimeout> | null = null
 
 function switchProp(p: StudioCodeProp) {
   if (p === activeProp) return
   activeProp = p
-  renderShell()
+  updatePropTabs()
+  refreshActions()
   surface?.activate(p)
 }
 
@@ -287,20 +304,21 @@ function schedulePreview() {
 async function runPreview() {
   if (previewTimer) { clearTimeout(previewTimer); previewTimer = null }
   if (!previewVisible) return
-  consoleLines = []
-  renderConsole()
+  const gen = ++renderGen
+  clearConsole()
   // Resolve the CVO's hosted FileResource libraries (cached) before rendering,
   // so the sandbox can run them before the CVO. Done before the ready-gate so a
   // queued render flushes with libs ready.
   await ensureLibs()
+  if (gen !== renderGen) return // a newer runPreview started during the await
   if (!sandboxReady) { pendingRender = true; return }
   postRender()
 }
 
 /** Detect the FileResource libraries the CVO loads and fetch their bytes via
- *  the SW (cookie-authed download), caching by rid. Unavailable deps (e.g. no
- *  BMP session) are cached as '' and warned once, so the CVO degrades rather
- *  than blocking — matching the portal's graceful-degradation guidance. */
+ *  the SW (cookie-authed download), caching by rid (null = fetched but
+ *  unavailable). Unavailable deps (e.g. no BMP session) are warned once, so the
+ *  CVO degrades rather than blocking — matching the portal's guidance. */
 async function ensureLibs(): Promise<void> {
   const rids = detectFileResourceRids(surface?.textFor('html') ?? '', surface?.textFor('javascript') ?? '')
   for (const rid of rids) {
@@ -309,16 +327,15 @@ async function ensureLibs(): Promise<void> {
     if (resp?.type === 'STUDIO_RESOURCE' && resp.ok && resp.text != null) {
       libCache.set(rid, resp.text)
     } else {
-      libCache.set(rid, '')
-      consoleLines.push({ level: 'warn', text: `Dependency ${rid} unavailable (${(resp?.type === 'STUDIO_RESOURCE' ? resp.error : 'no response') ?? ''}) — preview runs without it` })
-      renderConsole()
+      libCache.set(rid, null)
+      logConsole('warn', `Dependency ${rid} unavailable (${(resp?.type === 'STUDIO_RESOURCE' ? resp.error : 'no response') ?? ''}) — preview runs without it`)
     }
   }
-  lastLibs = rids.map(r => libCache.get(r) ?? '').filter(Boolean)
+  lastLibs = rids.map(r => libCache.get(r)).filter((t): t is string => !!t)
 }
 
 function postRender() {
-  const frame = document.getElementById('studio-sandbox') as HTMLIFrameElement | null
+  const frame = sandboxFrame
   if (!frame?.contentWindow) { pendingRender = true; return }
   const runId = ++runCounter
   // textFor() pulls the live doc for the active slot and the stashed text for
@@ -339,60 +356,61 @@ function postRender() {
   }, '*')
 }
 
-// ── Preview data source (mock / live `_data`) ────────────────────
-function renderDataBar(): HTMLElement {
+// ── Control strip (one dense row: data source + width) ───────────
+function updateStrip(): void {
+  const el = document.getElementById('studio-strip')
+  if (!el) return
   const ctxInput = h('input', {
     class: 'studio-ctx-input',
-    id: 'studio-ctx-rid',
     placeholder: 'render-context rid',
     value: renderContextRid,
     spellcheck: 'false', autocomplete: 'off',
     title: 'Org-rooted object (scorecard/page) the CVO renders under — the data servlet is gated on it',
   }) as HTMLInputElement
-  ctxInput.addEventListener('change', () => {
-    renderContextRid = ctxInput.value.trim()
-    if (dataMode === 'live') fetchLiveData()
-  })
-  return h('div', { class: 'studio-databar' },
-    h('span', { class: 'studio-databar-label' }, 'Data'),
-    h('button', { class: `studio-databar-btn${dataMode === 'mock' ? ' active' : ''}`, title: 'Render against local mock _data', onClick: () => setDataMode('mock') }, 'Mock'),
-    h('button', { class: `studio-databar-btn${dataMode === 'live' ? ' active' : ''}`, title: 'Render against real BMP _data for the render context', onClick: () => setDataMode('live') }, 'Live'),
+  ctxInput.addEventListener('change', () => { renderContextRid = ctxInput.value.trim(); if (dataMode === 'live') fetchLiveData() })
+  renderDom(el,
+    h('div', { class: 'studio-seg', role: 'group', 'aria-label': 'Preview data' },
+      h('button', { class: `studio-seg-btn${dataMode === 'mock' ? ' active' : ''}`, title: 'Render against local mock _data', onClick: () => setDataMode('mock') }, 'Mock'),
+      h('button', { class: `studio-seg-btn${dataMode === 'live' ? ' active' : ''}`, title: 'Render against real BMP _data for the render context', onClick: () => setDataMode('live') }, 'Live'),
+    ),
     dataMode === 'live' ? ctxInput : null,
-    dataMode === 'live' ? h('button', { class: 'studio-databar-btn', title: 'Re-fetch live data', onClick: () => fetchLiveData() }, '↻') : null,
-    dataMode === 'live' && liveError ? h('span', { class: 'studio-databar-error', title: liveError }, '⚠ ' + (liveError.length > 70 ? liveError.slice(0, 70) + '…' : liveError)) : null,
-    dataMode === 'live' && !liveError && liveData ? h('span', { class: 'studio-databar-ok', title: 'Rendering against live BMP data' }, 'live') : null,
-    h('div', { class: 'studio-databar-spacer' }),
-    h('span', { class: 'studio-databar-label' }, 'Width'),
-    ...PREVIEW_WIDTHS.map(([label, w]) => h('button', {
-      class: `studio-databar-btn${previewWidth === w ? ' active' : ''}`,
-      title: w ? `Render at ${w}px container width` : 'Full width',
-      onClick: () => setPreviewWidth(w),
-    }, label)),
+    dataMode === 'live' ? h('button', { class: 'studio-icon-btn', title: 'Re-fetch live data', onClick: () => fetchLiveData() }, svg(ICON_REFRESH)) : null,
+    dataMode === 'live' && liveError ? h('span', { class: 'studio-strip-err', title: liveError }, '⚠ live') : null,
+    dataMode === 'live' && !liveError && liveData ? h('span', { class: 'studio-strip-ok', title: 'Rendering against live BMP data' }, '● live') : null,
+    h('div', { class: 'studio-strip-spacer' }),
+    h('div', { class: 'studio-seg', role: 'group', 'aria-label': 'Preview width' },
+      ...PREVIEW_WIDTHS.map(([label, w]) => h('button', { class: `studio-seg-btn${previewWidth === w ? ' active' : ''}`, title: w ? `Render at ${w}px container width` : 'Full container width', onClick: () => setPreviewWidth(w) }, label)),
+    ),
   )
 }
 
 function setPreviewWidth(w: number): void {
   if (w === previewWidth) return
   previewWidth = w
-  // renderShell re-renders the CVO into a fresh iframe at the new width — which
-  // is the point: a responsive CVO lays out differently per container width.
-  renderShell()
+  // In place: resize the canvas (the persistent iframe stays mounted) + re-render
+  // the CVO at the new width (a responsive CVO lays out per container width).
+  const canvas = document.getElementById('studio-canvas')
+  if (canvas) canvas.style.maxWidth = w ? `${w}px` : ''
+  updateStrip()
+  void runPreview()
 }
 
 function setDataMode(mode: 'mock' | 'live'): void {
   if (mode === dataMode) return
   dataMode = mode
   liveError = null
-  renderShell() // re-renders the data bar + the fresh iframe (which schedules a render)
+  updateStrip()
   if (mode === 'live' && !liveData) fetchLiveData()
+  else void runPreview()
 }
 
 async function fetchLiveData(): Promise<void> {
   if (!ctx) return
   if (!renderContextRid) {
     liveData = null
-    liveError = 'Set a render-context rid (an org-rooted scorecard/page) to fetch live data.'
-    renderShell()
+    liveError = 'no render context'
+    logConsole('error', 'Live data needs an org-rooted render context — paste a scorecard/page rid in the Live field.')
+    updateStrip()
     return
   }
   liveError = null
@@ -403,8 +421,70 @@ async function fetchLiveData(): Promise<void> {
   } else {
     liveData = null
     liveError = (resp?.type === 'STUDIO_DATA' ? resp.error : undefined) ?? 'Live data fetch failed'
+    logConsole('error', `Live data: ${liveError}`)
   }
-  renderShell() // reflect status; the fresh iframe schedules a render with the new data
+  updateStrip()
+  void runPreview()
+}
+
+// ── Bottom panel (Console · Inputs · Deps), one toggleable area ──
+function togglePanel(tab: PanelTab): void {
+  panelTab = panelTab === tab ? null : tab
+  updatePanelTabs()
+  renderPanelContent()
+}
+
+function updatePanelTabs(): void {
+  const el = document.getElementById('studio-ptabs')
+  if (!el) return
+  const errCount = consoleLines.filter(l => l.level === 'error').length
+  const html = surface?.textFor('html') ?? ''
+  const js = surface?.textFor('javascript') ?? ''
+  const depCount = detectFileResourceRids(html, js).length + detectCdnUrls(html, js).length
+  const tab = (id: PanelTab, label: string, count: number, err = false) =>
+    h('button', { class: `studio-ptab${panelTab === id ? ' active' : ''}`, role: 'tab', onClick: () => togglePanel(id) },
+      label,
+      count ? h('span', { class: 'studio-ptab-n' }, String(count)) : null,
+      err ? h('span', { class: 'studio-ptab-err', 'aria-label': 'errors' }) : null,
+    )
+  renderDom(el,
+    tab('console', 'Console', consoleLines.length, errCount > 0),
+    tab('inputs', 'Inputs', children.length),
+    tab('deps', 'Deps', depCount),
+  )
+}
+
+function renderPanelContent(): void {
+  const el = document.getElementById('studio-panel')
+  if (!el) return
+  el.className = `studio-panel${panelTab ? '' : ' studio-panel--collapsed'}`
+  if (panelTab === 'console') renderConsoleInto(el)
+  else if (panelTab === 'inputs') renderInputsInto(el)
+  else if (panelTab === 'deps') renderDepsInto(el)
+  else renderDom(el)
+}
+
+/** Push a console line and reflect it (auto-opens the Console tab on error). */
+function logConsole(level: ConsoleLine['level'], text: string): void {
+  consoleLines.push({ level, text })
+  if (level === 'error' && panelTab !== 'console') panelTab = 'console'
+  updatePanelTabs()
+  renderPanelContent()
+}
+
+function clearConsole(): void {
+  consoleLines = []
+  updatePanelTabs()
+  renderPanelContent()
+}
+
+function renderConsoleInto(el: HTMLElement): void {
+  if (consoleLines.length === 0) {
+    renderDom(el, h('div', { class: 'studio-panel-empty' }, 'No console output'))
+    return
+  }
+  renderDom(el, ...consoleLines.map(l => h('div', { class: `studio-console-line studio-console-line--${l.level}` }, l.text)))
+  el.scrollTop = el.scrollHeight
 }
 
 // ── Data inputs (CVO children → _data.expressions) ───────────────
@@ -414,7 +494,9 @@ async function fetchChildren(): Promise<void> {
   if (resp?.type === 'STUDIO_CHILDREN' && resp.ok && resp.children) {
     children = resp.children
     seedMockFromChildren()
-    renderShell()
+    updatePanelTabs()
+    renderPanelContent()
+    void runPreview() // the mock _data shape changed (new slot keys)
   }
 }
 
@@ -426,20 +508,11 @@ function seedMockFromChildren(): void {
   mockData.expressions = ex
 }
 
-function renderDataInputs(): HTMLElement {
-  const header = h('button', {
-    class: 'studio-inputs-header',
-    title: 'CustomVisualizationExpression children — each maps to _data.expressions[key]',
-    onClick: () => { childrenOpen = !childrenOpen; renderShell() },
-  }, `${childrenOpen ? '▾' : '▸'} Data inputs (${children.length})`)
-  if (!childrenOpen) return h('div', { class: 'studio-inputs' }, header)
-  return h('div', { class: 'studio-inputs studio-inputs--open' },
-    header,
-    h('div', { class: 'studio-inputs-list' },
-      children.length === 0 ? h('div', { class: 'studio-inputs-empty' }, 'No expression inputs') : null,
-      ...children.map(renderChildRow),
-      h('button', { class: 'studio-inputs-add', title: 'Add a CustomVisualizationExpression input', onClick: doAddChild }, '+ Add input'),
-    ),
+function renderInputsInto(el: HTMLElement): void {
+  renderDom(el,
+    children.length === 0 ? h('div', { class: 'studio-panel-empty' }, 'No expression inputs') : null,
+    ...children.map(renderChildRow),
+    h('button', { class: 'studio-panel-add', title: 'Add a CustomVisualizationExpression input', onClick: doAddChild }, '+ Add input'),
   )
 }
 
@@ -449,8 +522,8 @@ function renderChildRow(c: StudioChild): HTMLElement {
   return h('div', { class: 'studio-child-row' },
     keyInput,
     exprInput,
-    h('button', { class: 'studio-databar-btn', title: 'Save key + expression', onClick: () => doSaveChild(c, keyInput.value.trim(), exprInput.value) }, 'Save'),
-    h('button', { class: 'studio-databar-btn studio-child-del', title: 'Remove this input', onClick: () => doRemoveChild(c) }, '✕'),
+    h('button', { class: 'btn-micro', title: 'Save key + expression', onClick: () => doSaveChild(c, keyInput.value.trim(), exprInput.value) }, 'Save'),
+    h('button', { class: 'btn-micro studio-child-del', title: 'Remove this input', onClick: () => doRemoveChild(c) }, '✕'),
   )
 }
 
@@ -459,32 +532,26 @@ async function doSaveChild(c: StudioChild, key: string, expression: string): Pro
   if (key && key !== c.key) {
     const r = await sendRequest({ type: 'SAVE_PROPERTY', rid: c.rid, objectType: 'CustomVisualizationExpression', property: 'key', value: key })
     if (r?.type === 'SAVE_RESULT' && r.ok) c.key = key
-    else { okAll = false; consoleLines.push({ level: 'error', text: `Key save failed: ${(r?.type === 'SAVE_RESULT' ? r.error : '') ?? ''}` }) }
+    else { okAll = false; logConsole('error', `Key save failed: ${(r?.type === 'SAVE_RESULT' ? r.error : '') ?? ''}`) }
   }
   if (expression !== c.expression) {
     const r = await sendRequest({ type: 'SAVE_PROPERTY', rid: c.rid, objectType: 'CustomVisualizationExpression', property: 'expression', value: expression })
     if (r?.type === 'SAVE_RESULT' && r.ok) c.expression = expression
-    else { okAll = false; consoleLines.push({ level: 'error', text: `Expression save failed: ${(r?.type === 'SAVE_RESULT' ? r.error : '') ?? ''}` }) }
+    else { okAll = false; logConsole('error', `Expression save failed: ${(r?.type === 'SAVE_RESULT' ? r.error : '') ?? ''}`) }
   }
-  if (okAll) consoleLines.push({ level: 'info', text: `Saved input "${c.key}"` })
+  if (okAll) logConsole('info', `Saved input "${c.key}"`)
   seedMockFromChildren()
-  renderShell()
-  if (dataMode === 'live') fetchLiveData()
+  renderPanelContent()
+  if (dataMode === 'live') fetchLiveData(); else void runPreview()
 }
 
 async function doAddChild(): Promise<void> {
   if (!ctx?.instance.businessId) return
-  const n = children.length + 1
-  const key = `input_${n}`
+  const key = `input_${children.length + 1}`
   const childId = `cve_${(ctx.instance.businessId || 'cvo').replace(/[^\w-]/g, '')}_${key}`
   const resp = await sendRequest({ type: 'STUDIO_ADD_CHILD', cvoBid: ctx.instance.businessId, childId, key })
-  if (resp?.type === 'STUDIO_CHILD_ADDED' && resp.ok) {
-    consoleLines.push({ level: 'info', text: `Added input "${key}"` })
-    await fetchChildren()
-  } else {
-    consoleLines.push({ level: 'error', text: `Add failed: ${(resp?.type === 'STUDIO_CHILD_ADDED' ? resp.error : '') ?? ''}` })
-    renderConsole()
-  }
+  if (resp?.type === 'STUDIO_CHILD_ADDED' && resp.ok) { logConsole('info', `Added input "${key}"`); await fetchChildren() }
+  else logConsole('error', `Add failed: ${(resp?.type === 'STUDIO_CHILD_ADDED' ? resp.error : '') ?? ''}`)
 }
 
 async function doRemoveChild(c: StudioChild): Promise<void> {
@@ -496,48 +563,33 @@ async function doRemoveChild(c: StudioChild): Promise<void> {
   })
   if (!ok) return
   const resp = await sendRequest({ type: 'STUDIO_DELETE_CHILD', childId: c.id })
-  if (resp?.type === 'STUDIO_CHILD_DELETED' && resp.ok) {
-    consoleLines.push({ level: 'info', text: `Removed input "${c.key}"` })
-    await fetchChildren()
-  } else {
-    consoleLines.push({ level: 'error', text: `Remove failed: ${(resp?.type === 'STUDIO_CHILD_DELETED' ? resp.error : '') ?? ''}` })
-    renderConsole()
-  }
+  if (resp?.type === 'STUDIO_CHILD_DELETED' && resp.ok) { logConsole('info', `Removed input "${c.key}"`); await fetchChildren() }
+  else logConsole('error', `Remove failed: ${(resp?.type === 'STUDIO_CHILD_DELETED' ? resp.error : '') ?? ''}`)
 }
 
 // ── Dependencies + resource hosting ──────────────────────────────
-function renderResources(): HTMLElement {
+function renderDepsInto(el: HTMLElement): void {
   const html = surface?.textFor('html') ?? ''
   const js = surface?.textFor('javascript') ?? ''
   const fileRes = detectFileResourceRids(html, js)
   const cdns = detectCdnUrls(html, js)
-  const n = fileRes.length + cdns.length
-  const header = h('button', {
-    class: 'studio-inputs-header',
-    title: 'Hosted FileResource libraries + external scripts this CVO loads',
-    onClick: () => { resourcesOpen = !resourcesOpen; renderShell() },
-  }, `${resourcesOpen ? '▾' : '▸'} Dependencies (${n})`)
-  if (!resourcesOpen) return h('div', { class: 'studio-inputs' }, header)
-  return h('div', { class: 'studio-inputs studio-inputs--open' },
-    header,
-    h('div', { class: 'studio-inputs-list' },
-      n === 0 ? h('div', { class: 'studio-inputs-empty' }, 'No external dependencies') : null,
-      ...fileRes.map(rid => {
-        const cached = libCache.get(rid)
-        const status = cached === undefined ? '…' : cached ? '✓ loaded' : '✗ unavailable'
-        return h('div', { class: 'studio-dep-row' },
-          h('span', { class: 'studio-dep-kind' }, 'FileResource'),
-          h('span', { class: 'studio-dep-id', title: 'rid ' + rid }, rid),
-          h('span', { class: `studio-dep-status${cached === '' ? ' studio-dep-warn' : ''}` }, status),
-        )
-      }),
-      ...cdns.map(u => h('div', { class: 'studio-dep-row' },
-        h('span', { class: 'studio-dep-kind studio-dep-kind--cdn' }, 'CDN'),
-        h('span', { class: 'studio-dep-id', title: u }, u),
-        h('span', { class: 'studio-dep-status studio-dep-warn' }, "⚠ won't load if air-gapped"),
-      )),
-      h('button', { class: 'studio-inputs-add', title: 'Host a JS/asset file as a BMP FileResource', onClick: doHostResource }, '+ Host resource'),
-    ),
+  renderDom(el,
+    fileRes.length + cdns.length === 0 ? h('div', { class: 'studio-panel-empty' }, 'No external dependencies') : null,
+    ...fileRes.map(rid => {
+      const cached = libCache.get(rid)
+      const status = cached === undefined ? '…' : cached ? '✓ loaded' : '✗ unavailable'
+      return h('div', { class: 'studio-dep-row' },
+        h('span', { class: 'studio-dep-kind' }, 'FileResource'),
+        h('span', { class: 'studio-dep-id', title: 'rid ' + rid }, rid),
+        h('span', { class: `studio-dep-status${cached === null ? ' studio-dep-warn' : ''}` }, status),
+      )
+    }),
+    ...cdns.map(u => h('div', { class: 'studio-dep-row' },
+      h('span', { class: 'studio-dep-kind studio-dep-kind--cdn' }, 'CDN'),
+      h('span', { class: 'studio-dep-id', title: u }, u),
+      h('span', { class: 'studio-dep-status studio-dep-warn' }, "⚠ won't load if air-gapped"),
+    )),
+    h('button', { class: 'studio-panel-add', title: 'Host a JS/asset file as a BMP FileResource', onClick: doHostResource }, '+ Host resource'),
   )
 }
 
@@ -559,24 +611,21 @@ function doHostResource(): void {
     const bytes = new Uint8Array(await file.arrayBuffer())
     const resId = 'fr_' + file.name.replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48)
     const mime = file.type || 'application/octet-stream'
-    consoleLines.push({ level: 'info', text: `Hosting ${file.name} (${Math.round(bytes.length / 1024)} KB)…` })
-    renderConsole()
+    logConsole('info', `Hosting ${file.name} (${Math.round(bytes.length / 1024)} KB)…`)
     const resp = await sendRequest({ type: 'STUDIO_WRITE_RESOURCE', resId, name: file.name, mime, base64: bytesToBase64(bytes) })
     if (resp?.type === 'STUDIO_RESOURCE_WRITTEN' && resp.ok && resp.rid) {
       const snippet = `<script src="/<workspace>/web/download?propName=content&rid=${resp.rid}"></script>`
       navigator.clipboard?.writeText(snippet).catch(() => {})
-      consoleLines.push({ level: 'info', text: `Hosted "${file.name}" as rid ${resp.rid}. Reference snippet copied (set <workspace>, or build it at runtime like the ERMQ host):\n${snippet}` })
+      logConsole('info', `Hosted "${file.name}" as rid ${resp.rid}. Reference snippet copied (set <workspace>):\n${snippet}`)
     } else {
-      consoleLines.push({ level: 'error', text: `Host failed: ${(resp?.type === 'STUDIO_RESOURCE_WRITTEN' ? resp.error : '') ?? ''}` })
+      logConsole('error', `Host failed: ${(resp?.type === 'STUDIO_RESOURCE_WRITTEN' ? resp.error : '') ?? ''}`)
     }
-    renderConsole()
   }
   input.click()
 }
 
 window.addEventListener('message', ev => {
-  const frame = document.getElementById('studio-sandbox') as HTMLIFrameElement | null
-  if (!frame || ev.source !== frame.contentWindow) return
+  if (!sandboxFrame || ev.source !== sandboxFrame.contentWindow) return
   const msg = ev.data as { type?: string; level?: ConsoleLine['level']; text?: string; message?: string; stack?: string; runId?: number } | undefined
   if (!msg) return
   if (msg.type === 'CVO_SANDBOX_READY') {
@@ -586,26 +635,9 @@ window.addEventListener('message', ev => {
   }
   // Drop output from superseded runs.
   if (typeof msg.runId === 'number' && msg.runId !== runCounter) return
-  if (msg.type === 'CVO_CONSOLE' && msg.text != null) {
-    consoleLines.push({ level: msg.level ?? 'log', text: msg.text })
-    renderConsole()
-  } else if (msg.type === 'CVO_ERROR') {
-    consoleLines.push({ level: 'error', text: msg.message || 'Error' })
-    renderConsole()
-  }
+  if (msg.type === 'CVO_CONSOLE' && msg.text != null) logConsole(msg.level ?? 'log', msg.text)
+  else if (msg.type === 'CVO_ERROR') logConsole('error', msg.message || 'Error')
 })
-
-function renderConsole() {
-  const el = document.getElementById('studio-console')
-  if (!el) return
-  if (consoleLines.length === 0) {
-    renderDom(el, h('div', { class: 'studio-console-empty' }, 'No console output'))
-    return
-  }
-  renderDom(el, ...consoleLines.map(l =>
-    h('div', { class: `studio-console-line studio-console-line--${l.level}` }, l.text)))
-  el.scrollTop = el.scrollHeight
-}
 
 // ── Save / discard / preview toggle ──────────────────────────────
 async function doSave() {
@@ -631,9 +663,8 @@ async function doSave() {
   if (resp?.type === 'SAVE_RESULT' && resp.ok) {
     surface.markSaved(activeProp)
     activeCode()[activeProp] = value
-    consoleLines.push({ level: 'info', text: `Saved ${activeProp} to BMP` })
     refreshActions()
-    renderConsole()
+    logConsole('info', `Saved ${activeProp} to BMP`)
     // Save->reload: re-read from BMP to confirm what actually landed. A BMP
     // in-script .change() can return HTTP 200 yet silently roll back; comparing
     // the re-fetched value catches that, and reloadSlots re-seeds every slot to
@@ -644,15 +675,13 @@ async function doSave() {
       surface.reloadSlots(CODE_PROPS.map(p => ({ key: p, lang: p, code: fresh[p] ?? '' })))
       for (const p of CODE_PROPS) activeCode()[p] = fresh[p] ?? ''
       if ((fresh[activeProp] ?? '') !== value) {
-        consoleLines.push({ level: 'error', text: `Warning: BMP's ${activeProp} differs from what was saved — possible silent rollback. The editor now shows BMP's value.` })
-        renderConsole()
+        logConsole('error', `Warning: BMP's ${activeProp} differs from what was saved — possible silent rollback. The editor now shows BMP's value.`)
       }
     }
   } else {
     const err = resp?.type === 'SAVE_RESULT' ? resp.error : 'no response'
-    consoleLines.push({ level: 'error', text: `Save failed: ${err ?? '(unknown)'}` })
     refreshActions()
-    renderConsole()
+    logConsole('error', `Save failed: ${err ?? '(unknown)'}`)
   }
 }
 
@@ -691,18 +720,15 @@ async function doDiscard() {
   if (!ok) return
   surface.discard()
   refreshActions()
-  schedulePreview()
+  updatePropTabs()
+  void runPreview()
 }
 
 function togglePreview() {
+  // renderShell rebuilds the structure; for a preview toggle it re-mounts (and
+  // reloads) the iframe + resets the handshake, then schedules the first render.
   previewVisible = !previewVisible
-  // The iframe is recreated by renderShell — reset the handshake + any queued
-  // render so the fresh sandbox's READY drives a clean first render.
-  sandboxReady = false
-  pendingRender = false
   renderShell()
-  ensureSurface()
-  if (previewVisible) schedulePreview()
 }
 
 // Guard the overlay close when there are unsaved edits.
