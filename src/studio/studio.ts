@@ -51,6 +51,9 @@ let dataMode: 'mock' | 'live' = 'mock'
 let renderContextRid = ''
 let liveData: Record<string, unknown> | null = null
 let liveError: string | null = null
+// Generation token for fetchLiveData — two rapid fetches (rid edit while a
+// refresh is in flight) must not let the slower-resolving (older) one win.
+let fetchGen = 0
 
 // The CVO's data-input children (CustomVisualizationExpression). Each defines a
 // `_data.expressions[key]` slot; editable here. Seeded into mockData so the mock
@@ -149,7 +152,7 @@ function ensureSurface() {
       keymap.of([
         ...baseKeymapBindings,
         { key: 'Ctrl-s', mac: 'Cmd-s', run: () => { doSave(); return true } },
-        { key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { runPreview(); return true } },
+        { key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { void runPreview({ retryDeps: true }); return true } },
         closeOverlayKeyBinding,
       ]),
       // Re-render on user edits only — a programmatic slot-swap (tab switch)
@@ -237,7 +240,7 @@ function refreshActions() {
   const el = document.getElementById('studio-actions')
   if (!el) return
   renderDom(el,
-    h('button', { class: 'btn btn-ghost', id: 'studio-run', title: `Re-render preview · ${KBD_MOD}+Enter`, onClick: () => void runPreview() }, svg(ICON_PLAY), ' Re-render'),
+    h('button', { class: 'btn btn-ghost', id: 'studio-run', title: `Re-render preview (retries failed dependencies) · ${KBD_MOD}+Enter`, onClick: () => void runPreview({ retryDeps: true }) }, svg(ICON_PLAY), ' Re-render'),
     h('button', { class: 'btn', id: 'studio-save', disabled: !anyDirty(), title: `Save every changed field (html + javascript) · ${KBD_MOD}+S`, onClick: doSave }, dirtyCount() > 1 ? `Save ${dirtyCount()}` : 'Save'),
     h('button', { class: 'btn btn-ghost', id: 'studio-discard', disabled: !surface?.isDirty(activeProp), title: 'Revert this field to the saved BMP value', onClick: doDiscard }, 'Discard'),
     h('button', { class: 'btn btn-ghost', id: 'studio-download', title: 'Download the CVO source (html + javascript) as a .cvo.json bundle', onClick: doDownload }, 'Download'),
@@ -277,25 +280,29 @@ function schedulePreview() {
   previewTimer = setTimeout(() => runPreview(), PREVIEW_DEBOUNCE_MS)
 }
 
-async function runPreview() {
+async function runPreview(opts: { retryDeps?: boolean } = {}) {
   if (previewTimer) { clearTimeout(previewTimer); previewTimer = null }
   if (!previewVisible) return
   const gen = ++renderGen
   clearConsole()
-  // Resolve the CVO's hosted FileResource libraries (cached) before rendering,
-  // so the sandbox can run them before the CVO. Done before the ready-gate so a
-  // queued render flushes with libs ready.
-  await ensureLibs()
+  // An explicit Re-render retries deps that previously failed to load (e.g. the
+  // BMP session came up since); auto-renders don't, to avoid re-warning on
+  // every keystroke. Resolve libraries before the ready-gate so a queued render
+  // flushes with them ready.
+  if (opts.retryDeps) for (const [rid, v] of libCache) if (v === null) libCache.delete(rid)
+  const libs = await ensureLibs()
   if (gen !== renderGen) return // a newer runPreview started during the await
+  lastLibs = libs // commit only after winning the gen race (no clobber by a stale ensureLibs)
   if (!sandboxReady) { pendingRender = true; return }
   postRender()
 }
 
 /** Detect the FileResource libraries the CVO loads and fetch their bytes via
- *  the SW (cookie-authed download), caching by rid (null = fetched but
- *  unavailable). Unavailable deps (e.g. no BMP session) are warned once, so the
- *  CVO degrades rather than blocking — matching the portal's guidance. */
-async function ensureLibs(): Promise<void> {
+ *  the SW (cookie-authed download), caching by rid. A transport failure (e.g.
+ *  no BMP session) is cached as null and warned once so the CVO degrades rather
+ *  than blocking; an explicit Re-render clears those nulls to retry. Returns the
+ *  resolved set (the caller commits it after winning the render-gen race). */
+async function ensureLibs(): Promise<string[]> {
   const rids = detectFileResourceRids(surface?.textFor('html') ?? '', surface?.textFor('javascript') ?? '')
   for (const rid of rids) {
     if (libCache.has(rid)) continue
@@ -307,7 +314,7 @@ async function ensureLibs(): Promise<void> {
       logConsole('warn', `Dependency ${rid} unavailable (${(resp?.type === 'STUDIO_RESOURCE' ? resp.error : 'no response') ?? ''}) — preview runs without it`)
     }
   }
-  lastLibs = rids.map(r => libCache.get(r)).filter((t): t is string => !!t)
+  return rids.map(r => libCache.get(r)).filter((t): t is string => !!t)
 }
 
 function postRender() {
@@ -408,7 +415,9 @@ async function fetchLiveData(): Promise<void> {
     return
   }
   liveError = null
+  const gen = ++fetchGen
   const resp = await sendRequest({ type: 'STUDIO_FETCH_DATA', cvoRid: ctx.instance.rid, businessObjectRid: renderContextRid })
+  if (gen !== fetchGen) return // a newer fetch started during the await — its result wins
   if (resp?.type === 'STUDIO_DATA' && resp.ok && resp.data) {
     liveData = resp.data as Record<string, unknown>
     liveError = null
