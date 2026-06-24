@@ -58,10 +58,39 @@ html, body { height: 100%; margin: 0; }
 .studio-editor .cm-editor { height: 100%; }
 
 .studio-preview {
-  flex: 1 1 50%; min-width: 0;
+  flex: 1 1 0; min-width: 0;
   display: flex; flex-direction: column;
-  border-left: 1px solid var(--surface-4);
 }
+
+/* Draggable vertical divider between editor and preview. Hidden when there's
+ * no preview or the preview is maximized (nothing to size against). */
+.studio-divider {
+  flex: 0 0 5px; min-width: 5px; cursor: col-resize; position: relative;
+  background: var(--surface-1); border-left: 1px solid var(--surface-4);
+}
+.studio-divider:hover, .studio-divider.dragging { background: var(--surface-2); }
+.studio-divider::after {
+  content: ''; position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%); width: 2px; height: 24px;
+  border-radius: 1px; background: var(--text-2); opacity: 0.5;
+}
+.studio-divider:hover::after, .studio-divider.dragging::after { opacity: 0.8; }
+.studio-split--no-preview .studio-divider,
+.studio-split--preview-only .studio-divider { display: none; }
+
+/* Draggable horizontal divider sizing the bottom panel. */
+.studio-panel-resize {
+  height: 5px; flex-shrink: 0; cursor: row-resize; position: relative;
+  background: var(--surface-1); border-top: 1px solid var(--surface-4);
+}
+.studio-panel-resize:hover, .studio-panel-resize.dragging { background: var(--surface-2); }
+.studio-panel-resize::after {
+  content: ''; position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%); width: 24px; height: 2px;
+  border-radius: 1px; background: var(--text-2); opacity: 0.5;
+}
+.studio-panel-resize:hover::after, .studio-panel-resize.dragging::after { opacity: 0.8; }
+.studio-panel-resize--hidden { display: none; }
 /* ── Control strip (data source + width) — one dense row ────────── */
 .studio-strip {
   display: flex; align-items: center; gap: var(--space-2);

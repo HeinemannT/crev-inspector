@@ -90,6 +90,10 @@ const PREVIEW_WIDTHS: ReadonlyArray<[string, number]> = [['Full', 0], ['1280', 1
 // window width (a "full-screen CVO" view). In-place toggle — the iframe stays.
 let previewMaximized = false
 
+// Draggable layout: editor width (% of the split) and bottom-panel height (px).
+let editorPct = 50
+let panelHeight = 150
+
 // Sandbox handshake: hold the latest render until the sandbox says it's ready.
 let sandboxReady = false
 let pendingRender = false
@@ -204,7 +208,12 @@ function renderShell() {
     ),
     h('div', { class: 'studio-prop-tabs', id: 'studio-prop-tabs', role: 'tablist' }),
     h('div', { class: `studio-split${previewVisible ? '' : ' studio-split--no-preview'}${previewVisible && previewMaximized ? ' studio-split--preview-only' : ''}`, id: 'studio-split' },
-      h('div', { class: 'studio-editor', id: 'studio-cm' }),
+      // Inline editor width applies whenever there's a preview to split with;
+      // when maximized the editor is display:none (so the basis is harmless and
+      // un-maximizing restores the dragged width). --no-preview drops the inline
+      // style so CSS can take the editor to full width.
+      h('div', { class: 'studio-editor', id: 'studio-cm', style: previewVisible ? `flex: 0 0 ${editorPct}%` : '' }),
+      previewVisible ? h('div', { class: 'studio-divider', id: 'studio-divider', title: 'Drag to resize' }) : null,
       previewVisible
         ? h('div', { class: 'studio-preview' },
             h('div', { class: 'studio-strip', id: 'studio-strip' }),
@@ -212,7 +221,8 @@ function renderShell() {
               h('div', { class: 'studio-canvas', id: 'studio-canvas', style: previewWidth ? `max-width:${previewWidth}px` : '' }),
             ),
             h('div', { class: 'studio-ptabs', id: 'studio-ptabs' }),
-            h('div', { class: `studio-panel${panelTab ? '' : ' studio-panel--collapsed'}`, id: 'studio-panel' }),
+            h('div', { class: `studio-panel-resize${panelTab ? '' : ' studio-panel-resize--hidden'}`, id: 'studio-panel-resize', title: 'Drag to resize' }),
+            h('div', { class: `studio-panel${panelTab ? '' : ' studio-panel--collapsed'}`, id: 'studio-panel', style: `height:${panelHeight}px` }),
           )
         : null,
     ),
@@ -231,7 +241,51 @@ function renderShell() {
   updateStrip()
   updatePanelTabs()
   renderPanelContent()
+  if (previewVisible) wireDividers()
   if (previewVisible && surface) schedulePreview()
+}
+
+/** Attach the drag handlers to the two resizers (rebuilt each renderShell).
+ *  Pointer events + setPointerCapture, mirroring the EC editor's handle. */
+function wireDividers() {
+  const split = document.getElementById('studio-divider')
+  if (split) split.onpointerdown = e => startDrag(e, split, 'col', m => {
+    const row = document.getElementById('studio-split')
+    if (!row) return
+    const pct = ((m.clientX - row.getBoundingClientRect().left) / row.clientWidth) * 100
+    editorPct = Math.max(15, Math.min(85, pct))
+    const ed = document.getElementById('studio-cm')
+    if (ed) ed.style.flex = `0 0 ${editorPct}%`
+  })
+  const ph = document.getElementById('studio-panel-resize')
+  if (ph) ph.onpointerdown = e => startDrag(e, ph, 'row', m => {
+    const panel = document.getElementById('studio-panel')
+    if (!panel) return
+    const next = panel.getBoundingClientRect().bottom - m.clientY
+    panelHeight = Math.max(60, Math.min(window.innerHeight * 0.8, next))
+    panel.style.height = `${panelHeight}px`
+  })
+}
+
+/** Shared pointer-drag loop for both dividers. */
+function startDrag(e: PointerEvent, handle: HTMLElement, axis: 'col' | 'row', onMove: (e: PointerEvent) => void) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  handle.classList.add('dragging')
+  document.body.style.cursor = axis === 'col' ? 'col-resize' : 'row-resize'
+  document.body.style.userSelect = 'none'
+  try { handle.setPointerCapture(e.pointerId) } catch { /* fine */ }
+  const finish = () => {
+    handle.classList.remove('dragging')
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    handle.removeEventListener('pointermove', onMove)
+    handle.removeEventListener('pointerup', finish)
+    handle.removeEventListener('pointercancel', finish)
+  }
+  handle.addEventListener('pointermove', onMove)
+  handle.addEventListener('pointerup', finish)
+  handle.addEventListener('pointercancel', finish)
 }
 
 function ensureSandboxFrame(): HTMLIFrameElement {
