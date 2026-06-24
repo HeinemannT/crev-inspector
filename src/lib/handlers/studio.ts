@@ -7,6 +7,7 @@ import { register } from '../handler-registry'
 import { getCtx } from '../sw-context'
 import { openCvoStudioWindow } from '../cvo-studio'
 import { errorMessage, log } from '../logger'
+import { formatEcLiteral } from '../ec-guards'
 
 register('OPEN_CVO_STUDIO', (msg, _respond, meta) => {
   openCvoStudioWindow(msg.rid, msg.property, { tabId: meta.senderTabId, windowId: meta.panelWindowId })
@@ -109,12 +110,17 @@ register('STUDIO_FETCH_RESOURCE', async (msg, respond) => {
 register('STUDIO_WRITE_RESOURCE', async (msg, respond) => {
   const ctx = getCtx()
   if (!ctx.client) { respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: 'Not connected' }); return }
-  // name/mime must not contain the ';' triplet delimiter or quotes that would
-  // break the EC string literal; base64 is [A-Za-z0-9+/=] only, so it's safe.
-  const name = msg.name.replace(/["';]/g, '') || 'resource'
-  const mime = msg.mime.replace(/["';]/g, '') || 'application/octet-stream'
+  // ';' is the content-triplet delimiter the download servlet splits on, so it
+  // must be stripped from name/mime. Everything else interpolated into an EC
+  // string literal is escaped through formatEcLiteral (the value-slot guard) —
+  // an uploaded filename is attacker-influenced, so it gets the real escape,
+  // not incidental character-stripping.
+  const name = msg.name.replace(/;/g, '') || 'resource'
+  const mime = msg.mime.replace(/;/g, '') || 'application/octet-stream'
   const id = ident(msg.resId)
-  const content = `${name};${mime};${msg.base64}`
+  const contentLit = formatEcLiteral(`${name};${mime};${msg.base64}`)
+  const nameLit = formatEcLiteral(name)
+  const folderNameLit = formatEcLiteral(STUDIO_ASSET_FOLDER_NAME)
   // Host under a dedicated, studio-owned folder. FileResources can't be added
   // directly under the Resources root (BMP: "Can't add ... to Resources") — they
   // need a Category folder — and the old `SELECT FileResource → .first().parent`
@@ -128,16 +134,16 @@ register('STUDIO_WRITE_RESOURCE', async (msg, respond) => {
     `IF _fhits.size() > 0 THEN`,
     `     _folder := _fhits.first()`,
     `ELSE`,
-    `     _folder := _froot.add(Category, id := '${STUDIO_ASSET_FOLDER_ID}', name := '${STUDIO_ASSET_FOLDER_NAME}')`,
+    `     _folder := _froot.add(Category, id := '${STUDIO_ASSET_FOLDER_ID}', name := "${folderNameLit}")`,
     `ENDIF`,
     `_hits := _folder.descendants().filter(self.id = '${id}')`,
     `IF _hits.size() > 0 THEN`,
     `     _f := _hits.first()`,
-    `     _f.change(content := "${content}")`,
+    `     _f.change(content := "${contentLit}")`,
     `     output(str(_f.rid))`,
     `ELSE`,
-    `     _new := _folder.add(FileResource, id := '${id}', name := '${name}')`,
-    `     _new.change(content := "${content}")`,
+    `     _new := _folder.add(FileResource, id := '${id}', name := "${nameLit}")`,
+    `     _new.change(content := "${contentLit}")`,
     `     output(str(_new.rid))`,
     `ENDIF`,
   ].join('\n')

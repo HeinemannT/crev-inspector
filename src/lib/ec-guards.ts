@@ -35,3 +35,18 @@ export function validateRid(rid: string): string {
   if (!RID_RE.test(rid)) throw new Error(`Invalid RID: ${rid}`);
   return rid;
 }
+
+/** Escape a value for embedding inside a double-quoted EC string literal:
+ *  `"...${formatEcLiteral(v)}..."`. This is the *value-slot* guard referenced
+ *  in the module comment — it escapes the four metacharacters the BMP EC parser
+ *  treats specially (backslash, double-quote, CR, LF) so an attacker-influenced
+ *  value (e.g. an uploaded filename) can't break out of the literal. Pair it
+ *  with validateEcIdentifier for the identifier slot. Always prefer this over
+ *  ad-hoc character-stripping, which protects only by accident. */
+export function formatEcLiteral(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n');
+}

@@ -22,7 +22,7 @@ import type { AuthMode, AuthErrorCode, AuthVia } from './bmp-auth';
 import { BmpTransport } from './bmp-transport';
 import { pMap, compareVersions } from './util';
 import { parsePipeLines, parseSepBlocks, parseSepMultiObject } from './ec-parser';
-import { validateRid, validateEcIdentifier } from './ec-guards';
+import { validateRid, validateEcIdentifier, formatEcLiteral } from './ec-guards';
 import { resolveNamespace } from './namespace';
 import {
   parsePipeRow, parsePipeRowWithKey, parseAbRow, makeCodeField,
@@ -894,11 +894,7 @@ _r
   /** Save a code property via EC */
   async saveCodeViaEc(rid: string, property: string, code: string): Promise<{ ok: boolean; error?: string }> {
     validateEcIdentifier(property);
-    const escaped = code
-      .replace(/\\/g, '\\\\')
-      .replace(/"/g, '\\"')
-      .replace(/\r/g, '\\r')
-      .replace(/\n/g, '\\n');
+    const escaped = formatEcLiteral(code);
     const ref = await this.resolveRef(rid);
     const ec = `_o := ${ref}\n_o.change(${property} := "${escaped}")`;
     const result = await this.executeEc(ec, undefined, true);
