@@ -229,8 +229,12 @@ export type StudioMessage =
   // add (id+key) and delete (childId) need generated EC, on simple identifiers.
   | { type: 'STUDIO_FETCH_CHILDREN'; cvoBid: string }
   | { type: 'STUDIO_CHILDREN'; ok: boolean; children?: StudioChild[]; error?: string }
-  | { type: 'STUDIO_ADD_CHILD'; cvoBid: string; childId: string; key: string }
+  | { type: 'STUDIO_ADD_CHILD'; cvoBid: string; childId: string; key: string; childType: StudioChildType }
   | { type: 'STUDIO_CHILD_ADDED'; ok: boolean; rid?: string; error?: string }
+  // Save a child's key + its type-specific fields in one EC (handles the table
+  // reference + the int timeout that a plain SAVE_PROPERTY can't).
+  | { type: 'STUDIO_SAVE_CHILD'; childId: string; childType: StudioChildType; key: string; fields: Partial<Record<'expression' | 'table' | 'url' | 'urlParameters' | 'headers' | 'timeout', string>> }
+  | { type: 'STUDIO_CHILD_SAVED'; ok: boolean; error?: string }
   | { type: 'STUDIO_DELETE_CHILD'; childId: string }
   | { type: 'STUDIO_CHILD_DELETED'; ok: boolean; error?: string }
   // Download a FileResource's decoded content (a hosted JS library) to inject
@@ -248,15 +252,27 @@ export type StudioMessage =
   | { type: 'STUDIO_RESOLVE_RIDS'; rids: string[] }
   | { type: 'STUDIO_RIDS_RESOLVED'; ok: boolean; refs?: Array<{ rid: string; id: string; name: string }>; error?: string };
 
+/** The three CVO child kinds, by what they populate in `_data`. */
+export type StudioChildType = 'expression' | 'table' | 'connection'
+
 export interface StudioChild {
   /** rid as a string (Java long — never a JS number). */
   rid: string
   /** businessId. */
   id: string
-  /** JS-side key → `_data.expressions[key]`. */
+  /** Which `_data.*` map this populates. */
+  type: StudioChildType
+  /** JS-side key → `_data.<type-map>[key]`. */
   key: string
-  /** Reporter-token expression (raw text), or '' for non-expression children. */
-  expression: string
+  /** expression: Reporter-token text → _data.expressions[key]. */
+  expression?: string
+  /** table: referenced table's business id → _data.tables[key]. */
+  table?: string
+  /** connection: upstream config → _data.serverConnections[key] (a proxy path). */
+  url?: string
+  urlParameters?: string
+  headers?: string
+  timeout?: string
 }
 
 // ── Frame Overlay (in-page floating iframes for editor/diff/objectview/codesearch/cvo-studio) ─

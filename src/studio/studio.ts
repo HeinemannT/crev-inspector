@@ -27,7 +27,7 @@ import { detectFileResourceRids, detectCdnUrls } from './dep-detect'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
-import { getTypeAbbr, getTypeColor, type StudioChild } from '../lib/types'
+import { getTypeAbbr, getTypeColor, type StudioChild, type StudioChildType } from '../lib/types'
 import { ICON_PLAY, ICON_REFRESH, ICON_FILE_HTML, ICON_FILE_JS, ICON_CHECK, ICON_WRAP, ICON_BRACKETS } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
 import { isCvoSandboxOutbound, type CvoRenderRequest, type CvoConsoleLevel } from './cvo-protocol'
@@ -701,57 +701,85 @@ async function fetchChildren(): Promise<void> {
   }
 }
 
-/** Give the mock `_data.expressions` the real slot keys (empty placeholder
- *  values), so a mock-mode preview sees the same shape as live. */
+// Which _data map each child type populates, its row badge, and its id prefix.
+const CHILD_MAP: Record<StudioChildType, string> = { expression: 'expressions', table: 'tables', connection: 'serverConnections' }
+const CHILD_BADGE: Record<StudioChildType, string> = { expression: 'EXPR', table: 'TABLE', connection: 'CONN' }
+const CHILD_PREFIX: Record<StudioChildType, string> = { expression: 'cve', table: 'cvt', connection: 'csc' }
+type ChildFields = Partial<Record<'expression' | 'table' | 'url' | 'urlParameters' | 'headers' | 'timeout', string>>
+
+/** Seed the mock `_data` maps with the real child keys so a mock-mode preview
+ *  sees the same shape (keys) as live, per child type. */
 function seedMockFromChildren(): void {
   const ex: Record<string, string> = {}
-  for (const c of children) if (c.key) ex[c.key] = mockData.expressions[c.key] ?? ''
+  const tables: Record<string, unknown> = {}
+  const conns: Record<string, string> = {}
+  for (const c of children) {
+    if (!c.key) continue
+    if (c.type === 'table') tables[c.key] = mockData.tables[c.key] ?? []
+    else if (c.type === 'connection') conns[c.key] = mockData.serverConnections[c.key] ?? ''
+    else ex[c.key] = mockData.expressions[c.key] ?? ''
+  }
   mockData.expressions = ex
+  mockData.tables = tables
+  mockData.serverConnections = conns
 }
 
 function renderInputsInto(el: HTMLElement): void {
   renderDom(el,
-    children.length === 0 ? h('div', { class: 'studio-panel-empty' }, 'No data inputs yet. Add one to expose a _data.expressions.<key> value to your CVO.') : null,
+    children.length === 0 ? h('div', { class: 'studio-panel-empty' }, 'No data inputs yet. Add an expression, table, or connection to populate _data.') : null,
     ...children.map(renderChildRow),
-    h('button', { class: 'studio-panel-add', title: 'Add a CustomVisualizationExpression input', onClick: doAddChild }, '+ Add input'),
+    h('div', { class: 'studio-child-adds' },
+      h('button', { class: 'studio-panel-add', title: 'Add an expression input (_data.expressions)', onClick: () => doAddChild('expression') }, '+ Expression'),
+      h('button', { class: 'studio-panel-add', title: 'Add a table reference (_data.tables)', onClick: () => doAddChild('table') }, '+ Table'),
+      h('button', { class: 'studio-panel-add', title: 'Add a server connection (_data.serverConnections)', onClick: () => doAddChild('connection') }, '+ Connection'),
+    ),
   )
 }
 
 function renderChildRow(c: StudioChild): HTMLElement {
-  const keyInput = h('input', { class: 'studio-child-key-input', value: c.key, spellcheck: 'false', autocomplete: 'off', placeholder: 'key', title: 'JS key for _data.expressions.' + (c.key || '?') }) as HTMLInputElement
-  const exprInput = h('input', { class: 'studio-child-expr', value: c.expression, spellcheck: 'false', autocomplete: 'off', placeholder: 'Reporter token, e.g. ${t.my_expr.expression}', title: 'Reporter token whose value fills this input' }) as HTMLInputElement
-  return h('div', { class: 'studio-child-row' },
+  const inputs: HTMLInputElement[] = []
+  const mk = (cls: string, val: string, ph: string, title: string) => {
+    const i = h('input', { class: cls, value: val, spellcheck: 'false', autocomplete: 'off', placeholder: ph, title }) as HTMLInputElement
+    inputs.push(i); return i
+  }
+  const keyInput = mk('studio-child-key-input', c.key, 'key', `JS key for _data.${CHILD_MAP[c.type]}.${c.key || '?'}`)
+  inputs.pop() // key is rendered explicitly, not among the type fields
+  let collect: () => ChildFields
+  if (c.type === 'table') {
+    const t = mk('studio-child-expr', c.table ?? '', 'table business id (e.g. tbl_top_risks)', 'Business id of a table object (ExtendedTable, StandardTable, …)')
+    collect = () => ({ table: t.value.trim() })
+  } else if (c.type === 'connection') {
+    const u = mk('studio-child-expr', c.url ?? '', 'upstream url', 'Upstream URL (stays server-side; JS gets a proxy path)')
+    const p = mk('studio-child-sub', c.urlParameters ?? '', 'urlParameters: a=b&c=d', 'Preconfigured query params')
+    const hd = mk('studio-child-sub', c.headers ?? '', 'headers: Name: v; Name2: v', 'Semicolon-separated header lines')
+    const to = mk('studio-child-sub', c.timeout ?? '', 'timeout ms', 'Connection timeout in milliseconds')
+    collect = () => ({ url: u.value, urlParameters: p.value, headers: hd.value, timeout: to.value.trim() })
+  } else {
+    const e = mk('studio-child-expr', c.expression ?? '', 'Reporter token, e.g. ${t.my_expr.expression}', 'Reporter token whose value fills this input')
+    collect = () => ({ expression: e.value })
+  }
+  return h('div', { class: `studio-child-row studio-child-row--${c.type}` },
+    h('span', { class: `studio-child-badge studio-child-badge--${c.type}`, title: `_data.${CHILD_MAP[c.type]}` }, CHILD_BADGE[c.type]),
     keyInput,
-    exprInput,
-    h('button', { class: 'btn-micro', title: 'Save key + expression', onClick: () => doSaveChild(c, keyInput.value.trim(), exprInput.value) }, 'Save'),
+    ...inputs,
+    h('button', { class: 'btn-micro', title: 'Save this input', onClick: () => doSaveChild(c, keyInput.value.trim(), collect()) }, 'Save'),
     h('button', { class: 'btn-micro studio-child-del', title: 'Remove this input', onClick: () => doRemoveChild(c) }, '✕'),
   )
 }
 
-async function doSaveChild(c: StudioChild, key: string, expression: string): Promise<void> {
-  let okAll = true
-  if (key && key !== c.key) {
-    const r = await sendRequest({ type: 'SAVE_PROPERTY', rid: c.rid, objectType: 'CustomVisualizationExpression', property: 'key', value: key })
-    if (r?.type === 'SAVE_RESULT' && r.ok) c.key = key
-    else { okAll = false; logConsole('error', `Key save failed: ${respError(r)}`) }
-  }
-  if (expression !== c.expression) {
-    const r = await sendRequest({ type: 'SAVE_PROPERTY', rid: c.rid, objectType: 'CustomVisualizationExpression', property: 'expression', value: expression })
-    if (r?.type === 'SAVE_RESULT' && r.ok) c.expression = expression
-    else { okAll = false; logConsole('error', `Expression save failed: ${respError(r)}`) }
-  }
-  if (okAll) logConsole('info', `Saved input "${c.key}"`)
-  seedMockFromChildren()
-  renderPanelContent()
-  if (dataMode === 'live') fetchLiveData(); else void runPreview()
+async function doSaveChild(c: StudioChild, key: string, fields: ChildFields): Promise<void> {
+  const resp = await sendRequest({ type: 'STUDIO_SAVE_CHILD', childId: c.id, childType: c.type, key: key || c.key, fields })
+  if (resp?.type === 'STUDIO_CHILD_SAVED' && resp.ok) { logConsole('info', `Saved input "${key || c.key}"`); await fetchChildren() }
+  else logConsole('error', `Save failed: ${respError(resp)}`)
 }
 
-async function doAddChild(): Promise<void> {
+async function doAddChild(childType: StudioChildType): Promise<void> {
   if (!ctx?.instance.businessId) return
-  const key = `input_${children.length + 1}`
-  const childId = `cve_${(ctx.instance.businessId || 'cvo').replace(/[^\w-]/g, '')}_${key}`
-  const resp = await sendRequest({ type: 'STUDIO_ADD_CHILD', cvoBid: ctx.instance.businessId, childId, key })
-  if (resp?.type === 'STUDIO_CHILD_ADDED' && resp.ok) { logConsole('info', `Added input "${key}"`); await fetchChildren() }
+  const n = children.filter(c => c.type === childType).length + 1
+  const key = `${childType === 'expression' ? 'input' : childType}_${n}`
+  const childId = `${CHILD_PREFIX[childType]}_${(ctx.instance.businessId || 'cvo').replace(/[^\w-]/g, '')}_${key}`
+  const resp = await sendRequest({ type: 'STUDIO_ADD_CHILD', cvoBid: ctx.instance.businessId, childId, key, childType })
+  if (resp?.type === 'STUDIO_CHILD_ADDED' && resp.ok) { logConsole('info', `Added ${childType} "${key}"`); await fetchChildren() }
   else logConsole('error', `Add failed: ${respError(resp)}`)
 }
 

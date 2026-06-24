@@ -229,9 +229,19 @@ html, body { height: 100%; margin: 0; }
 
 /* Data-input rows */
 .studio-child-row { display: flex; align-items: center; gap: 4px; padding: 1px var(--space-2); }
-.studio-child-key-input { flex: 0 0 110px; min-width: 0; padding: 2px 6px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-1); background: var(--surface-1); border: 1px solid var(--surface-4); border-radius: var(--radius-sm); }
-.studio-child-expr { flex: 1; min-width: 0; padding: 2px 6px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-2); background: var(--surface-1); border: 1px solid var(--surface-4); border-radius: var(--radius-sm); }
+.studio-child-row--connection { flex-wrap: wrap; }
+.studio-child-badge {
+  flex: 0 0 auto; padding: 1px 4px; border-radius: var(--radius-sm);
+  font-size: 9px; font-weight: var(--weight-bold); letter-spacing: .3px; color: #fff;
+}
+.studio-child-badge--expression { background: var(--accent); }
+.studio-child-badge--table { background: var(--info); }
+.studio-child-badge--connection { background: var(--warning); color: var(--surface-0); }
+.studio-child-key-input { flex: 0 0 100px; min-width: 0; padding: 2px 6px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-1); background: var(--surface-1); border: 1px solid var(--surface-4); border-radius: var(--radius-sm); }
+.studio-child-expr { flex: 1; min-width: 80px; padding: 2px 6px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-2); background: var(--surface-1); border: 1px solid var(--surface-4); border-radius: var(--radius-sm); }
+.studio-child-sub { flex: 1 1 90px; min-width: 60px; padding: 2px 6px; font-family: var(--font-mono); font-size: 10px; color: var(--text-3); background: var(--surface-1); border: 1px solid var(--surface-4); border-radius: var(--radius-sm); }
 .studio-child-del { color: var(--danger); }
+.studio-child-adds { display: flex; gap: 4px; flex-wrap: wrap; }
 
 /* Dependency rows */
 .studio-dep-row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); padding: 1px var(--space-2); }

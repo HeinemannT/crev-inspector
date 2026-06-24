@@ -8,6 +8,14 @@ import { getCtx } from '../sw-context'
 import { openCvoStudioWindow } from '../cvo-studio'
 import { errorMessage, log } from '../logger'
 import { formatEcLiteral } from '../ec-guards'
+import type { StudioChildType } from '../types'
+
+// CVO child kind -> BMP class. Each populates a different `_data.*` map.
+const CHILD_CLASS: Record<StudioChildType, string> = {
+  expression: 'CustomVisualizationExpression',
+  table: 'CustomVisualizationTableReference',
+  connection: 'CustomVisualizationServerConnection',
+}
 
 register('OPEN_CVO_STUDIO', (msg, _respond, meta) => {
   openCvoStudioWindow(msg.rid, msg.property, { tabId: meta.senderTabId, windowId: meta.panelWindowId })
@@ -54,12 +62,16 @@ const STUDIO_ASSET_FOLDER_NAME = 'CREV Studio Assets'
 register('STUDIO_FETCH_CHILDREN', async (msg, respond) => {
   const ctx = getCtx()
   if (!ctx.client) { respond({ type: 'STUDIO_CHILDREN', ok: false, error: 'Not connected' }); return }
+  // Emit every child with its className + all type-specific fields; absent
+  // props resolve to "" via whenMissing (a ServerConnection has no .expression,
+  // an Expression has no .url, etc.). Control-char delimiters never collide with
+  // field content. table is a reference, so emit the referenced table's id.
   const code = [
     `_r := SELECT CustomVisualization WHERE id = "${ident(msg.cvoBid)}"`,
     `_c := _r.first()`,
     `_out := ""`,
     `_c.children().forEach(_ch:`,
-    `     _out := _out + str(_ch.rid) + "${FIELD}" + _ch.id.whenMissing("") + "${FIELD}" + _ch.key.whenMissing("") + "${FIELD}" + _ch.expression.whenMissing("") + "${ROW}"`,
+    `     _out := _out + str(_ch.rid) + "${FIELD}" + _ch.id.whenMissing("") + "${FIELD}" + _ch.className.whenMissing("") + "${FIELD}" + _ch.key.whenMissing("") + "${FIELD}" + _ch.expression.whenMissing("") + "${FIELD}" + _ch.table.id.whenMissing("") + "${FIELD}" + _ch.url.whenMissing("") + "${FIELD}" + _ch.urlParameters.whenMissing("") + "${FIELD}" + _ch.headers.whenMissing("") + "${FIELD}" + str(_ch.timeout.whenMissing("")) + "${ROW}"`,
     `)`,
     `_out`,
   ].join('\n')
@@ -67,8 +79,10 @@ register('STUDIO_FETCH_CHILDREN', async (msg, respond) => {
     const res = await ctx.client.executeEc(code)
     if (!res.ok) { respond({ type: 'STUDIO_CHILDREN', ok: false, error: res.error }); return }
     const children = (res.log ?? '').split(ROW).filter(Boolean).map(rowStr => {
-      const [rid, id, key, expression] = rowStr.split(FIELD)
-      return { rid, id, key: key ?? '', expression: expression ?? '' }
+      const [rid, id, className, key, expression, table, url, urlParameters, headers, timeout] = rowStr.split(FIELD)
+      const type: StudioChildType = (className ?? '').includes('TableReference') ? 'table'
+        : (className ?? '').includes('ServerConnection') ? 'connection' : 'expression'
+      return { rid, id, type, key: key ?? '', expression: expression ?? '', table: table ?? '', url: url ?? '', urlParameters: urlParameters ?? '', headers: headers ?? '', timeout: timeout ?? '' }
     }).filter(c => c.rid && c.id)
     respond({ type: 'STUDIO_CHILDREN', ok: true, children })
   } catch (e) {
@@ -84,10 +98,11 @@ register('STUDIO_ADD_CHILD', async (msg, respond) => {
   // because a key passed at add() time is stored prefixed (verified footgun).
   const id = ident(msg.childId)
   const key = ident(msg.key)
+  const cls = CHILD_CLASS[msg.childType]
   const code = [
     `_r := SELECT CustomVisualization WHERE id = "${ident(msg.cvoBid)}"`,
     `_c := _r.first()`,
-    `_n := _c.add(CustomVisualizationExpression, id := '${id}', key := '${key}')`,
+    `_n := _c.add(${cls}, id := '${id}', key := '${key}')`,
     `_n.change(key := '${key}')`,
     `output(str(_n.rid))`,
   ].join('\n')
@@ -161,12 +176,52 @@ register('STUDIO_WRITE_RESOURCE', async (msg, respond) => {
   }
 })
 
+// Resolve a child by id across the three classes (the caller may not know the
+// type, e.g. delete). The id is unique, so the first non-empty hit wins.
+function resolveChildLines(idVar: string, childId: string): string[] {
+  const id = ident(childId)
+  return [
+    `_r := SELECT CustomVisualizationExpression WHERE id = "${id}"`,
+    `IF _r.size() = 0 THEN _r := SELECT CustomVisualizationTableReference WHERE id = "${id}" ENDIF`,
+    `IF _r.size() = 0 THEN _r := SELECT CustomVisualizationServerConnection WHERE id = "${id}" ENDIF`,
+    `${idVar} := _r.first()`,
+  ]
+}
+
+register('STUDIO_SAVE_CHILD', async (msg, respond) => {
+  const ctx = getCtx()
+  if (!ctx.client) { respond({ type: 'STUDIO_CHILD_SAVED', ok: false, error: 'Not connected' }); return }
+  const f = msg.fields
+  const lines = [
+    `_r := SELECT ${CHILD_CLASS[msg.childType]} WHERE id = "${ident(msg.childId)}"`,
+    `_o := _r.first()`,
+    `_o.change(key := "${formatEcLiteral(msg.key)}")`,
+  ]
+  if (msg.childType === 'expression' && f.expression != null) {
+    lines.push(`_o.change(expression := "${formatEcLiteral(f.expression)}")`)
+  } else if (msg.childType === 'connection') {
+    if (f.url != null) lines.push(`_o.change(url := "${formatEcLiteral(f.url)}")`)
+    if (f.urlParameters != null) lines.push(`_o.change(urlParameters := "${formatEcLiteral(f.urlParameters)}")`)
+    if (f.headers != null) lines.push(`_o.change(headers := "${formatEcLiteral(f.headers)}")`)
+    if (f.timeout != null && /^\d+$/.test(f.timeout)) lines.push(`_o.change(timeout := ${f.timeout})`)
+  } else if (msg.childType === 'table' && f.table) {
+    // `table` is a reference; set it via the template-namespace token.
+    lines.push(`_o.change(table := t.${ident(f.table)})`)
+  }
+  lines.push(`output("ok")`)
+  try {
+    const res = await ctx.client.executeEc(lines.join('\n'), undefined, true)
+    respond({ type: 'STUDIO_CHILD_SAVED', ok: res.ok, error: res.error })
+  } catch (e) {
+    respond({ type: 'STUDIO_CHILD_SAVED', ok: false, error: errorMessage(e) })
+  }
+})
+
 register('STUDIO_DELETE_CHILD', async (msg, respond) => {
   const ctx = getCtx()
   if (!ctx.client) { respond({ type: 'STUDIO_CHILD_DELETED', ok: false, error: 'Not connected' }); return }
   const code = [
-    `_r := SELECT CustomVisualizationExpression WHERE id = "${ident(msg.childId)}"`,
-    `_o := _r.first()`,
+    ...resolveChildLines('_o', msg.childId),
     `_o.delete()`,
     `output("deleted")`,
   ].join('\n')
