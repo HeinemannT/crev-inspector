@@ -77,7 +77,20 @@ export async function openCvoStudioWindow(
     renderContextRid,
   }
 
-  await chrome.storage.local.set({ [`${STUDIO_CTX_PREFIX}${rid}`]: ctx })
+  // Stash the context for the studio page to read on load. A CVO's html+js can
+  // be hundreds of KB, so clear any stale studio contexts first (read-once
+  // handoff — bounds storage growth to the one we're about to open) and guard
+  // the write so a full quota surfaces a clear error instead of launching a
+  // studio that loads into "No CVO context found".
+  try {
+    const all = await chrome.storage.local.get(null)
+    const stale = Object.keys(all).filter(k => k.startsWith(STUDIO_CTX_PREFIX))
+    if (stale.length) await chrome.storage.local.remove(stale)
+    await chrome.storage.local.set({ [`${STUDIO_CTX_PREFIX}${rid}`]: ctx })
+  } catch (e) {
+    log.swallow('cvo-studio:stashContext', e)
+    throw new Error('Could not open the CVO studio: browser storage is full. Clear some space and try again.')
+  }
 
   const label = instance.name
     ? `CVO · ${instance.name}`

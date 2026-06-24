@@ -694,6 +694,9 @@ export class BmpClient {
     const ref = await this.resolveRef(rid);
     const lines = [`_o := ${ref}`, '_r := ""'];
     for (const prop of properties) {
+      // `_o.${prop}` is an identifier slot (bare, not a string literal), so it
+      // must be a valid EC identifier — defence-in-depth matching saveCodeViaEc.
+      validateEcIdentifier(prop);
       lines.push(`_r := _r + "${sep}${prop}${sep}" + output(_o.${prop}.whenMissing("")) + "\\n"`);
     }
     lines.push(`_r := _r + "${sep}DONE"`);
@@ -713,6 +716,9 @@ export class BmpClient {
 
     const valid = rids.filter(rid => /^-?\d+$/.test(rid));
     if (valid.length === 0) return result;
+
+    // `_o.${prop}` below is a bare identifier slot — validate before building EC.
+    properties.forEach(validateEcIdentifier);
 
     const sep = '<<<CREV_SEP>>>';
     const refs = await Promise.all(valid.map(rid => this.resolveRef(rid).catch(() => null)));
