@@ -8,7 +8,7 @@ import { getTypeColor, getTypeAbbr, TYPES_WITH_CODE } from './lib/types';
 import { FLOW_TYPES } from './lib/widget-metadata';
 import { getAllRidElements } from './lib/dom-scanner';
 import { log } from './lib/logger';
-import { ICON_CODE } from './lib/icons';
+import { ICON_CODE, ICON_FILE_JS } from './lib/icons';
 import { DISCOVERED_RIDS_CAP, LABEL_DBLCLICK_WINDOW } from './lib/constants';
 import { resolveCopyText, getModifier } from './lib/namespace';
 import { sendToSW } from './lib/content-port';
@@ -45,15 +45,18 @@ function createActionStrip(rid: string, enrichment: { businessId?: string; type?
   const actions = document.createElement('span');
   actions.className = 'crev-actions';
 
+  // A CustomVisualization opens the CVO studio (html/js + preview), not the EC
+  // editor — and shows the JS-file icon to say so.
+  const isCvo = enrichment.type === 'CustomVisualization';
   const ecBtn = document.createElement('button');
   ecBtn.className = 'crev-ec-btn';
-  ecBtn.innerHTML = ICON_CODE;
+  ecBtn.innerHTML = isCvo ? ICON_FILE_JS : ICON_CODE;
   // No native `title` — it painted a browser tooltip over the hover info card.
   // `aria-label` keeps the action discoverable to screen readers.
-  ecBtn.setAttribute('aria-label', 'Open in editor');
+  ecBtn.setAttribute('aria-label', isCvo ? 'Open in the CVO studio' : 'Open in the editor');
   ecBtn.addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation();
-    sendFireForget({ type: 'OPEN_EDITOR', rid });
+    sendFireForget(isCvo ? { type: 'OPEN_CVO_STUDIO', rid } : { type: 'OPEN_EDITOR', rid });
   });
   actions.appendChild(ecBtn);
 
@@ -374,7 +377,9 @@ function openQuickInspector(s: ContentState, labelEl: HTMLElement, rid: string) 
       isFavorite: s.favoriteRids.has(rid),
       codePreview,
     }, (editorRid) => {
-      sendFireForget({ type: 'OPEN_EDITOR', rid: editorRid });
+      sendFireForget(enrichment?.type === 'CustomVisualization'
+        ? { type: 'OPEN_CVO_STUDIO', rid: editorRid }
+        : { type: 'OPEN_EDITOR', rid: editorRid });
     }, (favRid) => {
       sendFireForget({ type: 'TOGGLE_FAVORITE', rid: favRid, name: enrichment?.name, objectType: enrichment?.type, businessId: enrichment?.businessId });
       if (s.favoriteRids.has(favRid)) s.favoriteRids.delete(favRid);

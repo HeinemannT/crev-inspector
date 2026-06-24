@@ -4,7 +4,7 @@
  */
 
 import { resolveCopyText, getModifier, COPY_TOOLTIP } from './namespace';
-import { ICON_CODE, ICON_ARROW_OUT, ICON_CHECK } from './icons';
+import { ICON_CODE, ICON_FILE_JS, ICON_ARROW_OUT, ICON_CHECK } from './icons';
 
 const PANEL_ID = 'crev-quick-inspector';
 
@@ -128,7 +128,10 @@ export function showQuickInspector(
 
   const editorBtn = document.createElement('button');
   editorBtn.className = 'crev-qi-btn crev-qi-btn--accent';
-  editorBtn.innerHTML = `${ICON_CODE} Editor`;
+  // A CustomVisualization opens the CVO studio (the caller routes by type);
+  // label + icon say so.
+  const isCvo = data.type === 'CustomVisualization';
+  editorBtn.innerHTML = `${isCvo ? ICON_FILE_JS : ICON_CODE} ${isCvo ? 'Studio' : 'Editor'}`;
   editorBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     onOpenEditor(data.rid);
