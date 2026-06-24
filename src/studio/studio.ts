@@ -15,15 +15,13 @@
  * file adopts it and the local createEditor goes away.
  */
 import { EditorView, keymap } from '@codemirror/view'
-import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
-import { linter, lintGutter, type Diagnostic } from '@codemirror/lint'
-import { syntaxTree } from '@codemirror/language'
+import { autocompletion } from '@codemirror/autocomplete'
+import { lintGutter } from '@codemirror/lint'
 import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha, type CodeLang } from '../editor-core/cm-scaffold'
 import { CodeSurface, isProgrammaticSwap } from '../editor-core/code-surface'
 import { KBD_MOD } from '../editor-core/platform'
 import { closeOverlayKeyBinding, installDirtyGuards } from '../editor-core/overlay'
 import { detectFileResourceRids, detectCdnUrls } from './dep-detect'
-import { cvoApiCandidates } from './cvo-api'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
@@ -31,6 +29,8 @@ import { getTypeAbbr, getTypeColor, type StudioChild } from '../lib/types'
 import { ICON_PLAY, ICON_REFRESH, ICON_FILE_JS, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
 import { isCvoSandboxOutbound, type CvoRenderRequest, type CvoConsoleLevel } from './cvo-protocol'
+import { StudioConsole } from './studio-console'
+import { syntaxErrorLinter, makeCvoApiSource } from './studio-editor-ext'
 
 const CODE_PROPS: readonly StudioCodeProp[] = ['html', 'javascript']
 const PREVIEW_DEBOUNCE_MS = 400
@@ -87,9 +87,8 @@ let runCounter = 0
 /** Bumped on each runPreview so an in-flight one can bail if superseded during
  *  its async lib fetch (avoids two concurrent renders racing the ready-gate). */
 let renderGen = 0
-/** Console + error lines from the current run, newest last. */
-interface ConsoleLine { level: CvoConsoleLevel; text: string }
-let consoleLines: ConsoleLine[] = []
+/** Console + error lines from the current run (owns its own buffer). */
+const studioConsole = new StudioConsole()
 
 /** Mock `_data` used until live data lands (Phase 3). Mirrors the shape the
  *  data servlet returns; `.element` is attached inside the sandbox. */
@@ -164,35 +163,8 @@ function ensureSurface() {
   surface.activate(activeProp)
 }
 
-/** CodeMirror completion source for the CVO API. Offers `_data.*` members and,
- *  under `_data.expressions.`, the live keys from the CVO's children. */
-function cvoApiSource(context: CompletionContext): CompletionResult | null {
-  const line = context.state.doc.lineAt(context.pos)
-  const before = line.text.slice(0, context.pos - line.from)
-  const cand = cvoApiCandidates(before, { expressions: children.map(c => c.key).filter(Boolean), tables: [] })
-  if (!cand) return null
-  const options = cand.options
-    .filter(o => o.startsWith(cand.word))
-    .map(label => ({ label, type: 'property' }))
-  if (options.length === 0) return null
-  return { from: context.pos - cand.word.length, options, validFor: /\w*/ }
-}
-
-/** Dep-free syntax linter: surfaces the language grammar's error nodes as inline
- *  diagnostics. A blank/broken CVO is usually a syntax slip, so flagging parse
- *  errors as you type beats discovering them via a silent blank widget. */
-const syntaxErrorLinter = linter(view => {
-  const diagnostics: Diagnostic[] = []
-  const len = view.state.doc.length
-  syntaxTree(view.state).cursor().iterate(node => {
-    if (!node.type.isError) return
-    const from = Math.min(node.from, len)
-    const to = node.to > node.from ? Math.min(node.to, len) : Math.min(node.from + 1, len)
-    diagnostics.push({ from, to, severity: 'error', message: 'Syntax error' })
-    if (diagnostics.length > 100) return false // cap on a badly-broken doc
-  })
-  return diagnostics
-})
+/** CVO-API autocomplete source — reads the live child keys lazily. */
+const cvoApiSource = makeCvoApiSource(() => children.map(c => c.key).filter(Boolean))
 
 /** Code map for the current save target (keystone always edits the instance;
  *  a template/instance toggle arrives with the rest of the edit loop). */
@@ -459,7 +431,7 @@ function togglePanel(tab: PanelTab): void {
 function updatePanelTabs(): void {
   const el = document.getElementById('studio-ptabs')
   if (!el) return
-  const errCount = consoleLines.filter(l => l.level === 'error').length
+  const errCount = studioConsole.errorCount
   const html = surface?.textFor('html') ?? ''
   const js = surface?.textFor('javascript') ?? ''
   const depCount = detectFileResourceRids(html, js).length + detectCdnUrls(html, js).length
@@ -470,7 +442,7 @@ function updatePanelTabs(): void {
       err ? h('span', { class: 'studio-ptab-err', 'aria-label': 'errors' }) : null,
     )
   renderDom(el,
-    tab('console', 'Console', consoleLines.length, errCount > 0),
+    tab('console', 'Console', studioConsole.count, errCount > 0),
     tab('inputs', 'Inputs', children.length),
     tab('deps', 'Deps', depCount),
   )
@@ -480,33 +452,24 @@ function renderPanelContent(): void {
   const el = document.getElementById('studio-panel')
   if (!el) return
   el.className = `studio-panel${panelTab ? '' : ' studio-panel--collapsed'}`
-  if (panelTab === 'console') renderConsoleInto(el)
+  if (panelTab === 'console') studioConsole.renderInto(el)
   else if (panelTab === 'inputs') renderInputsInto(el)
   else if (panelTab === 'deps') renderDepsInto(el)
   else renderDom(el)
 }
 
 /** Push a console line and reflect it (auto-opens the Console tab on error). */
-function logConsole(level: ConsoleLine['level'], text: string): void {
-  consoleLines.push({ level, text })
+function logConsole(level: CvoConsoleLevel, text: string): void {
+  studioConsole.push(level, text)
   if (level === 'error' && panelTab !== 'console') panelTab = 'console'
   updatePanelTabs()
   renderPanelContent()
 }
 
 function clearConsole(): void {
-  consoleLines = []
+  studioConsole.clear()
   updatePanelTabs()
   renderPanelContent()
-}
-
-function renderConsoleInto(el: HTMLElement): void {
-  if (consoleLines.length === 0) {
-    renderDom(el, h('div', { class: 'studio-panel-empty' }, 'No console output'))
-    return
-  }
-  renderDom(el, ...consoleLines.map(l => h('div', { class: `studio-console-line studio-console-line--${l.level}` }, l.text)))
-  el.scrollTop = el.scrollHeight
 }
 
 // ── Data inputs (CVO children → _data.expressions) ───────────────
