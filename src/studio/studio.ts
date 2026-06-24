@@ -26,7 +26,7 @@ import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
 import { getTypeAbbr, getTypeColor, type StudioChild } from '../lib/types'
-import { ICON_PLAY, ICON_REFRESH, ICON_FILE_JS, ICON_CHECK, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE } from '../lib/icons'
+import { ICON_PLAY, ICON_REFRESH, ICON_FILE_HTML, ICON_FILE_JS, ICON_CHECK } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
 import { isCvoSandboxOutbound, type CvoRenderRequest, type CvoConsoleLevel } from './cvo-protocol'
 import { StudioConsole } from './studio-console'
@@ -41,7 +41,13 @@ let ctx: StudioContext | null = null
  *  per-slot dirty, stash/restore, and save/discard baselines. */
 let surface: CodeSurface | null = null
 let activeProp: StudioCodeProp = 'html'
-let previewVisible = true
+// Pane layout: editor only / both / preview only — one control, one enum
+// (replaces the old show-preview + maximize booleans). 'code' has no preview
+// pane (so toggling to/from it rebuilds the shell + remounts the iframe);
+// 'split' <-> 'preview' just shows/hides the editor pane in place.
+type Layout = 'code' | 'split' | 'preview'
+let layout: Layout = 'split'
+const previewPresent = () => layout !== 'code'
 // In-flight lock for doSave — prevents a second Cmd+S/click from stacking a
 // confirm dialog or a duplicate save while the round-trips are awaited.
 let saving = false
@@ -85,10 +91,6 @@ let sandboxFrame: HTMLIFrameElement | null = null
 // chosen width, since container width changes how a responsive CVO lays out.
 let previewWidth = 0
 const PREVIEW_WIDTHS: ReadonlyArray<[string, number]> = [['Full', 0], ['1280', 1280], ['768', 768], ['375', 375]]
-
-// Maximize the preview: hide the editor pane so the CVO is reviewed at full
-// window width (a "full-screen CVO" view). In-place toggle — the iframe stays.
-let previewMaximized = false
 
 // Draggable layout: editor width (% of the split) and bottom-panel height (px).
 let editorPct = 50
@@ -170,7 +172,7 @@ function ensureSurface() {
       // carries CodeSurface's annotation and must not trigger a preview rebuild.
       EditorView.updateListener.of(u => { if (u.docChanged && !isProgrammaticSwap(u)) schedulePreview() }),
     ],
-    onDirtyChange: () => { refreshActions(); updatePropTabs() },
+    onDirtyChange: () => { refreshActions(); updateFileSwitch() },
   })
   const code = activeCode()
   surface.setSlots(CODE_PROPS.map(p => ({ key: p, lang: p, code: code[p] ?? '' })))
@@ -206,15 +208,16 @@ function renderShell() {
       ),
       h('div', { class: 'studio-actions', id: 'studio-actions' }),
     ),
-    h('div', { class: 'studio-prop-tabs', id: 'studio-prop-tabs', role: 'tablist' }),
-    h('div', { class: `studio-split${previewVisible ? '' : ' studio-split--no-preview'}${previewVisible && previewMaximized ? ' studio-split--preview-only' : ''}`, id: 'studio-split' },
-      // Inline editor width applies whenever there's a preview to split with;
-      // when maximized the editor is display:none (so the basis is harmless and
-      // un-maximizing restores the dragged width). --no-preview drops the inline
-      // style so CSS can take the editor to full width.
-      h('div', { class: 'studio-editor', id: 'studio-cm', style: previewVisible ? `flex: 0 0 ${editorPct}%` : '' }),
-      previewVisible ? h('div', { class: 'studio-divider', id: 'studio-divider', title: 'Drag to resize' }) : null,
-      previewVisible
+    h('div', { class: `studio-split studio-split--${layout}`, id: 'studio-split' },
+      // The editor pane carries its own header — the HTML / JavaScript file
+      // switch — mirroring the preview pane's strip. Inline flex-basis applies
+      // only in split; --code takes it full width, --preview hides it.
+      h('div', { class: 'studio-editor-pane', id: 'studio-editor-pane', style: layout === 'split' ? `flex: 0 0 ${editorPct}%` : '' },
+        h('div', { class: 'studio-file-switch', id: 'studio-file-switch', role: 'tablist', 'aria-label': 'Edit file' }),
+        h('div', { class: 'studio-editor', id: 'studio-cm' }),
+      ),
+      previewPresent() ? h('div', { class: 'studio-divider', id: 'studio-divider', title: 'Drag to resize' }) : null,
+      previewPresent()
         ? h('div', { class: 'studio-preview' },
             h('div', { class: 'studio-strip', id: 'studio-strip' }),
             h('div', { class: 'studio-canvas-outer' },
@@ -229,7 +232,7 @@ function renderShell() {
   )
 
   surface?.reattach()
-  if (previewVisible) {
+  if (previewPresent()) {
     // Re-mounting the (persistent) iframe after a full rebuild reloads it, so
     // reset the handshake; the first preview re-renders once it's ready again.
     document.getElementById('studio-canvas')?.appendChild(ensureSandboxFrame())
@@ -237,12 +240,12 @@ function renderShell() {
     pendingRender = false
   }
   refreshActions()
-  updatePropTabs()
-  updateStrip()
+  updateFileSwitch()
+  if (previewPresent()) updateStrip()
   updatePanelTabs()
   renderPanelContent()
-  if (previewVisible) wireDividers()
-  if (previewVisible && surface) schedulePreview()
+  if (previewPresent()) wireDividers()
+  if (previewPresent() && surface) schedulePreview()
 }
 
 /** Attach the drag handlers to the two resizers (rebuilt each renderShell).
@@ -254,8 +257,8 @@ function wireDividers() {
     if (!row) return
     const pct = ((m.clientX - row.getBoundingClientRect().left) / row.clientWidth) * 100
     editorPct = Math.max(15, Math.min(85, pct))
-    const ed = document.getElementById('studio-cm')
-    if (ed) ed.style.flex = `0 0 ${editorPct}%`
+    const pane = document.getElementById('studio-editor-pane')
+    if (pane) pane.style.flex = `0 0 ${editorPct}%`
   })
   const ph = document.getElementById('studio-panel-resize')
   if (ph) ph.onpointerdown = e => startDrag(e, ph, 'row', m => {
@@ -316,20 +319,34 @@ function refreshActions() {
     h('button', { class: 'btn btn-ghost', id: 'studio-discard', disabled: !surface?.isDirty(activeProp), title: 'Revert this field to the saved BMP value', onClick: doDiscard }, 'Discard'),
     h('button', { class: 'btn btn-ghost', id: 'studio-download', title: 'Download the CVO source (html + javascript) as a .cvo.json bundle', onClick: doDownload }, 'Download'),
     h('div', { class: 'studio-actions-spacer' }),
-    h('button', { class: `btn-micro${previewVisible ? ' active' : ''}`, title: 'Show / hide the live preview', onClick: togglePreview }, previewVisible ? 'Hide preview' : 'Show preview'),
+    h('div', { class: 'seg', role: 'group', 'aria-label': 'Layout' },
+      h('button', { class: `seg-btn${layout === 'code' ? ' active' : ''}`, title: 'Editor only', onClick: () => setLayout('code') }, 'Code'),
+      h('button', { class: `seg-btn${layout === 'split' ? ' active' : ''}`, title: 'Editor and preview', onClick: () => setLayout('split') }, 'Split'),
+      h('button', { class: `seg-btn${layout === 'preview' ? ' active' : ''}`, title: 'Preview only', onClick: () => setLayout('preview') }, 'Preview'),
+    ),
   )
 }
 
-function updatePropTabs() {
-  const el = document.getElementById('studio-prop-tabs')
+const FILE_META: Record<StudioCodeProp, { label: string; icon: string }> = {
+  html: { label: 'HTML', icon: ICON_FILE_HTML },
+  javascript: { label: 'JavaScript', icon: ICON_FILE_JS },
+}
+
+/** The HTML / JavaScript file switch — the editor pane's header. The studio's
+ *  signature control: which of the CVO's two source files you're editing, with
+ *  a language icon and a per-file unsaved dot. */
+function updateFileSwitch() {
+  const el = document.getElementById('studio-file-switch')
   if (!el) return
   renderDom(el, ...CODE_PROPS.map(p => h('button', {
-    class: `studio-prop-tab${p === activeProp ? ' active' : ''}`,
+    class: `studio-file-tab${p === activeProp ? ' active' : ''}`,
     role: 'tab',
     'data-prop': p,
     'aria-selected': p === activeProp ? 'true' : 'false',
+    title: `Edit the ${FILE_META[p].label}`,
     onClick: () => switchProp(p),
-  }, h('span', null, p), surface?.isDirty(p) ? h('span', { class: 'studio-prop-dot', 'aria-label': 'unsaved' }) : null)))
+  }, svg(FILE_META[p].icon), h('span', null, FILE_META[p].label),
+    surface?.isDirty(p) ? h('span', { class: 'studio-file-dot', 'aria-label': 'unsaved changes' }) : null)))
 }
 
 const anyDirty = () => !!surface?.isDirty()
@@ -340,7 +357,7 @@ let previewTimer: ReturnType<typeof setTimeout> | null = null
 function switchProp(p: StudioCodeProp) {
   if (p === activeProp) return
   activeProp = p
-  updatePropTabs()
+  updateFileSwitch()
   refreshActions()
   surface?.activate(p)
 }
@@ -361,7 +378,7 @@ function schedulePreview() {
 
 async function runPreview(opts: { retryDeps?: boolean } = {}) {
   if (previewTimer) { clearTimeout(previewTimer); previewTimer = null }
-  if (!previewVisible) return
+  if (!previewPresent()) return
   const gen = ++renderGen
   clearConsole()
   // An explicit Re-render retries deps that previously failed to load (e.g. the
@@ -447,23 +464,29 @@ function updateStrip(): void {
     h('div', { class: 'seg', role: 'group', 'aria-label': 'Preview width' },
       ...PREVIEW_WIDTHS.map(([label, w]) => h('button', { class: `seg-btn${previewWidth === w ? ' active' : ''}`, title: w ? `Render at ${w}px container width` : 'Full container width', onClick: () => setPreviewWidth(w) }, label)),
     ),
-    h('button', {
-      class: `studio-icon-btn${previewMaximized ? ' active' : ''}`,
-      title: previewMaximized ? 'Restore the editor' : 'Maximize the preview (hide the editor)',
-      'aria-label': previewMaximized ? 'Restore the editor' : 'Maximize the preview',
-      'aria-pressed': previewMaximized ? 'true' : 'false',
-      onClick: () => setPreviewMaximized(!previewMaximized),
-    }, svg(previewMaximized ? ICON_ARROWS_IN_SIMPLE : ICON_ARROWS_OUT_SIMPLE)),
   )
 }
 
-function setPreviewMaximized(on: boolean): void {
-  if (on === previewMaximized) return
-  previewMaximized = on
-  // In place: toggle the editor-hidden class on the split (the persistent iframe
-  // stays mounted) and re-render the CVO, which now has the full window width.
-  document.getElementById('studio-split')?.classList.toggle('studio-split--preview-only', on)
-  updateStrip()
+/** Switch the pane layout. Crossing the preview-present boundary (to/from
+ *  'code') adds or removes the preview pane, so it rebuilds the shell;
+ *  'split' <-> 'preview' just shows/hides the editor pane in place, keeping the
+ *  persistent iframe mounted. */
+function setLayout(next: Layout): void {
+  if (next === layout) return
+  const wasPreview = previewPresent()
+  layout = next
+  if (wasPreview !== previewPresent()) {
+    renderShell()
+    if (previewPresent()) schedulePreview()
+    return
+  }
+  // In place (split <-> preview): re-class the split + restore the editor's
+  // dragged width when it reappears, then re-render at the new canvas width.
+  const split = document.getElementById('studio-split')
+  if (split) split.className = `studio-split studio-split--${layout}`
+  const pane = document.getElementById('studio-editor-pane')
+  if (pane) pane.style.flex = layout === 'split' ? `0 0 ${editorPct}%` : ''
+  refreshActions()
   void runPreview()
 }
 
@@ -829,18 +852,8 @@ async function doDiscard() {
   if (!ok) return
   surface.discard()
   refreshActions()
-  updatePropTabs()
+  updateFileSwitch()
   void runPreview()
-}
-
-function togglePreview() {
-  // renderShell rebuilds the structure; for a preview toggle it re-mounts (and
-  // reloads) the iframe + resets the handshake, then schedules the first render.
-  previewVisible = !previewVisible
-  // Hiding the preview makes "maximize preview" meaningless; drop it so showing
-  // the preview again returns to the normal split.
-  if (!previewVisible) previewMaximized = false
-  renderShell()
 }
 
 // Guard the overlay close when there are unsaved edits.

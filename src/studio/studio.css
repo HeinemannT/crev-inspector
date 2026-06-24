@@ -32,38 +32,46 @@ html, body { height: 100%; margin: 0; }
 .studio-actions { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
 .studio-actions-spacer { width: var(--space-2); }
 
-/* ── Property tabs ──────────────────────────────────────────────── */
-.studio-prop-tabs {
-  display: flex; gap: 2px;
-  padding: 0 var(--space-3); background: var(--surface-1);
-  border-bottom: 1px solid var(--surface-4); flex-shrink: 0;
-}
-.studio-prop-tab {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-sm); color: var(--text-3);
-  background: none; border: none; border-bottom: 2px solid transparent;
-  cursor: pointer;
-}
-.studio-prop-tab:hover { color: var(--text-1); }
-.studio-prop-tab.active { color: var(--text-1); border-bottom-color: var(--accent); }
-.studio-prop-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-.studio-prop-dot--hidden { display: none; }
-
-/* ── Split: editor | preview ────────────────────────────────────── */
+/* ── Split: editor pane | preview ───────────────────────────────── */
 .studio-split { display: flex; flex: 1; min-height: 0; }
-.studio-editor { flex: 1 1 50%; min-width: 0; overflow: hidden; }
-.studio-split--no-preview .studio-editor { flex-basis: 100%; }
-.studio-split--preview-only .studio-editor { display: none; }
+
+/* Editor pane = the file switch (its header) + the CodeMirror editor. */
+.studio-editor-pane {
+  flex: 1 1 50%; min-width: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.studio-split--code .studio-editor-pane { flex: 1 1 100%; }
+.studio-split--preview .studio-editor-pane { display: none; }
+.studio-editor { flex: 1; min-height: 0; overflow: hidden; }
 .studio-editor .cm-editor { height: 100%; }
+
+/* The HTML / JavaScript file switch — the studio's signature control. Its own
+ * header strip atop the editor, mirroring the preview pane's strip. */
+.studio-file-switch {
+  display: flex; flex-shrink: 0;
+  padding: 0 var(--space-2); gap: 2px;
+  background: var(--surface-1); border-bottom: 1px solid var(--surface-4);
+}
+.studio-file-tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm); font-weight: var(--weight-medium);
+  color: var(--text-3); background: none; border: none;
+  border-bottom: 2px solid transparent; cursor: pointer;
+}
+.studio-file-tab svg { width: 14px; height: 14px; opacity: 0.85; }
+.studio-file-tab:hover { color: var(--text-1); }
+.studio-file-tab.active { color: var(--text-1); background: var(--accent-bg); border-bottom-color: var(--accent); }
+.studio-file-tab.active svg { opacity: 1; }
+.studio-file-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 
 .studio-preview {
   flex: 1 1 0; min-width: 0;
   display: flex; flex-direction: column;
 }
 
-/* Draggable vertical divider between editor and preview. Hidden when there's
- * no preview or the preview is maximized (nothing to size against). */
+/* Draggable vertical divider between editor and preview. Only meaningful in
+ * the split layout — hidden in preview-only (the editor pane is gone). */
 .studio-divider {
   flex: 0 0 5px; min-width: 5px; cursor: col-resize; position: relative;
   background: var(--surface-1); border-left: 1px solid var(--surface-4);
@@ -75,8 +83,7 @@ html, body { height: 100%; margin: 0; }
   border-radius: 1px; background: var(--text-2); opacity: 0.5;
 }
 .studio-divider:hover::after, .studio-divider.dragging::after { opacity: 0.8; }
-.studio-split--no-preview .studio-divider,
-.studio-split--preview-only .studio-divider { display: none; }
+.studio-split--preview .studio-divider { display: none; }
 
 /* Draggable horizontal divider sizing the bottom panel. */
 .studio-panel-resize {
