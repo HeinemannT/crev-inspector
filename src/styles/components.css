@@ -59,8 +59,8 @@
   color: #fff;
 }
 .btn-primary:hover:not(:disabled) {
-  background: var(--accent-bright, #a76dff);
-  border-color: var(--accent-bright, #a76dff);
+  background: var(--accent-bright);
+  border-color: var(--accent-bright);
 }
 
 /* Secondary: muted outline. The neutral choice next to a primary CTA. */

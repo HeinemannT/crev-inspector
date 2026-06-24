@@ -25,7 +25,10 @@ function svgCursor(paths: string, px: number): string {
     `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 24 24" ` +
     'fill="none" stroke-linecap="round" stroke-linejoin="round" shape-rendering="geometricPrecision">' +
     `<g stroke="#ffffff" stroke-width="4">${paths}</g>` +
-    `<g stroke="#8a3ffc" stroke-width="2.25">${paths}</g></svg>`;
+    // Mirrors the --accent token (#8b5cf6). Hardcoded because this cursor is a
+    // data:image SVG injected into the BMP page, where the extension's CSS
+    // custom properties aren't readable. Was the dead Cortex magenta #8a3ffc.
+    `<g stroke="#8b5cf6" stroke-width="2.25">${paths}</g></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 }
 

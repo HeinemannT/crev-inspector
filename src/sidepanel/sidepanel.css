@@ -118,7 +118,7 @@ body {
   cursor: pointer;
 }
 .paint-style-row:hover { background: var(--surface-3); }
-.paint-style-cb { accent-color: var(--accent, #8a3ffc); cursor: pointer; margin: 0; }
+.paint-style-cb { accent-color: var(--accent); cursor: pointer; margin: 0; }
 
 .header-brand-mark {
   display: inline-flex;
@@ -929,7 +929,7 @@ body {
 /* Shared resources (Tab + TabSet) get a dotted underline on the size
  * pill so the user pauses before editing. */
 .layout-size--shared {
-  border-bottom: 1px dotted var(--warning, #f1c21b);
+  border-bottom: 1px dotted var(--warning);
 }
 .layout-loading-spinner {
   margin-left: 6px;
