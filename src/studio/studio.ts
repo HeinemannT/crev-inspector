@@ -66,7 +66,9 @@ const SAVED_FLASH_MS = 4000
 // caches the last successful fetch; liveError holds the last failure (e.g. the
 // org-gating 400) for display.
 let dataMode: 'mock' | 'live' = 'mock'
-let renderContextRid = ''
+let renderContextRid = ''       // the resolved rid the servlet needs
+let renderContextRef = ''       // what the configurator typed (a business id or a rid)
+let renderCtxLabel = ''         // resolved "id · name" for display, '' until resolved
 let liveData: Record<string, unknown> | null = null
 let liveError: string | null = null
 // Generation token for fetchLiveData — two rapid fetches (rid edit while a
@@ -81,6 +83,10 @@ let children: StudioChild[] = []
 // Hosted FileResource libraries the CVO depends on, cached by rid (null =
 // fetched but unavailable). lastLibs is the resolved set passed to the sandbox.
 const libCache = new Map<string, string | null>()
+
+// Dependency rid -> {id, name} for the Deps panel, so configurators see the
+// business id/name not a bare rid. Empty id = resolved-but-not-found (don't refetch).
+const refCache = new Map<string, { id: string; name: string }>()
 let lastLibs: string[] = []
 
 // The bottom panel is a single toggleable area with three tabs; null = collapsed
@@ -148,6 +154,7 @@ async function init() {
 
   activeProp = ctx.property ?? 'html'
   renderContextRid = ctx.renderContextRid ?? ''
+  renderContextRef = renderContextRid
   document.title = ctx.instance.name ? `CVO · ${ctx.instance.name}` : 'CVO Studio'
 
   renderShell()
@@ -482,12 +489,12 @@ function updateStrip(): void {
   if (!el) return
   const ctxInput = h('input', {
     class: 'studio-ctx-input',
-    placeholder: 'scorecard or page rid',
-    value: renderContextRid,
+    placeholder: 'scorecard id or rid',
+    value: renderContextRef,
     spellcheck: 'false', autocomplete: 'off',
-    title: 'Org-rooted object (scorecard or page) the CVO renders under. The data servlet is gated on it.',
+    title: 'Org-rooted object (scorecard or page) the CVO renders under — by business id or rid. The data servlet is gated on it.',
   }) as HTMLInputElement
-  ctxInput.addEventListener('change', () => { renderContextRid = ctxInput.value.trim(); if (dataMode === 'live') fetchLiveData() })
+  ctxInput.addEventListener('change', () => { renderContextRef = ctxInput.value.trim(); void resolveRenderContext() })
   const live = dataMode === 'live'
   renderDom(el,
     h('div', { class: 'seg', role: 'group', 'aria-label': 'Preview data' },
@@ -497,7 +504,9 @@ function updateStrip(): void {
     live ? h('span', { class: 'studio-strip-label' }, 'Context') : null,
     live ? ctxInput : null,
     live ? h('button', { class: 'studio-icon-btn', title: 'Re-fetch live data', onClick: () => fetchLiveData() }, svg(ICON_REFRESH)) : null,
-    live && !renderContextRid ? h('span', { class: 'studio-strip-hint' }, 'paste a scorecard or page rid to load real data') : null,
+    live && !renderContextRef ? h('span', { class: 'studio-strip-hint' }, 'paste a scorecard id or rid to load real data') : null,
+    live && renderContextRef && !renderContextRid ? h('span', { class: 'studio-strip-err', title: liveError ?? 'not found' }, h('span', { class: 'studio-status-dot studio-status-dot--err' }), liveError ?? 'not found') : null,
+    live && renderCtxLabel ? h('span', { class: 'studio-strip-ref', title: 'rid ' + renderContextRid }, renderCtxLabel) : null,
     live && renderContextRid && liveError ? h('span', { class: 'studio-strip-err', title: liveError }, h('span', { class: 'studio-status-dot studio-status-dot--err' }), 'Live failed') : null,
     live && renderContextRid && !liveError && liveData ? h('span', { class: 'studio-strip-ok', title: 'Rendering against live BMP data' }, h('span', { class: 'studio-status-dot studio-status-dot--ok' }), 'Live') : null,
     h('div', { class: 'studio-strip-spacer' }),
@@ -546,8 +555,30 @@ function setDataMode(mode: 'mock' | 'live'): void {
   dataMode = mode
   liveError = null
   updateStrip()
-  if (mode === 'live' && !liveData) fetchLiveData()
+  // Switching to live resolves the context ref (id or rid) first, which then
+  // fetches; switching to mock just re-renders against the mock _data.
+  if (mode === 'live') void resolveRenderContext()
   else void runPreview()
+}
+
+/** Resolve the configurator-typed render context (a business id or a rid) to
+ *  the rid the data servlet needs, and show its id · name. */
+async function resolveRenderContext(): Promise<void> {
+  const ref = renderContextRef.trim()
+  if (!ref) { renderContextRid = ''; renderCtxLabel = ''; liveError = null; updateStrip(); return }
+  const resp = await sendRequest({ type: 'STUDIO_RESOLVE_REF', ref })
+  if (resp?.type === 'STUDIO_REF_RESOLVED' && resp.ok && resp.rid) {
+    renderContextRid = resp.rid
+    renderCtxLabel = resp.name ? `${resp.id} · ${resp.name}` : (resp.id ?? '')
+    liveError = null
+    updateStrip()
+    if (dataMode === 'live') void fetchLiveData()
+  } else {
+    renderContextRid = ''
+    renderCtxLabel = ''
+    liveError = resp?.type === 'STUDIO_REF_RESOLVED' ? (resp.error ?? 'not found') : 'resolve failed'
+    updateStrip()
+  }
 }
 
 async function fetchLiveData(): Promise<void> {
@@ -720,9 +751,11 @@ function renderDepsInto(el: HTMLElement): void {
     ...fileRes.map(rid => {
       const cached = libCache.get(rid)
       const status = cached === undefined ? '…' : cached ? '✓ loaded' : '✗ unavailable'
+      const ref = refCache.get(rid)
+      const label = ref && ref.id ? (ref.name ? `${ref.id} · ${ref.name}` : ref.id) : rid
       return h('div', { class: 'studio-dep-row' },
         h('span', { class: 'studio-dep-kind' }, 'FileResource'),
-        h('span', { class: 'studio-dep-id', title: 'rid ' + rid }, rid),
+        h('span', { class: 'studio-dep-id', title: 'rid ' + rid }, label),
         h('span', { class: `studio-dep-status${cached === null ? ' studio-dep-warn' : ''}` }, status),
       )
     }),
@@ -733,6 +766,19 @@ function renderDepsInto(el: HTMLElement): void {
     )),
     h('button', { class: 'studio-panel-add', title: 'Host a JS/asset file as a BMP FileResource', onClick: doHostResource }, '+ Host resource'),
   )
+  if (fileRes.length) void resolveDepRefs(fileRes)
+}
+
+/** Resolve dependency rids to id/name (once each) and re-render the panel. */
+async function resolveDepRefs(rids: string[]): Promise<void> {
+  const missing = rids.filter(r => !refCache.has(r))
+  if (missing.length === 0) return
+  const resp = await sendRequest({ type: 'STUDIO_RESOLVE_RIDS', rids: missing })
+  if (resp?.type !== 'STUDIO_RIDS_RESOLVED' || !resp.ok) return
+  for (const r of resp.refs ?? []) refCache.set(r.rid, { id: r.id, name: r.name })
+  // Mark unresolved (deleted/inaccessible) so we don't refetch them forever.
+  for (const r of missing) if (!refCache.has(r)) refCache.set(r, { id: '', name: '' })
+  if (panelTab === 'deps') renderPanelContent()
 }
 
 /** Base64-encode bytes in chunks (avoids the arg-count limit of a single
@@ -757,9 +803,13 @@ function doHostResource(): void {
     logConsole('info', `Hosting ${file.name} (${Math.round(bytes.length / 1024)} KB)…`)
     const resp = await sendRequest({ type: 'STUDIO_WRITE_RESOURCE', resId, name: file.name, mime, base64: bytesToBase64(bytes) })
     if (resp?.type === 'STUDIO_RESOURCE_WRITTEN' && resp.ok && resp.rid) {
-      const snippet = `<script src="/<workspace>/web/download?propName=content&rid=${resp.rid}"></script>`
+      const resourceId = resp.id || resId
+      // The download servlet keys on rid (a hard BMP constraint), so the URL
+      // stays rid-based — but lead with the business id as a comment so the
+      // configurator can find the resource in Config Studio.
+      const snippet = `<!-- ${resourceId} -->\n<script src="/<workspace>/web/download?propName=content&rid=${resp.rid}"></script>`
       navigator.clipboard?.writeText(snippet).catch(() => {})
-      logConsole('info', `Hosted "${file.name}" as rid ${resp.rid}. Reference snippet copied (set <workspace>):\n${snippet}`)
+      logConsole('info', `Hosted "${file.name}" as id "${resourceId}" (rid ${resp.rid}). Reference snippet copied (set <workspace>):\n${snippet}`)
     } else {
       logConsole('error', `Host failed: ${respError(resp)}`)
     }

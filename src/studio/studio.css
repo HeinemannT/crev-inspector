@@ -157,6 +157,7 @@ html, body { height: 100%; margin: 0; }
 }
 .studio-strip-spacer { flex: 1; }
 .studio-strip-label { color: var(--text-3); font-weight: var(--weight-medium); }
+.studio-strip-ref { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
 .studio-strip-hint { color: var(--text-3); font-style: italic; white-space: nowrap; }
 .studio-strip-err { color: var(--danger); white-space: nowrap; display: inline-flex; align-items: center; }
 .studio-strip-ok { color: var(--success); white-space: nowrap; display: inline-flex; align-items: center; }
