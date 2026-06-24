@@ -42,6 +42,9 @@ let ctx: StudioContext | null = null
 let surface: CodeSurface | null = null
 let activeProp: StudioCodeProp = 'html'
 let previewVisible = true
+// In-flight lock for doSave — prevents a second Cmd+S/click from stacking a
+// confirm dialog or a duplicate save while the round-trips are awaited.
+let saving = false
 
 // Preview data source. 'mock' uses the local mockData; 'live' fetches the real
 // `_data` from BMP's data servlet for renderContextRid (org-rooted). liveData
@@ -241,7 +244,7 @@ function refreshActions() {
   if (!el) return
   renderDom(el,
     h('button', { class: 'btn btn-ghost', id: 'studio-run', title: `Re-render preview (retries failed dependencies) · ${KBD_MOD}+Enter`, onClick: () => void runPreview({ retryDeps: true }) }, svg(ICON_PLAY), ' Re-render'),
-    h('button', { class: 'btn', id: 'studio-save', disabled: !anyDirty(), title: `Save every changed field (html + javascript) · ${KBD_MOD}+S`, onClick: doSave }, dirtyCount() > 1 ? `Save ${dirtyCount()}` : 'Save'),
+    h('button', { class: 'btn', id: 'studio-save', disabled: saving || !anyDirty(), title: `Save every changed field (html + javascript) · ${KBD_MOD}+S`, onClick: doSave }, saving ? 'Saving…' : dirtyCount() > 1 ? `Save ${dirtyCount()}` : 'Save'),
     h('button', { class: 'btn btn-ghost', id: 'studio-discard', disabled: !surface?.isDirty(activeProp), title: 'Revert this field to the saved BMP value', onClick: doDiscard }, 'Discard'),
     h('button', { class: 'btn btn-ghost', id: 'studio-download', title: 'Download the CVO source (html + javascript) as a .cvo.json bundle', onClick: doDownload }, 'Download'),
     h('div', { class: 'studio-actions-spacer' }),
@@ -272,6 +275,14 @@ function switchProp(p: StudioCodeProp) {
   updatePropTabs()
   refreshActions()
   surface?.activate(p)
+}
+
+/** Pull the `.error` off any studio response (all error-bearing replies carry
+ *  an optional `error`), with a fallback when absent — collapses the repeated
+ *  `resp?.type === 'X' ? resp.error : …` casts. */
+function respError(resp: unknown, fallback = ''): string {
+  const e = resp && typeof resp === 'object' && 'error' in resp ? (resp as { error?: unknown }).error : undefined
+  return (typeof e === 'string' ? e : undefined) ?? fallback
 }
 
 // ── Preview (sandbox) ────────────────────────────────────────────
@@ -311,7 +322,7 @@ async function ensureLibs(): Promise<string[]> {
       libCache.set(rid, resp.text)
     } else {
       libCache.set(rid, null)
-      logConsole('warn', `Dependency ${rid} unavailable (${(resp?.type === 'STUDIO_RESOURCE' ? resp.error : 'no response') ?? ''}) — preview runs without it`)
+      logConsole('warn', `Dependency ${rid} unavailable (${respError(resp, 'no response')}) — preview runs without it`)
     }
   }
   return rids.map(r => libCache.get(r)).filter((t): t is string => !!t)
@@ -423,7 +434,7 @@ async function fetchLiveData(): Promise<void> {
     liveError = null
   } else {
     liveData = null
-    liveError = (resp?.type === 'STUDIO_DATA' ? resp.error : undefined) ?? 'Live data fetch failed'
+    liveError = respError(resp, 'Live data fetch failed')
     logConsole('error', `Live data: ${liveError}`)
   }
   updateStrip()
@@ -526,12 +537,12 @@ async function doSaveChild(c: StudioChild, key: string, expression: string): Pro
   if (key && key !== c.key) {
     const r = await sendRequest({ type: 'SAVE_PROPERTY', rid: c.rid, objectType: 'CustomVisualizationExpression', property: 'key', value: key })
     if (r?.type === 'SAVE_RESULT' && r.ok) c.key = key
-    else { okAll = false; logConsole('error', `Key save failed: ${(r?.type === 'SAVE_RESULT' ? r.error : '') ?? ''}`) }
+    else { okAll = false; logConsole('error', `Key save failed: ${respError(r)}`) }
   }
   if (expression !== c.expression) {
     const r = await sendRequest({ type: 'SAVE_PROPERTY', rid: c.rid, objectType: 'CustomVisualizationExpression', property: 'expression', value: expression })
     if (r?.type === 'SAVE_RESULT' && r.ok) c.expression = expression
-    else { okAll = false; logConsole('error', `Expression save failed: ${(r?.type === 'SAVE_RESULT' ? r.error : '') ?? ''}`) }
+    else { okAll = false; logConsole('error', `Expression save failed: ${respError(r)}`) }
   }
   if (okAll) logConsole('info', `Saved input "${c.key}"`)
   seedMockFromChildren()
@@ -545,7 +556,7 @@ async function doAddChild(): Promise<void> {
   const childId = `cve_${(ctx.instance.businessId || 'cvo').replace(/[^\w-]/g, '')}_${key}`
   const resp = await sendRequest({ type: 'STUDIO_ADD_CHILD', cvoBid: ctx.instance.businessId, childId, key })
   if (resp?.type === 'STUDIO_CHILD_ADDED' && resp.ok) { logConsole('info', `Added input "${key}"`); await fetchChildren() }
-  else logConsole('error', `Add failed: ${(resp?.type === 'STUDIO_CHILD_ADDED' ? resp.error : '') ?? ''}`)
+  else logConsole('error', `Add failed: ${respError(resp)}`)
 }
 
 async function doRemoveChild(c: StudioChild): Promise<void> {
@@ -558,7 +569,7 @@ async function doRemoveChild(c: StudioChild): Promise<void> {
   if (!ok) return
   const resp = await sendRequest({ type: 'STUDIO_DELETE_CHILD', childId: c.id })
   if (resp?.type === 'STUDIO_CHILD_DELETED' && resp.ok) { logConsole('info', `Removed input "${c.key}"`); await fetchChildren() }
-  else logConsole('error', `Remove failed: ${(resp?.type === 'STUDIO_CHILD_DELETED' ? resp.error : '') ?? ''}`)
+  else logConsole('error', `Remove failed: ${respError(resp)}`)
 }
 
 // ── Dependencies + resource hosting ──────────────────────────────
@@ -600,6 +611,7 @@ function doHostResource(): void {
   const input = document.createElement('input')
   input.type = 'file'
   input.onchange = async () => {
+    input.onchange = null // release the closure; the detached input is then GC-able
     const file = input.files?.[0]
     if (!file) return
     const bytes = new Uint8Array(await file.arrayBuffer())
@@ -612,7 +624,7 @@ function doHostResource(): void {
       navigator.clipboard?.writeText(snippet).catch(() => {})
       logConsole('info', `Hosted "${file.name}" as rid ${resp.rid}. Reference snippet copied (set <workspace>):\n${snippet}`)
     } else {
-      logConsole('error', `Host failed: ${(resp?.type === 'STUDIO_RESOURCE_WRITTEN' ? resp.error : '') ?? ''}`)
+      logConsole('error', `Host failed: ${respError(resp)}`)
     }
   }
   input.click()
@@ -635,13 +647,26 @@ window.addEventListener('message', ev => {
 
 // ── Save / discard / preview toggle ──────────────────────────────
 async function doSave() {
-  if (!ctx || !surface) return
+  if (!ctx || !surface || saving) return
   // A CVO is html + javascript as ONE object. Commit every dirty code field in
   // one gesture — saving only the active field silently stranded the other,
   // an easy way to lose edits when switching tabs before saving.
   const dirty = CODE_PROPS.filter(p => surface!.isDirty(p))
   if (!dirty.length) return
   const target = ctx.saveTarget === 'template' && ctx.template ? ctx.template : ctx.instance
+  // Lock before the confirm so a second Cmd+S can't stack a dialog or a save.
+  saving = true
+  refreshActions()
+  try {
+    await doSaveInner(target, dirty)
+  } finally {
+    saving = false
+    refreshActions()
+  }
+}
+
+async function doSaveInner(target: StudioContext['instance'], dirty: StudioCodeProp[]): Promise<void> {
+  if (!surface) return
   const ok = await confirmModal({
     title: dirty.length > 1 ? `Save ${dirty.join(' + ')}` : `Save ${dirty[0]}`,
     body: `Write ${dirty.join(' and ')} to "${target.name || target.businessId || target.rid}"?`,
@@ -649,8 +674,6 @@ async function doSave() {
     confirmVariant: 'success',
   })
   if (!ok) return
-  const save = document.getElementById('studio-save') as HTMLButtonElement | null
-  if (save) save.disabled = true
 
   const savedValues = new Map<StudioCodeProp, string>()
   for (const p of dirty) {
@@ -668,11 +691,9 @@ async function doSave() {
       savedValues.set(p, value)
       logConsole('info', `Saved ${p} to BMP`)
     } else {
-      const err = resp?.type === 'SAVE_RESULT' ? resp.error : 'no response'
-      logConsole('error', `Save failed for ${p}: ${err ?? '(unknown)'}`)
+      logConsole('error', `Save failed for ${p}: ${respError(resp, 'no response')}`)
     }
   }
-  refreshActions()
   if (!savedValues.size) return
 
   // Save->reload: re-read from BMP once to confirm what actually landed. A BMP
