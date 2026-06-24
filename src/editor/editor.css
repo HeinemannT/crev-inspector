@@ -416,24 +416,8 @@ body {
   font-size: var(--text-sm);
 }
 
-.editor-actions .btn kbd {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 var(--space-1);
-  margin-left: var(--space-1);
-  height: 16px;
-  border-radius: 3px;
-  background: rgba(255,255,255,0.08);
-  color: inherit;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: var(--weight-medium);
-  letter-spacing: 0.3px;
-  opacity: 0.8;
-}
-
-.editor-actions .btn:hover kbd { opacity: 1; }
-.editor-actions .btn:disabled kbd { opacity: 0.4; }
+/* kbd chip + btn-saved pulse now live in components.css (.btn kbd /
+ * .btn.btn-saved), shared with the CVO studio. */
 
 /* Save in-flight: subtle pulse so users see the action took. */
 .editor-actions .btn[data-saving] {
@@ -478,15 +462,6 @@ body {
 /* Saved-flash state — Save button briefly shows a check + "Saved"
  * after a successful commit, then renderShell re-paints it back to
  * the dim "Save" baseline. */
-.editor-actions .btn.btn-saved {
-  animation: editor-save-pulse 0.45s ease-out;
-}
-@keyframes editor-save-pulse {
-  0%   { transform: scale(1.0); }
-  35%  { transform: scale(1.04); }
-  100% { transform: scale(1.0); }
-}
-
 .editor-status {
   font-size: var(--text-sm);
   color: var(--text-3);

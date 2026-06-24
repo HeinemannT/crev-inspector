@@ -89,6 +89,34 @@
 .btn-ghost { border-color: transparent; color: var(--text-3); }
 .btn-ghost:hover:not(:disabled) { background: var(--surface-3); color: var(--text-2); border-color: transparent; }
 
+/* Keyboard-shortcut chip inside a button (e.g. Save ⌘S). Shared by the EC
+ * editor and the CVO studio so both advertise their shortcuts the same way. */
+.btn kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-1);
+  margin-left: var(--space-1);
+  height: 16px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.08);
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.3px;
+  opacity: 0.8;
+}
+.btn:hover kbd { opacity: 1; }
+.btn:disabled kbd { opacity: 0.4; }
+
+/* Just-saved pulse — the brief feedback after a Save commits. */
+.btn.btn-saved { animation: btn-save-pulse 0.45s ease-out; }
+@keyframes btn-save-pulse {
+  0%   { transform: scale(1.0); }
+  35%  { transform: scale(1.04); }
+  100% { transform: scale(1.0); }
+}
+
 /* Same posture as btn-ghost (footer-level button) but hover reveals danger
  * intent. Used for Reset-all — destructive but routine enough that we don't
  * want a permanent red outline screaming at the user. */

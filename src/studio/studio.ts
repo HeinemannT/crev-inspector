@@ -26,7 +26,7 @@ import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
 import { getTypeAbbr, getTypeColor, type StudioChild } from '../lib/types'
-import { ICON_PLAY, ICON_REFRESH, ICON_FILE_JS, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE } from '../lib/icons'
+import { ICON_PLAY, ICON_REFRESH, ICON_FILE_JS, ICON_CHECK, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
 import { isCvoSandboxOutbound, type CvoRenderRequest, type CvoConsoleLevel } from './cvo-protocol'
 import { StudioConsole } from './studio-console'
@@ -45,6 +45,10 @@ let previewVisible = true
 // In-flight lock for doSave — prevents a second Cmd+S/click from stacking a
 // confirm dialog or a duplicate save while the round-trips are awaited.
 let saving = false
+// Timestamp of the last successful save; drives the brief "Saved" pulse on the
+// Save button (mirrors the EC editor).
+let lastSavedAt = 0
+const SAVED_FLASH_MS = 4000
 
 // Preview data source. 'mock' uses the local mockData; 'live' fetches the real
 // `_data` from BMP's data servlet for renderContextRid (org-rooted). liveData
@@ -242,9 +246,19 @@ function ensureSandboxFrame(): HTMLIFrameElement {
 function refreshActions() {
   const el = document.getElementById('studio-actions')
   if (!el) return
+  const isDirty = anyDirty()
+  const n = dirtyCount()
+  // Mirror the EC editor's Save affordance: green when there are changes, a
+  // brief "Saved" pulse after a commit, ghost (de-emphasised) when idle-clean.
+  const justSaved = !isDirty && !saving && lastSavedAt > 0 && Date.now() - lastSavedAt < SAVED_FLASH_MS
+  const saveClass = `btn ${isDirty || saving ? 'btn-success' : justSaved ? 'btn-success btn-saved' : 'btn-ghost'}`
   renderDom(el,
-    h('button', { class: 'btn btn-ghost', id: 'studio-run', title: `Re-render preview (retries failed dependencies) · ${KBD_MOD}+Enter`, onClick: () => void runPreview({ retryDeps: true }) }, svg(ICON_PLAY), ' Re-render'),
-    h('button', { class: 'btn', id: 'studio-save', disabled: saving || !anyDirty(), title: `Save every changed field (html + javascript) · ${KBD_MOD}+S`, onClick: doSave }, saving ? 'Saving…' : dirtyCount() > 1 ? `Save ${dirtyCount()}` : 'Save'),
+    h('button', { class: 'btn btn-accent', id: 'studio-run', title: 'Re-render preview (retries failed dependencies)', onClick: () => void runPreview({ retryDeps: true }) },
+      svg(ICON_PLAY), ' Re-render', h('kbd', null, `${KBD_MOD}↵`)),
+    h('button', { class: saveClass, id: 'studio-save', disabled: saving || !isDirty, title: `Save every changed field (html + javascript) · ${KBD_MOD}+S`, onClick: doSave },
+      saving ? 'Saving…' : justSaved ? svg(ICON_CHECK) : null,
+      saving ? null : justSaved ? ' Saved' : n > 1 ? `Save ${n}` : 'Save',
+      isDirty ? h('kbd', null, `${KBD_MOD}S`) : null),
     h('button', { class: 'btn btn-ghost', id: 'studio-discard', disabled: !surface?.isDirty(activeProp), title: 'Revert this field to the saved BMP value', onClick: doDiscard }, 'Discard'),
     h('button', { class: 'btn btn-ghost', id: 'studio-download', title: 'Download the CVO source (html + javascript) as a .cvo.json bundle', onClick: doDownload }, 'Download'),
     h('div', { class: 'studio-actions-spacer' }),
@@ -695,6 +709,9 @@ async function doSaveInner(target: StudioContext['instance'], dirty: StudioCodeP
     }
   }
   if (!savedValues.size) return
+  // Arm the "Saved" pulse and let it lapse on its own.
+  lastSavedAt = Date.now()
+  setTimeout(() => refreshActions(), SAVED_FLASH_MS)
 
   // Save->reload: re-read from BMP once to confirm what actually landed. A BMP
   // in-script .change() can return HTTP 200 yet silently roll back; comparing
