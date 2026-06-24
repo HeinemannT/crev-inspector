@@ -173,6 +173,7 @@
   /* ── Spacing (4px grid) ───────────────────────────── */
   --space-0: 2px;   /* half-step for genuinely tight cases (chip/pill internals) */
   --space-1: 4px;
+  --space-xs: 6px;  /* compact step between 4 and 8 — dense tool-UI paddings (tabs, strips, chips) */
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
