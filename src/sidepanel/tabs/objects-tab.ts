@@ -377,12 +377,12 @@ export class ObjectsTab implements Tab {
       h('span', { class: `bx-prov bx-prov--${prov}`, title: prov === 'touched' ? 'In your cache (touched)' : 'From the workspace (live)' }),
       h('div', { class: 'bx-row-actions' },
         h('button', {
-          class: 'bx-iconbtn', 'data-action': 'search-ref', 'data-rid': r.rid,
+          class: 'icon-btn icon-btn--accent', 'data-action': 'search-ref', 'data-rid': r.rid,
           'data-search-bid': r.businessId ?? '', 'data-search-type': r.type ?? '', 'data-search-name': r.name ?? '',
           title: 'Find references',
         }, svg(ICON_SEARCH)),
         h('button', {
-          class: 'bx-iconbtn', 'data-action': 'copy',
+          class: 'icon-btn icon-btn--accent', 'data-action': 'copy',
           'data-copy': r.businessId ?? r.rid, 'data-copy-rid': r.rid, 'data-copy-type': r.type ?? '', 'data-copy-tmpl': r.templateBusinessId ?? '',
           title: COPY_TOOLTIP,
         }, svg(ICON_COPY)),
@@ -426,7 +426,7 @@ export class ObjectsTab implements Tab {
       businessId ? h('span', { class: 'bx-crumb', title: businessId }, businessId) : null,
       h('div', { class: 'bx-row-actions' },
         h('button', {
-          class: 'bx-iconbtn', 'data-action': 'copy',
+          class: 'icon-btn icon-btn--accent', 'data-action': 'copy',
           'data-copy': businessId ?? rid, 'data-copy-rid': rid, 'data-copy-type': type ?? '',
           title: COPY_TOOLTIP,
         }, svg(ICON_COPY)),

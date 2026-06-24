@@ -109,6 +109,20 @@
 .btn:hover kbd { opacity: 1; }
 .btn:disabled kbd { opacity: 0.4; }
 
+/* Bare icon button — transparent, just the glyph (no box). Shared by the
+ * studio strip and the sidepanel object rows. Default hover lifts the text;
+ * add .icon-btn--accent for an accent-coloured hover. (The boxed toggle
+ * .paint-btn / .header-icon-btn is a separate component with a box + an
+ * active state.) */
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: var(--space-0) var(--space-1);
+  color: var(--text-3); background: none; border: none; cursor: pointer;
+}
+.icon-btn svg { width: 13px; height: 13px; }
+.icon-btn:hover { color: var(--text-1); }
+.icon-btn--accent:hover { color: var(--accent); }
+
 /* Just-saved pulse — the brief feedback after a Save commits. */
 .btn.btn-saved { animation: btn-save-pulse 0.45s ease-out; }
 @keyframes btn-save-pulse {

@@ -1060,9 +1060,6 @@ body {
 .bx-prov--touched { background: var(--text-disabled); }
 .bx-row-actions { display: flex; gap: 2px; flex-shrink: 0; opacity: 0; transition: opacity var(--duration-fast) var(--ease-default); }
 .bx-row:hover .bx-row-actions { opacity: 1; }
-.bx-iconbtn { background: none; border: none; color: var(--text-3); cursor: pointer; padding: 2px; display: inline-flex; }
-.bx-iconbtn svg { width: 13px; height: 13px; }
-.bx-iconbtn:hover { color: var(--accent); }
 .bx-more { text-align: center; padding: 8px; color: var(--text-2); font-size: var(--text-xs); }
 .bx-state { padding: 16px 8px; color: var(--text-2); font-size: var(--text-sm); display: flex; align-items: center; gap: 8px; justify-content: center; }
 .bx-state--err { color: var(--danger); }

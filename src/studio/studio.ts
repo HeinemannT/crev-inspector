@@ -517,7 +517,7 @@ function updateStrip(): void {
     ),
     live ? h('span', { class: 'studio-strip-label' }, 'Context') : null,
     live ? ctxInput : null,
-    live ? h('button', { class: 'studio-icon-btn', title: 'Re-fetch live data', onClick: () => fetchLiveData() }, svg(ICON_REFRESH)) : null,
+    live ? h('button', { class: 'icon-btn', title: 'Re-fetch live data', onClick: () => fetchLiveData() }, svg(ICON_REFRESH)) : null,
     live && !renderContextRef ? h('span', { class: 'studio-strip-hint' }, 'paste a scorecard id or rid to load real data') : null,
     live && renderContextRef && !renderContextRid ? h('span', { class: 'studio-strip-err', title: liveError ?? 'not found' }, h('span', { class: 'studio-status-dot studio-status-dot--err' }), liveError ?? 'not found') : null,
     live && renderCtxLabel ? h('span', { class: 'studio-strip-ref', title: 'rid ' + renderContextRid }, renderCtxLabel) : null,
