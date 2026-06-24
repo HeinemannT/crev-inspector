@@ -45,6 +45,11 @@ const FIELD = '\u0001'
 const ROW = '\u0002'
 const ident = (s: string) => s.replace(/[^\w-]/g, '') // identifier-safe; guards EC string injection
 
+// Studio-hosted FileResources live in one dedicated Category folder under the
+// Resources root, created on first host. Stable id so re-hosts land together.
+const STUDIO_ASSET_FOLDER_ID = 'folder_crev_studio_assets'
+const STUDIO_ASSET_FOLDER_NAME = 'CREV Studio Assets'
+
 register('STUDIO_FETCH_CHILDREN', async (msg, respond) => {
   const ctx = getCtx()
   if (!ctx.client) { respond({ type: 'STUDIO_CHILDREN', ok: false, error: 'Not connected' }); return }
@@ -110,12 +115,31 @@ register('STUDIO_WRITE_RESOURCE', async (msg, respond) => {
   const mime = msg.mime.replace(/["';]/g, '') || 'application/octet-stream'
   const id = ident(msg.resId)
   const content = `${name};${mime};${msg.base64}`
+  // Host under a dedicated, studio-owned folder. FileResources can't be added
+  // directly under the Resources root (BMP: "Can't add ... to Resources") — they
+  // need a Category folder — and the old `SELECT FileResource → .first().parent`
+  // both crashed when no FileResource existed and dropped the file in whatever
+  // folder happened to come first. Resolve the folder by id (creating it once),
+  // then update-in-place if the resource already exists or add it fresh.
+  // Verified live 2026-06-24: AddedCategory once, idempotent re-host writes only.
   const code = [
-    `_any := SELECT FileResource`,
-    `_fld := _any.first().parent`,
-    `_new := _fld.add(FileResource, id := '${id}', name := '${name}')`,
-    `_new.change(content := "${content}")`,
-    `output(str(_new.rid))`,
+    `_froot := root.EXTERNALRESOURCE`,
+    `_fhits := _froot.descendants().filter(self.id = '${STUDIO_ASSET_FOLDER_ID}')`,
+    `IF _fhits.size() > 0 THEN`,
+    `     _folder := _fhits.first()`,
+    `ELSE`,
+    `     _folder := _froot.add(Category, id := '${STUDIO_ASSET_FOLDER_ID}', name := '${STUDIO_ASSET_FOLDER_NAME}')`,
+    `ENDIF`,
+    `_hits := _folder.descendants().filter(self.id = '${id}')`,
+    `IF _hits.size() > 0 THEN`,
+    `     _f := _hits.first()`,
+    `     _f.change(content := "${content}")`,
+    `     output(str(_f.rid))`,
+    `ELSE`,
+    `     _new := _folder.add(FileResource, id := '${id}', name := '${name}')`,
+    `     _new.change(content := "${content}")`,
+    `     output(str(_new.rid))`,
+    `ENDIF`,
   ].join('\n')
   try {
     const res = await ctx.client.executeEc(code, undefined, true)
