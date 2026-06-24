@@ -111,7 +111,7 @@ register('STUDIO_ADD_CHILD', async (msg, respond) => {
     if (!res.ok) { respond({ type: 'STUDIO_CHILD_ADDED', ok: false, error: res.error }); return }
     // Same as STUDIO_WRITE_RESOURCE: the transactional log mixes change-tracking
     // with the output, so read the rid from the RID= marker, not a whole trim.
-    respond({ type: 'STUDIO_CHILD_ADDED', ok: true, rid: (res.log ?? '').match(/RID=(\d+)/)?.[1] })
+    respond({ type: 'STUDIO_CHILD_ADDED', ok: true, rid: (res.log ?? '').match(/RID=(-?\d+)/)?.[1] })
   } catch (e) {
     respond({ type: 'STUDIO_CHILD_ADDED', ok: false, error: errorMessage(e) })
   }
@@ -170,7 +170,7 @@ register('STUDIO_WRITE_RESOURCE', async (msg, respond) => {
     if (!res.ok) { respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: res.error }); return }
     // executeEc's log mixes change-tracking lines with the output value, so the
     // rid can't be read by trimming the whole log — pull it from the RID= marker.
-    const rid = (res.log ?? '').match(/RID=(\d+)/)?.[1]
+    const rid = (res.log ?? '').match(/RID=(-?\d+)/)?.[1]
     if (!rid) { respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: 'Hosted, but could not read the new resource rid from BMP' }); return }
     respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: true, rid, id })
   } catch (e) {
