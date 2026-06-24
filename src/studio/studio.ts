@@ -425,21 +425,24 @@ function updateStrip(): void {
   if (!el) return
   const ctxInput = h('input', {
     class: 'studio-ctx-input',
-    placeholder: 'render-context rid',
+    placeholder: 'scorecard or page rid',
     value: renderContextRid,
     spellcheck: 'false', autocomplete: 'off',
     title: 'Org-rooted object (scorecard/page) the CVO renders under — the data servlet is gated on it',
   }) as HTMLInputElement
   ctxInput.addEventListener('change', () => { renderContextRid = ctxInput.value.trim(); if (dataMode === 'live') fetchLiveData() })
+  const live = dataMode === 'live'
   renderDom(el,
     h('div', { class: 'seg', role: 'group', 'aria-label': 'Preview data' },
-      h('button', { class: `seg-btn${dataMode === 'mock' ? ' active' : ''}`, title: 'Render against local mock _data', onClick: () => setDataMode('mock') }, 'Mock'),
-      h('button', { class: `seg-btn${dataMode === 'live' ? ' active' : ''}`, title: 'Render against real BMP _data for the render context', onClick: () => setDataMode('live') }, 'Live'),
+      h('button', { class: `seg-btn${!live ? ' active' : ''}`, title: 'Render against local mock _data', onClick: () => setDataMode('mock') }, 'Mock'),
+      h('button', { class: `seg-btn${live ? ' active' : ''}`, title: 'Render against real BMP _data for the render context', onClick: () => setDataMode('live') }, 'Live'),
     ),
-    dataMode === 'live' ? ctxInput : null,
-    dataMode === 'live' ? h('button', { class: 'studio-icon-btn', title: 'Re-fetch live data', onClick: () => fetchLiveData() }, svg(ICON_REFRESH)) : null,
-    dataMode === 'live' && liveError ? h('span', { class: 'studio-strip-err', title: liveError }, '⚠ live') : null,
-    dataMode === 'live' && !liveError && liveData ? h('span', { class: 'studio-strip-ok', title: 'Rendering against live BMP data' }, '● live') : null,
+    live ? h('span', { class: 'studio-strip-label' }, 'Context') : null,
+    live ? ctxInput : null,
+    live ? h('button', { class: 'studio-icon-btn', title: 'Re-fetch live data', onClick: () => fetchLiveData() }, svg(ICON_REFRESH)) : null,
+    live && !renderContextRid ? h('span', { class: 'studio-strip-hint' }, 'paste a scorecard or page rid to load real data') : null,
+    live && renderContextRid && liveError ? h('span', { class: 'studio-strip-err', title: liveError }, h('span', { class: 'studio-status-dot studio-status-dot--err' }), 'Live failed') : null,
+    live && renderContextRid && !liveError && liveData ? h('span', { class: 'studio-strip-ok', title: 'Rendering against live BMP data' }, h('span', { class: 'studio-status-dot studio-status-dot--ok' }), 'Live') : null,
     h('div', { class: 'studio-strip-spacer' }),
     h('div', { class: 'seg', role: 'group', 'aria-label': 'Preview width' },
       ...PREVIEW_WIDTHS.map(([label, w]) => h('button', { class: `seg-btn${previewWidth === w ? ' active' : ''}`, title: w ? `Render at ${w}px container width` : 'Full container width', onClick: () => setPreviewWidth(w) }, label)),
@@ -540,6 +543,9 @@ function renderPanelContent(): void {
   const el = document.getElementById('studio-panel')
   if (!el) return
   el.className = `studio-panel${panelTab ? '' : ' studio-panel--collapsed'}`
+  // The resize handle lives above the panel; hide it in step with the panel
+  // (togglePanel doesn't rebuild the shell, so sync it here).
+  document.getElementById('studio-panel-resize')?.classList.toggle('studio-panel-resize--hidden', !panelTab)
   if (panelTab === 'console') studioConsole.renderInto(el)
   else if (panelTab === 'inputs') renderInputsInto(el)
   else if (panelTab === 'deps') renderDepsInto(el)
@@ -583,15 +589,15 @@ function seedMockFromChildren(): void {
 
 function renderInputsInto(el: HTMLElement): void {
   renderDom(el,
-    children.length === 0 ? h('div', { class: 'studio-panel-empty' }, 'No expression inputs') : null,
+    children.length === 0 ? h('div', { class: 'studio-panel-empty' }, 'No data inputs yet. Add one to expose a _data.expressions.<key> value to your CVO.') : null,
     ...children.map(renderChildRow),
     h('button', { class: 'studio-panel-add', title: 'Add a CustomVisualizationExpression input', onClick: doAddChild }, '+ Add input'),
   )
 }
 
 function renderChildRow(c: StudioChild): HTMLElement {
-  const keyInput = h('input', { class: 'studio-child-key-input', value: c.key, spellcheck: 'false', autocomplete: 'off', title: 'JS key — _data.expressions.' + (c.key || '?') }) as HTMLInputElement
-  const exprInput = h('input', { class: 'studio-child-expr', value: c.expression, spellcheck: 'false', autocomplete: 'off', title: c.expression || 'Reporter token, e.g. ${t.my_expr.expression}' }) as HTMLInputElement
+  const keyInput = h('input', { class: 'studio-child-key-input', value: c.key, spellcheck: 'false', autocomplete: 'off', placeholder: 'key', title: 'JS key — _data.expressions.' + (c.key || '?') }) as HTMLInputElement
+  const exprInput = h('input', { class: 'studio-child-expr', value: c.expression, spellcheck: 'false', autocomplete: 'off', placeholder: 'Reporter token, e.g. ${t.my_expr.expression}', title: 'Reporter token whose value fills this input' }) as HTMLInputElement
   return h('div', { class: 'studio-child-row' },
     keyInput,
     exprInput,

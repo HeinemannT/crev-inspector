@@ -99,8 +99,13 @@ html, body { height: 100%; margin: 0; }
   font-size: var(--text-xs);
 }
 .studio-strip-spacer { flex: 1; }
-.studio-strip-err { color: var(--danger); white-space: nowrap; }
-.studio-strip-ok { color: var(--success); white-space: nowrap; }
+.studio-strip-label { color: var(--text-3); font-weight: var(--weight-medium); }
+.studio-strip-hint { color: var(--text-3); font-style: italic; white-space: nowrap; }
+.studio-strip-err { color: var(--danger); white-space: nowrap; display: inline-flex; align-items: center; }
+.studio-strip-ok { color: var(--success); white-space: nowrap; display: inline-flex; align-items: center; }
+.studio-status-dot { width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; flex-shrink: 0; }
+.studio-status-dot--err { background: var(--danger); }
+.studio-status-dot--ok { background: var(--success); }
 
 /* Segmented controls (Mock/Live, preview width) use the shared .seg / .seg-btn
  * in components.css — same vocabulary as the EC editor. */
@@ -130,7 +135,7 @@ html, body { height: 100%; margin: 0; }
 }
 .studio-ptab:hover { color: var(--text-1); }
 .studio-ptab.active { color: var(--text-1); border-top-color: var(--accent); background: var(--surface-2); }
-.studio-ptab-n { color: var(--text-disabled); font-size: 10px; }
+.studio-ptab-n { color: var(--text-2); font-size: 10px; font-weight: var(--weight-medium); }
 .studio-ptab-err { width: 6px; height: 6px; border-radius: 50%; background: var(--danger); }
 .studio-panel {
   flex-shrink: 0; height: 150px; overflow-y: auto;
