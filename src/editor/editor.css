@@ -243,7 +243,7 @@ body {
  * eye picks it up without confusing it with the EC accent (purple). */
 .cm-var-highlight {
   background: color-mix(in srgb, var(--warning) 30%, transparent);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 /* BID reference — dotted underline at rest, solid + accent on hover.
@@ -296,7 +296,7 @@ body {
   background: var(--surface-1);
   color: var(--text-1);
   border: 1px solid var(--surface-4);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   padding: var(--space-1) var(--space-2);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -313,7 +313,7 @@ body {
   background: var(--surface-3);
   color: var(--text-1);
   border: 1px solid var(--surface-4);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   padding: var(--space-1) var(--space-3);
   font-family: var(--font-body);
   font-size: var(--text-sm);
@@ -462,7 +462,7 @@ body {
   transform: translate(-50%, -50%);
   width: 24px;
   height: 2px;
-  border-radius: 1px;
+  border-radius: var(--radius-sm);
   background: var(--text-2);
   opacity: 0.5;
 }
@@ -677,7 +677,7 @@ body {
 .editor-help-btn {
   font-family: var(--font-body);
   font-weight: var(--weight-semi);
-  font-size: 13px;
+  font-size: var(--text-base);
   width: 22px;
   height: 22px;
   border-radius: 50%;
@@ -709,7 +709,7 @@ body {
 .editor-help-group + .editor-help-group { margin-top: var(--space-3); }
 
 .editor-help-group-title {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-semi);
   letter-spacing: 0.6px;
   text-transform: uppercase;
@@ -723,9 +723,9 @@ body {
 .editor-help-key kbd {
   background: var(--surface-3);
   border: 1px solid var(--surface-4);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   padding: 1px var(--space-xs);
-  font-size: 10.5px;
+  font-size: var(--text-2xs);
   font-family: var(--font-mono);
   color: var(--text-2);
 }
@@ -735,7 +735,7 @@ body {
   margin-top: var(--space-3);
   padding-top: var(--space-2);
   border-top: 1px solid var(--surface-3);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-3);
   font-style: italic;
 }
@@ -803,7 +803,7 @@ body {
 }
 
 .editor-book-section-title {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-semi);
   letter-spacing: 0.6px;
   text-transform: uppercase;
@@ -815,7 +815,7 @@ body {
 .editor-book-footer {
   padding: var(--space-xs) var(--space-4) var(--space-3);
   border-top: 1px solid var(--surface-3);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-3);
   font-style: italic;
   flex-shrink: 0;
@@ -871,7 +871,7 @@ body {
   margin-top: var(--space-3);
   padding-top: var(--space-2);
   border-top: 1px solid var(--surface-3);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-3);
 }
 
@@ -916,7 +916,7 @@ body {
 }
 .editor-book-ns-types {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 .editor-book-ns-clickable:hover { background: var(--surface-2); }
 
@@ -926,7 +926,7 @@ body {
 .editor-book-ns-token {
   cursor: pointer;
   padding: 1px var(--space-0);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   transition: background 100ms ease, text-decoration-color 100ms ease;
 }
 .editor-book-ns-prefix .editor-book-ns-token {
@@ -951,7 +951,7 @@ body {
 }
 .editor-book-cheat-token {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--ec-kw, #cba6f7);
   width: 240px;
   white-space: pre-wrap;
@@ -989,7 +989,7 @@ body {
   color: var(--text-2);
   border-radius: var(--radius-sm);
   padding: var(--space-0) var(--space-3);
-  font-size: 11px;
+  font-size: var(--text-xs);
   cursor: pointer;
   flex-shrink: 0;
   transition: background 100ms ease, color 100ms ease;
@@ -1012,7 +1012,7 @@ body {
   background: var(--ec-bg, #1e1e2e);
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.45;
   color: var(--text-1);
   white-space: pre-wrap;
@@ -1020,7 +1020,7 @@ body {
 }
 .editor-book-snippet-hint {
   margin-top: var(--space-xs);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-3);
   font-style: italic;
 }
@@ -1134,9 +1134,9 @@ body {
 .ec-out-raw { white-space: pre; word-break: normal; }
 .ec-out-meta { color: var(--text-2); font-style: italic; }
 .ec-out-warn { color: var(--warning); }
-.ec-out-error { color: var(--danger); font-weight: 600; }
+.ec-out-error { color: var(--danger); font-weight: var(--weight-semi); }
 .ec-out-data { display: flex; gap: 0; flex-wrap: wrap; }
-.ec-out-data-key { color: var(--text-1); font-weight: 600; }
+.ec-out-data-key { color: var(--text-1); font-weight: var(--weight-semi); }
 .ec-out-data-sep { color: var(--text-3); }
 .ec-out-data-val { color: var(--text-2); }
 .ec-out-table {
@@ -1150,7 +1150,7 @@ body {
   padding: var(--space-0) var(--space-xs);
   border-bottom: 1px solid var(--surface-4);
   color: var(--text-2);
-  font-weight: 600;
+  font-weight: var(--weight-semi);
 }
 .ec-out-table td {
   padding: 1px var(--space-xs);
@@ -1200,7 +1200,7 @@ body {
 }
 .editor-vars-name {
   color: var(--text-1);
-  font-weight: 600;
+  font-weight: var(--weight-semi);
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1209,8 +1209,8 @@ body {
 .editor-vars-typechip {
   flex-shrink: 0;
   padding: 1px var(--space-xs);
-  border-radius: 3px;
-  font-size: 10px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-2xs);
   font-family: var(--font-body);
   font-weight: var(--weight-medium);
   letter-spacing: 0.2px;
@@ -1279,7 +1279,7 @@ body {
   background: var(--surface-2);
   color: var(--text-1);
   border: 1px solid var(--surface-4);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   outline: none;
   transition: border-color 100ms ease;
 }
@@ -1322,8 +1322,8 @@ body {
   border: 1px solid var(--surface-4);
   color: var(--text-2);
   font-family: var(--font-body);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   letter-spacing: 0.01em;
   cursor: pointer;
   transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
@@ -1380,8 +1380,8 @@ body {
 .editor-vars-prop-kind {
   flex-shrink: 0;
   padding: 0 var(--space-xs);
-  border-radius: 3px;
-  font-size: 9px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-2xs);
   font-family: var(--font-body);
   font-weight: var(--weight-medium);
   letter-spacing: 0.3px;
@@ -1435,7 +1435,7 @@ body {
 }
 .ec-sparkline-bar {
   width: 3px;
-  border-radius: 1px 1px 0 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   min-height: 2px;
 }
 .ec-sparkline-bar.ok { background: var(--success); }
@@ -1465,7 +1465,7 @@ body {
   padding: 1px var(--space-xs);
   margin-right: var(--space-2);
   font-size: var(--text-xs);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   background: var(--accent-bg);
   color: var(--accent-dim);
   font-weight: var(--weight-semi);

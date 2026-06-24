@@ -154,6 +154,7 @@
 
   /* Widened from the old 10–14px (only 4px of total range, so size couldn't
    * carry hierarchy). Now titles can actually lead while data stays compact. */
+  --text-2xs: 10px;  /* compact tier below xs — dense badges, kbd chips, micro-labels */
   --text-xs: 11px;
   --text-sm: 12px;
   --text-base: 13px;

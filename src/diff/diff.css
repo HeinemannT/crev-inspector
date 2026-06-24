@@ -172,7 +172,7 @@ body {
 }
 .diff-merge-container .cm-changedText {
   background: color-mix(in srgb, var(--accent) 28%, transparent);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 /* The two editors render asymmetric chunks (removed-only on the
  * left, added-only on the right) as deleted/inserted spans. Tint
