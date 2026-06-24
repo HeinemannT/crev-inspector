@@ -786,7 +786,7 @@ async function doAddChild(childType: StudioChildType): Promise<void> {
 async function doRemoveChild(c: StudioChild): Promise<void> {
   const ok = await confirmModal({
     title: 'Remove input?',
-    body: `Delete the "${c.key}" expression input (${c.id}) from this CVO? This removes the _data.expressions.${c.key} slot.`,
+    body: `Delete the "${c.key}" ${c.type} input (${c.id}) from this CVO? This removes the _data.${CHILD_MAP[c.type]}.${c.key} slot.`,
     confirmLabel: 'Remove',
     confirmVariant: 'danger',
   })

@@ -104,12 +104,14 @@ register('STUDIO_ADD_CHILD', async (msg, respond) => {
     `_c := _r.first()`,
     `_n := _c.add(${cls}, id := '${id}', key := '${key}')`,
     `_n.change(key := '${key}')`,
-    `output(str(_n.rid))`,
+    `output("RID=" + str(_n.rid))`,
   ].join('\n')
   try {
     const res = await ctx.client.executeEc(code, undefined, true)
     if (!res.ok) { respond({ type: 'STUDIO_CHILD_ADDED', ok: false, error: res.error }); return }
-    respond({ type: 'STUDIO_CHILD_ADDED', ok: true, rid: (res.log ?? '').trim() })
+    // Same as STUDIO_WRITE_RESOURCE: the transactional log mixes change-tracking
+    // with the output, so read the rid from the RID= marker, not a whole trim.
+    respond({ type: 'STUDIO_CHILD_ADDED', ok: true, rid: (res.log ?? '').match(/RID=(\d+)/)?.[1] })
   } catch (e) {
     respond({ type: 'STUDIO_CHILD_ADDED', ok: false, error: errorMessage(e) })
   }
@@ -205,8 +207,10 @@ register('STUDIO_SAVE_CHILD', async (msg, respond) => {
     if (f.headers != null) lines.push(`_o.change(headers := "${formatEcLiteral(f.headers)}")`)
     if (f.timeout != null && /^\d+$/.test(f.timeout)) lines.push(`_o.change(timeout := ${f.timeout})`)
   } else if (msg.childType === 'table' && f.table) {
-    // `table` is a reference; set it via the template-namespace token.
-    lines.push(`_o.change(table := t.${ident(f.table)})`)
+    // `table` is a reference. Resolve via t.get("id") (a value-slot string,
+    // escaped) — NOT a bare t.<id> token, which breaks for hyphenated ids
+    // (`t.a-b` parses as subtraction, silently yielding the wrong reference).
+    lines.push(`_o.change(table := t.get("${formatEcLiteral(f.table)}"))`)
   }
   lines.push(`output("ok")`)
   try {
