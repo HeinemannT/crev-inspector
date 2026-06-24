@@ -155,7 +155,7 @@ register('STUDIO_WRITE_RESOURCE', async (msg, respond) => {
     // rid can't be read by trimming the whole log — pull it from the RID= marker.
     const rid = (res.log ?? '').match(/RID=(\d+)/)?.[1]
     if (!rid) { respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: 'Hosted, but could not read the new resource rid from BMP' }); return }
-    respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: true, rid })
+    respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: true, rid, id })
   } catch (e) {
     respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: errorMessage(e) })
   }
@@ -175,5 +175,66 @@ register('STUDIO_DELETE_CHILD', async (msg, respond) => {
     respond({ type: 'STUDIO_CHILD_DELETED', ok: res.ok, error: res.error })
   } catch (e) {
     respond({ type: 'STUDIO_CHILD_DELETED', ok: false, error: errorMessage(e) })
+  }
+})
+
+// Resolve a configurator-typed business id (or a rid) to {rid, id, name}.
+// Configurators work with ids; the data servlet needs a rid, so the render-
+// context field accepts either and resolves here. A numeric ref is a rid
+// (lookup, O(1)); anything else is a business id (whole-tree id filter — O(n),
+// but this only runs on a manual field change). Ends with a bare `_out` so
+// res.log is exactly the FIELD-delimited triple (the children-handler idiom).
+register('STUDIO_RESOLVE_REF', async (msg, respond) => {
+  const ctx = getCtx()
+  if (!ctx.client) { respond({ type: 'STUDIO_REF_RESOLVED', ok: false, error: 'Not connected' }); return }
+  const ref = (msg.ref ?? '').trim()
+  if (!ref) { respond({ type: 'STUDIO_REF_RESOLVED', ok: false, error: 'Empty reference' }); return }
+  // The triple ends with a ROW terminator so the parse can isolate it from the
+  // trailing log framing (e.g. "Duration : …") that executeEc appends.
+  const emit = `_out := str(_o.rid) + "${FIELD}" + _o.id.whenMissing("") + "${FIELD}" + _o.name.whenMissing("") + "${ROW}"`
+  // rid -> lookup (O(1)); business id -> id-space resolver. Render contexts are
+  // scorecards/pages (t.) or organisations (o.); templates aren't in
+  // root.descendants(), so .get() on the id-space is the correct resolve.
+  const id = ident(ref)
+  const resolve = /^-?\d+$/.test(ref)
+    ? [`_o := lookup(${ref})`]
+    : [`_o := t.get("${id}")`, `IF _o.isMissing() THEN`, `     _o := o.get("${id}")`, `ENDIF`]
+  const code = [...resolve, `IF _o.isMissing() THEN`, `     _out := ""`, `ELSE`, `     ${emit}`, `ENDIF`, `_out`].join('\n')
+  try {
+    const res = await ctx.client.executeEc(code)
+    if (!res.ok) { respond({ type: 'STUDIO_REF_RESOLVED', ok: false, error: res.error }); return }
+    const first = (res.log ?? '').split(ROW)[0]
+    if (!first.includes(FIELD)) { respond({ type: 'STUDIO_REF_RESOLVED', ok: false, error: `No object with id or rid "${ref}"` }); return }
+    const [rid, oid, name] = first.split(FIELD)
+    respond({ type: 'STUDIO_REF_RESOLVED', ok: true, rid: (rid ?? '').trim(), id: (oid ?? '').trim(), name: name ?? '' })
+  } catch (e) {
+    respond({ type: 'STUDIO_REF_RESOLVED', ok: false, error: errorMessage(e) })
+  }
+})
+
+// Batch-resolve FileResource rids (parsed from the CVO code) to {id, name} for
+// the dependency list, so configurators see ids/names not bare rids. lookup()
+// per rid; ends with a bare `_out` of ROW-separated, FIELD-delimited rows.
+register('STUDIO_RESOLVE_RIDS', async (msg, respond) => {
+  const ctx = getCtx()
+  if (!ctx.client) { respond({ type: 'STUDIO_RIDS_RESOLVED', ok: false, error: 'Not connected' }); return }
+  const rids = [...new Set((msg.rids ?? []).filter(r => /^-?\d+$/.test(r)))]
+  if (rids.length === 0) { respond({ type: 'STUDIO_RIDS_RESOLVED', ok: true, refs: [] }); return }
+  const lines = ['_out := ""']
+  for (const r of rids) {
+    lines.push(`_o := lookup(${r})`)
+    lines.push(`_out := _out + "${r}" + "${FIELD}" + _o.id.whenMissing("") + "${FIELD}" + _o.name.whenMissing("") + "${ROW}"`)
+  }
+  lines.push('_out')
+  try {
+    const res = await ctx.client.executeEc(lines.join('\n'))
+    if (!res.ok) { respond({ type: 'STUDIO_RIDS_RESOLVED', ok: false, error: res.error }); return }
+    const refs = (res.log ?? '').split(ROW).filter(Boolean).map(row => {
+      const [rid, id, name] = row.split(FIELD)
+      return { rid: (rid ?? '').trim(), id: (id ?? '').trim(), name: (name ?? '').trim() }
+    }).filter(x => /^-?\d+$/.test(x.rid))
+    respond({ type: 'STUDIO_RIDS_RESOLVED', ok: true, refs })
+  } catch (e) {
+    respond({ type: 'STUDIO_RIDS_RESOLVED', ok: false, error: errorMessage(e) })
   }
 })

@@ -240,7 +240,13 @@ export type StudioMessage =
   // Host a file as a FileResource: write content via EC .change(content :=
   // "name;mime;base64") — the GraphQL path silently writes empty (footgun).
   | { type: 'STUDIO_WRITE_RESOURCE'; resId: string; name: string; mime: string; base64: string }
-  | { type: 'STUDIO_RESOURCE_WRITTEN'; ok: boolean; rid?: string; error?: string };
+  | { type: 'STUDIO_RESOURCE_WRITTEN'; ok: boolean; rid?: string; id?: string; error?: string }
+  // Resolve a configurator-friendly business id (or a rid) to {rid, id, name}.
+  | { type: 'STUDIO_RESOLVE_REF'; ref: string }
+  | { type: 'STUDIO_REF_RESOLVED'; ok: boolean; rid?: string; id?: string; name?: string; error?: string }
+  // Batch rid -> {id, name} for the dependency list (lookup(rid).id).
+  | { type: 'STUDIO_RESOLVE_RIDS'; rids: string[] }
+  | { type: 'STUDIO_RIDS_RESOLVED'; ok: boolean; refs?: Array<{ rid: string; id: string; name: string }>; error?: string };
 
 export interface StudioChild {
   /** rid as a string (Java long — never a JS number). */
