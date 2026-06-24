@@ -15,11 +15,16 @@ export async function formatCode(prop: StudioCodeProp, code: string): Promise<st
   const mod = await import('js-beautify')
   const beautify = mod.default ?? mod
   if (prop === 'html') {
+    // The studio editor pane is narrow (often a half-width split), so bias
+    // toward vertical: wrap lines at a modest width and let long, attribute-
+    // heavy tags spill their attributes onto their own (aligned) lines, rather
+    // than emit a wide line the user has to scroll or soft-wrap to read.
     return beautify.html(code, {
       indent_size: INDENT,
       preserve_newlines: true,
       max_preserve_newlines: 2,
-      wrap_line_length: 0,        // don't hard-wrap long attribute lists
+      wrap_line_length: 80,
+      wrap_attributes: 'auto',          // break attrs only when the tag exceeds the width
       end_with_newline: false,
     })
   }
