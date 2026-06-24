@@ -35,6 +35,7 @@ import { StudioConsole } from './studio-console'
 import { syntaxErrorLinter, makeCvoApiSource } from './studio-editor-ext'
 import { formatCode } from './studio-format'
 import { showStudioHelp } from './studio-help'
+import { reconcileSavedSlots } from './studio-save'
 
 const CODE_PROPS: readonly StudioCodeProp[] = ['html', 'javascript']
 const PREVIEW_DEBOUNCE_MS = 400
@@ -843,15 +844,13 @@ async function doSaveInner(target: StudioContext['instance'], dirty: StudioCodeP
   // field while the save was in flight.
   const verify = await sendRequest({ type: 'STUDIO_FETCH_CODE', rid: target.rid })
   if (verify?.type === 'STUDIO_CODE_DATA' && verify.ok && verify.code) {
-    const fresh = verify.code
-    for (const [p, value] of savedValues) {
-      if ((fresh[p] ?? '') !== value) {
-        logConsole('error', `Warning: BMP's ${p} differs from what was saved. Possible silent rollback; the editor now shows BMP's value.`)
-      }
-      if (!surface.isDirty(p)) {
-        surface.reloadSlots([{ key: p, lang: p, code: fresh[p] ?? '' }])
-        activeCode()[p] = fresh[p] ?? ''
-      }
+    const { reload, rollbacks } = reconcileSavedSlots(savedValues, verify.code, p => !!surface!.isDirty(p))
+    for (const p of rollbacks) {
+      logConsole('error', `Warning: BMP's ${p} differs from what was saved. Possible silent rollback; the editor now shows BMP's value.`)
+    }
+    for (const { key, code } of reload) {
+      surface.reloadSlots([{ key, lang: key, code }])
+      activeCode()[key] = code
     }
   }
 }
