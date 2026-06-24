@@ -23,28 +23,13 @@
  * fetching BMP directly — it has neither the cookies nor the origin to.
  */
 
-// ── Messages (mirrored, by hand, in studio.ts — sandbox can't import the
-//    privileged types module without dragging chrome.* typings in) ──────────
-export interface RenderRequest {
-  type: 'CVO_RENDER'
-  /** Monotonic id so late console/errors from a superseded run can be ignored. */
-  runId: number
-  html: string
-  javascript: string
-  /** The mock (later: real) `_data`, minus `.element` which we attach here. */
-  data: Record<string, unknown>
-  /** Hosted FileResource libraries (decoded JS source) to run BEFORE the CVO,
-   *  so their globals (e.g. `echarts`) are ready — mirrors the portal loading
-   *  them same-origin. The studio fetches these via the SW. */
-  libs?: string[]
-}
+// The studio ⇄ sandbox message contract lives in cvo-protocol.ts — one
+// dependency-free module both sides import, so the shapes can't drift.
+import type { CvoRenderRequest, CvoSandboxOutbound } from './cvo-protocol'
 
-export type OutboundMessage =
-  | { type: 'CVO_CONSOLE'; runId: number; level: 'log' | 'warn' | 'error' | 'info'; text: string }
-  | { type: 'CVO_ERROR'; runId: number; message: string; stack?: string; line?: number; column?: number }
-  | { type: 'CVO_RENDERED'; runId: number; ok: boolean }
-
-export type Emit = (msg: OutboundMessage) => void
+/** Local alias kept for readability in this file's render core. */
+export type RenderRequest = CvoRenderRequest
+export type Emit = (msg: CvoSandboxOutbound) => void
 
 /** Serialise a console argument compactly for the studio's console strip. */
 export function fmtArg(a: unknown): string {

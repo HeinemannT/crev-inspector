@@ -8,7 +8,8 @@
  * locks the behaviour the studio depends on.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { runCvo, freshRoot, injectLibs, installConsoleCapture, type OutboundMessage, type RenderRequest } from '../sandbox'
+import { runCvo, freshRoot, injectLibs, installConsoleCapture, type RenderRequest } from '../sandbox'
+import type { CvoSandboxOutbound as OutboundMessage } from '../cvo-protocol'
 
 function req(over: Partial<RenderRequest>): RenderRequest {
   return { type: 'CVO_RENDER', runId: 1, html: '', javascript: '', data: {}, ...over }

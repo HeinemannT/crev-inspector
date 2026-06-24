@@ -30,6 +30,7 @@ import { confirmModal } from '../lib/modal'
 import { getTypeAbbr, getTypeColor, type StudioChild } from '../lib/types'
 import { ICON_PLAY, ICON_REFRESH, ICON_FILE_JS, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
+import { isCvoSandboxOutbound, type CvoRenderRequest, type CvoConsoleLevel } from './cvo-protocol'
 
 const CODE_PROPS: readonly StudioCodeProp[] = ['html', 'javascript']
 const PREVIEW_DEBOUNCE_MS = 400
@@ -87,7 +88,7 @@ let runCounter = 0
  *  its async lib fetch (avoids two concurrent renders racing the ready-gate). */
 let renderGen = 0
 /** Console + error lines from the current run, newest last. */
-interface ConsoleLine { level: 'log' | 'warn' | 'error' | 'info'; text: string }
+interface ConsoleLine { level: CvoConsoleLevel; text: string }
 let consoleLines: ConsoleLine[] = []
 
 /** Mock `_data` used until live data lands (Phase 3). Mirrors the shape the
@@ -349,14 +350,15 @@ function postRender() {
   // the only embedded frame and validates ev.source, but if other frames are
   // ever embedded here, target the sandbox's specific origin instead.
   const data = dataMode === 'live' && liveData ? liveData : mockData
-  frame.contentWindow.postMessage({
+  const req: CvoRenderRequest = {
     type: 'CVO_RENDER',
     runId,
     html: surface?.textFor('html') ?? '',
     javascript: surface?.textFor('javascript') ?? '',
     data,
     libs: lastLibs,
-  }, '*')
+  }
+  frame.contentWindow.postMessage(req, '*')
 }
 
 // ── Control strip (one dense row: data source + width) ───────────
@@ -646,16 +648,16 @@ function doHostResource(): void {
 
 window.addEventListener('message', ev => {
   if (!sandboxFrame || ev.source !== sandboxFrame.contentWindow) return
-  const msg = ev.data as { type?: string; level?: ConsoleLine['level']; text?: string; message?: string; stack?: string; runId?: number } | undefined
-  if (!msg) return
+  const msg = ev.data
+  if (!isCvoSandboxOutbound(msg)) return
   if (msg.type === 'CVO_SANDBOX_READY') {
     sandboxReady = true
     if (pendingRender) { pendingRender = false; postRender() }
     return
   }
   // Drop output from superseded runs.
-  if (typeof msg.runId === 'number' && msg.runId !== runCounter) return
-  if (msg.type === 'CVO_CONSOLE' && msg.text != null) logConsole(msg.level ?? 'log', msg.text)
+  if (msg.runId !== runCounter) return
+  if (msg.type === 'CVO_CONSOLE') logConsole(msg.level, msg.text)
   else if (msg.type === 'CVO_ERROR') logConsole('error', msg.message || 'Error')
 })
 
