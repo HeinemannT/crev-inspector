@@ -432,17 +432,17 @@ function updateStrip(): void {
   }) as HTMLInputElement
   ctxInput.addEventListener('change', () => { renderContextRid = ctxInput.value.trim(); if (dataMode === 'live') fetchLiveData() })
   renderDom(el,
-    h('div', { class: 'studio-seg', role: 'group', 'aria-label': 'Preview data' },
-      h('button', { class: `studio-seg-btn${dataMode === 'mock' ? ' active' : ''}`, title: 'Render against local mock _data', onClick: () => setDataMode('mock') }, 'Mock'),
-      h('button', { class: `studio-seg-btn${dataMode === 'live' ? ' active' : ''}`, title: 'Render against real BMP _data for the render context', onClick: () => setDataMode('live') }, 'Live'),
+    h('div', { class: 'seg', role: 'group', 'aria-label': 'Preview data' },
+      h('button', { class: `seg-btn${dataMode === 'mock' ? ' active' : ''}`, title: 'Render against local mock _data', onClick: () => setDataMode('mock') }, 'Mock'),
+      h('button', { class: `seg-btn${dataMode === 'live' ? ' active' : ''}`, title: 'Render against real BMP _data for the render context', onClick: () => setDataMode('live') }, 'Live'),
     ),
     dataMode === 'live' ? ctxInput : null,
     dataMode === 'live' ? h('button', { class: 'studio-icon-btn', title: 'Re-fetch live data', onClick: () => fetchLiveData() }, svg(ICON_REFRESH)) : null,
     dataMode === 'live' && liveError ? h('span', { class: 'studio-strip-err', title: liveError }, '⚠ live') : null,
     dataMode === 'live' && !liveError && liveData ? h('span', { class: 'studio-strip-ok', title: 'Rendering against live BMP data' }, '● live') : null,
     h('div', { class: 'studio-strip-spacer' }),
-    h('div', { class: 'studio-seg', role: 'group', 'aria-label': 'Preview width' },
-      ...PREVIEW_WIDTHS.map(([label, w]) => h('button', { class: `studio-seg-btn${previewWidth === w ? ' active' : ''}`, title: w ? `Render at ${w}px container width` : 'Full container width', onClick: () => setPreviewWidth(w) }, label)),
+    h('div', { class: 'seg', role: 'group', 'aria-label': 'Preview width' },
+      ...PREVIEW_WIDTHS.map(([label, w]) => h('button', { class: `seg-btn${previewWidth === w ? ' active' : ''}`, title: w ? `Render at ${w}px container width` : 'Full container width', onClick: () => setPreviewWidth(w) }, label)),
     ),
     h('button', {
       class: `studio-icon-btn${previewMaximized ? ' active' : ''}`,

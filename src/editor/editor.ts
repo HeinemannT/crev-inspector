@@ -392,16 +392,16 @@ function renderShell() {
 
   // Segmented target toggle (template \u27f7 instance)
   const segToggle = (!isExtended && ctx.template)
-    ? h('div', { class: 'editor-seg', role: 'tablist', 'aria-label': 'Save target' },
+    ? h('div', { class: 'seg', role: 'tablist', 'aria-label': 'Save target' },
         h('button', {
-          class: `editor-seg-btn${ctx.saveTarget === 'template' ? ' active' : ''}`,
+          class: `seg-btn${ctx.saveTarget === 'template' ? ' active' : ''}`,
           'data-target': 'template',
           role: 'tab',
           'aria-selected': ctx.saveTarget === 'template' ? 'true' : 'false',
           title: `${formatLabel(ctx.template!, 'full')}: changes propagate to every instance`,
         }, 'Template'),
         h('button', {
-          class: `editor-seg-btn${ctx.saveTarget === 'instance' ? ' active' : ''}`,
+          class: `seg-btn${ctx.saveTarget === 'instance' ? ' active' : ''}`,
           'data-target': 'instance',
           role: 'tab',
           'aria-selected': ctx.saveTarget === 'instance' ? 'true' : 'false',
@@ -508,7 +508,7 @@ function renderShell() {
 
   // Wire template/instance toggle. CodeSurface stashes the outgoing slot and
   // swaps/rebuilds the incoming one; we just point it at the new slot key.
-  for (const btn of document.querySelectorAll<HTMLElement>('.editor-seg-btn')) {
+  for (const btn of document.querySelectorAll<HTMLElement>('.seg-btn')) {
     btn.addEventListener('click', () => {
       const target = btn.dataset.target as SaveTarget
       if (!target || !ctx || target === ctx.saveTarget) return

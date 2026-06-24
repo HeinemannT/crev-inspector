@@ -102,15 +102,8 @@ html, body { height: 100%; margin: 0; }
 .studio-strip-err { color: var(--danger); white-space: nowrap; }
 .studio-strip-ok { color: var(--success); white-space: nowrap; }
 
-/* Segmented control — matches the editor's .editor-seg vocabulary */
-.studio-seg { display: inline-flex; border: 1px solid var(--surface-4); border-radius: var(--radius-sm); overflow: hidden; }
-.studio-seg-btn {
-  padding: 2px 9px; font-size: var(--text-xs); color: var(--text-2);
-  background: var(--surface-1); border: none; border-right: 1px solid var(--surface-4); cursor: pointer;
-}
-.studio-seg-btn:last-child { border-right: none; }
-.studio-seg-btn:hover { color: var(--text-1); background: var(--surface-2); }
-.studio-seg-btn.active { color: #fff; background: var(--accent); }
+/* Segmented controls (Mock/Live, preview width) use the shared .seg / .seg-btn
+ * in components.css — same vocabulary as the EC editor. */
 .studio-icon-btn { display: inline-flex; align-items: center; padding: 2px 4px; color: var(--text-3); background: none; border: none; cursor: pointer; }
 .studio-icon-btn:hover { color: var(--text-1); }
 .studio-icon-btn svg { width: 13px; height: 13px; }

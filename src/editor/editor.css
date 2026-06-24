@@ -145,39 +145,8 @@ body {
 
 /* ── Segmented control (template/instance) ───── */
 
-.editor-seg {
-  display: inline-flex;
-  flex-shrink: 0;
-  background: var(--surface-2);
-  border: 1px solid var(--surface-4);
-  border-radius: var(--radius-md);
-  padding: 2px;
-  gap: 1px;
-}
-
-.editor-seg-btn {
-  padding: 3px 10px;
-  border: none;
-  border-radius: calc(var(--radius-md) - 2px);
-  background: none;
-  color: var(--text-3);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-default),
-              color var(--duration-fast) var(--ease-default);
-  letter-spacing: 0.2px;
-}
-
-.editor-seg-btn:hover:not(.active) {
-  color: var(--text-1);
-}
-
-.editor-seg-btn.active {
-  background: var(--accent);
-  color: #fff;
-}
+/* Segmented control (template/instance) now uses the shared .seg / .seg-btn
+ * in components.css, shared with the CVO studio. */
 
 /* ── Property tabs (tablist with underline) ──── */
 
