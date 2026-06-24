@@ -10,6 +10,8 @@ import { openSearchPanel } from '@codemirror/search'
 import { lintGutter } from '@codemirror/lint'
 import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha, type CodeLang } from '../editor-core/cm-scaffold'
 import { CodeSurface, isProgrammaticSwap, type CodeSlot } from '../editor-core/code-surface'
+import { KBD_MOD } from '../editor-core/platform'
+import { closeOverlayKeyBinding, installDirtyGuards } from '../editor-core/overlay'
 
 // Shared types + context helpers
 import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
@@ -19,7 +21,6 @@ import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, IC
 import { renderEcOutput, ecOutputToText, parseBmpDurationMs, formatRunTiming } from './ec-output'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
-import { installCloseHandshake } from '../lib/frame-close-handshake'
 import { sendFireForget, sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
 import {
@@ -140,9 +141,6 @@ function langFor(prop: string, extended: boolean): SlotLang {
  *  slots (drives the close / unload guards so a dirty inactive prop isn't lost). */
 const curDirty = (): boolean => surface?.isDirty(activeKey()) ?? false
 const anyDirty = (): boolean => surface?.isDirty() ?? false
-
-const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform)
-const KBD_MOD = isMac ? '⌘' : 'Ctrl'
 
 // ── Init ─────────────────────────────────────────────────────────
 
@@ -478,7 +476,6 @@ function renderShell() {
   // On first paint surface is null (ensureSurface mounts fresh afterwards).
   if (surface) {
     surface.reattach()
-    surface.view?.requestMeasure()
     // renderDom() dropped keyboard focus; re-grab it only if the view was
     // focused before the re-render — otherwise a renderShell() that fires
     // mid-edit (e.g. the save-label fade timer) would steal the cursor.
@@ -587,15 +584,7 @@ function buildExtensions(slot: CodeSlot): Extension[] {
       { key: 'F5', run: () => { doPreview(); return true }, preventDefault: true },
       { key: 'Ctrl-Shift-Enter', run: () => { doRun(); return true } },
       { key: 'Ctrl-s', run: () => { doSave(); return true } },
-      // Esc closes the host overlay. CM's own Esc handlers (search-panel close,
-      // etc.) run earlier in the chain and consume the event first.
-      {
-        key: 'Escape',
-        run: () => {
-          try { window.parent.postMessage({ type: 'CREV_OVERLAY_CLOSE_PLEASE' }, '*') } catch { /* ignore */ }
-          return true
-        },
-      },
+      closeOverlayKeyBinding,
     ]),
 
     // App-specific reactions only. Cursor + dirty are handled by CodeSurface's
@@ -1665,27 +1654,10 @@ function wireDragHandle() {
 }
 
 // ── Overlay close-request handshake ─────────────────────────────
-
-installCloseHandshake(async () => {
-  if (!anyDirty()) return true
-  return confirmModal({
-    title: 'Discard unsaved changes?',
-    body: 'This editor has unsaved changes. Close anyway?',
-    confirmLabel: 'Discard',
-    confirmVariant: 'danger',
-  })
-})
-
-// Host-page navigation guard. The overlay iframe dies with the page; without
-// this, an unsaved EC draft would be silently destroyed when the user clicks
-// a link in BMP. The browser's native prompt is the only reliable signal here
-// — modals would race the navigation.
-window.addEventListener('beforeunload', (e) => {
-  if (!anyDirty()) return
-  e.preventDefault()
-  // Some browsers ignore returnValue but still honor preventDefault.
-  e.returnValue = ''
-})
+// Guards both exits an overlay editor has: the host close-request (in-app
+// confirm) and host-page navigation (the iframe dies with the page, so the
+// browser's native beforeunload prompt is the only reliable signal).
+installDirtyGuards({ isDirty: anyDirty, bodyText: 'This editor has unsaved changes. Close anyway?' })
 
 // Window-level F5 fallback: when focus has wandered out of the CodeMirror
 // editor (the user clicked a button, the toolbar, an empty area…), the

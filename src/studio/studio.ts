@@ -20,21 +20,19 @@ import { linter, lintGutter, type Diagnostic } from '@codemirror/lint'
 import { syntaxTree } from '@codemirror/language'
 import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha, type CodeLang } from '../editor-core/cm-scaffold'
 import { CodeSurface, isProgrammaticSwap } from '../editor-core/code-surface'
+import { KBD_MOD } from '../editor-core/platform'
+import { closeOverlayKeyBinding, installDirtyGuards } from '../editor-core/overlay'
 import { detectFileResourceRids, detectCdnUrls } from './dep-detect'
 import { cvoApiCandidates } from './cvo-api'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
-import { installCloseHandshake } from '../lib/frame-close-handshake'
 import { getTypeAbbr, getTypeColor, type StudioChild } from '../lib/types'
 import { ICON_PLAY, ICON_REFRESH } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
 
 const CODE_PROPS: readonly StudioCodeProp[] = ['html', 'javascript']
 const PREVIEW_DEBOUNCE_MS = 400
-
-const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform)
-const KBD_MOD = isMac ? '⌘' : 'Ctrl'
 
 // ── State ────────────────────────────────────────────────────────
 let ctx: StudioContext | null = null
@@ -148,7 +146,7 @@ function ensureSurface() {
         ...baseKeymapBindings,
         { key: 'Ctrl-s', mac: 'Cmd-s', run: () => { doSave(); return true } },
         { key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { runPreview(); return true } },
-        { key: 'Escape', run: () => { try { window.parent.postMessage({ type: 'CREV_OVERLAY_CLOSE_PLEASE' }, '*') } catch { /* ignore */ } return true } },
+        closeOverlayKeyBinding,
       ]),
       // Re-render on user edits only — a programmatic slot-swap (tab switch)
       // carries CodeSurface's annotation and must not trigger a preview rebuild.
@@ -233,7 +231,6 @@ function renderShell() {
   )
 
   surface?.reattach()
-  surface?.view?.requestMeasure()
   if (previewVisible) {
     // Re-mounting the (persistent) iframe after a full rebuild reloads it, so
     // reset the handshake; the first preview re-renders once it's ready again.
@@ -732,20 +729,6 @@ function togglePreview() {
 }
 
 // Guard the overlay close when there are unsaved edits.
-installCloseHandshake(async () => {
-  if (!anyDirty()) return true
-  return confirmModal({
-    title: 'Discard unsaved changes?',
-    body: 'This CVO studio has unsaved changes. Close anyway?',
-    confirmLabel: 'Discard',
-    confirmVariant: 'danger',
-  })
-})
-
-window.addEventListener('beforeunload', e => {
-  if (!anyDirty()) return
-  e.preventDefault()
-  e.returnValue = ''
-})
+installDirtyGuards({ isDirty: anyDirty, bodyText: 'This CVO studio has unsaved changes. Close anyway?' })
 
 init()

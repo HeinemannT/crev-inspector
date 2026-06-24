@@ -294,10 +294,15 @@ export class CodeSurface {
   }
 
   /** Re-attach the view's DOM into the (current) parent after the app re-rendered
-   *  its shell, which detaches it. No-op when already attached or no parent yet. */
+   *  its shell, which detaches it. A detached-then-reattached view needs a
+   *  remeasure (its layout cache is stale), so do it here. No-op when already
+   *  attached or no parent yet. */
   reattach(): void {
     const parent = this.getParent()
-    if (this._view && parent && this._view.dom.parentElement !== parent) parent.appendChild(this._view.dom)
+    if (this._view && parent && this._view.dom.parentElement !== parent) {
+      parent.appendChild(this._view.dom)
+      this._view.requestMeasure()
+    }
   }
 
   focus(): void { this._view?.focus() }
