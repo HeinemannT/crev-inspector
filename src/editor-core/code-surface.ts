@@ -268,6 +268,17 @@ export class CodeSurface {
     this._view.focus()
   }
 
+  /** Replace the active slot's whole document (e.g. after formatting). Goes
+   *  through a normal transaction, so it lands in the undo history and marks the
+   *  slot dirty. No-op when the text is unchanged. */
+  replaceActive(text: string): void {
+    if (!this._view) return
+    const cur = this._view.state.doc.toString()
+    if (cur === text) return
+    this._view.dispatch({ changes: { from: 0, to: cur.length, insert: text } })
+    this._view.focus()
+  }
+
   /** Jump to a line, or to the occurrence of `text` NEAREST to `line` (the hint).
    *  Nearest-match — not first-match — so duplicate lines (a lone `}`, repeated
    *  `"id"`) resolve to the intended hit even when the body is a few lines off

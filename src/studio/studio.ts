@@ -15,8 +15,10 @@
  * file adopts it and the local createEditor goes away.
  */
 import { EditorView, keymap } from '@codemirror/view'
+import { EditorState } from '@codemirror/state'
 import { autocompletion } from '@codemirror/autocomplete'
 import { lintGutter } from '@codemirror/lint'
+import { indentUnit } from '@codemirror/language'
 import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha, type CodeLang } from '../editor-core/cm-scaffold'
 import { CodeSurface, isProgrammaticSwap } from '../editor-core/code-surface'
 import { KBD_MOD } from '../editor-core/platform'
@@ -26,11 +28,13 @@ import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
 import { getTypeAbbr, getTypeColor, type StudioChild } from '../lib/types'
-import { ICON_PLAY, ICON_REFRESH, ICON_FILE_HTML, ICON_FILE_JS, ICON_CHECK } from '../lib/icons'
+import { ICON_PLAY, ICON_REFRESH, ICON_FILE_HTML, ICON_FILE_JS, ICON_CHECK, ICON_WRAP, ICON_BRACKETS } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
 import { isCvoSandboxOutbound, type CvoRenderRequest, type CvoConsoleLevel } from './cvo-protocol'
 import { StudioConsole } from './studio-console'
 import { syntaxErrorLinter, makeCvoApiSource } from './studio-editor-ext'
+import { formatCode } from './studio-format'
+import { showStudioHelp } from './studio-help'
 
 const CODE_PROPS: readonly StudioCodeProp[] = ['html', 'javascript']
 const PREVIEW_DEBOUNCE_MS = 400
@@ -96,6 +100,10 @@ const PREVIEW_WIDTHS: ReadonlyArray<[string, number]> = [['Full', 0], ['1280', 1
 let editorPct = 50
 let panelHeight = 150
 
+// Soft-wrap long lines (off by default, like the EC editor). Toggled from the
+// editor bar; CodeSurface owns the actual wrap reconfigure.
+let wrapLines = false
+
 // Sandbox handshake: hold the latest render until the sandbox says it's ready.
 let sandboxReady = false
 let pendingRender = false
@@ -153,6 +161,10 @@ function ensureSurface() {
   if (surface) { surface.reattach(); return }
   surface = new CodeSurface(() => document.getElementById('studio-cm'), {
     buildExtensions: (slot) => [
+      // Web 2-space indent (the base scaffold defaults to EC's 5). indentUnit
+      // takes the first value, so this must precede baseEditingExtensions.
+      indentUnit.of('  '),
+      EditorState.tabSize.of(2),
       ...baseEditingExtensions(),
       languageExtension(slot.lang as CodeLang),
       catppuccinMocha,
@@ -166,6 +178,7 @@ function ensureSurface() {
         ...baseKeymapBindings,
         { key: 'Ctrl-s', mac: 'Cmd-s', run: () => { doSave(); return true } },
         { key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { void runPreview({ retryDeps: true }); return true } },
+        { key: 'Shift-Alt-f', run: () => { void doFormat(); return true } },
         closeOverlayKeyBinding,
       ]),
       // Re-render on user edits only — a programmatic slot-swap (tab switch)
@@ -324,6 +337,7 @@ function refreshActions() {
       h('button', { class: `seg-btn${layout === 'split' ? ' active' : ''}`, title: 'Editor and preview', onClick: () => setLayout('split') }, 'Split'),
       h('button', { class: `seg-btn${layout === 'preview' ? ' active' : ''}`, title: 'Preview only', onClick: () => setLayout('preview') }, 'Preview'),
     ),
+    h('button', { class: 'studio-help-btn', title: 'Quick reference', 'aria-label': 'Quick reference', onClick: (e: Event) => showStudioHelp(e.currentTarget as HTMLElement, KBD_MOD) }, '?'),
   )
 }
 
@@ -338,15 +352,40 @@ const FILE_META: Record<StudioCodeProp, { label: string; icon: string }> = {
 function updateFileSwitch() {
   const el = document.getElementById('studio-file-switch')
   if (!el) return
-  renderDom(el, ...CODE_PROPS.map(p => h('button', {
-    class: `studio-file-tab${p === activeProp ? ' active' : ''}`,
-    role: 'tab',
-    'data-prop': p,
-    'aria-selected': p === activeProp ? 'true' : 'false',
-    title: `Edit the ${FILE_META[p].label}`,
-    onClick: () => switchProp(p),
-  }, svg(FILE_META[p].icon), h('span', null, FILE_META[p].label),
-    surface?.isDirty(p) ? h('span', { class: 'studio-file-dot', 'aria-label': 'unsaved changes' }) : null)))
+  renderDom(el,
+    ...CODE_PROPS.map(p => h('button', {
+      class: `studio-file-tab${p === activeProp ? ' active' : ''}`,
+      role: 'tab',
+      'data-prop': p,
+      'aria-selected': p === activeProp ? 'true' : 'false',
+      title: `Edit the ${FILE_META[p].label}`,
+      onClick: () => switchProp(p),
+    }, svg(FILE_META[p].icon), h('span', null, FILE_META[p].label),
+      surface?.isDirty(p) ? h('span', { class: 'studio-file-dot', 'aria-label': 'unsaved changes' }) : null)),
+    // Editor tools live with the editor: reflow and soft-wrap.
+    h('div', { class: 'studio-file-spacer' }),
+    h('button', { class: 'studio-file-tool', title: `Format the ${FILE_META[activeProp].label} · ${KBD_MOD}+Shift+F`, 'aria-label': 'Format', onClick: () => void doFormat() }, svg(ICON_BRACKETS)),
+    h('button', { class: `studio-file-tool${wrapLines ? ' active' : ''}`, title: 'Wrap long lines', 'aria-label': 'Wrap long lines', 'aria-pressed': wrapLines ? 'true' : 'false', onClick: toggleWrap }, svg(ICON_WRAP)),
+  )
+}
+
+function toggleWrap() {
+  wrapLines = !wrapLines
+  surface?.setWrap(wrapLines)
+  updateFileSwitch()
+}
+
+/** Pretty-print the active file in place (lazy-loads the formatter). */
+async function doFormat() {
+  if (!surface) return
+  const prop = activeProp
+  try {
+    const formatted = await formatCode(prop, surface.textFor(prop))
+    if (prop !== activeProp) return // user switched files during the async import
+    surface.replaceActive(formatted)
+  } catch (e) {
+    logConsole('error', `Format failed: ${(e as Error).message}`)
+  }
 }
 
 const anyDirty = () => !!surface?.isDirty()

@@ -30,6 +30,8 @@
     "@codemirror/search": "^6.6.0",
     "@codemirror/state": "^6.5.4",
     "@codemirror/view": "^6.39.15",
-    "@lezer/highlight": "^1.2.3"
+    "@lezer/highlight": "^1.2.3",
+    "@types/js-beautify": "^1.14.3",
+    "js-beautify": "^1.15.4"
   }
 }

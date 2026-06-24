@@ -64,6 +64,56 @@ html, body { height: 100%; margin: 0; }
 .studio-file-tab.active { color: var(--text-1); background: var(--accent-bg); border-bottom-color: var(--accent); }
 .studio-file-tab.active svg { opacity: 1; }
 .studio-file-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.studio-file-spacer { flex: 1; }
+.studio-file-tool {
+  display: inline-flex; align-items: center; align-self: center;
+  padding: 3px 6px; margin: 0 1px;
+  color: var(--text-3); background: none; border: none; border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.studio-file-tool svg { width: 14px; height: 14px; }
+.studio-file-tool:hover { color: var(--text-1); background: var(--surface-2); }
+.studio-file-tool.active { color: #fff; background: var(--accent); }
+
+/* Quick-reference (?) button in the header actions. */
+.studio-help-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; margin-left: var(--space-2);
+  font-weight: var(--weight-bold); color: var(--text-3);
+  background: none; border: 1px solid var(--surface-4); border-radius: 50%;
+  cursor: pointer;
+}
+.studio-help-btn:hover { color: var(--text-1); border-color: var(--text-3); }
+
+/* ── Quick-reference popover (tabbed) ───────────────────────────── */
+.studio-help-popover {
+  position: fixed; z-index: 1000; width: 380px; max-width: 90vw;
+  background: var(--surface-1); border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04);
+  padding: 12px 14px;
+}
+.studio-help-title { font-size: var(--text-sm); font-weight: var(--weight-semi); color: var(--text-1); margin-bottom: 8px; }
+.studio-help-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--surface-4); margin-bottom: 8px; }
+.studio-help-tab {
+  padding: 4px 10px; font-size: var(--text-xs); color: var(--text-3);
+  background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer;
+}
+.studio-help-tab:hover { color: var(--text-1); }
+.studio-help-tab.active { color: var(--text-1); border-bottom-color: var(--accent); }
+.studio-help-table { width: 100%; border-collapse: collapse; }
+.studio-help-table td { padding: 3px 8px 3px 0; vertical-align: top; }
+.studio-help-key { width: 160px; white-space: nowrap; }
+.studio-help-key kbd {
+  background: var(--surface-3); border: 1px solid var(--surface-4); border-radius: 3px;
+  padding: 1px 5px; font-size: 10.5px; font-family: var(--font-mono); color: var(--text-2);
+  white-space: nowrap;
+}
+.studio-help-val { font-size: var(--text-xs); color: var(--text-2); }
+.studio-help-footer {
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--surface-3);
+  font-size: 10px; color: var(--text-3); font-style: italic;
+}
 
 .studio-preview {
   flex: 1 1 0; min-width: 0;
