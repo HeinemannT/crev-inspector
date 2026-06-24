@@ -30,7 +30,7 @@ import { confirmModal } from '../lib/modal'
 import { getTypeAbbr, getTypeColor, type StudioChild, type StudioChildType } from '../lib/types'
 import { ICON_PLAY, ICON_REFRESH, ICON_FILE_HTML, ICON_FILE_JS, ICON_CHECK, ICON_WRAP, ICON_BRACKETS } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
-import { isCvoSandboxOutbound, type CvoRenderRequest, type CvoConsoleLevel } from './cvo-protocol'
+import { isCvoSandboxOutbound, type CvoRenderRequest, type CvoConsoleLevel, type CvoLib } from './cvo-protocol'
 import { StudioConsole } from './studio-console'
 import { syntaxErrorLinter, makeCvoApiSource } from './studio-editor-ext'
 import { formatCode } from './studio-format'
@@ -88,7 +88,7 @@ const libCache = new Map<string, string | null>()
 // Dependency rid -> {id, name} for the Deps panel, so configurators see the
 // business id/name not a bare rid. Empty id = resolved-but-not-found (don't refetch).
 const refCache = new Map<string, { id: string; name: string }>()
-let lastLibs: string[] = []
+let lastLibs: CvoLib[] = []
 
 // The bottom panel is a single toggleable area with three tabs; null = collapsed
 // so the canvas owns the preview pane. Auto-opens to 'console' on a CVO error.
@@ -459,7 +459,7 @@ async function runPreview(opts: { retryDeps?: boolean } = {}) {
  *  no BMP session) is cached as null and warned once so the CVO degrades rather
  *  than blocking; an explicit Re-render clears those nulls to retry. Returns the
  *  resolved set (the caller commits it after winning the render-gen race). */
-async function ensureLibs(): Promise<string[]> {
+async function ensureLibs(): Promise<CvoLib[]> {
   const rids = detectFileResourceRids(surface?.textFor('html') ?? '', surface?.textFor('javascript') ?? '')
   for (const rid of rids) {
     if (libCache.has(rid)) continue
@@ -471,7 +471,9 @@ async function ensureLibs(): Promise<string[]> {
       logConsole('warn', `Dependency ${rid} unavailable (${respError(resp, 'no response')}). Preview runs without it.`)
     }
   }
-  return rids.map(r => libCache.get(r)).filter((t): t is string => !!t)
+  return rids
+    .map(rid => ({ rid, content: libCache.get(rid) }))
+    .filter((l): l is CvoLib => typeof l.content === 'string')
 }
 
 function postRender() {

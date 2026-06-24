@@ -25,7 +25,7 @@
 
 // The studio ⇄ sandbox message contract lives in cvo-protocol.ts — one
 // dependency-free module both sides import, so the shapes can't drift.
-import type { CvoRenderRequest, CvoSandboxOutbound } from './cvo-protocol'
+import type { CvoLib, CvoRenderRequest, CvoSandboxOutbound } from './cvo-protocol'
 
 /** Local alias kept for readability in this file's render core. */
 export type RenderRequest = CvoRenderRequest
@@ -48,6 +48,31 @@ export function injectLibs(doc: Document, libs: string[]): void {
     s.textContent = lib
     doc.head.appendChild(s)
   }
+}
+
+/** A fetched lib paired with the blob URL minted for it (see rewriteDownloadUrls). */
+export interface SandboxLib extends CvoLib {
+  blobUrl: string
+}
+
+/** Rewrite a CVO's own `web/download?...&rid=<rid>` references to the blob URL
+ *  of the fetched lib content, for every lib by rid. CVOs load hosted resources
+ *  with a RELATIVE url (the portal resolves it under /<workspace>/); in the
+ *  sandbox that same url resolves under the extension origin and 404s — fatally
+ *  so for a dynamic `import()`, which a global <script> injection can't satisfy.
+ *  Rewriting to a same-content blob URL makes both import() and <script src>
+ *  resolve. Matches a contiguous url token (no quotes/space/parens) so it works
+ *  whether the url is absolute (`/web/download?...`) or relative (`web/...`). */
+export function rewriteDownloadUrls(text: string, libs: SandboxLib[]): string {
+  let out = text
+  for (const lib of libs) {
+    const re = new RegExp(
+      `[^"'\`()\\s]*\\bweb/download\\?[^"'\`()\\s]*\\brid=${lib.rid}\\b[^"'\`()\\s]*`,
+      'g',
+    )
+    out = out.replace(re, lib.blobUrl)
+  }
+  return out
 }
 
 /** Replace the render container wholesale so teardown is total — no stale
@@ -134,13 +159,22 @@ if (typeof window !== 'undefined' && window.parent !== window) {
 
   // Inject hosted libs only when the set changes — the iframe gets many renders
   // (one per edit) but the deps rarely change; re-parsing a 1 MB lib each
-  // keystroke would be wasteful.
+  // keystroke would be wasteful. Each lib is both run as a global <script> (for
+  // UMD globals) and given a blob URL so the CVO's own download-url references
+  // can be rewritten to it (so dynamic import()/script-src resolve — see
+  // rewriteDownloadUrls). Blob URLs are revoked when the set changes.
   let libsFingerprint = ''
-  const maybeInjectLibs = (libs: string[]) => {
-    const fp = libs.length + ':' + libs.reduce((n, l) => n + l.length, 0)
+  let sandboxLibs: SandboxLib[] = []
+  const maybeInjectLibs = (libs: CvoLib[]) => {
+    const fp = libs.map(l => `${l.rid}:${l.content.length}`).join(';')
     if (fp === libsFingerprint) return
+    sandboxLibs.forEach(l => URL.revokeObjectURL(l.blobUrl))
     document.querySelectorAll('script[data-cvo-lib]').forEach(s => s.remove())
-    injectLibs(document, libs)
+    sandboxLibs = libs.map(l => ({
+      ...l,
+      blobUrl: URL.createObjectURL(new Blob([l.content], { type: 'text/javascript' })),
+    }))
+    injectLibs(document, sandboxLibs.map(l => l.content))
     libsFingerprint = fp
   }
 
@@ -149,9 +183,15 @@ if (typeof window !== 'undefined' && window.parent !== window) {
     const msg = ev.data as RenderRequest | undefined
     if (msg && msg.type === 'CVO_RENDER') {
       currentRunId = msg.runId
-      // Libs first (sync <script> execution defines globals), then the CVO.
+      // Libs first (sync <script> execution defines globals), then the CVO with
+      // its download-url references rewritten to the libs' blob URLs.
       maybeInjectLibs(msg.libs ?? [])
-      runCvo(freshRoot(document), msg, post)
+      const req: RenderRequest = {
+        ...msg,
+        html: rewriteDownloadUrls(msg.html, sandboxLibs),
+        javascript: rewriteDownloadUrls(msg.javascript, sandboxLibs),
+      }
+      runCvo(freshRoot(document), req, post)
     }
   })
 

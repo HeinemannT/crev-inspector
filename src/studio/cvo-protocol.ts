@@ -13,6 +13,15 @@
 /** Console levels the sandbox forwards to the studio's console panel. */
 export type CvoConsoleLevel = 'log' | 'warn' | 'error' | 'info'
 
+/** A hosted FileResource dependency, identified by rid so the sandbox can both
+ *  run it as a global script (UMD libs) AND mint a blob URL to rewrite the CVO's
+ *  own `web/download?...rid=<rid>` references to (so dynamic import()/script-src
+ *  of that resource resolve in the sandbox instead of 404-ing on the ext origin). */
+export interface CvoLib {
+  rid: string
+  content: string
+}
+
 /** studio → sandbox: render this CVO. `data` is the `_data` contract minus
  *  `.element`, which the sandbox attaches. `libs` are hosted-FileResource JS
  *  sources to run before the CVO so their globals are ready. */
@@ -23,7 +32,7 @@ export interface CvoRenderRequest {
   html: string
   javascript: string
   data: Record<string, unknown>
-  libs?: string[]
+  libs?: CvoLib[]
 }
 
 /** sandbox → studio: a forwarded console call. */

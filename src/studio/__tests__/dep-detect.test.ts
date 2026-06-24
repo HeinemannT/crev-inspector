@@ -21,6 +21,18 @@ describe('detectFileResourceRids', () => {
     expect(detectFileResourceRids(html, js).sort()).toEqual(['111111111111', '222222222222'])
   })
 
+  it('finds rids in a RELATIVE download url (no leading slash)', () => {
+    // CVOs commonly import a relative url; the portal resolves it under
+    // /<workspace>/, but the sandbox must detect + rewrite it (else it 404s on
+    // the extension origin). This is the exact shape that broke preview imports.
+    const js = `const m = await import("web/download?propName=content&rid=366110438759833889")`
+    expect(detectFileResourceRids(js)).toEqual(['366110438759833889'])
+  })
+
+  it('does not match web/download mid-identifier (someweb/download)', () => {
+    expect(detectFileResourceRids(`x="someweb/download?rid=111111111111"`)).toEqual([])
+  })
+
   it('ignores short numbers and matches nothing when absent', () => {
     expect(detectFileResourceRids('rid=42 and __X_RID="9" and plain text')).toEqual([])
   })

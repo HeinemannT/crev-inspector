@@ -8,7 +8,7 @@
  * locks the behaviour the studio depends on.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { runCvo, freshRoot, injectLibs, installConsoleCapture, type RenderRequest } from '../sandbox'
+import { runCvo, freshRoot, injectLibs, rewriteDownloadUrls, installConsoleCapture, type RenderRequest, type SandboxLib } from '../sandbox'
 import type { CvoSandboxOutbound as OutboundMessage } from '../cvo-protocol'
 
 function req(over: Partial<RenderRequest>): RenderRequest {
@@ -98,6 +98,33 @@ describe('injectLibs', () => {
     document.head.innerHTML = ''
     injectLibs(document, [])
     expect(document.head.querySelectorAll('script[data-cvo-lib]').length).toBe(0)
+  })
+})
+
+describe('rewriteDownloadUrls', () => {
+  const lib = (rid: string): SandboxLib => ({ rid, content: 'x', blobUrl: `blob:${rid}` })
+
+  it('rewrites a relative download import() to the blob url', () => {
+    const js = `const m = await import("web/download?propName=content&rid=366110438759833889")`
+    expect(rewriteDownloadUrls(js, [lib('366110438759833889')]))
+      .toBe('const m = await import("blob:366110438759833889")')
+  })
+
+  it('rewrites an absolute, workspace-prefixed <script src>', () => {
+    const html = `<script src="/Steadfast/web/download?propName=content&rid=111111111111"></script>`
+    expect(rewriteDownloadUrls(html, [lib('111111111111')]))
+      .toBe('<script src="blob:111111111111"></script>')
+  })
+
+  it('only rewrites urls matching the given rid', () => {
+    const js = `import("web/download?rid=111111111111"); import("web/download?rid=222222222222")`
+    expect(rewriteDownloadUrls(js, [lib('111111111111')]))
+      .toBe('import("blob:111111111111"); import("web/download?rid=222222222222")')
+  })
+
+  it('leaves text untouched when no libs are given', () => {
+    const js = `import("web/download?rid=111111111111")`
+    expect(rewriteDownloadUrls(js, [])).toBe(js)
   })
 })
 

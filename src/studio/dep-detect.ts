@@ -5,8 +5,11 @@
  * same-origin in the portal). Pure + framework-free → unit-tested.
  *
  * Two shapes are recognised, both pointing at a FileResource by rid:
- *   1. A download URL the CVO builds: /web/download?propName=content&rid=<rid>
- *      (the ERMQ host injects exactly this as a <script src>).
+ *   1. A download URL the CVO builds: web/download?propName=content&rid=<rid>
+ *      (the ERMQ host injects exactly this as a <script src> or import()). The
+ *      leading slash is optional — CVOs often use a RELATIVE url, which the
+ *      portal resolves under /<workspace>/ but the sandbox would resolve under
+ *      the extension origin (so it must be detected + rewritten to a blob URL).
  *   2. A bootstrap global carrying the rid, e.g.
  *      window.__ERMQ_ECHARTS_RID = "5824982079220987066"
  *      (the rid is then used to build the download URL at runtime).
@@ -14,7 +17,7 @@
  * Rids are returned as STRINGS (Java longs — never JS numbers).
  */
 
-const DOWNLOAD_RID = /\/web\/download\?[^"'`\s]*\brid=(\d{6,})/g
+const DOWNLOAD_RID = /\bweb\/download\?[^"'`\s]*\brid=(\d{6,})/g
 const BOOTSTRAP_RID = /__[A-Za-z0-9_]*RID[A-Za-z0-9_]*\s*=\s*["'](\d{6,})["']/g
 const CDN_SRC = /\bsrc\s*=\s*["'](https?:\/\/[^"'\s]+)["']/g
 
