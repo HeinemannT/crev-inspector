@@ -124,6 +124,10 @@ html, body { height: 100%; margin: 0; }
 .studio-dep-status { flex: 0 0 auto; color: #2f8a44; }
 .studio-dep-status.studio-dep-warn { color: #b08400; }
 
+.studio-databar-spacer { flex: 1; }
+
+/* Preview width wrapper (breakpoint testing) — centers a constrained iframe. */
+.studio-sandbox-wrap { flex: 1; min-height: 0; width: 100%; align-self: center; display: flex; background: var(--surface-3); }
 .studio-sandbox { flex: 1; width: 100%; border: 0; background: #fff; }
 
 /* ── Console strip ──────────────────────────────────────────────── */

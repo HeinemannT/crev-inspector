@@ -15,9 +15,13 @@
  * file adopts it and the local createEditor goes away.
  */
 import { EditorView, keymap } from '@codemirror/view'
+import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
+import { linter, lintGutter, type Diagnostic } from '@codemirror/lint'
+import { syntaxTree } from '@codemirror/language'
 import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha, type CodeLang } from '../editor-core/cm-scaffold'
 import { CodeSurface, isProgrammaticSwap } from '../editor-core/code-surface'
 import { detectFileResourceRids, detectCdnUrls } from './dep-detect'
+import { cvoApiCandidates } from './cvo-api'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
@@ -60,6 +64,11 @@ let childrenOpen = false
 const libCache = new Map<string, string>()
 let lastLibs: string[] = []
 let resourcesOpen = false
+
+// Preview width for breakpoint testing (0 = full). The CVO re-renders at the
+// chosen width, since container width changes how a responsive CVO lays out.
+let previewWidth = 0
+const PREVIEW_WIDTHS: ReadonlyArray<[string, number]> = [['Full', 0], ['1280', 1280], ['768', 768], ['375', 375]]
 
 // Sandbox handshake: hold the latest render until the sandbox says it's ready.
 let sandboxReady = false
@@ -119,6 +128,12 @@ function ensureSurface() {
       ...baseEditingExtensions(),
       languageExtension(slot.lang as CodeLang),
       catppuccinMocha,
+      // CVO-API autocomplete on the javascript slot (_data.* + the live child
+      // keys); plain CM completion elsewhere. Plus a dep-free syntax-error
+      // linter (flags parse errors inline) + the lint gutter.
+      slot.lang === 'javascript' ? autocompletion({ override: [cvoApiSource] }) : autocompletion(),
+      syntaxErrorLinter,
+      lintGutter(),
       keymap.of([
         ...baseKeymapBindings,
         { key: 'Ctrl-s', mac: 'Cmd-s', run: () => { doSave(); return true } },
@@ -135,6 +150,36 @@ function ensureSurface() {
   surface.setSlots(CODE_PROPS.map(p => ({ key: p, lang: p, code: code[p] ?? '' })))
   surface.activate(activeProp)
 }
+
+/** CodeMirror completion source for the CVO API. Offers `_data.*` members and,
+ *  under `_data.expressions.`, the live keys from the CVO's children. */
+function cvoApiSource(context: CompletionContext): CompletionResult | null {
+  const line = context.state.doc.lineAt(context.pos)
+  const before = line.text.slice(0, context.pos - line.from)
+  const cand = cvoApiCandidates(before, { expressions: children.map(c => c.key).filter(Boolean), tables: [] })
+  if (!cand) return null
+  const options = cand.options
+    .filter(o => o.startsWith(cand.word))
+    .map(label => ({ label, type: 'property' }))
+  if (options.length === 0) return null
+  return { from: context.pos - cand.word.length, options, validFor: /\w*/ }
+}
+
+/** Dep-free syntax linter: surfaces the language grammar's error nodes as inline
+ *  diagnostics. A blank/broken CVO is usually a syntax slip, so flagging parse
+ *  errors as you type beats discovering them via a silent blank widget. */
+const syntaxErrorLinter = linter(view => {
+  const diagnostics: Diagnostic[] = []
+  const len = view.state.doc.length
+  syntaxTree(view.state).cursor().iterate(node => {
+    if (!node.type.isError) return
+    const from = Math.min(node.from, len)
+    const to = node.to > node.from ? Math.min(node.to, len) : Math.min(node.from + 1, len)
+    diagnostics.push({ from, to, severity: 'error', message: 'Syntax error' })
+    if (diagnostics.length > 100) return false // cap on a badly-broken doc
+  })
+  return diagnostics
+})
 
 /** Code map for the current save target (keystone always edits the instance;
  *  a template/instance toggle arrives with the rest of the edit loop). */
@@ -186,7 +231,9 @@ function renderShell() {
             renderDataBar(),
             renderDataInputs(),
             renderResources(),
-            h('iframe', { id: 'studio-sandbox', class: 'studio-sandbox', src: 'sandbox.html', title: 'CVO preview' }),
+            h('div', { class: 'studio-sandbox-wrap', style: previewWidth ? `max-width:${previewWidth}px` : '' },
+              h('iframe', { id: 'studio-sandbox', class: 'studio-sandbox', src: 'sandbox.html', title: 'CVO preview' }),
+            ),
             h('div', { class: 'studio-console', id: 'studio-console' }),
           )
         : null,
@@ -314,7 +361,22 @@ function renderDataBar(): HTMLElement {
     dataMode === 'live' ? h('button', { class: 'studio-databar-btn', title: 'Re-fetch live data', onClick: () => fetchLiveData() }, '↻') : null,
     dataMode === 'live' && liveError ? h('span', { class: 'studio-databar-error', title: liveError }, '⚠ ' + (liveError.length > 70 ? liveError.slice(0, 70) + '…' : liveError)) : null,
     dataMode === 'live' && !liveError && liveData ? h('span', { class: 'studio-databar-ok', title: 'Rendering against live BMP data' }, 'live') : null,
+    h('div', { class: 'studio-databar-spacer' }),
+    h('span', { class: 'studio-databar-label' }, 'Width'),
+    ...PREVIEW_WIDTHS.map(([label, w]) => h('button', {
+      class: `studio-databar-btn${previewWidth === w ? ' active' : ''}`,
+      title: w ? `Render at ${w}px container width` : 'Full width',
+      onClick: () => setPreviewWidth(w),
+    }, label)),
   )
+}
+
+function setPreviewWidth(w: number): void {
+  if (w === previewWidth) return
+  previewWidth = w
+  // renderShell re-renders the CVO into a fresh iframe at the new width — which
+  // is the point: a responsive CVO lays out differently per container width.
+  renderShell()
 }
 
 function setDataMode(mode: 'mock' | 'live'): void {
