@@ -363,6 +363,12 @@
   opacity: 0;
   transform: translateX(20px);
 }
+/* NOTE: this file is injected into the BMP page and has NO access to the
+ * extension's CSS tokens, so every colour here is a deliberate literal. These
+ * toast backgrounds are intentionally the saturated set (not the pale Mocha
+ * tokens): they're solid 0.92-alpha fills with white text on BMP's light page,
+ * where the saturated values keep contrast. Do not "tokenise" — there are no
+ * tokens here, and the values are chosen for this context. */
 .crev-toast--success {
   background: rgba(66, 190, 101, 0.92);
 }
