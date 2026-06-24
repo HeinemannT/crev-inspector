@@ -28,7 +28,7 @@ import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
 import { getTypeAbbr, getTypeColor, type StudioChild } from '../lib/types'
-import { ICON_PLAY, ICON_REFRESH, ICON_FILE_JS } from '../lib/icons'
+import { ICON_PLAY, ICON_REFRESH, ICON_FILE_JS, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
 
 const CODE_PROPS: readonly StudioCodeProp[] = ['html', 'javascript']
@@ -74,6 +74,10 @@ let sandboxFrame: HTMLIFrameElement | null = null
 // chosen width, since container width changes how a responsive CVO lays out.
 let previewWidth = 0
 const PREVIEW_WIDTHS: ReadonlyArray<[string, number]> = [['Full', 0], ['1280', 1280], ['768', 768], ['375', 375]]
+
+// Maximize the preview: hide the editor pane so the CVO is reviewed at full
+// window width (a "full-screen CVO" view). In-place toggle — the iframe stays.
+let previewMaximized = false
 
 // Sandbox handshake: hold the latest render until the sandbox says it's ready.
 let sandboxReady = false
@@ -216,7 +220,7 @@ function renderShell() {
       h('div', { class: 'studio-actions', id: 'studio-actions' }),
     ),
     h('div', { class: 'studio-prop-tabs', id: 'studio-prop-tabs', role: 'tablist' }),
-    h('div', { class: `studio-split${previewVisible ? '' : ' studio-split--no-preview'}` },
+    h('div', { class: `studio-split${previewVisible ? '' : ' studio-split--no-preview'}${previewVisible && previewMaximized ? ' studio-split--preview-only' : ''}`, id: 'studio-split' },
       h('div', { class: 'studio-editor', id: 'studio-cm' }),
       previewVisible
         ? h('div', { class: 'studio-preview' },
@@ -380,7 +384,24 @@ function updateStrip(): void {
     h('div', { class: 'studio-seg', role: 'group', 'aria-label': 'Preview width' },
       ...PREVIEW_WIDTHS.map(([label, w]) => h('button', { class: `studio-seg-btn${previewWidth === w ? ' active' : ''}`, title: w ? `Render at ${w}px container width` : 'Full container width', onClick: () => setPreviewWidth(w) }, label)),
     ),
+    h('button', {
+      class: `studio-icon-btn${previewMaximized ? ' active' : ''}`,
+      title: previewMaximized ? 'Restore the editor' : 'Maximize the preview (hide the editor)',
+      'aria-label': previewMaximized ? 'Restore the editor' : 'Maximize the preview',
+      'aria-pressed': previewMaximized ? 'true' : 'false',
+      onClick: () => setPreviewMaximized(!previewMaximized),
+    }, svg(previewMaximized ? ICON_ARROWS_IN_SIMPLE : ICON_ARROWS_OUT_SIMPLE)),
   )
+}
+
+function setPreviewMaximized(on: boolean): void {
+  if (on === previewMaximized) return
+  previewMaximized = on
+  // In place: toggle the editor-hidden class on the split (the persistent iframe
+  // stays mounted) and re-render the CVO, which now has the full window width.
+  document.getElementById('studio-split')?.classList.toggle('studio-split--preview-only', on)
+  updateStrip()
+  void runPreview()
 }
 
 function setPreviewWidth(w: number): void {
@@ -740,6 +761,9 @@ function togglePreview() {
   // renderShell rebuilds the structure; for a preview toggle it re-mounts (and
   // reloads) the iframe + resets the handshake, then schedules the first render.
   previewVisible = !previewVisible
+  // Hiding the preview makes "maximize preview" meaningless; drop it so showing
+  // the preview again returns to the normal split.
+  if (!previewVisible) previewMaximized = false
   renderShell()
 }
 

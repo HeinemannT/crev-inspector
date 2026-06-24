@@ -54,6 +54,7 @@ html, body { height: 100%; margin: 0; }
 .studio-split { display: flex; flex: 1; min-height: 0; }
 .studio-editor { flex: 1 1 50%; min-width: 0; overflow: hidden; }
 .studio-split--no-preview .studio-editor { flex-basis: 100%; }
+.studio-split--preview-only .studio-editor { display: none; }
 .studio-editor .cm-editor { height: 100%; }
 
 .studio-preview {
