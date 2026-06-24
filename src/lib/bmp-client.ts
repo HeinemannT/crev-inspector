@@ -465,7 +465,7 @@ export class BmpClient {
           ok: false,
           status: res.status,
           error: res.status === 400
-            ? 'Data servlet returned 400 — the render context is not org-rooted. The CVO must resolve under an Organisation; pick an org-rooted scorecard/page rid as the render context.'
+            ? 'Data servlet returned 400: the render context is not org-rooted. The CVO must resolve under an Organisation; pick an org-rooted scorecard or page rid as the render context.'
             : `Data servlet HTTP ${res.status}`,
         };
       }

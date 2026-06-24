@@ -121,27 +121,28 @@ register('STUDIO_WRITE_RESOURCE', async (msg, respond) => {
   const contentLit = formatEcLiteral(`${name};${mime};${msg.base64}`)
   const nameLit = formatEcLiteral(name)
   const folderNameLit = formatEcLiteral(STUDIO_ASSET_FOLDER_NAME)
-  // Host under a dedicated, studio-owned folder. FileResources can't be added
-  // directly under the Resources root (BMP: "Can't add ... to Resources") — they
-  // need a Category folder — and the old `SELECT FileResource → .first().parent`
-  // both crashed when no FileResource existed and dropped the file in whatever
-  // folder happened to come first. Resolve the folder by id (creating it once),
-  // then update-in-place if the resource already exists or add it fresh.
-  // Verified live 2026-06-24: AddedCategory once, idempotent re-host writes only.
+  // Update-in-place if a resource with this id already exists ANYWHERE in the
+  // resource tree (a prior host, or one created by another tool); only create
+  // for a genuinely-new id. Searching the whole tree (not just our folder)
+  // avoids a duplicate-id add failure when the resource lives elsewhere. New
+  // resources go under a dedicated studio-owned Category folder, created once:
+  // FileResources can't be added directly under the Resources root (BMP:
+  // "Can't add ... to Resources"). Verified live 2026-06-24: idempotent, the
+  // folder is created at most once, re-hosts write content only.
   const code = [
     `_froot := root.EXTERNALRESOURCE`,
-    `_fhits := _froot.descendants().filter(self.id = '${STUDIO_ASSET_FOLDER_ID}')`,
-    `IF _fhits.size() > 0 THEN`,
-    `     _folder := _fhits.first()`,
-    `ELSE`,
-    `     _folder := _froot.add(Category, id := '${STUDIO_ASSET_FOLDER_ID}', name := "${folderNameLit}")`,
-    `ENDIF`,
-    `_hits := _folder.descendants().filter(self.id = '${id}')`,
+    `_hits := _froot.descendants().filter(self.id = '${id}')`,
     `IF _hits.size() > 0 THEN`,
     `     _f := _hits.first()`,
     `     _f.change(content := "${contentLit}")`,
     `     output(str(_f.rid))`,
     `ELSE`,
+    `     _fhits := _froot.descendants().filter(self.id = '${STUDIO_ASSET_FOLDER_ID}')`,
+    `     IF _fhits.size() > 0 THEN`,
+    `          _folder := _fhits.first()`,
+    `     ELSE`,
+    `          _folder := _froot.add(Category, id := '${STUDIO_ASSET_FOLDER_ID}', name := "${folderNameLit}")`,
+    `     ENDIF`,
     `     _new := _folder.add(FileResource, id := '${id}', name := "${nameLit}")`,
     `     _new.change(content := "${contentLit}")`,
     `     output(str(_new.rid))`,
