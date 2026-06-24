@@ -255,7 +255,7 @@ function renderShell() {
       previewPresent()
         ? h('div', { class: 'studio-preview' },
             h('div', { class: 'studio-strip', id: 'studio-strip' }),
-            h('div', { class: 'studio-canvas-outer' },
+            h('div', { class: `studio-canvas-outer${previewWidth ? ' studio-canvas-outer--framed' : ''}`, id: 'studio-canvas-outer' },
               h('div', { class: 'studio-canvas', id: 'studio-canvas', style: previewWidth ? `max-width:${previewWidth}px` : '' }),
             ),
             h('div', { class: 'studio-ptabs', id: 'studio-ptabs' }),
@@ -574,6 +574,8 @@ function setPreviewWidth(w: number): void {
   // the CVO at the new width (a responsive CVO lays out per container width).
   const canvas = document.getElementById('studio-canvas')
   if (canvas) canvas.style.maxWidth = w ? `${w}px` : ''
+  // Frame (grey gutter) only when a width preset centers the canvas.
+  document.getElementById('studio-canvas-outer')?.classList.toggle('studio-canvas-outer--framed', !!w)
   updateStrip()
   void runPreview()
 }

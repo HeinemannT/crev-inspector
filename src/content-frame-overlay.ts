@@ -10,6 +10,7 @@
 
 import { h } from './lib/dom';
 import { log } from './lib/logger';
+import { ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE } from './lib/icons';
 import type { FrameKind } from './lib/types';
 
 const MIN_W = 360;
@@ -36,6 +37,8 @@ interface FrameState {
   host: HTMLElement;
   iframe: HTMLIFrameElement;
   bounds: Bounds;
+  /** Pre-maximize bounds to restore to; set only while maximized. */
+  restoreBounds?: Bounds;
   cleanupGestures: () => void;
   onKeydown: (e: KeyboardEvent) => void;
   onViewportResize: () => void;
@@ -253,10 +256,18 @@ function createFrame(opts: MountFrameOptions, bounds: Bounds): FrameState {
   // the standard desktop-OS affordance for "you can drag this". A
   // native `title="Drag to move"` would paint a redundant tooltip
   // after the half-second hover delay and disappear mid-drag.
+  const maxBtn = h('button', {
+    class: 'crev-eo-btn crev-eo-max',
+    title: 'Maximize',
+    'aria-label': `Maximize ${opts.label}`,
+    onClick: () => toggleMaximize(opts.kind),
+  });
+  maxBtn.innerHTML = ICON_ARROWS_OUT_SIMPLE;
   const titlebar = h('div', { class: 'crev-eo-titlebar' },
     h('div', { class: 'crev-eo-grip' }),
     h('div', { class: 'crev-eo-titlebar-label' }, opts.label),
     h('div', { class: 'crev-eo-titlebar-spacer' }),
+    maxBtn,
     h('button', {
       class: 'crev-eo-btn',
       title: 'Close (Esc)',
@@ -621,6 +632,35 @@ function wireResize(state: FrameState, handle: HTMLElement, dir: ResizeDir): () 
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(Math.max(v, lo), hi);
+}
+
+// ── Maximize / restore ────────────────────────────────────────
+
+/** Push the frame's bounds to its host's style. */
+function applyBounds(state: FrameState): void {
+  state.host.style.left = `${state.bounds.left}px`;
+  state.host.style.top = `${state.bounds.top}px`;
+  state.host.style.width = `${state.bounds.width}px`;
+  state.host.style.height = `${state.bounds.height}px`;
+}
+
+/** Toggle a frame between its current size and (near-)full viewport. The
+ *  pre-maximize bounds are remembered for restore. Not persisted — maximize is
+ *  a transient view state, so reopening uses the last manually-sized bounds. */
+function toggleMaximize(kind: FrameKind): void {
+  const state = frames.get(kind);
+  if (!state) return;
+  const btn = state.host.querySelector<HTMLElement>('.crev-eo-max');
+  if (state.restoreBounds) {
+    state.bounds = state.restoreBounds;
+    state.restoreBounds = undefined;
+    if (btn) { btn.innerHTML = ICON_ARROWS_OUT_SIMPLE; btn.title = 'Maximize'; btn.setAttribute('aria-label', `Maximize ${state.kind}`); }
+  } else {
+    state.restoreBounds = { ...state.bounds };
+    state.bounds = { left: MARGIN, top: MARGIN, width: window.innerWidth - 2 * MARGIN, height: window.innerHeight - 2 * MARGIN };
+    if (btn) { btn.innerHTML = ICON_ARROWS_IN_SIMPLE; btn.title = 'Restore'; btn.setAttribute('aria-label', `Restore ${state.kind}`); }
+  }
+  applyBounds(state);
 }
 
 // ── Bounds persistence ────────────────────────────────────────
