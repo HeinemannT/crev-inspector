@@ -149,7 +149,7 @@
  * intent. Used for Reset-all — destructive but routine enough that we don't
  * want a permanent red outline screaming at the user. */
 .btn-danger-ghost { border-color: transparent; color: var(--text-3); }
-.btn-danger-ghost:hover:not(:disabled) { background: rgba(250, 77, 86, 0.15); color: var(--danger); border-color: transparent; }
+.btn-danger-ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); border-color: transparent; }
 
 /* Size: small */
 .btn-small { padding: 2px var(--space-2); font-size: var(--text-xs); }

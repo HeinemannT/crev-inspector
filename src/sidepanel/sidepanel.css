@@ -2048,8 +2048,8 @@ body.crev-divider-dragging * { user-select: none; }
 /* Tint the warn/error rows so they stand out beyond the stripe.
  * info / success stay neutral — they're routine. */
 .activity-entry--warn  { background: rgba(241, 194, 27, 0.06); }
-.activity-entry--error { background: rgba(250, 77, 86, 0.07); }
-.activity-entry--error .activity-msg { color: #ff9b9f; }
+.activity-entry--error { background: color-mix(in srgb, var(--danger) 7%, transparent); }
+.activity-entry--error .activity-msg { color: var(--danger); }
 
 .activity-msg {
   color: var(--text-1);
@@ -2232,8 +2232,8 @@ body.crev-divider-dragging * { user-select: none; }
   animation: crev-latency-pulse 1.2s ease-in-out infinite;
 }
 @keyframes crev-latency-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(218, 30, 40, 0.6); }
-  50%      { box-shadow: 0 0 0 3px rgba(218, 30, 40, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--latency-dead) 60%, transparent); }
+  50%      { box-shadow: 0 0 0 3px transparent; }
 }
 
 
@@ -3735,8 +3735,8 @@ body.crev-divider-dragging * { user-select: none; }
 }
 
 .ctx-chip--on {
-  background: rgba(66, 190, 101, 0.14);
-  border-color: rgba(66, 190, 101, 0.35);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  border-color: color-mix(in srgb, var(--success) 35%, transparent);
 }
 .ctx-chip--on .ctx-chip-val { color: var(--success); }
 
@@ -3746,8 +3746,8 @@ body.crev-divider-dragging * { user-select: none; }
 /* Enums: info-blue value on a matching tint — clearly visible, and off the
  * overloaded purple accent (which now means "interactive" only). */
 .ctx-chip--enum {
-  background: rgba(120, 169, 255, 0.12);
-  border-color: rgba(120, 169, 255, 0.32);
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+  border-color: color-mix(in srgb, var(--info) 32%, transparent);
 }
 .ctx-chip--enum .ctx-chip-val { color: var(--info); }
 
@@ -4275,9 +4275,9 @@ body.crev-divider-dragging * { user-select: none; }
 }
 .crev-toast--visible { opacity: 1; transform: translateX(0); }
 .crev-toast--exit { opacity: 0; transform: translateX(16px); }
-.crev-toast--success { background: rgba(66, 190, 101, 0.92); }
-.crev-toast--error { background: rgba(250, 77, 86, 0.92); }
-.crev-toast--info { background: rgba(120, 169, 255, 0.92); }
+.crev-toast--success { background: color-mix(in srgb, var(--success) 92%, transparent); }
+.crev-toast--error { background: color-mix(in srgb, var(--danger) 92%, transparent); }
+.crev-toast--info { background: color-mix(in srgb, var(--info) 92%, transparent); }
 
 /* Toast with an inline action button (e.g. "Reload" after a save). */
 .crev-toast--with-action {

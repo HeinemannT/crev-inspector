@@ -546,12 +546,12 @@ body {
 }
 
 .editor-output-pill.ok {
-  background: rgba(66, 190, 101, 0.12);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
   color: var(--success);
 }
 
 .editor-output-pill.error {
-  background: rgba(250, 77, 86, 0.12);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
 }
 
@@ -850,7 +850,7 @@ body {
   font-size: var(--text-sm);
   font-style: italic;
 }
-.editor-book-empty--error { color: #e64141; }
+.editor-book-empty--error { color: var(--danger); }
 
 .editor-book-link {
   background: none;
@@ -888,8 +888,8 @@ body {
   color: var(--text-1);
 }
 .editor-book-flash--fail {
-  background: rgba(230, 65, 65, 0.2);
-  color: #f0a0a0;
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+  color: var(--danger);
 }
 
 /* ── Namespaces tab ────────────────────────────
@@ -1003,8 +1003,8 @@ body {
   color: var(--text-1);
 }
 .editor-book-copy-fail {
-  background: rgba(230, 65, 65, 0.25);
-  color: #f0a0a0;
+  background: color-mix(in srgb, var(--danger) 25%, transparent);
+  color: var(--danger);
 }
 .editor-book-snippet-code {
   margin: 0;

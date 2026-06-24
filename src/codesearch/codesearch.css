@@ -117,7 +117,7 @@ body {
 .cs-search-clear:hover { background: var(--surface-4); color: var(--text-1); }
 .cs-search-stop {
   padding: 4px 12px;
-  background: var(--danger, #e64141);
+  background: var(--danger);
   color: #fff;
   border: none;
   border-radius: var(--radius-sm);
@@ -233,13 +233,13 @@ body {
 }
 .cs-scope-feedback--ok {
   color: var(--info);
-  background: rgba(120, 169, 255, 0.12);
-  border: 1px solid rgba(120, 169, 255, 0.3);
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--info) 30%, transparent);
 }
 .cs-scope-feedback--error {
   color: var(--danger);
-  background: rgba(250, 77, 86, 0.10);
-  border: 1px solid rgba(250, 77, 86, 0.3);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   text-overflow: ellipsis;
 }
 .cs-scope-feedback-name { color: var(--text-1); overflow: hidden; text-overflow: ellipsis; }
@@ -341,15 +341,15 @@ body {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: color-mix(in srgb, var(--danger, #e64141) 18%, var(--surface-1));
-  border: 1px solid color-mix(in srgb, var(--danger, #e64141) 55%, transparent);
+  background: color-mix(in srgb, var(--danger) 18%, var(--surface-1));
+  border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);
   border-radius: var(--radius-md);
   color: var(--text-1);
   font-size: var(--text-sm);
   flex-shrink: 0;
 }
 .cs-error-icon {
-  color: var(--danger, #e64141);
+  color: var(--danger);
   font-size: 14px;
   flex-shrink: 0;
 }
