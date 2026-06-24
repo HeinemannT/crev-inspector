@@ -112,6 +112,11 @@ let panelHeight = 150
 // editor bar; CodeSurface owns the actual wrap reconfigure.
 let wrapLines = false
 
+// Auto-render the preview on edit (on by default). Off lets the author work on
+// a heavy CVO without a full re-execution after every pause — Re-render / ⌘Enter
+// drives it manually.
+let autoRender = true
+
 // Sandbox handshake: hold the latest render until the sandbox says it's ready.
 let sandboxReady = false
 let pendingRender = false
@@ -200,7 +205,7 @@ function ensureSurface() {
       ]),
       // Re-render on user edits only — a programmatic slot-swap (tab switch)
       // carries CodeSurface's annotation and must not trigger a preview rebuild.
-      EditorView.updateListener.of(u => { if (u.docChanged && !isProgrammaticSwap(u)) schedulePreview() }),
+      EditorView.updateListener.of(u => { if (u.docChanged && !isProgrammaticSwap(u) && autoRender) schedulePreview() }),
     ],
     onDirtyChange: () => { refreshActions(); updateFileSwitch() },
   })
@@ -519,10 +524,24 @@ function updateStrip(): void {
     live && renderContextRid && liveError ? h('span', { class: 'studio-strip-err', title: liveError }, h('span', { class: 'studio-status-dot studio-status-dot--err' }), 'Live failed') : null,
     live && renderContextRid && !liveError && liveData ? h('span', { class: 'studio-strip-ok', title: 'Rendering against live BMP data' }, h('span', { class: 'studio-status-dot studio-status-dot--ok' }), 'Live') : null,
     h('div', { class: 'studio-strip-spacer' }),
+    h('div', { class: 'seg', role: 'group', 'aria-label': 'Auto-render' },
+      h('button', {
+        class: `seg-btn${autoRender ? ' active' : ''}`,
+        title: autoRender ? 'Auto-rendering on edit — click to render only on demand (Re-render / ⌘Enter)' : 'Manual render — click to re-render automatically as you edit',
+        'aria-pressed': autoRender ? 'true' : 'false',
+        onClick: () => setAutoRender(!autoRender),
+      }, 'Auto'),
+    ),
     h('div', { class: 'seg', role: 'group', 'aria-label': 'Preview width' },
       ...PREVIEW_WIDTHS.map(([label, w]) => h('button', { class: `seg-btn${previewWidth === w ? ' active' : ''}`, title: w ? `Render at ${w}px container width` : 'Full container width', onClick: () => setPreviewWidth(w) }, label)),
     ),
   )
+}
+
+function setAutoRender(on: boolean): void {
+  autoRender = on
+  updateStrip()
+  if (on) void runPreview() // catch up to edits made while manual
 }
 
 /** Switch the pane layout. Crossing the preview-present boundary (to/from
