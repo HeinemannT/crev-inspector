@@ -677,16 +677,20 @@ async function doSave() {
 
   // Save->reload: re-read from BMP once to confirm what actually landed. A BMP
   // in-script .change() can return HTTP 200 yet silently roll back; comparing
-  // the re-fetched value catches that, and reloadSlots re-seeds every slot to
-  // the server-canonical text.
+  // the re-fetched value catches that. Only re-seed the slots we SAVED, and
+  // only if the user hasn't re-edited them during the (awaited) round-trips —
+  // re-seeding every slot would silently overwrite an edit typed into the other
+  // field while the save was in flight.
   const verify = await sendRequest({ type: 'STUDIO_FETCH_CODE', rid: target.rid })
   if (verify?.type === 'STUDIO_CODE_DATA' && verify.ok && verify.code) {
     const fresh = verify.code
-    surface.reloadSlots(CODE_PROPS.map(p => ({ key: p, lang: p, code: fresh[p] ?? '' })))
-    for (const p of CODE_PROPS) activeCode()[p] = fresh[p] ?? ''
     for (const [p, value] of savedValues) {
       if ((fresh[p] ?? '') !== value) {
         logConsole('error', `Warning: BMP's ${p} differs from what was saved — possible silent rollback. The editor now shows BMP's value.`)
+      }
+      if (!surface.isDirty(p)) {
+        surface.reloadSlots([{ key: p, lang: p, code: fresh[p] ?? '' }])
+        activeCode()[p] = fresh[p] ?? ''
       }
     }
   }
