@@ -65,22 +65,24 @@ export function startObserver(s: ContentState, onUrlChange: () => void) {
       sendToSW({ type: 'BMP_URL_CHANGED' } as InspectorMessage);
     }
 
-    // Did the data-rid population change meaningfully? Cheap querySelectorAll
-    // on every batch — under a millisecond on the Steadfast scorecard. If the
-    // count flipped from empty → populated (React mounting widgets) or back,
-    // push a PAGE_INFO refresh so the Page tab catches up without the user
-    // having to click Refresh. Re-use the existing BMP_URL_CHANGED signal —
-    // the SW handler is "scan the active tab again", which is what we want.
-    const ridCount = document.querySelectorAll('[data-rid]').length;
-    const tabRid = findActiveTabAnchor()?.rid ?? null;
-    if (ridCount !== lastRidCount || tabRid !== lastTabRid) {
-      lastRidCount = ridCount;
-      lastTabRid = tabRid;
-      if (ridDebounceTimer) clearTimeout(ridDebounceTimer);
-      ridDebounceTimer = setTimeout(() => {
+    // Did the data-rid population change meaningfully? If the count flipped from
+    // empty → populated (React mounting widgets) or back, push a PAGE_INFO
+    // refresh so the Page tab catches up without the user clicking Refresh.
+    // The two querySelectorAll-style measurements (rid count + active tab anchor)
+    // run in the DEBOUNCED tail rather than on every mutation batch — during an
+    // animation/typing burst that's one measurement after things settle instead
+    // of one per batch. Re-uses the BMP_URL_CHANGED signal (SW handler = "scan
+    // the active tab again").
+    if (ridDebounceTimer) clearTimeout(ridDebounceTimer);
+    ridDebounceTimer = setTimeout(() => {
+      const ridCount = document.querySelectorAll('[data-rid]').length;
+      const tabRid = findActiveTabAnchor()?.rid ?? null;
+      if (ridCount !== lastRidCount || tabRid !== lastTabRid) {
+        lastRidCount = ridCount;
+        lastTabRid = tabRid;
         sendToSW({ type: 'BMP_URL_CHANGED' } as InspectorMessage);
-      }, RID_COUNT_REFRESH_DEBOUNCE);
-    }
+      }
+    }, RID_COUNT_REFRESH_DEBOUNCE);
 
     // Overlay sync (debounced, only when inspect active)
     if (s.inspectActive) {

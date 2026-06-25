@@ -46,8 +46,22 @@ const s = new ContentState();
 
 // ── Inspect mode ─────────────────────────────────────────────────
 
+// Per-tab record of whether inspect was on, so a fresh content-script instance
+// can repaint borders immediately instead of waiting for the SW. sessionStorage
+// survives a re-injection (same page) but not a cross-origin navigation, which
+// is exactly the scope we want. Reads/writes are guarded — sessionStorage can
+// throw in sandboxed frames or when storage is disabled.
+const INSPECT_SS_KEY = 'crev_inspect';
+function persistInspect(active: boolean): void {
+  try { sessionStorage.setItem(INSPECT_SS_KEY, active ? '1' : '0'); } catch { /* sandboxed / disabled */ }
+}
+function wasInspecting(): boolean {
+  try { return sessionStorage.getItem(INSPECT_SS_KEY) === '1'; } catch { return false; }
+}
+
 function setInspectMode(active: boolean) {
   s.inspectActive = active;
+  persistInspect(active);
   if (active) {
     injectStyles();
     syncOverlays(s);
@@ -518,4 +532,15 @@ window.__crev_teardown = teardown;
 
 try { connectPort(); } catch (e) { log.swallow('content:init:port', e); }
 try { runDetection(); } catch (e) { log.swallow('content:init:detection', e); }
+
+// Optimistic inspect restore. If this tab was inspecting before this instance
+// booted — e.g. the SW idled out and a panel/tab event re-injected content.js
+// into the still-live page (the previous instance's teardown removed the
+// overlays) — repaint the borders NOW from local state rather than waiting for
+// the SW to reconnect and re-push INSPECT_STATE. That wait was the window where
+// borders visibly disappeared "after a while". The real INSPECT_STATE reconciles
+// when the port connects; enrichment refills lazily.
+if (wasInspecting()) {
+  try { setInspectMode(true); } catch (e) { log.swallow('content:init:restoreInspect', e); }
+}
 try { startObserver(s, runDetection); } catch (e) { log.swallow('content:init:observer', e); }

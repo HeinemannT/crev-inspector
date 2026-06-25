@@ -273,11 +273,22 @@ export function syncOverlays(s: ContentState) {
     }
   }
 
-  // Also check already-badged elements whose enrichment was never completed
+  // Single pass over every element for the two cache concerns, instead of two
+  // separate full walks of a dense page's rid set per sync:
+  //   (a) re-request enrichment for any rid still missing it — this also covers
+  //       already-badged elements whose enrichment never landed (the write pass
+  //       above only handles brand-new elements), and
+  //   (b) discover new rids for the object cache.
+  const now = Date.now();
+  const newDiscovered: BmpObject[] = [];
   for (const { rid } of elements) {
     if (!s.enrichments.has(rid) && !s.requestedRids.has(rid)) {
       ridsToEnrich.push(rid);
       s.requestedRids.add(rid);
+    }
+    if (!s.discoveredRids.has(rid) && s.discoveredRids.size < DISCOVERED_RIDS_CAP) {
+      s.discoveredRids.add(rid);
+      newDiscovered.push({ rid, source: 'dom' as const, discoveredAt: now, updatedAt: now });
     }
   }
 
@@ -285,16 +296,6 @@ export function syncOverlays(s: ContentState) {
   if (ridsToEnrich.length > 0) {
     log.debug('sync', `ENRICH_BADGES: sending ${ridsToEnrich.length} RIDs`, ridsToEnrich);
     sendToSW({ type: 'ENRICH_BADGES', rids: ridsToEnrich });
-  }
-
-  // Also discover objects for the cache (dedup: only send new RIDs)
-  const now = Date.now();
-  const newDiscovered: BmpObject[] = [];
-  for (const { rid } of elements) {
-    if (!s.discoveredRids.has(rid) && s.discoveredRids.size < DISCOVERED_RIDS_CAP) {
-      s.discoveredRids.add(rid);
-      newDiscovered.push({ rid, source: 'dom' as const, discoveredAt: now, updatedAt: now });
-    }
   }
   if (newDiscovered.length > 0) {
     sendToSW({ type: 'OBJECTS_DISCOVERED', objects: newDiscovered });
