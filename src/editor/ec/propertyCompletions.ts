@@ -52,7 +52,29 @@ const ACCESSOR_METHODS: Record<string, ArgPolicy> = {
   max: 'first',
   count: 'first',
   addColumn: 'rest',
+  // .ref(prop) / .rref(prop) take a single reference-property accessor; the
+  // offered props are filtered to the matching reference kind (see propFilter).
+  ref: 'first',
+  rref: 'first',
 };
+
+/** Reference-following methods restrict their property list to one kind. */
+function propFilterFor(method: string): (configClass: string) => boolean {
+  if (method === 'ref') {
+    return cc => cc === 'ReferenceMethodConfig' || cc === 'HistoricalReferenceMethodConfig';
+  }
+  if (method === 'rref') {
+    return cc => cc === 'ReverseReferenceMethodConfig';
+  }
+  return () => true;
+}
+
+/** Methods whose argument is evaluated per ELEMENT of the receiver list, so a
+ *  `self` inside them refers to that element (`list.table(… self.ref(x) …)`). */
+const ELEMENT_CONTEXT_METHODS = new Set([
+  'table', 'addColumn', 'addRow', 'map', 'forEach', 'filter', 'calculate',
+  'as', 'sort', 'sortReverse', 'groupBy', 'distinct', 'sum', 'avg', 'min', 'max', 'count',
+]);
 
 /** Comparators that mark a VALUE position (so a property-name source must not fire). */
 const VALUE_POS_RE = /[=<>!]|\b(?:CONTAINS|IN)\b/i;
@@ -76,7 +98,7 @@ function insideString(text: string, offset: number): boolean {
 /** Detect an enclosing accessor-method call around `at` (the start of the word
  *  being typed). Returns the receiver identifier when `at` is at a property-name
  *  argument position of an accessor method, else null. */
-export function findAccessorCall(text: string, at: number): { receiver: string; method: string } | null {
+export function findAccessorCall(text: string, at: number): { receiver: string; method: string; receiverStart: number } | null {
   // Walk left, paren-aware, to the open paren that encloses `at`.
   let depth = 0;
   let lastComma = -1;
@@ -133,7 +155,65 @@ export function findAccessorCall(text: string, at: number): { receiver: string; 
   while (k >= 0 && /\w/.test(text[k])) k--;
   const receiver = text.slice(k + 1, recvEnd + 1);
   if (!receiver) return null;
-  return { receiver, method };
+  return { receiver, method, receiverStart: k + 1 };
+}
+
+/** Walk left from `from` over a method/property chain (`list.table().addColumn`)
+ *  to the root identifier (`list`), skipping balanced `(...)` call args. Returns
+ *  the root var name, or null. */
+export function chainRoot(text: string, from: number): string | null {
+  let i = from;
+  for (;;) {
+    while (i >= 0 && /\s/.test(text[i])) i--;
+    if (i < 0) return null;
+    if (text[i] === ')') {
+      // Skip a balanced (...) so a call segment like `.table()` is stepped over.
+      let d = 0;
+      for (; i >= 0; i--) {
+        if (text[i] === ')') d++;
+        else if (text[i] === '(') { d--; if (d === 0) { i--; break; } }
+      }
+      continue;
+    }
+    if (!/\w/.test(text[i])) return null;
+    const end = i;
+    while (i >= 0 && /\w/.test(text[i])) i--;
+    const ident = text.slice(i + 1, end + 1);
+    // A `.` before this ident means it's a chain segment (method/prop) — keep
+    // walking to the root. Otherwise this is the root variable.
+    let k = i;
+    while (k >= 0 && /\s/.test(text[k])) k--;
+    if (k >= 0 && text[k] === '.') { i = k - 1; continue; }
+    return ident || null;
+  }
+}
+
+/** Resolve `self` (the implicit element inside table/addColumn/map/… bodies) to
+ *  the element type(s) of the enclosing element-context call's receiver list.
+ *  `selfAt` is the position of the `self` token. Returns null (fail silently)
+ *  when there's no element-context call or its receiver isn't a tracked var. */
+function resolveSelfType(text: string, selfAt: number): string[] | null {
+  // Find the call enclosing the `self` token.
+  let depth = 0;
+  let i = selfAt - 1;
+  for (; i >= 0; i--) {
+    const c = text[i];
+    if (c === ')') depth++;
+    else if (c === '(') { if (depth === 0) break; depth--; }
+  }
+  if (i < 0) return null;
+  let j = i - 1;
+  while (j >= 0 && /\s/.test(text[j])) j--;
+  const methodEnd = j;
+  while (j >= 0 && /\w/.test(text[j])) j--;
+  if (j < 0 || text[j] !== '.') return null;
+  const method = text.slice(j + 1, methodEnd + 1);
+  if (!ELEMENT_CONTEXT_METHODS.has(method)) return null;
+  const root = chainRoot(text, j - 1);
+  if (!root) return null;
+  const inf = getInference(root);
+  if (!inf || (inf.kind !== 'list' && inf.kind !== 'scalar')) return null;
+  return inf.kind === 'list' ? inf.types : [inf.type];
 }
 
 /** Detect a `SELECT <Class> … WHERE <prop>` property-name position. `window` is
@@ -154,7 +234,7 @@ export function findWhereClass(window: string): string | null {
 
 /** Resolve the applicable class(es) + the word-start offset at the cursor, or
  *  null when the cursor is not at a property-accessor position. */
-function resolveContext(state: CompletionContext['state'], pos: number): { types: string[]; from: number } | null {
+function resolveContext(state: CompletionContext['state'], pos: number): { types: string[]; from: number; method?: string } | null {
   const line = state.doc.lineAt(pos);
   const offset = pos - line.from;
   if (insideString(line.text, offset)) return null;
@@ -167,10 +247,17 @@ function resolveContext(state: CompletionContext['state'], pos: number): { types
   // (A) method-argument accessor position (line-local — EC calls don't wrap).
   const call = findAccessorCall(line.text, wordStart);
   if (call) {
-    const inf = getInference(call.receiver);
-    if (!inf || (inf.kind !== 'list' && inf.kind !== 'scalar')) return null;
-    const types = inf.kind === 'list' ? inf.types : [inf.type];
-    return { types, from };
+    // `self` resolves to the enclosing element-context call's element type;
+    // any other receiver must be a tracked variable.
+    const types = call.receiver === 'self'
+      ? resolveSelfType(line.text, line.from + call.receiverStart)
+      : (() => {
+          const inf = getInference(call.receiver);
+          if (!inf || (inf.kind !== 'list' && inf.kind !== 'scalar')) return null;
+          return inf.kind === 'list' ? inf.types : [inf.type];
+        })();
+    if (!types) return null;
+    return { types, from, method: call.method };
   }
 
   // (B) WHERE property-name position. Scan a bounded window back from the word
@@ -186,11 +273,12 @@ function lookup(types: string[]): TypeSchemaProp[] | undefined {
   return types.length > 1 ? intersectionSchema(types) : getSchema(types[0]);
 }
 
-function build(props: TypeSchemaProp[], from: number): CompletionResult | null {
-  if (!props.length) return null;
+function build(props: TypeSchemaProp[], from: number, method?: string): CompletionResult | null {
+  const filtered = method ? props.filter(p => propFilterFor(method)(p.configClass)) : props;
+  if (!filtered.length) return null;
   return {
     from,
-    options: props.map(p => ({
+    options: filtered.map(p => ({
       label: p.accessor,
       detail: p.label || (p.systemobject ? 'system' : 'property'),
       type: 'property',
@@ -207,7 +295,7 @@ export function propertyCompletions(context: CompletionContext): CompletionResul
   if (!ctx) return null;
 
   const ready = lookup(ctx.types);
-  if (ready) return build(ready, ctx.from);
+  if (ready) return build(ready, ctx.from, ctx.method);
 
   // Schema not cached yet — fetch eagerly and resolve once it arrives (mirrors
   // starExpansion). CodeMirror waits briefly for an async source.
@@ -219,7 +307,7 @@ export function propertyCompletions(context: CompletionContext): CompletionResul
       const p = lookup(ctx.types);
       if (!p) return;
       cleanup();
-      resolve(build(p, ctx.from));
+      resolve(build(p, ctx.from, ctx.method));
     });
     const cleanup = () => { clearTimeout(timeout); unsubscribe(); };
   });
