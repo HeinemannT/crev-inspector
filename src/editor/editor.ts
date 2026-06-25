@@ -47,6 +47,7 @@ import {
   type TypeInference,
 } from './ec/typeInference'
 import { starExpansionCompletions } from './ec/starExpansion'
+import { propertyCompletions } from './ec/propertyCompletions'
 import { extendedLinter } from './ec/diagnostics'
 import { runtimeErrorLinter, setRuntimeError, parseEcErrorLocation, clearRuntimeErrors } from './ec/runtimeErrors'
 import { ecBlockMatching } from './ec/blockMatching'
@@ -566,7 +567,7 @@ function buildExtensions(slot: CodeSlot): Extension[] {
     ...baseEditingExtensions(),
     // EC gets the `*`-expansion + identifier/method completions; other slots get
     // CM's default completion only.
-    autocompletion({ override: isEc ? [starExpansionCompletions, extendedCompletions] : undefined }),
+    autocompletion({ override: isEc ? [starExpansionCompletions, propertyCompletions, extendedCompletions] : undefined }),
     // `*` isn't an identifier char, so kick autocomplete explicitly so the
     // `*`-expansion snippet surfaces immediately on type.
     isEc ? EditorView.updateListener.of((update) => {
