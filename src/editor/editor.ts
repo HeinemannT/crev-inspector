@@ -568,8 +568,16 @@ function buildExtensions(slot: CodeSlot): Extension[] {
   const isEc = slot.lang === 'ec'
   const exts: Extension[] = [
     ...baseEditingExtensions(),
-    // EC gets the `*`-expansion + identifier/method completions; other slots get
-    // CM's default completion only.
+    // EC gets the `*`-expansion + identifier/method/property/value completions;
+    // other slots get CM's default completion only.
+    //
+    // Auto-show relies on CM's default activateOnTyping (NOT overridden here):
+    // any input.type keystroke activates the sources (verified in CM source —
+    // getUpdateType treats every input.type as Activate, no word-char gate; even
+    // `(` via closeBrackets carries userEvent input.type). So completions pop
+    // ~100ms after WHERE␣ / `(` / `=` / `CONTAINS` / a typed name, and each
+    // source's validFor keeps the popup open as the user types. Do NOT set
+    // activateOnTyping:false or the property/value popups stop auto-appearing.
     autocompletion({ override: isEc ? [starExpansionCompletions, propertyCompletions, valueCompletions, extendedCompletions] : undefined }),
     // `*` isn't an identifier char, so kick autocomplete explicitly so the
     // `*`-expansion snippet surfaces immediately on type.
