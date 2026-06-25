@@ -296,6 +296,18 @@ register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
  * the property-config class (ListMethodConfig/HistoricalListMethodConfig read
  * `.listPropertySet`; TagMethodConfig reads `.tagList` — reading the wrong one
  * THROWS, hence the strict branch). Emits `__prop__|||<accessor>|||list|tag`
+ *
+ * Coverage is COMPLETE for option-bearing (t.<businessId>) properties, verified
+ * against the decompiled 5.6.10.0 MethodConfig taxonomy + live introspection:
+ *   - ListMethodConfig + HistoricalListMethodConfig  → .listPropertySet
+ *   - TagMethodConfig                                 → .tagList
+ * There is NO HistoricalTagMethodConfig (tags aren't historized — Historical*
+ * variants exist for Boolean/Date/List/Number/Progress/Reference/RichText/
+ * Status/Text but not Tag), so "historical list/tag" = historical-LIST + tag.
+ * Deliberately excluded: StatusMethodConfig (no ListPropertySet — its values are
+ * a fixed runtime status type, not t.<id> objects), Boolean (TRUE/FALSE, not a
+ * ref), and Reference/ReverseReference (target arbitrary objects, not a fixed
+ * option set — navigation is handled by the .ref()/.rref() completion instead).
  * then `__opt__|||<id>|||<name>` per member. ELSE branches are filled because EC
  * rejects an empty ELSE. Live-verified against CeRiskAssessment (76ms, 11 sets).
  *
