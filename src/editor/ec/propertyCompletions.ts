@@ -95,50 +95,63 @@ function insideString(text: string, offset: number): boolean {
   return inStr;
 }
 
-/** Detect an enclosing accessor-method call around `at` (the start of the word
- *  being typed). Returns the receiver identifier when `at` is at a property-name
- *  argument position of an accessor method, else null. */
-export function findAccessorCall(text: string, at: number): { receiver: string; method: string; receiverStart: number } | null {
-  // Walk left, paren-aware, to the open paren that encloses `at`.
+/** The `<receiver>.<method>(` call that immediately encloses position `at`:
+ *  walk left (paren-aware) to the owning `(`, read the `.method` before it, then
+ *  the receiver identifier (the last chain component) before the dot. Shared by
+ *  the accessor / filter / self resolvers so the walk lives in one place. */
+interface EnclosingCall { openParen: number; dotIndex: number; method: string; receiver: string; receiverStart: number }
+function enclosingCall(text: string, at: number): EnclosingCall | null {
   let depth = 0;
-  let lastComma = -1;
   let i = at - 1;
   for (; i >= 0; i--) {
     const c = text[i];
     if (c === ')') depth++;
-    else if (c === '(') {
-      if (depth === 0) break;
-      depth--;
-    } else if (depth === 0 && c === ',' && lastComma < 0) {
-      lastComma = i; // first comma walking left = boundary of the current arg
-    }
+    else if (c === '(') { if (depth === 0) break; depth--; }
   }
   if (i < 0) return null; // no enclosing call
   const openParen = i;
 
-  // Read `.method` immediately left of the open paren.
   let j = openParen - 1;
   while (j >= 0 && /\s/.test(text[j])) j--;
   const methodEnd = j;
   while (j >= 0 && /\w/.test(text[j])) j--;
   if (j < 0 || text[j] !== '.') return null;
+  const dotIndex = j;
   const method = text.slice(j + 1, methodEnd + 1);
-  const policy = ACCESSOR_METHODS[method];
+
+  let k = j - 1;
+  while (k >= 0 && /\s/.test(text[k])) k--;
+  const recvEnd = k;
+  while (k >= 0 && /\w/.test(text[k])) k--;
+  return { openParen, dotIndex, method, receiver: text.slice(k + 1, recvEnd + 1), receiverStart: k + 1 };
+}
+
+/** A tracked variable's inferred element type(s), or null if not a list/scalar. */
+function inferredTypes(receiver: string): string[] | null {
+  const inf = getInference(receiver);
+  if (!inf || (inf.kind !== 'list' && inf.kind !== 'scalar')) return null;
+  return inf.kind === 'list' ? inf.types : [inf.type];
+}
+
+/** Detect an enclosing accessor-method call around `at` (the start of the word
+ *  being typed). Returns the receiver identifier when `at` is at a property-name
+ *  argument position of an accessor method, else null. */
+export function findAccessorCall(text: string, at: number): { receiver: string; method: string; receiverStart: number } | null {
+  const call = enclosingCall(text, at);
+  if (!call || !call.receiver) return null;
+  const policy = ACCESSOR_METHODS[call.method];
   if (!policy) return null;
 
-  // Argument index = number of top-level commas before the cursor.
-  const argStart = lastComma >= 0 ? lastComma + 1 : openParen + 1;
-  let commaCount = 0;
-  {
-    let d = 0;
-    for (let k = openParen + 1; k < at; k++) {
-      const c = text[k];
-      if (c === '(') d++;
-      else if (c === ')') d--;
-      else if (c === ',' && d === 0) commaCount++;
-    }
+  // One forward walk for both the argument index and the current arg's start.
+  let argIndex = 0;
+  let argStart = call.openParen + 1;
+  let d = 0;
+  for (let k = call.openParen + 1; k < at; k++) {
+    const c = text[k];
+    if (c === '(') d++;
+    else if (c === ')') d--;
+    else if (c === ',' && d === 0) { argIndex++; argStart = k + 1; }
   }
-  const argIndex = commaCount;
 
   if (policy === 'first' && argIndex !== 0) return null;
   if (policy === 'rest' && argIndex === 0) return null;
@@ -147,15 +160,7 @@ export function findAccessorCall(text: string, at: number): { receiver: string; 
     // Value position inside the predicate (after a comparator) is not a prop name.
     if (VALUE_POS_RE.test(text.slice(argStart, at))) return null;
   }
-
-  // Receiver identifier immediately left of `.method` (last chain component).
-  let k = j - 1;
-  while (k >= 0 && /\s/.test(text[k])) k--;
-  const recvEnd = k;
-  while (k >= 0 && /\w/.test(text[k])) k--;
-  const receiver = text.slice(k + 1, recvEnd + 1);
-  if (!receiver) return null;
-  return { receiver, method, receiverStart: k + 1 };
+  return { receiver: call.receiver, method: call.method, receiverStart: call.receiverStart };
 }
 
 /** Walk left from `from` over a method/property chain (`list.table().addColumn`)
@@ -193,27 +198,10 @@ export function chainRoot(text: string, from: number): string | null {
  *  `selfAt` is the position of the `self` token. Returns null (fail silently)
  *  when there's no element-context call or its receiver isn't a tracked var. */
 export function resolveSelfType(text: string, selfAt: number): string[] | null {
-  // Find the call enclosing the `self` token.
-  let depth = 0;
-  let i = selfAt - 1;
-  for (; i >= 0; i--) {
-    const c = text[i];
-    if (c === ')') depth++;
-    else if (c === '(') { if (depth === 0) break; depth--; }
-  }
-  if (i < 0) return null;
-  let j = i - 1;
-  while (j >= 0 && /\s/.test(text[j])) j--;
-  const methodEnd = j;
-  while (j >= 0 && /\w/.test(text[j])) j--;
-  if (j < 0 || text[j] !== '.') return null;
-  const method = text.slice(j + 1, methodEnd + 1);
-  if (!ELEMENT_CONTEXT_METHODS.has(method)) return null;
-  const root = chainRoot(text, j - 1);
-  if (!root) return null;
-  const inf = getInference(root);
-  if (!inf || (inf.kind !== 'list' && inf.kind !== 'scalar')) return null;
-  return inf.kind === 'list' ? inf.types : [inf.type];
+  const call = enclosingCall(text, selfAt);
+  if (!call || !ELEMENT_CONTEXT_METHODS.has(call.method)) return null;
+  const root = chainRoot(text, call.dotIndex - 1);
+  return root ? inferredTypes(root) : null;
 }
 
 /** Detect a `SELECT <Class> … WHERE <prop>` property-name position. `window` is
@@ -253,11 +241,7 @@ function resolveContext(state: CompletionContext['state'], pos: number): { types
     // doc offset — that broke self resolution on any line after the first).
     const types = call.receiver === 'self'
       ? resolveSelfType(line.text, call.receiverStart)
-      : (() => {
-          const inf = getInference(call.receiver);
-          if (!inf || (inf.kind !== 'list' && inf.kind !== 'scalar')) return null;
-          return inf.kind === 'list' ? inf.types : [inf.type];
-        })();
+      : inferredTypes(call.receiver);
     if (!types) return null;
     return { types, from, method: call.method };
   }
@@ -304,28 +288,41 @@ function build(props: TypeSchemaProp[], from: number, method?: string): Completi
   };
 }
 
-export function propertyCompletions(context: CompletionContext): CompletionResult | Promise<CompletionResult | null> | null {
-  const { state, pos } = context;
-  const ctx = resolveContext(state, pos);
-  if (!ctx) return null;
-
-  const ready = lookup(ctx.types);
-  if (ready) return build(ready, ctx.from, ctx.method);
-
-  // Schema not cached yet — fetch eagerly and resolve once it arrives (mirrors
-  // starExpansion). CodeMirror waits briefly for an async source.
-  for (const t of ctx.types) ensureSchemaNow(t);
+/** Shared async shell for the cache-backed sources: return `tryBuild()` if the
+ *  data is already cached; else kick `ensure()` and resolve once a typeInference
+ *  `notify()` makes it available. `giveUp()` (optional) short-circuits to null
+ *  when we can prove the data will never match (e.g. options loaded but the prop
+ *  isn't a list). 2s timeout + abort handling so nothing leaks or dangles. */
+function awaitCompletion(
+  context: CompletionContext,
+  tryBuild: () => CompletionResult | null,
+  ensure: () => void,
+  giveUp?: () => boolean,
+): CompletionResult | Promise<CompletionResult | null> | null {
+  const ready = tryBuild();
+  if (ready) return ready;
+  if (giveUp && giveUp()) return null;
+  ensure();
   return new Promise<CompletionResult | null>((resolve) => {
     const timeout = setTimeout(() => { cleanup(); resolve(null); }, 2000);
     const unsubscribe = subscribe(() => {
       if (context.aborted) { cleanup(); resolve(null); return; }
-      const p = lookup(ctx.types);
-      if (!p) return;
-      cleanup();
-      resolve(build(p, ctx.from, ctx.method));
+      const r = tryBuild();
+      if (r) { cleanup(); resolve(r); return; }
+      if (giveUp && giveUp()) { cleanup(); resolve(null); }
     });
     const cleanup = () => { clearTimeout(timeout); unsubscribe(); };
   });
+}
+
+export function propertyCompletions(context: CompletionContext): CompletionResult | Promise<CompletionResult | null> | null {
+  const ctx = resolveContext(context.state, context.pos);
+  if (!ctx) return null;
+  return awaitCompletion(
+    context,
+    () => { const p = lookup(ctx.types); return p ? build(p, ctx.from, ctx.method) : null; },
+    () => ctx.types.forEach(ensureSchemaNow),
+  );
 }
 
 // ── Value autocomplete: list/tag option values (t.<businessId>) ──────────────
@@ -372,28 +369,10 @@ export function parseComparison(text: string, offset: number): { accessor: strin
   return { accessor, accessorStart: a + 1, valueStart };
 }
 
-/** The receiver of an enclosing `.filter(` around `at`, or null. Paren-aware. */
+/** The receiver of an enclosing `.filter(` around `at`, or null. */
 function enclosingFilterReceiver(text: string, at: number): string | null {
-  let depth = 0;
-  let i = at - 1;
-  for (; i >= 0; i--) {
-    const c = text[i];
-    if (c === ')') depth++;
-    else if (c === '(') { if (depth === 0) break; depth--; }
-  }
-  if (i < 0) return null;
-  let j = i - 1;
-  while (j >= 0 && /\s/.test(text[j])) j--;
-  const methodEnd = j;
-  while (j >= 0 && /\w/.test(text[j])) j--;
-  if (j < 0 || text[j] !== '.') return null;
-  if (text.slice(j + 1, methodEnd + 1) !== 'filter') return null;
-  let k = j - 1;
-  while (k >= 0 && /\s/.test(text[k])) k--;
-  const recvEnd = k;
-  while (k >= 0 && /\w/.test(text[k])) k--;
-  const receiver = text.slice(k + 1, recvEnd + 1);
-  return receiver || null;
+  const call = enclosingCall(text, at);
+  return call && call.method === 'filter' && call.receiver ? call.receiver : null;
 }
 
 /** Resolve the option set + replace-range when the cursor is at a list/tag
@@ -409,12 +388,12 @@ function resolveValueContext(state: CompletionContext['state'], pos: number): { 
   const from = line.from + cmp.valueStart;
 
   // (A) inside a .filter(...) predicate — class from the receiver var.
-  const recv = enclosingFilterReceiver(line.text, line.from + cmp.accessorStart);
+  // accessorStart is line-local (parseComparison ran on line.text), so pass it
+  // straight to the line-local walker — NOT a doc offset.
+  const recv = enclosingFilterReceiver(line.text, cmp.accessorStart);
   if (recv) {
-    const inf = getInference(recv);
-    if (!inf || (inf.kind !== 'list' && inf.kind !== 'scalar')) return null;
-    const types = inf.kind === 'list' ? inf.types : [inf.type];
-    return { types, accessor: cmp.accessor, from };
+    const types = inferredTypes(recv);
+    return types ? { types, accessor: cmp.accessor, from } : null;
   }
 
   // (B) SELECT … WHERE — the accessor position is a property-name slot, so
@@ -452,28 +431,14 @@ function buildValueResult(opt: TypeOptionSet, from: number): CompletionResult | 
 }
 
 export function valueCompletions(context: CompletionContext): CompletionResult | Promise<CompletionResult | null> | null {
-  const { state, pos } = context;
-  const ctx = resolveValueContext(state, pos);
+  const ctx = resolveValueContext(context.state, context.pos);
   if (!ctx) return null;
-
-  const ready = lookupOption(ctx.types, ctx.accessor);
-  if (ready) return buildValueResult(ready, ctx.from);
-
-  // Options already loaded for every type but no set for this accessor → it's
-  // not a list/tag property; decline immediately rather than hang.
-  const allLoaded = (): boolean => ctx.types.every(t => getOptions(t) !== undefined);
-  if (allLoaded()) return null;
-
-  // Not cached yet — fetch and resolve on arrival (graceful degradation).
-  for (const t of ctx.types) ensureOptionsNow(t);
-  return new Promise<CompletionResult | null>((resolve) => {
-    const timeout = setTimeout(() => { cleanup(); resolve(null); }, 2000);
-    const unsubscribe = subscribe(() => {
-      if (context.aborted) { cleanup(); resolve(null); return; }
-      const o = lookupOption(ctx.types, ctx.accessor);
-      if (o) { cleanup(); resolve(buildValueResult(o, ctx.from)); return; }
-      if (allLoaded()) { cleanup(); resolve(null); } // loaded, but not a list/tag prop
-    });
-    const cleanup = () => { clearTimeout(timeout); unsubscribe(); };
-  });
+  return awaitCompletion(
+    context,
+    () => { const o = lookupOption(ctx.types, ctx.accessor); return o ? buildValueResult(o, ctx.from) : null; },
+    () => ctx.types.forEach(ensureOptionsNow),
+    // Options loaded for every type but no set for this accessor → not a
+    // list/tag property; give up rather than wait out the timeout.
+    () => ctx.types.every(t => getOptions(t) !== undefined),
+  );
 }

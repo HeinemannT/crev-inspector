@@ -102,4 +102,12 @@ describe('list/tag value autocomplete — end to end', () => {
     });
     expect(await valuesAt('_l.filter(subtype = ')).toEqual(['t.master', 't.instance']);
   });
+
+  it('resolves filter values on a line AFTER the first (line-offset guard)', async () => {
+    await seedOptions('CeRiskAssessment', OPTIONS);
+    ti.scanDocForInferences({ lines: 1, line: () => ({ text: '_l := SELECT ceRiskAssessment' }) });
+    // The filter is on line 2, so line.from > 0 — this caught a bug where the
+    // enclosing-call walker was fed a doc offset into line-local text.
+    expect(await valuesAt('output(1)\n_l.filter(subtype = ')).toEqual(['t.master', 't.instance']);
+  });
 });
