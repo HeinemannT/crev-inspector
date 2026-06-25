@@ -192,7 +192,7 @@ export function chainRoot(text: string, from: number): string | null {
  *  the element type(s) of the enclosing element-context call's receiver list.
  *  `selfAt` is the position of the `self` token. Returns null (fail silently)
  *  when there's no element-context call or its receiver isn't a tracked var. */
-function resolveSelfType(text: string, selfAt: number): string[] | null {
+export function resolveSelfType(text: string, selfAt: number): string[] | null {
   // Find the call enclosing the `self` token.
   let depth = 0;
   let i = selfAt - 1;
@@ -248,9 +248,11 @@ function resolveContext(state: CompletionContext['state'], pos: number): { types
   const call = findAccessorCall(line.text, wordStart);
   if (call) {
     // `self` resolves to the enclosing element-context call's element type;
-    // any other receiver must be a tracked variable.
+    // any other receiver must be a tracked variable. resolveSelfType indexes
+    // into the line-local text, so pass the line-local receiverStart (NOT a
+    // doc offset — that broke self resolution on any line after the first).
     const types = call.receiver === 'self'
-      ? resolveSelfType(line.text, line.from + call.receiverStart)
+      ? resolveSelfType(line.text, call.receiverStart)
       : (() => {
           const inf = getInference(call.receiver);
           if (!inf || (inf.kind !== 'list' && inf.kind !== 'scalar')) return null;
@@ -258,6 +260,19 @@ function resolveContext(state: CompletionContext['state'], pos: number): { types
         })();
     if (!types) return null;
     return { types, from, method: call.method };
+  }
+
+  // (C) bare `self.<prop>` dot-member — offer the element type's properties so
+  // `self.title` works like `self.ref(...)`. Composes with extendedCompletions
+  // (which adds the method list after the dot). Only when `self` is standalone.
+  const SELF_DOT = 'self.';
+  if (wordStart >= SELF_DOT.length && line.text.slice(wordStart - SELF_DOT.length, wordStart) === SELF_DOT) {
+    const selfAt = wordStart - SELF_DOT.length;
+    const before = selfAt - 1;
+    if (before < 0 || !/[\w.]/.test(line.text[before])) {
+      const types = resolveSelfType(line.text, selfAt);
+      if (types) return { types, from };
+    }
   }
 
   // (B) WHERE property-name position. Scan a bounded window back from the word

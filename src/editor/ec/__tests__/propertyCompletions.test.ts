@@ -6,8 +6,15 @@
  * Both must NOT fire at value positions (after a comparator) so the t.<id>
  * value source owns those.
  */
-import { describe, it, expect } from 'vitest';
-import { findAccessorCall, findWhereClass, parseComparison, chainRoot } from '../propertyCompletions';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { findAccessorCall, findWhereClass, parseComparison, chainRoot, resolveSelfType } from '../propertyCompletions';
+import { scanDocForInferences, _resetForTests } from '../typeInference';
+
+/** Build the minimal doc-like object scanDocForInferences expects from a string. */
+function docOf(src: string) {
+  const lines = src.split('\n');
+  return { lines: lines.length, line: (n: number) => ({ text: lines[n - 1] }) };
+}
 
 // `at` = the offset where the partial word starts (cursor minus the word).
 // Tests pass the offset right after the relevant `(` / comma / space.
@@ -150,5 +157,30 @@ describe('ref / rref + self context', () => {
     const t = '_risks.filter(x)';
     // from just left of a hypothetical next `.method` after the close paren
     expect(chainRoot(t, t.length - 1)).toBe('_risks');
+  });
+});
+
+describe('resolveSelfType', () => {
+  beforeEach(() => _resetForTests());
+
+  it('resolves self to the receiver list element type inside an element-context call', () => {
+    scanDocForInferences(docOf('_l := SELECT Foo'));
+    const line = '_l.table(self.';
+    expect(resolveSelfType(line, line.indexOf('self'))).toEqual(['Foo']);
+  });
+
+  it('resolves through a chained receiver (list.table().addColumn(self.…))', () => {
+    scanDocForInferences(docOf('_l := SELECT Bar'));
+    const line = "_l.table().addColumn('t', self.";
+    expect(resolveSelfType(line, line.indexOf('self'))).toEqual(['Bar']);
+  });
+
+  it('returns null when self is not inside an element-context call', () => {
+    scanDocForInferences(docOf('_l := SELECT Foo'));
+    expect(resolveSelfType('output(self.', 'output('.length)).toBeNull();
+  });
+
+  it('returns null when the receiver is not a tracked var', () => {
+    expect(resolveSelfType('unknown.table(self.', 'unknown.table('.length)).toBeNull();
   });
 });

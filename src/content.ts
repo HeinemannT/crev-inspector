@@ -61,7 +61,13 @@ function wasInspecting(): boolean {
 
 function setInspectMode(active: boolean) {
   s.inspectActive = active;
-  persistInspect(active);
+  // Persist only AUTHORITATIVE state (SW push / local toggle), not state driven
+  // by a cross-tab sync. SW inspect state is per-window but the crev_sync_inspect
+  // broadcast is per-origin, so a window-A toggle can flip a same-origin tab in
+  // window B (whose SW says off). Persisting that would make the optimistic
+  // boot-restore repaint the wrong state after a re-injection; skipping the
+  // persist lets window B's SW reconcile to its real (off) state instead.
+  if (!s.fromSync) persistInspect(active);
   if (active) {
     injectStyles();
     syncOverlays(s);

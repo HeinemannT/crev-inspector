@@ -603,6 +603,13 @@ export function refreshSchema(className: string): void {
 // must never affect property-name completion. No error caching — these are
 // user-triggered and infrequent, so a failed fetch just retries next time and
 // value autocomplete silently degrades to no suggestions.
+//
+// Keyed by lc(className) only, like `schemas` — NOT by serverId. The SW-side
+// caches ARE profile-scoped; this mirror is not, so switching BMP profile
+// WITHOUT reloading the editor would serve options from the previous server
+// until reload. Acceptable: a profile switch is a deliberate settings action
+// and a full reload re-injects the editor. If a live profile-change signal is
+// ever plumbed to the editor, clear both this and `schemas` on it.
 const typeOptions = new Map<string, TypeOptionSet[]>();
 const optionsInflight = new Set<string>();
 
@@ -770,6 +777,8 @@ export function _resetForTests(): void {
   state.schemas.clear();
   state.schemaErrors.clear();
   state.inflight.clear();
+  typeOptions.clear();
+  optionsInflight.clear();
   canonicalByLower.clear();
   rootCategoryCache.clear();
   rootInFlight.clear();

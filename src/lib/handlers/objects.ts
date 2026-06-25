@@ -298,6 +298,13 @@ register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
  * THROWS, hence the strict branch). Emits `__prop__|||<accessor>|||list|tag`
  * then `__opt__|||<id>|||<name>` per member. ELSE branches are filled because EC
  * rejects an empty ELSE. Live-verified against CeRiskAssessment (76ms, 11 sets).
+ *
+ * Limitation: if a malformed prop has its listPropertySet/tagList unset, the
+ * whole forEach throws and value autocomplete degrades to nothing for THAT class
+ * (property-name completion is a separate fetch, so it's unaffected). A defensive
+ * `.isMissing` guard was tried but spams missing-value warnings without being
+ * verifiable against a real malformed prop, so it's omitted — well-formed BMP
+ * configs always have the set, and the failure path is already graceful.
  */
 export function buildOptionsEc(className: string): string {
   return [
