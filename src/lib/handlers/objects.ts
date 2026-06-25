@@ -311,6 +311,9 @@ register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
  * then `__opt__|||<id>|||<name>` per member. ELSE branches are filled because EC
  * rejects an empty ELSE. Live-verified against CeRiskAssessment (76ms, 11 sets).
  *
+ * A member with no display name falls back to its id (`.name.whenMissing(_i.id)`)
+ * so one nameless item can't throw and wipe the class's whole option fetch.
+ *
  * Limitation: if a malformed prop has its listPropertySet/tagList unset, the
  * whole forEach throws and value autocomplete degrades to nothing for THAT class
  * (property-name completion is a separate fetch, so it's unaffected). A defensive
@@ -343,7 +346,7 @@ export function buildOptionsEc(className: string): string {
     '          ENDIF',
     '          _out := _out + "__prop__|||" + _k.linkedTo.id + "|||" + _kind + "\\n"',
     '          _set.children().forEach(_i:',
-    '               _out := _out + "__opt__|||" + _i.id + "|||" + _i.name + "\\n"',
+    '               _out := _out + "__opt__|||" + _i.id + "|||" + _i.name.whenMissing(_i.id) + "\\n"',
     '          )',
     '     ELSE',
     '          _out := _out',
@@ -361,9 +364,11 @@ export function parseOptionsLog(log: string): TypeOptionSet[] {
     if (parts[0] === '__prop__' && parts.length === 3) {
       current = { accessor: parts[1].trim(), multi: parts[2].trim() === 'tag', items: [] };
       sets.push(current);
-    } else if (parts[0] === '__opt__' && parts.length === 3 && current) {
+    } else if (parts[0] === '__opt__' && parts.length >= 3 && current) {
       const id = parts[1].trim();
-      if (id) current.items.push({ ref: `t.${id}`, name: parts[2].trim() });
+      // Rejoin the tail so a display name that itself contains `|||` isn't
+      // dropped (ids never do). `>= 3` rather than `=== 3` for the same reason.
+      if (id) current.items.push({ ref: `t.${id}`, name: parts.slice(2).join('|||').trim() });
     }
   }
   // Drop sets that resolved to zero members (defensive — nothing to suggest).

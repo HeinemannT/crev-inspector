@@ -51,6 +51,19 @@ describe('parseOptionsLog', () => {
   it('returns [] for empty input', () => {
     expect(parseOptionsLog('')).toEqual([]);
   });
+
+  it('keeps a display name that contains the ||| delimiter (rejoins the tail)', () => {
+    const log = '__prop__|||x|||list\n__opt__|||weird|||a|||b';
+    expect(parseOptionsLog(log)).toEqual([
+      { accessor: 'x', multi: false, items: [{ ref: 't.weird', name: 'a|||b' }] },
+    ]);
+  });
+});
+
+describe('buildOptionsEc — robustness', () => {
+  it('falls back a nameless member to its id (whenMissing)', () => {
+    expect(buildOptionsEc('CeRiskAssessment')).toContain('_i.name.whenMissing(_i.id)');
+  });
 });
 
 describe('buildOptionsEc', () => {
