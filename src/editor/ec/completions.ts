@@ -7,6 +7,7 @@
 import { CompletionContext, CompletionResult, snippetCompletion } from '@codemirror/autocomplete'
 import type { ViewUpdate } from '@codemirror/view'
 import { EditorView } from '@codemirror/view'
+import { ID_SPACE_PREFIXES } from '../../lib/ec-grammar'
 
 interface CompletionDef {
   label: string
@@ -217,6 +218,17 @@ export function extendedCompletions(context: CompletionContext): CompletionResul
   const lastChar = pos > 0 ? state.doc.sliceString(pos - 1, pos) : ''
 
   if (lastChar === '.') {
+    // Suppress object-method completions after a namespace prefix: `t.master`,
+    // `r.<file>`, `cetas.<id>` etc. are business-id references, not objects —
+    // offering .add / .ancestor / .children there is noise. The receiver is the
+    // bare word right before the dot, and only counts as a namespace if it's
+    // standalone (start of expr or after a non-word/non-dot char) so a method
+    // chain like `obj.t.` still gets methods. (We don't offer business-id
+    // completions here — scoped to suppression only.)
+    const before = state.doc.sliceString(Math.max(0, pos - 12), pos - 1)
+    const receiver = /(?:^|[^\w.])([A-Za-z]\w*)$/.exec(before)?.[1]
+    if (receiver && ID_SPACE_PREFIXES.has(receiver)) return null
+
     return {
       from: pos,
       options: [
