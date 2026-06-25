@@ -37,10 +37,12 @@ import {
 type State = {
   inString: '"' | "'" | null
   inBlockComment: boolean
-  /** Track nesting depth for indentation: THEN increments, ENDIF decrements. */
+  /** Block nesting for indentation: THEN increments, ENDIF decrements. */
   blockDepth: number
-  /** forEach/callback colon depth: `:` increments, `)` when > 0 decrements. */
-  callbackDepth: number
+  /** Open-paren nesting for continuation indent — argument lists AND forEach/
+   *  filter callback bodies: `(` increments, `)` when > 0 decrements. One unit
+   *  per level, matching ec_format (which hangs both the same, no align-to-paren). */
+  parenDepth: number
   /** Single-token lookbehind: when the previous emitted token introduces
    *  a class reference (SELECT keyword, or .add/.children/.descendants/
    *  .ancestor method), the NEXT identifier is highlighted as a class
@@ -63,7 +65,7 @@ export const extendedLanguage = StreamLanguage.define<State>({
     inString: null,
     inBlockComment: false,
     blockDepth: 0,
-    callbackDepth: 0,
+    parenDepth: 0,
     classContext: false,
   }),
 
@@ -157,7 +159,7 @@ export const extendedLanguage = StreamLanguage.define<State>({
     // Dot members: `.addColumn`, `.forEach`, `.delete`, `.expression`,
     // `.name` etc. We don't delegate to ec-grammar's
     // `classifyDotMember` here because the editor parser carries
-    // extra State (blockDepth, callbackDepth, classContext) that the
+    // extra State (blockDepth, parenDepth, classContext) that the
     // pure tokeniser doesn't — `.add(T)` extending classContext for
     // the next ident is editor-only state. Folding the dispatch into
     // the classifier would couple ec-grammar to StreamLanguage's
@@ -248,17 +250,20 @@ export const extendedLanguage = StreamLanguage.define<State>({
       return null
     }
 
-    // Callback colon (forEach, filter, etc.) — bare `:` (`:=` / `:+` already matched above)
-    if (stream.peek() === ':') {
+    // Open paren — drives continuation indent for argument lists AND callback
+    // bodies (forEach/filter). ec_format hangs both by one unit, so a single
+    // paren-depth reproduces it and the callback `:` no longer needs a counter
+    // of its own (it falls through to the catch-all below, consumed untagged).
+    if (stream.peek() === '(') {
       stream.next()
-      state.callbackDepth++
+      state.parenDepth++
       return null
     }
 
-    // Closing paren — may close a callback block
+    // Closing paren — pops one level of continuation indent.
     if (stream.peek() === ')') {
       stream.next()
-      if (state.callbackDepth > 0) state.callbackDepth--
+      if (state.parenDepth > 0) state.parenDepth--
       return null
     }
 
@@ -271,11 +276,12 @@ export const extendedLanguage = StreamLanguage.define<State>({
   },
 
   indent(state: State, textAfter: string, context: IndentContext): number | null {
-    // State carries blockDepth (IF/THEN/ENDIF) and callbackDepth (forEach colons)
-    // at the START of this line. Combined depth = total nesting.
-    let depth = state.blockDepth + state.callbackDepth
+    // State carries blockDepth (IF/THEN/ENDIF) and parenDepth (open `(`) at the
+    // START of this line. Combined depth = total nesting; one unit per level,
+    // hanging — matching ec_format (no align-to-paren).
+    let depth = state.blockDepth + state.parenDepth
 
-    // Dedent for lines that close a block
+    // Dedent lines that close a block / paren so the closer lines back up.
     const trimmed = textAfter.trimStart()
     if (/^(ENDIF|ELSE)\b/i.test(trimmed)) depth--
     if (/^\)/.test(trimmed)) depth--
