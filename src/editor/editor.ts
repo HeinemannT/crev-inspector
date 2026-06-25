@@ -17,7 +17,7 @@ import { closeOverlayKeyBinding, installDirtyGuards } from '../editor-core/overl
 import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { captureTypingFocus } from '../lib/focus-keep'
-import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_CODE } from '../lib/icons'
+import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_CODE, ICON_CHEVRON } from '../lib/icons'
 import { renderEcOutput, ecOutputToText, parseBmpDurationMs, formatRunTiming } from './ec-output'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
@@ -43,7 +43,7 @@ import {
   typeInferenceListener, scanDocForInferences, clearInferences,
   getAllInferences, getSchema, ensureSchema, refreshSchema,
   intersectionSchema, subscribe as subscribeInference, getSchemaError,
-  canonicalType,
+  canonicalType, getOption, ensureOptionsNow,
   type TypeInference,
 } from './ec/typeInference'
 import { starExpansionCompletions } from './ec/starExpansion'
@@ -100,6 +100,9 @@ let decodePreview = true
 let varsSelected: string | null = null
 let varsShowSystem = false
 let varsFilter = ''
+// Accessors whose option dropdown (list/tag allowed values) is expanded in the
+// Vars panel. Keyed by accessor — only one type's props show at a time.
+const varsExpandedOptions = new Set<string>()
 // Kind-family pills (Text, Num, Date, …). Multi-select — when empty,
 // every kind passes. When non-empty, only props whose family is in
 // this set survive. Maps to the family strings returned by
@@ -1433,6 +1436,12 @@ function renderVarsProps(selected: string | null, inferences: Map<string, TypeIn
     visible = visible.filter(p => p.accessor.toLowerCase().includes(q) || p.label.toLowerCase().includes(q))
   }
 
+  // Load the list/tag option sets if any optionable prop is visible, so the
+  // expandable dropdowns can fill. Cheap + cached; panel re-renders on arrival.
+  const hasOptionable = visible.some(p => { const f = propFamily(p.configClass); return f === 'list' || f === 'tag' })
+  if (hasOptionable) for (const t of types) ensureOptionsNow(t)
+  const findOpt = (accessor: string) => { for (const t of types) { const o = getOption(t, accessor); if (o) return o } return undefined }
+
   const typeLabel = types.length === 1 ? canonicalType(types[0]) : types.map(canonicalType).join(' \u2229 ')
   return h('div', { class: 'editor-vars-props-pane' },
     h('div', { class: 'editor-vars-props-head' },
@@ -1472,8 +1481,11 @@ function renderVarsProps(selected: string | null, inferences: Map<string, TypeIn
     h('div', { class: 'editor-vars-props-list' },
       visible.length === 0
         ? h('div', { class: 'editor-vars-props-empty' }, 'No properties match.')
-        : visible.map(p =>
-          h('div', {
+        : visible.map(p => {
+          const fam = propFamily(p.configClass)
+          const optionable = fam === 'list' || fam === 'tag'
+          const expanded = optionable && varsExpandedOptions.has(p.accessor)
+          const row = h('div', {
             class: `editor-vars-prop-row${p.systemobject ? ' editor-vars-prop-row--system' : ''}`,
             // Click inserts the bare accessor at the cursor (no leading
             // dot \u2014 the user adds the dot themselves). If the user had
@@ -1481,11 +1493,45 @@ function renderVarsProps(selected: string | null, inferences: Map<string, TypeIn
             onClick: () => insertAtCursor(p.accessor),
             title: `${p.accessor} \u00b7 ${p.label} \u00b7 ${p.configClass}. Click to insert ${p.accessor} at cursor`,
           },
+            optionable
+              ? h('button', {
+                  class: `editor-vars-prop-expand${expanded ? ' expanded' : ''}`,
+                  title: expanded ? 'Hide allowed values' : 'Show allowed values',
+                  onClick: (e: Event) => {
+                    e.stopPropagation()
+                    if (varsExpandedOptions.has(p.accessor)) varsExpandedOptions.delete(p.accessor)
+                    else varsExpandedOptions.add(p.accessor)
+                    renderBottomContent()
+                  },
+                }, svg(ICON_CHEVRON))
+              : h('span', { class: 'editor-vars-prop-expand-spacer' }),
             h('span', { class: 'editor-vars-prop-accessor' }, p.accessor),
             h('span', { class: 'editor-vars-prop-label' }, p.label),
             h('span', { class: `editor-vars-prop-kind editor-vars-prop-kind--${kindFamily(p.configClass)}` }, kindShort(p.configClass)),
-          ),
-        ),
+          )
+          if (!expanded) return row
+          // Allowed-value dropdown \u2014 each value inserts its t.<businessId> ref.
+          const opt = findOpt(p.accessor)
+          const items = opt?.items ?? []
+          return h('div', { class: 'editor-vars-prop-group' },
+            row,
+            h('div', { class: 'editor-vars-prop-options' },
+              items.length === 0
+                ? h('div', { class: 'editor-vars-prop-options-empty' }, opt ? 'No values defined.' : 'Loading values\u2026')
+                : [
+                    ...items.map(it => h('div', {
+                      class: 'editor-vars-prop-option',
+                      title: `Insert ${it.ref} at cursor`,
+                      onClick: () => insertAtCursor(it.ref),
+                    },
+                      h('span', { class: 'editor-vars-prop-option-ref' }, it.ref),
+                      h('span', { class: 'editor-vars-prop-option-name' }, it.name),
+                    )),
+                    h('div', { class: 'editor-vars-prop-options-set' }, `${opt!.multi ? 'tag list' : 'value list'} \u00b7 ${items.length}`),
+                  ],
+            ),
+          )
+        }),
     ),
   )
 }

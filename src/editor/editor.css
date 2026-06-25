@@ -1340,7 +1340,7 @@ body {
 }
 .editor-vars-prop-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.4fr) auto;
+  grid-template-columns: var(--space-3) minmax(0, 1.6fr) minmax(0, 1.4fr) auto;
   gap: var(--space-3);
   align-items: baseline;
   padding: var(--space-1) var(--space-3);
@@ -1382,6 +1382,65 @@ body {
 .editor-vars-prop-kind--sys   { color: var(--text-3); }
 .editor-vars-prop-kind--hist  { color: color-mix(in srgb, var(--success) 70%, var(--text-1)); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
 .editor-vars-prop-kind--data  { color: var(--text-2); }
+
+/* Expand toggle for list/tag props (leading grid column). A bare chevron that
+   rotates down when the option dropdown is open. */
+.editor-vars-prop-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-3);
+  height: var(--space-3);
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: transform 120ms ease, color 120ms ease;
+}
+.editor-vars-prop-expand:hover { color: var(--text-1); }
+.editor-vars-prop-expand.expanded { transform: rotate(90deg); color: var(--text-1); }
+.editor-vars-prop-expand-spacer { display: inline-block; }
+
+/* Group wrapping a prop row + its expanded allowed-value dropdown. */
+.editor-vars-prop-options {
+  padding: var(--space-1) var(--space-3) var(--space-2) calc(var(--space-3) * 2 + var(--space-3));
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.editor-vars-prop-option {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.editor-vars-prop-option:hover { background: var(--surface-3); }
+.editor-vars-prop-option-ref { color: color-mix(in srgb, var(--accent) 80%, var(--text-1)); white-space: nowrap; }
+.editor-vars-prop-option-name {
+  color: var(--text-3);
+  font-family: var(--font-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-vars-prop-options-empty {
+  padding: 1px var(--space-2);
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+.editor-vars-prop-options-set {
+  padding: var(--space-1) var(--space-2) 0;
+  color: var(--text-4, var(--text-3));
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
 
 .editor-vars-props-empty {
   padding: var(--space-6) var(--space-3);
