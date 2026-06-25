@@ -7,7 +7,7 @@
  * value source owns those.
  */
 import { describe, it, expect } from 'vitest';
-import { findAccessorCall, findWhereClass } from '../propertyCompletions';
+import { findAccessorCall, findWhereClass, parseComparison } from '../propertyCompletions';
 
 // `at` = the offset where the partial word starts (cursor minus the word).
 // Tests pass the offset right after the relevant `(` / comma / space.
@@ -87,5 +87,34 @@ describe('findWhereClass', () => {
 
   it('returns null with no SELECT', () => {
     expect(findWhereClass('output(_x) WHERE ')).toBeNull();
+  });
+});
+
+describe('parseComparison', () => {
+  it('extracts accessor at an empty value position after =', () => {
+    const t = 'SELECT X WHERE subtype = ';
+    expect(parseComparison(t, t.length)).toMatchObject({ accessor: 'subtype', valueStart: t.length });
+  });
+
+  it('captures a half-typed t.<id> value as the replace range', () => {
+    const t = 'WHERE subtype = t.ma';
+    const r = parseComparison(t, t.length);
+    expect(r!.accessor).toBe('subtype');
+    expect(t.slice(r!.valueStart)).toBe('t.ma'); // whole ref token replaced
+  });
+
+  it('handles != / <= / >= operators', () => {
+    expect(parseComparison('WHERE a != ', 11)!.accessor).toBe('a');
+    expect(parseComparison('WHERE score >= ', 15)!.accessor).toBe('score');
+  });
+
+  it('handles the CONTAINS word operator (tags)', () => {
+    const t = 'WHERE domain_tags CONTAINS ';
+    expect(parseComparison(t, t.length)!.accessor).toBe('domain_tags');
+  });
+
+  it('returns null when not right of a comparator', () => {
+    expect(parseComparison('WHERE subtype', 13)).toBeNull(); // typing the accessor, no operator yet
+    expect(parseComparison('output(x)', 9)).toBeNull();
   });
 });

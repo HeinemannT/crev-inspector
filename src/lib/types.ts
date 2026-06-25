@@ -158,6 +158,13 @@ export type ServerLookupMessage =
   // cache and re-fetches. See type-schema-cache.ts.
   | { type: 'FETCH_TYPE_SCHEMA'; className: string; refresh?: boolean }
   | { type: 'FETCH_TYPE_SCHEMA_RESULT'; className: string; ok: boolean; props?: TypeSchemaProp[]; canonicalClassName?: string; error?: string }
+  // Allowed values for a class's list/tag properties — drives value
+  // autocomplete (WHERE/filter `<listprop> = t.<id>`) and the Vars panel's
+  // option dropdowns. Separate from FETCH_TYPE_SCHEMA so a failure here can't
+  // regress property-name completion. One EC round trip per class, cached in
+  // the SW. See handlers/objects.ts buildOptionsEc.
+  | { type: 'FETCH_TYPE_OPTIONS'; className: string; refresh?: boolean }
+  | { type: 'FETCH_TYPE_OPTIONS_RESULT'; className: string; ok: boolean; options?: TypeOptionSet[]; error?: string }
   // Resolve a `root.<lcCategory>.children()` style reference to the
   // class of objects it returns — one EC call per category root,
   // cached forever per server.
@@ -179,6 +186,27 @@ export interface TypeSchemaProp {
    *  filters these out by default; toggling the filter is instant
    *  because the data was already fetched. */
   systemobject: boolean;
+}
+
+/** One allowed value of a list/tag property — a ListPropertySetItem or Tag,
+ *  addressable in EC as `t.<businessId>`. */
+export interface TypeOptionItem {
+  /** EC reference form, e.g. `t.master`. Emitted verbatim by value autocomplete
+   *  (a literal string would match the display NAME, not the id — fragile). */
+  ref: string;
+  /** Display name shown as the completion detail (e.g. "Master"). */
+  name: string;
+}
+
+/** A list/tag property's option set, resolved from its ListPropertySet
+ *  (list/historical-list) or TagList (tag). */
+export interface TypeOptionSet {
+  /** The property accessor the options belong to (e.g. `subtype`). */
+  accessor: string;
+  /** True for multi-value tag properties — they compare with CONTAINS / IN,
+   *  not = / != (single-select lists). */
+  multi: boolean;
+  items: TypeOptionItem[];
 }
 
 // ── Connection & Settings ────────────────────────────────────────

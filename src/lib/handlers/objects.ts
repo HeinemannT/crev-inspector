@@ -11,7 +11,7 @@ import { clearAllContextRids, setContextRid } from '../context-rid';
 import { errorMessage, log } from '../logger';
 import { CODE_BEARING_TYPES } from '../namespace';
 import { getColorSets, setColorSets } from '../color-set-cache';
-import type { BmpObject } from '../types';
+import type { BmpObject, TypeOptionSet } from '../types';
 import type { TemplateResolution } from '../bmp-client';
 import * as schemaCache from '../type-schema-cache';
 import { refFieldsFromSchema, buildConnectionsEc, parseConnections, buildJunctionEc, parseJunctions, pickFarSide, buildInboundEc, parseInbound, type SchemaProp } from '../connections';
@@ -288,6 +288,98 @@ register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
     else respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: r.error });
   } catch (e) {
     respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: errorMessage(e) });
+  }
+});
+
+/**
+ * Enumerate the allowed values of a class's list/tag properties. Branches on
+ * the property-config class (ListMethodConfig/HistoricalListMethodConfig read
+ * `.listPropertySet`; TagMethodConfig reads `.tagList` — reading the wrong one
+ * THROWS, hence the strict branch). Emits `__prop__|||<accessor>|||list|tag`
+ * then `__opt__|||<id>|||<name>` per member. ELSE branches are filled because EC
+ * rejects an empty ELSE. Live-verified against CeRiskAssessment (76ms, 11 sets).
+ */
+export function buildOptionsEc(className: string): string {
+  return [
+    `_cls := c.get(${className}.name)`,
+    '_out := ""',
+    '_kids := _cls.children()',
+    '_kids.forEach(_k:',
+    '     _cn := _k.className',
+    '     _kind := ""',
+    '     IF _cn = "ListMethodConfig" OR _cn = "HistoricalListMethodConfig" THEN',
+    '          _kind := "list"',
+    '     ELSE',
+    '          IF _cn = "TagMethodConfig" THEN',
+    '               _kind := "tag"',
+    '          ELSE',
+    '               _kind := ""',
+    '          ENDIF',
+    '     ENDIF',
+    '     IF _kind != "" THEN',
+    '          IF _kind = "list" THEN',
+    '               _set := _k.listPropertySet',
+    '          ELSE',
+    '               _set := _k.tagList',
+    '          ENDIF',
+    '          _out := _out + "__prop__|||" + _k.linkedTo.id + "|||" + _kind + "\\n"',
+    '          _set.children().forEach(_i:',
+    '               _out := _out + "__opt__|||" + _i.id + "|||" + _i.name + "\\n"',
+    '          )',
+    '     ELSE',
+    '          _out := _out',
+    '     ENDIF',
+    ')',
+    '_out',
+  ].join('\n');
+}
+
+export function parseOptionsLog(log: string): TypeOptionSet[] {
+  const sets: TypeOptionSet[] = [];
+  let current: TypeOptionSet | null = null;
+  for (const line of (log || '').split('\n')) {
+    const parts = line.split('|||');
+    if (parts[0] === '__prop__' && parts.length === 3) {
+      current = { accessor: parts[1].trim(), multi: parts[2].trim() === 'tag', items: [] };
+      sets.push(current);
+    } else if (parts[0] === '__opt__' && parts.length === 3 && current) {
+      const id = parts[1].trim();
+      if (id) current.items.push({ ref: `t.${id}`, name: parts[2].trim() });
+    }
+  }
+  // Drop sets that resolved to zero members (defensive — nothing to suggest).
+  return sets.filter(s => s.items.length > 0);
+}
+
+// In-memory per (server, class) cache. Options change rarely and are cheap to
+// re-fetch (~76ms), so we don't persist them across SW restarts.
+const optionsCache = new Map<string, TypeOptionSet[]>();
+
+async function loadTypeOptions(className: string, refresh = false): Promise<
+  { ok: true; options: TypeOptionSet[] } | { ok: false; error: string }
+> {
+  const ctx = getCtx();
+  if (!ctx.client) return { ok: false, error: 'Not connected' };
+  const key = `${ctx.settings.activeProfileId || ''}::${className.toLowerCase()}`;
+  if (!refresh) {
+    const cached = optionsCache.get(key);
+    if (cached) return { ok: true, options: cached };
+  }
+  if (!/^[A-Z][A-Za-z0-9]{0,63}$/.test(className)) return { ok: false, error: `Invalid class name: ${className}` };
+  const result = await ctx.client.executeEc(buildOptionsEc(className), undefined, false);
+  if (!result.ok) return { ok: false, error: result.error || result.log || 'EC execution failed' };
+  const options = parseOptionsLog(result.log ?? '');
+  optionsCache.set(key, options);
+  return { ok: true, options };
+}
+
+register('FETCH_TYPE_OPTIONS', async (msg, respond) => {
+  try {
+    const r = await loadTypeOptions(msg.className, msg.refresh);
+    if (r.ok) respond({ type: 'FETCH_TYPE_OPTIONS_RESULT', className: msg.className, ok: true, options: r.options });
+    else respond({ type: 'FETCH_TYPE_OPTIONS_RESULT', className: msg.className, ok: false, error: r.error });
+  } catch (e) {
+    respond({ type: 'FETCH_TYPE_OPTIONS_RESULT', className: msg.className, ok: false, error: errorMessage(e) });
   }
 });
 

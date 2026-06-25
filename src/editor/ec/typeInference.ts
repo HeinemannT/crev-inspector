@@ -27,7 +27,7 @@
 import { EditorView } from '@codemirror/view';
 import type { ViewUpdate } from '@codemirror/view';
 import { sendRequest } from '../../lib/messaging';
-import type { InspectorMessage, TypeSchemaProp } from '../../lib/types';
+import type { InspectorMessage, TypeSchemaProp, TypeOptionSet } from '../../lib/types';
 
 export type TypeInference =
   | { kind: 'list'; types: string[]; line: number }     // List<T> or List<T1|T2|...> for multi-type
@@ -594,6 +594,46 @@ export function refreshSchema(className: string): void {
       notify();
     } finally {
       state.inflight.delete(lc(className));
+    }
+  });
+}
+
+// ── List/tag option sets (value autocomplete + Vars-panel dropdowns) ─────────
+// Parallel to the schema cache but kept separate: a failure to load options
+// must never affect property-name completion. No error caching — these are
+// user-triggered and infrequent, so a failed fetch just retries next time and
+// value autocomplete silently degrades to no suggestions.
+const typeOptions = new Map<string, TypeOptionSet[]>();
+const optionsInflight = new Set<string>();
+
+/** Cached option sets for a class, or undefined if not loaded yet. */
+export function getOptions(className: string): TypeOptionSet[] | undefined {
+  return typeOptions.get(lc(className));
+}
+
+/** Cached option set for one property, or undefined. */
+export function getOption(className: string, accessor: string): TypeOptionSet | undefined {
+  return typeOptions.get(lc(className))?.find(o => o.accessor === accessor);
+}
+
+/** Eager fetch of a class's list/tag option sets (skips any debounce). Fires
+ *  `notify()` on arrival so a pending value-completion / the Vars panel updates.
+ *  Mirrors ensureSchemaNow but with graceful degradation on failure. */
+export function ensureOptionsNow(className: string): void {
+  const key = lc(className);
+  if (typeOptions.has(key) || optionsInflight.has(key)) return;
+  optionsInflight.add(key);
+  enqueue(async () => {
+    try {
+      const r = await sendRequest({ type: 'FETCH_TYPE_OPTIONS', className } as InspectorMessage);
+      if (r?.type === 'FETCH_TYPE_OPTIONS_RESULT' && r.ok && r.options) {
+        typeOptions.set(key, r.options);
+        notify();
+      }
+    } catch {
+      // Swallow — value autocomplete degrades to no suggestions, never blocks.
+    } finally {
+      optionsInflight.delete(key);
     }
   });
 }
