@@ -8,16 +8,13 @@
  * shown as deltas over the live page — the live BMP grid can't reflow client-side, so a resize shows
  * as a "6→3" badge. Apply commits + re-fetches, and the real grid reflows for keeps.
  */
-import type { LModel } from './lib/layout/types';
-import type { BlueprintCtx } from './lib/layout/sync';
-import { History } from './lib/layout/history';
 import { extractUrlRids } from './lib/dom-scanner';
-import { sendToSW } from './lib/content-port';
 import { showToast } from './lib/toast';
 import BLUEPRINT_CSS from './content-blueprint.css';
 import { bp, STYLE_ID, isBlueprintActive } from './content-blueprint/state';
 import { render } from './content-blueprint/view';
 import { select, onKeydown } from './content-blueprint/actions';
+import { loadPage } from './content-blueprint/service';
 
 export { isBlueprintActive };
 
@@ -48,7 +45,7 @@ export function enableBlueprint(): void {
   bp.onKey = onKeydown;
   window.addEventListener('keydown', bp.onKey, true);
   layer.addEventListener('mousedown', (e) => { if (e.target === layer) select(null); }); // empty space deselects
-  sendToSW({ type: 'LAYOUT_LOAD', rid });
+  void loadPage(rid).then((ok) => { if (!ok) disableBlueprint(); });
 }
 
 export function disableBlueprint(): void {
@@ -62,34 +59,5 @@ export function disableBlueprint(): void {
   bp.layer?.remove();
   Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, movePicker: null, onScroll: null, onKey: null, raf: 0 });
 }
-
-export function onLayoutLoaded(msg: { ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; orphans?: unknown[]; error?: string }): void {
-  if (!bp.active) return;
-  if (!msg.ok || !msg.model || !msg.ctx) {
-    showToast(`Blueprint: ${msg.error || 'could not load this page'}`, 'error');
-    disableBlueprint();
-    return;
-  }
-  bp.baseline = msg.model;
-  bp.ctx = msg.ctx;
-  bp.env = msg.env ?? null;
-  bp.history = new History(msg.model);
-  bp.selectedId = null;
-  const orphans = msg.orphans?.length ?? 0;
-  if (orphans) showToast(`Blueprint: ${orphans} widget(s) not on any tab (RESULT)`, 'info');
-  render();
-}
-
-export function onApplyResult(msg: { ok: boolean; noop: boolean; stale?: boolean; model?: LModel; baseline?: LModel; error?: string }): void {
-  if (!bp.active) return;
-  bp.applying = false;
-  if (msg.stale && msg.model) {
-    bp.baseline = msg.model; bp.history = new History(msg.model); bp.selectedId = null;
-    showToast('Blueprint: the page changed elsewhere — reloaded. Re-apply your edits.', 'error');
-    render(); return;
-  }
-  if (!msg.ok) { showToast(`Blueprint apply failed: ${msg.error || 'unknown'}`, 'error'); render(); return; }
-  if (msg.model) { bp.baseline = msg.model; bp.history = new History(msg.model); bp.selectedId = null; }
-  showToast(msg.noop ? 'Blueprint: nothing to apply' : 'Blueprint: changes applied', 'success');
-  render();
-}
+// Load/apply results are handled by content-blueprint/service.ts (the sendRequest promises), not by
+// a port-dispatched handler — see that module.

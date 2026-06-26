@@ -22,7 +22,7 @@ import { updatePaintCursors, flashApplyResult } from './content-paint';
 import { showTooltipForElement, hideTooltip, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
 import { mountFrameOverlay, teardownFrameOverlayModule } from './content-frame-overlay';
-import { enableBlueprint, disableBlueprint, isBlueprintActive, onLayoutLoaded, onApplyResult } from './content-blueprint';
+import { enableBlueprint, disableBlueprint } from './content-blueprint';
 import { sendFireForget } from './lib/messaging';
 
 declare global {
@@ -229,15 +229,9 @@ onPortMessage((msg: InspectorMessage) => {
       setInspectMode(msg.active);
       if (!s.fromSync) broadcast('crev_sync_inspect', { active: msg.active });
       break;
-    case 'BLUEPRINT_STATE':
-      if (msg.active) enableBlueprint(); else disableBlueprint();
-      break;
-    case 'LAYOUT_LOAD_RESULT':
-      if (isBlueprintActive()) onLayoutLoaded(msg);
-      break;
-    case 'LAYOUT_APPLY_RESULT':
-      if (isBlueprintActive()) onApplyResult(msg);
-      break;
+    // Blueprint: BLUEPRINT_STATE arrives via the one-shot channel (oneShotMessageListener), and
+    // LAYOUT_LOAD/APPLY are request/response via sendRequest (content-blueprint/service.ts) — neither
+    // is dispatched here.
     case 'BADGE_ENRICHMENT':
       // Drop the rid from `requestedRids` as soon as we get ANY
       // response — succeeded or failed. The dedup set's purpose is

@@ -17,6 +17,7 @@ import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { render } from './view';
+import { applyPage } from './service';
 
 /** Push a new model state onto history and re-render. The one write path for staged edits. */
 export function mutate(next: LModel): void { bp.history?.push(next); render(); }
@@ -66,13 +67,11 @@ export function openApplyPreview(): void {
 }
 export function closePreview(): void { bp.preview = null; render(); }
 
-/** Confirmed from the preview modal — fire the guarded SW apply. */
+/** Confirmed from the preview modal — fire the guarded SW apply (service owns the round-trip). */
 export function confirmApply(): void {
-  const m = model();
-  if (!bp.ctx || !bp.baseline || !bp.env || !m || bp.applying) return;
+  if (!bp.ctx || !bp.baseline || !bp.env || !model() || bp.applying) return;
   bp.preview = null;
-  bp.applying = true; render();
-  sendToSW({ type: 'LAYOUT_APPLY', env: bp.env, ctx: bp.ctx, baseline: bp.baseline, desired: m });
+  void applyPage();
 }
 
 export function exitBlueprint(): void { sendToSW({ type: 'BLUEPRINT_TOGGLE' }); }
