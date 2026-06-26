@@ -64,7 +64,7 @@ body{margin:0;background:#061320;color:var(--ink);font-family:Inter,system-ui,sa
 .plate{position:relative;border:1.5px solid var(--widget);background:rgba(130,180,222,.06);
   border-radius:3px;box-shadow:inset 0 0 22px rgba(130,180,222,.08);min-height:46px;cursor:pointer}
 .plate.chart{border-color:var(--chart);background:rgba(147,167,230,.06)}
-.plate.sel{outline:2px solid var(--cyan);outline-offset:1px}
+.plate.sel{border-color:var(--cyan);box-shadow:inset 0 0 0 1px var(--cyan)}
 .plate.staged{border-style:dashed}
 .plate.del{opacity:.4;border-color:var(--del)}
 .plate .lab{padding:7px 9px;font-size:12px;font-weight:600;color:var(--ink);display:flex;align-items:baseline;gap:7px}
@@ -79,7 +79,7 @@ body{margin:0;background:#061320;color:var(--ink);font-family:Inter,system-ui,sa
 
 /* container */
 .cont{position:relative;border:1px dashed var(--purple);border-radius:4px;padding:5px;cursor:pointer}
-.cont.sel{outline:2px solid var(--cyan);outline-offset:1px}
+.cont.sel{border-color:var(--cyan);border-style:solid;box-shadow:inset 0 0 0 1px var(--cyan)}
 /* container label: absolute (zero flow space, faithful to the BMP overlay) + shown only on selection
    (one at a time → no nested-tab overlap). The dashed outline conveys structure when unselected. */
 .ctab{position:absolute;top:4px;left:6px;z-index:6;display:none;align-items:center;gap:6px;background:var(--purple);
