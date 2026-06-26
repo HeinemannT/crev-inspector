@@ -5,7 +5,7 @@ import { reconstruct, findNode, descendantWidgets, isChart } from '../model';
 import { resize, setHeight, rename, move, swap, insertRelative, addWidget, addContainer, addTab, remove, moveToTab } from '../edit';
 import { diff } from '../diff';
 import { compile } from '../ec';
-import { guard, lint, checkReorder, checkHeight } from '../constraints';
+import { guard, lint, checkReorder, checkHeight, checkAddTarget } from '../constraints';
 import { History } from '../history';
 
 // ── factories ────────────────────────────────────────────────────────────────
@@ -85,6 +85,13 @@ describe('edit engine (pure, returns new model)', () => {
 });
 
 describe('diff + ec compile', () => {
+  it('refuses to compile a widget added into a composite (no broken container:=<widget>)', () => {
+    const base = model(n({ id: 'tab1', kind: 'tab', className: 'Tab', name: 'T', children: [
+      n({ id: 'bc', kind: 'widget', className: 'ButtonContainer', name: 'Buttons', children: [] }),
+    ] }));
+    const desired = addWidget(base, 'bc', 0, 'ActionButton').model; // child into the composite
+    expect(() => compile(diff(base, desired), desired)).toThrow(/composite/);
+  });
   it('emits create→update→reparent ordered with variable threading', () => {
     const base = demo();
     let d = resize(base, 'w1', 'L', 3);                // update
@@ -157,6 +164,13 @@ describe('constraints', () => {
     expect(checkHeight('BarChart').ok).toBe(true);
     expect(checkHeight('URLView').ok).toBe(true);
     expect(checkHeight('ExtendedTable').ok).toBe(false);
+  });
+  it('allows add into a tab/container, forbids add into a widget (composite or leaf)', () => {
+    expect(checkAddTarget('tab').ok).toBe(true);
+    expect(checkAddTarget('container').ok).toBe(true);
+    expect(checkAddTarget('widget', 'ButtonContainer').ok).toBe(false);   // composite — Phase 4
+    expect(checkAddTarget('widget', 'ButtonContainer').reason).toMatch(/composite/);
+    expect(checkAddTarget('widget', 'SimpleStatus').ok).toBe(false);      // leaf — nonsensical
   });
   it('warns on instance structural ops and shared edits', () => {
     expect(guard({ type: 'structural', target: 'instance', op: 'add' }).level).toBe('warn');

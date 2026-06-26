@@ -5,8 +5,14 @@
  */
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
+import type { SwContext } from '../sw-context';
 import { loadPage, applyPage } from '../layout-service';
 import { errorMessage } from '../logger';
+
+/** Environment fingerprint stamped at load and re-checked at apply. Combines the active profile id
+ *  with the live server URL, so a profile reconfigured to a different workspace under the same id
+ *  can't silently receive a commit meant for the old one. */
+const envToken = (ctx: SwContext): string => `${ctx.settings.activeProfileId}@${ctx.client?.serverUrl ?? ''}`;
 
 register('LAYOUT_LOAD', async (msg, respond) => {
   const ctx = getCtx();
@@ -20,7 +26,7 @@ register('LAYOUT_LOAD', async (msg, respond) => {
       return;
     }
     respond({
-      type: 'LAYOUT_LOAD_RESULT', ok: true, env: ctx.settings.activeProfileId,
+      type: 'LAYOUT_LOAD_RESULT', ok: true, env: envToken(ctx),
       ctx: res.ctx, model: res.load.model, baseline: res.load.baseline, orphans: res.load.orphans,
     });
     ctx.logActivity('success', `Blueprint loaded ${res.ctx.pageClass} ${res.ctx.pageId} (${Date.now() - t0}ms)`);
@@ -35,10 +41,10 @@ register('LAYOUT_APPLY', async (msg, respond) => {
   if (!ctx.client) { respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: 'Not connected' }); return; }
   // Wrong-env guard: refuse a commit whose load happened against a different profile than the one
   // now active (the user switched environments between load and apply).
-  if (msg.env !== ctx.settings.activeProfileId) {
+  if (msg.env !== envToken(ctx)) {
     respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false,
       error: 'Environment changed since this layout was loaded — reload the page before applying.' });
-    ctx.logActivity('warn', `Blueprint apply blocked: env ${msg.env} != active ${ctx.settings.activeProfileId}`);
+    ctx.logActivity('warn', `Blueprint apply blocked: env ${msg.env} != active ${envToken(ctx)}`);
     return;
   }
   const t0 = Date.now();

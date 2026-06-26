@@ -22,9 +22,28 @@ export const WIDGET_NEEDS_CONFIG = new Set([
   'CustomVisualization', 'ExtendedTable', 'InputView', 'URLView',
 ]);
 
+/** Composite widgets that hold children via `<composite>.add(child)` — NOT the `container :=` binding
+ *  a normal widget uses. (Verified live: a child binds to its ButtonContainer parent, not a cell.)
+ *  Adding INTO one needs a different EC verb that compile doesn't emit yet, so the builder must block
+ *  the gesture until composite editing lands (Phase 4). Source: reference/page-hosting.md. */
+export const COMPOSITE_TYPES = new Set([
+  'ButtonContainer', 'ButtonGroup', 'InputSet', 'TagList', 'ListPropertySet',
+]);
+
 const ok: Guard = { ok: true, level: 'ok' };
 const warn = (reason: string): Guard => ({ ok: true, level: 'warn', reason });
 const forbid = (reason: string): Guard => ({ ok: false, level: 'forbidden', reason });
+
+/** Where can a new widget/container be added? Tabs and Containers are the real cells. Adding into a
+ *  WIDGET — a composite (ButtonContainer…) or nonsensically a leaf — isn't serveable by the current
+ *  compiler: it would emit `container := <widget>`, which BMP rejects. Block it until composite
+ *  editing is wired (Phase 4). */
+export function checkAddTarget(parentKind: NodeKind, parentClassName?: string): Guard {
+  if (parentKind !== 'widget') return ok;
+  return parentClassName && COMPOSITE_TYPES.has(parentClassName)
+    ? forbid(`adding into a ${parentClassName} (a composite) isn't supported yet`)
+    : forbid('widgets can only be added into a tab or container');
+}
 
 /** Height is only authorable on charts and URLView; everything else is content-driven in BMP. */
 export function checkHeight(className: string): Guard {
