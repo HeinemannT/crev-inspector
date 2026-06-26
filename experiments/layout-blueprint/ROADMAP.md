@@ -14,8 +14,8 @@ something usable. After each phase: reflect, readjust, review before starting th
 | Imperative shell (IO→bmp-client, message handler, context resolution) | ✅ **Phase 1 done** — `layout-service`, `handlers/layout`, `resolvePageContext`, rollback guard |
 | Safety rails (5 §13 risks, rollback detection, blast radius) | ✅ **Phase 2 done** (headless rails) — stale-baseline, wrong-env, instance/template target |
 | Interactive on-page UI | ✅ **Phase 3 done** — all 7 milestones, live-validated in the running extension |
-| Palette / composites / display names | **Phase 4** ← next (curated palette ships; live-derived + composites remain) |
-| Hardening & rollout | Phase 5 |
+| Palette / composites / display names | ✅ **Phase 4** — composite editing done + live-validated; live-derived palette / display names deferred (need server add-menu command) |
+| Hardening & rollout | ✅ **Phase 5** — feature docs (docs/blueprint.md) + e2e test rig; CI e2e harness + telemetry beyond the EC audit log remain |
 
 **Engine complete (Phases 1–2):** load → edit → apply works headless against live BMP, guarded
 against silent rollback, stale baselines, and wrong-env applies.
