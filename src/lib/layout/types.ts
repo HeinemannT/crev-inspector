@@ -1,0 +1,72 @@
+/**
+ * Layout-builder domain types — the model the blueprint editor operates on.
+ *
+ * Deliberately decoupled from the wire `LayoutNode` (src/lib/types.ts): only `model.ts`
+ * knows the wire shape, everything else speaks these types. That anti-corruption layer is
+ * what lets the whole edit/diff/ec core stay pure and unit-testable.
+ */
+
+export type Breakpoint = 'L' | 'M' | 'S';
+export type NodeKind = 'tab' | 'container' | 'widget';
+export type SaveTarget = 'instance' | 'template';
+
+/** A node in the editable layout tree.
+ *  Tree parentage means different things by kind: a widget's parent is the cell it BINDS to
+ *  (`container :=`); a container's/tab's parent is its STRUCTURAL parent. `kind` disambiguates. */
+export interface LNode {
+  /** Stable identity: BMP businessId for existing objects, `new:<n>` for staged adds. */
+  id: string;
+  /** BMP rid (kept as a string — 64-bit, exceeds JS safe-int). Absent for staged adds. */
+  rid?: string;
+  kind: NodeKind;
+  /** BMP className: Tab | Container | CustomVisualization | ExtendedTable | … */
+  className: string;
+  name: string;
+  /** Column span per breakpoint (1..6, 0 = hidden). L is always set; M/S optional. */
+  cols: { L: number; M?: number; S?: number };
+  /** Authored height in px — charts (`chartHeight`) and URLView only. Undefined = content-driven. */
+  height?: number;
+  children: LNode[];
+}
+
+/** The whole page being edited. */
+export interface LModel {
+  /** org-model root that owns widgets (`<scorecard>.add(Widget …)`). */
+  scorecardId: string;
+  scorecardRid?: string;
+  scorecardClass: string;
+  /** portal-model root that owns tabs (`<tabset>.add(Tab)`). */
+  tabsetId: string;
+  /** the page's tabs, each holding containers + tab-bound widgets (containers-first order). */
+  tabs: LNode[];
+  target: SaveTarget;
+  hasTemplate: boolean;
+}
+
+/** One step of an apply plan (the diff between baseline and desired). */
+export type PlanStep =
+  | { kind: 'create'; node: LNode; parentId: string; parentKind: NodeKind }
+  | { kind: 'update'; id: string; className: string; cols?: Partial<Record<Breakpoint, number>>; name?: string; height?: number }
+  | { kind: 'reparent'; id: string; nodeKind: NodeKind; toParentId: string; toParentKind: NodeKind }
+  | { kind: 'reorder'; id: string; afterId: string | null }
+  | { kind: 'delete'; id: string; nodeKind: NodeKind; className: string; rehomeTo?: string };
+
+export interface Plan {
+  steps: PlanStep[];
+  /** human-readable, ordered — drives the Apply preview. */
+  notes: PlanNote[];
+}
+
+export interface PlanNote {
+  verb: 'create' | 'update' | 'move' | 'reorder' | 'delete';
+  text: string;
+  ec?: string;
+}
+
+/** A constraint verdict for a candidate gesture. */
+export interface Guard {
+  ok: boolean;
+  /** 'forbidden' = BMP can't serve it, block; 'warn' = serveable but has side effects. */
+  level: 'ok' | 'warn' | 'forbidden';
+  reason?: string;
+}
