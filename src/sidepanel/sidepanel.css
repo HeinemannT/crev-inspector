@@ -247,58 +247,20 @@ body {
 .status-dot.warn { background: var(--warning); }
 .status-dot.fail { background: var(--danger); }
 
-/* ── Inspect toggle ────────────────────────────── */
-/* Dirty-state pattern: ghost (off) → accent (armed) */
+/* ── Header toggle buttons (Inspect / Blueprint) ─────── */
+/* Icon buttons in the header row (layout from .header-icon-btn); accent fill
+ * when armed, so an active overlay reads at a glance like Paint's tint. */
 
-.inspect-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 3px var(--space-2);
-  border-radius: var(--radius-md);
-  border: 1px solid transparent;
-  background: none;
-  color: var(--text-3);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: background var(--duration-fast) var(--ease-default),
-              border-color var(--duration-fast) var(--ease-default),
-              color var(--duration-fast) var(--ease-default);
-}
-
-.inspect-toggle:hover {
-  background: var(--surface-3);
-  color: var(--text-1);
-}
-
-.inspect-toggle.active {
+.inspect-toggle.active,
+.blueprint-toggle.active {
   background: var(--accent);
-  border-color: var(--accent);
   color: #fff;
 }
 
-.inspect-toggle kbd {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 var(--space-1);
-  height: 14px;
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.08);
-  color: inherit;
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  font-weight: var(--weight-medium);
-  letter-spacing: 0.3px;
-  opacity: 0.7;
+.inspect-toggle.active:hover,
+.blueprint-toggle.active:hover {
+  color: #fff;
 }
-
-.inspect-toggle:hover kbd { opacity: 1; }
-.inspect-toggle.active kbd { background: rgba(255, 255, 255, 0.18); opacity: 0.95; }
 
 /* ── Paint Format button ───────────────────────── */
 /* Borderless micro-action style; accent-bg tint when armed */

@@ -11,7 +11,7 @@ import { PAINT_STYLE_PROPS } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
 import { log } from '../lib/logger';
-import { ICON_PAINT, ICON_REFRESH, ICON_LIGHTNING, ICON_TORNADO, ICON_SEARCH } from './utils';
+import { ICON_PAINT, ICON_REFRESH, ICON_LIGHTNING, ICON_TORNADO, ICON_SEARCH, ICON_CROSSHAIR, ICON_LAYOUT } from './utils';
 import { DetailView } from './detail-view';
 import { onColorSetsData } from './color-picker';
 import { initReferenceView, showReferenceView, handleReferenceMessage, isReferenceActive } from './reference-view';
@@ -146,6 +146,10 @@ onPortMessage((msg: InspectorMessage) => {
   switch (msg.type) {
     case 'INSPECT_STATE':
       S.inspectActive = msg.active;
+      updateToggle();
+      break;
+    case 'BLUEPRINT_STATE':
+      S.blueprintActive = msg.active;
       updateToggle();
       break;
     case 'CACHE_STATS':
@@ -339,10 +343,17 @@ function buildApp(): void {
       title: 'Right-click to choose which styles get painted',
     }, svg(ICON_PAINT)),
     h('button', {
-      class: `inspect-toggle ${S.inspectActive ? 'active' : ''}`,
+      class: `header-icon-btn inspect-toggle ${S.inspectActive ? 'active' : ''}`,
       id: 'toggle-inspect',
+      'aria-label': 'Toggle inspect overlays',
       title: 'Toggle inspect overlays (Ctrl+Shift+X: rebind at chrome://extensions/shortcuts)',
-    }, 'Inspect', h('kbd', null, '⌃⇧X')),
+    }, svg(ICON_CROSSHAIR)),
+    h('button', {
+      class: `header-icon-btn blueprint-toggle ${S.blueprintActive ? 'active' : ''}`,
+      id: 'toggle-blueprint',
+      'aria-label': 'Toggle blueprint layout overlay',
+      title: 'Toggle the blueprint layout editor overlay on the live BMP page',
+    }, svg(ICON_LAYOUT)),
   );
 
   const tabBar = h('div', { class: 'tab-bar', role: 'tablist' },
@@ -454,6 +465,7 @@ function buildApp(): void {
     showPaintStyleMenu(e.currentTarget as HTMLElement);
   });
   app.querySelector('#toggle-inspect')?.addEventListener('click', () => sendMessage({ type: 'TOGGLE_INSPECT' }));
+  app.querySelector('#toggle-blueprint')?.addEventListener('click', () => sendMessage({ type: 'BLUEPRINT_TOGGLE' }));
   app.querySelector('#open-extended')?.addEventListener('click', () => sendMessage({ type: 'OPEN_EXTENDED' }));
   app.querySelector('#open-codesearch')?.addEventListener('click', () => sendMessage({ type: 'OPEN_CODE_SEARCH' }));
   app.querySelector('#header-status')?.addEventListener('click', () => showProfileSwitcher());
@@ -498,10 +510,9 @@ function renderActiveTab() {
 
 function updateToggle() {
   const btn = document.getElementById('toggle-inspect');
-  if (btn) {
-    btn.className = `inspect-toggle ${S.inspectActive ? 'active' : ''}`;
-    // Preserve the kbd chip — only toggle the class.
-  }
+  if (btn) btn.className = `header-icon-btn inspect-toggle ${S.inspectActive ? 'active' : ''}`;
+  const bp = document.getElementById('toggle-blueprint');
+  if (bp) bp.className = `header-icon-btn blueprint-toggle ${S.blueprintActive ? 'active' : ''}`;
 }
 
 function updateObjectsBadge() {
