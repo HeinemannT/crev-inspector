@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Layout Blueprint — reconstruction experiment</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --panel: #fff; --ink: #1c1c1f; --muted: #6b6b73; --line: #e2e2e6;
+    --accent: #8a3ffc;
+    --tab: #8a3ffc; --container: #5b6472; --chart: #2563eb; --table: #0d9488;
+    --text: #64748b; --input: #d97706; --status: #16a34a; --button: #7c3aed; --misc: #475569;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.45 Inter, system-ui, sans-serif; color: var(--ink); background: var(--bg); }
+  header { padding: 14px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  h1 { margin: 0 0 2px; font: 600 15px/1.2 Epilogue, Inter, sans-serif; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .controls { display: flex; gap: 18px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+  .ctl { display: flex; align-items: center; gap: 6px; }
+  .ctl > label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .seg button { border: 0; background: var(--panel); padding: 5px 10px; font: inherit; font-size: 12px; cursor: pointer; color: var(--muted); }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .tabs { display: flex; gap: 6px; margin-top: 14px; }
+  .tabs button { border: 1px solid var(--line); background: var(--panel); border-radius: 4px 4px 0 0; padding: 7px 14px; font: inherit; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
+  .tabs button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+
+  main { display: grid; grid-template-columns: 360px 1fr; gap: 0; height: calc(100vh - 168px); }
+  .col { overflow: auto; padding: 16px 20px; }
+  .col.tree { border-right: 1px solid var(--line); background: var(--panel); }
+  .col-title { font: 600 11px/1 Inter; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; }
+
+  /* tree */
+  .row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  .chip { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 18px; padding: 0 5px; border-radius: 3px; font: 600 10px/1 Inter; color: #fff; letter-spacing: .02em; }
+  .rname { font-size: 12.5px; }
+  .rmeta { color: var(--muted); font-size: 11px; margin-left: auto; }
+  .bar { display: inline-flex; gap: 1.5px; }
+  .bar i { width: 7px; height: 10px; border-radius: 1px; background: #d7d7dd; display: inline-block; }
+  .bar i.on { background: var(--accent); }
+
+  /* grid preview */
+  .gridwrap { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+  .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; grid-auto-rows: minmax(34px, auto); }
+  .cell { border-radius: 4px; padding: 6px 8px; min-height: 34px; display: flex; flex-direction: column; gap: 4px; }
+  .cell.container { background: #fbfbfc; border: 1px dashed #c4c8d0; }
+  .cell.widget { color: #fff; box-shadow: inset 0 0 0 1px rgba(0,0,0,.04); }
+  .cell-head { display: flex; align-items: center; gap: 6px; }
+  .cell-name { font-size: 12px; font-weight: 600; }
+  .cell.container .cell-name { color: var(--container); }
+  .cell .tag { font-size: 10px; opacity: .85; }
+  .cell.container .tag { color: var(--muted); }
+  .cell.container .sub { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; grid-auto-rows: minmax(34px, auto); }
+  .emptynote { grid-column: span var(--gap, 1); border: 1px dashed #e6e6ea; border-radius: 4px; color: #c0c0c8; font-size: 10px; display: flex; align-items: center; justify-content: center; }
+
+  /* notes */
+  .notes { padding: 14px 20px; background: var(--panel); border-top: 1px solid var(--line); max-height: 168px; overflow: auto; }
+  .note { display: flex; gap: 8px; padding: 3px 0; font-size: 12px; }
+  .note .lvl { font: 600 10px/1.5 Inter; text-transform: uppercase; min-width: 42px; }
+  .note.info .lvl { color: var(--chart); }
+  .note.warn .lvl { color: var(--input); }
+  .note .scope { color: var(--muted); min-width: 170px; }
+  code { background: #f0f0f3; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Layout Blueprint <span style="font-weight:400;color:var(--muted)">— reconstruction experiment</span></h1>
+  <div class="sub">Scorecard <code>4957</code> · CREV Demo — Enterprise Risk &amp; Controls · TabSet <code id="tsname"></code></div>
+  <div class="controls">
+    <div class="ctl">
+      <label>Interleave (tab-bound widgets vs containers)</label>
+      <div class="seg" id="seg-interleave">
+        <button data-v="containers-first" class="on">Containers first</button>
+        <button data-v="widgets-first">Widgets first</button>
+        <button data-v="merge-by-sort">Merge by sort</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <label>Show empty columns</label>
+      <div class="seg" id="seg-gaps">
+        <button data-v="on" class="on">On</button>
+        <button data-v="off">Off</button>
+      </div>
+    </div>
+  </div>
+  <div class="tabs" id="tabstrip"></div>
+</header>
+
+<main>
+  <div class="col tree">
+    <p class="col-title">Layout tree</p>
+    <div id="tree"></div>
+  </div>
+  <div class="col">
+    <p class="col-title">Grid preview (faithful nested 6-col blueprint)</p>
+    <div class="gridwrap"><div class="grid" id="preview"></div></div>
+  </div>
+</main>
+
+<div class="notes">
+  <p class="col-title" style="margin-bottom:8px">Inferences &amp; ambiguities</p>
+  <div id="notes"></div>
+</div>
+
+<script type="module">
+import { TABSET, NODES } from './data.js';
+import { reconstruct, clampSpan, analyzeRows, inferNotes } from './engine.js';
+
+const TYPE_COLOR = {
+  Tab: 'var(--tab)', Container: 'var(--container)',
+  BarChart: 'var(--chart)', PieChart: 'var(--chart)', BarLineChart: 'var(--chart)',
+  ExtendedTable: 'var(--table)', RiskList: 'var(--table)', CheckList: 'var(--table)',
+  TextElement: 'var(--text)', DescriptionView: 'var(--text)',
+  InputView: 'var(--input)',
+  SimpleStatus: 'var(--status)', Status: 'var(--status)', FunctionStatus: 'var(--status)',
+  ActionButton: 'var(--button)',
+};
+const color = t => TYPE_COLOR[t] || 'var(--misc)';
+const abbr = t => ({ Tab:'TAB', Container:'BOX', BarChart:'BAR', PieChart:'PIE', BarLineChart:'B+L',
+  ExtendedTable:'TBL', RiskList:'LST', CheckList:'CHK', TextElement:'TXT', DescriptionView:'DSC',
+  InputView:'INP', SimpleStatus:'STS', Status:'STS', FunctionStatus:'FN', ActionButton:'BTN' }[t] || t.slice(0,3).toUpperCase());
+
+let state = { interleave: 'containers-first', gaps: true, tab: 0 };
+
+document.getElementById('tsname').textContent = TABSET.id;
+
+function widthBar(L) {
+  if (L == null) return '';
+  const cells = Array.from({ length: 6 }, (_, i) => `<i class="${i < L ? 'on' : ''}"></i>`).join('');
+  return `<span class="bar" title="columnsLargeScreen=${L}">${cells}</span>`;
+}
+
+// ---- left: layout tree ----
+function renderTree(node, out) {
+  out.push(`<div class="row" style="padding-left:${node.depth * 16}px">
+    <span class="chip" style="background:${color(node.type)}">${abbr(node.type)}</span>
+    <span class="rname">${node.name}</span>
+    <span class="rmeta">${node.kind !== 'tab' && node.L != null ? widthBar(node.L) : ''} <code>${node.id}</code></span>
+  </div>`);
+  node.children.forEach(c => renderTree(c, out));
+}
+
+// ---- right: faithful grid preview ----
+function renderCell(node) {
+  const span = clampSpan(node.L);
+  if (node.children.length) {
+    // container/tab with children → nested 6-col grid
+    const inner = renderRows(node.children);
+    return `<div class="cell container" style="grid-column: span ${span}">
+      <div class="cell-head"><span class="chip" style="background:${color(node.type)}">${abbr(node.type)}</span>
+        <span class="cell-name">${node.name}</span><span class="tag">${node.L != null ? node.L + '/6' : ''}</span></div>
+      <div class="sub">${inner}</div>
+    </div>`;
+  }
+  // leaf widget
+  return `<div class="cell widget" style="grid-column: span ${span}; background:${color(node.type)}">
+    <div class="cell-head"><span class="cell-name">${node.name}</span></div>
+    <span class="tag">${node.type} · ${node.L}/6</span>
+  </div>`;
+}
+
+// Pack children into rows of 6 so we can inject "empty column" ghosts for the gap.
+function renderRows(children) {
+  const rows = analyzeRows(children);
+  return rows.map(r => {
+    const cells = r.cells.map(renderCell).join('');
+    const gap = state.gaps && r.gap > 0
+      ? `<div class="emptynote" style="--gap:${r.gap}; grid-column: span ${r.gap}">empty ${r.gap}/6</div>`
+      : '';
+    return cells + gap;
+  }).join('');
+}
+
+function render() {
+  const { tabs } = reconstruct(NODES, TABSET.id, { interleave: state.interleave });
+
+  // tab strip
+  document.getElementById('tabstrip').innerHTML = tabs.map((t, i) =>
+    `<button data-i="${i}" class="${i === state.tab ? 'on' : ''}">${t.name}</button>`).join('');
+
+  const active = tabs[state.tab];
+
+  // tree (whole active tab)
+  const treeOut = [];
+  renderTree(active, treeOut);
+  document.getElementById('tree').innerHTML = treeOut.join('');
+
+  // preview (active tab's children laid into its 6-col grid)
+  document.getElementById('preview').innerHTML = renderRows(active.children);
+
+  // notes (whole page)
+  const notes = inferNotes(tabs);
+  document.getElementById('notes').innerHTML = notes.length
+    ? notes.map(n => `<div class="note ${n.level}"><span class="lvl">${n.level}</span><span class="scope">${n.scope}</span><span>${n.msg}</span></div>`).join('')
+    : '<div class="note info"><span class="lvl">ok</span><span>No anomalies — every row fills cleanly.</span></div>';
+}
+
+// ---- wiring ----
+document.getElementById('seg-interleave').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  state.interleave = b.dataset.v;
+  document.querySelectorAll('#seg-interleave button').forEach(x => x.classList.toggle('on', x === b));
+  render();
+});
+document.getElementById('seg-gaps').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  state.gaps = b.dataset.v === 'on';
+  document.querySelectorAll('#seg-gaps button').forEach(x => x.classList.toggle('on', x === b));
+  render();
+});
+document.getElementById('tabstrip').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  state.tab = +b.dataset.i;
+  render();
+});
+
+render();
+</script>
+</body>
+</html>

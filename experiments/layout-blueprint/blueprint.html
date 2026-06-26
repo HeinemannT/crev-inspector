@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Blueprint Mode — drafting-table mockup</title>
+<style>
+  :root{ --navy:#0a1b2e; --navy2:#0d2236; --cyan:#5fd0e6; --ink:#dbeeff;
+         --local:#43c59e; --shared:#e0a64f; --avail:#9b8cff; --chart:#7fb2ff; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--navy);color:var(--ink);
+       font-family:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace}
+  /* the drawing sheet */
+  #sheet{position:relative;width:1480px;height:1520px;margin:24px auto;
+    background:
+      repeating-linear-gradient(0deg,transparent 0 39px,rgba(95,208,230,.06) 39px 40px),
+      repeating-linear-gradient(90deg,transparent 0 39px,rgba(95,208,230,.06) 39px 40px),
+      radial-gradient(120% 120% at 50% 0%, var(--navy2), var(--navy));
+    border:1px solid rgba(95,208,230,.25)}
+  .ruler{position:absolute;color:var(--cyan);opacity:.6;font-size:11px;text-align:center}
+  .col-line{position:absolute;border-left:1px dashed rgba(95,208,230,.28)}
+  /* plates (widgets) */
+  .plate{position:absolute;border:1.5px solid var(--cyan);background:rgba(95,208,230,.07);
+    border-radius:2px}
+  .plate.chart{border-color:var(--chart);background:rgba(127,178,255,.07)}
+  .plate .lab{position:absolute;top:7px;left:9px;font-size:12px}
+  .plate .lab b{color:var(--ink);font-weight:600}
+  .plate .lab span{color:var(--cyan);opacity:.75;font-size:11px}
+  .plate.chart .lab span{color:var(--chart)}
+  /* faint skeleton hint of real content showing through */
+  .ghost{position:absolute;left:9px;right:9px;top:30px;display:flex;flex-direction:column;gap:7px;opacity:.22}
+  .ghost i{height:7px;background:var(--ink);border-radius:2px;display:block}
+  .dim{position:absolute;top:-9px;left:50%;transform:translateX(-50%);
+    background:var(--navy);color:var(--cyan);font-size:10px;letter-spacing:.06em;padding:0 6px}
+  .grip{position:absolute;background:var(--navy);border:1.5px solid var(--cyan);border-radius:2px}
+  .grip.r{right:-5px;top:calc(50% - 11px);width:8px;height:22px;cursor:ew-resize}
+  .grip.b{bottom:-5px;left:calc(50% - 11px);height:8px;width:22px;cursor:ns-resize}
+  .plate.chart .grip{border-color:var(--chart)}
+  .hpx{position:absolute;right:-8px;bottom:8px;transform:translateX(100%);
+    color:var(--chart);font-size:10px;background:var(--navy);padding:0 5px;white-space:nowrap}
+  .hpx:before{content:"↕ "}
+  /* containers */
+  .cont{position:absolute;border:1px dashed var(--local);border-radius:3px}
+  .cont.shared{border-color:var(--shared)}
+  .ctab{position:absolute;font-size:10px;font-weight:700;letter-spacing:.03em;
+    color:#06121f;background:var(--local);padding:1px 8px;border-radius:3px 3px 0 0;white-space:nowrap}
+  .cont.shared + .ctab,.ctab.shared{background:var(--shared)}
+  /* empty / available */
+  .avail{position:absolute;border:1.5px dashed var(--avail);border-radius:2px;
+    background:repeating-linear-gradient(45deg,transparent 0 7px,rgba(155,140,255,.13) 7px 8px);
+    display:flex;align-items:center;justify-content:center;color:var(--avail);font-weight:600;font-size:13px}
+  /* drawing title block, bottom-right like a real blueprint */
+  #titleblock{position:absolute;right:18px;bottom:18px;width:330px;border:1px solid var(--cyan);
+    font-size:10px;color:var(--cyan);background:rgba(10,27,46,.85)}
+  #titleblock div{padding:5px 9px;border-bottom:1px solid rgba(95,208,230,.3)}
+  #titleblock div:last-child{border-bottom:0}
+  #titleblock b{color:var(--ink);font-size:12px;letter-spacing:.04em}
+  #legend{position:absolute;left:18px;bottom:18px;font-size:10px;color:var(--cyan);
+    background:rgba(10,27,46,.85);border:1px solid rgba(95,208,230,.3);padding:8px 10px;line-height:1.7}
+  #legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  .mode{position:fixed;top:14px;right:18px;color:var(--cyan);border:1px solid var(--cyan);
+    background:var(--navy);padding:6px 13px;border-radius:3px;font-size:11px;letter-spacing:.14em}
+</style>
+</head>
+<body>
+<div class="mode">⛓ BLUEPRINT MODE</div>
+<div id="sheet"></div>
+<script>
+// Real measured geometry of the Risk Register tab (page coords @1480px), captured live.
+// width = model (verified), height = measured from the live render.
+const ORIGIN = 200; // shift everything down a bit inside the sheet
+const widgets = [
+  { name:'Control Health', type:'FunctionStatus', L:6, x:24,  y:220, w:462, h:181 },
+  { name:'Risk Appetite',  type:'Status',         L:6, x:24,  y:417, w:462, h:181 },
+  { name:'By Owner',       type:'PieChart',        L:6, x:502, y:220, w:462, h:466, chart:true },
+  { name:'Notes',          type:'TextElement',     L:6, x:502, y:702, w:462, h:66 },
+  { name:'Register',       type:'RiskList',        L:4, x:24,  y:784, w:939, h:181 },
+  { name:'Trend vs Target',type:'BarLineChart',    L:4, x:24,  y:981, w:939, h:466, chart:true },
+];
+const containers = [
+  { name:'KPIs',       sub:'', L:2, scope:'local', x:24,  y:220, w:462, h:378 },
+  { name:'Side Panel', sub:'Detail', L:2, scope:'local', x:502, y:220, w:462, h:548 },
+];
+const empties = [
+  { L:2, x:980, y:220, w:452, h:548 },
+  { L:2, x:979, y:784, w:452, h:181 },
+  { L:2, x:979, y:981, w:452, h:466 },
+];
+const Y = v => v - 220 + ORIGIN; // normalize tops into the sheet
+const sheet = document.getElementById('sheet');
+const el = (cls,css,html)=>{const d=document.createElement('div');d.className=cls;d.style.cssText=css;if(html)d.innerHTML=html;sheet.appendChild(d);return d;};
+
+// column ruler + guide lines (6 cols, unit 231, gap 16, left 24)
+const leftX=24, unit=231, gap=16;
+for(let i=0;i<6;i++){ const x=leftX+i*(unit+gap);
+  el('ruler',`left:${x}px;top:${ORIGIN-26}px;width:${unit}px`, `col ${i+1}`);
+}
+for(let i=0;i<=6;i++){ const x=leftX+i*(unit+gap)-(i>0?gap/2:0);
+  el('col-line',`left:${x}px;top:${ORIGIN-30}px;height:1320px`);
+}
+
+// containers (drawn first, behind plates)
+for(const c of containers){
+  const cls = 'cont'+(c.scope==='shared'?' shared':'');
+  el(cls,`left:${c.x-4}px;top:${Y(c.y)-4}px;width:${c.w+8}px;height:${c.h+8}px`);
+  el('ctab'+(c.scope==='shared'?' shared':''),`left:${c.x-4}px;top:${Y(c.y)-23}px`,
+     `▦ ${c.name}${c.sub?' › '+c.sub:''} <span style="opacity:.85">${c.L}/6 · ${c.scope}</span>`);
+}
+
+// widgets
+for(const w of widgets){
+  const p=el('plate'+(w.chart?' chart':''),`left:${w.x}px;top:${Y(w.y)}px;width:${w.w}px;height:${w.h}px`);
+  p.innerHTML = `<div class="lab"><b>${w.name}</b> <span>${w.type}</span></div>`;
+  const g=document.createElement('div');g.className='ghost';
+  const lines = Math.max(1, Math.min(6, Math.round(w.h/40)-1));
+  for(let i=0;i<lines;i++){const b=document.createElement('i');b.style.width=(55+((i*37)%40))+'%';g.appendChild(b);}
+  p.appendChild(g);
+  const dim=document.createElement('div');dim.className='dim';dim.textContent=`◄ ${w.L}/6 ►`;p.appendChild(dim);
+  const gr=document.createElement('div');gr.className='grip r';p.appendChild(gr);
+  if(w.chart){ const gb=document.createElement('div');gb.className='grip b';p.appendChild(gb);
+    const hp=document.createElement('div');hp.className='hpx';hp.textContent=w.h+'px';p.appendChild(hp);}
+}
+
+// available (empty) zones
+for(const e of empties){
+  const d=el('avail',`left:${e.x}px;top:${Y(e.y)}px;width:${e.w}px;height:${e.h}px`,'+ add widget');
+  const dim=document.createElement('div');dim.className='dim';dim.style.color='var(--avail)';
+  dim.textContent=`◄ ${e.L}/6 available ►`;d.appendChild(dim);
+}
+
+// legend + title block
+el('','','').outerHTML='';
+const legend=document.createElement('div');legend.id='legend';
+legend.innerHTML=`<i style="background:var(--cyan)"></i>widget (page-local)<br>
+  <i style="background:var(--chart)"></i>chart · has height handle<br>
+  <i style="background:var(--local)"></i>container · local &nbsp; <i style="background:var(--shared)"></i>shared<br>
+  <i style="background:var(--avail)"></i>available space · + add`;
+sheet.appendChild(legend);
+const tb=document.createElement('div');tb.id='titleblock';
+tb.innerHTML=`<div><b>CREV DEMO — ENTERPRISE RISK &amp; CONTROLS</b></div>
+  <div>TAB &nbsp;·&nbsp; Risk Register</div>
+  <div>GRID &nbsp;·&nbsp; 6-column &nbsp; UNIT ${unit}px</div>
+  <div>WIDTH from model &nbsp;·&nbsp; HEIGHT measured</div>`;
+sheet.appendChild(tb);
+</script>
+</body>
+</html>
