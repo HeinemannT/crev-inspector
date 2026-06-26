@@ -15,7 +15,7 @@
 import type { LModel, LNode, PlanNote } from './lib/layout/types';
 import type { BlueprintCtx } from './lib/layout/sync';
 import { findNode, walk, descendantWidgets, hasHeight, isChart } from './lib/layout/model';
-import { resize, setHeight, rename, remove, addWidget, moveInto } from './lib/layout/edit';
+import { resize, setHeight, rename, remove, addWidget, moveInto, addTab } from './lib/layout/edit';
 import { diff } from './lib/layout/diff';
 import { compile } from './lib/layout/ec';
 import { History } from './lib/layout/history';
@@ -121,6 +121,18 @@ const CSS = `
 #${LAYER_ID} .bp-chip button:disabled{opacity:.4;cursor:default}
 #${LAYER_ID} .bp-chip button.apply{background:#46C9D6;color:#08131f;border-color:#46C9D6}
 #${LAYER_ID} .bp-chip.tmpl button.apply{background:#E0A85A;border-color:#E0A85A}
+#${LAYER_ID} .bp-tabs{position:fixed;top:46px;left:50%;transform:translateX(-50%);display:flex;gap:6px;align-items:center;max-width:94vw;flex-wrap:wrap;padding:5px 8px;background:rgba(11,33,56,.92);border:1px solid #1c3a56;border-radius:8px;pointer-events:auto}
+#${LAYER_ID} .bp-tabs-l{color:#7d93a8;font-size:9.5px;font-weight:700;letter-spacing:.08em}
+#${LAYER_ID} .bp-tab{display:flex;align-items:center;gap:5px;padding:3px 4px 3px 9px;background:#14304a;border:1px solid #2a4a66;border-radius:6px;color:#cfe0f0;font-size:11.5px;cursor:pointer}
+#${LAYER_ID} .bp-tab.sel{border-color:#46C9D6}
+#${LAYER_ID} .bp-tab.st-renamed{border-color:#E0A85A;color:#E0A85A}
+#${LAYER_ID} .bp-tab.st-new{border-style:dashed;border-color:#46C9D6}
+#${LAYER_ID} .bp-tab.st-gone{opacity:.5}#${LAYER_ID} .bp-tab.st-gone .bp-tnm{text-decoration:line-through}
+#${LAYER_ID} .bp-tnm[contenteditable]{outline:1px solid #46C9D6;border-radius:2px;padding:0 2px}
+#${LAYER_ID} .bp-tadd,#${LAYER_ID} .bp-tdel{width:17px;height:17px;border-radius:4px;border:0;background:#0e273d;color:#9fb4c8;font:700 11px Inter;line-height:1;cursor:pointer;padding:0}
+#${LAYER_ID} .bp-tadd:hover{background:#9D7BFF;color:#0B2138}
+#${LAYER_ID} .bp-tdel:hover{background:#E0727A;color:#0B2138}
+#${LAYER_ID} .bp-tabs>button{height:24px;padding:0 10px;border-radius:6px;border:1px dashed #9D7BFF;background:transparent;color:#9D7BFF;font:600 11px Inter;cursor:pointer}
 #${LAYER_ID} .bp-modal-back{position:fixed;inset:0;background:rgba(4,12,22,.55);display:flex;align-items:center;justify-content:center;pointer-events:auto}
 #${LAYER_ID} .bp-modal{width:520px;max-width:92vw;max-height:80vh;display:flex;flex-direction:column;background:#0B2138;color:#dbe7f5;border:1px solid #46C9D6;border-radius:10px;box-shadow:0 12px 48px rgba(0,0,0,.6)}
 #${LAYER_ID} .bp-modal.tmpl{border-color:#E0A85A}
@@ -226,6 +238,7 @@ function addFromPicker(className: string): void {
   bp.selectedId = added.id;
   mutate(added.model);
 }
+function addTabAction(): void { const m = model(); if (m) { const r = addTab(m, m.tabs.length, 'New Tab'); bp.selectedId = r.id; mutate(r.model); } }
 function openMovePicker(id: string): void { bp.movePicker = id; render(); }
 function closeMovePicker(): void { bp.movePicker = null; render(); }
 function moveTo(id: string, destId: string): void {
@@ -273,6 +286,7 @@ function render(): void {
   const byRid = ridElementMap();
   const pending = diff(base, m).length;
   layer.appendChild(renderChip(ctx, pending));
+  layer.appendChild(tabBar(base, m));
 
   // container boxes first (behind), sized to the union of their live child-widget rects
   walk(base, (node) => {
@@ -565,6 +579,57 @@ function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   const applyB = mkBtn(bp.applying ? 'Applying…' : `Apply${pending ? ` (${pending})` : ''}`, openApplyPreview);
   applyB.className = 'apply'; applyB.disabled = pending === 0 || bp.applying; c.appendChild(applyB);
   return c;
+}
+
+/** Tab manager — a strip under the chip listing every tab (rename inline, delete, add widget),
+ *  plus "+ Tab". Rendered from the BASELINE tabs so deletions stay visible (struck), with staged
+ *  new tabs appended. The blueprint still only renders WIDGET boxes for the live (active) tab. */
+function tabBar(base: LModel, m: LModel): HTMLElement {
+  const bar = document.createElement('div'); bar.className = 'bp-tabs';
+  const lbl = document.createElement('span'); lbl.className = 'bp-tabs-l'; lbl.textContent = 'TABS'; bar.appendChild(lbl);
+  for (const bt of base.tabs) {
+    const cur = findNode(m, bt.id)?.node;
+    bar.appendChild(tabPill(bt.id, cur?.name ?? bt.name, !cur ? 'gone' : (cur.name !== bt.name ? 'renamed' : 'same')));
+  }
+  // staged new tabs (in model, not baseline)
+  for (const mt of m.tabs) {
+    if (!base.tabs.some(b => b.id === mt.id)) bar.appendChild(tabPill(mt.id, mt.name, 'new'));
+  }
+  bar.appendChild(mkBtn('+ Tab', addTabAction));
+  return bar;
+}
+
+function tabPill(id: string, name: string, state: 'same' | 'renamed' | 'gone' | 'new'): HTMLElement {
+  const pill = document.createElement('div'); pill.className = `bp-tab st-${state}` + (bp.selectedId === id ? ' sel' : '');
+  pill.addEventListener('mousedown', (e) => { e.stopPropagation(); select(id); });
+  if (state === 'new') { const t = document.createElement('span'); t.className = 'newtag'; t.textContent = 'NEW'; pill.appendChild(t); }
+  const nm = document.createElement('span'); nm.className = 'bp-tnm'; nm.textContent = name;
+  nm.addEventListener('mousedown', (e) => { if (state !== 'gone') { e.stopPropagation(); startTabRename(id, nm); } });
+  pill.appendChild(nm);
+  // add-widget to this tab
+  if (state !== 'gone') {
+    const add = document.createElement('button'); add.className = 'bp-tadd'; add.textContent = '＋'; add.title = `Add a widget to ${name}`;
+    add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(id); });
+    pill.appendChild(add);
+  }
+  // delete / restore
+  const del = document.createElement('button'); del.className = 'bp-tdel'; del.textContent = state === 'gone' ? '↺' : '×';
+  del.title = state === 'gone' ? 'Undo delete (use Undo)' : `Delete tab "${name}" and its contents`;
+  if (state !== 'gone') del.addEventListener('mousedown', (e) => { e.stopPropagation(); doDelete(id); });
+  pill.appendChild(del);
+  return pill;
+}
+
+function startTabRename(id: string, nm: HTMLElement): void {
+  nm.setAttribute('contenteditable', 'true'); nm.focus();
+  const range = document.createRange(); range.selectNodeContents(nm);
+  const sel = getSelection(); sel?.removeAllRanges(); sel?.addRange(range);
+  const commit = () => { nm.removeAttribute('contenteditable'); doRename(id, nm.textContent ?? ''); };
+  nm.addEventListener('blur', commit, { once: true });
+  nm.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Enter') { e.preventDefault(); nm.blur(); }
+    if ((e as KeyboardEvent).key === 'Escape') { nm.textContent = findNode(model()!, id)?.node.name ?? ''; nm.blur(); }
+  });
 }
 
 // ── geometry + dom helpers ──────────────────────────────────────────────────
