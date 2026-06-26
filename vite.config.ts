@@ -125,9 +125,10 @@ export default defineConfig({
     minify: true,
     modulePreload: false,
     rollupOptions: {
-      // content.ts CSS imports are handled by esbuild (bundleContentScript plugin),
-      // not Rollup — mark them external to prevent Rollup from failing on them.
-      external: (id, importer) => importer === contentEntry && id.endsWith('.css'),
+      // CSS imported anywhere in the content-script bundle (content.ts or a src/content* module it
+      // pulls in, e.g. content-blueprint) is handled by esbuild (bundleContentScript plugin) with the
+      // '.css':'text' loader — mark it external so the Rollup pass doesn't try to resolve it.
+      external: (id, importer) => id.endsWith('.css') && !!importer && importer.includes('/content'),
       input: {
         'service-worker': resolve(__dirname, 'src/service-worker.ts'),
         interceptor: resolve(__dirname, 'src/interceptor.ts'),
