@@ -5,10 +5,10 @@
  *
  * All of these are wired into the overlay: resize/setHeight/rename/remove/addWidget/addContainer/addTab
  * via the toolbar + picker, and moveInto/swap/insertRelative via the drag gestures (gestures.ts → the
- * doMoveInto/doSwap/doInsert controllers). `move` is the shared reparent+position primitive; setTarget
- * and normalize are utilities. findNode/findTabOf are shared tree helpers used throughout.
+ * doMoveInto/doSwap/doInsert controllers). `move` is the shared reparent+position primitive.
+ * findNode/findTabOf are shared tree helpers used throughout.
  */
-import { cloneModel, findNode, orderChildren, descendantWidgets, tempId, isChart, hasHeight } from './model';
+import { cloneModel, findNode, descendantWidgets, tempId, isChart, hasHeight } from './model';
 import type { Breakpoint, LModel, LNode } from './types';
 
 const clampCol = (n: number): number => Math.max(0, Math.min(6, Math.round(n)));
@@ -154,16 +154,4 @@ export function findTabOf(m: LModel, id: string): LNode | null {
     if (hit) return tab;
   }
   return null;
-}
-
-export function setTarget(m: LModel, target: LModel['target']): LModel {
-  return { ...m, target: target === 'template' && !m.hasTemplate ? 'instance' : target };
-}
-
-/** Re-sort every sibling list containers-first (call after structural edits to match render). */
-export function normalize(m: LModel): LModel {
-  return edit(m, c => {
-    const rec = (list: LNode[]) => { list.forEach(n => rec(n.children)); };
-    c.tabs.forEach(t => { t.children = orderChildren(t.children); rec(t.children); });
-  });
 }

@@ -73,12 +73,6 @@ export type PlanStep =
   | { kind: 'reorder'; id: string; afterId: string }
   | { kind: 'delete'; id: string; nodeKind: NodeKind; className: string; rehomeTo?: string };
 
-export interface Plan {
-  steps: PlanStep[];
-  /** human-readable, ordered — drives the Apply preview. */
-  notes: PlanNote[];
-}
-
 export interface PlanNote {
   verb: 'create' | 'update' | 'move' | 'reorder' | 'delete';
   text: string;

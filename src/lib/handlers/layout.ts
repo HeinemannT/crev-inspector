@@ -8,18 +8,19 @@ import { getCtx } from '../sw-context';
 import type { SwContext } from '../sw-context';
 import { loadPage, applyPage } from '../layout-service';
 import { ensureContentScript } from '../tab-awareness';
+import { toggleInspect } from './inspect';
 import { errorMessage, log } from '../logger';
 
-register('BLUEPRINT_TOGGLE', async (_msg, _respond, meta) => {
+/** Set blueprint mode for a window + broadcast to its panel and active content tab. Shared by the
+ *  toggle handler and the inspect handler — blueprint and inspect are mutually exclusive (each runs
+ *  its own document-wide overlay + observer, so only one should paint at a time). */
+export async function setBlueprintActive(windowId: number, active: boolean): Promise<void> {
   const ctx = getCtx();
-  const windowId = meta.panelWindowId ?? (await chrome.windows.getLastFocused().catch(() => null))?.id;
-  if (windowId == null) return;
-  const next = !ctx.blueprintActiveByWindow.get(windowId);
-  ctx.blueprintActiveByWindow.set(windowId, next);
-  ctx.logActivity('info', next ? 'Blueprint mode ON' : 'Blueprint mode OFF');
-  const state = { type: 'BLUEPRINT_STATE' as const, active: next };
+  if (ctx.blueprintActiveByWindow.get(windowId) === active) return;
+  ctx.blueprintActiveByWindow.set(windowId, active);
+  ctx.logActivity('info', active ? 'Blueprint mode ON' : 'Blueprint mode OFF');
+  const state = { type: 'BLUEPRINT_STATE' as const, active };
   ctx.sendToPanelByWindow(windowId, state);
-  // Drive the active BMP tab's content overlay (blueprint edits one page at a time).
   try {
     const [tab] = await chrome.tabs.query({ active: true, windowId });
     if (tab?.id != null) {
@@ -27,6 +28,15 @@ register('BLUEPRINT_TOGGLE', async (_msg, _respond, meta) => {
       chrome.tabs.sendMessage(tab.id, state).catch(e => log.swallow('blueprint:toggleTab', e));
     }
   } catch (e) { log.swallow('blueprint:toggleQuery', e); }
+}
+
+register('BLUEPRINT_TOGGLE', async (_msg, _respond, meta) => {
+  const ctx = getCtx();
+  const windowId = meta.panelWindowId ?? (await chrome.windows.getLastFocused().catch(() => null))?.id;
+  if (windowId == null) return;
+  const next = !ctx.blueprintActiveByWindow.get(windowId);
+  if (next && ctx.isInspectActive(windowId)) await toggleInspect(windowId); // blueprint on ⇒ inspect off
+  await setBlueprintActive(windowId, next);
 });
 
 /** Environment fingerprint stamped at load and re-checked at apply. Combines the active profile id
