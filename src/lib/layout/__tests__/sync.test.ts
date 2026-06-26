@@ -79,6 +79,14 @@ describe('sync.parseFetchLog', () => {
     expect(btn.parentRid).toBe('4410778765552068593');   // nested under the ButtonContainer
     expect(btn.containerRid).toBeUndefined();             // RESULT collapsed to empty
   });
+  it('reads chartHeight (10th field) so height edits start from the real value, not a default', () => {
+    // regression for the stress-test bug: the fetch omitted chartHeight, so a height edit started
+    // from the 200 default and clobbered the live 470.
+    const chart = parseFetchLog(`${SEP}900|cd|Chart|BarChart|451|75384|4|6|6|470`)[0];
+    expect(chart.chartHeight).toBe(470);
+    // an old 9-field line (no height) still parses fine — height undefined
+    expect(parseFetchLog(`${SEP}901|x|W|Status|451|75384|6|6|6`)[0].chartHeight).toBeUndefined();
+  });
 });
 
 describe('sync.loadModel', () => {

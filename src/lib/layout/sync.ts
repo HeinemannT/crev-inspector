@@ -101,16 +101,16 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
   const ts = `t.${ecBid(ctx.tabsetId)}`;
   const sc = `lookup(${ecRid(ctx.pageRid)})`;
   const cols = (v: string) => `${v}.columnsLargeScreen.whenMissing("") + "|" + ${v}.columnsMediumScreen.whenMissing("") + "|" + ${v}.columnsSmallScreen.whenMissing("")`;
-  // tabset root: no parent, no container.
-  const root = `${ts}.rid + "|" + ${ts}.id.whenMissing("") + "|" + ${ts}.name.whenMissing("") + "|" + ${ts}.className.whenMissing("") + "|||||"`;
+  // tabset root: no parent, no container, no height (6 trailing empties: parent|container|L|M|S|height).
+  const root = `${ts}.rid + "|" + ${ts}.id.whenMissing("") + "|" + ${ts}.name.whenMissing("") + "|" + ${ts}.className.whenMissing("") + "||||||"`;
   return [
     `_ts := ${ts}`,
     `_sc := ${sc}`,
     `_r := ""`,
     `_r := _r + "${SEP}" + ${root} + "\\n"`,
-    // grid: tabs + containers — parentRid set, containerRid always empty (placement IS the parent)
+    // grid: tabs + containers — parentRid set, containerRid always empty, no chartHeight (trailing |)
     `_ts.descendants().forEach(_n:`,
-    `     _r := _r + "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.name.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "\\n"`,
+    `     _r := _r + "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.name.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "\\n"`,
     `)`,
     // org model: widgets + composites (recursive). Emit BOTH parent (composite nesting) and
     // container (portal placement). The phantom RESULT placement collapses to empty so a
@@ -122,7 +122,7 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `     ELSE`,
     `          _crid := _crid`,
     `     ENDIF`,
-    `     _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.name.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _crid + "|" + ${cols('_w')} + "\\n"`,
+    `     _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.name.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _crid + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "\\n"`,
     `)`,
     `_r`,
   ].join('\n');
@@ -139,7 +139,7 @@ export function parseFetchLog(log: string): WireNode[] {
     if (!line) continue;
     const parts = line.split('|');
     if (parts.length < 9) continue;
-    const [rid, bid, name, type, parentRid, containerRid, l, m, s] = parts;
+    const [rid, bid, name, type, parentRid, containerRid, l, m, s, height] = parts;
     if (!rid || seen.has(rid)) continue;
     seen.add(rid);
     nodes.push({
@@ -152,6 +152,7 @@ export function parseFetchLog(log: string): WireNode[] {
       columnsLargeScreen: numOrUndef(l),
       columnsMediumScreen: numOrUndef(m),
       columnsSmallScreen: numOrUndef(s),
+      chartHeight: numOrUndef(height),  // 10th field — was missing, so height edits clobbered the real value
     });
   }
   return nodes;

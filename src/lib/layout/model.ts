@@ -76,6 +76,7 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx): LM
         ...(wire.columnsMediumScreen != null ? { M: wire.columnsMediumScreen } : {}),
         ...(wire.columnsSmallScreen != null ? { S: wire.columnsSmallScreen } : {}),
       },
+      ...(wire.chartHeight != null ? { height: wire.chartHeight } : {}),
       children: orderChildren(kids),
     };
   };

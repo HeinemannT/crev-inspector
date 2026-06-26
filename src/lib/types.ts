@@ -414,6 +414,9 @@ export interface LayoutNode {
   columnsLargeScreen?: number;
   columnsMediumScreen?: number;
   columnsSmallScreen?: number;
+  /** Authored chart/URLView height in px — needed so the blueprint edits from the real value
+   *  rather than a default (otherwise a height edit overwrites the live height). */
+  chartHeight?: number;
 }
 
 // ── Object Pane (sidepanel DetailView property editor) ──────────
