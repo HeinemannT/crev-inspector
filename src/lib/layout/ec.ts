@@ -74,7 +74,7 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         } else {
           const h = n.height != null ? `, chartHeight := ${n.height}` : '';
           emit({ verb: 'create', text: `Create ${n.className} "${n.name}"`,
-            ec: `${v} := _sc.add(${ecClass(n.className)}, container := ${ref(s.parentId)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}${h}) // BMP assigns id` });
+            ec: `${v} := _sc.add(${ecClass(n.className)}, name := ${ecStr(n.name)}, container := ${ref(s.parentId)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}${h}) // BMP assigns id` });
         }
         break;
       }

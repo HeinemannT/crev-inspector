@@ -98,9 +98,9 @@ export function addWidget(m: LModel, parentId: string, index: number, className:
   return { model: insertNode(m, parentId, index, node), id };
 }
 
-export function addContainer(m: LModel, parentId: string, index: number, colsL = 6): { model: LModel; id: string } {
+export function addContainer(m: LModel, parentId: string, index: number, colsL = 6, name = 'New Box'): { model: LModel; id: string } {
   const id = tempId('box');
-  const node: LNode = { id, kind: 'container', className: 'Container', name: 'New Box', cols: { L: colsL }, children: [] };
+  const node: LNode = { id, kind: 'container', className: 'Container', name, cols: { L: colsL }, children: [] };
   return { model: insertNode(m, parentId, index, node), id };
 }
 
