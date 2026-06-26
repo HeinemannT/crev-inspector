@@ -617,9 +617,11 @@ export type NotificationMessage =
  *  load/apply. Models are plain JSON (LModel) so they cross the port unchanged. */
 export type LayoutMessage =
   | { type: 'LAYOUT_LOAD'; rid: string }
-  | { type: 'LAYOUT_LOAD_RESULT'; ok: boolean; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
-  | { type: 'LAYOUT_APPLY'; ctx: BlueprintCtx; baseline: LModel; desired: LModel }
-  | { type: 'LAYOUT_APPLY_RESULT'; ok: boolean; noop: boolean; script?: string; notes?: PlanNote[]; model?: LModel; baseline?: LModel; error?: string };
+  // `env` = the active profile id at load time; the panel echoes it back on apply so the SW can
+  // reject a commit aimed at a different environment (the user switched profiles mid-edit).
+  | { type: 'LAYOUT_LOAD_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
+  | { type: 'LAYOUT_APPLY'; env: string; ctx: BlueprintCtx; baseline: LModel; desired: LModel }
+  | { type: 'LAYOUT_APPLY_RESULT'; ok: boolean; noop: boolean; stale?: boolean; script?: string; notes?: PlanNote[]; model?: LModel; baseline?: LModel; error?: string };
 
 export type InspectorMessage =
   | PageMessage | InspectMessage | CacheMessage | ServerLookupMessage

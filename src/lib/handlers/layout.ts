@@ -20,7 +20,7 @@ register('LAYOUT_LOAD', async (msg, respond) => {
       return;
     }
     respond({
-      type: 'LAYOUT_LOAD_RESULT', ok: true,
+      type: 'LAYOUT_LOAD_RESULT', ok: true, env: ctx.settings.activeProfileId,
       ctx: res.ctx, model: res.load.model, baseline: res.load.baseline, orphans: res.load.orphans,
     });
     ctx.logActivity('success', `Blueprint loaded ${res.ctx.pageClass} ${res.ctx.pageId} (${Date.now() - t0}ms)`);
@@ -33,11 +33,19 @@ register('LAYOUT_LOAD', async (msg, respond) => {
 register('LAYOUT_APPLY', async (msg, respond) => {
   const ctx = getCtx();
   if (!ctx.client) { respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: 'Not connected' }); return; }
+  // Wrong-env guard: refuse a commit whose load happened against a different profile than the one
+  // now active (the user switched environments between load and apply).
+  if (msg.env !== ctx.settings.activeProfileId) {
+    respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false,
+      error: 'Environment changed since this layout was loaded — reload the page before applying.' });
+    ctx.logActivity('warn', `Blueprint apply blocked: env ${msg.env} != active ${ctx.settings.activeProfileId}`);
+    return;
+  }
   const t0 = Date.now();
   try {
     const res = await applyPage(ctx.client, msg.ctx, msg.baseline, msg.desired);
     respond({
-      type: 'LAYOUT_APPLY_RESULT', ok: res.ok, noop: res.noop,
+      type: 'LAYOUT_APPLY_RESULT', ok: res.ok, noop: res.noop, stale: res.stale,
       script: res.script, notes: res.notes, model: res.model, baseline: res.baseline, error: res.error,
     });
     // Audit trail: the applied EC is first-class — record it so a mis-apply is reconstructable.

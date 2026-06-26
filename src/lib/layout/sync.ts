@@ -58,11 +58,14 @@ export interface ApplyResult {
   ok: boolean;
   /** True when the desired model equalled the baseline — nothing was executed. */
   noop: boolean;
+  /** True when the live page drifted from the baseline since load (someone else edited it). Nothing
+   *  was committed; `model`/`baseline` carry the FRESH live state so the UI can rebase the edits. */
+  stale?: boolean;
   plan: PlanStep[];
   notes: PlanNote[];
   /** The compiled EC (empty string on no-op) — handy for a dry-run preview and for logs. */
   script: string;
-  /** Re-fetched model + fresh baseline after a successful apply (absent on failure/no-op). */
+  /** Re-fetched model + fresh baseline after a successful apply (or the fresh live state on stale). */
   model?: LModel;
   baseline?: LModel;
   error?: string;
@@ -221,7 +224,12 @@ export function buildContextEc(rid: string): string {
     `     _tsid := ""`,
     `     _a := _cell`,
     ...walk,
-    `     _out := _out + "direct|" + _probe.rid + "|" + _probe.id.whenMissing("") + "|" + _probe.className.whenMissing("") + "|" + _tsid`,
+    // hasLink: does this instance reuse a template (SharedWebItems)? Drives whether the UI can offer
+    // "edit at template level"; the default edit target stays the instance (it owns its widgets).
+    `     _link := _probe.linkedTo.rid.whenMissing("")`,
+    `     _hasLink := "n"`,
+    `     IF _link <> "" THEN _hasLink := "y" ELSE _hasLink := _hasLink ENDIF`,
+    `     _out := _out + "direct|" + _probe.rid + "|" + _probe.id.whenMissing("") + "|" + _probe.className.whenMissing("") + "|" + _tsid + "|" + _hasLink`,
     `ENDIF`,
     `_out`,
   ].join('\n');
@@ -236,18 +244,22 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
   if (!res.ok || !res.log) return null;
   const line = res.log.split(CTX)[1]?.split('\n', 1)[0]?.trim();
   if (!line) return null;
-  const [kind, pRid, pId, pClass, tabsetId] = line.split('|');
+  const [kind, pRid, pId, pClass, tabsetId, hasLink] = line.split('|');
   if (!pRid || !pId || !tabsetId) return null; // no tabset discoverable → not loadable
   if (kind === 'enterprise') {
+    // The page root IS the shared template; every edit hits all linked instances → high blast radius.
     return {
       pageId: pId, pageRid: pRid, pageClass: (pClass || 'EnterpriseTemplate') as BlueprintCtx['pageClass'],
       tabsetId, target: 'template', hasTemplate: true, tabScope: 'withContent',
     };
   }
   if (kind === 'direct') {
+    // The object owns its widgets → editing is INSTANCE-scoped (low blast radius). hasTemplate just
+    // records that a linked template exists (the instance reuses it), so the UI can optionally offer
+    // template-level edits later; the default target stays the instance.
     return {
       pageId: pId, pageRid: pRid, pageClass: (pClass || 'Scorecard') as BlueprintCtx['pageClass'],
-      tabsetId, target: 'template', hasTemplate: false, tabScope: 'all',
+      tabsetId, target: 'instance', hasTemplate: hasLink === 'y', tabScope: 'all',
     };
   }
   return null;
@@ -273,6 +285,14 @@ export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel
   const { script, notes } = compile(plan, desired);
   if (!plan.length || !script) {
     return { ok: true, noop: true, plan, notes, script: '' };
+  }
+  // Stale-baseline guard: re-fetch live and confirm the page hasn't drifted from the baseline the
+  // user started editing. If someone else changed it, committing our diff could clobber their work
+  // (our reorders/deletes reference rids that may have moved). Abort and hand back the fresh state.
+  const live = await loadModel(io, ctx);
+  if (diff(baseline, live.model).length > 0) {
+    return { ok: false, noop: false, stale: true, plan, notes, script, model: live.model, baseline: live.baseline,
+      error: 'The page changed since you started editing — review the refreshed layout and reapply.' };
   }
   const res = await io.exec(script, true); // commit — the only writing exec in the whole flow
   if (!res.ok) {

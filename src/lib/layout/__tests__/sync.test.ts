@@ -186,31 +186,68 @@ describe('sync.applyModel', () => {
     expect(res.script).toBe('');
     expect(io.exec).not.toHaveBeenCalled();
   });
-  it('executes the compiled script, then re-fetches to rebuild model + baseline', async () => {
+  it('stale-checks, executes the compiled script, then re-fetches to rebuild model + baseline', async () => {
     const io = fakeIo(LIVE_LOG);
     const { baseline } = await loadModel(io, CTX);
     let desired = addContainer(baseline, '4904', 0, 3, 'New KPIs').model;
     desired = rename(desired, '4969', 'Analyst Notes');
-    const execed: string[] = [];
-    io.exec = vi.fn(async (code: string) => { execed.push(code); return { ok: true, log: LIVE_LOG }; });
+    const execed: { code: string; commit: boolean }[] = [];
+    io.exec = vi.fn(async (code: string, commit = false) => { execed.push({ code, commit }); return { ok: true, log: LIVE_LOG }; });
     const res = await applyModel(io, baseline, desired, CTX);
     expect(res.ok).toBe(true);
     expect(res.noop).toBe(false);
     expect(res.script).toContain('.add(Container');
     expect(res.script).toContain('name := "Analyst Notes"');
-    expect(execed.length).toBe(2);              // apply script, then re-fetch
-    expect(execed[1]).toContain('descendants'); // second call is the re-fetch
+    // stale-check fetch (read) → commit (write) → re-fetch (read)
+    expect(execed.map(e => e.commit)).toEqual([false, true, false]);
+    expect(execed[0].code).toContain('descendants'); // stale-check re-fetch
+    expect(execed[1].commit).toBe(true);             // the only committing call
     expect(res.model).toBeDefined();
     expect(res.baseline).toBeDefined();
   });
-  it('reports failure without re-fetching when the apply EC errors', async () => {
+  it('blocks as STALE when the live page drifted from the baseline (no commit)', async () => {
+    const io = fakeIo(LIVE_LOG);
+    const { baseline } = await loadModel(io, CTX);
+    const desired = rename(baseline, '4969', 'Analyst Notes');
+    // live fetch now returns a DRIFTED page (a widget renamed by someone else)
+    const drifted = LIVE_LOG.replace('Register|RiskList', 'Register RENAMED|RiskList');
+    let committed = false;
+    io.exec = vi.fn(async (code: string, commit = false) => {
+      if (commit) { committed = true; return { ok: true, log: drifted }; }
+      return { ok: true, log: drifted };
+    });
+    const res = await applyModel(io, baseline, desired, CTX);
+    expect(res.stale).toBe(true);
+    expect(res.ok).toBe(false);
+    expect(committed).toBe(false);          // nothing was written
+    expect(res.model).toBeDefined();        // fresh live state handed back for rebase
+    expect(findNode(res.model!, '4964')!.node.name).toBe('Register RENAMED');
+  });
+  it('reports failure when the commit EC errors (stale-check passes first)', async () => {
     const io = fakeIo(LIVE_LOG);
     const { baseline } = await loadModel(io, CTX);
     const desired = rename(baseline, '4969', 'X');
-    io.exec = vi.fn(async () => ({ ok: false, error: 'rollback: bad' }));
+    io.exec = vi.fn(async (code: string, commit = false) =>
+      commit ? { ok: false, error: 'rollback: bad' } : { ok: true, log: LIVE_LOG });
     const res = await applyModel(io, baseline, desired, CTX);
     expect(res.ok).toBe(false);
+    expect(res.stale).toBeFalsy();
     expect(res.error).toMatch(/rollback/);
     expect(res.model).toBeUndefined();
+  });
+});
+
+describe('sync.resolvePageContext (blast radius)', () => {
+  it('direct page → instance target, low blast radius; records a linked template', async () => {
+    const probe = `${'<<<CREV_CTX>>>'}direct|451704949656267090|4957|Scorecard|crev_demo_tabset|y`;
+    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '4957');
+    expect(ctx!.target).toBe('instance');   // edits the object's own widgets
+    expect(ctx!.hasTemplate).toBe(true);    // a linked template exists (SharedWebItems)
+  });
+  it('direct page with no linked template → hasTemplate false', async () => {
+    const probe = `${'<<<CREV_CTX>>>'}direct|1|2|ModelPage|some_tabset|n`;
+    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '1');
+    expect(ctx!.target).toBe('instance');
+    expect(ctx!.hasTemplate).toBe(false);
   });
 });
