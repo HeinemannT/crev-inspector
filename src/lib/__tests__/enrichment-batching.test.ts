@@ -88,6 +88,7 @@ function createMockContext(opts: MockOpts = {}) {
     settings: { schemaVersion: 1, profiles: [], activeProfileId: '', autoDetect: true, saveTarget: 'template' as const, enrichMode: 'widgets' as const },
     inspectActiveByWindow: new Map(),
     blueprintActiveByWindow: new Map(),
+    blueprintTabByWindow: new Map(),
     isInspectActive: () => false,
     setInspectActive: vi.fn(),
     technicalOverlay: false,

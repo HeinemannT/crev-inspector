@@ -66,6 +66,7 @@ async function createInspectHarness(opts: {
     contentPorts,
     inspectActiveByWindow,
     blueprintActiveByWindow: new Map<number, boolean>(),
+    blueprintTabByWindow: new Map<number, number>(),
     settings,
     technicalOverlay: false,
     settingsReady: Promise.resolve(),

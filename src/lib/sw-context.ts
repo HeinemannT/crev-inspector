@@ -30,6 +30,9 @@ export interface SwContext {
   inspectActiveByWindow: Map<number, boolean>;
   /** Per-window blueprint-mode toggle state (see service-worker.ts). Cleared on profile switch. */
   blueprintActiveByWindow: Map<number, boolean>;
+  /** The specific tab the blueprint overlay is on, per window — so a navigation/refresh of THAT tab
+   *  ends the session reliably (the active-tab map is empty until the first tab switch). */
+  blueprintTabByWindow: Map<number, number>;
   /** Returns whether inspect mode is active in the given window. */
   isInspectActive(windowId: number | undefined): boolean;
   /** Set inspect mode for a window and persist the change. */

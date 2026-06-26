@@ -24,9 +24,10 @@ export async function setBlueprintActive(windowId: number, active: boolean): Pro
   try {
     const [tab] = await chrome.tabs.query({ active: true, windowId });
     if (tab?.id != null) {
+      if (active) ctx.blueprintTabByWindow.set(windowId, tab.id); else ctx.blueprintTabByWindow.delete(windowId);
       await ensureContentScript(tab.id);
       chrome.tabs.sendMessage(tab.id, state).catch(e => log.swallow('blueprint:toggleTab', e));
-    }
+    } else if (!active) { ctx.blueprintTabByWindow.delete(windowId); }
   } catch (e) { log.swallow('blueprint:toggleQuery', e); }
 }
 
