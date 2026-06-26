@@ -12,11 +12,12 @@
  * That keeps deletions visible (the DOM widget is still there until apply). Geometry from the DOM,
  * everything else from the model.
  */
-import type { LModel, LNode } from './lib/layout/types';
+import type { LModel, LNode, PlanNote } from './lib/layout/types';
 import type { BlueprintCtx } from './lib/layout/sync';
 import { findNode, walk, descendantWidgets, hasHeight, isChart } from './lib/layout/model';
 import { resize, setHeight, rename, remove } from './lib/layout/edit';
 import { diff } from './lib/layout/diff';
+import { compile } from './lib/layout/ec';
 import { History } from './lib/layout/history';
 import { getAllRidElements, extractUrlRids } from './lib/dom-scanner';
 import { sendToSW } from './lib/content-port';
@@ -35,11 +36,12 @@ interface BpState {
   layer: HTMLElement | null;
   selectedId: string | null;
   applying: boolean;
+  preview: PlanNote[] | null;   // non-null → the apply-preview modal is open
   onScroll: (() => void) | null;
 }
 const bp: BpState = {
   active: false, baseline: null, ctx: null, env: null, history: null,
-  layer: null, selectedId: null, applying: false, onScroll: null,
+  layer: null, selectedId: null, applying: false, preview: null, onScroll: null,
 };
 
 export function isBlueprintActive(): boolean { return bp.active; }
@@ -80,6 +82,22 @@ const CSS = `
 #${LAYER_ID} .bp-chip button:disabled{opacity:.4;cursor:default}
 #${LAYER_ID} .bp-chip button.apply{background:#46C9D6;color:#08131f;border-color:#46C9D6}
 #${LAYER_ID} .bp-chip.tmpl button.apply{background:#E0A85A;border-color:#E0A85A}
+#${LAYER_ID} .bp-modal-back{position:fixed;inset:0;background:rgba(4,12,22,.55);display:flex;align-items:center;justify-content:center;pointer-events:auto}
+#${LAYER_ID} .bp-modal{width:520px;max-width:92vw;max-height:80vh;display:flex;flex-direction:column;background:#0B2138;color:#dbe7f5;border:1px solid #46C9D6;border-radius:10px;box-shadow:0 12px 48px rgba(0,0,0,.6)}
+#${LAYER_ID} .bp-modal.tmpl{border-color:#E0A85A}
+#${LAYER_ID} .bp-modal-h{padding:14px 16px;font-weight:700;font-size:14px;border-bottom:1px solid #1c3a56}
+#${LAYER_ID} .bp-modal-warn{margin:10px 14px 0;padding:8px 10px;background:rgba(224,168,90,.12);border:1px solid #E0A85A;border-radius:6px;color:#E0A85A;font-size:11.5px;font-weight:600}
+#${LAYER_ID} .bp-modal-list{overflow:auto;padding:8px 6px;display:flex;flex-direction:column;gap:2px}
+#${LAYER_ID} .bp-prow{display:flex;align-items:baseline;gap:8px;padding:6px 10px;border-radius:5px;font-size:12px}
+#${LAYER_ID} .bp-prow:hover{background:#0f283f}
+#${LAYER_ID} .bp-prow .ic{width:16px;text-align:center;flex:none}
+#${LAYER_ID} .bp-prow.v-delete{color:#E0727A}
+#${LAYER_ID} .bp-prow.v-create{color:#7fd1a8}
+#${LAYER_ID} .bp-prow code{margin-left:auto;font:10.5px ui-monospace,monospace;color:#7d93a8;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:48%}
+#${LAYER_ID} .bp-modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 14px;border-top:1px solid #1c3a56}
+#${LAYER_ID} .bp-modal-foot button{height:30px;padding:0 16px;border-radius:6px;border:1px solid #2a4a66;background:#14304a;color:#cfe0f0;font:600 12px Inter;cursor:pointer}
+#${LAYER_ID} .bp-modal-foot button.apply{background:#46C9D6;color:#08131f;border-color:#46C9D6}
+#${LAYER_ID} .bp-modal.tmpl .bp-modal-foot button.apply{background:#E0A85A;border-color:#E0A85A}
 `;
 
 function ensureStyle(): void {
@@ -117,7 +135,7 @@ export function disableBlueprint(): void {
     window.removeEventListener('resize', bp.onScroll, true);
   }
   bp.layer?.remove();
-  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, onScroll: null });
+  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, onScroll: null });
 }
 
 export function onLayoutLoaded(msg: { ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; orphans?: unknown[]; error?: string }): void {
@@ -161,10 +179,24 @@ function undo(): void { const m = bp.history?.undo(); if (m) { bp.selectedId = n
 function redo(): void { const m = bp.history?.redo(); if (m) { bp.selectedId = null; render(); } }
 function discard(): void { if (bp.baseline) { bp.history = new History(bp.baseline); bp.selectedId = null; render(); } }
 
-function applyChanges(): void {
+/** Apply opens a preview first — never commit blind. The plan is computed with the SAME diff+compile
+ *  the SW will run, so the human-readable notes match exactly what gets executed. */
+function openApplyPreview(): void {
+  const m = model();
+  if (!bp.ctx || !bp.baseline || !m || bp.applying) return;
+  const plan = diff(bp.baseline, m);
+  if (plan.length === 0) { showToast('Blueprint: nothing to apply', 'info'); return; }
+  const { notes } = compile(plan, m);
+  bp.preview = notes;
+  render();
+}
+function closePreview(): void { bp.preview = null; render(); }
+
+/** Confirmed from the preview modal — fire the guarded SW apply. */
+function confirmApply(): void {
   const m = model();
   if (!bp.ctx || !bp.baseline || !bp.env || !m || bp.applying) return;
-  if (diff(bp.baseline, m).length === 0) { showToast('Blueprint: nothing to apply', 'info'); return; }
+  bp.preview = null;
   bp.applying = true; render();
   sendToSW({ type: 'LAYOUT_APPLY', env: bp.env, ctx: bp.ctx, baseline: bp.baseline, desired: m });
 }
@@ -204,12 +236,53 @@ function render(): void {
     layer.appendChild(widgetBox(node, r, m));
   });
 
-  // selection toolbar
-  const selBox = bp.selectedId ? findNode(m, bp.selectedId) : null;
-  if (selBox) {
-    const anchor = anchorRect(selBox.node, byRid);
-    if (anchor) layer.appendChild(toolbar(selBox.node, anchor));
+  // selection toolbar (hidden while the preview modal is up)
+  if (!bp.preview) {
+    const selBox = bp.selectedId ? findNode(m, bp.selectedId) : null;
+    if (selBox) {
+      const anchor = anchorRect(selBox.node, byRid);
+      if (anchor) layer.appendChild(toolbar(selBox.node, anchor));
+    }
   }
+
+  // apply-preview modal
+  if (bp.preview) layer.appendChild(previewModal(bp.preview, ctx));
+}
+
+const VERB_ICON: Record<PlanNote['verb'], string> = {
+  create: '＋', update: '✎', move: '⇄', reorder: '↕', delete: '🗑',
+};
+
+/** The apply-preview: the exact plan (from the same compile the SW runs) as human-readable steps,
+ *  with the blast-radius warning, gated behind an explicit confirm. */
+function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement {
+  const shared = ctx.target === 'template';
+  const back = document.createElement('div'); back.className = 'bp-modal-back';
+  back.addEventListener('mousedown', (e) => { if (e.target === back) closePreview(); });
+  const card = document.createElement('div'); card.className = 'bp-modal' + (shared ? ' tmpl' : '');
+  const h = document.createElement('div'); h.className = 'bp-modal-h';
+  h.textContent = `Apply ${notes.length} change${notes.length === 1 ? '' : 's'} to ${ctx.pageClass} ${ctx.pageId}`;
+  card.appendChild(h);
+  if (shared) {
+    const w = document.createElement('div'); w.className = 'bp-modal-warn';
+    w.textContent = '⚠ This is a shared template — these changes affect every instance that uses it.';
+    card.appendChild(w);
+  }
+  const list = document.createElement('div'); list.className = 'bp-modal-list';
+  for (const note of notes) {
+    const row = document.createElement('div'); row.className = `bp-prow v-${note.verb}`;
+    const ic = document.createElement('span'); ic.className = 'ic'; ic.textContent = VERB_ICON[note.verb];
+    const tx = document.createElement('span'); tx.textContent = note.text;
+    row.append(ic, tx);
+    if (note.ec) { const ec = document.createElement('code'); ec.textContent = note.ec.replace(/ \/\/ BMP assigns id$/, ''); row.appendChild(ec); }
+    list.appendChild(row);
+  }
+  card.appendChild(list);
+  const foot = document.createElement('div'); foot.className = 'bp-modal-foot';
+  foot.append(mkBtn('Cancel', closePreview), (() => { const b = mkBtn('Confirm & apply', confirmApply); b.className = 'apply'; return b; })());
+  card.appendChild(foot);
+  back.appendChild(card);
+  return back;
 }
 
 type State = 'same' | 'changed' | 'gone';
@@ -314,7 +387,7 @@ function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   const undoB = mkBtn('↶', undo); undoB.disabled = !bp.history?.canUndo(); c.appendChild(undoB);
   const redoB = mkBtn('↷', redo); redoB.disabled = !bp.history?.canRedo(); c.appendChild(redoB);
   const discardB = mkBtn('Discard', discard); discardB.disabled = pending === 0 || bp.applying; c.appendChild(discardB);
-  const applyB = mkBtn(bp.applying ? 'Applying…' : `Apply${pending ? ` (${pending})` : ''}`, applyChanges);
+  const applyB = mkBtn(bp.applying ? 'Applying…' : `Apply${pending ? ` (${pending})` : ''}`, openApplyPreview);
   applyB.className = 'apply'; applyB.disabled = pending === 0 || bp.applying; c.appendChild(applyB);
   return c;
 }
