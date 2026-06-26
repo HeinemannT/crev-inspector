@@ -48,19 +48,39 @@ export function enableBlueprint(): void {
   ensureStyle();
   const layer = document.createElement('div');
   layer.id = 'crev-blueprint-layer';
+  const head = document.createElement('div'); head.className = 'bp-header';
   const c = document.createElement('div'); c.className = 'bp-chip';
   c.innerHTML = '<b>BLUEPRINT</b><span>loading…</span>';
-  layer.appendChild(c);
+  head.appendChild(c); layer.appendChild(head);
   document.body.appendChild(layer);
   bp.layer = layer;
   // Scroll/resize re-renders are coalesced to one per animation frame (smooth on large pages).
-  bp.onScroll = () => { if (bp.baseline && !bp.raf && !bp.dragging) bp.raf = requestAnimationFrame(() => { bp.raf = 0; render(); }); };
+  bp.onScroll = () => { if (bp.baseline && !bp.raf && !bp.dragging && !bp.renaming) bp.raf = requestAnimationFrame(() => { bp.raf = 0; render(); }); };
   window.addEventListener('scroll', bp.onScroll, true);
   window.addEventListener('resize', bp.onScroll, true);
   bp.onKey = onKeydown;
   window.addEventListener('keydown', bp.onKey, true);
   layer.addEventListener('mousedown', (e) => { if (e.target === layer) select(null); }); // empty space deselects
+  // Watch BMP content for a tab switch (SPA — no reload): when the set of visible widget rids changes,
+  // re-render so the overlay follows to the newly-shown tab. Gated by the rid signature so the overlay's
+  // OWN mutations (its nodes carry no data-rid) never re-trigger it, and coalesced to one rAF.
+  bp.observer = new MutationObserver(() => {
+    if (bp.mutRaf || !bp.active) return;
+    bp.mutRaf = requestAnimationFrame(() => {
+      bp.mutRaf = 0;
+      if (!bp.active || !bp.baseline || bp.dragging || bp.renaming) return;
+      const sig = ridSignature();
+      if (sig !== bp.ridSig) { bp.ridSig = sig; render(); }
+    });
+  });
+  bp.observer.observe(document.body, { childList: true, subtree: true });
   void loadPage(rid).then((ok) => { if (!ok) disableBlueprint(); });
+}
+
+/** Sorted set of the live widget rids — changes exactly when BMP swaps tabs (or otherwise re-renders
+ *  its widget set). Cheap; the overlay's own nodes carry data-bpid, not data-rid, so they don't count. */
+function ridSignature(): string {
+  return [...document.querySelectorAll('[data-rid]')].map((el) => (el as HTMLElement).dataset.rid).sort().join(',');
 }
 
 export function disableBlueprint(): void {
@@ -72,8 +92,11 @@ export function disableBlueprint(): void {
   }
   if (bp.onKey) window.removeEventListener('keydown', bp.onKey, true);
   if (bp.raf) cancelAnimationFrame(bp.raf);
+  if (bp.mutRaf) cancelAnimationFrame(bp.mutRaf);
+  bp.observer?.disconnect();
   bp.layer?.remove();
-  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, pickerOpts: null, movePicker: null, onScroll: null, onKey: null, raf: 0, hint: null, trayOpen: false, dragging: false });
+  document.getElementById(STYLE_ID)?.remove(); // don't leak the injected stylesheet past teardown
+  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, pickerOpts: null, movePicker: null, onScroll: null, onKey: null, raf: 0, hint: null, trayOpen: false, dragging: false, renaming: false, observer: null, ridSig: '', mutRaf: 0 });
 }
 // Load/apply results are handled by content-blueprint/service.ts (the sendRequest promises), not by
 // a port-dispatched handler — see that module.

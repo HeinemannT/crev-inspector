@@ -7,6 +7,7 @@
  */
 import { History } from '../lib/layout/history';
 import { sendRequest } from '../lib/messaging';
+import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import type { InspectorMessage } from '../lib/types';
 import type { LModel } from '../lib/layout/types';
@@ -62,7 +63,10 @@ export async function applyPage(): Promise<void> {
     render(); return;
   }
   if (!res?.ok) { showToast(`Blueprint apply failed: ${res?.error || 'unknown'}`, 'error'); render(); return; }
-  if (res.model) rebase(res.model);
-  showToast(res.noop ? 'Blueprint: nothing to apply' : 'Blueprint: changes applied', 'success');
-  render();
+  if (res.noop) { if (res.model) rebase(res.model); showToast('Blueprint: nothing to apply', 'info'); render(); return; }
+  // Committed. The live grid can only reflow on a real page load — so refresh to show the new layout,
+  // and turn blueprint OFF (SW state + sidebar toggle + overlay) so we don't reopen onto a stale model.
+  showToast('Blueprint: changes applied — refreshing', 'success');
+  sendToSW({ type: 'BLUEPRINT_TOGGLE' }); // flips per-window state off; updates the sidebar toggle
+  setTimeout(() => location.reload(), 500);
 }

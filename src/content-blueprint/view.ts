@@ -28,8 +28,11 @@ export function render(): void {
   layer.textContent = '';
   const byRid = ridElementMap();
   const pending = diff(base, m).length;
-  layer.appendChild(renderChip(ctx, pending));
-  layer.appendChild(tabBar(base, m));
+  // chip + tab strip are one card (single border/width), not two stacked pills of different sizes
+  const header = document.createElement('div');
+  header.className = 'bp-header' + (ctx.target === 'template' ? ' tmpl' : '');
+  header.append(renderChip(ctx, pending), tabBar(base, m));
+  layer.appendChild(header);
 
   // container boxes first (behind), sized to the union of their live child-widget rects
   walk(base, (node) => {
@@ -54,13 +57,18 @@ export function render(): void {
   // host's live area, so you can see what will be created and where.
   const stackY = new Map<string, number>();
   walk(m, (node, parent) => {
-    if (node.kind !== 'widget' || node.rid || !parent) return; // rid-less ⇒ staged add
+    if (node.kind !== 'widget' || !parent) return;
+    const isAdd = !node.rid; // rid-less ⇒ staged add
+    // A MOVED widget keeps its rid but now lives under a different parent — show a placeholder in the
+    // destination so the move is visible (the live original stays dimmed in place; the grid can't reflow).
+    const moved = !isAdd && (() => { const b = findNode(base, node.id); return !!b && (b.parent?.id ?? null) !== parent.id; })();
+    if (!isAdd && !moved) return;
     const host = findNode(base, parent.id)?.node;
     const rect = host ? anchorRect(host, byRid) : null; // union for a container, own box for a composite
     if (!rect) return;
     const offset = stackY.get(parent.id) ?? 0;
     stackY.set(parent.id, offset + 42);
-    layer.appendChild(newWidgetBox(node, { left: rect.left, top: rect.top + rect.height + 4 + offset, width: rect.width, height: 38 }));
+    layer.appendChild(newWidgetBox(node, { left: rect.left, top: rect.top + rect.height + 4 + offset, width: rect.width, height: 38 }, moved ? 'moved' : 'new'));
   });
 
   // Empty-space "add widget" drop zones. The active tab is the one whose widgets are in the live DOM.
@@ -143,20 +151,24 @@ function widgetBox(baseNode: LNode, r: DOMRect, m: LModel, baseParentId: string 
   return box;
 }
 
-function newWidgetBox(node: LNode, r: Rect): HTMLElement {
-  const sel = bp.selectedId === node.id;
+/** Dashed placeholder for a staged widget: a new add ('new', interactive + green) or the destination
+ *  preview of a moved widget ('moved', non-interactive + blue, the live original stays dimmed). */
+function newWidgetBox(node: LNode, r: Rect, variant: 'new' | 'moved' = 'new'): HTMLElement {
   const box = document.createElement('div');
-  box.dataset.bpid = node.id; box.dataset.bpkind = 'new';
-  box.className = 'bp-box bp-new' + (isChart(node.className) ? ' bp-chart' : '') + (sel ? ' sel' : '');
+  box.className = 'bp-box bp-new' + (variant === 'moved' ? ' bp-moveghost' : '') + (isChart(node.className) ? ' bp-chart' : '');
   Object.assign(box.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
-  armBox(box, node.id);
+  if (variant === 'new') {
+    box.dataset.bpid = node.id; box.dataset.bpkind = 'new';
+    if (bp.selectedId === node.id) box.classList.add('sel');
+    armBox(box, node.id);
+  }
   const lab = document.createElement('div'); lab.className = 'bp-lab';
-  const tag = document.createElement('span'); tag.className = 'newtag'; tag.textContent = 'NEW';
+  const tag = document.createElement('span'); tag.className = 'newtag'; tag.textContent = variant === 'moved' ? 'MOVED HERE' : 'NEW';
   const nm = document.createElement('span'); nm.className = 'bp-nm'; nm.textContent = node.name;
   const ty = document.createElement('span'); ty.className = 'ty'; ty.textContent = node.className.toUpperCase();
   lab.append(tag, nm, ty);
   box.appendChild(lab);
-  if (sel) addHandles(box, node);
+  if (variant === 'new' && bp.selectedId === node.id) addHandles(box, node);
   return box;
 }
 
@@ -255,22 +267,21 @@ function containerBox(baseNode: LNode, rect: Rect, m: LModel): HTMLElement {
   box.className = 'bp-cont' + (sel ? ' sel' : '') + (changed ? ' changed' : '');
   Object.assign(box.style, { left: `${rect.left - 3}px`, top: `${rect.top - 3}px`, width: `${rect.width + 6}px`, height: `${rect.height + 6}px` });
   armBox(box, baseNode.id);
-  // Container label only on selection (matches the demo) — an always-on label collides with the
-  // top-left widget label, since a container's top edge aligns with its first widget. Unselected, the
-  // dashed outline + the always-visible "+" are the cues; selecting reveals the name/width + handles.
+  // A handle ABOVE the container's top-left, always visible: it marks where each container is (so they
+  // read clearly) and hosts the add "+". It sits above the row, so it never collides with the top-left
+  // widget label inside. On selection it expands with the name + width (+ handles on the box).
+  const tab = document.createElement('div'); tab.className = 'bp-ctab' + (sel ? ' sel' : '');
+  const add = document.createElement('button');
+  add.className = 'bp-cadd'; setIcon(add, ICON_PLUS); add.title = `Add a widget to ${baseNode.name}`;
+  add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(baseNode.id); });
+  tab.appendChild(add);
   if (sel) {
-    const tab = document.createElement('div'); tab.className = 'bp-ctab';
     const cn = document.createElement('span'); cn.className = 'cname'; cn.textContent = cur?.name ?? baseNode.name;
     const cw = document.createElement('span'); cw.className = 'cw'; cw.textContent = `${cur?.cols.L ?? baseNode.cols.L}/6`;
     tab.append(cn, cw);
     if (changed && cur) tab.appendChild(delta(`${baseNode.cols.L}→${cur.cols.L}`));
-    box.appendChild(tab);
   }
-  // "+ widget" affordance — top-right
-  const add = document.createElement('button');
-  add.className = 'bp-cadd'; setIcon(add, ICON_PLUS); add.title = `Add a widget to ${baseNode.name}`;
-  add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(baseNode.id); });
-  box.appendChild(add);
+  box.appendChild(tab);
   if (sel && cur) addHandles(box, cur);
   return box;
 }
@@ -436,9 +447,10 @@ function inlineRename(id: string, nm: HTMLElement | null): void {
   if (!nm) return;
   nm.setAttribute('contenteditable', 'true');
   nm.focus();
+  bp.renaming = true; // freeze re-render: a render() would textContent='' the layer and destroy this field
   const range = document.createRange(); range.selectNodeContents(nm);
   const sel = getSelection(); sel?.removeAllRanges(); sel?.addRange(range);
-  nm.addEventListener('blur', () => { nm.removeAttribute('contenteditable'); doRename(id, nm.textContent ?? ''); }, { once: true });
+  nm.addEventListener('blur', () => { bp.renaming = false; nm.removeAttribute('contenteditable'); doRename(id, nm.textContent ?? ''); }, { once: true });
   nm.addEventListener('keydown', (e) => {
     if ((e as KeyboardEvent).key === 'Enter') { e.preventDefault(); nm.blur(); }
     if ((e as KeyboardEvent).key === 'Escape') { nm.textContent = findNode(model()!, id)?.node.name ?? ''; nm.blur(); }

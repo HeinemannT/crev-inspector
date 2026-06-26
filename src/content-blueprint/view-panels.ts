@@ -9,9 +9,10 @@
 import type { LModel, PlanNote } from '../lib/layout/types';
 import type { BlueprintCtx } from '../lib/layout/sync';
 import { findNode } from '../lib/layout/model';
+import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
 import { diff } from '../lib/layout/diff';
-import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST } from '../lib/icons';
+import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT } from '../lib/icons';
 import { bp, model } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
 import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, discard, openApplyPreview, exitBlueprint } from './actions';
@@ -70,14 +71,18 @@ export function trayPanel(base: LModel, m: LModel): HTMLElement {
   for (const s of plan) {
     const id = s.kind === 'create' ? s.node.id : s.id;
     if (seen.has(id)) continue; seen.add(id);
-    const name = (s.kind === 'create' ? s.node.name : findNode(m, id)?.node.name ?? findNode(base, id)?.node.name) ?? id;
-    const verb = s.kind === 'create' ? 'NEW' : s.kind === 'delete' ? 'DELETE' : s.kind === 'reparent' ? 'MOVE' : s.kind === 'reorder' ? 'ORDER' : 'EDIT';
+    const node = s.kind === 'create' ? s.node : (findNode(m, id)?.node ?? findNode(base, id)?.node ?? null);
+    const name = node?.name ?? id;
+    // Two badges: WHAT changed (new/changed/deleted/moved) + WHAT it is (CREV's coloured type tag).
+    const change = s.kind === 'create' ? 'NEW' : s.kind === 'delete' ? 'DELETED' : (s.kind === 'reparent' || s.kind === 'reorder') ? 'MOVED' : 'CHANGED';
     const row = document.createElement('div'); row.className = `bp-pop v-${s.kind}`;
-    const tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = verb;
+    const chg = document.createElement('span'); chg.className = 'chg'; chg.textContent = change;
+    const typ = document.createElement('span'); typ.className = 'typ'; typ.textContent = getTypeAbbr(node?.className);
+    typ.style.setProperty('--type-color', getTypeColor(node?.className)); typ.title = node?.className ?? '';
     const tx = document.createElement('span'); tx.className = 'tx'; tx.textContent = name;
     const x = document.createElement('button'); x.className = 'bp-pop-x'; setIcon(x, ICON_X); x.title = 'Revert this change';
     x.addEventListener('mousedown', (e) => { e.stopPropagation(); revertNode(id); });
-    row.append(tag, tx, x);
+    row.append(chg, typ, tx, x);
     wrap.appendChild(row);
   }
   return wrap;
@@ -92,7 +97,10 @@ export function hintBar(text: string): HTMLElement {
 export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   const shared = ctx.target === 'template';
   const c = document.createElement('div'); c.className = 'bp-chip' + (shared ? ' tmpl' : '');
-  const b = document.createElement('b'); b.textContent = 'BLUEPRINT';
+  const b = document.createElement('b');
+  const mark = document.createElement('span'); mark.className = 'bp-mark'; setIcon(mark, ICON_BLUEPRINT);
+  const wordmark = document.createElement('span'); wordmark.textContent = 'BLUEPRINT';
+  b.append(mark, wordmark);
   const id = document.createElement('span'); id.textContent = `${ctx.pageClass} ${ctx.pageId}`;
   c.append(b, id);
   if (shared) { const w = document.createElement('span'); w.className = 'warn'; w.textContent = '⚠ shared template — affects all instances'; c.appendChild(w); }

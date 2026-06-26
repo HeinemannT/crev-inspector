@@ -31,12 +31,17 @@ export interface BpState {
   hint: string | null;          // transient contextual hint shown in the bottom bar (gesture coaching)
   trayOpen: boolean;            // pending-changes tray docked open
   dragging: boolean;            // a pointer drag is in flight — suppresses scroll re-renders mid-gesture
+  renaming: boolean;            // an inline-rename field is open — suppresses re-renders (they'd destroy it)
+  observer: MutationObserver | null; // watches BMP content for tab switches (visible rid set changes)
+  ridSig: string;               // signature of the visible rids at last render — re-render when it changes
+  mutRaf: number;               // rAF id coalescing mutation-driven re-renders (0 = none)
 }
 
 export const bp: BpState = {
   active: false, baseline: null, ctx: null, env: null, history: null,
   layer: null, selectedId: null, applying: false, preview: null, picker: null, pickerOpts: null, movePicker: null,
-  onScroll: null, onKey: null, raf: 0, gen: 0, hint: null, trayOpen: false, dragging: false,
+  onScroll: null, onKey: null, raf: 0, gen: 0, hint: null, trayOpen: false, dragging: false, renaming: false,
+  observer: null, ridSig: '', mutRaf: 0,
 };
 
 export function isBlueprintActive(): boolean { return bp.active; }

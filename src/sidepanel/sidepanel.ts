@@ -11,7 +11,7 @@ import { PAINT_STYLE_PROPS } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
 import { log } from '../lib/logger';
-import { ICON_PAINT, ICON_REFRESH, ICON_LIGHTNING, ICON_TORNADO, ICON_SEARCH, ICON_CROSSHAIR, ICON_LAYOUT } from './utils';
+import { ICON_PAINT, ICON_REFRESH, ICON_LIGHTNING, ICON_TORNADO, ICON_SEARCH, ICON_CROSSHAIR, ICON_BLUEPRINT } from './utils';
 import { DetailView } from './detail-view';
 import { onColorSetsData } from './color-picker';
 import { initReferenceView, showReferenceView, handleReferenceMessage, isReferenceActive } from './reference-view';
@@ -353,7 +353,7 @@ function buildApp(): void {
       id: 'toggle-blueprint',
       'aria-label': 'Toggle blueprint layout overlay',
       title: 'Toggle the blueprint layout editor overlay on the live BMP page',
-    }, svg(ICON_LAYOUT)),
+    }, svg(ICON_BLUEPRINT)),
   );
 
   const tabBar = h('div', { class: 'tab-bar', role: 'tablist' },

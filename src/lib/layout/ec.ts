@@ -57,11 +57,15 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         const v = `_n${k++}`;
         vars.set(s.node.id, v);
         const n = s.node;
+        // Destination phrasing so the preview is explicit about WHERE a new node lands (and whether a
+        // container is being created vs a widget added to existing structure).
+        const par = byId.get(s.parentId);
+        const where = par ? (par.kind === 'tab' ? `tab "${par.name}"` : `container "${par.name}"`) : 'the page';
         if (n.kind === 'tab') {
           emit({ verb: 'create', text: `Create tab "${n.name}"`,
             ec: `${v} := _ts.add(Tab, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}) // BMP assigns id` });
         } else if (n.kind === 'container') {
-          emit({ verb: 'create', text: `Create container "${n.name}"`,
+          emit({ verb: 'create', text: `Create new container "${n.name}" (${n.cols.L}/6) in ${where}`,
             ec: `${v} := ${ref(s.parentId)}.add(Container, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}) // BMP assigns id` });
         } else if (s.parentKind === 'widget') {
           // Composite child (e.g. a button in a ButtonContainer): the child is added to the COMPOSITE
@@ -75,7 +79,7 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
             ec: `${v} := ${ref(s.parentId)}.add(${ecClass(n.className)}, name := ${ecStr(n.name)}) // BMP assigns id` });
         } else {
           const h = n.height != null ? `, chartHeight := ${n.height}` : '';
-          emit({ verb: 'create', text: `Create ${n.className} "${n.name}"`,
+          emit({ verb: 'create', text: `Add ${n.className} "${n.name}" (${n.cols.L}/6) to ${where}`,
             ec: `${v} := _sc.add(${ecClass(n.className)}, name := ${ecStr(n.name)}, container := ${ref(s.parentId)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}${h}) // BMP assigns id` });
         }
         break;
