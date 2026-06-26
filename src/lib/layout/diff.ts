@@ -83,12 +83,16 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
   const kindOfId = (id: string): NodeKind | undefined => B.get(id)?.node.kind;
   const parents = new Set([...B.values()].map(e => e.parentId));
   for (const pid of parents) {
-    if (!A.has(pid) && pid !== baseline.tabsetId) continue; // brand-new parent: children created in order
     for (const kind of ['tab', 'container', 'widget'] as NodeKind[]) {
       const group = childIdsOf(B, pid).filter(id => kindOfId(id) === kind);
       if (group.length < 2) continue;
-      const survivingBase = childIdsOf(A, pid).filter(id => B.has(id) && kindOfId(id) === kind);
-      const natural = [...survivingBase, ...group.filter(id => !A.has(id))]; // surviving then new (append)
+      // baseline children STILL under pid (a reparented-AWAY node must not inflate the order).
+      // A node created here, or reparented IN from elsewhere, is not in survivingBase and lands
+      // at the end naturally (add() appends, reparent appends) -> if its desired slot differs,
+      // the join mismatch fires the moveAfter chain. (New parents are handled too: survivingBase
+      // is empty, so an all-new in-order group matches `natural` and emits nothing.)
+      const survivingBase = childIdsOf(A, pid).filter(id => B.get(id)?.parentId === pid && kindOfId(id) === kind);
+      const natural = [...survivingBase, ...group.filter(id => !A.has(id))];
       if (group.join(' ') !== natural.join(' ')) {
         for (let i = 1; i < group.length; i++) steps.push({ kind: 'reorder', id: group[i], afterId: group[i - 1] });
       }

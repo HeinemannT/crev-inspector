@@ -32,6 +32,10 @@ function ecBid(id: string): string {
 
 const COL_PROP: Record<Breakpoint, string> = { L: 'columnsLargeScreen', M: 'columnsMediumScreen', S: 'columnsSmallScreen' };
 
+/** Responsive-width suffix for an add() — M/S are only emitted when authored (else BMP defaults). */
+const colsSuffix = (cols: { L: number; M?: number; S?: number }): string =>
+  (cols.M != null ? `, ${COL_PROP.M} := ${cols.M}` : '') + (cols.S != null ? `, ${COL_PROP.S} := ${cols.S}` : '');
+
 export function compile(plan: PlanStep[], m: LModel): { script: string; notes: PlanNote[] } {
   if (!plan.length) return { script: '', notes: [] };
 
@@ -63,14 +67,14 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         const n = s.node;
         if (n.kind === 'tab') {
           emit({ verb: 'create', text: `Create tab "${n.name}"`,
-            ec: `${v} := _ts.add(Tab, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}) // BMP assigns id` });
+            ec: `${v} := _ts.add(Tab, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}) // BMP assigns id` });
         } else if (n.kind === 'container') {
           emit({ verb: 'create', text: `Create container "${n.name}"`,
-            ec: `${v} := ${ref(s.parentId)}.add(Container, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}) // BMP assigns id` });
+            ec: `${v} := ${ref(s.parentId)}.add(Container, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}) // BMP assigns id` });
         } else {
           const h = n.height != null ? `, chartHeight := ${n.height}` : '';
           emit({ verb: 'create', text: `Create ${n.className} "${n.name}"`,
-            ec: `${v} := _sc.add(${ecClass(n.className)}, container := ${ref(s.parentId)}, columnsLargeScreen := ${n.cols.L}${h}) // BMP assigns id` });
+            ec: `${v} := _sc.add(${ecClass(n.className)}, container := ${ref(s.parentId)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}${h}) // BMP assigns id` });
         }
         break;
       }

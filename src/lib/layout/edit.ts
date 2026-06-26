@@ -37,10 +37,11 @@ function detach(c: LModel, id: string): LNode | null {
 /** Reparent + position: insert `id` into `toParentId`'s children at `index` (clamped). */
 export function move(m: LModel, id: string, toParentId: string, index: number): LModel {
   return edit(m, c => {
+    const homeTab = toParentId === '*tab-root*' ? findTabOf(c, id) : null; // capture BEFORE detach
     const node = detach(c, id);
     if (!node) return;
     const dest = toParentId === '*tab-root*' ? null : findNode(c, toParentId)?.node ?? null;
-    const list = dest ? dest.children : findTabOf(c, id)?.children ?? c.tabs;
+    const list = dest ? dest.children : homeTab?.children ?? c.tabs;
     // a widget moved to a narrower cell can't exceed the cell width
     if (dest && node.kind === 'widget') node.cols.L = Math.min(node.cols.L, dest.cols.L || 6);
     list.splice(Math.max(0, Math.min(index, list.length)), 0, node);
@@ -58,11 +59,16 @@ export function moveToTab(m: LModel, id: string, tabId: string): LModel {
   return moveInto(m, id, tabId);
 }
 
+function isAncestorOf(anc: LNode, id: string): boolean {
+  return anc.children.some(c => c.id === id || isAncestorOf(c, id));
+}
+
 /** Exchange two nodes' positions (keeps each node's own width). */
 export function swap(m: LModel, a: string, b: string): LModel {
   return edit(m, c => {
     const fa = findNode(c, a), fb = findNode(c, b);
-    if (!fa || !fb) return;
+    if (!fa || !fb || a === b) return;
+    if (isAncestorOf(fa.node, b) || isAncestorOf(fb.node, a)) return; // swapping a node with its own descendant would orphan the subtree
     if (fa.siblings === fb.siblings) {
       const t = fa.siblings[fa.index]; fa.siblings[fa.index] = fa.siblings[fb.index]; fa.siblings[fb.index] = t;
     } else {
