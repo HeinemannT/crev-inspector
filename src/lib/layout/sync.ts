@@ -27,6 +27,7 @@ import { reconstruct, walk } from './model';
 import type { ReconstructCtx } from './model';
 import { diff } from './diff';
 import { compile } from './ec';
+import { validateBusinessId, validateRid } from '../ec-guards';
 import type { LayoutNode as WireNode } from '../types';
 import type { LModel, PlanNote, PlanStep } from './types';
 
@@ -73,22 +74,14 @@ export interface ApplyResult {
 
 const SEP = '<<<CREV_LAYOUT>>>';
 const CTX = '<<<CREV_CTX>>>';
-const BID = /^[A-Za-z0-9_]+$/;   // business ids (may start with a digit)
-const RID = /^\d+$/;             // rids are Java longs — digits only
+// Shared EC id/rid sanitisation (the same guards the other EC generators use).
+const ecBid = validateBusinessId;
+const ecRid = validateRid;
 
 /** The shared, system-wide tabset that enterprise-object pages render their template into.
  *  (Verified live: an EnterpriseTemplate's widgets bind to Tabs/Containers under `default_tabset`,
  *  not a dedicated per-page tabset.) */
 export const DEFAULT_TABSET = 'default_tabset';
-
-function ecBid(id: string): string {
-  if (!BID.test(id)) throw new Error(`unsafe EC business id: ${id}`);
-  return id;
-}
-function ecRid(rid: string): string {
-  if (!RID.test(rid)) throw new Error(`unsafe EC rid: ${rid}`);
-  return rid;
-}
 
 /**
  * Build the merged-fetch EC. Emits, one per line after a `SEP` marker, every layout node in

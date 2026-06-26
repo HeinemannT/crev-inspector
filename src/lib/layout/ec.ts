@@ -14,22 +14,12 @@
  */
 import { walk } from './model';
 import { COMPOSITE_TYPES } from './constraints';
+// Shared EC sanitisation (escaping + identifier/id validation) — the same guards the other EC
+// generators use. ecClass/ecBid are thin aliases; ecStr wraps the shared escaper in quotes.
+import { formatEcLiteral, validateEcIdentifier as ecClass, validateBusinessId as ecBid } from '../ec-guards';
 import type { Breakpoint, LModel, LNode, PlanNote, PlanStep } from './types';
 
-const IDENT = /^[A-Za-z][A-Za-z0-9_]*$/;          // class names
-const BID = /^[A-Za-z0-9_]+$/;                      // business ids (may start with a digit)
-
-function ecStr(s: string): string {
-  return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r/g, '\\r').replace(/\n/g, '\\n') + '"';
-}
-function ecClass(c: string): string {
-  if (!IDENT.test(c)) throw new Error(`unsafe EC class name: ${c}`);
-  return c;
-}
-function ecBid(id: string): string {
-  if (!BID.test(id)) throw new Error(`unsafe EC business id: ${id}`);
-  return id;
-}
+const ecStr = (s: string): string => `"${formatEcLiteral(s)}"`;
 
 const COL_PROP: Record<Breakpoint, string> = { L: 'columnsLargeScreen', M: 'columnsMediumScreen', S: 'columnsSmallScreen' };
 

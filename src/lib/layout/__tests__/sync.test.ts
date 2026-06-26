@@ -63,8 +63,8 @@ describe('sync.buildFetchEc', () => {
     expect(ec).toContain('= "RESULT"');                  // phantom placement collapses to empty
   });
   it('rejects an unsafe rid / business id (no EC injection)', () => {
-    expect(() => buildFetchEc({ ...CTX, pageRid: '1); delete()' })).toThrow(/unsafe EC rid/);
-    expect(() => buildFetchEc({ ...CTX, tabsetId: 't"; x' })).toThrow(/unsafe EC business id/);
+    expect(() => buildFetchEc({ ...CTX, pageRid: '1); delete()' })).toThrow(/Invalid RID/);
+    expect(() => buildFetchEc({ ...CTX, tabsetId: 't"; x' })).toThrow(/Invalid business id/);
   });
 });
 
