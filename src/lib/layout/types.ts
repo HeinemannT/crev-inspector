@@ -10,12 +10,24 @@ export type Breakpoint = 'L' | 'M' | 'S';
 export type NodeKind = 'tab' | 'container' | 'widget';
 export type SaveTarget = 'instance' | 'template';
 
-/** The kinds of BMP "page" whose layout this builder edits. All share the same two-model shape
- *  (an org-model root that owns widgets + a portal TabSet that owns tabs), so the whole pipeline
- *  is page-type-agnostic — only `pageClass` differs, used solely in the apply's `SELECT <class>`.
- *  Scorecard / ModelPage are structurally identical (ModelPage verified equivalent); Enterprise
- *  templates are supported by the same shape but not yet live-verified end to end. */
-export type PageClass = 'Scorecard' | 'ModelPage' | 'EnterpriseTemplate' | string;
+/** The BMP "page" classes whose layout this builder edits. A page host is any type implementing
+ *  the `WebParent` interface (decompiled: `model/model/webelem/WebParent.java`, which extends
+ *  `HasTabChildren`) — they ALL share one containment shape: a portal TabSet of Tabs/Containers
+ *  + org-model widgets keyed to a cell via `container`. So the pipeline is page-type-agnostic;
+ *  `pageClass` is consumed only by the apply's `SELECT <class>`, and the addable-widget palette
+ *  is a function of (model space, host class) — not a per-class branch here.
+ *
+ *  This list is the COMMON subset; the full WebParent family also includes Perspective,
+ *  StrategicObjective, Policy/Asset/Procedure, ControlMeasure, Incident, RiskEvent, Section,
+ *  RiskAssessment, Milestone/Task, ActionPlan/Program/Audit/Project, BPMN pages, etc.
+ *
+ *  NOT a page host: `EnterpriseTemplate` (decompiled: it does NOT implement WebParent — its
+ *  children are EnterpriseTemplateElement field-definitions, a different containment family).
+ *  Editing an enterprise *template definition* is out of scope for this TabSet+widget model. */
+export type PageClass =
+  | 'Scorecard' | 'ModelPage' | 'Page' | 'Perspective' | 'Indicator' | 'Kpi'
+  | 'Issue' | 'Incident' | 'ControlMeasure' | 'RiskAssessment'
+  | (string & {});
 
 /** A node in the editable layout tree.
  *  Tree parentage means different things by kind: a widget's parent is the cell it BINDS to
