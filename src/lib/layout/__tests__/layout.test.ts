@@ -13,7 +13,7 @@ const n = (p: Partial<LNode> & Pick<LNode, 'id' | 'kind' | 'className'>): LNode 
   name: p.id, cols: { L: 6 }, children: [], ...p,
 });
 const model = (...tabs: LNode[]): LModel => ({
-  scorecardId: '4957', scorecardRid: 'rsc', scorecardClass: 'Scorecard', tabsetId: 'ts1',
+  pageId: '4957', pageRid: 'rsc', pageClass: 'Scorecard', tabsetId: 'ts1',
   tabs, target: 'template', hasTemplate: true,
 });
 const demo = () => model(n({
@@ -34,7 +34,7 @@ describe('model.reconstruct', () => {
       { rid: 'r_w', businessId: 'w1', type: 'CustomVisualization', containerRid: 'r_box', columnsLargeScreen: 6, name: 'Chart' },
       { rid: 'r_tw', businessId: 'tw1', type: 'ExtendedTable', containerRid: 'r_tab', columnsLargeScreen: 6, name: 'Table' },
     ];
-    const m = reconstruct(wire, { scorecardId: '4957', tabsetId: 'ts1' });
+    const m = reconstruct(wire, { pageId: '4957', tabsetId: 'ts1' });
     expect(m.tabs).toHaveLength(1);
     const kids = m.tabs[0].children;
     expect(kids.map(c => c.kind)).toEqual(['container', 'widget']); // containers first

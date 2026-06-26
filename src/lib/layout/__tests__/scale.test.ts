@@ -4,7 +4,7 @@ import { addTab, addContainer, addWidget } from '../edit';
 import { diff } from '../diff';
 import { compile } from '../ec';
 
-const base = (): LModel => ({ scorecardId: '4957', scorecardClass: 'Scorecard', tabsetId: 'crev_demo_tabset', tabs: [], target: 'template', hasTemplate: true });
+const base = (): LModel => ({ pageId: '4957', pageClass: 'Scorecard', tabsetId: 'crev_demo_tabset', tabs: [], target: 'template', hasTemplate: true });
 const TYPES = ['SimpleStatus', 'BarChart', 'PieChart', 'ExtendedTable', 'DescriptionView', 'TextElement', 'FunctionStatus', 'RiskList'];
 
 /** Scale guard: a large, deeply-nested layout must diff + compile correctly (no throw, one step

@@ -50,7 +50,7 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
 
   const lines: string[] = [];
   if (needWidget) {
-    lines.push(`_scr := SELECT ${ecClass(m.scorecardClass)} WHERE id = ${ecStr(m.scorecardId)}`);
+    lines.push(`_scr := SELECT ${ecClass(m.pageClass)} WHERE id = ${ecStr(m.pageId)}`);
     lines.push(`_sc := _scr.first()`);
   }
   if (needTabset) lines.push(`_ts := t.${ecBid(m.tabsetId)}`);

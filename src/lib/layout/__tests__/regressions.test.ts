@@ -7,7 +7,7 @@ import { compile } from '../ec';
 
 const n = (p: Partial<LNode> & Pick<LNode, 'id' | 'kind' | 'className'>): LNode => ({ name: p.id, cols: { L: 6 }, children: [], ...p });
 const model = (...tabs: LNode[]): LModel => ({
-  scorecardId: '4957', scorecardClass: 'Scorecard', tabsetId: 'ts1', tabs, target: 'template', hasTemplate: true,
+  pageId: '4957', pageClass: 'Scorecard', tabsetId: 'ts1', tabs, target: 'template', hasTemplate: true,
 });
 
 // Regression guards for the senior-dev review findings (all reproduced before the fixes).

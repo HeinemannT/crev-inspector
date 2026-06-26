@@ -8,7 +8,7 @@ const n = (p: Partial<LNode> & Pick<LNode, 'id' | 'kind' | 'className'>): LNode 
 
 /** Real Risk Register tab of demo scorecard 4957 (business ids verified live). */
 const demo = (): LModel => ({
-  scorecardId: '4957', scorecardClass: 'Scorecard', tabsetId: 'crev_demo_tabset',
+  pageId: '4957', pageClass: 'Scorecard', tabsetId: 'crev_demo_tabset',
   target: 'template', hasTemplate: true,
   tabs: [n({ id: '4904', kind: 'tab', className: 'Tab', name: 'Risk Register', children: [
     n({ id: 'cont_crev_demo_enterprise_14', kind: 'container', className: 'Container', name: 'KPIs', cols: { L: 2 }, children: [

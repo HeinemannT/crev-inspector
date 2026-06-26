@@ -4,7 +4,7 @@ import { addContainer, rename } from '../edit';
 import { findNode } from '../model';
 
 const CTX: BlueprintCtx = {
-  scorecardId: '4957', scorecardRid: '451704949656267090', scorecardClass: 'Scorecard',
+  pageId: '4957', pageRid: '451704949656267090', pageClass: 'Scorecard',
   tabsetId: 'crev_demo_tabset', target: 'template', hasTemplate: true,
 };
 const SCRID = '451704949656267090';
@@ -60,7 +60,7 @@ describe('sync.buildFetchEc', () => {
     expect(ec).toContain('= "RESULT"');                  // phantom placement collapses to empty
   });
   it('rejects an unsafe rid / business id (no EC injection)', () => {
-    expect(() => buildFetchEc({ ...CTX, scorecardRid: '1); delete()' })).toThrow(/unsafe EC rid/);
+    expect(() => buildFetchEc({ ...CTX, pageRid: '1); delete()' })).toThrow(/unsafe EC rid/);
     expect(() => buildFetchEc({ ...CTX, tabsetId: 't"; x' })).toThrow(/unsafe EC business id/);
   });
 });

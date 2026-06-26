@@ -36,9 +36,9 @@ function ownerOf(n: WireNode): string | undefined {
 }
 
 export interface ReconstructCtx {
-  scorecardId: string;
-  scorecardRid?: string;
-  scorecardClass?: string;
+  pageId: string;
+  pageRid?: string;
+  pageClass?: string;
   tabsetId: string;
   target?: 'instance' | 'template';
   hasTemplate?: boolean;
@@ -78,9 +78,9 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx): LM
   const tabWires = tabsetWire ? (childrenOf.get(tabsetWire.rid) ?? []).filter(n => kindOf(n.type) === 'tab') : [];
 
   return {
-    scorecardId: ctx.scorecardId,
-    scorecardRid: ctx.scorecardRid,
-    scorecardClass: ctx.scorecardClass ?? 'Scorecard',
+    pageId: ctx.pageId,
+    pageRid: ctx.pageRid,
+    pageClass: ctx.pageClass ?? 'Scorecard',
     tabsetId: ctx.tabsetId,
     tabs: tabWires.map(build),
     target: ctx.target ?? 'template',

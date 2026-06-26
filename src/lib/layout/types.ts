@@ -10,6 +10,13 @@ export type Breakpoint = 'L' | 'M' | 'S';
 export type NodeKind = 'tab' | 'container' | 'widget';
 export type SaveTarget = 'instance' | 'template';
 
+/** The kinds of BMP "page" whose layout this builder edits. All share the same two-model shape
+ *  (an org-model root that owns widgets + a portal TabSet that owns tabs), so the whole pipeline
+ *  is page-type-agnostic — only `pageClass` differs, used solely in the apply's `SELECT <class>`.
+ *  Scorecard / ModelPage are structurally identical (ModelPage verified equivalent); Enterprise
+ *  templates are supported by the same shape but not yet live-verified end to end. */
+export type PageClass = 'Scorecard' | 'ModelPage' | 'EnterpriseTemplate' | string;
+
 /** A node in the editable layout tree.
  *  Tree parentage means different things by kind: a widget's parent is the cell it BINDS to
  *  (`container :=`); a container's/tab's parent is its STRUCTURAL parent. `kind` disambiguates. */
@@ -29,12 +36,13 @@ export interface LNode {
   children: LNode[];
 }
 
-/** The whole page being edited. */
+/** The whole page being edited (a Scorecard, ModelPage, or Enterprise template). */
 export interface LModel {
-  /** org-model root that owns widgets (`<scorecard>.add(Widget …)`). */
-  scorecardId: string;
-  scorecardRid?: string;
-  scorecardClass: string;
+  /** org-model root that owns widgets (`<page>.add(Widget …)`) — the Scorecard/ModelPage/etc. */
+  pageId: string;
+  pageRid?: string;
+  /** the page's BMP class — only consumed by the apply `SELECT <class>`; fetch uses `lookup(rid)`. */
+  pageClass: PageClass;
   /** portal-model root that owns tabs (`<tabset>.add(Tab)`). */
   tabsetId: string;
   /** the page's tabs, each holding containers + tab-bound widgets (containers-first order). */

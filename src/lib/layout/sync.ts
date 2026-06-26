@@ -8,7 +8,7 @@
  *
  * The two-model split is handled in ONE fetch round trip:
  *   - grid   (Tab + Container tree)  ← `t.<tabsetId>.descendants()`        (portal model)
- *   - widgets + composites           ← `lookup(<scorecardRid>).descendants()` (org model)
+ *   - widgets + composites           ← `lookup(<pageRid>).descendants()` (org model)
  * Both are emitted into a single pipe-delimited list in the exact 9-field wire shape that
  * `reconstruct` already consumes (rid|bid|name|type|parentRid|containerRid|L|M|S).
  *
@@ -40,7 +40,7 @@ export interface LayoutIO {
  *  `lookup()` of the org-model root) on top of the business ids reconstruct already uses. */
 export interface BlueprintCtx extends ReconstructCtx {
   /** org-model root rid — resolved with `lookup(rid)` (always present from page context). */
-  scorecardRid: string;
+  pageRid: string;
 }
 
 export interface LoadResult {
@@ -88,7 +88,7 @@ function ecRid(rid: string): string {
  */
 export function buildFetchEc(ctx: BlueprintCtx): string {
   const ts = `t.${ecBid(ctx.tabsetId)}`;
-  const sc = `lookup(${ecRid(ctx.scorecardRid)})`;
+  const sc = `lookup(${ecRid(ctx.pageRid)})`;
   const cols = (v: string) => `${v}.columnsLargeScreen.whenMissing("") + "|" + ${v}.columnsMediumScreen.whenMissing("") + "|" + ${v}.columnsSmallScreen.whenMissing("")`;
   // tabset root: no parent, no container.
   const root = `${ts}.rid + "|" + ${ts}.id.whenMissing("") + "|" + ${ts}.name.whenMissing("") + "|" + ${ts}.className.whenMissing("") + "|||||"`;
