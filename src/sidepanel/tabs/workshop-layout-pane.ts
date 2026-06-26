@@ -13,7 +13,7 @@ import type { InspectorMessage, BmpObject, WidgetInfo, DetectionPhase, LayoutNod
 import { getTypeColor, getTypeAbbr } from '../../lib/types';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
-import { truncRid, ICON_REFRESH, ICON_CROSSHAIR, ICON_LAYOUT } from '../utils';
+import { truncRid, ICON_REFRESH, ICON_CROSSHAIR, ICON_LAYOUT, ICON_BLUEPRINT } from '../utils';
 import type { Tab, SendFn } from './tab-types';
 import { LAYOUT_BEARING_TYPES } from '../../lib/layout-target';
 
@@ -75,18 +75,6 @@ export class WorkshopLayoutPane implements Tab {
    *  when the user clicks a cell in the preview to focus its tree row.
    *  Cleared after a short timeout via setTimeout in the click handler. */
   private highlightedNodeRid: string | null = null;
-  /** Pre-edit values stashed so we can revert the optimistic update
-   *  when APPLY_CHANGES_RESULT comes back with ok=false. Cleared on
-   *  success (the re-fetch is the new source of truth). */
-  private layoutRevertOnFailure = new Map<string, number>();
-  /** True while the user has the pointer down on a layout-size bar.
-   *  Render is suppressed during the drag — a mid-drag re-render
-   *  detaches the bar element, breaking pointer capture and stranding
-   *  the gesture. Any pending re-render is deferred to drag-end. */
-  private layoutDragging = false;
-  /** A render() that fired during a drag is queued; replayed once
-   *  the drag finishes. */
-  private layoutRenderPending = false;
   // Shared by the Layout tree (toggle-layout-node, focus-tree-row) to track
   // which nodes are user-expanded.
   private expandedNodes = new Set<string>();
@@ -245,6 +233,11 @@ export class WorkshopLayoutPane implements Tab {
         // it needs to flip it on (and remember to flip it back off).
         this.inspectActive = msg.active;
         return false;
+      case 'BLUEPRINT_STATE':
+        // The launcher button in the Layout header reflects whether the in-page editor is open.
+        if (this.blueprintActive === msg.active) return false;
+        this.blueprintActive = msg.active;
+        return true;
       case 'CONTEXT_RID_DATA':
         if ('rid' in msg && msg.rid) {
           // Explicit right-click always takes precedence over auto-detection
@@ -283,39 +276,6 @@ export class WorkshopLayoutPane implements Tab {
           this.layoutLoadingFor = null;
           this.layoutNodes = msg.nodes ?? [];
           return true;
-        }
-        return false;
-      case 'MOVE_OBJECT_RESULT':
-        if ('ok' in msg && msg.ok && this.contextRid) {
-          // Order changed — re-fetch the layout subtree so the tree
-          // reflects the new sibling sequence.
-          this.layoutLoadingFor = this.contextRid;
-          this.send({ type: 'FETCH_LAYOUT_TREE', rid: this.contextRid });
-          return true;
-        }
-        return false;
-      case 'APPLY_CHANGES_RESULT':
-        // Layout edits go through APPLY_OBJECT_CHANGES with optimistic
-        // local update. We have to either confirm by re-fetching (to
-        // pick up cascade effects: sibling reflow when a width changes)
-        // or revert if BMP rejected the save.
-        if ('rid' in msg && this.layoutNodes && this.contextRid) {
-          const target = this.layoutNodes.find(n => n.rid === msg.rid);
-          if (target) {
-            if (msg.ok) {
-              // Re-fetch — the new value may have triggered a row wrap
-              // or hidden the element on this breakpoint.
-              this.layoutLoadingFor = this.contextRid;
-              this.send({ type: 'FETCH_LAYOUT_TREE', rid: this.contextRid });
-            } else if (this.layoutRevertOnFailure.has(msg.rid)) {
-              // Revert the optimistic update so the UI stops lying about
-              // the (failed) save. Stash was set in the edit handler.
-              const original = this.layoutRevertOnFailure.get(msg.rid)!;
-              target.columnsLargeScreen = original;
-              this.layoutRevertOnFailure.delete(msg.rid);
-            }
-            return true;
-          }
         }
         return false;
       case 'SERVER_LOOKUP_RESULT':
@@ -440,14 +400,12 @@ export class WorkshopLayoutPane implements Tab {
   private detailActive = false;
   setDetailActive(active: boolean): void { this.detailActive = active; }
 
+  /** Mirrors the global blueprint-overlay state so the Layout header's "edit" launcher can show
+   *  whether the overlay is already open. Fed from the BLUEPRINT_STATE push, routed through
+   *  handleMessage like every other panel-bound state. */
+  private blueprintActive = false;
+
   render(container: HTMLElement) {
-    // Skip if the user is mid-drag on a layout-size bar. A re-render
-    // would detach the bar element and break pointer capture. The
-    // pending flag replays the render once the drag ends.
-    if (this.layoutDragging) {
-      this.layoutRenderPending = true;
-      return;
-    }
     const children: (HTMLElement | false | null)[] = [];
 
     // Context band — OUR design. Its job is to carry WHERE you are: the page's
@@ -560,8 +518,14 @@ export class WorkshopLayoutPane implements Tab {
                 'data-action': 'refresh-layout',
                 title: 'Re-fetch the layout subtree',
               }, svg(ICON_REFRESH)),
-          // Blueprint toggle now lives in the header button row (Search / Paint / Inspect / Blueprint)
-          // as a global overlay toggle — see sidepanel.ts.
+          // This tree is a read-only VIEW of the page structure. Editing (drag, resize, add/remove
+          // widgets) happens in the in-page blueprint overlay — this launcher opens it. The same toggle
+          // also lives in the global header button row (Search / Paint / Inspect / Blueprint).
+          h('button', {
+            class: `refresh-enrich-btn${this.blueprintActive ? ' active' : ''}`,
+            'data-action': 'edit-in-blueprint',
+            title: this.blueprintActive ? 'Blueprint editor is open' : 'Edit this page in the blueprint overlay',
+          }, svg(ICON_BLUEPRINT)),
         ));
         if (this.layoutNodes) {
           children.push(this.renderLayout(this.contextRid!, this.layoutNodes));
@@ -596,18 +560,6 @@ export class WorkshopLayoutPane implements Tab {
     }
 
     render(container, ...children);
-
-    // Wire drag-to-resize on every layout-size bar. Pointer-down on
-    // the bar captures the pointer; pointer-move maps the X position
-    // to a column count (0..6) by dividing the bar's width into 7
-    // zones; pointer-up commits via APPLY_OBJECT_CHANGES. Done here
-    // (post-render) so freshly-rendered bars pick up listeners every
-    // re-render. Single bar at a time — pointer capture serialises.
-    this.wireLayoutDrag(container);
-    // Wire drag-to-reorder on tab rows. Drag the ≡ handle on a Tab to
-    // a new position in the TabSet; drop commits via MOVE_OBJECT
-    // (BMP EC `.moveBefore` / `.moveAfter`).
-    this.wireLayoutTabReorder(container);
 
     delegate(container, {
       widget: (el) => {
@@ -662,6 +614,11 @@ export class WorkshopLayoutPane implements Tab {
           this.send({ type: 'FETCH_LAYOUT_TREE', rid: this.contextRid });
           this.render(container);
         }
+      },
+      'edit-in-blueprint': () => {
+        // Hand off to the in-page blueprint overlay — the single editing surface. The SW toggle is
+        // idempotent per window; if it's already open this is a no-op (the button just reflects state).
+        if (!this.blueprintActive) this.send({ type: 'BLUEPRINT_TOGGLE' });
       },
       'toggle-preview-section': () => {
         this.previewSectionExpanded = !this.previewSectionExpanded;
@@ -721,265 +678,6 @@ export class WorkshopLayoutPane implements Tab {
     });
   }
 
-  /** Fold the flat LayoutNode array into a children-by-parent map and
-   *  render recursively. Uses `containerRid` for widgets (which bind to
-   *  a cell via the write-once `container` field at create time) and
-   *  `parentRid` for layout nodes themselves (Tab → TabSet, Container →
-   *  Tab/Container, etc.). */
-  /** Attach pointer-drag listeners to every .layout-size bar inside
-   *  the panel. Drag horizontally to set columnsLargeScreen (0..6).
-   *  Commits via APPLY_OBJECT_CHANGES on pointer-up; pointer-cancel
-   *  reverts. Tab/TabSet edits show a confirm because TabSets are
-   *  shared across scorecards. */
-  private wireLayoutDrag(container: HTMLElement): void {
-    if (!this.layoutNodes) return;
-    const bars = container.querySelectorAll<HTMLElement>('.layout-size');
-    for (const bar of bars) {
-      const rid = bar.dataset.rid;
-      if (!rid) continue;
-      const node = this.layoutNodes.find(n => n.rid === rid);
-      if (!node || node.columnsLargeScreen == null) continue;
-
-      const original = node.columnsLargeScreen;
-      let dragging = false;
-      let pointerId: number | null = null;
-      let lastValue = original;
-
-      // Map an absolute x within the bar's rect to a 0..6 column count.
-      // Seven equal buckets (one per value 0..6) so each is the same
-      // size; the prior round-based mapping made the "0" zone a tiny
-      // sliver, almost impossible to hit by drag.
-      const xToCols = (clientX: number): number => {
-        const rect = bar.getBoundingClientRect();
-        const rel = clientX - rect.left;
-        const cell = Math.floor((rel / rect.width) * 7);
-        return Math.max(0, Math.min(6, cell));
-      };
-
-      const preview = (cols: number) => {
-        if (cols === lastValue) return;
-        lastValue = cols;
-        // Repaint THIS bar's cells in place — don't trigger a full
-        // re-render mid-drag (the cell DOM moves, breaking pointer
-        // capture). DOM children of the bar are: <span.layout-size-bar>
-        // (6 cells) + <span.layout-size-num>.
-        const cells = bar.querySelectorAll<HTMLElement>('.layout-size-cell');
-        cells.forEach((c, i) => c.classList.toggle('filled', i < cols));
-        const num = bar.querySelector<HTMLElement>('.layout-size-num');
-        if (num) num.textContent = String(cols);
-      };
-
-      const onMove = (e: PointerEvent) => {
-        if (!dragging) return;
-        preview(xToCols(e.clientX));
-      };
-      const finish = (commit: boolean) => {
-        if (!dragging) return;
-        dragging = false;
-        this.layoutDragging = false;
-        if (pointerId != null) {
-          try { bar.releasePointerCapture(pointerId); } catch { /* released */ }
-          pointerId = null;
-        }
-        bar.removeEventListener('pointermove', onMove);
-        bar.removeEventListener('pointerup', onUp);
-        bar.removeEventListener('pointercancel', onCancel);
-        bar.classList.remove('layout-size--dragging');
-
-        // Replay any render that was deferred during the drag. We do this
-        // BEFORE the commit branch so reverted previews still get painted.
-        if (this.layoutRenderPending) {
-          this.layoutRenderPending = false;
-          this.render(container);
-        }
-
-        if (!commit || lastValue === original) {
-          preview(original);
-          return;
-        }
-
-        // Tabs + TabSets are shared resources — confirm before saving.
-        const isShared = node.type === 'Tab' || node.type === 'TabSet';
-        if (isShared) {
-          // eslint-disable-next-line no-alert
-          const ok = window.confirm(
-            `Edit "${node.name ?? node.rid}" (${node.type}): this object is shared across every Scorecard bound to its TabSet.\n\nApply ${original} → ${lastValue}?`,
-          );
-          if (!ok) { preview(original); return; }
-        }
-
-        this.layoutRevertOnFailure.set(rid, original);
-        node.columnsLargeScreen = lastValue;
-        this.send({
-          type: 'APPLY_OBJECT_CHANGES',
-          rid,
-          target: 'instance',
-          changes: { columnsLargeScreen: String(lastValue) },
-        });
-      };
-      const onUp = () => finish(true);
-      const onCancel = () => finish(false);
-
-      bar.addEventListener('pointerdown', (e: PointerEvent) => {
-        // Left button only — let right-click fall through for context menus.
-        if (e.button !== 0) return;
-        e.preventDefault();
-        dragging = true;
-        this.layoutDragging = true;
-        pointerId = e.pointerId;
-        lastValue = original;
-        try { bar.setPointerCapture(e.pointerId); } catch { /* fine */ }
-        bar.addEventListener('pointermove', onMove);
-        bar.addEventListener('pointerup', onUp);
-        bar.addEventListener('pointercancel', onCancel);
-        bar.classList.add('layout-size--dragging');
-        // Snap to the click position immediately so single-clicks
-        // resize too (not just drags).
-        preview(xToCols(e.clientX));
-      });
-    }
-  }
-
-  /** Drag-to-reorder for Tab AND Container rows. Pointer-down on the ≡
-   *  handle starts the drag; a ghost insertion line follows the pointer
-   *  between same-type, same-parent siblings; pointer-up commits via
-   *  MOVE_OBJECT (which expands to EC `.moveBefore` / `.moveAfter` on
-   *  the server). Tab moves prompt because TabSets are shared across
-   *  scorecards; Container moves don't (containers are scorecard-local
-   *  in the typical configuration). The spacer variant is filtered out
-   *  via the `:not(.layout-handle--spacer)` selector. */
-  private wireLayoutTabReorder(container: HTMLElement): void {
-    if (!this.layoutNodes) return;
-    const handles = container.querySelectorAll<HTMLElement>('.layout-handle:not(.layout-handle--spacer)');
-    for (const handle of handles) {
-      const row = handle.closest<HTMLElement>('.layout-row');
-      if (!row) continue;
-      const draggedRid = row.dataset.layoutRid;
-      if (!draggedRid) continue;
-      const draggedNode = this.layoutNodes.find(n => n.rid === draggedRid);
-      if (!draggedNode) continue;
-      const isTab = draggedNode.type === 'Tab';
-      const isContainer = draggedNode.type === 'Container';
-      if (!isTab && !isContainer) continue;
-      // CSS class to filter siblings to the SAME type — moving a
-      // Container next to a Tab makes no sense (different parents in
-      // BMP's layout model).
-      const siblingSelector = isTab ? '.layout-row--tab' : '.layout-row--container';
-
-      let dragging = false;
-      let pointerId: number | null = null;
-      let indicator: HTMLElement | null = null;
-      let dropTargetRid: string | null = null;
-      let dropPosition: 'above' | 'below' = 'above';
-
-      const ensureIndicator = (): HTMLElement => {
-        if (indicator) return indicator;
-        const el = document.createElement('div');
-        el.className = 'layout-drop-indicator';
-        container.appendChild(el);
-        indicator = el;
-        return el;
-      };
-      const removeIndicator = () => {
-        if (indicator) { indicator.remove(); indicator = null; }
-      };
-
-      const findSiblingRowAt = (clientY: number): { row: HTMLElement; rid: string; position: 'above' | 'below' } | null => {
-        // Siblings = other rows of the SAME type under the SAME parent
-        // (TabSet for Tabs; Container/Tab for Containers). Returns the
-        // closest one and whether the pointer is above or below its
-        // mid-line.
-        const siblings = Array.from(container.querySelectorAll<HTMLElement>(siblingSelector))
-          .filter(r => r.dataset.layoutRid && r.dataset.layoutRid !== draggedRid);
-        if (siblings.length === 0) return null;
-        let best: { row: HTMLElement; rid: string; position: 'above' | 'below'; dist: number } | null = null;
-        for (const sib of siblings) {
-          const rid = sib.dataset.layoutRid!;
-          // Only same-parent siblings reorder cleanly. Sibling parent
-          // must match dragged's parent.
-          const sibNode = this.layoutNodes!.find(n => n.rid === rid);
-          if (!sibNode || sibNode.parentRid !== draggedNode.parentRid) continue;
-          const rect = sib.getBoundingClientRect();
-          const mid = rect.top + rect.height / 2;
-          const dist = Math.abs(clientY - mid);
-          const position: 'above' | 'below' = clientY < mid ? 'above' : 'below';
-          if (!best || dist < best.dist) best = { row: sib, rid, position, dist };
-        }
-        return best;
-      };
-
-      const onMove = (e: PointerEvent) => {
-        if (!dragging) return;
-        const hit = findSiblingRowAt(e.clientY);
-        if (!hit) { removeIndicator(); dropTargetRid = null; return; }
-        dropTargetRid = hit.rid;
-        dropPosition = hit.position;
-        const ind = ensureIndicator();
-        const rect = hit.row.getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
-        ind.style.top = `${(hit.position === 'above' ? rect.top : rect.bottom) - containerRect.top + container.scrollTop - 1}px`;
-        ind.style.left = `${rect.left - containerRect.left}px`;
-        ind.style.width = `${rect.width}px`;
-      };
-      const finish = (commit: boolean) => {
-        if (!dragging) return;
-        dragging = false;
-        this.layoutDragging = false;
-        if (pointerId != null) {
-          try { handle.releasePointerCapture(pointerId); } catch { /* released */ }
-          pointerId = null;
-        }
-        handle.removeEventListener('pointermove', onMove);
-        handle.removeEventListener('pointerup', onUp);
-        handle.removeEventListener('pointercancel', onCancel);
-        row.classList.remove('layout-row--dragging');
-        removeIndicator();
-
-        if (this.layoutRenderPending) {
-          this.layoutRenderPending = false;
-          this.render(container);
-        }
-
-        if (!commit || !dropTargetRid || dropTargetRid === draggedRid) return;
-
-        // Shared-resource confirmation only for Tabs — every TabSet is
-        // potentially shared across scorecards, so a silent re-order
-        // would be surprising. Containers are scorecard-local in the
-        // typical configuration, so we move them without a prompt
-        // (the optimistic re-fetch still lets the user undo via
-        // refresh + drag back).
-        if (isTab) {
-          // eslint-disable-next-line no-alert
-          const ok = window.confirm(
-            `Move Tab "${draggedNode.name ?? draggedRid}" ${dropPosition} "${this.layoutNodes!.find(n => n.rid === dropTargetRid)?.name ?? dropTargetRid}"?\n\nThis affects every Scorecard bound to this TabSet.`,
-          );
-          if (!ok) return;
-        }
-
-        this.send({
-          type: 'MOVE_OBJECT',
-          rid: draggedRid,
-          relTo: dropTargetRid,
-          position: dropPosition,
-        });
-      };
-      const onUp = () => finish(true);
-      const onCancel = () => finish(false);
-
-      handle.addEventListener('pointerdown', (e: PointerEvent) => {
-        if (e.button !== 0) return;
-        e.preventDefault();
-        dragging = true;
-        this.layoutDragging = true;
-        pointerId = e.pointerId;
-        try { handle.setPointerCapture(e.pointerId); } catch { /* fine */ }
-        handle.addEventListener('pointermove', onMove);
-        handle.addEventListener('pointerup', onUp);
-        handle.addEventListener('pointercancel', onCancel);
-        row.classList.add('layout-row--dragging');
-      });
-    }
-  }
 
   /** Wrap the grid preview in a section with breakpoint toggle.
    *  Renders one preview per Tab in the subtree — for a TabSet/Scorecard
@@ -1174,19 +872,9 @@ export class WorkshopLayoutPane implements Tab {
       'data-layout-rid': node.rid,
       'data-layout-type': node.type,
     },
-      // Drag handle slot — present on every row to keep the chevron /
-      // type chip / name vertically aligned. Tabs AND Containers get a
-      // live ≡ glyph: drag a Tab to reorder within its TabSet, drag a
-      // Container to reorder among its sibling Containers. Other types
-      // (Widget, TabSet, Scorecard) get a fixed-width spacer.
-      (node.type === 'Tab' || node.type === 'Container')
-        ? h('span', {
-            class: 'layout-handle',
-            title: node.type === 'Tab'
-              ? 'Drag to reorder this tab'
-              : 'Drag to reorder this container among its siblings',
-          }, '≡')
-        : h('span', { class: 'layout-handle layout-handle--spacer', 'aria-hidden': 'true' }),
+      // Fixed-width spacer to keep the chevron / type chip / name aligned. (Layout EDITING — drag to
+      // reorder/resize — lives in the in-page blueprint overlay now; this tree is read-only navigation.)
+      h('span', { class: 'layout-handle layout-handle--spacer', 'aria-hidden': 'true' }),
       h('span', {
         class: `layout-chev${hasKids ? ' clickable' : ''}`,
         'data-action': hasKids ? 'toggle-layout-node' : undefined,
@@ -1202,8 +890,7 @@ export class WorkshopLayoutPane implements Tab {
       showSize
         ? h('span', {
             class: `layout-size${node.type === 'Tab' ? ' layout-size--shared' : ''}`,
-            'data-rid': node.rid,
-            title: `Columns (L): ${cols}/6. Drag to resize (0..6)${sharedNote}`,
+            title: `Columns (L): ${cols}/6${sharedNote}`,
           },
             h('span', { class: 'layout-size-bar' },
               ...Array.from({ length: 6 }, (_, i) =>

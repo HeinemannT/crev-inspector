@@ -392,9 +392,7 @@ export type ObjectViewMessage =
   | { type: 'FETCH_CHILDREN'; rid: string }
   | { type: 'FETCH_CHILDREN_RESULT'; rid: string; children: Array<{ rid: string; name?: string; type?: string; businessId?: string }>; error?: string }
   | { type: 'FETCH_LAYOUT_TREE'; rid: string }
-  | { type: 'LAYOUT_TREE_RESULT'; rid: string; nodes: LayoutNode[]; error?: string }
-  | { type: 'MOVE_OBJECT'; rid: string; relTo: string; position: 'above' | 'below' }
-  | { type: 'MOVE_OBJECT_RESULT'; rid: string; ok: boolean; error?: string };
+  | { type: 'LAYOUT_TREE_RESULT'; rid: string; nodes: LayoutNode[]; error?: string };
 
 /** A flat node in the layout subtree for a TabSet / Tab / Container /
  *  Scorecard. Parent linkage is via `parentRid`; the panel folds these

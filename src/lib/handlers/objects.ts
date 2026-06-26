@@ -711,32 +711,6 @@ register('FETCH_LAYOUT_TREE', async (msg, respond) => {
   }
 });
 
-register('MOVE_OBJECT', async (msg, respond) => {
-  const ctx = getCtx();
-  if (!ctx.client) {
-    respond({ type: 'MOVE_OBJECT_RESULT', rid: msg.rid, ok: false, error: 'Not connected' });
-    return;
-  }
-  try {
-    const result = await ctx.client.moveObject(msg.rid, msg.relTo, msg.position);
-    respond({ type: 'MOVE_OBJECT_RESULT', rid: msg.rid, ok: result.ok, error: result.error });
-    if (result.ok) {
-      // Cache invalidation: order-of-children changed for the parent.
-      // Cheap to nuke both entries — the layout tree re-fetch below
-      // will repopulate.
-      ctx.logActivity('success', `Moved ${msg.rid} ${msg.position} ${msg.relTo}`);
-    } else {
-      ctx.logActivity('warn', `Move failed: ${msg.rid} ${msg.position} ${msg.relTo}`, result.error);
-      ctx.toast(`Move failed: ${result.error ?? 'unknown error'}`, 'error');
-    }
-  } catch (e) {
-    const errMsg = e instanceof Error ? e.message : String(e);
-    respond({ type: 'MOVE_OBJECT_RESULT', rid: msg.rid, ok: false, error: errorMessage(e) });
-    ctx.logActivity('error', `Move threw on ${msg.rid}`, errMsg);
-    ctx.toast(`Move threw: ${errMsg}`, 'error');
-  }
-});
-
 register('GET_OVERLAY_PROPS', (msg, respond) => {
   const ctx = getCtx();
   const result: Record<string, Record<string, string>> = {};

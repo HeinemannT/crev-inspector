@@ -742,19 +742,6 @@ export class BmpClient {
     return parseSepMultiObject(ecResult.log, sep);
   }
 
-  /** Reposition an object relative to a sibling. BMP exposes
-   *  `.moveBefore(other)` / `.moveAfter(other)` on every Node; this
-   *  wraps both with a single EC round-trip. Used by the Page tab's
-   *  drag-to-reorder for Tabs in a TabSet. */
-  async moveObject(rid: string, relTo: string, position: 'above' | 'below'): Promise<{ ok: boolean; error?: string }> {
-    const subj = await this.resolveRef(rid);
-    const dest = await this.resolveRef(relTo);
-    const method = position === 'above' ? 'moveBefore' : 'moveAfter';
-    const code = `${subj}.${method}(${dest})`;
-    const result = await this.executeEc(code, undefined, /* transactional */ true);
-    return { ok: result.ok, error: result.error };
-  }
-
   /** Walk the layout subtree of a Scorecard / TabSet / Tab / Container.
    *  Returns flat nodes with parent linkage + responsive sizing — the
    *  panel folds these into a tree client-side. Single round trip via
