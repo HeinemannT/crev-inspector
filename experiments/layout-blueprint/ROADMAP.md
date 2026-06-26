@@ -13,12 +13,18 @@ something usable. After each phase: reflect, readjust, review before starting th
 | Knowledge (`skills/bmp-platform/reference/page-hosting.md`) | done |
 | Imperative shell (IO→bmp-client, message handler, context resolution) | ✅ **Phase 1 done** — `layout-service`, `handlers/layout`, `resolvePageContext`, rollback guard |
 | Safety rails (5 §13 risks, rollback detection, blast radius) | ✅ **Phase 2 done** (headless rails) — stale-baseline, wrong-env, instance/template target |
-| Interactive on-page UI | **Phase 3** ← next |
-| Palette / composites / display names | Phase 4 |
+| Interactive on-page UI | ✅ **Phase 3 done** — all 7 milestones, live-validated in the running extension |
+| Palette / composites / display names | **Phase 4** ← next (curated palette ships; live-derived + composites remain) |
 | Hardening & rollout | Phase 5 |
 
 **Engine complete (Phases 1–2):** load → edit → apply works headless against live BMP, guarded
-against silent rollback, stale baselines, and wrong-env applies. 49 tests, tsc clean, builds.
+against silent rollback, stale baselines, and wrong-env applies.
+
+**UI complete (Phase 3):** the interactive overlay — 3.1 read-only → 3.2 select/resize/rename/
+delete → 3.3 move → 3.4 add (picker) → 3.5 tabs → 3.6 apply-preview → 3.7 keyboard/perf/exit.
+Every operation tested in the *running* extension (installed via chrome-devtools, session-auth to
+BMP 5.6.10.0): created widgets + tabs in BMP, moved widgets, all guarded + previewed. Live testing
+caught 3 real bugs (one-shot toggle routing, content-port reply routing, the move width-clamp).
 
 ### Phase 3 entry — integration points (mapped)
 - **Toggle**: a `BLUEPRINT_MODE` message (mirror `OverlayModeMessage` convention) flips the content
