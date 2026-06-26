@@ -15,6 +15,7 @@
 import type { LModel, LNode, PlanNote } from './lib/layout/types';
 import type { BlueprintCtx } from './lib/layout/sync';
 import { findNode, walk, descendantWidgets, hasHeight, isChart } from './lib/layout/model';
+import { COMPOSITE_TYPES, COMPOSITE_CHILDREN } from './lib/layout/constraints';
 import { resize, setHeight, rename, remove, addWidget, moveInto, addTab } from './lib/layout/edit';
 import { diff } from './lib/layout/diff';
 import { compile } from './lib/layout/ec';
@@ -349,7 +350,8 @@ function render(): void {
   walk(m, (node, parent) => {
     if (node.kind !== 'widget' || node.rid || !parent) return; // rid-less ⇒ staged add
     const host = findNode(base, parent.id)?.node;
-    const rect = host ? unionRect(host, byRid) : null;
+    // anchorRect: union for a container host, the composite's own box for a composite-widget host
+    const rect = host ? anchorRect(host, byRid) : null;
     if (!rect) return;
     const offset = stackY.get(parent.id) ?? 0;
     stackY.set(parent.id, offset + 42);
@@ -399,14 +401,20 @@ function pickerPanel(byRid: Map<string, Element>): HTMLElement {
   const panel = document.createElement('div'); panel.className = 'bp-pick';
   if (rect) { panel.style.left = `${Math.min(rect.left, window.innerWidth - 320)}px`; panel.style.top = `${Math.min(rect.top + 24, window.innerHeight - 420)}px`; }
   else { panel.style.left = '50%'; panel.style.top = '80px'; panel.style.transform = 'translateX(-50%)'; }
+  // A composite target (ButtonContainer…) offers only its valid child types; anything else gets the
+  // full widget palette.
+  const composite = host && host.kind === 'widget' && COMPOSITE_TYPES.has(host.className) ? host.className : null;
+  const groups = composite
+    ? [{ group: `${composite} children`, items: COMPOSITE_CHILDREN[composite] ?? [] }]
+    : PALETTE;
   const head = document.createElement('div'); head.className = 'bp-pick-h';
-  head.textContent = `Add widget to ${host?.name ?? 'container'}`;
-  const search = document.createElement('input'); search.className = 'bp-pick-s'; search.placeholder = 'Search widgets…';
+  head.textContent = composite ? `Add to ${host?.name}` : `Add widget to ${host?.name ?? 'container'}`;
+  const search = document.createElement('input'); search.className = 'bp-pick-s'; search.placeholder = 'Search…';
   const list = document.createElement('div'); list.className = 'bp-pick-list';
   const fill = (q: string): void => {
     list.textContent = '';
     const ql = q.trim().toLowerCase();
-    for (const grp of PALETTE) {
+    for (const grp of groups) {
       const items = grp.items.filter(it => !ql || it.name.toLowerCase().includes(ql) || it.key.toLowerCase().includes(ql));
       if (!items.length) continue;
       const gh = document.createElement('div'); gh.className = 'bp-pick-grp'; gh.textContent = grp.group; list.appendChild(gh);
@@ -538,6 +546,8 @@ function toolbar(node: LNode, r: Rect): HTMLElement {
     t.append(minus, plus);
   }
 
+  // add a child into a composite (ButtonContainer etc.)
+  if (node.kind === 'widget' && COMPOSITE_TYPES.has(node.className)) t.appendChild(mkBtn('+ Child', () => openPicker(node.id)));
   // move (widgets only — reparent to another container/tab)
   if (node.kind === 'widget') t.appendChild(mkBtn('Move →', () => openMovePicker(node.id)));
   // rename

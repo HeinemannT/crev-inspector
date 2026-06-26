@@ -85,12 +85,21 @@ describe('edit engine (pure, returns new model)', () => {
 });
 
 describe('diff + ec compile', () => {
-  it('refuses to compile a widget added into a composite (no broken container:=<widget>)', () => {
+  it('compiles a child into a composite as <composite>.add(Child) (not container:=<widget>)', () => {
     const base = model(n({ id: 'tab1', kind: 'tab', className: 'Tab', name: 'T', children: [
       n({ id: 'bc', kind: 'widget', className: 'ButtonContainer', name: 'Buttons', children: [] }),
     ] }));
-    const desired = addWidget(base, 'bc', 0, 'ActionButton').model; // child into the composite
-    expect(() => compile(diff(base, desired), desired)).toThrow(/composite/);
+    const desired = addWidget(base, 'bc', 0, 'ActionButton', 'Go').model; // child into the composite
+    const { script } = compile(diff(base, desired), desired);
+    expect(script).toContain('t.bc.add(ActionButton, name := "Go")');
+    expect(script).not.toContain('container := t.bc');
+  });
+  it('still refuses to add a widget into a plain (non-composite) leaf widget', () => {
+    const base = model(n({ id: 'tab1', kind: 'tab', className: 'Tab', name: 'T', children: [
+      n({ id: 'w', kind: 'widget', className: 'SimpleStatus', name: 'S', children: [] }),
+    ] }));
+    const desired = addWidget(base, 'w', 0, 'BarChart').model;
+    expect(() => compile(diff(base, desired), desired)).toThrow(/not a composite/);
   });
   it('emits create→update→reparent ordered with variable threading', () => {
     const base = demo();
@@ -165,11 +174,10 @@ describe('constraints', () => {
     expect(checkHeight('URLView').ok).toBe(true);
     expect(checkHeight('ExtendedTable').ok).toBe(false);
   });
-  it('allows add into a tab/container, forbids add into a widget (composite or leaf)', () => {
+  it('allows add into a tab/container/composite, forbids add into a leaf widget', () => {
     expect(checkAddTarget('tab').ok).toBe(true);
     expect(checkAddTarget('container').ok).toBe(true);
-    expect(checkAddTarget('widget', 'ButtonContainer').ok).toBe(false);   // composite — Phase 4
-    expect(checkAddTarget('widget', 'ButtonContainer').reason).toMatch(/composite/);
+    expect(checkAddTarget('widget', 'ButtonContainer').ok).toBe(true);    // composite — now supported
     expect(checkAddTarget('widget', 'SimpleStatus').ok).toBe(false);      // leaf — nonsensical
   });
   it('warns on instance structural ops and shared edits', () => {

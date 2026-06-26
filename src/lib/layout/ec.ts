@@ -13,6 +13,7 @@
  * that semantic is confirmed against a template-backed page.
  */
 import { walk } from './model';
+import { COMPOSITE_TYPES } from './constraints';
 import type { Breakpoint, LModel, LNode, PlanNote, PlanStep } from './types';
 
 const IDENT = /^[A-Za-z][A-Za-z0-9_]*$/;          // class names
@@ -72,14 +73,17 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         } else if (n.kind === 'container') {
           emit({ verb: 'create', text: `Create container "${n.name}"`,
             ec: `${v} := ${ref(s.parentId)}.add(Container, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}) // BMP assigns id` });
-        } else {
-          // Backstop for composite children: a widget whose parent is another WIDGET would need
-          // `<composite>.add(child)`, not the `container := <widget>` we emit for cell-bound widgets
-          // (BMP rejects binding to a non-cell). The UI guards this via constraints.checkAddTarget;
-          // refuse here too so a broken apply can never be generated. (Composite editing → Phase 4.)
-          if (s.parentKind === 'widget') {
-            throw new Error(`cannot add ${n.className} into a ${byId.get(s.parentId)?.className ?? 'widget'} — composite children are not supported yet`);
+        } else if (s.parentKind === 'widget') {
+          // Composite child (e.g. a button in a ButtonContainer): the child is added to the COMPOSITE
+          // itself (`<composite>.add(Child)`), NOT bound to a portal cell — its parent is the composite
+          // (verified live). Only valid for known composite types; a plain-widget parent is rejected.
+          const parentClass = byId.get(s.parentId)?.className;
+          if (!parentClass || !COMPOSITE_TYPES.has(parentClass)) {
+            throw new Error(`cannot add ${n.className} into a ${parentClass ?? 'widget'} — not a composite container`);
           }
+          emit({ verb: 'create', text: `Create ${n.className} "${n.name}" in ${parentClass}`,
+            ec: `${v} := ${ref(s.parentId)}.add(${ecClass(n.className)}, name := ${ecStr(n.name)}) // BMP assigns id` });
+        } else {
           const h = n.height != null ? `, chartHeight := ${n.height}` : '';
           emit({ verb: 'create', text: `Create ${n.className} "${n.name}"`,
             ec: `${v} := _sc.add(${ecClass(n.className)}, name := ${ecStr(n.name)}, container := ${ref(s.parentId)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}${h}) // BMP assigns id` });

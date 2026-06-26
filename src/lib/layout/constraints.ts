@@ -30,6 +30,15 @@ export const COMPOSITE_TYPES = new Set([
   'ButtonContainer', 'ButtonGroup', 'InputSet', 'TagList', 'ListPropertySet',
 ]);
 
+/** Which child types each composite accepts — drives the add picker when a composite is the target.
+ *  (`<composite>.add(Child)`; ButtonContainer→ActionButton verified live. Source: page-hosting.md.) */
+export const COMPOSITE_CHILDREN: Record<string, { key: string; name: string }[]> = {
+  ButtonContainer: [{ key: 'ActionButton', name: 'Action Button' }, { key: 'ButtonInput', name: 'Button Input' }, { key: 'MenuButton', name: 'Menu Button' }],
+  ButtonGroup: [{ key: 'ActionButton', name: 'Action Button' }, { key: 'MenuButton', name: 'Menu Button' }],
+  InputSet: [{ key: 'BooleanInput', name: 'Boolean' }, { key: 'DateInput', name: 'Date' }, { key: 'NumberInput', name: 'Number' }, { key: 'TextInput', name: 'Text' }, { key: 'ListInput', name: 'List' }, { key: 'ReferenceInput', name: 'Reference' }],
+  TagList: [{ key: 'Tag', name: 'Tag' }],
+};
+
 const ok: Guard = { ok: true, level: 'ok' };
 const warn = (reason: string): Guard => ({ ok: true, level: 'warn', reason });
 const forbid = (reason: string): Guard => ({ ok: false, level: 'forbidden', reason });
@@ -40,9 +49,10 @@ const forbid = (reason: string): Guard => ({ ok: false, level: 'forbidden', reas
  *  editing is wired (Phase 4). */
 export function checkAddTarget(parentKind: NodeKind, parentClassName?: string): Guard {
   if (parentKind !== 'widget') return ok;
+  // composites accept children via `<composite>.add(child)`; a plain leaf widget is not a drop target
   return parentClassName && COMPOSITE_TYPES.has(parentClassName)
-    ? forbid(`adding into a ${parentClassName} (a composite) isn't supported yet`)
-    : forbid('widgets can only be added into a tab or container');
+    ? ok
+    : forbid('widgets can only be added into a tab, container, or composite');
 }
 
 /** Height is only authorable on charts and URLView; everything else is content-driven in BMP. */
