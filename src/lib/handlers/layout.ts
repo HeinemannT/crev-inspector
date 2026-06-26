@@ -7,7 +7,31 @@ import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import type { SwContext } from '../sw-context';
 import { loadPage, applyPage } from '../layout-service';
-import { errorMessage } from '../logger';
+import { ensureContentScript } from '../tab-awareness';
+import { errorMessage, log } from '../logger';
+
+/** Per-window blueprint-mode state (self-contained — blueprint is a single-active-tab overlay, so
+ *  it doesn't need the broader per-tab machinery inspect uses). */
+const blueprintActiveByWindow = new Map<number, boolean>();
+
+register('BLUEPRINT_TOGGLE', async (_msg, _respond, meta) => {
+  const ctx = getCtx();
+  const windowId = meta.panelWindowId ?? (await chrome.windows.getLastFocused().catch(() => null))?.id;
+  if (windowId == null) return;
+  const next = !blueprintActiveByWindow.get(windowId);
+  blueprintActiveByWindow.set(windowId, next);
+  ctx.logActivity('info', next ? 'Blueprint mode ON' : 'Blueprint mode OFF');
+  const state = { type: 'BLUEPRINT_STATE' as const, active: next };
+  ctx.sendToPanelByWindow(windowId, state);
+  // Drive the active BMP tab's content overlay (blueprint edits one page at a time).
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, windowId });
+    if (tab?.id != null) {
+      await ensureContentScript(tab.id);
+      chrome.tabs.sendMessage(tab.id, state).catch(e => log.swallow('blueprint:toggleTab', e));
+    }
+  } catch (e) { log.swallow('blueprint:toggleQuery', e); }
+});
 
 /** Environment fingerprint stamped at load and re-checked at apply. Combines the active profile id
  *  with the live server URL, so a profile reconfigured to a different workspace under the same id

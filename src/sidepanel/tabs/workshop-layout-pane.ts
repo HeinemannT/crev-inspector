@@ -560,6 +560,11 @@ export class WorkshopLayoutPane implements Tab {
                 'data-action': 'refresh-layout',
                 title: 'Re-fetch the layout subtree',
               }, svg(ICON_REFRESH)),
+          h('button', {
+            class: 'refresh-enrich-btn',
+            'data-action': 'toggle-blueprint',
+            title: 'Toggle blueprint overlay on the live page',
+          }, '⧉'),
         ));
         if (this.layoutNodes) {
           children.push(this.renderLayout(this.contextRid!, this.layoutNodes));
@@ -612,6 +617,7 @@ export class WorkshopLayoutPane implements Tab {
         const rid = el.dataset.rid;
         if (rid) this.onNavigate(rid);
       },
+      'toggle-blueprint': () => this.send({ type: 'BLUEPRINT_TOGGLE' }),
       'pick-page-scorecard': (el) => {
         // Promote the ambient scorecard to user-set context. Bypasses
         // SET_CONTEXT_RID round-trip — we already have the rid + type;

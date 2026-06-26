@@ -616,6 +616,10 @@ export type NotificationMessage =
  *  the layout-service; the panel holds the editable model + history and sends high-level
  *  load/apply. Models are plain JSON (LModel) so they cross the port unchanged. */
 export type LayoutMessage =
+  // Blueprint overlay toggle: panel → SW (BLUEPRINT_TOGGLE) flips per-window state; SW → content/panel
+  // (BLUEPRINT_STATE) drives the overlay on/off. Mirrors the inspect/paint toggle convention.
+  | { type: 'BLUEPRINT_TOGGLE' }
+  | { type: 'BLUEPRINT_STATE'; active: boolean }
   | { type: 'LAYOUT_LOAD'; rid: string }
   // `env` = the active profile id at load time; the panel echoes it back on apply so the SW can
   // reject a commit aimed at a different environment (the user switched profiles mid-edit).

@@ -22,6 +22,7 @@ import { updatePaintCursors, flashApplyResult } from './content-paint';
 import { showTooltipForElement, hideTooltip, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
 import { mountFrameOverlay, teardownFrameOverlayModule } from './content-frame-overlay';
+import { enableBlueprint, disableBlueprint, isBlueprintActive, onLayoutLoaded } from './content-blueprint';
 import { sendFireForget } from './lib/messaging';
 
 declare global {
@@ -227,6 +228,12 @@ onPortMessage((msg: InspectorMessage) => {
     case 'INSPECT_STATE':
       setInspectMode(msg.active);
       if (!s.fromSync) broadcast('crev_sync_inspect', { active: msg.active });
+      break;
+    case 'BLUEPRINT_STATE':
+      if (msg.active) enableBlueprint(); else disableBlueprint();
+      break;
+    case 'LAYOUT_LOAD_RESULT':
+      if (isBlueprintActive()) onLayoutLoaded(msg);
       break;
     case 'BADGE_ENRICHMENT':
       // Drop the rid from `requestedRids` as soon as we get ANY
@@ -500,6 +507,7 @@ function resetContentState() {
   hideQuickInspector();
   destroyEnvTag();
   teardownFrameOverlayModule();
+  disableBlueprint();
   document.getElementById('crev-inspector-styles')?.remove();
   document.getElementById('crev-tooltip')?.remove();
   document.getElementById('crev-paint-banner')?.remove();
