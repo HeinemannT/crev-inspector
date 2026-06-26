@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildFetchEc, parseFetchLog, loadModel, applyModel, type LayoutIO, type BlueprintCtx } from '../sync';
+import {
+  buildFetchEc, parseFetchLog, loadModel, applyModel,
+  resolveEnterpriseContext, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
+} from '../sync';
 import { addContainer, rename } from '../edit';
 import { findNode } from '../model';
 
@@ -105,6 +108,58 @@ describe('sync.loadModel', () => {
   });
   it('throws when the fetch EC fails', async () => {
     await expect(loadModel(fakeIo('', false), CTX)).rejects.toThrow(/layout fetch failed/);
+  });
+});
+
+/** Enterprise page: a CeIssue (102) links to EnterpriseTemplate 5923; the template's widgets are
+ *  bound to a Tab/Container in the SHARED default_tabset. These ids are the real live objects
+ *  (created + verified on 2026-06-26), plus one decoy tab ("My KPIs", a real default_tabset tab)
+ *  carrying a structural container but none of THIS template's widgets — it must be filtered out. */
+const TMPL_RID = '6657825841951873912';
+const ENTERPRISE_CTX: BlueprintCtx = {
+  pageId: '5923', pageRid: TMPL_RID, pageClass: 'EnterpriseTemplate',
+  tabsetId: DEFAULT_TABSET, target: 'template', hasTemplate: true, tabScope: 'withContent',
+};
+const ENTERPRISE_LOG = [
+  '900|default_tabset|Tab set|TabSet|||||',
+  '3490092378368822362|5930|Issue Overview|Tab|900||6|6|6',     // our tab
+  '901|316|My KPIs|Tab|900||6|6|6',                              // decoy tab (shared, not ours)
+  '432431197368212130|5931|Main|Container|3490092378368822362||6|6|6',
+  '902|cont_decoy|Decoy|Container|901||6|6|6',                   // structural, no widgets
+  `212997087683636707|w1|Issue Status|SimpleStatus|${TMPL_RID}|432431197368212130|6|6|6`,
+  `3010690603757079917|w2|Issue Summary|DescriptionView|${TMPL_RID}|432431197368212130|6|6|6`,
+  `5194505591298034683|w3|Issue Trend|BarChart|${TMPL_RID}|432431197368212130|6|6|6`,
+].map(l => SEP + l).join('\n');
+
+describe('sync.resolveEnterpriseContext', () => {
+  it('points the page root at the linked template + shared tabset for an enterprise object', async () => {
+    const probe = `${'<<<CREV_CTX>>>'}class|CeIssue|tmpl|${TMPL_RID}|5923|EnterpriseTemplate`;
+    const ctx = await resolveEnterpriseContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '5977812347502735400');
+    expect(ctx).not.toBeNull();
+    expect(ctx!.pageId).toBe('5923');           // edit the TEMPLATE, not the instance
+    expect(ctx!.pageRid).toBe(TMPL_RID);
+    expect(ctx!.tabsetId).toBe(DEFAULT_TABSET);  // shared tabset
+    expect(ctx!.tabScope).toBe('withContent');
+    expect(ctx!.target).toBe('template');
+  });
+  it('returns null for a plain page (no template reference)', async () => {
+    const probe = `${'<<<CREV_CTX>>>'}class|Scorecard|none||`;
+    const ctx = await resolveEnterpriseContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '4957');
+    expect(ctx).toBeNull();
+  });
+});
+
+describe('sync.loadModel (enterprise)', () => {
+  it('reconstructs the template page and drops shared-tabset tabs with no template content', async () => {
+    const { model } = await loadModel(fakeIo(ENTERPRISE_LOG), ENTERPRISE_CTX);
+    // only "Issue Overview" survives; the decoy "My KPIs" tab is filtered out by withContent
+    expect(model.tabs.map(t => t.name)).toEqual(['Issue Overview']);
+    const main = findNode(model, '5931')!;
+    expect(main.node.children.map(c => c.name)).toEqual(['Issue Status', 'Issue Summary', 'Issue Trend']);
+  });
+  it('with tabScope "all" the decoy tab would remain (proves the filter is what drops it)', async () => {
+    const { model } = await loadModel(fakeIo(ENTERPRISE_LOG), { ...ENTERPRISE_CTX, tabScope: 'all' });
+    expect(model.tabs.map(t => t.name)).toEqual(['Issue Overview', 'My KPIs']);
   });
 });
 

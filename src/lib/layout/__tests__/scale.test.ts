@@ -36,8 +36,8 @@ describe('layout scale', () => {
 
     const { script } = compile(steps, d);
     const lines = script.split('\n');
-    // preamble (_scr/_sc/_ts) + one line per create
-    expect(lines.length).toBe(total + 3);
+    // preamble (_sc := t.<id> + _ts := t.<id>) + one line per create
+    expect(lines.length).toBe(total + 2);
     // a deep widget binds to its container VARIABLE, never to a t.<tempid>
     expect(script).not.toMatch(/container := t\.(box|w|leaf|tab):/);
     expect(script.match(/container := _n\d+/g)!.length).toBeGreaterThan(widgets / 2);

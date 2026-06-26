@@ -67,8 +67,14 @@ export interface ApplyResult {
 }
 
 const SEP = '<<<CREV_LAYOUT>>>';
+const CTX = '<<<CREV_CTX>>>';
 const BID = /^[A-Za-z0-9_]+$/;   // business ids (may start with a digit)
 const RID = /^\d+$/;             // rids are Java longs — digits only
+
+/** The shared, system-wide tabset that enterprise-object pages render their template into.
+ *  (Verified live: an EnterpriseTemplate's widgets bind to Tabs/Containers under `default_tabset`,
+ *  not a dedicated per-page tabset.) */
+export const DEFAULT_TABSET = 'default_tabset';
 
 function ecBid(id: string): string {
   if (!BID.test(id)) throw new Error(`unsafe EC business id: ${id}`);
@@ -155,6 +161,49 @@ function findOrphans(nodes: readonly WireNode[], model: LModel): WireNode[] {
   walk(model, n => { if (n.rid) placed.add(n.rid); });
   return nodes.filter(n =>
     n.type !== 'TabSet' && n.type !== 'Tab' && n.type !== 'Container' && !placed.has(n.rid));
+}
+
+/**
+ * Probe a context object: if it's an enterprise object (carries a `template` reference), the page
+ * a user edits is the LINKED EnterpriseTemplate, not the instance — the instance owns no widgets,
+ * its layout is `resolveTemplate().getCard()`. Returns one line: `<CTX>class|<class>|tmpl|<rid>|
+ * <id>|<class>` for an enterprise object, or `<CTX>class|<class>|none||` otherwise.
+ */
+export function buildContextProbeEc(rid: string): string {
+  return [
+    `_o := lookup(${ecRid(rid)})`,
+    `_t := _o.template`,
+    `_tr := _t.rid.whenMissing("")`,
+    `_r := "${CTX}class|" + _o.className.whenMissing("")`,
+    `IF _tr <> "" THEN`,
+    `     _r := _r + "|tmpl|" + _t.rid + "|" + _t.id.whenMissing("") + "|" + _t.className.whenMissing("")`,
+    `ELSE`,
+    `     _r := _r + "|none||"`,
+    `ENDIF`,
+    `_r`,
+  ].join('\n');
+}
+
+/** Resolve the blueprint context for a viewed object. For an enterprise object, points the page
+ *  root at its EnterpriseTemplate, uses the shared `default_tabset`, and scopes tabs to those the
+ *  template's widgets actually use. Returns null when the object is NOT enterprise (the caller
+ *  then builds a normal Scorecard/ModelPage context with the object as its own root). */
+export async function resolveEnterpriseContext(io: LayoutIO, rid: string): Promise<BlueprintCtx | null> {
+  const res = await io.exec(buildContextProbeEc(rid));
+  if (!res.ok || !res.log) return null;
+  const line = res.log.split(CTX)[1]?.split('\n', 1)[0]?.trim();
+  if (!line) return null;
+  const [, , marker, tmplRid, tmplId, tmplClass] = line.split('|');
+  if (marker !== 'tmpl' || !tmplRid || !tmplId) return null;
+  return {
+    pageId: tmplId,
+    pageRid: tmplRid,
+    pageClass: (tmplClass || 'EnterpriseTemplate') as BlueprintCtx['pageClass'],
+    tabsetId: DEFAULT_TABSET,
+    target: 'template',
+    hasTemplate: true,
+    tabScope: 'withContent',
+  };
 }
 
 /** Load: fetch the merged layout, reconstruct, and hand back model + an independent baseline. */

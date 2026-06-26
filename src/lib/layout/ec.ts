@@ -48,11 +48,12 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
   const needWidget = plan.some(s => s.kind === 'create' && s.node.kind === 'widget');
   const needTabset = plan.some(s => s.kind === 'create' && s.node.kind === 'tab');
 
+  // Page root (owns widgets) + tabset (owns tabs) are both reached by business id with `t.<id>`.
+  // This is uniform across page types: t.<scorecardId> resolves a Scorecard, t.<templateId> an
+  // EnterpriseTemplate — whereas `SELECT EnterpriseTemplate` fails (templates aren't SELECT-able).
+  // So we never SELECT the root; `pageClass` is metadata only. (Verified live 2026-06-26.)
   const lines: string[] = [];
-  if (needWidget) {
-    lines.push(`_scr := SELECT ${ecClass(m.pageClass)} WHERE id = ${ecStr(m.pageId)}`);
-    lines.push(`_sc := _scr.first()`);
-  }
+  if (needWidget) lines.push(`_sc := t.${ecBid(m.pageId)}`);
   if (needTabset) lines.push(`_ts := t.${ecBid(m.tabsetId)}`);
 
   const notes: PlanNote[] = [];

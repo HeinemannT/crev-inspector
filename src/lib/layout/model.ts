@@ -42,6 +42,13 @@ export interface ReconstructCtx {
   tabsetId: string;
   target?: 'instance' | 'template';
   hasTemplate?: boolean;
+  /** How to derive the page's tab list from the tabset:
+   *   - 'all' (default): every tab the tabset owns — correct for a DEDICATED tabset (Scorecard /
+   *     ModelPage), where the tabset belongs to this page.
+   *   - 'withContent': only tabs that actually hold one of this page's widgets — required for the
+   *     SHARED `default_tabset` used by enterprise objects, which carries 20+ system tabs that
+   *     aren't this page's. Matches BMP's real "tab strip = union of tabs widgets resolve to". */
+  tabScope?: 'all' | 'withContent';
 }
 
 export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx): LModel {
@@ -76,13 +83,16 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx): LM
   // tabs = the children of the tabset (any node whose owner is the tabset rid AND is a Tab)
   const tabsetWire = nodes.find(n => n.businessId === ctx.tabsetId || n.rid === ctx.tabsetId);
   const tabWires = tabsetWire ? (childrenOf.get(tabsetWire.rid) ?? []).filter(n => kindOf(n.type) === 'tab') : [];
+  let tabs = tabWires.map(build);
+  // shared-tabset pages keep only tabs that hold one of THIS page's widgets (see tabScope doc)
+  if (ctx.tabScope === 'withContent') tabs = tabs.filter(t => descendantWidgets(t).length > 0);
 
   return {
     pageId: ctx.pageId,
     pageRid: ctx.pageRid,
     pageClass: ctx.pageClass ?? 'Scorecard',
     tabsetId: ctx.tabsetId,
-    tabs: tabWires.map(build),
+    tabs,
     target: ctx.target ?? 'template',
     hasTemplate: ctx.hasTemplate ?? false,
   };
