@@ -336,3 +336,58 @@ Backlog, ranked (apply during the extension port):
    chart-indigo nearly identical (carry the chart distinction with an icon, not hue);
    mode-bar clips "TEMPLATE"; native `confirm()` + Backspace-deletes should be in-app modal +
    explicit affordance; pending-tray per-op remove is unwired; cross-tab move is a blind drop.
+
+---
+
+## 13. Stress test + runtime architecture (2026-06-26)
+
+### Stress (live on demo 4957)
+- **Pipeline scales:** an 8-tab / 120-container / 192-widget tree (320 objects, 5-level nesting)
+  diffs + compiles in **~8ms** (build 17 / diff 5.9 / compile 1.8). Locked by `scale.test.ts`.
+- **BMP execution scales:** an 84-object subset (3 tabs, 30 containers, 51 widgets, **5-level
+  variable-threaded nesting**, 8 widget types, M/S widths) executed in **62ms** (~0.7ms/object,
+  168 writes) -> a 320-object batch is ~250ms. Well under the 30s EC timeout.
+- **Deep variable threading works:** the deepest leaf bound correctly through a 5-level container
+  chain, tab auto-inferred.
+- **No trash:** create + move produced 0 orphans, no junk folder. **Deleting a Tab cascades its
+  container subtree**, but widgets (org-model) orphan to RESULT unless deleted first -> the apply
+  order (widgets before containers/tabs) is required. **Idempotent:** re-applying an unchanged
+  model emits an empty script; duplicates only arise from naive re-execution, which the
+  diff+refetch loop never does.
+- Bug found by executing for real: widget `add()` omitted `name` (would land as BMP defaults);
+  fixed.
+
+### Runtime architecture — the good news
+EC execution and all BMP I/O already run **in the MV3 service worker, off the page main thread**
+(`bmp-client.executeEc` -> `bmp-transport` `fetch('/cs/command')`). So a slow/large EC call, the
+multi-MB binary response, and Java deserialization **cannot jank or crash the BMP tab**. EC has a
+30s timeout + AbortSignal; auth survives SW termination (persisted to `chrome.storage.session`),
+reconnect re-auths on wake, and a 401 at Apply is auto-retried with a fresh token. The batch
+engine (`layout/diff|ec|edit|history`) is built but **not yet wired** — the blueprint is what
+first activates it.
+
+### Top runtime risks for the blueprint (with mitigations)
+1. **Wrong-environment Apply on profile switch mid-flight.** `EC_EXECUTE` reads the live mutable
+   `ctx.client` with no profile guard; switching dev->prod during a transactional Apply can land
+   EC on the wrong env. **Fix:** capture `activeProfileId` (or the specific `BmpClient`) when the
+   Apply request is created, re-check before each `executeEc`; disable profile switch while an
+   Apply is in flight.
+2. **Stale-baseline batch Apply (no refetch-before-apply / version check).** A reorder/reparent/
+   delete against a tree that shifted underneath can silently produce the wrong layout. **Fix:**
+   refetch + re-diff (or hash-gate the loaded subtree) immediately before commit; surface a "BMP
+   changed underneath you" gate.
+3. **Render host = the one tab-crash vector.** Injecting 100s of plates into BMP's observed DOM
+   would feed the content MutationObserver (its self-filter only ignores `crev-label`/`crev-tooltip`)
+   -> runaway on a dense page. **Fix:** host the overlay in an **extension iframe**
+   (`content-frame-overlay.ts` pattern) or the side panel, NOT in BMP's DOM. Cap/virtualize plates
+   (reuse the existing ~30-row budget / MAX_DEPTH 6). The blueprint owns its own `ResizeObserver`
+   guard (the codebase has none today).
+4. **SW reaped mid-transactional-Apply** -> partial commit + lost result. **Fix:** a
+   `chrome.alarms`/port-ping keepalive for the Apply window, and always reconcile via refetch
+   rather than trusting the response.
+5. **Global-per-window edit state vs per-tab page context.** The side panel is per-window; editing
+   scorecard A then switching browser tab to B leaves A's model active. **Fix:** stamp the model
+   with its origin `{tabId, scorecardRid, tabRid}`; block Apply on context drift with a banner.
+
+Net: the I/O architecture is well-suited (SW isolation); the work is concentrated in the
+apply-time guards (env + staleness + keepalive) and choosing the iframe/side-panel render host.
