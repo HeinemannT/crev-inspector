@@ -1,5 +1,7 @@
 import type { AuthMode, AuthVia } from './bmp-auth';
 export type { AuthMode, AuthVia };
+import type { LModel, PlanNote } from './layout/types';
+import type { BlueprintCtx } from './layout/sync';
 
 /** Unified connection state — single source of truth for health + auth */
 export interface ConnectionState {
@@ -610,6 +612,15 @@ export type NotificationMessage =
   | { type: 'PANEL_HELLO'; windowId: number };
 
 // ── Full union (backward-compatible) ─────────────────────────────
+/** Blueprint layout-builder messages (sidepanel/content ↔ SW). The SW owns BmpClient and runs
+ *  the layout-service; the panel holds the editable model + history and sends high-level
+ *  load/apply. Models are plain JSON (LModel) so they cross the port unchanged. */
+export type LayoutMessage =
+  | { type: 'LAYOUT_LOAD'; rid: string }
+  | { type: 'LAYOUT_LOAD_RESULT'; ok: boolean; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
+  | { type: 'LAYOUT_APPLY'; ctx: BlueprintCtx; baseline: LModel; desired: LModel }
+  | { type: 'LAYOUT_APPLY_RESULT'; ok: boolean; noop: boolean; script?: string; notes?: PlanNote[]; model?: LModel; baseline?: LModel; error?: string };
+
 export type InspectorMessage =
   | PageMessage | InspectMessage | CacheMessage | ServerLookupMessage
   | ConnectionMessage | ProfileMessage | EcMessage | StudioMessage | FrameOverlayMessage | EnrichMessage
@@ -617,7 +628,7 @@ export type InspectorMessage =
   | HistoryMessage | FavoritesMessage | ContextMenuMessage
   | OverlayModeMessage | ObjectViewMessage | ObjectPaneMessage
   | DiffMessage | CodeSearchMessage | ScriptHistoryMessage
-  | ColorMessage | NotificationMessage;
+  | ColorMessage | NotificationMessage | LayoutMessage;
 
 export interface WidgetInfo {
   rid: string;

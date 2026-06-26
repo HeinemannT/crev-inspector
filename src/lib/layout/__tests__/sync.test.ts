@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   buildFetchEc, parseFetchLog, loadModel, applyModel,
-  resolveEnterpriseContext, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
+  resolvePageContext, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
 } from '../sync';
 import { addContainer, rename } from '../edit';
 import { findNode } from '../model';
@@ -131,20 +131,33 @@ const ENTERPRISE_LOG = [
   `5194505591298034683|w3|Issue Trend|BarChart|${TMPL_RID}|432431197368212130|6|6|6`,
 ].map(l => SEP + l).join('\n');
 
-describe('sync.resolveEnterpriseContext', () => {
-  it('points the page root at the linked template + shared tabset for an enterprise object', async () => {
-    const probe = `${'<<<CREV_CTX>>>'}class|CeIssue|tmpl|${TMPL_RID}|5923|EnterpriseTemplate`;
-    const ctx = await resolveEnterpriseContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '5977812347502735400');
+describe('sync.resolvePageContext', () => {
+  it('enterprise: points the page root at the linked template + shared tabset, scoped to content', async () => {
+    const probe = `${'<<<CREV_CTX>>>'}enterprise|${TMPL_RID}|5923|EnterpriseTemplate|default_tabset`;
+    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '5977812347502735400');
     expect(ctx).not.toBeNull();
     expect(ctx!.pageId).toBe('5923');           // edit the TEMPLATE, not the instance
     expect(ctx!.pageRid).toBe(TMPL_RID);
-    expect(ctx!.tabsetId).toBe(DEFAULT_TABSET);  // shared tabset
+    expect(ctx!.tabsetId).toBe(DEFAULT_TABSET);
     expect(ctx!.tabScope).toBe('withContent');
     expect(ctx!.target).toBe('template');
   });
-  it('returns null for a plain page (no template reference)', async () => {
-    const probe = `${'<<<CREV_CTX>>>'}class|Scorecard|none||`;
-    const ctx = await resolveEnterpriseContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '4957');
+  it('direct: edits the object itself with its discovered dedicated tabset', async () => {
+    const probe = `${'<<<CREV_CTX>>>'}direct|451704949656267090|4957|Scorecard|crev_demo_tabset`;
+    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '451704949656267090');
+    expect(ctx).not.toBeNull();
+    expect(ctx!.pageId).toBe('4957');
+    expect(ctx!.pageRid).toBe('451704949656267090');
+    expect(ctx!.tabsetId).toBe('crev_demo_tabset');
+    expect(ctx!.tabScope).toBe('all');          // dedicated tabset → keep all tabs
+  });
+  it('returns null when no tabset is discoverable (empty Direct page)', async () => {
+    const probe = `${'<<<CREV_CTX>>>'}direct|999|888|Scorecard|`; // empty tabsetId
+    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '999');
+    expect(ctx).toBeNull();
+  });
+  it('returns null when the probe EC fails', async () => {
+    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: false })) }, '999');
     expect(ctx).toBeNull();
   });
 });

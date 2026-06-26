@@ -31,9 +31,11 @@ import type { LayoutNode as WireNode } from '../types';
 import type { LModel, PlanNote, PlanStep } from './types';
 
 /** The single I/O capability sync needs: run an EC program, get its log back. Injected so the
- *  service worker can wire it to `bmp-client.executeEc` while tests pass a fake. */
+ *  service worker can wire it to `bmp-client.executeEc` while tests pass a fake. `commit` selects
+ *  a transactional (writing) run — the fetch/probe paths leave it false (read-only), apply sets it
+ *  true. The adapter is also where silent-rollback detection lives (see layout-service). */
 export interface LayoutIO {
-  exec(code: string): Promise<{ ok: boolean; log?: string; error?: string }>;
+  exec(code: string, commit?: boolean): Promise<{ ok: boolean; log?: string; error?: string }>;
 }
 
 /** What `loadModel`/`applyModel` need beyond the reconstruct ctx: the scorecard rid (for the
@@ -164,46 +166,68 @@ function findOrphans(nodes: readonly WireNode[], model: LModel): WireNode[] {
 }
 
 /**
- * Probe a context object: if it's an enterprise object (carries a `template` reference), the page
- * a user edits is the LINKED EnterpriseTemplate, not the instance — the instance owns no widgets,
- * its layout is `resolveTemplate().getCard()`. Returns one line: `<CTX>class|<class>|tmpl|<rid>|
- * <id>|<class>` for an enterprise object, or `<CTX>class|<class>|none||` otherwise.
+ * Build the context probe. Classifies a viewed object into the blueprint root + tabset:
+ *  - ENTERPRISE: the object carries a `.template` ref to an EnterpriseTemplate. The instance owns
+ *    no widgets (layout is `resolveTemplate().getCard()`), so the page root is the TEMPLATE and the
+ *    tabset is the shared `default_tabset`. We key on `.template` ONLY — a Scorecard *instance* has
+ *    a `.linkedTo` template too (SharedWebItems reuse) but still owns its own widgets, so `.linkedTo`
+ *    must NOT trigger the enterprise path.
+ *  - DIRECT: a WebParent that owns its widgets (Scorecard/ModelPage/GRC object). The page root is the
+ *    object itself; its tabset is DISCOVERED by walking a widget's cell up to the first TabSet
+ *    ancestor (the page exposes no direct `.tabSet`).
+ * Emits one line: `<CTX>enterprise|<rid>|<id>|<class>|default_tabset`  OR
+ *                 `<CTX>direct|<rid>|<id>|<class>|<tabsetId>`.  (Validated live 2026-06-26.)
  */
-export function buildContextProbeEc(rid: string): string {
+export function buildContextEc(rid: string): string {
   return [
-    `_o := lookup(${ecRid(rid)})`,
-    `_t := _o.template`,
-    `_tr := _t.rid.whenMissing("")`,
-    `_r := "${CTX}class|" + _o.className.whenMissing("")`,
+    `_probe := lookup(${ecRid(rid)})`,
+    `_tmpl := _probe.template`,
+    `_tr := _tmpl.rid.whenMissing("")`,
+    `_out := "${CTX}"`,
     `IF _tr <> "" THEN`,
-    `     _r := _r + "|tmpl|" + _t.rid + "|" + _t.id.whenMissing("") + "|" + _t.className.whenMissing("")`,
+    `     _out := _out + "enterprise|" + _tmpl.rid + "|" + _tmpl.id.whenMissing("") + "|" + _tmpl.className.whenMissing("") + "|${DEFAULT_TABSET}"`,
     `ELSE`,
-    `     _r := _r + "|none||"`,
+    `     _w := _probe.children().first()`,
+    `     _c := _w.container`,
+    `     _tsid := ""`,
+    // walk the widget's cell up to the first TabSet ancestor (cell may be a Tab or nested Containers)
+    `     IF _c.className.whenMissing("") = "TabSet" THEN _tsid := _c.id ELSE _tsid := _tsid ENDIF`,
+    `     _a := _c.parent`,
+    `     IF _a.className.whenMissing("") = "TabSet" THEN _tsid := _a.id ELSE _tsid := _tsid ENDIF`,
+    `     _b := _a.parent`,
+    `     IF _b.className.whenMissing("") = "TabSet" THEN _tsid := _b.id ELSE _tsid := _tsid ENDIF`,
+    `     _d := _b.parent`,
+    `     IF _d.className.whenMissing("") = "TabSet" THEN _tsid := _d.id ELSE _tsid := _tsid ENDIF`,
+    `     _out := _out + "direct|" + _probe.rid + "|" + _probe.id.whenMissing("") + "|" + _probe.className.whenMissing("") + "|" + _tsid`,
     `ENDIF`,
-    `_r`,
+    `_out`,
   ].join('\n');
 }
 
-/** Resolve the blueprint context for a viewed object. For an enterprise object, points the page
- *  root at its EnterpriseTemplate, uses the shared `default_tabset`, and scopes tabs to those the
- *  template's widgets actually use. Returns null when the object is NOT enterprise (the caller
- *  then builds a normal Scorecard/ModelPage context with the object as its own root). */
-export async function resolveEnterpriseContext(io: LayoutIO, rid: string): Promise<BlueprintCtx | null> {
-  const res = await io.exec(buildContextProbeEc(rid));
+/** Resolve the blueprint context for a viewed object — see `buildContextEc`. Returns null when the
+ *  object isn't an editable page (no tabset discoverable, e.g. an empty Direct page with no widgets
+ *  to walk from — a Phase-1 limitation). The template/instance blast-radius distinction (`.linkedTo`)
+ *  is deferred to Phase 2; Direct pages default to target='template' per the UX default. */
+export async function resolvePageContext(io: LayoutIO, rid: string): Promise<BlueprintCtx | null> {
+  const res = await io.exec(buildContextEc(rid));
   if (!res.ok || !res.log) return null;
   const line = res.log.split(CTX)[1]?.split('\n', 1)[0]?.trim();
   if (!line) return null;
-  const [, , marker, tmplRid, tmplId, tmplClass] = line.split('|');
-  if (marker !== 'tmpl' || !tmplRid || !tmplId) return null;
-  return {
-    pageId: tmplId,
-    pageRid: tmplRid,
-    pageClass: (tmplClass || 'EnterpriseTemplate') as BlueprintCtx['pageClass'],
-    tabsetId: DEFAULT_TABSET,
-    target: 'template',
-    hasTemplate: true,
-    tabScope: 'withContent',
-  };
+  const [kind, pRid, pId, pClass, tabsetId] = line.split('|');
+  if (!pRid || !pId || !tabsetId) return null; // no tabset discoverable → not loadable
+  if (kind === 'enterprise') {
+    return {
+      pageId: pId, pageRid: pRid, pageClass: (pClass || 'EnterpriseTemplate') as BlueprintCtx['pageClass'],
+      tabsetId, target: 'template', hasTemplate: true, tabScope: 'withContent',
+    };
+  }
+  if (kind === 'direct') {
+    return {
+      pageId: pId, pageRid: pRid, pageClass: (pClass || 'Scorecard') as BlueprintCtx['pageClass'],
+      tabsetId, target: 'template', hasTemplate: false, tabScope: 'all',
+    };
+  }
+  return null;
 }
 
 /** Load: fetch the merged layout, reconstruct, and hand back model + an independent baseline. */
@@ -227,7 +251,7 @@ export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel
   if (!plan.length || !script) {
     return { ok: true, noop: true, plan, notes, script: '' };
   }
-  const res = await io.exec(script);
+  const res = await io.exec(script, true); // commit — the only writing exec in the whole flow
   if (!res.ok) {
     return { ok: false, noop: false, plan, notes, script, error: res.error || 'apply failed' };
   }
