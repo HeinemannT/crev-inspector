@@ -11,11 +11,28 @@ something usable. After each phase: reflect, readjust, review before starting th
 | `sync` (load / apply / enterprise resolution) | done, injected IO, tested |
 | Page coverage (Scorecard / ModelPage / WebParent + Enterprise via template) | verified live |
 | Knowledge (`skills/bmp-platform/reference/page-hosting.md`) | done |
-| Imperative shell (IO→bmp-client, message handler, context resolution) | **Phase 1** |
-| Safety rails (5 §13 risks, rollback detection, blast radius) | **Phase 2** |
-| Interactive on-page UI | **Phase 3** |
-| Palette / composites / display names | **Phase 4** |
-| Hardening & rollout | **Phase 5** |
+| Imperative shell (IO→bmp-client, message handler, context resolution) | ✅ **Phase 1 done** — `layout-service`, `handlers/layout`, `resolvePageContext`, rollback guard |
+| Safety rails (5 §13 risks, rollback detection, blast radius) | ✅ **Phase 2 done** (headless rails) — stale-baseline, wrong-env, instance/template target |
+| Interactive on-page UI | **Phase 3** ← next |
+| Palette / composites / display names | Phase 4 |
+| Hardening & rollout | Phase 5 |
+
+**Engine complete (Phases 1–2):** load → edit → apply works headless against live BMP, guarded
+against silent rollback, stale baselines, and wrong-env applies. 49 tests, tsc clean, builds.
+
+### Phase 3 entry — integration points (mapped)
+- **Toggle**: a `BLUEPRINT_MODE` message (mirror `OverlayModeMessage` convention) flips the content
+  script into blueprint mode.
+- **Load**: content `sendToSW({type:'LAYOUT_LOAD', rid: extractUrlRids().rid})`; listen via
+  `onPortMessage` for `LAYOUT_LOAD_RESULT` (same fire-and-listen pattern as FETCH_LAYOUT_TREE).
+- **Measure**: `getAllRidElements()` (dom-scanner) maps each model node's `rid` → live DOM element →
+  `getBoundingClientRect` for pixel-aligned boxes (the inspect overlay already does this).
+- **Render**: port `overlay.js` (the validated pixel-aligned prototype) to draw from the loaded
+  `LModel` instead of mock data; `content-overlays.ts` is the styling reference.
+- **Milestones**: 3.1 read-only overlay → 3.2 select+resize → 3.3 drag-drop → 3.4 add/delete/rename
+  → 3.5 tabs → 3.6 apply-preview modal (uses `compile()` notes) → 3.7 undo/redo + responsive.
+- **Blast-radius UX**: the loaded `ctx.target`/`hasTemplate` must drive a LOUD warning for enterprise
+  (template = all instances) — the inverted-signal lesson from the mockup review.
 
 ## Phase 1 — Headless apply path
 
