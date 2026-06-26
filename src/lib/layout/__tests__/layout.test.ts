@@ -55,11 +55,11 @@ describe('edit engine (pure, returns new model)', () => {
     expect(findNode(setHeight(a, 'w1', 300), 'w1')!.node.height).toBe(300); // BarChart
     expect(findNode(setHeight(a, 'rw', 300), 'rw')!.node.height).toBeUndefined(); // RiskList: no height
   });
-  it('move reparents and clamps width to the destination cell', () => {
-    const b = move(demo(), 'rw', 'box1', 0); // RiskList (L4) into KPIs (L3)
+  it('move reparents and PRESERVES width (widget width is within the container\'s own 6-col grid)', () => {
+    const b = move(demo(), 'rw', 'box1', 0); // RiskList (L4) into KPIs (L3 container)
     const f = findNode(b, 'rw')!;
     expect(f.parent!.id).toBe('box1');
-    expect(f.node.cols.L).toBe(3);
+    expect(f.node.cols.L).toBe(4); // NOT clamped to the container's page-width — verified live
   });
   it('swap exchanges positions across containers', () => {
     const a = model(n({ id: 't', kind: 'tab', className: 'Tab', children: [

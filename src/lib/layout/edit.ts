@@ -42,8 +42,9 @@ export function move(m: LModel, id: string, toParentId: string, index: number): 
     if (!node) return;
     const dest = toParentId === '*tab-root*' ? null : findNode(c, toParentId)?.node ?? null;
     const list = dest ? dest.children : homeTab?.children ?? c.tabs;
-    // a widget moved to a narrower cell can't exceed the cell width
-    if (dest && node.kind === 'widget') node.cols.L = Math.min(node.cols.L, dest.cols.L || 6);
+    // A widget keeps its width on move: columnsLargeScreen is measured within the destination's OWN
+    // 6-col grid, NOT relative to the container's page-width. (Verified live: a width-2 container holds
+    // 6/6 widgets.) So no clamp — moving Notes into a narrow KPIs container must not shrink it.
     list.splice(Math.max(0, Math.min(index, list.length)), 0, node);
   });
 }

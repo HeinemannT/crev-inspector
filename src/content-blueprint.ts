@@ -15,7 +15,7 @@
 import type { LModel, LNode, PlanNote } from './lib/layout/types';
 import type { BlueprintCtx } from './lib/layout/sync';
 import { findNode, walk, descendantWidgets, hasHeight, isChart } from './lib/layout/model';
-import { resize, setHeight, rename, remove, addWidget } from './lib/layout/edit';
+import { resize, setHeight, rename, remove, addWidget, moveInto } from './lib/layout/edit';
 import { diff } from './lib/layout/diff';
 import { compile } from './lib/layout/ec';
 import { History } from './lib/layout/history';
@@ -38,11 +38,12 @@ interface BpState {
   applying: boolean;
   preview: PlanNote[] | null;   // non-null → the apply-preview modal is open
   picker: string | null;        // containerId the add-widget picker is open for
+  movePicker: string | null;    // widgetId the move-destination menu is open for
   onScroll: (() => void) | null;
 }
 const bp: BpState = {
   active: false, baseline: null, ctx: null, env: null, history: null,
-  layer: null, selectedId: null, applying: false, preview: null, picker: null, onScroll: null,
+  layer: null, selectedId: null, applying: false, preview: null, picker: null, movePicker: null, onScroll: null,
 };
 
 export function isBlueprintActive(): boolean { return bp.active; }
@@ -95,6 +96,7 @@ const CSS = `
 #${LAYER_ID} .bp-box.bp-chart{border-color:#93A7E6;background:rgba(147,167,230,.06)}
 #${LAYER_ID} .bp-box.sel{border-color:#46C9D6;box-shadow:inset 0 0 0 1px #46C9D6}
 #${LAYER_ID} .bp-box.changed{border-style:solid;border-color:#E0A85A}
+#${LAYER_ID} .bp-box.moved{opacity:.65;border-style:dashed}
 #${LAYER_ID} .bp-box.del{border-color:#E0727A;background:rgba(224,114,122,.08)}
 #${LAYER_ID} .bp-box.del .bp-nm{text-decoration:line-through;opacity:.6}
 #${LAYER_ID} .bp-lab{position:absolute;top:0;left:0;display:flex;gap:6px;align-items:baseline;max-width:100%;padding:3px 7px;color:#dbe7f5;background:rgba(11,33,56,.85);border-radius:3px 0 4px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -172,7 +174,7 @@ export function disableBlueprint(): void {
     window.removeEventListener('resize', bp.onScroll, true);
   }
   bp.layer?.remove();
-  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, onScroll: null });
+  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, movePicker: null, onScroll: null });
 }
 
 export function onLayoutLoaded(msg: { ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; orphans?: unknown[]; error?: string }): void {
@@ -223,6 +225,13 @@ function addFromPicker(className: string): void {
   bp.picker = null;
   bp.selectedId = added.id;
   mutate(added.model);
+}
+function openMovePicker(id: string): void { bp.movePicker = id; render(); }
+function closeMovePicker(): void { bp.movePicker = null; render(); }
+function moveTo(id: string, destId: string): void {
+  const m = model(); if (!m) return;
+  bp.movePicker = null;
+  mutate(moveInto(m, id, destId));
 }
 function undo(): void { const m = bp.history?.undo(); if (m) { bp.selectedId = null; render(); } }
 function redo(): void { const m = bp.history?.redo(); if (m) { bp.selectedId = null; render(); } }
@@ -276,13 +285,13 @@ function render(): void {
   });
 
   // widget boxes, anchored to live DOM
-  walk(base, (node) => {
+  walk(base, (node, parent) => {
     if (node.kind !== 'widget' || !node.rid) return;
     const el = byRid.get(node.rid);
     if (!el) return;
     const r = el.getBoundingClientRect();
     if (!r.width && !r.height) return;
-    layer.appendChild(widgetBox(node, r, m));
+    layer.appendChild(widgetBox(node, r, m, parent?.id ?? null));
   });
 
   // NEW widgets (staged adds) have no DOM — draw dashed placeholders stacked at the bottom of their
@@ -299,7 +308,7 @@ function render(): void {
   });
 
   // selection toolbar (hidden while a modal/picker is up)
-  if (!bp.preview && !bp.picker) {
+  if (!bp.preview && !bp.picker && !bp.movePicker) {
     const selBox = bp.selectedId ? findNode(m, bp.selectedId) : null;
     if (selBox) {
       const anchor = anchorRect(selBox.node, byRid);
@@ -307,6 +316,11 @@ function render(): void {
     }
   }
 
+  if (bp.movePicker) {
+    const f = findNode(m, bp.movePicker);
+    const anchor = f ? anchorRect(f.node, byRid) : null;
+    layer.appendChild(moveMenu(bp.movePicker, anchor ?? { left: 80, top: 80, width: 0, height: 0 }));
+  }
   if (bp.picker) layer.appendChild(pickerPanel(byRid));
   if (bp.preview) layer.appendChild(previewModal(bp.preview, ctx));
 }
@@ -409,14 +423,17 @@ function nodeState(baseNode: LNode, m: LModel): State {
   return 'same';
 }
 
-function widgetBox(baseNode: LNode, r: DOMRect, m: LModel): HTMLElement {
-  const cur = findNode(m, baseNode.id)?.node;
+function widgetBox(baseNode: LNode, r: DOMRect, m: LModel, baseParentId: string | null): HTMLElement {
+  const found = findNode(m, baseNode.id);
+  const cur = found?.node;
   const state = nodeState(baseNode, m);
+  const moved = state !== 'gone' && found != null && (found.parent?.id ?? null) !== baseParentId;
   const box = document.createElement('div');
   box.className = 'bp-box'
     + (isChart(baseNode.className) ? ' bp-chart' : '')
-    + (state === 'changed' ? ' changed' : '')
+    + (state === 'changed' || moved ? ' changed' : '')
     + (state === 'gone' ? ' del' : '')
+    + (moved ? ' moved' : '')
     + (bp.selectedId === baseNode.id ? ' sel' : '');
   Object.assign(box.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
   box.addEventListener('mousedown', (e) => { e.stopPropagation(); select(baseNode.id); });
@@ -429,6 +446,7 @@ function widgetBox(baseNode: LNode, r: DOMRect, m: LModel): HTMLElement {
     if (cur.cols.L !== baseNode.cols.L) lab.appendChild(delta(`${baseNode.cols.L}→${cur.cols.L}/6`));
     else { const wd = document.createElement('span'); wd.className = 'wd'; wd.textContent = `${cur.cols.L}/6`; lab.appendChild(wd); }
     if (cur.height !== baseNode.height && cur.height != null) lab.appendChild(delta(`h${cur.height}`));
+    if (moved) lab.appendChild(delta(`→ ${found?.parent?.name ?? 'tab'}`));
   }
   box.appendChild(lab);
   return box;
@@ -471,12 +489,49 @@ function toolbar(node: LNode, r: Rect): HTMLElement {
     t.append(minus, plus);
   }
 
+  // move (widgets only — reparent to another container/tab)
+  if (node.kind === 'widget') t.appendChild(mkBtn('Move →', () => openMovePicker(node.id)));
   // rename
   t.appendChild(mkBtn('Rename', () => startRename(node.id)));
   // delete
   const del = mkBtn('Delete', () => doDelete(node.id)); del.classList.add('del');
   t.appendChild(del);
   return t;
+}
+
+/** Move-destination menu: every container + tab except the widget's current owner. Labels carry the
+ *  tab context so "Detail" vs "KPIs" is unambiguous. */
+function moveMenu(widgetId: string, r: Rect): HTMLElement {
+  const m = model()!;
+  const cur = findNode(m, widgetId);
+  const curParentId = cur?.parent?.id ?? null;
+  const back = document.createElement('div'); back.className = 'bp-pick-back';
+  back.addEventListener('mousedown', (e) => { if (e.target === back) closeMovePicker(); });
+  const panel = document.createElement('div'); panel.className = 'bp-pick bp-move';
+  panel.style.left = `${Math.min(Math.max(4, r.left), window.innerWidth - 280)}px`;
+  panel.style.top = `${Math.min(Math.max(40, r.top - 8), window.innerHeight - 360)}px`;
+  const head = document.createElement('div'); head.className = 'bp-pick-h'; head.textContent = `Move "${cur?.node.name ?? ''}" to`;
+  const list = document.createElement('div'); list.className = 'bp-pick-list';
+  for (const tab of m.tabs) {
+    addDest(list, tab, tab.name, widgetId, curParentId);
+    const rec = (n: LNode, path: string): void => {
+      for (const c of n.children) {
+        if (c.kind === 'container') { addDest(list, c, `${path} / ${c.name}`, widgetId, curParentId); rec(c, `${path} / ${c.name}`); }
+      }
+    };
+    rec(tab, tab.name);
+  }
+  if (!list.children.length) { const e = document.createElement('div'); e.className = 'bp-pick-grp'; e.textContent = 'nowhere else to move'; list.appendChild(e); }
+  panel.append(head, list);
+  back.appendChild(panel);
+  return back;
+}
+function addDest(list: HTMLElement, dest: LNode, label: string, widgetId: string, curParentId: string | null): void {
+  if (dest.id === curParentId || dest.id === widgetId) return;
+  const b = document.createElement('button'); b.className = 'bp-pick-it';
+  b.innerHTML = `<span>${label}</span><span class="k">${dest.kind === 'tab' ? 'tab' : 'container'}</span>`;
+  b.addEventListener('mousedown', (e) => { e.stopPropagation(); moveTo(widgetId, dest.id); });
+  list.appendChild(b);
 }
 
 function startRename(id: string): void {

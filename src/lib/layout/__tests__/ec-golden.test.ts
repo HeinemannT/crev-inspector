@@ -37,7 +37,7 @@ const GOLDEN = [
   '_n0 := _sc.add(TextElement, name := "New TextElement", container := t.4904, columnsLargeScreen := 6) // BMP assigns id',
   '_n1 := t.4904.add(Container, name := "New Box", columnsLargeScreen := 2) // BMP assigns id',
   '_n2 := _sc.add(PieChart, name := "New PieChart", container := _n1, columnsLargeScreen := 6, chartHeight := 200) // BMP assigns id',
-  't.4964.change(columnsLargeScreen := 2)',
+  't.4964.change(columnsLargeScreen := 6)',
   't.4964.change(container := t.cont_crev_demo_enterprise_14)',
   't.4968.change(chartHeight := 300)',
   't.4968.change(container := t.4904)',
