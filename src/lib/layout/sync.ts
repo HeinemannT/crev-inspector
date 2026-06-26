@@ -178,7 +178,19 @@ function findOrphans(nodes: readonly WireNode[], model: LModel): WireNode[] {
  * Emits one line: `<CTX>enterprise|<rid>|<id>|<class>|default_tabset`  OR
  *                 `<CTX>direct|<rid>|<id>|<class>|<tabsetId>`.  (Validated live 2026-06-26.)
  */
+/** Depth of the cell→TabSet ancestor walk in the Direct branch. 6 covers a tab + up to ~5 levels
+ *  of nested containers — generous vs. real pages (the demo's deepest is 3). */
+const TABSET_WALK_DEPTH = 6;
+
 export function buildContextEc(rid: string): string {
+  // Direct branch: find the first child that is actually PLACED (a real, non-RESULT container),
+  // then walk that cell up to the first TabSet ancestor. Both guard against the cheap failure
+  // modes — an unplaced first child, or deep container nesting.
+  const walk: string[] = [];
+  for (let i = 0; i < TABSET_WALK_DEPTH; i++) {
+    walk.push(`     IF _a.className.whenMissing("") = "TabSet" THEN _tsid := _a.id ELSE _tsid := _tsid ENDIF`);
+    walk.push(`     _a := _a.parent`);
+  }
   return [
     `_probe := lookup(${ecRid(rid)})`,
     `_tmpl := _probe.template`,
@@ -187,17 +199,28 @@ export function buildContextEc(rid: string): string {
     `IF _tr <> "" THEN`,
     `     _out := _out + "enterprise|" + _tmpl.rid + "|" + _tmpl.id.whenMissing("") + "|" + _tmpl.className.whenMissing("") + "|${DEFAULT_TABSET}"`,
     `ELSE`,
-    `     _w := _probe.children().first()`,
-    `     _c := _w.container`,
+    `     _cellFound := "no"`,
+    `     _cell := _probe`,
+    `     _probe.children().forEach(_ch:`,
+    `          IF _cellFound = "no" THEN`,
+    `               _cc := _ch.container.id.whenMissing("")`,
+    `               IF _cc <> "" THEN`,
+    `                    IF _cc <> "RESULT" THEN`,
+    `                         _cell := _ch.container`,
+    `                         _cellFound := "yes"`,
+    `                    ELSE`,
+    `                         _cellFound := _cellFound`,
+    `                    ENDIF`,
+    `               ELSE`,
+    `                    _cellFound := _cellFound`,
+    `               ENDIF`,
+    `          ELSE`,
+    `               _cellFound := _cellFound`,
+    `          ENDIF`,
+    `     )`,
     `     _tsid := ""`,
-    // walk the widget's cell up to the first TabSet ancestor (cell may be a Tab or nested Containers)
-    `     IF _c.className.whenMissing("") = "TabSet" THEN _tsid := _c.id ELSE _tsid := _tsid ENDIF`,
-    `     _a := _c.parent`,
-    `     IF _a.className.whenMissing("") = "TabSet" THEN _tsid := _a.id ELSE _tsid := _tsid ENDIF`,
-    `     _b := _a.parent`,
-    `     IF _b.className.whenMissing("") = "TabSet" THEN _tsid := _b.id ELSE _tsid := _tsid ENDIF`,
-    `     _d := _b.parent`,
-    `     IF _d.className.whenMissing("") = "TabSet" THEN _tsid := _d.id ELSE _tsid := _tsid ENDIF`,
+    `     _a := _cell`,
+    ...walk,
     `     _out := _out + "direct|" + _probe.rid + "|" + _probe.id.whenMissing("") + "|" + _probe.className.whenMissing("") + "|" + _tsid`,
     `ENDIF`,
     `_out`,
