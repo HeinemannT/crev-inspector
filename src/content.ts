@@ -160,6 +160,7 @@ function handleConnectionState(state: ConnectionState) {
 
 function handleProfileSwitched(label: string) {
   showToast(`Switched to ${label}`, 'info');
+  disableBlueprint(); // any blueprint overlay is bound to the previous env's page — tear it down
   s.overlayProps.clear();
   renderOverlayCards(s);
   if (s.technicalOverlay) applyTechnicalOverlay(s);

@@ -10,16 +10,12 @@ import { loadPage, applyPage } from '../layout-service';
 import { ensureContentScript } from '../tab-awareness';
 import { errorMessage, log } from '../logger';
 
-/** Per-window blueprint-mode state (self-contained — blueprint is a single-active-tab overlay, so
- *  it doesn't need the broader per-tab machinery inspect uses). */
-const blueprintActiveByWindow = new Map<number, boolean>();
-
 register('BLUEPRINT_TOGGLE', async (_msg, _respond, meta) => {
   const ctx = getCtx();
   const windowId = meta.panelWindowId ?? (await chrome.windows.getLastFocused().catch(() => null))?.id;
   if (windowId == null) return;
-  const next = !blueprintActiveByWindow.get(windowId);
-  blueprintActiveByWindow.set(windowId, next);
+  const next = !ctx.blueprintActiveByWindow.get(windowId);
+  ctx.blueprintActiveByWindow.set(windowId, next);
   ctx.logActivity('info', next ? 'Blueprint mode ON' : 'Blueprint mode OFF');
   const state = { type: 'BLUEPRINT_STATE' as const, active: next };
   ctx.sendToPanelByWindow(windowId, state);
