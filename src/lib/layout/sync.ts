@@ -28,6 +28,7 @@ import type { ReconstructCtx } from './model';
 import { diff } from './diff';
 import { compile } from './ec';
 import { validateBusinessId, validateRid } from '../ec-guards';
+import { LAYOUT_SEP, parseLayoutNodes } from '../layout-wire';
 import type { LayoutNode as WireNode } from '../types';
 import type { LModel, PlanNote, PlanStep } from './types';
 
@@ -72,7 +73,7 @@ export interface ApplyResult {
   error?: string;
 }
 
-const SEP = '<<<CREV_LAYOUT>>>';
+const SEP = LAYOUT_SEP;          // shared wire marker (see layout-wire.ts)
 const CTX = '<<<CREV_CTX>>>';
 // Shared EC id/rid sanitisation (the same guards the other EC generators use).
 const ecBid = validateBusinessId;
@@ -121,35 +122,8 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
   ].join('\n');
 }
 
-const numOrUndef = (v: string): number | undefined => (v && /^-?\d+$/.test(v) ? parseInt(v, 10) : undefined);
-
-/** Parse the fetch log into the flat wire-node list (de-duped by rid). */
-export function parseFetchLog(log: string): WireNode[] {
-  const nodes: WireNode[] = [];
-  const seen = new Set<string>();
-  for (const block of log.split(SEP)) {
-    const line = block.split('\n', 1)[0].trim();
-    if (!line) continue;
-    const parts = line.split('|');
-    if (parts.length < 9) continue;
-    const [rid, bid, name, type, parentRid, containerRid, l, m, s, height] = parts;
-    if (!rid || seen.has(rid)) continue;
-    seen.add(rid);
-    nodes.push({
-      rid,
-      businessId: bid || undefined,
-      name: name || undefined,
-      type: type || 'Unknown',
-      parentRid: parentRid || undefined,
-      containerRid: containerRid || undefined,
-      columnsLargeScreen: numOrUndef(l),
-      columnsMediumScreen: numOrUndef(m),
-      columnsSmallScreen: numOrUndef(s),
-      chartHeight: numOrUndef(height),  // 10th field — was missing, so height edits clobbered the real value
-    });
-  }
-  return nodes;
-}
+/** Parse the merged-fetch log into wire nodes — the shared layout wire parser (see layout-wire.ts). */
+export const parseFetchLog = parseLayoutNodes;
 
 /** Orphans = widget-ish nodes the reconstruct couldn't place (their owner wasn't a layout node
  *  — typically the scorecard itself, i.e. a widget left on the phantom RESULT tab). Found by
