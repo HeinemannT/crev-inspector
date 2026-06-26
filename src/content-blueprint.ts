@@ -1,21 +1,24 @@
 /**
- * Blueprint overlay (content script) — milestone 3.1: READ-ONLY render of a loaded layout model,
- * pixel-aligned to the live BMP DOM.
+ * Blueprint overlay (content script) — the interactive layout editor.
  *
- * Flow: enable() → request LAYOUT_LOAD for the page rid → onLayoutLoaded() stores the model →
- * render() draws an absolutely-positioned box over every widget whose BMP rid matches a live DOM
- * element (via getAllRidElements, the same rid→element map the inspect overlay uses). The boxes
- * reposition on scroll/resize. No gestures yet — this milestone proves the load path renders
- * faithfully over the real page. Selection/resize/drag land in 3.2+.
+ * 3.1 read-only render → 3.2 the core edit loop: select a box, change its column width / height /
+ * name, delete it, then Apply (the guarded SW path). Edits are STAGED in a client-side model (the
+ * same pure `edit`/`diff` core the SW uses for apply), shown as deltas over the live page — the
+ * live BMP grid can't reflow client-side, so a resize shows as a "6→3" badge rather than a fake
+ * reflow. Apply commits + re-fetches, and the real grid reflows for keeps.
  *
- * The model is the source of truth for LABELS (name, type, column width, businessId); the DOM is
- * the source of truth for GEOMETRY. That split is deliberate — the same model drives the apply
- * path, so what you see is what you'll edit.
+ * Render strategy: boxes are anchored to the BASELINE widgets (each has a live DOM element), then
+ * styled by their state in the edited model — unchanged / changed (badge) / will-delete (strike).
+ * That keeps deletions visible (the DOM widget is still there until apply). Geometry from the DOM,
+ * everything else from the model.
  */
 import type { LModel, LNode } from './lib/layout/types';
 import type { BlueprintCtx } from './lib/layout/sync';
-import { getAllRidElements } from './lib/dom-scanner';
-import { extractUrlRids } from './lib/dom-scanner';
+import { findNode, walk, descendantWidgets, hasHeight, isChart } from './lib/layout/model';
+import { resize, setHeight, rename, remove } from './lib/layout/edit';
+import { diff } from './lib/layout/diff';
+import { History } from './lib/layout/history';
+import { getAllRidElements, extractUrlRids } from './lib/dom-scanner';
 import { sendToSW } from './lib/content-port';
 import { showToast } from './lib/toast';
 import { log } from './lib/logger';
@@ -25,58 +28,88 @@ const STYLE_ID = 'crev-blueprint-style';
 
 interface BpState {
   active: boolean;
-  loading: boolean;
-  model: LModel | null;
+  baseline: LModel | null;     // the loaded page (boxes anchor to its widgets)
   ctx: BlueprintCtx | null;
+  env: string | null;          // env fingerprint from load → echoed on apply
+  history: History | null;     // undo/redo over the edited model
   layer: HTMLElement | null;
+  selectedId: string | null;
+  applying: boolean;
   onScroll: (() => void) | null;
 }
-const bp: BpState = { active: false, loading: false, model: null, ctx: null, layer: null, onScroll: null };
+const bp: BpState = {
+  active: false, baseline: null, ctx: null, env: null, history: null,
+  layer: null, selectedId: null, applying: false, onScroll: null,
+};
 
 export function isBlueprintActive(): boolean { return bp.active; }
 
-/** Blueprint palette — matches the validated overlay.js / mockup so the two read identically. */
+/** The edited model = history present (baseline + staged edits). */
+const model = (): LModel | null => bp.history?.present() ?? null;
+const mutate = (next: LModel): void => { bp.history?.push(next); render(); };
+
 const CSS = `
-#${LAYER_ID}{position:fixed;inset:0;z-index:2147483600;pointer-events:none;font:12px/1.3 Inter,system-ui,sans-serif}
-#${LAYER_ID} .bp-box{position:absolute;border:1.5px solid #82B4DE;border-radius:3px;background:rgba(130,180,222,.06);box-shadow:inset 0 0 22px rgba(130,180,222,.08)}
+#${LAYER_ID}{position:fixed;inset:0;z-index:2147483600;font:12px/1.3 Inter,system-ui,sans-serif;pointer-events:none}
+#${LAYER_ID} *{box-sizing:border-box}
+#${LAYER_ID} .bp-cont{position:absolute;border:1px dashed #9D7BFF;border-radius:4px;pointer-events:none}
+#${LAYER_ID} .bp-box{position:absolute;border:1.5px solid #82B4DE;border-radius:3px;background:rgba(130,180,222,.06);box-shadow:inset 0 0 22px rgba(130,180,222,.08);pointer-events:auto;cursor:pointer}
 #${LAYER_ID} .bp-box.bp-chart{border-color:#93A7E6;background:rgba(147,167,230,.06)}
-#${LAYER_ID} .bp-lab{position:absolute;top:0;left:0;display:flex;gap:6px;align-items:baseline;max-width:100%;padding:3px 7px;color:#dbe7f5;background:rgba(11,33,56,.82);border-radius:3px 0 4px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#${LAYER_ID} .bp-box.sel{border-color:#46C9D6;box-shadow:inset 0 0 0 1px #46C9D6}
+#${LAYER_ID} .bp-box.changed{border-style:solid;border-color:#E0A85A}
+#${LAYER_ID} .bp-box.del{border-color:#E0727A;background:rgba(224,114,122,.08)}
+#${LAYER_ID} .bp-box.del .bp-nm{text-decoration:line-through;opacity:.6}
+#${LAYER_ID} .bp-lab{position:absolute;top:0;left:0;display:flex;gap:6px;align-items:baseline;max-width:100%;padding:3px 7px;color:#dbe7f5;background:rgba(11,33,56,.85);border-radius:3px 0 4px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #${LAYER_ID} .bp-lab .ty{font-size:10px;letter-spacing:.04em;color:#82B4DE;opacity:.85}
 #${LAYER_ID} .bp-lab .wd{font-size:10px;font-weight:600;color:#9fb4c8}
-#${LAYER_ID} .bp-chip{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:1;display:flex;gap:8px;align-items:center;padding:6px 12px;background:#0B2138;color:#dbe7f5;border:1px solid #9D7BFF;border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,.4)}
-#${LAYER_ID} .bp-chip b{font-weight:600;letter-spacing:.06em;color:#9D7BFF}
-#${LAYER_ID} .bp-chip .warn{color:#E0A85A;font-weight:600}
+#${LAYER_ID} .bp-lab .delta{font-size:10px;font-weight:700;color:#E0A85A}
+#${LAYER_ID} .bp-nm[contenteditable]{outline:1px solid #46C9D6;border-radius:2px;padding:0 2px}
+#${LAYER_ID} .bp-tools{position:absolute;z-index:5;display:flex;gap:4px;align-items:center;padding:4px;background:#0B2138;border:1px solid #46C9D6;border-radius:7px;box-shadow:0 4px 16px rgba(0,0,0,.45);pointer-events:auto}
+#${LAYER_ID} .bp-seg{display:flex;border:1px solid #2a4a66;border-radius:4px;overflow:hidden}
+#${LAYER_ID} .bp-seg button{width:20px;height:22px;border:0;background:#14304a;color:#9fb4c8;font:600 11px Inter;cursor:pointer}
+#${LAYER_ID} .bp-seg button.on{background:#46C9D6;color:#08131f}
+#${LAYER_ID} .bp-tools .btn{height:22px;padding:0 8px;border:1px solid #2a4a66;border-radius:4px;background:#14304a;color:#cfe0f0;font:600 11px Inter;cursor:pointer}
+#${LAYER_ID} .bp-tools .btn.del{color:#E0727A;border-color:#5a2a2e}
+#${LAYER_ID} .bp-tools .lbl{color:#7d93a8;font-size:10px;padding:0 2px}
+#${LAYER_ID} .bp-chip{position:fixed;top:10px;left:50%;transform:translateX(-50%);display:flex;gap:10px;align-items:center;padding:6px 8px 6px 12px;background:#0B2138;color:#dbe7f5;border:1px solid #9D7BFF;border-radius:9px;box-shadow:0 4px 18px rgba(0,0,0,.45);pointer-events:auto}
+#${LAYER_ID} .bp-chip.tmpl{border-color:#E0A85A}
+#${LAYER_ID} .bp-chip b{font-weight:700;letter-spacing:.06em;color:#9D7BFF}
+#${LAYER_ID} .bp-chip.tmpl b{color:#E0A85A}
+#${LAYER_ID} .bp-chip .warn{color:#E0A85A;font-weight:600;font-size:11px}
+#${LAYER_ID} .bp-chip .sp{color:#3a5573}
+#${LAYER_ID} .bp-chip button{height:24px;padding:0 10px;border-radius:5px;border:1px solid #2a4a66;background:#14304a;color:#cfe0f0;font:600 11px Inter;cursor:pointer}
+#${LAYER_ID} .bp-chip button:disabled{opacity:.4;cursor:default}
+#${LAYER_ID} .bp-chip button.apply{background:#46C9D6;color:#08131f;border-color:#46C9D6}
+#${LAYER_ID} .bp-chip.tmpl button.apply{background:#E0A85A;border-color:#E0A85A}
 `;
 
 function ensureStyle(): void {
   if (document.getElementById(STYLE_ID)) return;
   const s = document.createElement('style');
-  s.id = STYLE_ID;
-  s.textContent = CSS;
+  s.id = STYLE_ID; s.textContent = CSS;
   document.head.appendChild(s);
 }
 
-/** Enable blueprint mode: mount the layer and request the layout model for the current page. */
 export function enableBlueprint(): void {
   if (bp.active) return;
   const { rid } = extractUrlRids();
   if (!rid) { showToast('Blueprint: no BMP object on this page', 'error'); return; }
   bp.active = true;
-  bp.loading = true;
   ensureStyle();
   const layer = document.createElement('div');
   layer.id = LAYER_ID;
-  layer.appendChild(chip('loading…'));
+  const c = document.createElement('div'); c.className = 'bp-chip';
+  c.innerHTML = '<b>BLUEPRINT</b><span>loading…</span>';
+  layer.appendChild(c);
   document.body.appendChild(layer);
   bp.layer = layer;
-  bp.onScroll = () => bp.model && render();
+  bp.onScroll = () => bp.baseline && render();
   window.addEventListener('scroll', bp.onScroll, true);
   window.addEventListener('resize', bp.onScroll, true);
+  // click empty space deselects
+  layer.addEventListener('mousedown', (e) => { if (e.target === layer) select(null); });
   sendToSW({ type: 'LAYOUT_LOAD', rid });
-  log.debug('blueprint', `enable: requested LAYOUT_LOAD for ${rid}`);
 }
 
-/** Tear down the overlay. */
 export function disableBlueprint(): void {
   if (!bp.active) return;
   if (bp.onScroll) {
@@ -84,96 +117,233 @@ export function disableBlueprint(): void {
     window.removeEventListener('resize', bp.onScroll, true);
   }
   bp.layer?.remove();
-  Object.assign(bp, { active: false, loading: false, model: null, ctx: null, layer: null, onScroll: null });
+  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, onScroll: null });
 }
 
-/** Consume a LAYOUT_LOAD_RESULT. Called from the content message dispatch. */
-export function onLayoutLoaded(msg: { ok: boolean; ctx?: BlueprintCtx; model?: LModel; orphans?: unknown[]; error?: string }): void {
-  if (!bp.active) return;             // toggled off before the result arrived
-  bp.loading = false;
+export function onLayoutLoaded(msg: { ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; orphans?: unknown[]; error?: string }): void {
+  if (!bp.active) return;
   if (!msg.ok || !msg.model || !msg.ctx) {
     showToast(`Blueprint: ${msg.error || 'could not load this page'}`, 'error');
     disableBlueprint();
     return;
   }
-  bp.model = msg.model;
+  bp.baseline = msg.model;
   bp.ctx = msg.ctx;
+  bp.env = msg.env ?? null;
+  bp.history = new History(msg.model);
+  bp.selectedId = null;
   const orphans = msg.orphans?.length ?? 0;
-  if (orphans) showToast(`Blueprint: ${orphans} widget(s) not placed on any tab (RESULT)`, 'info');
+  if (orphans) showToast(`Blueprint: ${orphans} widget(s) not on any tab (RESULT)`, 'info');
   render();
 }
 
-const isChartClass = (c: string): boolean => /Chart$/.test(c) || c === 'URLView';
-
-/** Draw the read-only overlay: a box per widget that has a live DOM element. */
-function render(): void {
-  const layer = bp.layer, model = bp.model, ctx = bp.ctx;
-  if (!layer || !model || !ctx) return;
-  layer.textContent = '';
-
-  // header chip: page identity + LOUD warning when edits hit a shared template (every instance)
-  const shared = ctx.target === 'template';
-  layer.appendChild(chip(
-    `${ctx.pageClass} ${ctx.pageId} · read-only`,
-    shared ? 'edits here change the shared template — all instances' : '',
-  ));
-
-  // rid → live element (widgets carry data-rid; the inspect overlay uses the same map)
-  const byRid = new Map<string, Element>();
-  for (const { element, rid } of getAllRidElements(false)) if (!byRid.has(rid)) byRid.set(rid, element);
-
-  let drawn = 0, missing = 0;
-  const walk = (nodes: LNode[]): void => {
-    for (const node of nodes) {
-      if (node.kind === 'widget' && node.rid) {
-        const el = byRid.get(node.rid);
-        if (el) { drawBox(layer, el, node); drawn++; } else { missing++; }
-      }
-      walk(node.children);
-    }
-  };
-  for (const tab of model.tabs) walk(tab.children);
-  log.debug('blueprint', `render: ${drawn} boxes drawn, ${missing} widgets off-screen/not-in-DOM`);
-}
-
-function drawBox(layer: HTMLElement, el: Element, node: LNode): void {
-  const r = el.getBoundingClientRect();
-  if (r.width === 0 && r.height === 0) return; // not rendered (hidden tab / collapsed)
-  const box = document.createElement('div');
-  box.className = 'bp-box' + (isChartClass(node.className) ? ' bp-chart' : '');
-  box.style.left = `${r.left}px`;
-  box.style.top = `${r.top}px`;
-  box.style.width = `${r.width}px`;
-  box.style.height = `${r.height}px`;
-
-  const lab = document.createElement('div');
-  lab.className = 'bp-lab';
-  const nm = document.createElement('span');
-  nm.textContent = node.name;
-  const ty = document.createElement('span');
-  ty.className = 'ty';
-  ty.textContent = node.className.toUpperCase();
-  const wd = document.createElement('span');
-  wd.className = 'wd';
-  wd.textContent = `${node.cols.L}/6`;
-  lab.append(nm, ty, wd);
-  box.appendChild(lab);
-  layer.appendChild(box);
-}
-
-function chip(text: string, warn = ''): HTMLElement {
-  const c = document.createElement('div');
-  c.className = 'bp-chip';
-  const b = document.createElement('b');
-  b.textContent = 'BLUEPRINT';
-  const t = document.createElement('span');
-  t.textContent = text;
-  c.append(b, t);
-  if (warn) {
-    const w = document.createElement('span');
-    w.className = 'warn';
-    w.textContent = `⚠ ${warn}`;
-    c.appendChild(w);
+export function onApplyResult(msg: { ok: boolean; noop: boolean; stale?: boolean; model?: LModel; baseline?: LModel; error?: string }): void {
+  if (!bp.active) return;
+  bp.applying = false;
+  if (msg.stale && msg.model) {
+    bp.baseline = msg.model; bp.history = new History(msg.model); bp.selectedId = null;
+    showToast('Blueprint: the page changed elsewhere — reloaded. Re-apply your edits.', 'error');
+    render(); return;
   }
+  if (!msg.ok) { showToast(`Blueprint apply failed: ${msg.error || 'unknown'}`, 'error'); render(); return; }
+  if (msg.model) { bp.baseline = msg.model; bp.history = new History(msg.model); bp.selectedId = null; }
+  showToast(msg.noop ? 'Blueprint: nothing to apply' : 'Blueprint: changes applied', 'success');
+  render();
+}
+
+// ── editing actions (pure ops → history → re-render) ────────────────────────
+function select(id: string | null): void { bp.selectedId = id; render(); }
+function setWidth(id: string, n: number): void { const m = model(); if (m) mutate(resize(m, id, 'L', n)); }
+function setH(id: string, px: number): void { const m = model(); if (m) mutate(setHeight(m, id, px)); }
+function doRename(id: string, name: string): void { const m = model(); if (m) mutate(rename(m, id, name)); }
+function doDelete(id: string): void { const m = model(); if (m) { bp.selectedId = null; mutate(remove(m, id)); } }
+function undo(): void { const m = bp.history?.undo(); if (m) { bp.selectedId = null; render(); } }
+function redo(): void { const m = bp.history?.redo(); if (m) { bp.selectedId = null; render(); } }
+function discard(): void { if (bp.baseline) { bp.history = new History(bp.baseline); bp.selectedId = null; render(); } }
+
+function applyChanges(): void {
+  const m = model();
+  if (!bp.ctx || !bp.baseline || !bp.env || !m || bp.applying) return;
+  if (diff(bp.baseline, m).length === 0) { showToast('Blueprint: nothing to apply', 'info'); return; }
+  bp.applying = true; render();
+  sendToSW({ type: 'LAYOUT_APPLY', env: bp.env, ctx: bp.ctx, baseline: bp.baseline, desired: m });
+}
+
+// ── render ──────────────────────────────────────────────────────────────────
+function ridElementMap(): Map<string, Element> {
+  const map = new Map<string, Element>();
+  for (const { element, rid } of getAllRidElements(false)) if (!map.has(rid)) map.set(rid, element);
+  return map;
+}
+
+function render(): void {
+  const layer = bp.layer, base = bp.baseline, m = model(), ctx = bp.ctx;
+  if (!layer || !base || !m || !ctx) return;
+  layer.textContent = '';
+  const byRid = ridElementMap();
+  const pending = diff(base, m).length;
+  layer.appendChild(renderChip(ctx, pending));
+
+  // container boxes first (behind), sized to the union of their live child-widget rects
+  walk(base, (node) => {
+    if (node.kind !== 'container') return;
+    const rect = unionRect(node, byRid);
+    if (!rect) return;
+    const state = nodeState(node, m);
+    if (state === 'gone') return; // deleted container → its widgets re-home; skip the dashed box
+    layer.appendChild(containerBox(node, rect, m));
+  });
+
+  // widget boxes, anchored to live DOM
+  walk(base, (node) => {
+    if (node.kind !== 'widget' || !node.rid) return;
+    const el = byRid.get(node.rid);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (!r.width && !r.height) return;
+    layer.appendChild(widgetBox(node, r, m));
+  });
+
+  // selection toolbar
+  const selBox = bp.selectedId ? findNode(m, bp.selectedId) : null;
+  if (selBox) {
+    const anchor = anchorRect(selBox.node, byRid);
+    if (anchor) layer.appendChild(toolbar(selBox.node, anchor));
+  }
+}
+
+type State = 'same' | 'changed' | 'gone';
+function nodeState(baseNode: LNode, m: LModel): State {
+  const cur = findNode(m, baseNode.id);
+  if (!cur) return 'gone';
+  const c = cur.node;
+  if (c.cols.L !== baseNode.cols.L || c.name !== baseNode.name || c.height !== baseNode.height) return 'changed';
+  return 'same';
+}
+
+function widgetBox(baseNode: LNode, r: DOMRect, m: LModel): HTMLElement {
+  const cur = findNode(m, baseNode.id)?.node;
+  const state = nodeState(baseNode, m);
+  const box = document.createElement('div');
+  box.className = 'bp-box'
+    + (isChart(baseNode.className) ? ' bp-chart' : '')
+    + (state === 'changed' ? ' changed' : '')
+    + (state === 'gone' ? ' del' : '')
+    + (bp.selectedId === baseNode.id ? ' sel' : '');
+  Object.assign(box.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  box.addEventListener('mousedown', (e) => { e.stopPropagation(); select(baseNode.id); });
+
+  const lab = document.createElement('div'); lab.className = 'bp-lab';
+  const nm = document.createElement('span'); nm.className = 'bp-nm'; nm.textContent = cur?.name ?? baseNode.name;
+  const ty = document.createElement('span'); ty.className = 'ty'; ty.textContent = baseNode.className.toUpperCase();
+  lab.append(nm, ty);
+  if (cur && state !== 'gone') {
+    if (cur.cols.L !== baseNode.cols.L) lab.appendChild(delta(`${baseNode.cols.L}→${cur.cols.L}/6`));
+    else { const wd = document.createElement('span'); wd.className = 'wd'; wd.textContent = `${cur.cols.L}/6`; lab.appendChild(wd); }
+    if (cur.height !== baseNode.height && cur.height != null) lab.appendChild(delta(`h${cur.height}`));
+  }
+  box.appendChild(lab);
+  return box;
+}
+
+function containerBox(baseNode: LNode, rect: Rect, m: LModel): HTMLElement {
+  const cur = findNode(m, baseNode.id)?.node;
+  const box = document.createElement('div');
+  box.className = 'bp-cont';
+  Object.assign(box.style, { left: `${rect.left - 3}px`, top: `${rect.top - 3}px`, width: `${rect.width + 6}px`, height: `${rect.height + 6}px` });
+  if (cur && cur.cols.L !== baseNode.cols.L) box.style.borderColor = '#E0A85A';
+  return box;
+}
+
+function toolbar(node: LNode, r: Rect): HTMLElement {
+  const t = document.createElement('div'); t.className = 'bp-tools';
+  t.style.left = `${Math.max(4, r.left)}px`;
+  t.style.top = `${Math.max(40, r.top - 32)}px`;
+
+  // width segmented 1..6
+  const lblW = document.createElement('span'); lblW.className = 'lbl'; lblW.textContent = 'W'; t.appendChild(lblW);
+  const seg = document.createElement('div'); seg.className = 'bp-seg';
+  for (let i = 1; i <= 6; i++) {
+    const b = document.createElement('button'); b.textContent = String(i);
+    if (node.cols.L === i) b.classList.add('on');
+    b.addEventListener('mousedown', (e) => { e.stopPropagation(); setWidth(node.id, i); });
+    seg.appendChild(b);
+  }
+  t.appendChild(seg);
+
+  // height for charts/URLView
+  if (node.kind === 'widget' && hasHeight(node.className)) {
+    const minus = mkBtn('H−', () => setH(node.id, (node.height ?? 200) - 40));
+    const plus = mkBtn('H+', () => setH(node.id, (node.height ?? 200) + 40));
+    t.append(minus, plus);
+  }
+
+  // rename
+  t.appendChild(mkBtn('Rename', () => startRename(node.id)));
+  // delete
+  const del = mkBtn('Delete', () => doDelete(node.id)); del.classList.add('del');
+  t.appendChild(del);
+  return t;
+}
+
+function startRename(id: string): void {
+  // inline-edit the label's name span
+  render();
+  const nm = bp.layer?.querySelector(`.bp-box.sel .bp-nm`) as HTMLElement | null;
+  if (!nm) return;
+  nm.setAttribute('contenteditable', 'true');
+  nm.focus();
+  const range = document.createRange(); range.selectNodeContents(nm);
+  const sel = getSelection(); sel?.removeAllRanges(); sel?.addRange(range);
+  const commit = () => { nm.removeAttribute('contenteditable'); doRename(id, nm.textContent ?? ''); };
+  nm.addEventListener('blur', commit, { once: true });
+  nm.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Enter') { e.preventDefault(); nm.blur(); }
+    if ((e as KeyboardEvent).key === 'Escape') { nm.textContent = findNode(model()!, id)?.node.name ?? ''; nm.blur(); }
+  });
+}
+
+function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
+  const shared = ctx.target === 'template';
+  const c = document.createElement('div'); c.className = 'bp-chip' + (shared ? ' tmpl' : '');
+  const b = document.createElement('b'); b.textContent = 'BLUEPRINT';
+  const id = document.createElement('span'); id.textContent = `${ctx.pageClass} ${ctx.pageId}`;
+  c.append(b, id);
+  if (shared) { const w = document.createElement('span'); w.className = 'warn'; w.textContent = '⚠ shared template — affects all instances'; c.appendChild(w); }
+  c.appendChild(sp());
+  const undoB = mkBtn('↶', undo); undoB.disabled = !bp.history?.canUndo(); c.appendChild(undoB);
+  const redoB = mkBtn('↷', redo); redoB.disabled = !bp.history?.canRedo(); c.appendChild(redoB);
+  const discardB = mkBtn('Discard', discard); discardB.disabled = pending === 0 || bp.applying; c.appendChild(discardB);
+  const applyB = mkBtn(bp.applying ? 'Applying…' : `Apply${pending ? ` (${pending})` : ''}`, applyChanges);
+  applyB.className = 'apply'; applyB.disabled = pending === 0 || bp.applying; c.appendChild(applyB);
   return c;
 }
+
+// ── geometry + dom helpers ──────────────────────────────────────────────────
+interface Rect { left: number; top: number; width: number; height: number; }
+function unionRect(node: LNode, byRid: Map<string, Element>): Rect | null {
+  let l = Infinity, t = Infinity, rr = -Infinity, bb = -Infinity, any = false;
+  for (const w of descendantWidgets(node)) {
+    if (!w.rid) continue;
+    const el = byRid.get(w.rid); if (!el) continue;
+    const r = el.getBoundingClientRect(); if (!r.width && !r.height) continue;
+    l = Math.min(l, r.left); t = Math.min(t, r.top); rr = Math.max(rr, r.right); bb = Math.max(bb, r.bottom); any = true;
+  }
+  return any ? { left: l, top: t, width: rr - l, height: bb - t } : null;
+}
+function anchorRect(node: LNode, byRid: Map<string, Element>): Rect | null {
+  if (node.kind === 'widget' && node.rid) {
+    const el = byRid.get(node.rid); if (!el) return null;
+    const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height };
+  }
+  return unionRect(node, byRid);
+}
+function mkBtn(text: string, on: () => void): HTMLButtonElement {
+  const b = document.createElement('button'); b.className = 'btn'; b.textContent = text;
+  b.addEventListener('mousedown', (e) => { e.stopPropagation(); on(); });
+  return b;
+}
+function delta(text: string): HTMLElement { const s = document.createElement('span'); s.className = 'delta'; s.textContent = text; return s; }
+function sp(): HTMLElement { const s = document.createElement('span'); s.className = 'sp'; s.textContent = '|'; return s; }
+
+log.debug('blueprint', 'module loaded');

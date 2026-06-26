@@ -22,7 +22,7 @@ import { updatePaintCursors, flashApplyResult } from './content-paint';
 import { showTooltipForElement, hideTooltip, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
 import { mountFrameOverlay, teardownFrameOverlayModule } from './content-frame-overlay';
-import { enableBlueprint, disableBlueprint, isBlueprintActive, onLayoutLoaded } from './content-blueprint';
+import { enableBlueprint, disableBlueprint, isBlueprintActive, onLayoutLoaded, onApplyResult } from './content-blueprint';
 import { sendFireForget } from './lib/messaging';
 
 declare global {
@@ -235,6 +235,9 @@ onPortMessage((msg: InspectorMessage) => {
     case 'LAYOUT_LOAD_RESULT':
       if (isBlueprintActive()) onLayoutLoaded(msg);
       break;
+    case 'LAYOUT_APPLY_RESULT':
+      if (isBlueprintActive()) onApplyResult(msg);
+      break;
     case 'BADGE_ENRICHMENT':
       // Drop the rid from `requestedRids` as soon as we get ANY
       // response — succeeded or failed. The dedup set's purpose is
@@ -421,6 +424,12 @@ document.addEventListener('crev-interceptor', ((event: CustomEvent) => {
 function oneShotMessageListener(msg: InspectorMessage, _sender: chrome.runtime.MessageSender, sendResponse: (response?: unknown) => void): boolean {
   if (msg.type === 'INSPECT_STATE') {
     setInspectMode(msg.active);
+    return false;
+  }
+  // Blueprint toggle arrives via chrome.tabs.sendMessage (one-shot), like INSPECT_STATE — the
+  // SW's BLUEPRINT_TOGGLE handler relays here. (LAYOUT_*_RESULT come back on the port instead.)
+  if (msg.type === 'BLUEPRINT_STATE') {
+    if (msg.active) enableBlueprint(); else disableBlueprint();
     return false;
   }
   if (msg.type === 'GET_PAGE_INFO') {

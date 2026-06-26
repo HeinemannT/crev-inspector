@@ -9,6 +9,7 @@ import type { SwContext } from '../sw-context';
 import { loadPage, applyPage } from '../layout-service';
 import { ensureContentScript } from '../tab-awareness';
 import { errorMessage, log } from '../logger';
+import type { InspectorMessage } from '../types';
 
 /** Per-window blueprint-mode state (self-contained — blueprint is a single-active-tab overlay, so
  *  it doesn't need the broader per-tab machinery inspect uses). */
@@ -38,35 +39,47 @@ register('BLUEPRINT_TOGGLE', async (_msg, _respond, meta) => {
  *  can't silently receive a commit meant for the old one. */
 const envToken = (ctx: SwContext): string => `${ctx.settings.activeProfileId}@${ctx.client?.serverUrl ?? ''}`;
 
-register('LAYOUT_LOAD', async (msg, respond) => {
+/** The blueprint overlay lives in the CONTENT script, so LAYOUT_LOAD/APPLY arrive on a content port
+ *  — whose handler `respond` routes to the panel (see message-router.handleContentMessage), not back
+ *  to the overlay. Reply to the originating content port directly via senderTabId; fall back to
+ *  `respond` if a panel ever sends these. */
+const replyTo = (ctx: SwContext, meta: { senderTabId?: number }, respond: (r: InspectorMessage) => void, r: InspectorMessage): void => {
+  const port = meta.senderTabId != null ? ctx.contentPorts.get(meta.senderTabId) : undefined;
+  if (port) { try { port.postMessage(r); } catch (e) { log.swallow('blueprint:reply', e); } }
+  else respond(r);
+};
+
+register('LAYOUT_LOAD', async (msg, respond, meta) => {
   const ctx = getCtx();
-  if (!ctx.client) { respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: 'Not connected' }); return; }
+  const reply = (r: InspectorMessage) => replyTo(ctx, meta, respond, r);
+  if (!ctx.client) { reply({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: 'Not connected' }); return; }
   const t0 = Date.now();
   try {
     const res = await loadPage(ctx.client, msg.rid);
     if (!res) {
-      respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: 'Not an editable page (no tabset resolved)' });
+      reply({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: 'Not an editable page (no tabset resolved)' });
       ctx.logActivity('warn', `Blueprint load: ${msg.rid} is not an editable page`);
       return;
     }
-    respond({
+    reply({
       type: 'LAYOUT_LOAD_RESULT', ok: true, env: envToken(ctx),
       ctx: res.ctx, model: res.load.model, baseline: res.load.baseline, orphans: res.load.orphans,
     });
     ctx.logActivity('success', `Blueprint loaded ${res.ctx.pageClass} ${res.ctx.pageId} (${Date.now() - t0}ms)`);
   } catch (e) {
-    respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: errorMessage(e) });
+    reply({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: errorMessage(e) });
     ctx.logActivity('error', 'Blueprint load threw', e instanceof Error ? e.message : String(e));
   }
 });
 
-register('LAYOUT_APPLY', async (msg, respond) => {
+register('LAYOUT_APPLY', async (msg, respond, meta) => {
   const ctx = getCtx();
-  if (!ctx.client) { respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: 'Not connected' }); return; }
+  const reply = (r: InspectorMessage) => replyTo(ctx, meta, respond, r);
+  if (!ctx.client) { reply({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: 'Not connected' }); return; }
   // Wrong-env guard: refuse a commit whose load happened against a different profile than the one
   // now active (the user switched environments between load and apply).
   if (msg.env !== envToken(ctx)) {
-    respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false,
+    reply({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false,
       error: 'Environment changed since this layout was loaded — reload the page before applying.' });
     ctx.logActivity('warn', `Blueprint apply blocked: env ${msg.env} != active ${envToken(ctx)}`);
     return;
@@ -74,7 +87,7 @@ register('LAYOUT_APPLY', async (msg, respond) => {
   const t0 = Date.now();
   try {
     const res = await applyPage(ctx.client, msg.ctx, msg.baseline, msg.desired);
-    respond({
+    reply({
       type: 'LAYOUT_APPLY_RESULT', ok: res.ok, noop: res.noop, stale: res.stale,
       script: res.script, notes: res.notes, model: res.model, baseline: res.baseline, error: res.error,
     });
@@ -87,7 +100,7 @@ register('LAYOUT_APPLY', async (msg, respond) => {
       ctx.logActivity('error', 'Blueprint apply failed', res.error);
     }
   } catch (e) {
-    respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: errorMessage(e) });
+    reply({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: errorMessage(e) });
     ctx.logActivity('error', 'Blueprint apply threw', e instanceof Error ? e.message : String(e));
   }
 });
