@@ -40,10 +40,13 @@ interface BpState {
   picker: string | null;        // containerId the add-widget picker is open for
   movePicker: string | null;    // widgetId the move-destination menu is open for
   onScroll: (() => void) | null;
+  onKey: ((e: KeyboardEvent) => void) | null;
+  raf: number;                  // requestAnimationFrame id coalescing scroll re-renders (0 = none)
 }
 const bp: BpState = {
   active: false, baseline: null, ctx: null, env: null, history: null,
-  layer: null, selectedId: null, applying: false, preview: null, picker: null, movePicker: null, onScroll: null,
+  layer: null, selectedId: null, applying: false, preview: null, picker: null, movePicker: null,
+  onScroll: null, onKey: null, raf: 0,
 };
 
 export function isBlueprintActive(): boolean { return bp.active; }
@@ -171,12 +174,42 @@ export function enableBlueprint(): void {
   layer.appendChild(c);
   document.body.appendChild(layer);
   bp.layer = layer;
-  bp.onScroll = () => bp.baseline && render();
+  // Scroll/resize re-renders are coalesced to one per animation frame — boxes track the live DOM
+  // without a full teardown+rebuild per scroll event (smooth on large pages).
+  bp.onScroll = () => { if (bp.baseline && !bp.raf) bp.raf = requestAnimationFrame(() => { bp.raf = 0; render(); }); };
   window.addEventListener('scroll', bp.onScroll, true);
   window.addEventListener('resize', bp.onScroll, true);
+  bp.onKey = onKeydown;
+  window.addEventListener('keydown', bp.onKey, true);
   // click empty space deselects
   layer.addEventListener('mousedown', (e) => { if (e.target === layer) select(null); });
   sendToSW({ type: 'LAYOUT_LOAD', rid });
+}
+
+/** Keyboard: Escape backs out (modal → picker → move-menu → selection); Delete removes the selected
+ *  widget; Ctrl/Cmd+Z / +Shift+Z (or +Y) undo/redo. All no-ops while typing in a field. */
+function onKeydown(e: KeyboardEvent): void {
+  if (!bp.active) return;
+  const t = e.target as HTMLElement | null;
+  const typing = !!t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
+  if (e.key === 'Escape') {
+    if (typing) return;
+    if (bp.preview) closePreview();
+    else if (bp.picker) closePicker();
+    else if (bp.movePicker) closeMovePicker();
+    else if (bp.selectedId) select(null);
+    else return;
+    e.preventDefault();
+    return;
+  }
+  if (typing) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && bp.selectedId && !bp.preview && !bp.picker) {
+    const sel = findNode(model() ?? bp.baseline!, bp.selectedId);
+    if (sel?.node.kind === 'widget') { e.preventDefault(); doDelete(bp.selectedId); }
+  }
 }
 
 export function disableBlueprint(): void {
@@ -185,8 +218,10 @@ export function disableBlueprint(): void {
     window.removeEventListener('scroll', bp.onScroll, true);
     window.removeEventListener('resize', bp.onScroll, true);
   }
+  if (bp.onKey) window.removeEventListener('keydown', bp.onKey, true);
+  if (bp.raf) cancelAnimationFrame(bp.raf);
   bp.layer?.remove();
-  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, movePicker: null, onScroll: null });
+  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, movePicker: null, onScroll: null, onKey: null, raf: 0 });
 }
 
 export function onLayoutLoaded(msg: { ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; orphans?: unknown[]; error?: string }): void {
@@ -578,6 +613,8 @@ function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   const discardB = mkBtn('Discard', discard); discardB.disabled = pending === 0 || bp.applying; c.appendChild(discardB);
   const applyB = mkBtn(bp.applying ? 'Applying…' : `Apply${pending ? ` (${pending})` : ''}`, openApplyPreview);
   applyB.className = 'apply'; applyB.disabled = pending === 0 || bp.applying; c.appendChild(applyB);
+  // exit — round-trips through the SW toggle so its per-window state stays in sync
+  const exit = mkBtn('✕', () => sendToSW({ type: 'BLUEPRINT_TOGGLE' })); exit.title = 'Exit blueprint mode'; c.appendChild(exit);
   return c;
 }
 
