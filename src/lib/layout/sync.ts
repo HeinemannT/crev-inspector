@@ -7,17 +7,23 @@
  * agnostic (same code path in the service worker and in tests).
  *
  * The two-model split is handled in ONE fetch round trip:
- *   - grid   (Tab + Container tree)  ← `t.<tabsetId>.descendants()`     (portal model)
- *   - widgets (cells' bound content) ← `lookup(<scorecardRid>).children()` (org model)
+ *   - grid   (Tab + Container tree)  ← `t.<tabsetId>.descendants()`        (portal model)
+ *   - widgets + composites           ← `lookup(<scorecardRid>).descendants()` (org model)
  * Both are emitted into a single pipe-delimited list in the exact 9-field wire shape that
- * `reconstruct` already consumes (rid|bid|name|type|parentRid|containerRid|L|M|S), so the
- * model layer needs no changes. Verified live against demo scorecard 4957 on 2026-06-26.
+ * `reconstruct` already consumes (rid|bid|name|type|parentRid|containerRid|L|M|S).
+ *
+ * `descendants()` (not `children()`) on the org side is deliberate: a composite widget like
+ * ButtonContainer nests its child buttons one level deeper (the button's `parent` is the
+ * ButtonContainer, not the scorecard), and `children()` would miss them. `descendants()` was
+ * verified to return ONLY layout objects — no config sub-objects (expressions, table columns)
+ * leak in. A widget's phantom RESULT placement is mapped to an empty containerRid so it falls
+ * through to its org parent. Verified live against demo scorecard 4957 on 2026-06-26.
  *
  * Apply is diff → compile → exec → RE-FETCH. We never map temp ids to real rids: the
  * re-fetch is the new source of truth, which also makes apply idempotent (a second apply of
  * an already-applied model diffs to an empty plan).
  */
-import { reconstruct } from './model';
+import { reconstruct, walk } from './model';
 import type { ReconstructCtx } from './model';
 import { diff } from './diff';
 import { compile } from './ec';
@@ -83,21 +89,29 @@ function ecRid(rid: string): string {
 export function buildFetchEc(ctx: BlueprintCtx): string {
   const ts = `t.${ecBid(ctx.tabsetId)}`;
   const sc = `lookup(${ecRid(ctx.scorecardRid)})`;
-  // emit(node) with explicit parent/container expressions — the 9 fields reconstruct parses.
-  const grid = `${ts}.rid + "|" + ${ts}.id.whenMissing("") + "|" + ${ts}.name.whenMissing("") + "|" + ${ts}.className.whenMissing("") + "|||||"`;
+  const cols = (v: string) => `${v}.columnsLargeScreen.whenMissing("") + "|" + ${v}.columnsMediumScreen.whenMissing("") + "|" + ${v}.columnsSmallScreen.whenMissing("")`;
+  // tabset root: no parent, no container.
+  const root = `${ts}.rid + "|" + ${ts}.id.whenMissing("") + "|" + ${ts}.name.whenMissing("") + "|" + ${ts}.className.whenMissing("") + "|||||"`;
   return [
     `_ts := ${ts}`,
     `_sc := ${sc}`,
     `_r := ""`,
-    // tabset root (no parent, no container)
-    `_r := _r + "${SEP}" + ${grid} + "\\n"`,
-    // grid: tabs + containers, parentRid set
+    `_r := _r + "${SEP}" + ${root} + "\\n"`,
+    // grid: tabs + containers — parentRid set, containerRid always empty (placement IS the parent)
     `_ts.descendants().forEach(_n:`,
-    `     _r := _r + "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.name.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + _n.columnsLargeScreen.whenMissing("") + "|" + _n.columnsMediumScreen.whenMissing("") + "|" + _n.columnsSmallScreen.whenMissing("") + "\\n"`,
+    `     _r := _r + "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.name.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "\\n"`,
     `)`,
-    // widgets: org-model children with a container binding, containerRid set
-    `_sc.children().forEach(_w:`,
-    `     _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.name.whenMissing("") + "|" + _w.className.whenMissing("") + "||" + _w.container.rid.whenMissing("") + "|" + _w.columnsLargeScreen.whenMissing("") + "|" + _w.columnsMediumScreen.whenMissing("") + "|" + _w.columnsSmallScreen.whenMissing("") + "\\n"`,
+    // org model: widgets + composites (recursive). Emit BOTH parent (composite nesting) and
+    // container (portal placement). The phantom RESULT placement collapses to empty so a
+    // container-less widget falls through to its org parent.
+    `_sc.descendants().forEach(_w:`,
+    `     _crid := _w.container.rid.whenMissing("")`,
+    `     IF _w.container.id.whenMissing("") = "RESULT" THEN`,
+    `          _crid := ""`,
+    `     ELSE`,
+    `          _crid := _crid`,
+    `     ENDIF`,
+    `     _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.name.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _crid + "|" + ${cols('_w')} + "\\n"`,
     `)`,
     `_r`,
   ].join('\n');
@@ -105,10 +119,9 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
 
 const numOrUndef = (v: string): number | undefined => (v && /^-?\d+$/.test(v) ? parseInt(v, 10) : undefined);
 
-/** Parse the fetch log into wire nodes, partitioning out container-less widgets as orphans. */
-export function parseFetchLog(log: string): { nodes: WireNode[]; orphans: WireNode[] } {
+/** Parse the fetch log into the flat wire-node list (de-duped by rid). */
+export function parseFetchLog(log: string): WireNode[] {
   const nodes: WireNode[] = [];
-  const orphans: WireNode[] = [];
   const seen = new Set<string>();
   for (const block of log.split(SEP)) {
     const line = block.split('\n', 1)[0].trim();
@@ -118,7 +131,7 @@ export function parseFetchLog(log: string): { nodes: WireNode[]; orphans: WireNo
     const [rid, bid, name, type, parentRid, containerRid, l, m, s] = parts;
     if (!rid || seen.has(rid)) continue;
     seen.add(rid);
-    const node: WireNode = {
+    nodes.push({
       rid,
       businessId: bid || undefined,
       name: name || undefined,
@@ -128,23 +141,30 @@ export function parseFetchLog(log: string): { nodes: WireNode[]; orphans: WireNo
       columnsLargeScreen: numOrUndef(l),
       columnsMediumScreen: numOrUndef(m),
       columnsSmallScreen: numOrUndef(s),
-    };
-    // a widget (has neither Tab/Container type) without a container binding → RESULT-tab orphan
-    const isGrid = type === 'Tab' || type === 'Container' || type === 'TabSet';
-    if (!isGrid && !node.containerRid) orphans.push(node);
-    else nodes.push(node);
+    });
   }
-  return { nodes, orphans };
+  return nodes;
+}
+
+/** Orphans = widget-ish nodes the reconstruct couldn't place (their owner wasn't a layout node
+ *  — typically the scorecard itself, i.e. a widget left on the phantom RESULT tab). Found by
+ *  connectivity, AFTER reconstruct, so composite children (placed under their ButtonContainer)
+ *  are correctly NOT counted. The tabset root and the grid types are never orphans. */
+function findOrphans(nodes: readonly WireNode[], model: LModel): WireNode[] {
+  const placed = new Set<string>();
+  walk(model, n => { if (n.rid) placed.add(n.rid); });
+  return nodes.filter(n =>
+    n.type !== 'TabSet' && n.type !== 'Tab' && n.type !== 'Container' && !placed.has(n.rid));
 }
 
 /** Load: fetch the merged layout, reconstruct, and hand back model + an independent baseline. */
 export async function loadModel(io: LayoutIO, ctx: BlueprintCtx): Promise<LoadResult> {
   const res = await io.exec(buildFetchEc(ctx));
   if (!res.ok) throw new Error(res.error || 'layout fetch failed');
-  const { nodes, orphans } = parseFetchLog(res.log ?? '');
+  const nodes = parseFetchLog(res.log ?? '');
   const model = reconstruct(nodes, ctx);
   const baseline = reconstruct(nodes, ctx); // independent clone — diff target, never mutated
-  return { model, baseline, orphans };
+  return { model, baseline, orphans: findOrphans(nodes, model) };
 }
 
 /**

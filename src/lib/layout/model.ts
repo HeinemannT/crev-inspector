@@ -22,9 +22,17 @@ function kindOf(type: string): NodeKind {
   return 'widget';
 }
 
-/** Layout owner of a node: widgets bind via `containerRid`; tabs/containers via `parentRid`. */
+/** Layout owner of a node — uniform across kinds: a portal placement (`containerRid`) wins,
+ *  else the structural parent (`parentRid`). This one rule covers every observed case:
+ *   - widget bound to a portal cell      → containerRid (the cell)
+ *   - portal Tab/Container               → containerRid empty → parentRid (tabset / parent tab)
+ *   - org Container placed in a tab       → containerRid (the tab it was assigned to)
+ *   - composite child (button in a       → containerRid empty (RESULT) → parentRid (the
+ *     ButtonContainer)                       ButtonContainer it nests under)
+ *  The fetch maps the phantom RESULT placement to an empty containerRid, so unplaced widgets
+ *  fall through to their org parent (the scorecard) and get pruned out as orphans. */
 function ownerOf(n: WireNode): string | undefined {
-  return kindOf(n.type) === 'widget' ? (n.containerRid ?? n.parentRid) : n.parentRid;
+  return n.containerRid ?? n.parentRid;
 }
 
 export interface ReconstructCtx {
