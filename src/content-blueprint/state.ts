@@ -20,17 +20,23 @@ export interface BpState {
   selectedId: string | null;
   applying: boolean;
   preview: PlanNote[] | null;   // non-null → the apply-preview modal is open
-  picker: string | null;        // containerId/compositeId the add picker is open for
+  picker: string | null;        // containerId/compositeId/tabId the add picker is open for
+  pickerOpts: { afterId?: string; cols?: number } | null; // positional insert: place after a sibling, sized to a gap
   movePicker: string | null;    // widgetId the move-destination menu is open for
   onScroll: (() => void) | null;
   onKey: ((e: KeyboardEvent) => void) | null;
   raf: number;                  // requestAnimationFrame id coalescing scroll re-renders (0 = none)
+  gen: number;                  // session generation, bumped on each enable; in-flight I/O captures it
+                                //   and bails if it changed (toggle-off-then-on starts a new session)
+  hint: string | null;          // transient contextual hint shown in the bottom bar (gesture coaching)
+  trayOpen: boolean;            // pending-changes tray docked open
+  dragging: boolean;            // a pointer drag is in flight — suppresses scroll re-renders mid-gesture
 }
 
 export const bp: BpState = {
   active: false, baseline: null, ctx: null, env: null, history: null,
-  layer: null, selectedId: null, applying: false, preview: null, picker: null, movePicker: null,
-  onScroll: null, onKey: null, raf: 0,
+  layer: null, selectedId: null, applying: false, preview: null, picker: null, pickerOpts: null, movePicker: null,
+  onScroll: null, onKey: null, raf: 0, gen: 0, hint: null, trayOpen: false, dragging: false,
 };
 
 export function isBlueprintActive(): boolean { return bp.active; }

@@ -2,6 +2,11 @@
  * Edit engine — every gesture as a pure `(model, …args) => model`. No DOM, no BMP.
  * Operations mutate a fresh clone, so callers can snapshot for undo/redo trivially.
  * Widths/parentage are validated against BMP reality in `constraints.ts`, not here.
+ *
+ * All of these are wired into the overlay: resize/setHeight/rename/remove/addWidget/addContainer/addTab
+ * via the toolbar + picker, and moveInto/swap/insertRelative via the drag gestures (gestures.ts → the
+ * doMoveInto/doSwap/doInsert controllers). `move` is the shared reparent+position primitive; setTarget
+ * and normalize are utilities. findNode/findTabOf are shared tree helpers used throughout.
  */
 import { cloneModel, findNode, orderChildren, descendantWidgets, tempId, isChart, hasHeight } from './model';
 import type { Breakpoint, LModel, LNode } from './types';
@@ -81,6 +86,8 @@ export function swap(m: LModel, a: string, b: string): LModel {
 /** Insert `id` before/after `targetId` within `targetId`'s parent (reorder, possibly reparenting). */
 export function insertRelative(m: LModel, id: string, targetId: string, before: boolean): LModel {
   return edit(m, c => {
+    const self = findNode(c, id);
+    if (!self || id === targetId || isAncestorOf(self.node, targetId)) return; // never reorder relative to self / own subtree
     const node = detach(c, id);
     if (!node) return;
     const t = findNode(c, targetId);
@@ -90,11 +97,11 @@ export function insertRelative(m: LModel, id: string, targetId: string, before: 
   });
 }
 
-export function addWidget(m: LModel, parentId: string, index: number, className: string, name?: string): { model: LModel; id: string } {
+export function addWidget(m: LModel, parentId: string, index: number, className: string, name?: string, colsL = 6): { model: LModel; id: string } {
   const id = tempId('w');
   const node: LNode = {
     id, kind: 'widget', className, name: name ?? `New ${className}`,
-    cols: { L: 6 }, height: isChart(className) ? 200 : undefined, children: [],
+    cols: { L: clampCol(colsL) || 6 }, height: isChart(className) ? 200 : undefined, children: [],
   };
   return { model: insertNode(m, parentId, index, node), id };
 }

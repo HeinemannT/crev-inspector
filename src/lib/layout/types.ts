@@ -68,7 +68,9 @@ export type PlanStep =
   | { kind: 'create'; node: LNode; parentId: string; parentKind: NodeKind }
   | { kind: 'update'; id: string; className: string; cols?: Partial<Record<Breakpoint, number>>; name?: string; height?: number }
   | { kind: 'reparent'; id: string; nodeKind: NodeKind; toParentId: string; toParentKind: NodeKind }
-  | { kind: 'reorder'; id: string; afterId: string | null }
+  // afterId is always a real same-kind sibling — diff anchors group[0] and reorders the rest after
+  // their predecessor, so "move to first" never needs a null (it falls out of reordering the others).
+  | { kind: 'reorder'; id: string; afterId: string }
   | { kind: 'delete'; id: string; nodeKind: NodeKind; className: string; rehomeTo?: string };
 
 export interface Plan {

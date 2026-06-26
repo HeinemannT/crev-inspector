@@ -36,9 +36,22 @@ export function anchorRect(node: LNode, byRid: Map<string, Element>): Rect | nul
   return unionRect(node, byRid);
 }
 
+/** Set an element's content to a trusted inline SVG icon (icons.ts constants — no user data, so the
+ *  innerHTML is safe). Crisper + correctly centred vs unicode glyphs. */
+export function setIcon(el: HTMLElement, svg: string): void { el.innerHTML = svg; }
+
 /** A button wired to a click handler (mousedown so it beats BMP's own handlers; stops propagation). */
 export function mkBtn(text: string, on: () => void): HTMLButtonElement {
   const b = document.createElement('button'); b.className = 'btn'; b.textContent = text;
+  b.addEventListener('mousedown', (e) => { e.stopPropagation(); on(); });
+  return b;
+}
+
+/** A button with a Phosphor SVG icon (trusted constant) and an optional text label after it. */
+export function mkIconBtn(svg: string, on: () => void, label?: string): HTMLButtonElement {
+  const b = document.createElement('button'); b.className = 'btn';
+  const ic = document.createElement('span'); ic.className = 'bp-ic'; ic.innerHTML = svg; b.appendChild(ic);
+  if (label) { const s = document.createElement('span'); s.textContent = label; b.appendChild(s); }
   b.addEventListener('mousedown', (e) => { e.stopPropagation(); on(); });
   return b;
 }

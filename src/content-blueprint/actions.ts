@@ -8,7 +8,7 @@
  * functions (never at module-init), so ESM resolves the cycle cleanly.
  */
 import { findNode } from '../lib/layout/model';
-import { resize, setHeight, rename, remove, addWidget, moveInto, addTab } from '../lib/layout/edit';
+import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, findTabOf } from '../lib/layout/edit';
 import { diff } from '../lib/layout/diff';
 import { compile } from '../lib/layout/ec';
 import { History } from '../lib/layout/history';
@@ -28,20 +28,38 @@ export function setH(id: string, px: number): void { const m = model(); if (m) m
 export function doRename(id: string, name: string): void { const m = model(); if (m) mutate(rename(m, id, name)); }
 export function doDelete(id: string): void { const m = model(); if (m) { bp.selectedId = null; mutate(remove(m, id)); } }
 
-export function openPicker(containerId: string): void { bp.picker = containerId; bp.selectedId = null; render(); }
-export function closePicker(): void { bp.picker = null; render(); }
+/** Open the add picker for a tab/container. `opts.afterId` inserts the new widget right after that
+ *  sibling (else appends); `opts.cols` sizes it to a detected free-column gap (else full width). */
+export function openPicker(containerId: string, opts?: { afterId?: string; cols?: number }): void {
+  bp.picker = containerId; bp.pickerOpts = opts ?? null; bp.selectedId = null; render();
+}
+export function closePicker(): void { bp.picker = null; bp.pickerOpts = null; render(); }
 export function addFromPicker(className: string): void {
   const m = model(); const cid = bp.picker;
   if (!m || !cid) return;
   const f = findNode(m, cid);
-  const idx = f ? f.node.children.length : 0;
-  const added = addWidget(m, cid, idx, className);
-  bp.picker = null;
+  const kids = f ? f.node.children : m.tabs;
+  const afterId = bp.pickerOpts?.afterId;
+  const at = afterId ? kids.findIndex(c => c.id === afterId) : -1;
+  const idx = at >= 0 ? at + 1 : kids.length;
+  const added = addWidget(m, cid, idx, className, undefined, bp.pickerOpts?.cols ?? 6);
+  bp.picker = null; bp.pickerOpts = null;
   bp.selectedId = added.id;
   mutate(added.model);
 }
 
 export function addTabAction(): void { const m = model(); if (m) { const r = addTab(m, m.tabs.length, 'New Tab'); bp.selectedId = r.id; mutate(r.model); } }
+
+/** Add an empty container to a tab/container (from the picker's "New container" option). */
+export function addContainerTo(parentId: string): void {
+  const m = model(); if (!m) return;
+  const f = findNode(m, parentId);
+  const idx = f ? f.node.children.length : 0;
+  const r = addContainer(m, parentId, idx);
+  bp.picker = null;
+  bp.selectedId = r.id;
+  mutate(r.model);
+}
 
 export function openMovePicker(id: string): void { bp.movePicker = id; render(); }
 export function closeMovePicker(): void { bp.movePicker = null; render(); }
@@ -50,6 +68,48 @@ export function moveTo(id: string, destId: string): void {
   bp.movePicker = null;
   mutate(moveInto(m, id, destId));
 }
+
+// ── direct-manipulation drops (gestures.ts stages these on drop) ──────────────
+export function doMoveInto(id: string, destId: string): void { const m = model(); if (m) { bp.selectedId = id; mutate(moveInto(m, id, destId)); } }
+export function doSwap(a: string, b: string): void { const m = model(); if (m) { bp.selectedId = a; mutate(swap(m, a, b)); } }
+export function doInsert(id: string, targetId: string, before: boolean): void { const m = model(); if (m) { bp.selectedId = id; mutate(insertRelative(m, id, targetId, before)); } }
+
+/** The parent id that owns `id` in `mm` — its container/tab, or the enclosing tab for a tab-level node. */
+function parentIdOf(mm: LModel, id: string): string | null {
+  const f = findNode(mm, id);
+  return f?.parent?.id ?? findTabOf(mm, id)?.id ?? null;
+}
+
+/** Revert a single node's staged changes back to baseline — the tray's per-node undo. A staged ADD
+ *  (temp id, absent from baseline) is removed outright; an edited node is reset field-wise, and its
+ *  position is restored ONLY if its parent or index actually moved (so reverting a pure field change
+ *  never reorders it, and we never anchor to a baseline neighbour that has itself moved away). */
+export function revertNode(id: string): void {
+  const m = model(); if (!m || !bp.baseline) return;
+  const base = findNode(bp.baseline, id);
+  if (!base) { if (bp.selectedId === id) bp.selectedId = null; mutate(remove(m, id)); return; }
+  let next = rename(m, id, base.node.name);
+  next = resize(next, id, 'L', base.node.cols.L);
+  if (base.node.height != null) next = setHeight(next, id, base.node.height);
+
+  const baseSibs = base.parent ? base.parent.children : bp.baseline.tabs;
+  const baseIndex = baseSibs.findIndex(n => n.id === id);
+  const baseParentId = base.parent?.id ?? findTabOf(bp.baseline, id)?.id ?? null;
+  const live = findNode(next, id);
+  const liveParentId = live?.parent?.id ?? findTabOf(next, id)?.id ?? null;
+  if (liveParentId !== baseParentId || (live && live.index !== baseIndex)) {
+    const pred = baseIndex > 0 ? baseSibs[baseIndex - 1].id : null;
+    const succ = baseIndex >= 0 && baseIndex < baseSibs.length - 1 ? baseSibs[baseIndex + 1].id : null;
+    // anchor to a baseline neighbour only if it's still under the baseline parent; else reparent plain
+    if (pred && parentIdOf(next, pred) === baseParentId) next = insertRelative(next, id, pred, false);
+    else if (succ && parentIdOf(next, succ) === baseParentId) next = insertRelative(next, id, succ, true);
+    else if (baseParentId && baseParentId !== id) next = moveInto(next, id, baseParentId);
+  }
+  mutate(next);
+}
+
+export function setHint(text: string | null): void { if (bp.hint !== text) { bp.hint = text; render(); } }
+export function toggleTray(): void { bp.trayOpen = !bp.trayOpen; render(); }
 
 export function undo(): void { const m = bp.history?.undo(); if (m) { bp.selectedId = null; render(); } }
 export function redo(): void { const m = bp.history?.redo(); if (m) { bp.selectedId = null; render(); } }
@@ -93,6 +153,10 @@ export function onKeydown(e: KeyboardEvent): void {
     return;
   }
   if (typing) return;
+  // While the apply-preview modal is up, the plan shown was frozen at openApplyPreview() time but
+  // confirmApply re-reads the live model — so an undo here would apply a different plan than the one
+  // listed. Freeze history editing until the preview is dismissed (Delete is already gated below).
+  if (bp.preview) return;
   const mod = e.ctrlKey || e.metaKey;
   if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }

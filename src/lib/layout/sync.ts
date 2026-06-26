@@ -257,6 +257,8 @@ export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel
   // Stale-baseline guard: re-fetch live and confirm the page hasn't drifted from the baseline the
   // user started editing. If someone else changed it, committing our diff could clobber their work
   // (our reorders/deletes reference rids that may have moved). Abort and hand back the fresh state.
+  // This narrows but can't close the window: a concurrent edit landing between this fetch and the
+  // exec below isn't caught — BMP gives us no cross-call transaction, so the check is best-effort.
   const live = await loadModel(io, ctx);
   if (diff(baseline, live.model).length > 0) {
     return { ok: false, noop: false, stale: true, plan, notes, script, model: live.model, baseline: live.baseline,

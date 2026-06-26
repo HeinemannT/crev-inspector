@@ -1,8 +1,16 @@
 /**
- * Constraints — "what BMP can actually serve", encoded once so the UI and the apply path
- * read the SAME rules. This is the limitations review as data: the UI disables/guards a
- * gesture here, and apply re-checks here, so the blueprint can never promise more than BMP
- * will honor.
+ * Constraints — "what BMP can actually serve", encoded once as data. Two tiers, by how they're wired:
+ *
+ *  - LIVE pre-commit gate: `lint()` runs over the whole model + plan and its warnings are rendered in
+ *    the Apply-preview modal (empty-tab-won't-appear, structural-edit-on-an-instance-is-unverified).
+ *    This is the one path a user actually sees before committing.
+ *  - Gesture affordance (enforced inline, not through here): the builder simply doesn't OFFER an
+ *    illegal gesture — "+ Add" appears only on tabs/containers/composites, height only on charts —
+ *    so a leaf-add or bad reorder is unreachable by construction. The per-gesture `guard`/`check*`
+ *    helpers below encode those same rules as data for a future single-source gesture-gate (Phase 2,
+ *    the "route every gesture through one guard" fold); they're test-covered but not yet on the hot
+ *    path. `COMPOSITE_TYPES`/`COMPOSITE_CHILDREN` and `checkTabVisibility`/`checkStructuralTarget`
+ *    (via `lint`) ARE live.
  *
  * Serveability verified live via ec_preview on demo scorecard 4957 (2026-06-26):
  *   ✓ resize width (widget+container)        change(columnsLargeScreen)
@@ -15,7 +23,7 @@
  *   ✓ delete                                  delete()  (re-home first)
  */
 import { hasHeight } from './model';
-import type { Guard, LModel, LNode, NodeKind, SaveTarget } from './types';
+import type { Guard, LModel, LNode, NodeKind, PlanStep, SaveTarget } from './types';
 
 /** Widget types that render blank until configured — add places the shell, content is a hand-off. */
 export const WIDGET_NEEDS_CONFIG = new Set([
@@ -107,12 +115,23 @@ export function guard(check: GestureCheck): Guard {
   }
 }
 
-/** Whole-model lint surfaced in the Apply preview (warnings the user should see before commit). */
-export function lint(m: LModel): string[] {
+/** Whole-model + plan lint surfaced in the Apply preview — the warnings a user should see before
+ *  commit. This is the live pre-commit gate (`previewModal` renders these). Covers empty-tab
+ *  visibility and (when the plan adds/deletes structure on a single instance) the unverified-on-
+ *  instance warning. The shared-template blast-radius warning is shown separately by the modal. */
+export function lint(m: LModel, target: SaveTarget, plan: PlanStep[]): string[] {
   const out: string[] = [];
   for (const tab of m.tabs) {
     const v = checkTabVisibility(tab);
     if (v.level === 'warn') out.push(`Tab "${tab.name}": ${v.reason}`);
+  }
+  if (plan.some(s => s.kind === 'create')) {
+    const g = checkStructuralTarget(target, 'add');
+    if (g.level === 'warn' && g.reason) out.push(g.reason);
+  }
+  if (plan.some(s => s.kind === 'delete')) {
+    const g = checkStructuralTarget(target, 'delete');
+    if (g.level === 'warn' && g.reason) out.push(g.reason);
   }
   return out;
 }

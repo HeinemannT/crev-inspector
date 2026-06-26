@@ -100,7 +100,7 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
       case 'reorder': {
         const label = byId.get(s.id)?.name ?? s.id;
         emit({ verb: 'reorder', text: `Reorder "${label}"`,
-          ec: `${ref(s.id)}.moveAfter(${ref(s.afterId!)})` });
+          ec: `${ref(s.id)}.moveAfter(${ref(s.afterId)})` });
         break;
       }
       case 'delete': {

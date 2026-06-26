@@ -84,6 +84,68 @@ describe('edit engine (pure, returns new model)', () => {
   });
 });
 
+// The drag gestures (gestures.ts) stage these ops; lock their behaviour and the swap/insert inverses
+// the tray's per-node revert relies on.
+describe('gesture edit ops (drag-to-move / reorder / cross-tab)', () => {
+  const threeWide = () => model(n({ id: 't', kind: 'tab', className: 'Tab', children: [
+    n({ id: 'A', kind: 'widget', className: 'X' }),
+    n({ id: 'B', kind: 'widget', className: 'Y' }),
+    n({ id: 'C', kind: 'widget', className: 'Z' }),
+  ] }));
+
+  it('insertRelative reorders within a list (after)', () => {
+    const b = insertRelative(threeWide(), 'A', 'C', false); // A after C
+    expect(b.tabs[0].children.map(c => c.id)).toEqual(['B', 'C', 'A']);
+  });
+  it('insertRelative reorders within a list (before)', () => {
+    const b = insertRelative(threeWide(), 'C', 'A', true); // C before A
+    expect(b.tabs[0].children.map(c => c.id)).toEqual(['C', 'A', 'B']);
+  });
+  it('insertRelative reparents across containers', () => {
+    const b = insertRelative(demo(), 'rw', 'w1', true); // Register before Bar (into KPIs box)
+    expect(findNode(b, 'rw')!.parent!.id).toBe('box1');
+  });
+  it('a no-op insert (already in place) yields an empty diff', () => {
+    const a = threeWide();
+    const b = insertRelative(a, 'A', 'B', true); // A before B — A already there
+    expect(diff(a, b)).toHaveLength(0);
+  });
+  it('swap is its own inverse (the revert round-trip)', () => {
+    const a = threeWide();
+    const once = swap(a, 'A', 'C');
+    expect(once.tabs[0].children.map(c => c.id)).toEqual(['C', 'B', 'A']);
+    const twice = swap(once, 'A', 'C');
+    expect(diff(a, twice)).toHaveLength(0);
+  });
+  it('addWidget inserts at an index, sized to a free-column gap', () => {
+    // gap zones add positionally: after a sibling, sized to the detected free columns
+    const a = model(n({ id: 't', kind: 'tab', className: 'Tab', children: [
+      n({ id: 'A', kind: 'widget', className: 'X', cols: { L: 4 } }),
+    ] }));
+    const { model: b, id } = addWidget(a, 't', 1, 'PieChart', undefined, 2); // after A, width 2
+    expect(b.tabs[0].children.map(c => c.id)).toEqual(['A', id]);
+    expect(findNode(b, id)!.node.cols.L).toBe(2);
+  });
+  it('packRows-style fill: A(L4)+new(L2) sums to a full 6-col row', () => {
+    const a = model(n({ id: 't', kind: 'tab', className: 'Tab', children: [
+      n({ id: 'A', kind: 'widget', className: 'X', cols: { L: 4 } }),
+    ] }));
+    const { model: b } = addWidget(a, 't', 1, 'Status', undefined, 2);
+    const used = b.tabs[0].children.reduce((s, c) => s + c.cols.L, 0);
+    expect(used).toBe(6);
+  });
+  it('moveToTab appends a widget onto another tab', () => {
+    const a = model(
+      n({ id: 't1', kind: 'tab', className: 'Tab', name: 'One', children: [n({ id: 'w', kind: 'widget', className: 'X' })] }),
+      n({ id: 't2', kind: 'tab', className: 'Tab', name: 'Two', children: [] }),
+    );
+    const b = moveToTab(a, 'w', 't2');
+    expect(findNode(b, 'w')!.parent!.id).toBe('t2');
+    expect(b.tabs[0].children).toHaveLength(0);
+    expect(diff(a, b).some(s => s.kind === 'reparent')).toBe(true);
+  });
+});
+
 describe('diff + ec compile', () => {
   it('compiles a child into a composite as <composite>.add(Child) (not container:=<widget>)', () => {
     const base = model(n({ id: 'tab1', kind: 'tab', className: 'Tab', name: 'T', children: [
@@ -188,7 +250,14 @@ describe('constraints', () => {
   });
   it('lints empty tabs (invisible on the page)', () => {
     const m = model(n({ id: 'empty', kind: 'tab', className: 'Tab', name: 'Empty', children: [] }));
-    expect(lint(m)[0]).toContain('Empty');
+    expect(lint(m, 'template', [])[0]).toContain('Empty');
+  });
+  it('lints structural add/delete only when the target is a single instance', () => {
+    const w = n({ id: 'w1', kind: 'widget', className: 'Status', name: 'W', children: [] });
+    const m = model(n({ id: 't1', kind: 'tab', className: 'Tab', name: 'T', children: [w] }));
+    const addPlan = [{ kind: 'create' as const, node: w, parentId: 't1', parentKind: 'tab' as const }];
+    expect(lint(m, 'instance', addPlan).some(s => s.includes('unverified'))).toBe(true);
+    expect(lint(m, 'template', addPlan).some(s => s.includes('unverified'))).toBe(false);
   });
 });
 
