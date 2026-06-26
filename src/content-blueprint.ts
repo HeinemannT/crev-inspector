@@ -15,7 +15,7 @@
 import type { LModel, LNode, PlanNote } from './lib/layout/types';
 import type { BlueprintCtx } from './lib/layout/sync';
 import { findNode, walk, descendantWidgets, hasHeight, isChart } from './lib/layout/model';
-import { resize, setHeight, rename, remove } from './lib/layout/edit';
+import { resize, setHeight, rename, remove, addWidget } from './lib/layout/edit';
 import { diff } from './lib/layout/diff';
 import { compile } from './lib/layout/ec';
 import { History } from './lib/layout/history';
@@ -37,14 +37,37 @@ interface BpState {
   selectedId: string | null;
   applying: boolean;
   preview: PlanNote[] | null;   // non-null → the apply-preview modal is open
+  picker: string | null;        // containerId the add-widget picker is open for
   onScroll: (() => void) | null;
 }
 const bp: BpState = {
   active: false, baseline: null, ctx: null, env: null, history: null,
-  layer: null, selectedId: null, applying: false, preview: null, onScroll: null,
+  layer: null, selectedId: null, applying: false, preview: null, picker: null, onScroll: null,
 };
 
 export function isBlueprintActive(): boolean { return bp.active; }
+
+/** Curated add palette — the common, verified-addable widget types grouped for the picker. Display
+ *  names are friendly; the key is the BMP className. (A full per-host live-derived palette is a
+ *  later refinement — these all add cleanly to a Scorecard/template container.) */
+const PALETTE: { group: string; items: { key: string; name: string }[] }[] = [
+  { group: 'Status', items: [
+    { key: 'SimpleStatus', name: 'Simple Status' }, { key: 'Status', name: 'Status' },
+    { key: 'FunctionStatus', name: 'Function Status' }, { key: 'Trend', name: 'Trend' } ] },
+  { group: 'Charts', items: [
+    { key: 'BarChart', name: 'Bar Chart' }, { key: 'LineChart', name: 'Line Chart' },
+    { key: 'BarLineChart', name: 'Bar & Line' }, { key: 'PieChart', name: 'Pie Chart' },
+    { key: 'AreaChart', name: 'Area Chart' }, { key: 'RadarChart', name: 'Radar Chart' } ] },
+  { group: 'Tables & Lists', items: [
+    { key: 'ExtendedTable', name: 'Extended Table' }, { key: 'RiskList', name: 'Risk List' },
+    { key: 'CheckList', name: 'Check List' }, { key: 'IssueList', name: 'Issue List' } ] },
+  { group: 'Text & Media', items: [
+    { key: 'TextElement', name: 'Text' }, { key: 'DescriptionView', name: 'Description' },
+    { key: 'ImageView', name: 'Image' }, { key: 'Spacer', name: 'Spacer' } ] },
+  { group: 'Input & Action', items: [
+    { key: 'InputView', name: 'Input View' }, { key: 'ActionButton', name: 'Action Button' },
+    { key: 'CustomVisualization', name: 'Custom (CVO)' }, { key: 'URLView', name: 'URL / Embed' } ] },
+];
 
 /** The edited model = history present (baseline + staged edits). */
 const model = (): LModel | null => bp.history?.present() ?? null;
@@ -54,6 +77,20 @@ const CSS = `
 #${LAYER_ID}{position:fixed;inset:0;z-index:2147483600;font:12px/1.3 Inter,system-ui,sans-serif;pointer-events:none}
 #${LAYER_ID} *{box-sizing:border-box}
 #${LAYER_ID} .bp-cont{position:absolute;border:1px dashed #9D7BFF;border-radius:4px;pointer-events:none}
+#${LAYER_ID} .bp-cadd{position:absolute;top:-10px;right:6px;width:20px;height:20px;border-radius:50%;border:1px solid #9D7BFF;background:#0B2138;color:#9D7BFF;font:700 13px Inter;line-height:1;cursor:pointer;pointer-events:auto;padding:0}
+#${LAYER_ID} .bp-cadd:hover{background:#9D7BFF;color:#0B2138}
+#${LAYER_ID} .bp-box.bp-new{border-style:dashed;border-color:#46C9D6;background:rgba(70,201,214,.07)}
+#${LAYER_ID} .bp-lab .newtag{background:#46C9D6;color:#08131f;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;letter-spacing:.06em}
+#${LAYER_ID} .bp-pick-back{position:fixed;inset:0;pointer-events:auto}
+#${LAYER_ID} .bp-pick{position:absolute;width:300px;max-height:400px;display:flex;flex-direction:column;background:#0B2138;border:1px solid #46C9D6;border-radius:9px;box-shadow:0 10px 40px rgba(0,0,0,.55);overflow:hidden}
+#${LAYER_ID} .bp-pick-h{padding:10px 12px;font-weight:700;font-size:12px;color:#dbe7f5;border-bottom:1px solid #1c3a56}
+#${LAYER_ID} .bp-pick-s{margin:8px 10px;padding:6px 9px;background:#081726;border:1px solid #2a4a66;border-radius:5px;color:#dbe7f5;font:12px Inter;outline:none}
+#${LAYER_ID} .bp-pick-s:focus{border-color:#46C9D6}
+#${LAYER_ID} .bp-pick-list{overflow:auto;padding:0 6px 8px}
+#${LAYER_ID} .bp-pick-grp{padding:6px 8px 2px;color:#7d93a8;font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+#${LAYER_ID} .bp-pick-it{display:flex;justify-content:space-between;align-items:baseline;width:100%;padding:6px 9px;border:0;border-radius:5px;background:transparent;color:#cfe0f0;font:12px Inter;cursor:pointer;text-align:left}
+#${LAYER_ID} .bp-pick-it:hover{background:#16344f}
+#${LAYER_ID} .bp-pick-it .k{font:10px ui-monospace,monospace;color:#6f879c}
 #${LAYER_ID} .bp-box{position:absolute;border:1.5px solid #82B4DE;border-radius:3px;background:rgba(130,180,222,.06);box-shadow:inset 0 0 22px rgba(130,180,222,.08);pointer-events:auto;cursor:pointer}
 #${LAYER_ID} .bp-box.bp-chart{border-color:#93A7E6;background:rgba(147,167,230,.06)}
 #${LAYER_ID} .bp-box.sel{border-color:#46C9D6;box-shadow:inset 0 0 0 1px #46C9D6}
@@ -135,7 +172,7 @@ export function disableBlueprint(): void {
     window.removeEventListener('resize', bp.onScroll, true);
   }
   bp.layer?.remove();
-  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, onScroll: null });
+  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, onScroll: null });
 }
 
 export function onLayoutLoaded(msg: { ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; orphans?: unknown[]; error?: string }): void {
@@ -175,6 +212,18 @@ function setWidth(id: string, n: number): void { const m = model(); if (m) mutat
 function setH(id: string, px: number): void { const m = model(); if (m) mutate(setHeight(m, id, px)); }
 function doRename(id: string, name: string): void { const m = model(); if (m) mutate(rename(m, id, name)); }
 function doDelete(id: string): void { const m = model(); if (m) { bp.selectedId = null; mutate(remove(m, id)); } }
+function openPicker(containerId: string): void { bp.picker = containerId; bp.selectedId = null; render(); }
+function closePicker(): void { bp.picker = null; render(); }
+function addFromPicker(className: string): void {
+  const m = model(); const cid = bp.picker;
+  if (!m || !cid) return;
+  const f = findNode(m, cid);
+  const idx = f ? f.node.children.length : 0;
+  const added = addWidget(m, cid, idx, className);
+  bp.picker = null;
+  bp.selectedId = added.id;
+  mutate(added.model);
+}
 function undo(): void { const m = bp.history?.undo(); if (m) { bp.selectedId = null; render(); } }
 function redo(): void { const m = bp.history?.redo(); if (m) { bp.selectedId = null; render(); } }
 function discard(): void { if (bp.baseline) { bp.history = new History(bp.baseline); bp.selectedId = null; render(); } }
@@ -236,8 +285,21 @@ function render(): void {
     layer.appendChild(widgetBox(node, r, m));
   });
 
-  // selection toolbar (hidden while the preview modal is up)
-  if (!bp.preview) {
+  // NEW widgets (staged adds) have no DOM — draw dashed placeholders stacked at the bottom of their
+  // container's live area, so you can see what will be created and where.
+  const stackY = new Map<string, number>();
+  walk(m, (node, parent) => {
+    if (node.kind !== 'widget' || node.rid || !parent) return; // rid-less ⇒ staged add
+    const host = findNode(base, parent.id)?.node;
+    const rect = host ? unionRect(host, byRid) : null;
+    if (!rect) return;
+    const offset = stackY.get(parent.id) ?? 0;
+    stackY.set(parent.id, offset + 42);
+    layer.appendChild(newWidgetBox(node, { left: rect.left, top: rect.top + rect.height + 4 + offset, width: rect.width, height: 38 }));
+  });
+
+  // selection toolbar (hidden while a modal/picker is up)
+  if (!bp.preview && !bp.picker) {
     const selBox = bp.selectedId ? findNode(m, bp.selectedId) : null;
     if (selBox) {
       const anchor = anchorRect(selBox.node, byRid);
@@ -245,8 +307,61 @@ function render(): void {
     }
   }
 
-  // apply-preview modal
+  if (bp.picker) layer.appendChild(pickerPanel(byRid));
   if (bp.preview) layer.appendChild(previewModal(bp.preview, ctx));
+}
+
+function newWidgetBox(node: LNode, r: Rect): HTMLElement {
+  const box = document.createElement('div');
+  box.className = 'bp-box bp-new' + (isChart(node.className) ? ' bp-chart' : '')
+    + (bp.selectedId === node.id ? ' sel' : '');
+  Object.assign(box.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  box.addEventListener('mousedown', (e) => { e.stopPropagation(); select(node.id); });
+  const lab = document.createElement('div'); lab.className = 'bp-lab';
+  const tag = document.createElement('span'); tag.className = 'newtag'; tag.textContent = 'NEW';
+  const nm = document.createElement('span'); nm.className = 'bp-nm'; nm.textContent = node.name;
+  const ty = document.createElement('span'); ty.className = 'ty'; ty.textContent = node.className.toUpperCase();
+  lab.append(tag, nm, ty);
+  box.appendChild(lab);
+  return box;
+}
+
+/** The add-widget picker — searchable, grouped. Anchored over the target container. */
+function pickerPanel(byRid: Map<string, Element>): HTMLElement {
+  const cid = bp.picker!;
+  const host = bp.baseline ? findNode(bp.baseline, cid)?.node : null;
+  const rect = host ? unionRect(host, byRid) : null;
+  const back = document.createElement('div'); back.className = 'bp-pick-back';
+  back.addEventListener('mousedown', (e) => { if (e.target === back) closePicker(); });
+  const panel = document.createElement('div'); panel.className = 'bp-pick';
+  if (rect) { panel.style.left = `${Math.min(rect.left, window.innerWidth - 320)}px`; panel.style.top = `${Math.min(rect.top + 24, window.innerHeight - 420)}px`; }
+  else { panel.style.left = '50%'; panel.style.top = '80px'; panel.style.transform = 'translateX(-50%)'; }
+  const head = document.createElement('div'); head.className = 'bp-pick-h';
+  head.textContent = `Add widget to ${host?.name ?? 'container'}`;
+  const search = document.createElement('input'); search.className = 'bp-pick-s'; search.placeholder = 'Search widgets…';
+  const list = document.createElement('div'); list.className = 'bp-pick-list';
+  const fill = (q: string): void => {
+    list.textContent = '';
+    const ql = q.trim().toLowerCase();
+    for (const grp of PALETTE) {
+      const items = grp.items.filter(it => !ql || it.name.toLowerCase().includes(ql) || it.key.toLowerCase().includes(ql));
+      if (!items.length) continue;
+      const gh = document.createElement('div'); gh.className = 'bp-pick-grp'; gh.textContent = grp.group; list.appendChild(gh);
+      for (const it of items) {
+        const b = document.createElement('button'); b.className = 'bp-pick-it';
+        b.innerHTML = `<span>${it.name}</span><span class="k">${it.key}</span>`;
+        b.addEventListener('mousedown', (e) => { e.stopPropagation(); addFromPicker(it.key); });
+        list.appendChild(b);
+      }
+    }
+    if (!list.children.length) { const e = document.createElement('div'); e.className = 'bp-pick-grp'; e.textContent = 'no match'; list.appendChild(e); }
+  };
+  search.addEventListener('input', () => fill(search.value));
+  fill('');
+  panel.append(head, search, list);
+  back.appendChild(panel);
+  setTimeout(() => search.focus(), 0);
+  return back;
 }
 
 const VERB_ICON: Record<PlanNote['verb'], string> = {
@@ -325,6 +440,11 @@ function containerBox(baseNode: LNode, rect: Rect, m: LModel): HTMLElement {
   box.className = 'bp-cont';
   Object.assign(box.style, { left: `${rect.left - 3}px`, top: `${rect.top - 3}px`, width: `${rect.width + 6}px`, height: `${rect.height + 6}px` });
   if (cur && cur.cols.L !== baseNode.cols.L) box.style.borderColor = '#E0A85A';
+  // "+ widget" affordance — top-right of the container, the only interactive part of the dashed box
+  const add = document.createElement('button');
+  add.className = 'bp-cadd'; add.textContent = '＋'; add.title = `Add a widget to ${baseNode.name}`;
+  add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(baseNode.id); });
+  box.appendChild(add);
   return box;
 }
 
