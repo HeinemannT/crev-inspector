@@ -91,13 +91,20 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
     for (const kind of ['tab', 'container', 'widget'] as NodeKind[]) {
       const group = childIdsOf(B, pid).filter(id => kindOfId(id) === kind);
       if (group.length < 2) continue;
-      // baseline children STILL under pid (a reparented-AWAY node must not inflate the order).
-      // A node created here, or reparented IN from elsewhere, is not in survivingBase and lands
-      // at the end naturally (add() appends, reparent appends) -> if its desired slot differs,
-      // the join mismatch fires the moveAfter chain. (New parents are handled too: survivingBase
-      // is empty, so an all-new in-order group matches `natural` and emits nothing.)
+      // `natural` = the order BMP produces from the create+reparent steps ALONE (before any reorder),
+      // so a reorder only emits when the desired order genuinely differs from it. That order is:
+      //   surviving base children (kept in base order)            -- untouched, stay put
+      //   + created nodes (desired order)                         -- creates run first, pre-order DFS
+      //   + reparented-IN nodes (desired order)                   -- reparents run next, B-map order
+      // both creates and reparents APPEND, and both phases iterate in desired order, so this mirrors
+      // the live result. Excluding reparented-in nodes (the old bug) made every move-INTO a populated
+      // box re-emit a moveAfter for each sibling -> "1 move = N changes". Including them at their
+      // appended slot means an append-move needs no reorder at all. When an interleave IS wanted the
+      // join still mismatches and the full chain (which reconstructs the exact order) fires.
       const survivingBase = childIdsOf(A, pid).filter(id => B.get(id)?.parentId === pid && kindOfId(id) === kind);
-      const natural = [...survivingBase, ...group.filter(id => !A.has(id))];
+      const createdIn = group.filter(id => !A.has(id));
+      const reparentedIn = group.filter(id => A.has(id) && !survivingBase.includes(id));
+      const natural = [...survivingBase, ...createdIn, ...reparentedIn];
       if (group.join(' ') !== natural.join(' ')) {
         for (let i = 1; i < group.length; i++) steps.push({ kind: 'reorder', id: group[i], afterId: group[i - 1] });
       }

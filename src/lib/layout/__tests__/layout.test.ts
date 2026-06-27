@@ -270,6 +270,23 @@ describe('diff + ec compile', () => {
     expect(compile(diff(base, base), base).script).toBe('');
   });
 
+  it('moving a node INTO a populated box (append) is 1 reparent + 0 reorders, not N', () => {
+    const base = model(n({ id: 't', kind: 'tab', className: 'Tab', children: [
+      n({ id: 'box', kind: 'container', className: 'Container', name: 'Box', children: [
+        n({ id: 'a', kind: 'widget', className: 'X' }), n({ id: 'b', kind: 'widget', className: 'Y' }),
+      ] }),
+      n({ id: 'w', kind: 'widget', className: 'Z' }),
+    ] }));
+    // append `w` into box → BMP's reparent appends, so the result order already matches; no reorder noise.
+    const appended = move(base, 'w', 'box', 99);
+    const steps = diff(base, appended);
+    expect(steps.filter(s => s.kind === 'reparent')).toHaveLength(1);
+    expect(steps.filter(s => s.kind === 'reorder')).toHaveLength(0);
+    // but a genuine interleave (drop `w` at the FRONT of box) still needs reorders to reconstruct it
+    const front = move(base, 'w', 'box', 0);
+    expect(diff(base, front).some(s => s.kind === 'reorder')).toBe(true);
+  });
+
   it('escapes names in EC string slots', () => {
     const base = demo();
     const d = rename(base, 'w1', 'say "hi"\\n');
