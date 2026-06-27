@@ -111,8 +111,35 @@ export function revertNode(id: string): void {
 export function setHint(text: string | null): void { if (bp.hint !== text) { bp.hint = text; render(); } }
 export function toggleTray(): void { bp.trayOpen = !bp.trayOpen; render(); }
 
-export function undo(): void { const m = bp.history?.undo(); if (m) { bp.selectedId = null; render(); } }
-export function redo(): void { const m = bp.history?.redo(); if (m) { bp.selectedId = null; render(); } }
+/** A self-clearing hint-bar message for actions with no spatial gesture of their own (undo/redo).
+ *  The timer only clears its OWN text, so a later gesture hint isn't clobbered. The caller renders. */
+let hintTimer: ReturnType<typeof setTimeout> | undefined;
+function flashHint(text: string): void {
+  bp.hint = text;
+  if (hintTimer) clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => { if (bp.hint === text) { bp.hint = null; render(); } }, 1400);
+}
+
+/** Count of staged changes vs baseline — so undo/redo can confirm where the model now stands. */
+function pendingLabel(m: LModel): string {
+  const n = bp.baseline ? diff(bp.baseline, m).length : 0;
+  return n === 0 ? 'back to original' : `${n} pending change${n === 1 ? '' : 's'}`;
+}
+
+export function undo(): void {
+  const m = bp.history?.undo();
+  if (!m) { flashHint('Nothing to undo'); render(); return; }
+  bp.selectedId = null;
+  flashHint(`Undo · ${pendingLabel(m)}`);
+  render();
+}
+export function redo(): void {
+  const m = bp.history?.redo();
+  if (!m) { flashHint('Nothing to redo'); render(); return; }
+  bp.selectedId = null;
+  flashHint(`Redo · ${pendingLabel(m)}`);
+  render();
+}
 export function discard(): void { if (bp.baseline) { bp.history = new History(bp.baseline); bp.selectedId = null; render(); } }
 
 /** Apply opens a preview first — never commit blind. The plan is computed with the SAME diff+compile

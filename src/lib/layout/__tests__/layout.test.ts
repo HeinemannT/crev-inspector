@@ -228,6 +228,27 @@ describe('diff + ec compile', () => {
     expect(compile(diff(demo(), normal), normal).script).toContain('t.w1.change');
   });
 
+  it('registers a concurrent CLEAR (M/height set→unset) as drift, but never emits broken EC', () => {
+    // The stale-guard is `diff(baseline, live).length > 0`. If someone else clears an authored M-width
+    // or chart height server-side, diff MUST see it — else the apply re-imposes the old value and
+    // clobbers their change. The old `b.cols[bp] != null` guard dropped clears, blinding the guard.
+    const baseline = model(n({ id: 'tab1', kind: 'tab', className: 'Tab', name: 'T', children: [
+      n({ id: 'w', kind: 'widget', className: 'BarChart', name: 'C', cols: { L: 6, M: 4 }, height: 300 }),
+    ] }));
+    const live = model(n({ id: 'tab1', kind: 'tab', className: 'Tab', name: 'T', children: [
+      n({ id: 'w', kind: 'widget', className: 'BarChart', name: 'C', cols: { L: 6 }, height: undefined }), // M + height cleared
+    ] }));
+    const steps = diff(baseline, live);
+    const upd = steps.find(s => s.kind === 'update');
+    expect(upd).toBeDefined();                       // drift detected → stale-guard fires
+    expect((upd as { cols?: unknown }).cols).toEqual({ M: null });
+    expect((upd as { height?: unknown }).height).toBeNull();
+    // compile must NOT serve the clear (no verb yet) NOR emit a broken empty change()
+    const { script } = compile(steps, live);
+    expect(script).not.toContain('change()');
+    expect(script).toBe('');                          // nothing serveable → empty script
+  });
+
   it('reorder emits moveAfter only when order actually changes', () => {
     const base = model(n({ id: 't', kind: 'tab', className: 'Tab', children: [
       n({ id: 'A', kind: 'widget', className: 'X' }), n({ id: 'B', kind: 'widget', className: 'Y' }),

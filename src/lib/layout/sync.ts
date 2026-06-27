@@ -272,5 +272,14 @@ export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel
     return { ok: false, noop: false, plan, notes, script, error: res.error || 'apply failed' };
   }
   const reloaded = await loadModel(io, ctx);
+  // Silent-rollback guard (structural, not log-scraping). The commit is transactional — all steps land
+  // or none do — so after a SUCCESSFUL apply of a non-empty plan the re-fetched page MUST differ from
+  // the baseline. If it still matches, BMP discarded the transaction and returned ok with no ERROR
+  // (the "200 but nothing changed" case). Catch it here rather than letting the UI mark an unchanged
+  // page as saved. A reworded/localized rollback message can't slip past this the way a regex could.
+  if (diff(baseline, reloaded.model).length === 0) {
+    return { ok: false, noop: false, plan, notes, script, model: reloaded.model, baseline: reloaded.baseline,
+      error: 'BMP discarded the changes — the page is unchanged. Reload the page and try again.' };
+  }
   return { ok: true, noop: false, plan, notes, script, model: reloaded.model, baseline: reloaded.baseline };
 }

@@ -229,7 +229,14 @@ describe('sync.applyModel', () => {
     let desired = addContainer(baseline, '4904', 0, 3, 'New KPIs').model;
     desired = rename(desired, '4969', 'Analyst Notes');
     const execed: { code: string; commit: boolean }[] = [];
-    io.exec = vi.fn(async (code: string, commit = false) => { execed.push({ code, commit }); return { ok: true, log: LIVE_LOG }; });
+    // The post-commit re-fetch must reflect the applied rename, else the structural rollback guard
+    // (an unchanged page after a non-empty commit = a discarded transaction) correctly fails it.
+    let committed = false;
+    io.exec = vi.fn(async (code: string, commit = false) => {
+      execed.push({ code, commit });
+      if (commit) { committed = true; return { ok: true, log: LIVE_LOG }; }
+      return { ok: true, log: committed ? LIVE_LOG.replace('|Notes', '|Analyst Notes') : LIVE_LOG };
+    });
     const res = await applyModel(io, baseline, desired, CTX);
     expect(res.ok).toBe(true);
     expect(res.noop).toBe(false);
@@ -261,6 +268,20 @@ describe('sync.applyModel', () => {
     expect(committed).toBe(false);          // nothing was written
     expect(res.model).toBeDefined();        // fresh live state handed back for rebase
     expect(findNode(res.model!, '4964')!.node.name).toBe('Register RENAMED');
+  });
+  it('detects a SILENT rollback: commit returns ok but the re-fetched page is unchanged', async () => {
+    // BMP discarded the transaction and returned ok with no ERROR (the "200 but nothing changed" case).
+    // The re-fetch still matches the baseline, so the structural guard must fail the apply rather than
+    // letting the UI mark an unchanged page as saved — no log-phrase scraping involved.
+    const io = fakeIo(LIVE_LOG);
+    const { baseline } = await loadModel(io, CTX);
+    const desired = rename(baseline, '4969', 'Analyst Notes');
+    io.exec = vi.fn(async (_code: string, _commit = false) => ({ ok: true, log: LIVE_LOG })); // every fetch = unchanged
+    const res = await applyModel(io, baseline, desired, CTX);
+    expect(res.ok).toBe(false);
+    expect(res.stale).toBeFalsy();
+    expect(res.error).toMatch(/discarded|unchanged/i);
+    expect(res.model).toBeDefined();         // fresh live state still handed back
   });
   it('reports failure when the commit EC errors (stale-check passes first)', async () => {
     const io = fakeIo(LIVE_LOG);

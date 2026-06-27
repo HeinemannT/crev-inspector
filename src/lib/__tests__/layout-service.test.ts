@@ -15,18 +15,14 @@ describe('layout-service.makeLayoutIO', () => {
     expect(seen).toEqual([false, true]);
   });
 
-  it('downgrades a silent rollback to failure on a committing run', async () => {
-    const io = makeLayoutIO(stubClient(() => ({ ok: true, log: 'Message : No changes done due to errors' })));
-    const res = await io.exec('apply', true);
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/rolled back/i);
-  });
-
-  it('does NOT treat a rollback phrase in a READ as failure (only commits are guarded)', async () => {
-    // a fetch whose data legitimately contains the phrase must not be falsely failed
+  it('does NOT scrape the log for rollback phrases — even on a commit (detection moved to applyModel)', async () => {
+    // The old regex flipped ok→false when the log matched a rollback phrase. That's brittle (a
+    // reworded message slips past) AND prone to false-positives (a widget name containing the phrase
+    // failed a clean commit). Silent-rollback detection now lives in applyModel as a structural
+    // re-fetch compare, so the IO adapter passes results through verbatim.
     const io = makeLayoutIO(stubClient(() => ({ ok: true, log: 'widget named "No changes done due to errors"' })));
-    const res = await io.exec('read');     // commit = false
-    expect(res.ok).toBe(true);
+    expect((await io.exec('apply', true)).ok).toBe(true);
+    expect((await io.exec('read')).ok).toBe(true);
   });
 
   it('passes a clean commit through unchanged', async () => {

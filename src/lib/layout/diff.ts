@@ -38,9 +38,13 @@ function index(m: LModel): Map<string, Entry> {
 const childIdsOf = (idx: Map<string, Entry>, parentId: string): string[] =>
   [...idx.values()].filter(e => e.parentId === parentId).sort((a, b) => a.sibIndex - b.sibIndex).map(e => e.node.id);
 
-function changedCols(a: LNode, b: LNode): Partial<Record<Breakpoint, number>> | undefined {
-  const out: Partial<Record<Breakpoint, number>> = {};
-  (['L', 'M', 'S'] as Breakpoint[]).forEach(bp => { if (a.cols[bp] !== b.cols[bp] && b.cols[bp] != null) out[bp] = b.cols[bp]!; });
+function changedCols(a: LNode, b: LNode): Partial<Record<Breakpoint, number | null>> | undefined {
+  const out: Partial<Record<Breakpoint, number | null>> = {};
+  // Emit whenever the value differs, INCLUDING a clear (set → unset), carried as null. The old guard
+  // (`b.cols[bp] != null`) dropped clears, which blinded the stale-guard to a concurrent server-side
+  // clear (baseline 6 vs live unset read as "no change" → the apply would re-impose the 6, clobbering
+  // it). null lets diff register that drift; ec.ts skips serving the clear (no verb for it yet).
+  (['L', 'M', 'S'] as Breakpoint[]).forEach(bp => { if (a.cols[bp] !== b.cols[bp]) out[bp] = b.cols[bp] ?? null; });
   return Object.keys(out).length ? out : undefined;
 }
 
@@ -67,7 +71,8 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
     if (!a) continue;
     const cols = changedCols(a.node, b.node);
     const name = a.node.name !== b.node.name ? b.node.name : undefined;
-    const height = a.node.height !== b.node.height && b.node.height != null ? b.node.height : undefined;
+    // null = a cleared height (set → unset). Carried for the stale-guard, same as cols above.
+    const height = a.node.height !== b.node.height ? (b.node.height ?? null) : undefined;
     if (cols || name !== undefined || height !== undefined) {
       steps.push({ kind: 'update', id, className: b.node.className, cols, name, height });
     }

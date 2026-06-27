@@ -66,7 +66,10 @@ export interface LModel {
 /** One step of an apply plan (the diff between baseline and desired). */
 export type PlanStep =
   | { kind: 'create'; node: LNode; parentId: string; parentKind: NodeKind }
-  | { kind: 'update'; id: string; className: string; cols?: Partial<Record<Breakpoint, number>>; name?: string; height?: number }
+  // A `null` col/height means CLEARED (the value was set in the baseline and is unset in the target).
+  // diff carries it so the stale-guard sees a concurrent server-side clear as drift; ec.ts does not
+  // emit it (BMP has no verified clear verb — `:= MISSING` is a no-op on these fields).
+  | { kind: 'update'; id: string; className: string; cols?: Partial<Record<Breakpoint, number | null>>; name?: string; height?: number | null }
   | { kind: 'reparent'; id: string; nodeKind: NodeKind; toParentId: string; toParentKind: NodeKind }
   // afterId is always a real same-kind sibling — diff anchors group[0] and reorders the rest after
   // their predecessor, so "move to first" never needs a null (it falls out of reordering the others).

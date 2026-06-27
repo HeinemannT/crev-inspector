@@ -101,9 +101,13 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
       }
       case 'update': {
         const parts: string[] = [];
+        // null col/height = CLEARED. BMP has no verified clear verb for these (`:= MISSING` is a
+        // no-op), so we skip serving it — the null exists only so the stale-guard sees a concurrent
+        // clear as drift. If a step is ONLY clears, parts is empty; omit it rather than emit `change()`.
         if (s.cols) (['L', 'M', 'S'] as Breakpoint[]).forEach(bp => { if (s.cols![bp] != null) parts.push(`${COL_PROP[bp]} := ${s.cols![bp]}`); });
         if (s.name != null) parts.push(`name := ${ecStr(s.name)}`);
         if (s.height != null) parts.push(`chartHeight := ${s.height}`);
+        if (!parts.length) break;
         const label = byId.get(s.id)?.name ?? s.id;
         emit({ verb: 'update', text: `Update "${label}" (${parts.length} change${parts.length > 1 ? 's' : ''})`,
           ec: `${ref(s.id)}.change(${parts.join(', ')})` });
