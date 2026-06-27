@@ -4051,6 +4051,14 @@ body.crev-divider-dragging * { user-select: none; }
   border-radius: var(--radius-sm);
 }
 
+/* Copy-confirmation flash — the node name briefly turns success-green while it
+   shows "Copied ID" (see activateNode/flashCopied in flow-walker.ts). */
+.flow-flash-ok .flow-name,
+.flow-flash-ok .flow-group-name {
+  color: var(--success);
+  transition: color var(--duration-fast) var(--ease-default);
+}
+
 .flow-hint {
   margin-top: var(--space-1);
   padding: 2px var(--space-2);

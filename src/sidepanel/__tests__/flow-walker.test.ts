@@ -85,13 +85,34 @@ describe('renderFlowSection', () => {
     expect(head!.getAttribute('title')).toContain('ab_demo');
   });
 
-  it('clicking the root head calls onNavigate with the step rid', () => {
+  it('plain-clicking the root head copies the business id AND navigates', () => {
     const onNavigate = vi.fn();
-    const chain: FlowChainMsg = { steps: [step({ identity: { rid: '42', businessId: 'b', name: 'N', type: 'ButtonInput' } })] };
+    const writes: string[] = [];
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      value: { writeText: (t: string) => { writes.push(t); return Promise.resolve(); } },
+      configurable: true,
+    });
+    const chain: FlowChainMsg = { steps: [step({ identity: { rid: '42', businessId: 'bizId42', name: 'N', type: 'ButtonInput' } })] };
     const el = renderFlowSection(inputs({ chain, onNavigate }));
     const head = el.querySelector<HTMLElement>('.flow-root-head');
     head!.click();
     expect(onNavigate).toHaveBeenCalledWith('42');
+    expect(writes).toContain('bizId42'); // plain click = copy ID + open
+  });
+
+  it('alt-clicking copies the RID instead and does NOT navigate', () => {
+    const onNavigate = vi.fn();
+    const writes: string[] = [];
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      value: { writeText: (t: string) => { writes.push(t); return Promise.resolve(); } },
+      configurable: true,
+    });
+    const chain: FlowChainMsg = { steps: [step({ identity: { rid: '42', businessId: 'bizId42', name: 'N', type: 'ButtonInput' } })] };
+    const el = renderFlowSection(inputs({ chain, onNavigate }));
+    const head = el.querySelector<HTMLElement>('.flow-root-head')!;
+    head.dispatchEvent(new MouseEvent('click', { altKey: true, bubbles: true }));
+    expect(writes).toContain('42');       // Alt → RID
+    expect(onNavigate).not.toHaveBeenCalled();
   });
 
   it('collapses a single-child InputSet into a quiet container line', () => {

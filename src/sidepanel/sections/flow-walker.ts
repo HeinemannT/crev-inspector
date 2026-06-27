@@ -21,6 +21,7 @@
 import { h, svg } from '../../lib/dom';
 import { getTypeColor, getTypeAbbr } from '../../lib/types';
 import { ecPreviewSpan } from '../../lib/ec-format';
+import { resolveCopyText, getModifier, type CopyModifier } from '../../lib/namespace';
 import {
   ICON_KEY, ICON_CODE, ICON_LIGHTNING, ICON_ARROW_SQUARE_IN, ICON_ARROW_OUT,
   ICON_EYE_SLASH, ICON_SUBTITLES_SLASH, ICON_CODE_BLOCK,
@@ -167,17 +168,60 @@ function renderLeaf(leaf: FlowStepMsg, input: FlowSectionInput): HTMLElement {
   return card;
 }
 
+const FLOW_COPY_HINT =
+  'Click: copy ID + open · Alt → RID · Shift → Template · Ctrl → Reference';
+
 function navAttrs(node: FlowStepMsg, input: FlowSectionInput) {
+  const { rid, businessId, type } = node.identity;
   return {
-    'data-rid': node.identity.rid,
+    'data-rid': rid,
     role: 'button',
     tabindex: '0',
-    title: `${node.identity.type} · ${node.identity.businessId || node.identity.rid}`,
-    onClick: () => input.onNavigate(node.identity.rid),
+    title: `${type} · ${businessId || rid}\n${FLOW_COPY_HINT}`,
+    onClick: (e: MouseEvent) => activateNode(e.currentTarget as HTMLElement, node, input, getModifier(e)),
     onKeydown: (e: KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.onNavigate(node.identity.rid); }
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        activateNode(e.currentTarget as HTMLElement, node, input, 'plain');
+      }
     },
   };
+}
+
+/** Click/activate a flow node. Mirrors the in-page overlay's gesture so the
+ *  sidebar's explore behaviour is consistent: a plain click is the
+ *  configurator's "I want this object" — copy its business id AND drill in;
+ *  a modifier-click copies a variant (Alt → RID, Shift → template, Ctrl → ref)
+ *  without navigating. See src/lib/namespace.ts (resolveCopyText). */
+function activateNode(head: HTMLElement, node: FlowStepMsg, input: FlowSectionInput, mod: CopyModifier): void {
+  const { rid, businessId, type } = node.identity;
+  if (mod === 'plain') {
+    if (businessId) { copyToClipboard(businessId); flashCopied(head, 'Copied ID'); }
+    input.onNavigate(rid);
+    return;
+  }
+  const { text, label } = resolveCopyText({ rid, businessId, type }, mod);
+  if (text) { copyToClipboard(text); flashCopied(head, `Copied ${label}`); }
+  else flashCopied(head, label); // e.g. "No template"
+}
+
+/** Optional-chained so it's a no-op when the clipboard is unavailable (the
+ *  visible flash is best-effort feedback, never a hard dependency). */
+function copyToClipboard(text: string): void {
+  navigator.clipboard?.writeText(text).catch(() => { /* blocked — silent */ });
+}
+
+/** Briefly swap the node's name to a confirmation so the copy is visible. */
+function flashCopied(head: HTMLElement, message: string): void {
+  const nameEl = head.querySelector<HTMLElement>('.flow-name, .flow-group-name');
+  if (!nameEl) return;
+  const original = nameEl.textContent;
+  nameEl.textContent = message;
+  head.classList.add('flow-flash-ok');
+  setTimeout(() => {
+    nameEl.textContent = original;
+    head.classList.remove('flow-flash-ok');
+  }, 700);
 }
 
 function renderNavHead(cls: string, node: FlowStepMsg, input: FlowSectionInput): HTMLElement {
