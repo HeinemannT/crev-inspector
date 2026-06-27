@@ -122,7 +122,10 @@ function attachActionSubtrees(data: Record<string, string>, childByRid: Map<stri
   const splitRows = (block: string | undefined): string[][] =>
     (block ?? '').split('\n').map(l => l.trim()).filter(Boolean).map(l => l.split('|'));
 
-  const ntgByRid = new Map<string, FlowStep>();
+  // A transport group can be referenced by more than one button (e.g. a form
+  // button and a group button both fire the same action), so map each ntgRid to
+  // ALL its owner-nested copies and fan the transports out to every one.
+  const ntgByRid = new Map<string, FlowStep[]>();
   for (const [ownerRid, ntgRid, ntgId, ntgName, ntgClass] of splitRows(data.actiongroups)) {
     const owner = ownerRid ? childByRid.get(ownerRid) : undefined;
     if (!owner || !ntgRid) continue;
@@ -132,15 +135,23 @@ function attachActionSubtrees(data: Record<string, string>, childByRid: Map<stri
       children: [],
     };
     (owner.children ??= []).push(ntgStep);
-    ntgByRid.set(ntgRid, ntgStep);
+    const copies = ntgByRid.get(ntgRid);
+    if (copies) copies.push(ntgStep); else ntgByRid.set(ntgRid, [ntgStep]);
   }
+  // Transports are emitted once per owner, so the same (group, transport) pair
+  // repeats — dedupe before fanning out.
+  const seen = new Set<string>();
   for (const [ntgRid, transRid, id, name, cls] of splitRows(data.actiontransports)) {
-    const ntg = ntgRid ? ntgByRid.get(ntgRid) : undefined;
-    if (!ntg || !transRid) continue;
-    const tStep: FlowStep = { identity: { rid: transRid, businessId: id ?? '', name: name ?? '', type: cls ?? '' } };
-    const code = buildTransportCodeFields(data, transRid, 'child');
-    if (code.length > 0) tStep.codeFields = code;
-    ntg.children!.push(tStep);
+    if (!ntgRid || !transRid || seen.has(`${ntgRid}|${transRid}`)) continue;
+    seen.add(`${ntgRid}|${transRid}`);
+    const targets = ntgByRid.get(ntgRid);
+    if (!targets) continue;
+    for (const ntg of targets) {
+      const tStep: FlowStep = { identity: { rid: transRid, businessId: id ?? '', name: name ?? '', type: cls ?? '' } };
+      const code = buildTransportCodeFields(data, transRid, 'child');
+      if (code.length > 0) tStep.codeFields = code;
+      ntg.children!.push(tStep);
+    }
   }
 }
 

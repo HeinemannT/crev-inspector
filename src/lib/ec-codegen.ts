@@ -107,40 +107,56 @@ function transportChildEc(keyPrefix: string, indent: string, varName = '_c'): st
  *  blocks so the contiguous identity blocks aren't split. `setVar` is the EC
  *  var holding the InputSet. Verified live against t.153. */
 function inputActionEc(setVar: string): string[] {
-  // The guard repeated across the three passes: bind _ao to a button child's
-  // actionObject, or skip non-buttons / actionless buttons.
-  const guard = (body: string[]): string[] => [
-    `${setVar}.children().forEach(_c:`,
-    '  IF _c.className = "ButtonInput" OR _c.className = "ActionButton" THEN',
-    '    _ao := _c.actionObject',
-    '    IF _ao != MISSING THEN',
-    ...body,
-    '    ELSE',
-    '      _r := _r',
-    '    ENDIF',
-    '  ELSE',
-    '    _r := _r',
-    '  ENDIF',
-    ')',
-  ];
+  // Visit every action-bearing button — direct InputSet children AND buttons
+  // nested inside a ButtonGroup — binding _b to the button and _ao to its
+  // actionObject, then running `inner` (which uses _b / _ao). Buttons may share
+  // an actionObject (e.g. two buttons → one transport group); the parser
+  // dedupes transports and fans them out to every owner.
+  const visit = (inner: string[]): string[] => {
+    const block = (btn: string, ind: string): string[] => [
+      `${ind}_b := ${btn}`,
+      `${ind}IF _b.className = "ButtonInput" OR _b.className = "ActionButton" THEN`,
+      `${ind}  _ao := _b.actionObject`,
+      `${ind}  IF _ao != MISSING THEN`,
+      ...inner.map(l => `${ind}    ${l}`),
+      `${ind}  ELSE`,
+      `${ind}    _r := _r`,
+      `${ind}  ENDIF`,
+      `${ind}ELSE`,
+      `${ind}  _r := _r`,
+      `${ind}ENDIF`,
+    ];
+    return [
+      `${setVar}.children().forEach(_c:`,
+      ...block('_c', '  '),
+      '  IF _c.className = "ButtonGroup" THEN',
+      '    _c.children().forEach(_g:',
+      ...block('_g', '      '),
+      '    )',
+      '  ELSE',
+      '    _r := _r',
+      '  ENDIF',
+      ')',
+    ];
+  };
   return [
     // owner→group: ownerButtonRid|ntgRid|ntgId|ntgName|ntgClassName
     `_r := _r + _sep + "actiongroups" + _sep + "\\n"`,
-    ...guard([
-      '      _r := _r + _c.rid.whenMissing("") + "|" + _ao.rid.whenMissing("") + "|" + _ao.id.whenMissing("") + "|" + _ao.name.whenMissing("") + "|" + _ao.className.whenMissing("") + "\\n"',
+    ...visit([
+      '_r := _r + _b.rid.whenMissing("") + "|" + _ao.rid.whenMissing("") + "|" + _ao.id.whenMissing("") + "|" + _ao.name.whenMissing("") + "|" + _ao.className.whenMissing("") + "\\n"',
     ]),
     // group→transport identity: ntgRid|transportRid|id|name|className
     `_r := _r + _sep + "actiontransports" + _sep + "\\n"`,
-    ...guard([
-      '      _ao.children().forEach(_t:',
-      '        _r := _r + _ao.rid.whenMissing("") + "|" + _t.rid.whenMissing("") + "|" + _t.id.whenMissing("") + "|" + _t.name.whenMissing("") + "|" + _t.className.whenMissing("") + "\\n"',
-      '      )',
+    ...visit([
+      '_ao.children().forEach(_t:',
+      '  _r := _r + _ao.rid.whenMissing("") + "|" + _t.rid.whenMissing("") + "|" + _t.id.whenMissing("") + "|" + _t.name.whenMissing("") + "|" + _t.className.whenMissing("") + "\\n"',
+      ')',
     ]),
     // per-transport EC (child_ prefix, keyed by transport rid)
-    ...guard([
-      '      _ao.children().forEach(_t:',
-      ...transportChildEc('child', '        ', '_t'),
-      '      )',
+    ...visit([
+      '_ao.children().forEach(_t:',
+      ...transportChildEc('child', '  ', '_t'),
+      ')',
     ]),
   ];
 }

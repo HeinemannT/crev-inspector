@@ -283,7 +283,8 @@ describe('InputView / InputSet flow EC (button groups + button actions)', () => 
     expect(code).toContain('"actiongroups"');
     expect(code).toContain('"actiontransports"');
     expect(code).toContain('IF _c.className = "ButtonGroup" THEN');
-    expect(code).toContain('IF _c.className = "ButtonInput" OR _c.className = "ActionButton" THEN');
+    // Action guard binds _b to the button (direct child OR group grandchild).
+    expect(code).toContain('IF _b.className = "ButtonInput" OR _b.className = "ActionButton" THEN');
     // transport EC reuses the child_ prefix on the _t loop var
     expect(code).toContain('output(_t.expression');
     expect(code).toContain('output(_t.value');

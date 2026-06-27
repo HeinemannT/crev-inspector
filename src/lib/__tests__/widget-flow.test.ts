@@ -104,6 +104,40 @@ describe('fetchFlowChain — InputView', () => {
     expect(withEc.codeFields!.some(f => f.prop === 'expression')).toBe(true);
   });
 
+  it('fans a shared actionObject out to every owning button (direct + group)', async () => {
+    // A direct button AND a group button both fire the SAME transport group.
+    // Each owner must get its own full copy of the group + transports.
+    const log = [
+      `${SEP}iv${SEP}1000|iv_t|Input view|InputView`,
+      `${SEP}is${SEP}1001|is_t|Input set|InputSet`,
+      `${SEP}children${SEP}\n1002|btn_act|Button|ButtonInput|\n1003|grp|Button group|ButtonGroup|\n`,
+      `${SEP}child_expression_1002${SEP}`,
+      `${SEP}groupkids${SEP}\n1003|1004|btn_a|Button|ButtonInput|\n`,
+      `${SEP}child_expression_1004${SEP}`,
+      // both 1002 and 1004 → the same NTG 2000 (emitted once per owner)
+      `${SEP}actiongroups${SEP}\n1002|2000|101|Action group|NotificationTransportGroup\n1004|2000|101|Action group|NotificationTransportGroup\n`,
+      // transports repeat per owner (deduped by the parser)
+      `${SEP}actiontransports${SEP}\n2000|2001|148|Extended action|ExtendedTransport\n2000|2001|148|Extended action|ExtendedTransport\n`,
+      `${SEP}child_expression_2001${SEP}\nrecipient := t.owner.email\n`,
+      `${SEP}DONE`,
+    ].join('\n');
+    const c = makeClient(log);
+    const chain = await c.fetchFlowChain('1000', 'InputView');
+    const is = chain!.steps[0].children![0];
+
+    const directBtn = is.children!.find(ch => ch.identity.rid === '1002')!;
+    const groupBtn = is.children!.find(ch => ch.identity.type === 'ButtonGroup')!.children!
+      .find(b => b.identity.rid === '1004')!;
+    // Each owner gets its OWN nested NTG with the single (deduped) transport.
+    for (const owner of [directBtn, groupBtn]) {
+      expect(owner.children).toHaveLength(1);
+      const ntg = owner.children![0];
+      expect(ntg.identity.rid).toBe('2000');
+      expect(ntg.children).toHaveLength(1); // deduped, not 2
+      expect(ntg.children![0].codeFields!.map(f => f.prop)).toEqual(['expression']);
+    }
+  });
+
   it('returns IV-only step when inputSet is unset', async () => {
     const log = [
       `${SEP}iv${SEP}1000|iv_floating|Lone IV|InputView`,
