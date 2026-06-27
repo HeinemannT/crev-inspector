@@ -138,8 +138,11 @@
 /* moved-widget destination preview: blueprint blue (vs green for a brand-new add) */
 #crev-blueprint-layer .bp-box.bp-moveghost{border-color:var(--bp-cyan);background:rgba(58,134,255,.09)}
 #crev-blueprint-layer .bp-moveghost .newtag{background:var(--bp-cyan);color:var(--bp-ink)}
-/* also make the dimmed live original clearly read as 'leaving' */
-#crev-blueprint-layer .bp-box.moved{opacity:.5;border-style:dashed;border-color:var(--bp-cyan)}
+/* The dimmed live original of a moved widget is a GHOST ORIGIN: faint, dashed, hatched, and visually
+   subordinate to its solid "MOVED HERE" destination preview — so the pair reads as one node in transit
+   (left here → lands there), not two separate things. (Editing usually happens in the result view,
+   which has no double-render at all; this is for the live reference view.) */
+#crev-blueprint-layer .bp-box.moved{opacity:.4;border-style:dashed;border-color:var(--bp-cyan);background:repeating-linear-gradient(45deg,transparent 0 5px,rgba(58,134,255,.07) 5px 10px)}
 
 /* ── widget label chip ───────────────────────────────── */
 #crev-blueprint-layer .bp-lab{position:absolute;top:0;left:0;display:flex;gap:6px;align-items:baseline;max-width:100%;padding:2px 7px;color:var(--bp-text);background:rgba(10,29,51,.9);border:1px solid var(--bp-line);border-top:0;border-left:0;border-radius:0 0 3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

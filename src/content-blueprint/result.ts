@@ -61,12 +61,17 @@ function activeModelTab(base: LModel, m: LModel, byRid: Map<string, Element>): {
 }
 
 /** Per-type fallback heights (px) for a widget with no live DOM (an inactive tab) and no authored
- *  height. Rough but type-aware, informed by the decompiled layout model: charts default to a tall
- *  box (chartHeight 470 / autoSize cell-grid — live autoSize charts measure ~466), tables/lists are
- *  medium, status/text are short. BMP has NO server height for content-driven widgets, so off the
- *  active tab these are honest estimates, not ground truth. */
+ *  height. Rough but type-aware, informed by the decompiled layout model + live measurement:
+ *   - charts default to a tall box (chartHeight 470 / autoSize cell-grid — live autoSize charts ~466);
+ *   - TABLES/LISTS have a fixed MINIMUM (~196px): an ExtendedTable reserves table space and scrolls
+ *     internally up to rowPerPage rows, so it renders at that floor whether it holds rows or is empty
+ *     (verified live: full + empty tables both ~197px, all at HasHeight height=1) — it does NOT shrink
+ *     to content like a text block;
+ *   - status/text are short, content-driven (BMP gives them no server height).
+ *  Off the active tab these are honest estimates, not ground truth. */
+const TABLE_MIN = 196;
 const TYPE_EST: [RegExp, number][] = [
-  [/Chart$/, 300], [/(Table|List)$/, 200], [/(Description|Text|URLView)/, 130], [/Status/, 110],
+  [/Chart$/, 300], [/(Table|List)$/, TABLE_MIN], [/(Description|Text|URLView)/, 130], [/Status/, 110],
 ];
 function estimateHeight(className: string): number {
   for (const [re, h] of TYPE_EST) if (re.test(className)) return h;
