@@ -22,6 +22,7 @@ export interface BpState {
   applying: boolean;
   preview: PlanNote[] | null;   // non-null → the apply-preview modal is open
   blast: { fanout: InstanceFanout | null; blast: ContainerBlast | null } | null; // preview blast radius (async, best-effort)
+  blastSeq: number;             // bumped per openApplyPreview; a late blast reply for an older seq is dropped
   picker: string | null;        // containerId/compositeId/tabId the add picker is open for
   pickerOpts: { afterId?: string; cols?: number } | null; // positional insert: place after a sibling, sized to a gap
   movePicker: string | null;    // widgetId the move-destination menu is open for
@@ -41,7 +42,7 @@ export interface BpState {
 
 export const bp: BpState = {
   active: false, baseline: null, ctx: null, env: null, history: null,
-  layer: null, selectedId: null, applying: false, preview: null, blast: null, picker: null, pickerOpts: null, movePicker: null,
+  layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null,
   onScroll: null, onKey: null, raf: 0, gen: 0, hint: null, trayOpen: false, dragging: false, renaming: false,
   observer: null, ridSig: '', mutRaf: 0,
 };

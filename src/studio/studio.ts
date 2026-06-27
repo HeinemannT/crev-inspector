@@ -508,7 +508,7 @@ function updateStrip(): void {
     placeholder: 'scorecard id or rid',
     value: renderContextRef,
     spellcheck: 'false', autocomplete: 'off',
-    title: 'Org-rooted object (scorecard or page) the CVO renders under — by business id or rid. The data servlet is gated on it.',
+    title: 'Org-rooted object (scorecard or page) the CVO renders under, by business id or rid. The data servlet is gated on it.',
   }) as HTMLInputElement
   ctxInput.addEventListener('change', () => { renderContextRef = ctxInput.value.trim(); void resolveRenderContext() })
   const live = dataMode === 'live'
@@ -529,7 +529,7 @@ function updateStrip(): void {
     h('div', { class: 'seg', role: 'group', 'aria-label': 'Auto-render' },
       h('button', {
         class: `seg-btn${autoRender ? ' active' : ''}`,
-        title: autoRender ? 'Auto-rendering on edit — click to render only on demand (Re-render / ⌘Enter)' : 'Manual render — click to re-render automatically as you edit',
+        title: autoRender ? 'Auto-rendering on edit. Click to render only on demand (Re-render / ⌘Enter)' : 'Manual render. Click to re-render automatically as you edit',
         'aria-pressed': autoRender ? 'true' : 'false',
         onClick: () => setAutoRender(!autoRender),
       }, 'Auto'),

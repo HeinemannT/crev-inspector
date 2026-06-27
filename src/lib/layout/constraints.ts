@@ -67,7 +67,7 @@ export function checkAddTarget(parentKind: NodeKind, parentClassName?: string): 
 
 /** Height is only authorable on charts and URLView; everything else is content-driven in BMP. */
 export function checkHeight(className: string): Guard {
-  return hasHeight(className) ? ok : forbid(`${className} has no height property — height is content-driven in BMP`);
+  return hasHeight(className) ? ok : forbid(`${className} has no height property; height is content-driven in BMP`);
 }
 
 /** Containers always render before tab-bound widgets, so a widget can't be ordered before a
@@ -90,7 +90,7 @@ export function checkTabVisibility(tab: LNode): Guard {
  *  mechanic is proven for property edits; structure may only live on the template). */
 export function checkStructuralTarget(target: SaveTarget, op: 'add' | 'delete'): Guard {
   return target === 'instance'
-    ? warn(`structural ${op} on a single instance is unverified — structure usually lives on the template`)
+    ? warn(`structural ${op} on a single instance is unverified. Structure usually lives on the template`)
     : ok;
 }
 
@@ -98,7 +98,7 @@ export function checkStructuralTarget(target: SaveTarget, op: 'add' | 'delete'):
  *  page bound to the same TabSet. (Dedicated per-page tabsets avoid this, but we don't assume it.) */
 export function checkSharedEdit(nodeKind: NodeKind, op: 'resize' | 'rename' | 'delete' | 'reorder'): Guard {
   if (nodeKind === 'widget') return ok;
-  return warn(`${nodeKind}s are shared layout — this ${op} affects every page bound to the same TabSet`);
+  return warn(`${nodeKind}s are shared layout. This ${op} affects every page bound to the same TabSet`);
 }
 
 /** Aggregate gate used by the UI before committing a gesture and by apply before executing. */

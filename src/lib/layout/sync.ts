@@ -265,7 +265,7 @@ export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel
   const live = await loadModel(io, ctx);
   if (diff(baseline, live.model).length > 0) {
     return { ok: false, noop: false, stale: true, plan, notes, script, model: live.model, baseline: live.baseline,
-      error: 'The page changed since you started editing — review the refreshed layout and reapply.' };
+      error: 'The page changed since you started editing. Review the refreshed layout and reapply.' };
   }
   const res = await io.exec(script, true); // commit — the only writing exec in the whole flow
   if (!res.ok) {
@@ -279,7 +279,7 @@ export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel
   // page as saved. A reworded/localized rollback message can't slip past this the way a regex could.
   if (diff(baseline, reloaded.model).length === 0) {
     return { ok: false, noop: false, plan, notes, script, model: reloaded.model, baseline: reloaded.baseline,
-      error: 'BMP discarded the changes — the page is unchanged. Reload the page and try again.' };
+      error: 'BMP discarded the changes. The page is unchanged; reload the page and try again.' };
   }
   return { ok: true, noop: false, plan, notes, script, model: reloaded.model, baseline: reloaded.baseline };
 }

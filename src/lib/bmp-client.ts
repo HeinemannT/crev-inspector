@@ -808,7 +808,7 @@ _r
       `_r := _r + _sep + "instId" + _sep + _inst.id.whenMissing("") + "\\n"`,
       `_r := _r + _sep + "instName" + _sep + _inst.name.whenMissing("") + "\\n"`,
       `_r := _r + _sep + "instType" + _sep + _inst.className.whenMissing("") + "\\n"`,
-      '_tmpl := _inst.linkedTo',
+      ...ecResolveTemplate('_inst', '_tmpl'),
       `_r := _r + _sep + "tmplRid" + _sep + _tmpl.rid.whenMissing("MISSING") + "\\n"`,
       `_r := _r + _sep + "tmplId" + _sep + _tmpl.id.whenMissing("") + "\\n"`,
       `_r := _r + _sep + "tmplName" + _sep + _tmpl.name.whenMissing("") + "\\n"`,

@@ -142,17 +142,19 @@ export function redo(): void {
 }
 export function discard(): void { if (bp.baseline) { bp.history = new History(bp.baseline); bp.selectedId = null; render(); } }
 
-/** Business ids of EXISTING containers the plan structurally touches (resize/rename/move/delete) —
- *  the shared cells whose blast radius the preview checks. New (temp-id) containers are skipped (not
- *  shared yet); tab/widget edits too (only containers reverse-resolve via rref(container)). */
-function touchedContainerBids(plan: PlanStep[], m: LModel): string[] {
-  const bids = new Set<string>();
+/** EXISTING containers the plan structurally touches (resize/rename/move/delete) — the shared cells
+ *  whose blast radius the preview checks. Returns {id, rid} so the shell can address a businessId-less
+ *  container by lookup(rid). New (temp-id) containers are skipped (not shared yet); tab/widget edits
+ *  too (only containers reverse-resolve via rref(container)). */
+function touchedContainers(plan: PlanStep[], m: LModel): { id: string; rid?: string }[] {
+  const out = new Map<string, { id: string; rid?: string }>();
   for (const s of plan) {
     if (s.kind === 'create') continue;
-    const kind = s.kind === 'reparent' || s.kind === 'delete' ? s.nodeKind : findNode(m, s.id)?.node.kind;
-    if (kind === 'container' && !isTempId(s.id)) bids.add(s.id);
+    const node = findNode(m, s.id)?.node;
+    const kind = s.kind === 'reparent' || s.kind === 'delete' ? s.nodeKind : node?.kind;
+    if (kind === 'container' && !isTempId(s.id)) out.set(s.id, { id: s.id, rid: node?.rid });
   }
-  return [...bids];
+  return [...out.values()];
 }
 
 /** Apply opens a preview first — never commit blind. The plan is computed with the SAME diff+compile
@@ -164,10 +166,11 @@ export function openApplyPreview(): void {
   if (plan.length === 0) { showToast('Blueprint: nothing to apply', 'info'); return; }
   bp.preview = compile(plan, m).notes;
   bp.blast = null;
+  const seq = ++bp.blastSeq; // invalidates any in-flight probe from an earlier preview
   render();
   // Best-effort + async: the modal renders now; the template-fan-out / shared-structure warnings
   // appear when (if) the rref walk returns. Never blocks the confirm path.
-  void fetchBlast(bp.ctx.pageId, touchedContainerBids(plan, m));
+  void fetchBlast(seq, bp.ctx.pageId, touchedContainers(plan, m));
 }
 export function closePreview(): void { bp.preview = null; bp.blast = null; render(); }
 

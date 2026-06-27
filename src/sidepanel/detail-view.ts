@@ -737,7 +737,7 @@ export class DetailView {
       actionBar,
     );
 
-    const divider = h('div', { class: 'pane-divider', role: 'separator', 'aria-label': 'Resize divider', 'aria-valuenow': String(this.splitPct), 'aria-valuemin': '40', 'aria-valuemax': '85' });
+    const divider = h('div', { class: 'pane-divider', role: 'separator', 'aria-label': 'Drag to resize the panes', 'aria-valuenow': String(this.splitPct), 'aria-valuemin': '40', 'aria-valuemax': '85' });
     this.wireDivider(divider, panel);
 
     const treeArea = h('div', { class: 'pane-tree-area' },

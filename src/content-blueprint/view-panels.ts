@@ -30,7 +30,7 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   card.appendChild(h);
   if (shared) {
     const w = document.createElement('div'); w.className = 'bp-modal-warn';
-    w.textContent = '⚠ This is a shared template — these changes affect every instance that uses it.';
+    w.textContent = '⚠ This is a shared template. These changes affect every instance that uses it.';
     card.appendChild(w);
   }
   // Blast radius (async, best-effort — appears once the rref probe returns; see actions.openApplyPreview).
@@ -38,14 +38,14 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   const fanout = bp.blast?.fanout;
   if (fanout?.isMaster) {
     const n = fanout.instances.length;
-    warn(`⚠ This page is a template — ${n} linked scorecard${n === 1 ? '' : 's'} inherit from it. `
-      + 'Widget edits propagate to them; tab/container edits change every one.');
+    warn(`⚠ This page is a template. ${n} linked scorecard${n === 1 ? '' : 's'} inherit from it. `
+      + 'Widget edits propagate to them, and tab or container edits change every one.');
   }
   const xfam = bp.blast?.blast;
   if (xfam && xfam.otherFamilies > 0) {
     const names = xfam.families.map(f => f.name).filter(Boolean).slice(0, 2).join(', ');
     warn(`⚠ Some containers here are shared with ${xfam.otherFamilies} page${xfam.otherFamilies === 1 ? '' : 's'} `
-      + `outside this template${names ? ` (${names}${xfam.otherFamilies > 2 ? ', …' : ''})` : ''} — your structural changes affect them too.`);
+      + `outside this template${names ? ` (${names}${xfam.otherFamilies > 2 ? ', …' : ''})` : ''}. Your structural changes affect them too.`);
   }
   // Blast-radius warning. Deleting a tab cascades to every container/widget under it (a tab's contents
   // can't re-home the way a deleted container's widgets do), so one delete gesture can stage many. Make
@@ -53,7 +53,7 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   const deletes = notes.filter(n => n.verb === 'delete').length;
   if (deletes > 0) {
     const w = document.createElement('div'); w.className = 'bp-modal-warn';
-    w.textContent = `⚠ ${deletes} object${deletes === 1 ? '' : 's'} will be permanently deleted — this can't be undone after Apply.`;
+    w.textContent = `⚠ ${deletes} object${deletes === 1 ? '' : 's'} will be permanently deleted. This can't be undone after Apply.`;
     card.appendChild(w);
   }
   // Pre-commit lint: empty-tab and structural-on-instance warnings (undo is frozen while this modal
@@ -126,7 +126,7 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   b.append(mark, wordmark);
   const id = document.createElement('span'); id.textContent = `${ctx.pageClass} ${ctx.pageId}`;
   c.append(b, id);
-  if (shared) { const w = document.createElement('span'); w.className = 'warn'; w.textContent = '⚠ shared template — affects all instances'; c.appendChild(w); }
+  if (shared) { const w = document.createElement('span'); w.className = 'warn'; w.textContent = '⚠ Shared template. Affects all instances'; c.appendChild(w); }
   c.appendChild(sp());
   const undoB = mkIconBtn(ICON_ARROW_UNDO, undo); undoB.title = 'Undo'; undoB.disabled = !bp.history?.canUndo(); c.appendChild(undoB);
   const redoB = mkIconBtn(ICON_ARROW_REDO, redo); redoB.title = 'Redo'; redoB.disabled = !bp.history?.canRedo(); c.appendChild(redoB);

@@ -51,12 +51,13 @@ export async function loadPage(rid: string): Promise<boolean> {
 
 /** Best-effort blast-radius probe for the open apply-preview. Stores the result on `bp.blast` and
  *  re-renders so the modal can show the warnings; silent on failure (the modal just omits them). The
- *  preview must still be the same session + open when the reply lands. */
-export async function fetchBlast(pageId: string, containerBids: string[]): Promise<void> {
+ *  reply is dropped unless it's still the same session, the preview is open, AND it's for the LATEST
+ *  preview (`seq`) — a slow walk for an earlier preview must not overwrite a newer one's result. */
+export async function fetchBlast(seq: number, pageId: string, containers: { id: string; rid?: string }[]): Promise<void> {
   const g = bp.gen;
   try {
-    const res = await sendRequest<BlastResult>({ type: 'LAYOUT_BLAST', pageId, containerBids });
-    if (!sameSession(g) || !bp.preview) return; // toggled off, or the user already closed the preview
+    const res = await sendRequest<BlastResult>({ type: 'LAYOUT_BLAST', pageId, containers });
+    if (!sameSession(g) || !bp.preview || bp.blastSeq !== seq) return;
     bp.blast = { fanout: res?.fanout ?? null, blast: res?.blast ?? null };
     render();
   } catch { /* fail silent — no blast warning */ }
@@ -73,14 +74,14 @@ export async function applyPage(): Promise<void> {
   bp.applying = false;
   if (res?.stale && res.model) {
     rebase(res.model);
-    showToast('Blueprint: the page changed elsewhere — reloaded. Re-apply your edits.', 'error');
+    showToast('Blueprint: the page changed elsewhere, so it was reloaded. Re-apply your edits.', 'error');
     render(); return;
   }
   if (!res?.ok) { showToast(`Blueprint apply failed: ${res?.error || 'unknown'}`, 'error'); render(); return; }
   if (res.noop) { if (res.model) rebase(res.model); showToast('Blueprint: nothing to apply', 'info'); render(); return; }
   // Committed. The live grid can only reflow on a real page load — so refresh to show the new layout,
   // and turn blueprint OFF (SW state + sidebar toggle + overlay) so we don't reopen onto a stale model.
-  showToast('Blueprint: changes applied — refreshing', 'success');
+  showToast('Blueprint: changes applied. Refreshing…', 'success');
   sendToSW({ type: 'BLUEPRINT_TOGGLE' }); // flips per-window state off; updates the sidebar toggle
   setTimeout(() => location.reload(), 500);
 }

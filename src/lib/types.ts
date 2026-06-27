@@ -630,7 +630,7 @@ export type LayoutMessage =
   | { type: 'LAYOUT_APPLY_RESULT'; ok: boolean; noop: boolean; stale?: boolean; script?: string; notes?: PlanNote[]; model?: LModel; baseline?: LModel; error?: string }
   // Apply-preview blast radius: is the page a template master (fan-out), and do any touched shared
   // containers reach pages outside the page's own template-family. Best-effort — both may be null.
-  | { type: 'LAYOUT_BLAST'; pageId: string; containerBids: string[] }
+  | { type: 'LAYOUT_BLAST'; pageId: string; containers: { id: string; rid?: string }[] }
   | { type: 'LAYOUT_BLAST_RESULT'; fanout: InstanceFanout | null; blast: ContainerBlast | null };
 
 export type InspectorMessage =

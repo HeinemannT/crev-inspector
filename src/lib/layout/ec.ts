@@ -88,7 +88,7 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
           // (verified live). Only valid for known composite types; a plain-widget parent is rejected.
           const parentClass = byId.get(s.parentId)?.className;
           if (!parentClass || !COMPOSITE_TYPES.has(parentClass)) {
-            throw new Error(`cannot add ${n.className} into a ${parentClass ?? 'widget'} — not a composite container`);
+            throw new Error(`cannot add ${n.className} into a ${parentClass ?? 'widget'}; it is not a composite container`);
           }
           emit({ verb: 'create', text: `Create ${n.className} "${n.name}" in ${parentClass}`,
             ec: `${v} := ${ref(s.parentId)}.add(${ecClass(n.className)}, name := ${ecStr(n.name)}) // BMP assigns id` });

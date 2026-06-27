@@ -77,7 +77,7 @@ register('LAYOUT_APPLY', async (msg, respond) => {
   // now active (the user switched environments between load and apply).
   if (msg.env !== envToken(ctx)) {
     respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false,
-      error: 'Environment changed since this layout was loaded — reload the page before applying.' });
+      error: 'Environment changed since this layout was loaded. Reload the page before applying.' });
     ctx.logActivity('warn', `Blueprint apply blocked: env ${msg.env} != active ${envToken(ctx)}`);
     return;
   }
@@ -107,6 +107,6 @@ register('LAYOUT_APPLY', async (msg, respond) => {
 register('LAYOUT_BLAST', async (msg, respond) => {
   const ctx = getCtx();
   if (!ctx.client) { respond({ type: 'LAYOUT_BLAST_RESULT', fanout: null, blast: null }); return; }
-  const res = await loadBlastRadius(ctx.client, msg.pageId, msg.containerBids);
+  const res = await loadBlastRadius(ctx.client, msg.pageId, msg.containers);
   respond({ type: 'LAYOUT_BLAST_RESULT', fanout: res.fanout, blast: res.blast });
 });

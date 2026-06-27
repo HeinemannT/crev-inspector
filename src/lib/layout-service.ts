@@ -16,7 +16,8 @@ import type { BmpClient } from './bmp-client';
 import type { LayoutIO, BlueprintCtx, LoadResult, ApplyResult } from './layout/sync';
 import { loadModel, applyModel, resolvePageContext } from './layout/sync';
 import type { LModel } from './layout/types';
-import { validateBusinessId } from './ec-guards';
+import { validateBusinessId, validateRid } from './ec-guards';
+import { log } from './logger';
 import {
   buildInstanceFanoutEc, parseInstanceFanout,
   buildContainerBlastEc, parseContainerBlast,
@@ -54,7 +55,7 @@ export async function applyPage(client: BmpClient, ctx: BlueprintCtx, baseline: 
  *  for the touched container businessIds, which template-families OUTSIDE this page's own use them.
  *  Returns nulls rather than throwing — the preview just omits the warning if BMP is slow/unhappy. */
 export async function loadBlastRadius(
-  client: BmpClient, pageId: string, containerBids: string[],
+  client: BmpClient, pageId: string, containers: { id: string; rid?: string }[],
 ): Promise<{ fanout: InstanceFanout | null; blast: ContainerBlast | null }> {
   const io = makeLayoutIO(client);
   let fanout: InstanceFanout | null = null;
@@ -62,13 +63,20 @@ export async function loadBlastRadius(
   try {
     const fan = await io.exec(buildInstanceFanoutEc(`t.${validateBusinessId(pageId)}`));
     if (fan.ok && fan.log) fanout = parseInstanceFanout(fan.log);
-  } catch { /* fail silent — no fan-out warning */ }
-  const refs = containerBids.filter(b => { try { validateBusinessId(b); return true; } catch { return false; } });
+  } catch (e) { log.debug('blast:fanout', e); } // fail silent — no fan-out warning
+  // Build a ref per container. A businessId-less container (id === rid) must be addressed by
+  // lookup(<rid>), NOT t.<rid> — the same H2 trap the EC compiler avoids (an all-digit rid slips past
+  // the businessId validator and t.<rid> doesn't resolve). Invalid entries are dropped.
+  const refs = containers.flatMap(c => {
+    try {
+      return [c.rid && c.id === c.rid ? `lookup(${validateRid(c.rid)})` : `t.${validateBusinessId(c.id)}`];
+    } catch { return []; }
+  });
   if (fanout && refs.length) {
     try {
-      const res = await io.exec(buildContainerBlastEc(refs.map(b => `t.${b}`)));
+      const res = await io.exec(buildContainerBlastEc(refs));
       if (res.ok && res.log) blast = parseContainerBlast(res.log, fanout.ownFamilyKey);
-    } catch { /* fail silent — no shared-structure warning */ }
+    } catch (e) { log.debug('blast:container', e); } // fail silent — no shared-structure warning
   }
   return { fanout, blast };
 }
