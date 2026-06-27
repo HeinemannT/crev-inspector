@@ -79,15 +79,35 @@ function condEcBlock(labelExpr: string, valueExpr: string, prefix = ''): string[
  *  backing-RID block (used for the Edit redirect) ONLY when the content is
  *  non-empty. Reading `.rid` only inside the non-empty branch also avoids a
  *  `.rid`-on-MISSING access when the reference is unset. */
-function condIndirectEc(label: string, refExpr: string, prefix = ''): string[] {
+function condIndirectEc(label: string, refExpr: string, targetProp = 'expression', prefix = ''): string[] {
+  validateEcIdentifier(targetProp);
   return [
-    `${prefix}_v := output(${refExpr}.expression.whenMissing(""))`,
+    `${prefix}_v := output(${refExpr}.${targetProp}.whenMissing(""))`,
     `${prefix}IF _v != "" THEN`,
     `${prefix}  _r := _r + _sep + "${label}" + _sep + _v + "\\n"`,
     `${prefix}  _r := _r + _sep + "${label}_rid" + _sep + ${refExpr}.rid.whenMissing("") + "\\n"`,
     `${prefix}ELSE`,
     `${prefix}  _r := _r`,
     `${prefix}ENDIF`,
+  ];
+}
+
+/** Reference-edge blocks (rid|id|name|className), emitted only when the edge is
+ *  set. Reads `_o.<rf>` once into `_ref` and emits the 4 blocks only if it
+ *  resolves — saving 4 empty blocks per absent edge (most edges are absent for
+ *  any given type) AND avoiding 4 reads on a MISSING reference. */
+function condRefEc(rf: string): string[] {
+  validateEcIdentifier(rf);
+  return [
+    `_ref := _o.${rf}`,
+    'IF _ref != MISSING THEN',
+    `  _r := _r + _sep + "ref_${rf}_rid" + _sep + _ref.rid.whenMissing("") + "\\n"`,
+    `  _r := _r + _sep + "ref_${rf}_id" + _sep + _ref.id.whenMissing("") + "\\n"`,
+    `  _r := _r + _sep + "ref_${rf}_name" + _sep + _ref.name.whenMissing("") + "\\n"`,
+    `  _r := _r + _sep + "ref_${rf}_type" + _sep + _ref.className.whenMissing("") + "\\n"`,
+    'ELSE',
+    '  _r := _r',
+    'ENDIF',
   ];
 }
 
@@ -438,42 +458,42 @@ export function buildObjectPaneEc(ref: string, paneProps: readonly string[]): st
   // values (booleans, enums) which EC's bare-concat doesn't. Re-validate
   // every prop name even though they come from allowlists — slot-level
   // defence so corrupted metadata can't produce broken/hostile EC.
+  // Every EAV slot below is emitted ONLY when non-empty (condEcBlock /
+  // condRefEc / condIndirectEc). This union reads ~100 properties across all
+  // types but any one object sets a handful — emitting the empty rest cost
+  // ~65 bytes each (sentinel ×2 + label + 19-digit RID), i.e. multiple KB of
+  // empty markers on every inspect. The parser already treats a missing block
+  // as empty (`?? ''` / `if (v)`), so behaviour is identical. The identity /
+  // parent / template / card blocks above stay unconditional — they use the
+  // MISSING sentinel and parseIdentityBlock depends on their presence.
   for (const prop of paneProps) {
     validateEcIdentifier(prop);
-    lines.push(scalarBlock(`inst_${prop}`, `output(_o.${prop}.whenMissing(""))`));
-    lines.push(scalarBlock(`tmpl_${prop}`, `output(_t.${prop}.whenMissing(""))`));
+    lines.push(...condEcBlock(`"inst_${prop}"`, `output(_o.${prop}.whenMissing(""))`));
+    lines.push(...condEcBlock(`"tmpl_${prop}"`, `output(_t.${prop}.whenMissing(""))`));
   }
   // Code fields — union across all known types.
   for (const cf of ALL_CODE_FIELDS) {
     validateEcIdentifier(cf);
-    lines.push(scalarBlock(`code_${cf}`, `output(_o.${cf}.whenMissing(""))`));
+    lines.push(...condEcBlock(`"code_${cf}"`, `output(_o.${cf}.whenMissing(""))`));
   }
   // Reference edges — RID + business ID + name + className per edge.
   for (const rf of ALL_REFERENCE_FIELDS) {
-    validateEcIdentifier(rf);
-    lines.push(scalarBlock(`ref_${rf}_rid`, `_o.${rf}.rid.whenMissing("")`));
-    lines.push(scalarBlock(`ref_${rf}_id`, `_o.${rf}.id.whenMissing("")`));
-    lines.push(scalarBlock(`ref_${rf}_name`, `_o.${rf}.name.whenMissing("")`));
-    lines.push(scalarBlock(`ref_${rf}_type`, `_o.${rf}.className.whenMissing("")`));
+    lines.push(...condRefEc(rf));
   }
-  // Indirect code fields — Reference → ExtendedExpression.expression.
-  // We also capture the reference's own rid so the Edit button can target the
-  // ExtendedExpression directly (otherwise it'd open the source object's
-  // same-named property, which is the Reference handle — not editable as EC).
+  // Indirect code fields — Reference → ExtendedExpression.expression. The
+  // backing reference rid (for the Edit redirect) rides along inside the same
+  // conditional, so it's only emitted when the indirect EC actually exists.
   for (const ind of ALL_INDIRECT_FIELDS) {
-    lines.push(scalarBlock(`ind_${ind.prop}_${ind.targetProp}`,
-      `output(_o.${ind.prop}.${ind.targetProp}.whenMissing(""))`));
-    lines.push(scalarBlock(`ind_${ind.prop}_${ind.targetProp}_rid`,
-      `_o.${ind.prop}.rid.whenMissing("")`));
+    lines.push(...condIndirectEc(`ind_${ind.prop}_${ind.targetProp}`, `_o.${ind.prop}`, ind.targetProp));
   }
   // Context fields (enum / boolean) — list-ref handled separately below.
   for (const ctx of ALL_CONTEXT_FIELDS) {
     if (ctx.kind === 'list-ref') continue;
-    lines.push(scalarBlock(`ctx_${ctx.prop}`, `output(_o.${ctx.prop}.whenMissing(""))`));
+    lines.push(...condEcBlock(`"ctx_${ctx.prop}"`, `output(_o.${ctx.prop}.whenMissing(""))`));
   }
   // Gate values — booleans that control whether a code field is active.
   for (const eb of ALL_ENABLED_BY_PROPS) {
-    lines.push(scalarBlock(`gate_${eb}`, `output(_o.${eb}.whenMissing(""))`));
+    lines.push(...condEcBlock(`"gate_${eb}"`, `output(_o.${eb}.whenMissing(""))`));
   }
   // List-ref context fields — iterate each list, emit pipe rows.
   for (const ctx of ALL_CONTEXT_FIELDS) {
