@@ -267,7 +267,10 @@ function renderCodeField(cf: FlowCodeFieldMsg, rid: string, sendMessage: SendFn)
 
 function flashSourceRow(container: HTMLElement, sourceRid: string, on: boolean): void {
   const head = container.querySelector<HTMLElement>(`[data-rid="${cssEscape(sourceRid)}"]`);
-  const target = head?.closest<HTMLElement>('.flow-card') ?? head?.closest<HTMLElement>('.flow-root') ?? head;
+  // A reads-source renders as a leaf card in the dominant shape, but guard the
+  // collapsed-container case (a `.flow-group` line also carries data-rid) so we
+  // flash that line, not the whole root.
+  const target = head?.closest<HTMLElement>('.flow-card, .flow-group') ?? head?.closest<HTMLElement>('.flow-root') ?? head;
   if (target) target.classList.toggle('flow-flash', on);
 }
 

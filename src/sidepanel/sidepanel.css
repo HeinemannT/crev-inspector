@@ -3968,7 +3968,7 @@ body.crev-divider-dragging * { user-select: none; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 3px 5px;
+  padding: var(--space-0) var(--space-xs);
   border-radius: var(--radius-sm);
   background: var(--tc, var(--surface-4));
   color: #fff;
@@ -4015,7 +4015,7 @@ body.crev-divider-dragging * { user-select: none; }
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  margin: 2px 0;
+  margin: var(--space-0) 0;
   cursor: pointer;
 }
 .flow-group:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -4034,7 +4034,7 @@ body.crev-divider-dragging * { user-select: none; }
   background: var(--surface-2);
   border: 1px solid var(--surface-3);
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-3);
   transition: border-color var(--duration-fast) var(--ease-default);
 }
 .flow-card:hover { border-color: var(--surface-4); }
@@ -4044,7 +4044,8 @@ body.crev-divider-dragging * { user-select: none; }
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.18);
 }
-.flow-root.flow-flash {
+.flow-root.flow-flash,
+.flow-group.flow-flash {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
@@ -4055,7 +4056,7 @@ body.crev-divider-dragging * { user-select: none; }
   padding: 2px var(--space-2);
   font-size: var(--text-xs);
   color: var(--warning);
-  background: rgba(241, 194, 27, 0.08);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
   border-radius: var(--radius-sm);
 }
 
@@ -4064,14 +4065,14 @@ body.crev-divider-dragging * { user-select: none; }
   margin-top: var(--space-2);
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: var(--space-2);
 }
 .flow-root > .flow-fields { margin-top: var(--space-1); }
 
 .flow-line {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--space-xs);
   min-width: 0;
 }
 .flow-ic {
@@ -4112,17 +4113,19 @@ body.crev-divider-dragging * { user-select: none; }
 
 /* sub-items align under the prop name (past the leading icon) */
 .flow-cf-sub {
-  margin-top: 4px;
+  margin-top: var(--space-1);
+  /* Optical: align sub-items under the prop text = icon width (12px) + the
+     .flow-line gap (--space-xs). No token expresses "icon + gap". */
   padding-left: 18px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .flow-cf-prev {
   background: var(--ec-bg);
   border: 1px solid var(--surface-3);
   border-radius: var(--radius-sm);
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   color: var(--text-2);
   white-space: nowrap;
   overflow: hidden;
