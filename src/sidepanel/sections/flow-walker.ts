@@ -161,6 +161,16 @@ function renderGroup(node: FlowStepMsg, input: FlowSectionInput): HTMLElement {
 }
 
 function renderLeaf(leaf: FlowStepMsg, input: FlowSectionInput): HTMLElement {
+  // A ButtonGroup is just a layout wrapper — don't give it a full card; draw a
+  // subtle outline with a small "group · name" label and lay its buttons inside.
+  if (leaf.identity.type === 'ButtonGroup' && leaf.children && leaf.children.length > 0) {
+    const box = h('div', { class: 'flow-groupbox' });
+    box.appendChild(h('div', { class: 'flow-grouplabel' },
+      leaf.identity.name ? `group · ${leaf.identity.name}` : 'group'));
+    for (const child of leaf.children) box.appendChild(renderLeaf(child, input));
+    return box;
+  }
+
   const card = h('div', { class: 'flow-card' });
   card.appendChild(renderNavHead('flow-card-head', leaf, input));
   if (leaf.hint) card.appendChild(h('div', { class: 'flow-hint' }, leaf.hint));

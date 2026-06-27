@@ -61,6 +61,49 @@ describe('fetchFlowChain — InputView', () => {
     expect(after!.reads!.map(r => r.key).sort()).toEqual(['notes', 'title']);
   });
 
+  it('nests a ButtonGroup\'s buttons and a ButtonInput\'s action graph (t.153 shape)', async () => {
+    const log = [
+      `${SEP}iv${SEP}1000|iv_t|Input view|InputView`,
+      `${SEP}is${SEP}1001|is_t|Input set|InputSet`,
+      // direct children: an action ButtonInput + a ButtonGroup
+      `${SEP}children${SEP}\n1002|btn_act|Button|ButtonInput|\n1003|grp|Button group|ButtonGroup|\n`,
+      `${SEP}child_expression_1002${SEP}`,
+      // ButtonGroup's nested buttons (groupRid|childRid|id|name|className|key)
+      `${SEP}groupkids${SEP}\n1003|1004|btn_a|Button|ButtonInput|\n1003|1005|btn_b|Button|ButtonInput|\n`,
+      `${SEP}child_expression_1004${SEP}\nt.x := 1\n`,
+      // action subtree: btn 1002 → NTG 2000 → 2 transports
+      `${SEP}actiongroups${SEP}\n1002|2000|101|Action group|NotificationTransportGroup\n`,
+      `${SEP}actiontransports${SEP}\n2000|2001|148|Extended action|ExtendedTransport\n2000|2002|146|Update object property|ChangePropertyTransport\n`,
+      `${SEP}child_expression_2001${SEP}\nrecipient := t.owner.email\n`,
+      `${SEP}child_value_2002${SEP}\n"Pending"\n`,
+      `${SEP}child_function_2002${SEP}`,
+      `${SEP}DONE`,
+    ].join('\n');
+    const c = makeClient(log);
+    const chain = await c.fetchFlowChain('1000', 'InputView');
+    const is = chain!.steps[0].children![0];
+    expect(is.children).toHaveLength(2);
+
+    // action button → actionObject (NTG) → transports
+    const actBtn = is.children!.find(ch => ch.identity.rid === '1002')!;
+    expect(actBtn.children).toHaveLength(1);
+    const ntg = actBtn.children![0];
+    expect(ntg.identity.type).toBe('NotificationTransportGroup');
+    expect(ntg.children).toHaveLength(2);
+    const ext = ntg.children!.find(t => t.identity.type === 'ExtendedTransport')!;
+    expect(ext.codeFields!.map(f => f.prop)).toEqual(['expression']);
+    const cpt = ntg.children!.find(t => t.identity.type === 'ChangePropertyTransport')!;
+    // value populated, function empty → only value surfaces
+    expect(cpt.codeFields!.map(f => f.prop)).toEqual(['value']);
+
+    // ButtonGroup → 2 nested buttons (one carries EC)
+    const grp = is.children!.find(ch => ch.identity.type === 'ButtonGroup')!;
+    expect(grp.children).toHaveLength(2);
+    expect(grp.children!.every(b => b.identity.type === 'ButtonInput')).toBe(true);
+    const withEc = grp.children!.find(b => b.identity.rid === '1004')!;
+    expect(withEc.codeFields!.some(f => f.prop === 'expression')).toBe(true);
+  });
+
   it('returns IV-only step when inputSet is unset', async () => {
     const log = [
       `${SEP}iv${SEP}1000|iv_floating|Lone IV|InputView`,

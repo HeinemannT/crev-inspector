@@ -114,6 +114,59 @@ function buildTransportCodeFields(
   return out;
 }
 
+/** Nest the action graph (parsed from the supplemental blocks emitted by
+ *  inputActionEc) under each action-bearing InputSet button: button →
+ *  actionObject (transport group) → transports + their EC. `childByRid` maps a
+ *  child's rid to its FlowStep so owners are found in one pass. */
+function attachActionSubtrees(data: Record<string, string>, childByRid: Map<string, FlowStep>): void {
+  const splitRows = (block: string | undefined): string[][] =>
+    (block ?? '').split('\n').map(l => l.trim()).filter(Boolean).map(l => l.split('|'));
+
+  const ntgByRid = new Map<string, FlowStep>();
+  for (const [ownerRid, ntgRid, ntgId, ntgName, ntgClass] of splitRows(data.actiongroups)) {
+    const owner = ownerRid ? childByRid.get(ownerRid) : undefined;
+    if (!owner || !ntgRid) continue;
+    const ntgStep: FlowStep = {
+      identity: { rid: ntgRid, businessId: ntgId ?? '', name: ntgName ?? '', type: ntgClass ?? '' },
+      edgeLabel: 'actionObject',
+      children: [],
+    };
+    (owner.children ??= []).push(ntgStep);
+    ntgByRid.set(ntgRid, ntgStep);
+  }
+  for (const [ntgRid, transRid, id, name, cls] of splitRows(data.actiontransports)) {
+    const ntg = ntgRid ? ntgByRid.get(ntgRid) : undefined;
+    if (!ntg || !transRid) continue;
+    const tStep: FlowStep = { identity: { rid: transRid, businessId: id ?? '', name: name ?? '', type: cls ?? '' } };
+    const code = buildTransportCodeFields(data, transRid, 'child');
+    if (code.length > 0) tStep.codeFields = code;
+    ntg.children!.push(tStep);
+  }
+}
+
+/** Nest each ButtonGroup's child buttons (from the `groupkids` block) under the
+ *  group FlowStep, with their input EC. Newly nested buttons are added to
+ *  `childByRid` so a later action pass can still resolve them as owners. */
+function attachButtonGroups(
+  data: Record<string, string>,
+  childByRid: Map<string, FlowStep>,
+  inputKeys: Array<{ key: string; sourceRid: string }>,
+): void {
+  for (const line of (data.groupkids ?? '').split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    const [groupRid, childRid, id, name, cls, key] = t.split('|');
+    const group = groupRid ? childByRid.get(groupRid) : undefined;
+    if (!group || !childRid) continue;
+    const btn: FlowStep = { identity: { rid: childRid, businessId: id ?? '', name: name ?? '', type: cls ?? '' } };
+    if (key) btn.inputKey = key;
+    const code = buildChildCodeFields(data, childRid, inputKeys);
+    if (code.length > 0) btn.codeFields = code;
+    (group.children ??= []).push(btn);
+    childByRid.set(childRid, btn);
+  }
+}
+
 export interface ConnectionResult {
   ok: boolean;
   message: string;
@@ -1099,6 +1152,7 @@ _r
       if (c.key) inputKeys.push({ key: c.key, sourceRid: c.rid });
     }
 
+    const childByRid = new Map<string, FlowStep>();
     for (const c of childRows) {
       const child: FlowStep = {
         identity: { rid: c.rid, businessId: c.businessId, name: c.name, type: c.type },
@@ -1109,7 +1163,12 @@ _r
       if (code.length > 0) child.codeFields = code;
 
       isStep.children!.push(child);
+      childByRid.set(c.rid, child);
     }
+    // Expand ButtonGroups, then nest any action-bearing button's actionObject
+    // → transport graph (groups first so group buttons can own actions too).
+    attachButtonGroups(data, childByRid, inputKeys);
+    attachActionSubtrees(data, childByRid);
 
     return { steps: [ivStep] };
   }
@@ -1135,13 +1194,17 @@ _r
       if (c.key) inputKeys.push({ key: c.key, sourceRid: c.rid });
     }
 
+    const childByRid = new Map<string, FlowStep>();
     for (const c of childRows) {
       const child: FlowStep = { identity: { rid: c.rid, businessId: c.businessId, name: c.name, type: c.type } };
       if (c.key) child.inputKey = c.key;
       const code = buildChildCodeFields(data, c.rid, inputKeys);
       if (code.length > 0) child.codeFields = code;
       isStep.children!.push(child);
+      childByRid.set(c.rid, child);
     }
+    attachButtonGroups(data, childByRid, inputKeys);
+    attachActionSubtrees(data, childByRid);
 
     return { steps: [isStep] };
   }

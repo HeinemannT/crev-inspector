@@ -10,7 +10,10 @@
  * - EC syntax validation (no bare inline IF after :=)
  */
 import { describe, it, expect } from 'vitest';
-import { buildActionButtonFlowEc, buildTransportGroupFlowEc } from '../ec-codegen';
+import {
+  buildActionButtonFlowEc, buildTransportGroupFlowEc,
+  buildInputViewFlowEc, buildInputSetFlowEc,
+} from '../ec-codegen';
 
 // ── EC code generators (must match bmp-client.ts EXACTLY) ──
 
@@ -262,5 +265,34 @@ describe('action / transport-group flow EC (full action-graph walk)', () => {
     expect(code).toContain('child_value_');
     expect(code).toContain('child_function_');
     expect(code).toContain('child_dateFunction_');
+  });
+});
+
+describe('InputView / InputSet flow EC (button groups + button actions)', () => {
+  it('stays IF/ENDIF-balanced with the nested group + action passes', () => {
+    // Three nested action passes + two group passes each add IF/ELSE/ENDIF;
+    // an imbalance would corrupt the whole InputView parse. Verified live
+    // against t.153.
+    expect(validateEcSyntax(buildInputViewFlowEc('t.153'))).toEqual([]);
+    expect(validateEcSyntax(buildInputSetFlowEc('t.154'))).toEqual([]);
+  });
+
+  it('emits the groupkids + action supplemental blocks', () => {
+    const code = buildInputViewFlowEc('t.153');
+    expect(code).toContain('"groupkids"');
+    expect(code).toContain('"actiongroups"');
+    expect(code).toContain('"actiontransports"');
+    expect(code).toContain('IF _c.className = "ButtonGroup" THEN');
+    expect(code).toContain('IF _c.className = "ButtonInput" OR _c.className = "ActionButton" THEN');
+    // transport EC reuses the child_ prefix on the _t loop var
+    expect(code).toContain('output(_t.expression');
+    expect(code).toContain('output(_t.value');
+  });
+
+  it('InputSet walk carries the same supplemental blocks', () => {
+    const code = buildInputSetFlowEc('t.154');
+    expect(code).toContain('"groupkids"');
+    expect(code).toContain('"actiongroups"');
+    expect(code).toContain('"actiontransports"');
   });
 });

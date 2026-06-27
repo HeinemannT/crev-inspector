@@ -80,16 +80,16 @@ function scalarBlock(label: string, valueExpr: string, prefix = ''): string {
  *  (Smtp/File/Soap/RunReport/AddObject/ActivateForms/…) carries no EC and
  *  renders as a bare node. `keyPrefix` (`child` | `actchild`) matches the
  *  block keys each walk's parser reads. EC requires a mandatory ELSE. */
-function transportChildEc(keyPrefix: string, indent: string): string[] {
+function transportChildEc(keyPrefix: string, indent: string, varName = '_c'): string[] {
   const slot = (prop: string, ind: string): string => {
     validateEcIdentifier(prop);
-    return `${ind}_r := _r + _sep + "${keyPrefix}_${prop}_" + _c.rid.whenMissing("") + _sep + output(_c.${prop}.whenMissing("")) + "\\n"`;
+    return `${ind}_r := _r + _sep + "${keyPrefix}_${prop}_" + ${varName}.rid.whenMissing("") + _sep + output(${varName}.${prop}.whenMissing("")) + "\\n"`;
   };
   return [
-    `${indent}IF _c.className = "ExtendedTransport" THEN`,
+    `${indent}IF ${varName}.className = "ExtendedTransport" THEN`,
     slot('expression', indent + '  '),
     `${indent}ELSE`,
-    `${indent}  IF _c.className = "ChangePropertyTransport" THEN`,
+    `${indent}  IF ${varName}.className = "ChangePropertyTransport" THEN`,
     slot('value', indent + '    '),
     slot('function', indent + '    '),
     slot('dateFunction', indent + '    '),
@@ -97,6 +97,80 @@ function transportChildEc(keyPrefix: string, indent: string): string[] {
     `${indent}    _r := _r`,
     `${indent}  ENDIF`,
     `${indent}ENDIF`,
+  ];
+}
+
+/** Supplemental EC for an InputSet walk: for every DIRECT child that is an
+ *  action-bearing button (ButtonInput / ActionButton with an actionObject),
+ *  emit the action graph — owner→group identity rows, group→transport rows,
+ *  and per-transport EC. Emitted AFTER the flat `children` + per-child EC
+ *  blocks so the contiguous identity blocks aren't split. `setVar` is the EC
+ *  var holding the InputSet. Verified live against t.153. */
+function inputActionEc(setVar: string): string[] {
+  // The guard repeated across the three passes: bind _ao to a button child's
+  // actionObject, or skip non-buttons / actionless buttons.
+  const guard = (body: string[]): string[] => [
+    `${setVar}.children().forEach(_c:`,
+    '  IF _c.className = "ButtonInput" OR _c.className = "ActionButton" THEN',
+    '    _ao := _c.actionObject',
+    '    IF _ao != MISSING THEN',
+    ...body,
+    '    ELSE',
+    '      _r := _r',
+    '    ENDIF',
+    '  ELSE',
+    '    _r := _r',
+    '  ENDIF',
+    ')',
+  ];
+  return [
+    // owner→group: ownerButtonRid|ntgRid|ntgId|ntgName|ntgClassName
+    `_r := _r + _sep + "actiongroups" + _sep + "\\n"`,
+    ...guard([
+      '      _r := _r + _c.rid.whenMissing("") + "|" + _ao.rid.whenMissing("") + "|" + _ao.id.whenMissing("") + "|" + _ao.name.whenMissing("") + "|" + _ao.className.whenMissing("") + "\\n"',
+    ]),
+    // group→transport identity: ntgRid|transportRid|id|name|className
+    `_r := _r + _sep + "actiontransports" + _sep + "\\n"`,
+    ...guard([
+      '      _ao.children().forEach(_t:',
+      '        _r := _r + _ao.rid.whenMissing("") + "|" + _t.rid.whenMissing("") + "|" + _t.id.whenMissing("") + "|" + _t.name.whenMissing("") + "|" + _t.className.whenMissing("") + "\\n"',
+      '      )',
+    ]),
+    // per-transport EC (child_ prefix, keyed by transport rid)
+    ...guard([
+      '      _ao.children().forEach(_t:',
+      ...transportChildEc('child', '        ', '_t'),
+      '      )',
+    ]),
+  ];
+}
+
+/** Supplemental EC for a ButtonGroup: surface each group's child buttons.
+ *  Emits a `groupkids` block (groupRid|childRid|id|name|className|key) plus the
+ *  per-child input EC (child_ prefix, keyed by child rid) so the buttons inside
+ *  a group are no longer invisible. The renderer draws a subtle group outline.
+ *  Verified live against t.153. */
+function buttonGroupEc(setVar: string): string[] {
+  return [
+    `_r := _r + _sep + "groupkids" + _sep + "\\n"`,
+    `${setVar}.children().forEach(_c:`,
+    '  IF _c.className = "ButtonGroup" THEN',
+    '    _c.children().forEach(_g:',
+    '      _r := _r + _c.rid.whenMissing("") + "|" + _g.rid.whenMissing("") + "|" + _g.id.whenMissing("") + "|" + _g.name.whenMissing("") + "|" + _g.className.whenMissing("") + "|" + _g.key.whenMissing("") + "\\n"',
+    '    )',
+    '  ELSE',
+    '    _r := _r',
+    '  ENDIF',
+    ')',
+    `${setVar}.children().forEach(_c:`,
+    '  IF _c.className = "ButtonGroup" THEN',
+    '    _c.children().forEach(_g:',
+    ...CHILD_EC_PROPS.map(p => childEcEmit(p, '_g', '      ')),
+    '    )',
+    '  ELSE',
+    '    _r := _r',
+    '  ENDIF',
+    ')',
   ];
 }
 
@@ -159,6 +233,8 @@ export function buildInputViewFlowEc(ref: string): string {
     '  _is.children().forEach(_c:',
     ...childEcAll('    '),
     '  )',
+    ...buttonGroupEc('_is').map(l => '  ' + l),
+    ...inputActionEc('_is').map(l => '  ' + l),
     'ENDIF',
     ...footer(),
   ].join('\n');
@@ -177,6 +253,8 @@ export function buildInputSetFlowEc(ref: string): string {
     '_o.children().forEach(_c:',
     ...childEcAll('  '),
     ')',
+    ...buttonGroupEc('_o'),
+    ...inputActionEc('_o'),
     ...footer(),
   ].join('\n');
 }
