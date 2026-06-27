@@ -1,7 +1,7 @@
 import type { AuthMode, AuthVia } from './bmp-auth';
 export type { AuthMode, AuthVia };
 import type { LModel, PlanNote } from './layout/types';
-import type { BlueprintCtx } from './layout/sync';
+import type { BlueprintCtx, NeedsTabset } from './layout/sync';
 import type { InstanceFanout, ContainerBlast } from './layout/blast-radius';
 
 /** Unified connection state — single source of truth for health + auth */
@@ -624,7 +624,10 @@ export type LayoutMessage =
   | { type: 'LAYOUT_LOAD'; rid: string }
   // `env` = the active profile id at load time; the panel echoes it back on apply so the SW can
   // reject a commit aimed at a different environment (the user switched profiles mid-edit).
-  | { type: 'LAYOUT_LOAD_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
+  | { type: 'LAYOUT_LOAD_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; needsTabset?: NeedsTabset; error?: string }
+  // Create a dedicated tabset for a RESULT-only page (no tabset), move its widgets onto it, then load.
+  | { type: 'LAYOUT_CREATE_TABSET'; page: NeedsTabset; name: string }
+  | { type: 'LAYOUT_CREATE_TABSET_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
   | { type: 'LAYOUT_APPLY'; env: string; ctx: BlueprintCtx; baseline: LModel; desired: LModel }
   | { type: 'LAYOUT_APPLY_RESULT'; ok: boolean; noop: boolean; stale?: boolean; script?: string; notes?: PlanNote[]; model?: LModel; baseline?: LModel; error?: string }
   // Apply-preview blast radius: is the page a template master (fan-out), and do any touched shared

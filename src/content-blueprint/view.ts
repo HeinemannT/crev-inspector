@@ -21,12 +21,20 @@ import {
   openMovePicker, closeMovePicker, moveTo, addTabAction,
 } from './actions';
 import { armBox, armResize } from './gestures';
-import { renderChip, previewModal, trayPanel, hintBar } from './view-panels';
+import { renderChip, previewModal, trayPanel, hintBar, createTabsetModal } from './view-panels';
 import { renderResult } from './result';
 
 export function render(): void {
-  const layer = bp.layer, base = bp.baseline, m = model(), ctx = bp.ctx;
-  if (!layer || !base || !m || !ctx) return;
+  const layer = bp.layer;
+  if (!layer) return;
+  // No-tabset page: show the create-tabset prompt (there's no model to edit until one exists).
+  if (bp.needsTabset) {
+    layer.textContent = '';
+    layer.appendChild(createTabsetModal(bp.needsTabset));
+    return;
+  }
+  const base = bp.baseline, m = model(), ctx = bp.ctx;
+  if (!base || !m || !ctx) return;
   layer.textContent = '';
   const byRid = ridElementMap();
   const pending = diff(base, m).length;

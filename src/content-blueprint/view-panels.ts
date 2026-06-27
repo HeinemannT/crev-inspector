@@ -15,7 +15,8 @@ import { diff } from '../lib/layout/diff';
 import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_LAYOUT, ICON_BLUEPRINT, ICON_WARNING } from '../lib/icons';
 import { bp, model } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
-import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, toggleResultView, discard, openApplyPreview, exitBlueprint } from './actions';
+import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, toggleResultView, discard, openApplyPreview, exitBlueprint, doCreateTabset } from './actions';
+import type { NeedsTabset } from '../lib/layout/sync';
 
 const VERB_ICON: Record<PlanNote['verb'], string> = { create: ICON_PLUS, update: ICON_PENCIL, move: ICON_ARROW_RIGHT, reorder: ICON_SWAP, delete: ICON_TRASH };
 
@@ -126,6 +127,40 @@ export function trayPanel(base: LModel, m: LModel): HTMLElement {
 export function hintBar(text: string): HTMLElement {
   const h = document.createElement('div'); h.className = 'bp-hint'; h.textContent = text;
   return h;
+}
+
+/** Create-tabset prompt — shown when a page's widgets sit on the phantom RESULT tab with no tabset.
+ *  The user names it; on confirm we create root.portal → Category → TabSet → Tab and move the widgets
+ *  onto it, then load the editor. Names default to the page id so the folder is recognisable. */
+export function createTabsetModal(page: NeedsTabset): HTMLElement {
+  const back = document.createElement('div'); back.className = 'bp-modal-back';
+  const card = document.createElement('div'); card.className = 'bp-modal bp-cts';
+  const h = document.createElement('div'); h.className = 'bp-modal-h';
+  h.textContent = 'This page has no tab layout yet';
+  card.appendChild(h);
+  const body = document.createElement('div'); body.className = 'bp-cts-body';
+  const p = document.createElement('p'); p.className = 'bp-cts-p';
+  p.textContent = `${page.pageClass} ${page.pageId} keeps its widgets on the default Result tab with no TabSet, `
+    + 'so there\'s nothing to arrange yet. Create one and its widgets move onto it. It lands in a new '
+    + 'folder under the portal root (you can relocate it later in Config Studio).';
+  body.appendChild(p);
+  const lbl = document.createElement('label'); lbl.className = 'bp-cts-lbl'; lbl.textContent = 'Tabset name';
+  const input = document.createElement('input'); input.className = 'bp-cts-input';
+  input.value = `${page.pageClass} ${page.pageId} layout`;
+  input.placeholder = 'e.g. Risk page layout';
+  lbl.appendChild(input);
+  body.appendChild(lbl);
+  card.appendChild(body);
+  const foot = document.createElement('div'); foot.className = 'bp-modal-foot';
+  const cancel = mkBtn('Cancel', exitBlueprint);
+  const create = mkBtn(bp.creatingTabset ? 'Creating…' : 'Create tabset', () => doCreateTabset(input.value));
+  create.className = 'apply'; create.disabled = bp.creatingTabset;
+  foot.append(cancel, create);
+  card.appendChild(foot);
+  back.appendChild(card);
+  input.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') { e.preventDefault(); doCreateTabset(input.value); } });
+  setTimeout(() => { input.focus(); input.select(); }, 0);
+  return back;
 }
 
 /** Command chip — page id, undo/redo, pending tray toggle, discard, apply, exit. */

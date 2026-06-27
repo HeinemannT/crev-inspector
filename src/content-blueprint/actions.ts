@@ -17,7 +17,7 @@ import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { render } from './view';
-import { applyPage, fetchBlast } from './service';
+import { applyPage, fetchBlast, createTabset } from './service';
 
 /** Push a new model state onto history and re-render. The one write path for staged edits. */
 export function mutate(next: LModel): void { bp.history?.push(next); render(); }
@@ -187,6 +187,13 @@ export function confirmApply(): void {
 }
 
 export function exitBlueprint(): void { sendToSW({ type: 'BLUEPRINT_TOGGLE' }); }
+
+/** Confirm from the create-tabset prompt — names + creates a dedicated tabset for a RESULT-only page,
+ *  moves its widgets onto it, and loads the editor. No-ops on an empty name. */
+export function doCreateTabset(name: string): void {
+  const n = name.trim();
+  if (n) void createTabset(n);
+}
 
 /** Keyboard: Escape backs out (modal → picker → move-menu → selection); Delete removes the selected
  *  widget; Ctrl/Cmd+Z / +Shift+Z (or +Y) undo/redo. All no-ops while typing in a field. */

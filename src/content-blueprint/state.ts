@@ -4,7 +4,7 @@
  * means neither the view nor the controller owns it, and there's no import cycle through it.
  */
 import type { LModel, PlanNote } from '../lib/layout/types';
-import type { BlueprintCtx } from '../lib/layout/sync';
+import type { BlueprintCtx, NeedsTabset } from '../lib/layout/sync';
 import type { InstanceFanout, ContainerBlast } from '../lib/layout/blast-radius';
 import { History } from '../lib/layout/history';
 
@@ -39,13 +39,15 @@ export interface BpState {
   ridSig: string;               // signature of the visible rids at last render — re-render when it changes
   mutRaf: number;               // rAF id coalescing mutation-driven re-renders (0 = none)
   resultView: boolean;          // render the model-computed RESULT wireframe instead of badges over the frozen grid
+  needsTabset: NeedsTabset | null; // page has RESULT widgets but no tabset → show the create-tabset prompt
+  creatingTabset: boolean;      // create-tabset request in flight (disables the prompt's Create button)
 }
 
 export const bp: BpState = {
   active: false, baseline: null, ctx: null, env: null, history: null,
   layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null,
   onScroll: null, onKey: null, raf: 0, gen: 0, hint: null, trayOpen: false, dragging: false, renaming: false,
-  observer: null, ridSig: '', mutRaf: 0, resultView: false,
+  observer: null, ridSig: '', mutRaf: 0, resultView: false, needsTabset: null, creatingTabset: false,
 };
 
 export function isBlueprintActive(): boolean { return bp.active; }

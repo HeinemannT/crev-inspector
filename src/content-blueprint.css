@@ -221,6 +221,13 @@
 #crev-blueprint-layer .bp-modal-warn .bp-modal-warn-ic svg{width:13px;height:13px;display:block}
 #crev-blueprint-layer .bp-modal-info{display:flex;align-items:flex-start;gap:8px;margin:8px 14px 0;padding:7px 10px;background:rgba(136,166,192,.08);border:1px solid var(--bp-line);border-radius:5px;color:var(--bp-muted);font:500 11.5px 'BPInter',sans-serif}
 #crev-blueprint-layer .bp-modal-info .bp-modal-info-dot{flex:none;width:6px;height:6px;margin-top:5px;border-radius:50%;background:var(--bp-muted)}
+/* create-tabset prompt (RESULT-only page) */
+#crev-blueprint-layer .bp-cts{width:440px;max-width:92vw}
+#crev-blueprint-layer .bp-cts-body{padding:14px 16px}
+#crev-blueprint-layer .bp-cts-p{margin:0 0 12px;font:400 12px/1.5 'BPInter',sans-serif;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-cts-lbl{display:block;font:600 10px var(--bp-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-cts-input{margin-top:6px;width:100%;padding:8px 10px;border:1px solid var(--bp-line);border-radius:4px;background:var(--bp-ink-3);color:var(--bp-text);font:500 13px 'BPInter',sans-serif;outline:none}
+#crev-blueprint-layer .bp-cts-input:focus{border-color:var(--bp-cyan-hi);box-shadow:0 0 0 1px rgba(110,168,255,.3)}
 #crev-blueprint-layer .bp-modal-list{overflow:auto;padding:8px 6px;display:flex;flex-direction:column;gap:2px}
 #crev-blueprint-layer .bp-prow{display:flex;align-items:baseline;gap:8px;padding:6px 10px;border-radius:4px;font:12px 'BPInter',sans-serif}
 #crev-blueprint-layer .bp-prow:hover{background:var(--bp-ink-3)}

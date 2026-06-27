@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   buildFetchEc, parseFetchLog, loadModel, applyModel,
-  resolvePageContext, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
+  resolvePageContext, isNeedsTabset, buildCreateTabsetEc, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
 } from '../sync';
 import { addContainer, rename } from '../edit';
 import { findNode } from '../model';
@@ -171,25 +171,33 @@ const ENTERPRISE_LOG = [
 describe('sync.resolvePageContext', () => {
   it('enterprise: points the page root at the linked template + shared tabset, scoped to content', async () => {
     const probe = `${'<<<CREV_CTX>>>'}enterprise|${TMPL_RID}|5923|EnterpriseTemplate|default_tabset`;
-    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '5977812347502735400');
-    expect(ctx).not.toBeNull();
-    expect(ctx!.pageId).toBe('5923');           // edit the TEMPLATE, not the instance
-    expect(ctx!.pageRid).toBe(TMPL_RID);
-    expect(ctx!.tabsetId).toBe(DEFAULT_TABSET);
-    expect(ctx!.tabScope).toBe('withContent');
-    expect(ctx!.target).toBe('template');
+    const r = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '5977812347502735400');
+    expect(r && !isNeedsTabset(r)).toBe(true);
+    const ctx = r as BlueprintCtx;
+    expect(ctx.pageId).toBe('5923');            // edit the TEMPLATE, not the instance
+    expect(ctx.pageRid).toBe(TMPL_RID);
+    expect(ctx.tabsetId).toBe(DEFAULT_TABSET);
+    expect(ctx.tabScope).toBe('withContent');
+    expect(ctx.target).toBe('template');
   });
   it('direct: edits the object itself with its discovered dedicated tabset', async () => {
-    const probe = `${'<<<CREV_CTX>>>'}direct|451704949656267090|4957|Scorecard|crev_demo_tabset`;
-    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '451704949656267090');
-    expect(ctx).not.toBeNull();
-    expect(ctx!.pageId).toBe('4957');
-    expect(ctx!.pageRid).toBe('451704949656267090');
-    expect(ctx!.tabsetId).toBe('crev_demo_tabset');
-    expect(ctx!.tabScope).toBe('all');          // dedicated tabset → keep all tabs
+    const probe = `${'<<<CREV_CTX>>>'}direct|451704949656267090|4957|Scorecard|crev_demo_tabset|n|9`;
+    const r = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '451704949656267090');
+    expect(r && !isNeedsTabset(r)).toBe(true);
+    const ctx = r as BlueprintCtx;
+    expect(ctx.pageId).toBe('4957');
+    expect(ctx.pageRid).toBe('451704949656267090');
+    expect(ctx.tabsetId).toBe('crev_demo_tabset');
+    expect(ctx.tabScope).toBe('all');           // dedicated tabset → keep all tabs
   });
-  it('returns null when no tabset is discoverable (empty Direct page)', async () => {
-    const probe = `${'<<<CREV_CTX>>>'}direct|999|888|Scorecard|`; // empty tabsetId
+  it('no tabset but RESULT widgets → needsTabset (createable)', async () => {
+    const probe = `${'<<<CREV_CTX>>>'}direct|999|888|Scorecard||n|4`; // empty tabsetId, 4 widgets
+    const r = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '999');
+    expect(isNeedsTabset(r)).toBe(true);
+    expect(r).toMatchObject({ needsTabset: true, pageRid: '999', pageId: '888', pageClass: 'Scorecard' });
+  });
+  it('returns null when no tabset AND no widgets (empty / not a page)', async () => {
+    const probe = `${'<<<CREV_CTX>>>'}direct|999|888|Scorecard||n|0`; // empty tabsetId, 0 widgets
     const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '999');
     expect(ctx).toBeNull();
   });
@@ -299,15 +307,37 @@ describe('sync.applyModel', () => {
 
 describe('sync.resolvePageContext (blast radius)', () => {
   it('direct page → instance target, low blast radius; records a linked template', async () => {
-    const probe = `${'<<<CREV_CTX>>>'}direct|451704949656267090|4957|Scorecard|crev_demo_tabset|y`;
-    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '4957');
-    expect(ctx!.target).toBe('instance');   // edits the object's own widgets
-    expect(ctx!.hasTemplate).toBe(true);    // a linked template exists (SharedWebItems)
+    const probe = `${'<<<CREV_CTX>>>'}direct|451704949656267090|4957|Scorecard|crev_demo_tabset|y|9`;
+    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '4957') as BlueprintCtx;
+    expect(ctx.target).toBe('instance');    // edits the object's own widgets
+    expect(ctx.hasTemplate).toBe(true);     // a linked template exists (SharedWebItems)
   });
   it('direct page with no linked template → hasTemplate false', async () => {
-    const probe = `${'<<<CREV_CTX>>>'}direct|1|2|ModelPage|some_tabset|n`;
-    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '1');
-    expect(ctx!.target).toBe('instance');
-    expect(ctx!.hasTemplate).toBe(false);
+    const probe = `${'<<<CREV_CTX>>>'}direct|1|2|ModelPage|some_tabset|n|3`;
+    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '1') as BlueprintCtx;
+    expect(ctx.target).toBe('instance');
+    expect(ctx.hasTemplate).toBe(false);
+  });
+});
+
+describe('sync.buildCreateTabsetEc', () => {
+  it('creates portal → Category → TabSet → Tab and rebinds only RESULT widgets', () => {
+    const ec = buildCreateTabsetEc('451704949656267090', 'Risk page layout');
+    expect(ec).toContain('_sc := lookup(451704949656267090)');
+    expect(ec).toContain('root.portal.add(Category, name := "Risk page layout")');
+    expect(ec).toContain('_cat.add(TabSet, name := "Risk page layout")');
+    expect(ec).toContain('_ts.add(Tab, name := "Main"');
+    // only widgets currently on RESULT are moved
+    expect(ec).toContain('IF _wc = "RESULT" THEN');
+    expect(ec).toContain('_w.change(container := _tab)');
+    // emits tsId|tabId|movedCount for the caller
+    expect(ec).toContain('_ts.id + "|" + _tab.id + "|" + output(_n)');
+  });
+  it('escapes a hostile name into the EC string slot (no breakout)', () => {
+    const ec = buildCreateTabsetEc('1', 'evil") + lookup(1).delete() + ("');
+    // every " in the name is escaped to \", so the injection stays inert inside the string literal —
+    // the un-escaped breakout form never appears.
+    expect(ec).not.toContain('"evil") +');
+    expect(ec).toContain('evil\\")');
   });
 });
