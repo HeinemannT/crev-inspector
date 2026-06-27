@@ -1199,22 +1199,26 @@ _r
     if (data.ab_expression) localCode.push(makeCodeField('expression', data.ab_expression, []));
     if (data.ab_initExpression) localCode.push(makeCodeField('initExpression', data.ab_initExpression, []));
     if (data.ab_afterExpression) localCode.push(makeCodeField('afterExpression', data.ab_afterExpression, []));
-    if (data.ab_showExpression) {
-      const f = makeCodeField('showExpression', data.ab_showExpression, []);
-      // Hint that this EC came via the ExtendedExpression reference indirection.
-      f.firstLine = `via showExpression → expression: ${f.firstLine}`;
-      // Edit must open the ExtendedExpression's .expression, not the AB's
-      // .showExpression (which is the Reference handle). Without this
-      // redirect, the editor falls back to the AB's `expression` field —
-      // silently editing the wrong EC. The walker EC fetched the target rid
-      // alongside the content; pass both to the renderer.
-      const targetRid = data.ab_showExpression_rid;
+    // showExpression / enableExpression / validateExpression are indirect
+    // (Reference → ExtendedExpression): the content derefs through `.expression`
+    // and Edit must redirect to the TARGET's `.expression`, not the AB's
+    // Reference handle (else the editor silently falls back to `expression`).
+    const pushIndirect = (prop: string, text?: string, targetRid?: string): void => {
+      if (!text) return;
+      const f = makeCodeField(prop, text, []);
+      f.firstLine = `via ${prop} → expression: ${f.firstLine}`;
       if (targetRid) {
         f.targetRid = targetRid;
         f.targetProp = 'expression';
       }
       localCode.push(f);
-    }
+    };
+    pushIndirect('showExpression', data.ab_showExpression, data.ab_showExpression_rid);
+    pushIndirect('enableExpression', data.ab_enableExpression, data.ab_enableExpression_rid);
+    pushIndirect('validateExpression', data.ab_validateExpression, data.ab_validateExpression_rid);
+    // editExpression / refreshExpression are direct expression fields.
+    if (data.ab_editExpression) localCode.push(makeCodeField('editExpression', data.ab_editExpression, []));
+    if (data.ab_refreshExpression) localCode.push(makeCodeField('refreshExpression', data.ab_refreshExpression, []));
     if (localCode.length > 0) abStep.codeFields = localCode;
 
     const actRow = parsePipeRow(data.act);

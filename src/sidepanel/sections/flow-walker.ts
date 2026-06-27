@@ -25,6 +25,7 @@ import { resolveCopyText, getModifier, type CopyModifier } from '../../lib/names
 import {
   ICON_KEY, ICON_CODE, ICON_LIGHTNING, ICON_ARROW_SQUARE_IN, ICON_ARROW_OUT,
   ICON_EYE_SLASH, ICON_SUBTITLES_SLASH, ICON_CODE_BLOCK, ICON_VARIABLE, ICON_CLOCK,
+  ICON_SHIELD, ICON_PENCIL, ICON_REFRESH,
 } from '../../lib/icons';
 import type { FlowChainMsg, FlowStepMsg, FlowCodeFieldMsg, InspectorMessage } from '../../lib/types';
 
@@ -48,6 +49,9 @@ const PROP_ICON: Record<string, string> = {
   showExpression: ICON_EYE_SLASH,    // visibility gate
   enableExpression: ICON_SUBTITLES_SLASH, // enabled / clickable gate
   defaultExpression: ICON_CODE_BLOCK, // provides the default value / text
+  validateExpression: ICON_SHIELD,   // gates the action on validation
+  editExpression: ICON_PENCIL,       // edit-mode expression
+  refreshExpression: ICON_REFRESH,   // refresh trigger
   // ChangePropertyTransport action fields (write a property on the target):
   function: ICON_VARIABLE,           // calc function (CorpoCalcExpression)
   dateFunction: ICON_CLOCK,          // date function

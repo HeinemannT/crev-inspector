@@ -225,6 +225,16 @@ export function buildActionButtonFlowEc(ref: string): string {
     // so the Edit button on the indirect EC opens the TARGET's `.expression`
     // field, not the AB's `.showExpression` (which is a Reference, not an EC).
     scalarBlock('ab_showExpression_rid', '_o.showExpression.rid.whenMissing("")'),
+    // enableExpression + validateExpression are indirect too (Reference →
+    // ExtendedExpression), read + redirected exactly like showExpression.
+    // editExpression + refreshExpression are DIRECT expression fields (verified
+    // live on t.151: editExpression='this.object', the others deref/empty-safe).
+    scalarBlock('ab_enableExpression', 'output(_o.enableExpression.expression.whenMissing(""))'),
+    scalarBlock('ab_enableExpression_rid', '_o.enableExpression.rid.whenMissing("")'),
+    scalarBlock('ab_validateExpression', 'output(_o.validateExpression.expression.whenMissing(""))'),
+    scalarBlock('ab_validateExpression_rid', '_o.validateExpression.rid.whenMissing("")'),
+    scalarBlock('ab_editExpression', 'output(_o.editExpression.whenMissing(""))'),
+    scalarBlock('ab_refreshExpression', 'output(_o.refreshExpression.whenMissing(""))'),
     'IF _act != MISSING THEN',
     pipeRow('_act', 'act', '  '),
     `  _r := _r + _sep + "actchildren" + _sep + "\\n"`,
