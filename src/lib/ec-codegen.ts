@@ -56,15 +56,52 @@ function pipeRowNoKey(varName: string, prefix = ''): string {
   return `${prefix}_r := _r + ${varName}.rid.whenMissing("") + "|" + ${varName}.id.whenMissing("") + "|" + ${varName}.name.whenMissing("") + "|" + ${varName}.className.whenMissing("") + "\\n"`;
 }
 
-/** EC fragment that emits `{sep}child_<prop>_<rid>{sep}<ec text>\n` — the
- *  per-child code-field block that the parser keys by RID. `prop` is
- *  interpolated into the EC source itself (as `.${prop}`), so a hostile
- *  string like `x, hostile := lookup(123)` would break out of the
- *  property access. We re-validate at every slot even though callers
- *  pass values from ALL_CODE_FIELDS — defence-in-depth. */
-function childEcEmit(prop: string, varName = '_c', prefix = ''): string {
+/** Emit an EC content block (`{sep}<label>{sep}<value>\n`) ONLY when the value
+ *  is non-empty. An empty property otherwise costs ~65 bytes on the wire — the
+ *  sentinel twice + the label + a 19-digit RID — and MOST input/transport
+ *  properties are empty (a typical field binds 0-1 of its 7 code props). On
+ *  t.153 this shrank the per-child payload from ~1.3 KB to <100 bytes; the win
+ *  scales linearly with field count. The value is read once via output() (raw
+ *  text, no eval) and the parser already treats a missing block as "no EC", so
+ *  nothing downstream changes. `labelExpr`/`valueExpr` are EC source fragments. */
+function condEcBlock(labelExpr: string, valueExpr: string, prefix = ''): string[] {
+  return [
+    `${prefix}_v := ${valueExpr}`,
+    `${prefix}IF _v != "" THEN`,
+    `${prefix}  _r := _r + _sep + ${labelExpr} + _sep + _v + "\\n"`,
+    `${prefix}ELSE`,
+    `${prefix}  _r := _r`,
+    `${prefix}ENDIF`,
+  ];
+}
+
+/** Indirect EC block (Reference → ExtendedExpression): emit the content AND its
+ *  backing-RID block (used for the Edit redirect) ONLY when the content is
+ *  non-empty. Reading `.rid` only inside the non-empty branch also avoids a
+ *  `.rid`-on-MISSING access when the reference is unset. */
+function condIndirectEc(label: string, refExpr: string, prefix = ''): string[] {
+  return [
+    `${prefix}_v := output(${refExpr}.expression.whenMissing(""))`,
+    `${prefix}IF _v != "" THEN`,
+    `${prefix}  _r := _r + _sep + "${label}" + _sep + _v + "\\n"`,
+    `${prefix}  _r := _r + _sep + "${label}_rid" + _sep + ${refExpr}.rid.whenMissing("") + "\\n"`,
+    `${prefix}ELSE`,
+    `${prefix}  _r := _r`,
+    `${prefix}ENDIF`,
+  ];
+}
+
+/** Per-child code-field block keyed by RID, emitted only when non-empty (see
+ *  condEcBlock). `prop` is interpolated into the EC source (as `.${prop}`), so a
+ *  hostile string could break out of the property access — we re-validate at
+ *  every slot even though callers pass values from ALL_CODE_FIELDS. */
+function childEcEmit(prop: string, varName = '_c', prefix = ''): string[] {
   validateEcIdentifier(prop);
-  return `${prefix}_r := _r + _sep + "child_${prop}_" + ${varName}.rid.whenMissing("") + _sep + output(${varName}.${prop}.whenMissing("")) + "\\n"`;
+  return condEcBlock(
+    `"child_${prop}_" + ${varName}.rid.whenMissing("")`,
+    `output(${varName}.${prop}.whenMissing(""))`,
+    prefix,
+  );
 }
 
 /** EC fragment that emits a single header section: `{sep}<label>{sep}<value>\n`. */
@@ -81,18 +118,22 @@ function scalarBlock(label: string, valueExpr: string, prefix = ''): string {
  *  renders as a bare node. `keyPrefix` (`child` | `actchild`) matches the
  *  block keys each walk's parser reads. EC requires a mandatory ELSE. */
 function transportChildEc(keyPrefix: string, indent: string, varName = '_c'): string[] {
-  const slot = (prop: string, ind: string): string => {
+  const slot = (prop: string, ind: string): string[] => {
     validateEcIdentifier(prop);
-    return `${ind}_r := _r + _sep + "${keyPrefix}_${prop}_" + ${varName}.rid.whenMissing("") + _sep + output(${varName}.${prop}.whenMissing("")) + "\\n"`;
+    return condEcBlock(
+      `"${keyPrefix}_${prop}_" + ${varName}.rid.whenMissing("")`,
+      `output(${varName}.${prop}.whenMissing(""))`,
+      ind,
+    );
   };
   return [
     `${indent}IF ${varName}.className = "ExtendedTransport" THEN`,
-    slot('expression', indent + '  '),
+    ...slot('expression', indent + '  '),
     `${indent}ELSE`,
     `${indent}  IF ${varName}.className = "ChangePropertyTransport" THEN`,
-    slot('value', indent + '    '),
-    slot('function', indent + '    '),
-    slot('dateFunction', indent + '    '),
+    ...slot('value', indent + '    '),
+    ...slot('function', indent + '    '),
+    ...slot('dateFunction', indent + '    '),
     `${indent}  ELSE`,
     `${indent}    _r := _r`,
     `${indent}  ENDIF`,
@@ -181,7 +222,7 @@ function buttonGroupEc(setVar: string): string[] {
     `${setVar}.children().forEach(_c:`,
     '  IF _c.className = "ButtonGroup" THEN',
     '    _c.children().forEach(_g:',
-    ...CHILD_EC_PROPS.map(p => childEcEmit(p, '_g', '      ')),
+    ...CHILD_EC_PROPS.flatMap(p => childEcEmit(p, '_g', '      ')),
     '    )',
     '  ELSE',
     '    _r := _r',
@@ -224,7 +265,7 @@ const CHILD_EC_PROPS = [
 /** Emit the per-child EC block for every prop in CHILD_EC_PROPS, indented for
  *  use inside a `.forEach(_c:` body. */
 function childEcAll(indent: string): string[] {
-  return CHILD_EC_PROPS.map(prop => childEcEmit(prop, '_c', indent));
+  return CHILD_EC_PROPS.flatMap(prop => childEcEmit(prop, '_c', indent));
 }
 
 /**
@@ -311,24 +352,19 @@ export function buildActionButtonFlowEc(ref: string): string {
     '_act := _o.actionObject',
     '_actType := _o.actionType.whenMissing("")',
     `_r := _r + _sep + "ab" + _sep + _o.rid.whenMissing("") + "|" + _o.id.whenMissing("") + "|" + _o.name.whenMissing("") + "|" + _o.className.whenMissing("") + "|" + _actType + "\\n"`,
-    scalarBlock('ab_expression', 'output(_o.expression.whenMissing(""))'),
-    scalarBlock('ab_initExpression', 'output(_o.initExpression.whenMissing(""))'),
-    scalarBlock('ab_afterExpression', 'output(_o.afterExpression.whenMissing(""))'),
-    scalarBlock('ab_showExpression', 'output(_o.showExpression.expression.whenMissing(""))'),
-    // RID of the ExtendedExpression that backs showExpression. Walker uses this
-    // so the Edit button on the indirect EC opens the TARGET's `.expression`
-    // field, not the AB's `.showExpression` (which is a Reference, not an EC).
-    scalarBlock('ab_showExpression_rid', '_o.showExpression.rid.whenMissing("")'),
-    // enableExpression + validateExpression are indirect too (Reference →
-    // ExtendedExpression), read + redirected exactly like showExpression.
-    // editExpression + refreshExpression are DIRECT expression fields (verified
-    // live on t.151: editExpression='this.object', the others deref/empty-safe).
-    scalarBlock('ab_enableExpression', 'output(_o.enableExpression.expression.whenMissing(""))'),
-    scalarBlock('ab_enableExpression_rid', '_o.enableExpression.rid.whenMissing("")'),
-    scalarBlock('ab_validateExpression', 'output(_o.validateExpression.expression.whenMissing(""))'),
-    scalarBlock('ab_validateExpression_rid', '_o.validateExpression.rid.whenMissing("")'),
-    scalarBlock('ab_editExpression', 'output(_o.editExpression.whenMissing(""))'),
-    scalarBlock('ab_refreshExpression', 'output(_o.refreshExpression.whenMissing(""))'),
+    // Direct EC fields, emitted only when set.
+    ...condEcBlock('"ab_expression"', 'output(_o.expression.whenMissing(""))'),
+    ...condEcBlock('"ab_initExpression"', 'output(_o.initExpression.whenMissing(""))'),
+    ...condEcBlock('"ab_afterExpression"', 'output(_o.afterExpression.whenMissing(""))'),
+    // Indirect (Reference → ExtendedExpression): show / enable / validate. Each
+    // emits its content + a backing-RID block (so Edit opens the TARGET's
+    // `.expression`, not the AB's Reference handle) only when content is set.
+    ...condIndirectEc('ab_showExpression', '_o.showExpression'),
+    ...condIndirectEc('ab_enableExpression', '_o.enableExpression'),
+    ...condIndirectEc('ab_validateExpression', '_o.validateExpression'),
+    // Direct fields (verified live on t.151: editExpression='this.object').
+    ...condEcBlock('"ab_editExpression"', 'output(_o.editExpression.whenMissing(""))'),
+    ...condEcBlock('"ab_refreshExpression"', 'output(_o.refreshExpression.whenMissing(""))'),
     'IF _act != MISSING THEN',
     pipeRow('_act', 'act', '  '),
     `  _r := _r + _sep + "actchildren" + _sep + "\\n"`,
@@ -349,8 +385,8 @@ export function buildLabelFlowEc(ref: string): string {
   return [
     ...preamble(ref),
     pipeRow('_o', 'lbl'),
-    scalarBlock('lbl_defaultExpression', 'output(_o.defaultExpression.whenMissing(""))'),
-    scalarBlock('lbl_expression', 'output(_o.expression.whenMissing(""))'),
+    ...condEcBlock('"lbl_defaultExpression"', 'output(_o.defaultExpression.whenMissing(""))'),
+    ...condEcBlock('"lbl_expression"', 'output(_o.expression.whenMissing(""))'),
     ...footer(),
   ].join('\n');
 }
