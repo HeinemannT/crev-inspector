@@ -111,6 +111,10 @@ export function revertNode(id: string): void {
 export function setHint(text: string | null): void { if (bp.hint !== text) { bp.hint = text; render(); } }
 export function toggleTray(): void { bp.trayOpen = !bp.trayOpen; render(); }
 
+/** Flip between the LIVE view (diff badges anchored over BMP's frozen grid) and the RESULT view (the
+ *  edited model laid out as a CSS-grid wireframe — what the page becomes after Apply). */
+export function toggleResultView(): void { bp.resultView = !bp.resultView; bp.selectedId = null; render(); }
+
 /** A self-clearing hint-bar message for actions with no spatial gesture of their own (undo/redo).
  *  The timer only clears its OWN text, so a later gesture hint isn't clobbered. The caller renders. */
 let hintTimer: ReturnType<typeof setTimeout> | undefined;

@@ -1,0 +1,104 @@
+/**
+ * Result view — the model-driven "what the page becomes after Apply" wireframe.
+ *
+ * The LIVE view (view.ts) anchors boxes to BMP's frozen DOM and shows edits as badges, because the
+ * real grid can't reflow client-side. This view takes the opposite tack: it renders the EDITED model
+ * as a real CSS-grid mirror of BMP's column model, so a move/resize/add/delete shows in its FINAL
+ * position. It touches none of BMP's DOM — it's an overlay wireframe — so there's no iframe reload,
+ * no chart breakage, no fight with BMP's renderer, and it works for staged adds (which have no DOM).
+ *
+ * Fidelity: BMP wraps children left-to-right into 6 columns by `cols.L`, containers before tab-bound
+ * widgets (encoded in `orderChildren`). `grid-template-columns: repeat(6, 1fr)` + `grid-column: span
+ * cols.L` reproduces exactly that wrap via the browser's own auto-placement — a too-wide item leaves
+ * the trailing gap and wraps, same as BMP. The grid is anchored to the live content box (origin +
+ * width measured from the active tab's widget rects) so columns line up pixel-wise with the real page.
+ *
+ * Spike scope: renders the ACTIVE tab (the one whose widgets are in the live DOM, so we can measure
+ * the content box). Cells are selectable + draggable (they carry data-bpid/data-bpkind, so the
+ * existing gesture machinery treats them as honest, final-position drop targets). Cross-tab result
+ * rendering (no live anchor for inactive tabs) is a follow-up.
+ */
+import type { LModel, LNode } from '../lib/layout/types';
+import { findNode, orderChildren, isTempId, isChart } from '../lib/layout/model';
+import type { Rect } from './geometry';
+import { unionRect } from './geometry';
+import { armBox } from './gestures';
+import { bp } from './state';
+
+export type CellState = 'same' | 'new' | 'moved' | 'changed';
+
+/** Classify a model node against the baseline for result-view colouring. */
+export function cellState(base: LModel, node: LNode, modelParentId: string | null): CellState {
+  if (isTempId(node.id)) return 'new';
+  const b = findNode(base, node.id);
+  if (!b) return 'new';
+  const baseParentId = b.parent?.id ?? null;
+  if (baseParentId !== modelParentId) return 'moved';
+  const bn = b.node;
+  if (bn.cols.L !== node.cols.L || bn.name !== node.name || bn.height !== node.height) return 'changed';
+  return 'same';
+}
+
+/** The active tab = the model tab whose baseline widgets are currently in the live DOM. */
+function activeModelTab(base: LModel, m: LModel, byRid: Map<string, Element>): { tab: LNode; frame: Rect } | null {
+  for (const bt of base.tabs) {
+    const frame = unionRect(bt, byRid);
+    if (!frame) continue;
+    const mt = m.tabs.find(t => t.id === bt.id);
+    if (mt) return { tab: mt, frame };
+  }
+  return null;
+}
+
+/** One widget/container cell. Containers recurse into a nested 6-col sub-grid. */
+function cell(base: LModel, node: LNode, parentId: string | null): HTMLElement {
+  const el = document.createElement('div');
+  el.dataset.bpid = node.id;
+  el.dataset.bpkind = node.kind === 'container' ? 'container' : 'widget';
+  el.style.gridColumn = `span ${Math.max(1, Math.min(6, node.cols.L))}`;
+  const state = cellState(base, node, parentId);
+  el.className = `bp-rcell st-${state}` + (node.kind === 'container' ? ' bp-rcont' : '')
+    + (isChart(node.className) ? ' bp-rchart' : '') + (bp.selectedId === node.id ? ' sel' : '');
+
+  const lab = document.createElement('div'); lab.className = 'bp-rlab';
+  const nm = document.createElement('span'); nm.className = 'bp-rnm'; nm.textContent = node.name;
+  const ty = document.createElement('span'); ty.className = 'bp-rty'; ty.textContent = node.className.toUpperCase();
+  lab.append(nm, ty);
+  const wd = document.createElement('span'); wd.className = 'bp-rwd'; wd.textContent = `${node.cols.L}/6`; lab.appendChild(wd);
+  if (state !== 'same') {
+    const tag = document.createElement('span'); tag.className = `bp-rtag st-${state}`;
+    tag.textContent = state === 'moved' ? 'MOVED' : state === 'new' ? 'NEW' : 'CHANGED';
+    lab.appendChild(tag);
+  }
+  el.appendChild(lab);
+
+  if (node.kind === 'container') {
+    const grid = document.createElement('div'); grid.className = 'bp-rgrid';
+    for (const child of orderChildren(node.children)) grid.appendChild(cell(base, child, node.id));
+    if (!node.children.length) { const e = document.createElement('div'); e.className = 'bp-rempty'; e.textContent = 'empty'; grid.appendChild(e); }
+    el.appendChild(grid);
+  }
+
+  armBox(el, node.id); // select on click, drag to move — drop targets are now final positions
+  return el;
+}
+
+/**
+ * Render the result wireframe into `layer`. Returns false when it can't anchor (no active tab with
+ * live widgets) so the caller can fall back to the live view.
+ */
+export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element>, layer: HTMLElement): boolean {
+  const active = activeModelTab(base, m, byRid);
+  if (!active) return false;
+  const { tab, frame } = active;
+
+  const wrap = document.createElement('div'); wrap.className = 'bp-result';
+  Object.assign(wrap.style, { left: `${frame.left}px`, top: `${frame.top}px`, width: `${frame.width}px` });
+
+  const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
+  for (const child of orderChildren(tab.children)) grid.appendChild(cell(base, child, tab.id));
+  if (!tab.children.length) { const e = document.createElement('div'); e.className = 'bp-rempty'; e.textContent = `Tab "${tab.name}" is empty`; e.style.gridColumn = 'span 6'; grid.appendChild(e); }
+  wrap.appendChild(grid);
+  layer.appendChild(wrap);
+  return true;
+}

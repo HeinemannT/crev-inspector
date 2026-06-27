@@ -21,6 +21,7 @@ import {
 } from './actions';
 import { armBox, armResize } from './gestures';
 import { renderChip, previewModal, trayPanel, hintBar } from './view-panels';
+import { renderResult } from './result';
 
 export function render(): void {
   const layer = bp.layer, base = bp.baseline, m = model(), ctx = bp.ctx;
@@ -33,6 +34,14 @@ export function render(): void {
   header.className = 'bp-header' + (ctx.target === 'template' ? ' tmpl' : '');
   header.append(renderChip(ctx, pending), tabBar(base, m));
   layer.appendChild(header);
+
+  // RESULT view: render the edited model as a CSS-grid wireframe (final positions) instead of badges
+  // over the frozen grid. Falls back to the live view if it can't anchor (no active tab in the DOM).
+  // The selection toolbar + pickers + tray + preview modal still apply (rendered at the foot below).
+  if (bp.resultView && renderResult(base, m, byRid, layer)) {
+    renderFloatingChrome(byRid, m);
+    return;
+  }
 
   // container boxes first (behind), sized to the union of their live child-widget rects
   walk(base, (node) => {
@@ -85,26 +94,44 @@ export function render(): void {
     layer.appendChild(availZone(activeTab.id, activeTab.name, { left: lr.left, top: lr.top + lr.height + 8 + extra, width: lr.width, height: 40 }));
   }
 
+  renderFloatingChrome(byRid, m);
+}
+
+/** Selection toolbar + move-menu + add-picker + tray + hint + apply modal. These anchor to a node's
+ *  box (resolved via `anchorRect`, which works in either view) and otherwise float, so both the live
+ *  and result views share them verbatim. */
+function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
+  const layer = bp.layer!, base = bp.baseline!, ctx = bp.ctx!;
   // selection toolbar (hidden while a modal/picker is up)
   if (!bp.preview && !bp.picker && !bp.movePicker) {
     const selBox = bp.selectedId ? findNode(m, bp.selectedId) : null;
     // Tabs own their rename/add/delete on the pill itself — the generic toolbar's Rename targets
     // a `.bp-box .bp-nm` a pill doesn't have, and its W/Delete just duplicate the pill. Skip it.
     if (selBox && selBox.node.kind !== 'tab') {
-      const anchor = anchorRect(selBox.node, byRid);
+      const anchor = anchorRect(selBox.node, byRid) ?? resultAnchor(selBox.node.id);
       if (anchor) layer.appendChild(toolbar(selBox.node, anchor));
     }
   }
 
   if (bp.movePicker) {
     const f = findNode(m, bp.movePicker);
-    const anchor = f ? anchorRect(f.node, byRid) : null;
+    const anchor = (f ? anchorRect(f.node, byRid) : null) ?? resultAnchor(bp.movePicker);
     layer.appendChild(moveMenu(bp.movePicker, anchor ?? { left: 80, top: 80, width: 0, height: 0 }));
   }
   if (bp.picker) layer.appendChild(pickerPanel(byRid));
   if (bp.trayOpen) layer.appendChild(trayPanel(base, m));
   if (bp.hint) layer.appendChild(hintBar(bp.hint));
   if (bp.preview) layer.appendChild(previewModal(bp.preview, ctx));
+}
+
+/** Anchor a floating panel to a node's result-view cell (the result wireframe has no live DOM rect,
+ *  so anchorRect returns null there). Reads the rendered cell's on-screen box. */
+function resultAnchor(id: string): Rect | null {
+  if (!bp.resultView || !bp.layer) return null;
+  const el = bp.layer.querySelector(`.bp-rcell[data-bpid="${CSS.escape(id)}"]`) as HTMLElement | null;
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { left: r.left, top: r.top, width: r.width, height: r.height };
 }
 
 // ── per-element builders ─────────────────────────────────────────────────────

@@ -38,13 +38,14 @@ export interface BpState {
   observer: MutationObserver | null; // watches BMP content for tab switches (visible rid set changes)
   ridSig: string;               // signature of the visible rids at last render — re-render when it changes
   mutRaf: number;               // rAF id coalescing mutation-driven re-renders (0 = none)
+  resultView: boolean;          // render the model-computed RESULT wireframe instead of badges over the frozen grid
 }
 
 export const bp: BpState = {
   active: false, baseline: null, ctx: null, env: null, history: null,
   layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null,
   onScroll: null, onKey: null, raf: 0, gen: 0, hint: null, trayOpen: false, dragging: false, renaming: false,
-  observer: null, ridSig: '', mutRaf: 0,
+  observer: null, ridSig: '', mutRaf: 0, resultView: false,
 };
 
 export function isBlueprintActive(): boolean { return bp.active; }
