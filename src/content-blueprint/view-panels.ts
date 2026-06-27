@@ -28,6 +28,15 @@ function warnRow(text: string): HTMLElement {
   return w;
 }
 
+/** A neutral scope-note row (muted, no warning weight) — for "this applies to the instance" and the
+ *  like, which a user should see but which isn't a hazard. */
+function infoRow(text: string): HTMLElement {
+  const w = document.createElement('div'); w.className = 'bp-modal-info';
+  const dot = document.createElement('span'); dot.className = 'bp-modal-info-dot';
+  w.append(dot, document.createTextNode(text));
+  return w;
+}
+
 /** The apply-preview: the exact plan as human-readable steps + the blast-radius warning, behind a confirm. */
 export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement {
   const shared = ctx.target === 'template';
@@ -66,7 +75,7 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   const lm = model();
   if (lm && bp.baseline) {
     for (const msg of lint(lm, lm.target, diff(bp.baseline, lm))) {
-      card.appendChild(warnRow(msg));
+      card.appendChild(msg.level === 'info' ? infoRow(msg.text) : warnRow(msg.text));
     }
   }
   const list = document.createElement('div'); list.className = 'bp-modal-list';

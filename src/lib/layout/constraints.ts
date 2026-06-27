@@ -25,7 +25,7 @@
  *   ✓ delete                                  delete()  (re-home first)
  */
 import { hasHeight } from './model';
-import type { Guard, LModel, LNode, NodeKind, PlanStep, SaveTarget } from './types';
+import type { Guard, LintMsg, LModel, LNode, NodeKind, PlanStep, SaveTarget } from './types';
 
 /** Widget types that render blank until configured — add places the shell, content is a hand-off. */
 export const WIDGET_NEEDS_CONFIG = new Set([
@@ -51,6 +51,7 @@ export const COMPOSITE_CHILDREN: Record<string, { key: string; name: string }[]>
 
 const ok: Guard = { ok: true, level: 'ok' };
 const warn = (reason: string): Guard => ({ ok: true, level: 'warn', reason });
+const info = (reason: string): Guard => ({ ok: true, level: 'info', reason });
 const forbid = (reason: string): Guard => ({ ok: false, level: 'forbidden', reason });
 
 /** Where can a new widget/container be added? Tabs and Containers are the real cells. Adding into a
@@ -86,11 +87,13 @@ export function checkTabVisibility(tab: LNode): Guard {
   return hasWidget(tab) ? ok : warn('this tab has no widgets, so it will not appear on the page until you add one');
 }
 
-/** Structural add/delete with target=instance is unverified in BMP (the instance/template
- *  mechanic is proven for property edits; structure may only live on the template). */
+/** Structural add/delete on a single instance is verified to work (live add+delete on demo scorecard
+ *  4957, 2026-06-27 — the object persisted under the instance and deleted cleanly). It's not a
+ *  warning, just a scope note: the change lands on THIS instance, not a shared template. (Container/
+ *  tab blast-radius is covered separately by checkSharedEdit / the shared-template warning.) */
 export function checkStructuralTarget(target: SaveTarget, op: 'add' | 'delete'): Guard {
   return target === 'instance'
-    ? warn(`structural ${op} on a single instance is unverified. Structure usually lives on the template`)
+    ? info(`This ${op} applies directly to this instance, not a shared template.`)
     : ok;
 }
 
@@ -117,23 +120,22 @@ export function guard(check: GestureCheck): Guard {
   }
 }
 
-/** Whole-model + plan lint surfaced in the Apply preview — the warnings a user should see before
- *  commit. This is the live pre-commit gate (`previewModal` renders these). Covers empty-tab
- *  visibility and (when the plan adds/deletes structure on a single instance) the unverified-on-
- *  instance warning. The shared-template blast-radius warning is shown separately by the modal. */
-export function lint(m: LModel, target: SaveTarget, plan: PlanStep[]): string[] {
-  const out: string[] = [];
+/** Whole-model + plan lint surfaced in the Apply preview — what a user should see before commit.
+ *  This is the live pre-commit gate (`previewModal` renders these). Each message carries a severity
+ *  so the modal can distinguish a real warning (empty tab won't appear) from a neutral scope note
+ *  (structural change applies to this instance). The shared-template blast-radius warning is shown
+ *  separately by the modal. */
+export function lint(m: LModel, target: SaveTarget, plan: PlanStep[]): LintMsg[] {
+  const out: LintMsg[] = [];
   for (const tab of m.tabs) {
     const v = checkTabVisibility(tab);
-    if (v.level === 'warn') out.push(`Tab "${tab.name}": ${v.reason}`);
+    if (v.level === 'warn' && v.reason) out.push({ level: 'warn', text: `Tab "${tab.name}": ${v.reason}` });
   }
-  if (plan.some(s => s.kind === 'create')) {
-    const g = checkStructuralTarget(target, 'add');
-    if (g.level === 'warn' && g.reason) out.push(g.reason);
-  }
-  if (plan.some(s => s.kind === 'delete')) {
-    const g = checkStructuralTarget(target, 'delete');
-    if (g.level === 'warn' && g.reason) out.push(g.reason);
+  // A structural add or delete on an instance carries the same scope note once (not per-step).
+  const structuralOp = plan.some(s => s.kind === 'create') ? 'add' : plan.some(s => s.kind === 'delete') ? 'delete' : null;
+  if (structuralOp) {
+    const g = checkStructuralTarget(target, structuralOp);
+    if ((g.level === 'warn' || g.level === 'info') && g.reason) out.push({ level: g.level, text: g.reason });
   }
   return out;
 }

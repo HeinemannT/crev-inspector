@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { LayoutNode as WireNode } from '../../types';
 import type { LModel, LNode } from '../types';
 import { reconstruct, findNode, descendantWidgets, isChart } from '../model';
-import { resize, setHeight, rename, move, swap, insertRelative, addWidget, addContainer, addTab, remove, moveToTab } from '../edit';
+import { resize, setHeight, rename, move, swap, insertRelative, addWidget, addContainer, addTab, remove, moveToTab, isAncestorOf } from '../edit';
 import { diff } from '../diff';
 import { compile } from '../ec';
 import { guard, lint, checkReorder, checkHeight, checkAddTarget } from '../constraints';
@@ -40,6 +40,16 @@ describe('model.reconstruct', () => {
     expect(kids.map(c => c.kind)).toEqual(['container', 'widget']); // containers first
     expect(kids[0].children[0].name).toBe('Chart');
     expect(m.tabs[0].children[0].cols.L).toBe(3);
+  });
+});
+
+describe('isAncestorOf (move-into-own-subtree guard)', () => {
+  it('matches self and any descendant, rejects unrelated / parent', () => {
+    const box = findNode(demo(), 'box1')!.node; // KPIs container → holds w1
+    expect(isAncestorOf(box, 'box1')).toBe(true);  // self
+    expect(isAncestorOf(box, 'w1')).toBe(true);     // descendant
+    expect(isAncestorOf(box, 'tw1')).toBe(false);   // sibling's child, not under box1
+    expect(isAncestorOf(box, 'nope')).toBe(false);  // absent
   });
 });
 
@@ -285,22 +295,26 @@ describe('constraints', () => {
     expect(checkAddTarget('widget', 'ButtonContainer').ok).toBe(true);    // composite — now supported
     expect(checkAddTarget('widget', 'SimpleStatus').ok).toBe(false);      // leaf — nonsensical
   });
-  it('warns on instance structural ops and shared edits', () => {
-    expect(guard({ type: 'structural', target: 'instance', op: 'add' }).level).toBe('warn');
+  it('notes instance structural ops (info, not a warning — verified live) and warns on shared edits', () => {
+    // Structural add/delete on an instance is verified to work, so it's an info-level scope note.
+    expect(guard({ type: 'structural', target: 'instance', op: 'add' }).level).toBe('info');
     expect(guard({ type: 'structural', target: 'template', op: 'add' }).level).toBe('ok');
     expect(guard({ type: 'sharedEdit', nodeKind: 'container', op: 'resize' }).level).toBe('warn');
     expect(guard({ type: 'sharedEdit', nodeKind: 'widget', op: 'resize' }).level).toBe('ok');
   });
   it('lints empty tabs (invisible on the page)', () => {
     const m = model(n({ id: 'empty', kind: 'tab', className: 'Tab', name: 'Empty', children: [] }));
-    expect(lint(m, 'template', [])[0]).toContain('Empty');
+    const msg = lint(m, 'template', [])[0];
+    expect(msg.level).toBe('warn');
+    expect(msg.text).toContain('Empty');
   });
-  it('lints structural add/delete only when the target is a single instance', () => {
+  it('lints structural add/delete as an instance scope note (info), only when the target is an instance', () => {
     const w = n({ id: 'w1', kind: 'widget', className: 'Status', name: 'W', children: [] });
     const m = model(n({ id: 't1', kind: 'tab', className: 'Tab', name: 'T', children: [w] }));
     const addPlan = [{ kind: 'create' as const, node: w, parentId: 't1', parentKind: 'tab' as const }];
-    expect(lint(m, 'instance', addPlan).some(s => s.includes('unverified'))).toBe(true);
-    expect(lint(m, 'template', addPlan).some(s => s.includes('unverified'))).toBe(false);
+    const inst = lint(m, 'instance', addPlan).find(s => s.text.includes('this instance'));
+    expect(inst?.level).toBe('info');
+    expect(lint(m, 'template', addPlan).some(s => s.text.includes('this instance'))).toBe(false);
   });
 });
 

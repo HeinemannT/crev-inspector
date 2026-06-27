@@ -11,6 +11,7 @@
 import type { LModel, LNode } from '../lib/layout/types';
 import { findNode, walk, hasHeight, isChart, orderChildren } from '../lib/layout/model';
 import { COMPOSITE_TYPES, COMPOSITE_CHILDREN } from '../lib/layout/constraints';
+import { isAncestorOf } from '../lib/layout/edit';
 import { diff } from '../lib/layout/diff';
 import { ICON_PLUS, ICON_X, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_REFRESH } from '../lib/icons';
 import { bp, model, PALETTE } from './state';
@@ -397,11 +398,12 @@ function moveMenu(widgetId: string, r: Rect): HTMLElement {
   panel.style.top = `${Math.min(Math.max(40, r.top - 8), window.innerHeight - 360)}px`;
   const head = document.createElement('div'); head.className = 'bp-pick-h'; head.textContent = `Move "${cur?.node.name ?? ''}" to`;
   const list = document.createElement('div'); list.className = 'bp-pick-list';
+  const dragged = cur?.node ?? null;
   for (const tab of m.tabs) {
-    addDest(list, tab, tab.name, widgetId, curParentId);
+    addDest(list, tab, tab.name, widgetId, curParentId, dragged);
     const rec = (n: LNode, path: string): void => {
       for (const c of n.children) {
-        if (c.kind === 'container') { addDest(list, c, `${path} / ${c.name}`, widgetId, curParentId); rec(c, `${path} / ${c.name}`); }
+        if (c.kind === 'container') { addDest(list, c, `${path} / ${c.name}`, widgetId, curParentId, dragged); rec(c, `${path} / ${c.name}`); }
       }
     };
     rec(tab, tab.name);
@@ -411,8 +413,12 @@ function moveMenu(widgetId: string, r: Rect): HTMLElement {
   back.appendChild(panel);
   return back;
 }
-function addDest(list: HTMLElement, dest: LNode, label: string, widgetId: string, curParentId: string | null): void {
+function addDest(list: HTMLElement, dest: LNode, label: string, widgetId: string, curParentId: string | null, dragged: LNode | null): void {
   if (dest.id === curParentId || dest.id === widgetId) return;
+  // Never offer a destination inside the dragged node's own subtree — moving a node into its own
+  // descendant would orphan that subtree. (Latent today since the menu is widget-only and lists
+  // containers/tabs, but correct by construction for when containers gain a move menu.)
+  if (dragged && isAncestorOf(dragged, dest.id)) return;
   list.appendChild(pickRow(label, dest.kind === 'tab' ? 'tab' : 'container', () => moveTo(widgetId, dest.id)));
 }
 

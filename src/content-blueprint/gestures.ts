@@ -148,7 +148,7 @@ function beginDrag(id: string): void {
   ghost.append(nm, act); document.body.appendChild(ghost);
   // setHint renders (showing the hint bar), so add the source highlight to the FRESH box afterwards —
   // adding it first would be wiped by that render.
-  setHint('Drop on a widget centre to SWAP · its edge to REORDER · a box / empty slot / tab to MOVE');
+  setHint('Drop on a widget centre to SWAP · its edge to PLACE before/after (moves between boxes too) · a box, empty slot, or tab to MOVE INTO');
   bp.layer?.querySelector(`[data-bpid="${cssEsc(id)}"]`)?.classList.add('bp-dragsrc');
 }
 
@@ -197,7 +197,11 @@ function markTarget(ev: MouseEvent): void {
     const side = min === dl ? 'left' : min === dr ? 'right' : min === dt ? 'top' : 'bottom';
     const before = side === 'left' || side === 'top';
     showLine(r, side); action = { type: 'insert', targetId, before };
-    setAct(`${before ? 'insert before' : 'insert after'} "${nameOf(m, targetId)}"`);
+    // When the target sits in a different parent than the dragged node, this edge-drop also REPARENTS
+    // (places it there) — call that out so "place after X" doesn't read as a pure same-box reorder.
+    const tParent = findNode(m, targetId)?.parent;
+    const crossing = !!tParent && (src?.parent?.id ?? null) !== tParent.id;
+    setAct(`place ${before ? 'before' : 'after'} "${nameOf(m, targetId)}"${crossing ? ` (into ${tParent!.name})` : ''}`);
   }
 }
 

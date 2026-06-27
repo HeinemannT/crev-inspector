@@ -213,6 +213,8 @@
 #crev-blueprint-layer .bp-modal-warn{display:flex;align-items:flex-start;gap:6px;margin:10px 14px 0;padding:8px 10px;background:rgba(232,179,102,.12);border:1px solid var(--bp-amber);border-radius:5px;color:var(--bp-amber);font:600 11.5px 'BPInter',sans-serif}
 #crev-blueprint-layer .bp-modal-warn .bp-modal-warn-ic{display:inline-flex;flex:none;margin-top:1px}
 #crev-blueprint-layer .bp-modal-warn .bp-modal-warn-ic svg{width:13px;height:13px;display:block}
+#crev-blueprint-layer .bp-modal-info{display:flex;align-items:flex-start;gap:8px;margin:8px 14px 0;padding:7px 10px;background:rgba(136,166,192,.08);border:1px solid var(--bp-line);border-radius:5px;color:var(--bp-muted);font:500 11.5px 'BPInter',sans-serif}
+#crev-blueprint-layer .bp-modal-info .bp-modal-info-dot{flex:none;width:6px;height:6px;margin-top:5px;border-radius:50%;background:var(--bp-muted)}
 #crev-blueprint-layer .bp-modal-list{overflow:auto;padding:8px 6px;display:flex;flex-direction:column;gap:2px}
 #crev-blueprint-layer .bp-prow{display:flex;align-items:baseline;gap:8px;padding:6px 10px;border-radius:4px;font:12px 'BPInter',sans-serif}
 #crev-blueprint-layer .bp-prow:hover{background:var(--bp-ink-3)}
