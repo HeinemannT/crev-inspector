@@ -138,6 +138,24 @@ describe('fetchFlowChain — InputView', () => {
     }
   });
 
+  it('absorbs a | inside an object name without shifting columns', async () => {
+    // BMP names can't be escaped in EC; the parser anchors name between the
+    // fixed leading ids and trailing className/key so a pipe in the name is
+    // absorbed rather than corrupting the columns after it.
+    const log = [
+      `${SEP}iv${SEP}1000|iv_t|Create|InputView`,
+      `${SEP}is${SEP}1001|is_t|Set|InputSet`,
+      `${SEP}children${SEP}\n1002|in_x|Risk | Impact|TextInput|impact\n`,
+      `${SEP}DONE`,
+    ].join('\n');
+    const c = makeClient(log);
+    const chain = await c.fetchFlowChain('1000', 'InputView');
+    const child = chain!.steps[0].children![0].children![0];
+    expect(child.identity.name).toBe('Risk | Impact');
+    expect(child.identity.type).toBe('TextInput');
+    expect(child.inputKey).toBe('impact');
+  });
+
   it('returns IV-only step when inputSet is unset', async () => {
     const log = [
       `${SEP}iv${SEP}1000|iv_floating|Lone IV|InputView`,

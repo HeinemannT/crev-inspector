@@ -19,7 +19,7 @@
 
 import {
   ALL_CODE_FIELDS, ALL_REFERENCE_FIELDS, ALL_INDIRECT_FIELDS,
-  ALL_CONTEXT_FIELDS, ALL_ENABLED_BY_PROPS, type ContextFieldDef,
+  ALL_CONTEXT_FIELDS, ALL_ENABLED_BY_PROPS,
 } from './widget-metadata';
 import type { PaneProp } from './bmp-client';
 import { validateEcIdentifier } from './ec-guards';
@@ -479,5 +479,4 @@ export function buildObjectPaneEc(ref: string, paneProps: readonly string[]): st
   return lines.join('\n');
 }
 
-// Re-export ContextFieldDef so test files can import from one place if needed.
-export type { ContextFieldDef, PaneProp };
+export type { PaneProp };

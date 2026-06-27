@@ -234,6 +234,61 @@ describe('renderFlowSection', () => {
     expect(key!.textContent).toContain('title');
   });
 
+  it('renders a ButtonGroup leaf as a subtle group box with its buttons inside', () => {
+    // InputSet has 2 children so the spine stops at it and the ButtonGroup
+    // renders as a leaf (a lone ButtonGroup would collapse into the spine).
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '1', businessId: 'iv', name: 'IV', type: 'InputView' },
+      children: [step({
+        identity: { rid: '2', businessId: 'is', name: 'IS', type: 'InputSet' },
+        children: [
+          step({
+            identity: { rid: '3', businessId: 'grp', name: 'Button group', type: 'ButtonGroup' },
+            children: [
+              step({ identity: { rid: '4', businessId: 'b1', name: 'Btn1', type: 'ButtonInput' } }),
+              step({ identity: { rid: '5', businessId: 'b2', name: 'Btn2', type: 'ButtonInput' } }),
+            ],
+          }),
+          step({ identity: { rid: '6', businessId: 'x', name: 'Other', type: 'TextInput' } }),
+        ],
+      })],
+    })] };
+    const el = renderFlowSection(inputs({ chain }));
+    const box = el.querySelector('.flow-groupbox')!;
+    expect(box).toBeTruthy();
+    expect(box.querySelector('.flow-grouplabel')!.textContent).toContain('Button group');
+    expect(box.querySelectorAll('.flow-card').length).toBe(2); // the 2 buttons
+  });
+
+  it('renders a leaf with children as nested subcards (action graph)', () => {
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '1', businessId: 'iv', name: 'IV', type: 'InputView' },
+      children: [step({
+        identity: { rid: '2', businessId: 'is', name: 'IS', type: 'InputSet' },
+        children: [
+          step({
+            identity: { rid: '3', businessId: 'btn', name: 'Submit', type: 'ButtonInput' },
+            children: [step({
+              identity: { rid: '4', businessId: 'ntg', name: 'Action group', type: 'NotificationTransportGroup' },
+              children: [step({
+                identity: { rid: '5', businessId: 'xtr', name: 'Email', type: 'ExtendedTransport' },
+                codeFields: [{ prop: 'expression', length: 5, lineCount: 1, firstLine: 't.x()' }],
+              })],
+            })],
+          }),
+          step({ identity: { rid: '6', businessId: 'x', name: 'Other', type: 'TextInput' } }),
+        ],
+      })],
+    })] };
+    const el = renderFlowSection(inputs({ chain }));
+    const subcards = el.querySelector('.flow-subcards')!;
+    expect(subcards).toBeTruthy();
+    // the NTG nests, and the transport nests under it (two levels of subcards)
+    expect(el.querySelectorAll('.flow-subcards').length).toBe(2);
+    expect(el.textContent).toContain('Action group');
+    expect(el.textContent).toContain('Email');
+  });
+
   it('renders reads chips carrying the source rid for hover-flash', () => {
     const chain: FlowChainMsg = { steps: [step({
       identity: { rid: '1', businessId: 'bi', name: 'BI', type: 'ButtonInput' },

@@ -27,7 +27,7 @@ import { validateRid, validateEcIdentifier, formatEcLiteral } from './ec-guards'
 import { resolveNamespace } from './namespace';
 import { ecResolveTemplate } from './template-link';
 import {
-  parsePipeRow, parsePipeRowWithKey, parseAbRow, makeCodeField,
+  parsePipeRow, parsePipeRowWithKey, parseAbRow, makeCodeField, splitNamedRow,
 } from './flow-parser';
 import type { FlowChain, FlowStep, FlowIdentity, FlowCodeField } from './flow-parser';
 
@@ -119,8 +119,10 @@ function buildTransportCodeFields(
  *  actionObject (transport group) → transports + their EC. `childByRid` maps a
  *  child's rid to its FlowStep so owners are found in one pass. */
 function attachActionSubtrees(data: Record<string, string>, childByRid: Map<string, FlowStep>): void {
+  // Both blocks carry 3 leading id columns + a free-text name + 1 trailing
+  // className (see inputActionEc), so a `|` in a name can't shift the columns.
   const splitRows = (block: string | undefined): string[][] =>
-    (block ?? '').split('\n').map(l => l.trim()).filter(Boolean).map(l => l.split('|'));
+    (block ?? '').split('\n').map(l => splitNamedRow(l, 3, 1)).filter((r): r is string[] => r !== null);
 
   // A transport group can be referenced by more than one button (e.g. a form
   // button and a group button both fire the same action), so map each ntgRid to
@@ -164,9 +166,10 @@ function attachButtonGroups(
   inputKeys: Array<{ key: string; sourceRid: string }>,
 ): void {
   for (const line of (data.groupkids ?? '').split('\n')) {
-    const t = line.trim();
-    if (!t) continue;
-    const [groupRid, childRid, id, name, cls, key] = t.split('|');
+    // groupRid|childRid|id|name|className|key — 3 leading ids, name, 2 trailing.
+    const cols = splitNamedRow(line, 3, 2);
+    if (!cols) continue;
+    const [groupRid, childRid, id, name, cls, key] = cols;
     const group = groupRid ? childByRid.get(groupRid) : undefined;
     if (!group || !childRid) continue;
     const btn: FlowStep = { identity: { rid: childRid, businessId: id ?? '', name: name ?? '', type: cls ?? '' } };
@@ -176,6 +179,35 @@ function attachButtonGroups(
     (group.children ??= []).push(btn);
     childByRid.set(childRid, btn);
   }
+}
+
+/** Populate an InputSet FlowStep with its children: the flat `children` block
+ *  (+ per-child EC + cross-reference keys), ButtonGroup expansion, then every
+ *  action-bearing button's actionObject graph. Shared by the InputView and
+ *  InputSet walkers, which differ only in their wrapper step. `isStep.children`
+ *  must already be initialized. */
+function populateInputSetChildren(data: Record<string, string>, isStep: FlowStep): void {
+  const childRows = (data.children ?? '').split('\n')
+    .map(parsePipeRowWithKey)
+    .filter((r): r is { rid: string; businessId: string; name: string; type: string; key: string } => r !== null);
+  const inputKeys: Array<{ key: string; sourceRid: string }> = [];
+  for (const c of childRows) {
+    if (c.key) inputKeys.push({ key: c.key, sourceRid: c.rid });
+  }
+
+  const childByRid = new Map<string, FlowStep>();
+  for (const c of childRows) {
+    const child: FlowStep = { identity: { rid: c.rid, businessId: c.businessId, name: c.name, type: c.type } };
+    if (c.key) child.inputKey = c.key;
+    const code = buildChildCodeFields(data, c.rid, inputKeys);
+    if (code.length > 0) child.codeFields = code;
+    isStep.children!.push(child);
+    childByRid.set(c.rid, child);
+  }
+  // Expand ButtonGroups first so group buttons can own actions too, then nest
+  // each action-bearing button's actionObject → transport graph.
+  attachButtonGroups(data, childByRid, inputKeys);
+  attachActionSubtrees(data, childByRid);
 }
 
 export interface ConnectionResult {
@@ -1086,6 +1118,17 @@ _r
     return null;
   }
 
+  /** Run a flow-walker EC round-trip and return the parsed sep-blocks. Throws
+   *  on a bridge / EC failure so the caller surfaces a real error state — a
+   *  failure must NOT be swallowed into `null` and shown as "no flow chain"
+   *  (the bug that made InputView/InputSet/etc. silently mask EC errors). */
+  private async runFlowEc(ec: string, signal?: AbortSignal): Promise<Record<string, string>> {
+    const result = await this.executeEc(ec, undefined, false, signal);
+    if (!result.ok) throw new Error(result.error ?? result.log ?? 'EC flow fetch failed');
+    if (!result.log) throw new Error('Empty EC response');
+    return parseSepBlocks(result.log, FLOW_SEP);
+  }
+
   /** Walk an EditPage / CreateObjectView for its Add-Object form chain.
    *  Strategy: scan immediate children, pick the first InputSet (typical
    *  shape), then walk it via the existing InputSet flow. ButtonInput
@@ -1141,9 +1184,7 @@ _r
 
   private async fetchInputViewFlow(rid: string, signal?: AbortSignal): Promise<FlowChain | null> {
     const ref = await this.resolveRef(rid);
-    const result = await this.executeEc(buildInputViewFlowEc(ref), undefined, false, signal);
-    if (!result.ok || !result.log) return null;
-    const data = parseSepBlocks(result.log, FLOW_SEP);
+    const data = await this.runFlowEc(buildInputViewFlowEc(ref), signal);
 
     const iv = parsePipeRow(data.iv);
     if (!iv) return null;
@@ -1153,33 +1194,7 @@ _r
     if (!isRow) return { steps: [ivStep] };
     const isStep: FlowStep = { identity: isRow, edgeLabel: 'inputSet', children: [] };
     ivStep.children = [isStep];
-
-    // Collect children rows + their EC content
-    const childRows = (data.children ?? '').split('\n')
-      .map(parsePipeRowWithKey)
-      .filter((r): r is { rid: string; businessId: string; name: string; type: string; key: string } => r !== null);
-    const inputKeys: Array<{ key: string; sourceRid: string }> = [];
-    for (const c of childRows) {
-      if (c.key) inputKeys.push({ key: c.key, sourceRid: c.rid });
-    }
-
-    const childByRid = new Map<string, FlowStep>();
-    for (const c of childRows) {
-      const child: FlowStep = {
-        identity: { rid: c.rid, businessId: c.businessId, name: c.name, type: c.type },
-      };
-      if (c.key) child.inputKey = c.key;
-
-      const code = buildChildCodeFields(data, c.rid, inputKeys);
-      if (code.length > 0) child.codeFields = code;
-
-      isStep.children!.push(child);
-      childByRid.set(c.rid, child);
-    }
-    // Expand ButtonGroups, then nest any action-bearing button's actionObject
-    // → transport graph (groups first so group buttons can own actions too).
-    attachButtonGroups(data, childByRid, inputKeys);
-    attachActionSubtrees(data, childByRid);
+    populateInputSetChildren(data, isStep);
 
     return { steps: [ivStep] };
   }
@@ -1189,33 +1204,12 @@ _r
    *  in the sidebar) so they immediately see the form fields + their EC. */
   private async fetchInputSetFlow(rid: string, signal?: AbortSignal): Promise<FlowChain | null> {
     const ref = await this.resolveRef(rid);
-    const result = await this.executeEc(buildInputSetFlowEc(ref), undefined, false, signal);
-    if (!result.ok || !result.log) return null;
-    const data = parseSepBlocks(result.log, FLOW_SEP);
+    const data = await this.runFlowEc(buildInputSetFlowEc(ref), signal);
 
     const isRow = parsePipeRow(data.is);
     if (!isRow) return null;
     const isStep: FlowStep = { identity: isRow, children: [] };
-
-    const childRows = (data.children ?? '').split('\n')
-      .map(parsePipeRowWithKey)
-      .filter((r): r is { rid: string; businessId: string; name: string; type: string; key: string } => r !== null);
-    const inputKeys: Array<{ key: string; sourceRid: string }> = [];
-    for (const c of childRows) {
-      if (c.key) inputKeys.push({ key: c.key, sourceRid: c.rid });
-    }
-
-    const childByRid = new Map<string, FlowStep>();
-    for (const c of childRows) {
-      const child: FlowStep = { identity: { rid: c.rid, businessId: c.businessId, name: c.name, type: c.type } };
-      if (c.key) child.inputKey = c.key;
-      const code = buildChildCodeFields(data, c.rid, inputKeys);
-      if (code.length > 0) child.codeFields = code;
-      isStep.children!.push(child);
-      childByRid.set(c.rid, child);
-    }
-    attachButtonGroups(data, childByRid, inputKeys);
-    attachActionSubtrees(data, childByRid);
+    populateInputSetChildren(data, isStep);
 
     return { steps: [isStep] };
   }
@@ -1226,22 +1220,17 @@ _r
    *  EC without re-drilling through the button. */
   private async fetchTransportGroupFlow(rid: string, signal?: AbortSignal): Promise<FlowChain | null> {
     const ref = await this.resolveRef(rid);
-    const result = await this.executeEc(buildTransportGroupFlowEc(ref), undefined, false, signal);
-    if (!result.ok || !result.log) return null;
-    const data = parseSepBlocks(result.log, FLOW_SEP);
+    const data = await this.runFlowEc(buildTransportGroupFlowEc(ref), signal);
 
     const grpRow = parsePipeRow(data.grp);
     if (!grpRow) return null;
     const grpStep: FlowStep = { identity: grpRow, children: [] };
 
     const childRows = (data.children ?? '').split('\n').map(line => {
-      const trimmed = line.trim();
-      if (!trimmed) return null;
-      const parts = trimmed.split('|');
-      if (parts.length < 4) return null;
-      const [crid, businessId, name, type] = parts;
-      if (!crid) return null;
-      return { rid: crid, businessId: businessId ?? '', name: name ?? '', type: type ?? '' };
+      const cols = splitNamedRow(line, 2, 1);
+      if (!cols) return null;
+      const [crid, businessId, name, type] = cols;
+      return { rid: crid, businessId, name, type };
     }).filter((r): r is { rid: string; businessId: string; name: string; type: string } => r !== null);
 
     for (const c of childRows) {
@@ -1256,10 +1245,7 @@ _r
 
   private async fetchActionButtonFlow(rid: string, signal?: AbortSignal): Promise<FlowChain | null> {
     const ref = await this.resolveRef(rid);
-    const result = await this.executeEc(buildActionButtonFlowEc(ref), undefined, false, signal);
-    if (!result.ok) throw new Error(result.error ?? result.log ?? 'EC flow fetch failed');
-    if (!result.log) throw new Error('Empty EC response');
-    const data = parseSepBlocks(result.log, FLOW_SEP);
+    const data = await this.runFlowEc(buildActionButtonFlowEc(ref), signal);
 
     const abRow = parseAbRow(data.ab);
     if (!abRow) return null;
@@ -1312,13 +1298,10 @@ _r
     abStep.children = [actStep];
 
     const childRows = (data.actchildren ?? '').split('\n').map(s => {
-      const trimmed = s.trim();
-      if (!trimmed) return null;
-      const parts = trimmed.split('|');
-      if (parts.length < 4) return null;
-      const [crid, businessId, name, type] = parts;
-      if (!crid) return null;
-      return { rid: crid, businessId: businessId ?? '', name: name ?? '', type: type ?? '' } as FlowIdentity;
+      const cols = splitNamedRow(s, 2, 1);
+      if (!cols) return null;
+      const [crid, businessId, name, type] = cols;
+      return { rid: crid, businessId, name, type } as FlowIdentity;
     }).filter((r): r is FlowIdentity => r !== null);
     for (const c of childRows) {
       const child: FlowStep = { identity: c };
@@ -1332,9 +1315,7 @@ _r
 
   private async fetchLabelFlow(rid: string, signal?: AbortSignal): Promise<FlowChain | null> {
     const ref = await this.resolveRef(rid);
-    const result = await this.executeEc(buildLabelFlowEc(ref), undefined, false, signal);
-    if (!result.ok || !result.log) return null;
-    const data = parseSepBlocks(result.log, FLOW_SEP);
+    const data = await this.runFlowEc(buildLabelFlowEc(ref), signal);
 
     const lblRow = parsePipeRow(data.lbl);
     if (!lblRow) return null;

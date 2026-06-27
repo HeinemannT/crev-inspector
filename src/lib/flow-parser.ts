@@ -53,41 +53,51 @@ export interface FlowChain {
   steps: FlowStep[];
 }
 
+/** Split a `|`-delimited identity row, anchoring the free-text `name` between
+ *  `leading` fixed columns (rids/ids) and `trailing` fixed columns
+ *  (className/key/…). A `|` inside the name is absorbed into the name rather
+ *  than shifting every column after it. Returns `[...leading, name, ...trailing]`
+ *  or null if the row is too short / has no rid.
+ *
+ *  Note: BMP names can't be escaped in EC (no inline string-replace), so a
+ *  literal newline in a name still splits the row upstream — that fragment is
+ *  then dropped by the min-columns guard, which corrupts only that one node,
+ *  never its siblings' columns. */
+export function splitNamedRow(line: string, leading: number, trailing: number): string[] | null {
+  const parts = line.split('|');
+  if (parts.length < leading + 1 + trailing || !parts[0]) return null;
+  const name = parts.slice(leading, parts.length - trailing).join('|');
+  return [...parts.slice(0, leading), name, ...parts.slice(parts.length - trailing)];
+}
+
 /** Parse a single pipe-delimited identity row: rid|id|name|className. */
 export function parsePipeRow(s: string | undefined): FlowIdentity | null {
   if (!s) return null;
-  const line = s.trim().split('\n')[0];
-  const parts = line.split('|');
-  if (parts.length < 4) return null;
-  const [rid, businessId, name, type] = parts;
-  if (!rid) return null;
-  return { rid, businessId: businessId ?? '', name: name ?? '', type: type ?? '' };
+  const cols = splitNamedRow(s.trim().split('\n')[0], 2, 1);
+  if (!cols) return null;
+  const [rid, businessId, name, type] = cols;
+  return { rid, businessId, name, type };
 }
 
 /** Parse an identity row with a trailing key column: rid|id|name|className|key.
  *  Used for InputSet children where *Input types carry a key. */
 export function parsePipeRowWithKey(line: string): { rid: string; businessId: string; name: string; type: string; key: string } | null {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
-  const parts = trimmed.split('|');
-  if (parts.length < 4) return null;
-  const [rid, businessId, name, type, key] = parts;
-  if (!rid) return null;
-  return { rid, businessId: businessId ?? '', name: name ?? '', type: type ?? '', key: key ?? '' };
+  const cols = splitNamedRow(line.trim(), 2, 2);
+  if (!cols) return null;
+  const [rid, businessId, name, type, key] = cols;
+  return { rid, businessId, name, type, key };
 }
 
 /** Parse the ActionButton header row: rid|id|name|className|actionType.
  *  actionType is the BMP enum value as an uppercase string (ACTION/ADD/EDIT/NAVIGATE). */
 export function parseAbRow(s: string | undefined): { identity: FlowIdentity; actionType: string } | null {
   if (!s) return null;
-  const line = s.trim().split('\n')[0];
-  const parts = line.split('|');
-  if (parts.length < 5) return null;
-  const [rid, businessId, name, type, actionType] = parts;
-  if (!rid) return null;
+  const cols = splitNamedRow(s.trim().split('\n')[0], 2, 2);
+  if (!cols) return null;
+  const [rid, businessId, name, type, actionType] = cols;
   return {
-    identity: { rid, businessId: businessId ?? '', name: name ?? '', type: type ?? '' },
-    actionType: actionType ?? '',
+    identity: { rid, businessId, name, type },
+    actionType,
   };
 }
 
