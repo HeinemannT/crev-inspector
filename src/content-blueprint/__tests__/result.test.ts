@@ -69,6 +69,18 @@ describe('renderResult (CSS-grid mirror)', () => {
     expect((layer.querySelector('.bp-rcell[data-bpid="w1"]') as HTMLElement).style.gridColumn).toBe('span 6');
   });
 
+  it('exposes add affordances: a + on each container and a tab-level add/drop zone', () => {
+    const layer = document.createElement('div');
+    renderResult(m, m, byRid, layer);
+    // container "A" carries a + add button
+    expect(layer.querySelector('.bp-rcell[data-bpid="A"] .bp-radd')).not.toBeNull();
+    // the root grid ends with a tab-level add zone that is ALSO a move drop-target (kind=avail)
+    const zone = layer.querySelector('.bp-radd-zone') as HTMLElement;
+    expect(zone).not.toBeNull();
+    expect(zone.dataset.bpid).toBe('t1');
+    expect(zone.dataset.bpkind).toBe('avail');
+  });
+
   it('returns false when no active tab has live widgets (nothing to anchor to)', () => {
     const layer = document.createElement('div');
     expect(renderResult(m, m, new Map(), layer)).toBe(false);

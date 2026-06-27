@@ -20,10 +20,20 @@
  */
 import type { LModel, LNode } from '../lib/layout/types';
 import { findNode, orderChildren, isTempId, isChart } from '../lib/layout/model';
+import { ICON_PLUS } from '../lib/icons';
 import type { Rect } from './geometry';
-import { unionRect } from './geometry';
+import { unionRect, setIcon } from './geometry';
 import { armBox } from './gestures';
+import { openPicker } from './actions';
 import { bp } from './state';
+
+/** A small "+" add button for a result container/tab cell. armBox already ignores mousedowns that
+ *  land on a <button>, so this never starts a drag/select — it just opens the add picker for `id`. */
+function addBtn(id: string, title: string): HTMLButtonElement {
+  const b = document.createElement('button'); b.className = 'bp-radd'; setIcon(b, ICON_PLUS); b.title = title;
+  b.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(id); });
+  return b;
+}
 
 export type CellState = 'same' | 'new' | 'moved' | 'changed';
 
@@ -70,6 +80,7 @@ function cell(base: LModel, node: LNode, parentId: string | null): HTMLElement {
     tag.textContent = state === 'moved' ? 'MOVED' : state === 'new' ? 'NEW' : 'CHANGED';
     lab.appendChild(tag);
   }
+  if (node.kind === 'container') lab.appendChild(addBtn(node.id, `Add a widget to ${node.name}`));
   el.appendChild(lab);
 
   if (node.kind === 'container') {
@@ -100,6 +111,14 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
   for (const child of orderChildren(tab.children)) grid.appendChild(cell(base, child, tab.id));
   if (!tab.children.length) { const e = document.createElement('div'); e.className = 'bp-rempty'; e.textContent = `Tab "${tab.name}" is empty`; e.style.gridColumn = 'span 6'; grid.appendChild(e); }
+  // Full-width add zone — drops a new widget at the tab's top level (also a click target for the picker).
+  const add = document.createElement('div'); add.className = 'bp-radd-zone'; add.style.gridColumn = 'span 6';
+  add.dataset.bpid = tab.id; add.dataset.bpkind = 'avail'; // also a move drop-target (move to tab root)
+  const ai = document.createElement('span'); ai.className = 'bp-radd-ic'; setIcon(ai, ICON_PLUS);
+  const at = document.createElement('span'); at.textContent = `Add to "${tab.name}"`;
+  add.append(ai, at);
+  add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(tab.id); });
+  grid.appendChild(add);
   wrap.appendChild(grid);
   layer.appendChild(wrap);
   return true;

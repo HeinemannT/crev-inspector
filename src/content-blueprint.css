@@ -261,3 +261,16 @@
 #crev-blueprint-layer .bp-rtag.st-moved{background:var(--bp-cyan-hi)}
 #crev-blueprint-layer .bp-rtag.st-changed{background:var(--bp-amber)}
 #crev-blueprint-layer .bp-rempty{grid-column:span 6;padding:8px;text-align:center;font:500 10px 'BPInter',sans-serif;color:var(--bp-muted);border:1px dashed var(--bp-line);border-radius:3px}
+/* drag drop-target feedback ON result cells (markTarget adds these classes; they were only styled for
+   .bp-box before, so dragging in the result view had no highlight). */
+#crev-blueprint-layer .bp-rcell.bp-drop{border-color:var(--bp-cyan-hi);box-shadow:inset 0 0 0 2px var(--bp-cyan-hi),inset 0 0 22px rgba(58,134,255,.4)}
+#crev-blueprint-layer .bp-rcell.bp-swap{border-color:var(--bp-cyan-hi);box-shadow:inset 0 0 0 2px var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-rcell.bp-swap::after{content:"SWAP";position:absolute;top:4px;right:6px;z-index:3;font:700 9px var(--bp-mono);letter-spacing:.06em;color:var(--bp-ink);background:var(--bp-cyan-hi);padding:1px 5px;border-radius:2px}
+/* the container/tab "+" add button + the tab-level add drop-zone */
+#crev-blueprint-layer .bp-radd{flex:none;width:17px;height:17px;margin-left:2px;display:flex;align-items:center;justify-content:center;border:0;border-radius:3px;background:transparent;color:var(--bp-cyan);cursor:pointer;padding:0}
+#crev-blueprint-layer .bp-radd:hover{background:var(--bp-cyan);color:var(--bp-ink)}
+#crev-blueprint-layer .bp-radd svg{width:12px;height:12px;display:block}
+#crev-blueprint-layer .bp-radd-zone{display:flex;align-items:center;justify-content:center;gap:7px;min-height:34px;border:1.5px dashed var(--bp-cyan);border-radius:3px;background:repeating-linear-gradient(45deg,rgba(58,134,255,.05) 0 6px,rgba(58,134,255,.22) 6px 11px);color:var(--bp-cyan);font:700 11px 'BPInter',sans-serif;cursor:pointer;pointer-events:auto}
+#crev-blueprint-layer .bp-radd-zone:hover{border-color:var(--bp-cyan-hi);background:repeating-linear-gradient(45deg,rgba(58,134,255,.12) 0 6px,rgba(58,134,255,.36) 6px 11px)}
+#crev-blueprint-layer .bp-radd-zone.bp-drop{outline:2px solid var(--bp-cyan-hi);outline-offset:1px;background:rgba(58,134,255,.32)}
+#crev-blueprint-layer .bp-radd-ic{display:inline-flex}#crev-blueprint-layer .bp-radd-ic svg{width:13px;height:13px;display:block}
