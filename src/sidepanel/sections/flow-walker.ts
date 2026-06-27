@@ -1,6 +1,7 @@
 /**
- * Flow walker — visualizes the execution graph for InputView / InputSet /
- * ActionButton / Label / Workflow.
+ * Flow walker — visualizes the execution graph for the flow-bearing types
+ * (see FLOW_TYPES): InputView / InputSet, ActionButton / transport groups,
+ * Label, and the Add-object pages (EditPage / CreateObjectView).
  *
  * Layout: the chain's single-child spine collapses into a header (the widget,
  * keeping its type pill) plus light "container" context lines (InputSet /
@@ -61,8 +62,8 @@ export function renderFlowSection(input: FlowSectionInput): HTMLElement {
         ? renderChain(input.chain, input)
         : h('div', { class: 'flow-empty' },
             'This widget has no Flow chain. ',
-            'Flow appears for InputView / InputSet / ActionButton / Label / Workflow objects ',
-            'that bind to code. Once any of those exist, their cascade shows here.',
+            'Flow appears for InputView / InputSet, ActionButton, Label, and Add-object pages ',
+            '(EditPage / CreateObjectView) that bind to code. Once any of those exist, their cascade shows here.',
           );
 
   const summary = input.chain ? summarizeChain(input.chain) : '';
