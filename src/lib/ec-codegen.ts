@@ -63,10 +63,19 @@ function pipeRowNoKey(varName: string, prefix = ''): string {
  *  t.153 this shrank the per-child payload from ~1.3 KB to <100 bytes; the win
  *  scales linearly with field count. The value is read once via output() (raw
  *  text, no eval) and the parser already treats a missing block as "no EC", so
- *  nothing downstream changes. `labelExpr`/`valueExpr` are EC source fragments. */
+ *  nothing downstream changes. `labelExpr`/`valueExpr` are EC source fragments.
+ *
+ *  The value is coerced to a string (`"" + …`) BEFORE the `!= ""` guard. A bare
+ *  `_v != ""` on a TYPED value (an enum like headerStyle/borderStyle, or a
+ *  number like transparency) makes BMP coerce the literal `""` into that type
+ *  and throw — e.g. `Valid choices for HeaderStyle is INSIDE, OUTSIDE, NONE`
+ *  (verified live on t.5920). The pre-conditional codegen never hit this
+ *  because it only ever CONCATENATED `output(…)` (string context); the `IF`
+ *  guard introduced the comparison. `"" + output(…)` restores string context,
+ *  so the guard is safe for every value type and the emitted text is unchanged. */
 function condEcBlock(labelExpr: string, valueExpr: string, prefix = ''): string[] {
   return [
-    `${prefix}_v := ${valueExpr}`,
+    `${prefix}_v := "" + ${valueExpr}`,
     `${prefix}IF _v != "" THEN`,
     `${prefix}  _r := _r + _sep + ${labelExpr} + _sep + _v + "\\n"`,
     `${prefix}ELSE`,

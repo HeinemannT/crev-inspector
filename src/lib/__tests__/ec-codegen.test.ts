@@ -320,4 +320,21 @@ describe('object-pane EC (EAV query) — conditional emission', () => {
     // the old unconditional reference read must be gone
     expect(code).not.toContain('_o.actionObject.rid.whenMissing');
   });
+
+  it('coerces the guarded value to a string before the != "" comparison', () => {
+    // A bare `_v := output(_o.headerStyle...)` then `_v != ""` makes BMP coerce
+    // "" into the enum type and throw ("Valid choices for HeaderStyle is INSIDE,
+    // OUTSIDE, NONE" — reproduced live on t.5920). The value MUST be string-
+    // coerced first. Assert the codegen never emits the bare (typed) form and
+    // always prefixes `"" +`.
+    const styled = buildObjectPaneEc('t.5920', ['headerStyle', 'borderStyle', 'transparency']);
+    expect(styled).toContain('_v := "" + output(_o.headerStyle.whenMissing(""))');
+    expect(styled).toContain('_v := "" + output(_o.borderStyle.whenMissing(""))');
+    // the buggy un-coerced form must not appear for a style/value slot.
+    // (condIndirectEc legitimately uses a bare `_v := output(...)` for
+    // expression TEXT, which is always a string and safe — so only the
+    // _o.<prop> value slots are asserted, not every output() read.)
+    expect(styled).not.toContain('_v := output(_o.headerStyle');
+    expect(styled).not.toContain('_v := output(_o.transparency');
+  });
 })
