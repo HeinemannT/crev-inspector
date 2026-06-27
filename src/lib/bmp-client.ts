@@ -753,17 +753,17 @@ export class BmpClient {
   async fetchLayoutTree(rid: string): Promise<LayoutNode[]> {
     const ref = await this.resolveRef(rid);
     // Emits the shared layout wire format (see layout-wire.ts): one node per LAYOUT_SEP marker, fields
-    // rid|bid|name|type|parentRid|containerRid|L|M|S. (This single-subtree walk doesn't emit the 10th
-    // chartHeight field — the shared parser leaves it undefined, which the read-only Layout view ignores.)
+    // rid|bid|type|parentRid|containerRid|L|M|S|chartHeight|name. `name` is LAST (free-text, parsed as
+    // the rest) so a `|` in a name can't shift the structural fields.
     const ec = `
 _root := ${ref}
 _r := ""
 _root.descendants().forEach(_n:
      _p := _n.parent
      _c := _n.container
-     _r := _r + "${LAYOUT_SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.name.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _p.rid.whenMissing("") + "|" + _c.rid.whenMissing("") + "|" + _n.columnsLargeScreen.whenMissing("") + "|" + _n.columnsMediumScreen.whenMissing("") + "|" + _n.columnsSmallScreen.whenMissing("") + "\\n"
+     _r := _r + "${LAYOUT_SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _p.rid.whenMissing("") + "|" + _c.rid.whenMissing("") + "|" + _n.columnsLargeScreen.whenMissing("") + "|" + _n.columnsMediumScreen.whenMissing("") + "|" + _n.columnsSmallScreen.whenMissing("") + "|" + _n.chartHeight.whenMissing("") + "|" + _n.name.whenMissing("") + "\\n"
 )
-_r := _r + "${LAYOUT_SEP}" + _root.rid + "|" + _root.id.whenMissing("") + "|" + _root.name.whenMissing("") + "|" + _root.className.whenMissing("") + "||||" + _root.columnsLargeScreen.whenMissing("") + "|" + _root.columnsMediumScreen.whenMissing("") + "|" + _root.columnsSmallScreen.whenMissing("") + "\\n"
+_r := _r + "${LAYOUT_SEP}" + _root.rid + "|" + _root.id.whenMissing("") + "|" + _root.className.whenMissing("") + "|||" + _root.columnsLargeScreen.whenMissing("") + "|" + _root.columnsMediumScreen.whenMissing("") + "|" + _root.columnsSmallScreen.whenMissing("") + "||" + _root.name.whenMissing("") + "\\n"
 _r
 `.trim();
     const result = await this.executeEc(ec);

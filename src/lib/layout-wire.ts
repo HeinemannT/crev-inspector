@@ -6,8 +6,11 @@
  * format, so the parser lives here once. Pure — no I/O.
  *
  * Line layout (pipe-delimited, one node per SEP marker):
- *   rid | businessId | name | type | parentRid | containerRid | L | M | S | chartHeight
- * The 10th field (chartHeight) is optional — older 9-field emitters parse fine (height undefined).
+ *   rid | businessId | type | parentRid | containerRid | L | M | S | chartHeight | name
+ * `name` is the LAST field and free-text (the only user-controlled slot), so it is parsed as the
+ * REST of the line — any literal `|` in a name is preserved instead of shifting every field after
+ * it. A literal newline in a name degrades to harmless truncation (the first line is taken) rather
+ * than dropping the node: the structural fields all precede `name`, so they're never corrupted.
  */
 import type { LayoutNode } from './types';
 
@@ -23,8 +26,11 @@ export function parseLayoutNodes(log: string): LayoutNode[] {
     const line = block.split('\n', 1)[0].trim();
     if (!line) continue;
     const parts = line.split('|');
+    // 9 structural fields (rid..chartHeight) then name. Anything past field 9 is name — joined
+    // back so a name containing `|` survives intact (the split was only to peel off the structure).
     if (parts.length < 9) continue;
-    const [rid, bid, name, type, parentRid, containerRid, l, m, s, height] = parts;
+    const [rid, bid, type, parentRid, containerRid, l, m, s, height] = parts;
+    const name = parts.length > 9 ? parts.slice(9).join('|') : '';
     if (!rid || seen.has(rid)) continue;
     seen.add(rid);
     nodes.push({

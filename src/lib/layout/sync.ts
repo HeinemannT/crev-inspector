@@ -95,16 +95,19 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
   const ts = `t.${ecBid(ctx.tabsetId)}`;
   const sc = `lookup(${ecRid(ctx.pageRid)})`;
   const cols = (v: string) => `${v}.columnsLargeScreen.whenMissing("") + "|" + ${v}.columnsMediumScreen.whenMissing("") + "|" + ${v}.columnsSmallScreen.whenMissing("")`;
-  // tabset root: no parent, no container, no height (6 trailing empties: parent|container|L|M|S|height).
-  const root = `${ts}.rid + "|" + ${ts}.id.whenMissing("") + "|" + ${ts}.name.whenMissing("") + "|" + ${ts}.className.whenMissing("") + "||||||"`;
+  // Field order (see layout-wire.ts): rid|bid|type|parent|container|L|M|S|height|name. `name` is LAST
+  // and free-text, so a `|` in a name can't shift the structural fields. EVERY emit line ends with the
+  // raw name as the final field.
+  // tabset root: no parent, no container, no height (5 empties: parent|container|L|M|S), then height empty, then name.
+  const root = `${ts}.rid + "|" + ${ts}.id.whenMissing("") + "|" + ${ts}.className.whenMissing("") + "|||||" + "|" + "|" + ${ts}.name.whenMissing("")`;
   return [
     `_ts := ${ts}`,
     `_sc := ${sc}`,
     `_r := ""`,
     `_r := _r + "${SEP}" + ${root} + "\\n"`,
-    // grid: tabs + containers — parentRid set, containerRid always empty, no chartHeight (trailing |)
+    // grid: tabs + containers — parentRid set, containerRid always empty, no chartHeight.
     `_ts.descendants().forEach(_n:`,
-    `     _r := _r + "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.name.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "\\n"`,
+    `     _r := _r + "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + _n.name.whenMissing("") + "\\n"`,
     `)`,
     // org model: widgets + composites (recursive). Emit BOTH parent (composite nesting) and
     // container (portal placement). The phantom RESULT placement collapses to empty so a
@@ -116,7 +119,7 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `     ELSE`,
     `          _crid := _crid`,
     `     ENDIF`,
-    `     _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.name.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _crid + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "\\n"`,
+    `     _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _crid + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
     `)`,
     `_r`,
   ].join('\n');

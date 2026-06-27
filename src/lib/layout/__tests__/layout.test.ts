@@ -206,6 +206,28 @@ describe('diff + ec compile', () => {
     expect(script).toBe('t.w.change(container := t.tB)');
   });
 
+  it('addresses a businessId-less node by lookup(<rid>), never the silently-broken t.<rid>', () => {
+    // Some layout objects can carry no businessId; reconstruct falls `id` back to the rid (id === rid).
+    // `t.<rid>` does NOT resolve (the t. namespace is businessId-keyed, and an all-digit rid slips past
+    // the businessId validator), so it would mis-target with no error — lookup(<rid>) addresses it.
+    const base = model(n({ id: 'tab1', kind: 'tab', className: 'Tab', name: 'T', children: [
+      n({ id: '777', rid: '777', kind: 'widget', className: 'Status', name: 'NoBid', cols: { L: 6 } }),
+    ] }));
+    // update path — node is in the desired model, so ref() reads its rid directly
+    const renamed = rename(base, '777', 'Renamed');
+    const up = compile(diff(base, renamed), renamed).script;
+    expect(up).toContain('lookup(777).change(name := "Renamed")');
+    expect(up).not.toContain('t.777');
+    // delete path — node lives only in the baseline, so the rid is threaded through the delete step
+    const removed = remove(base, '777');
+    const del = compile(diff(base, removed), removed).script;
+    expect(del).toContain('lookup(777).delete()');
+    expect(del).not.toContain('t.777');
+    // a normal node (id !== rid) still uses t.<businessId> — no regression
+    const normal = rename(demo(), 'w1', 'Z');
+    expect(compile(diff(demo(), normal), normal).script).toContain('t.w1.change');
+  });
+
   it('reorder emits moveAfter only when order actually changes', () => {
     const base = model(n({ id: 't', kind: 'tab', className: 'Tab', children: [
       n({ id: 'A', kind: 'widget', className: 'X' }), n({ id: 'B', kind: 'widget', className: 'Y' }),

@@ -14,10 +14,19 @@ const SCRID = '451704949656267090';
 
 /** The exact fetch-EC log returned by live demo scorecard 4957 on 2026-06-26, INCLUDING the
  *  persisted ButtonContainer composite (5919 in Controls, buttons 5920/5921 nested under it).
- *  9 pipe fields: rid|bid|name|type|parentRid|containerRid|L|M|S. Grid nodes carry parentRid
- *  (container empty); org nodes carry parentRid=scorecard AND a portal containerRid (RESULT→
- *  empty); composite children carry parentRid=ButtonContainer with empty containerRid. */
+ *  Wire fields (see layout-wire.ts): rid|bid|type|parentRid|containerRid|L|M|S|height|name — `name`
+ *  LAST. Grid nodes carry parentRid (container empty); org nodes carry parentRid=scorecard AND a
+ *  portal containerRid (RESULT→empty); composite children carry parentRid=ButtonContainer with empty
+ *  containerRid. The fixtures below are authored in SOURCE order and reordered by `toWire`. */
 const SEP = '<<<CREV_LAYOUT>>>';
+// The fetch-log fixtures below are authored as readable tuples in SOURCE order
+// (rid|bid|name|type|parent|container|L|M|S[|height]); toWire reorders each into the live wire format
+// where `name` is the LAST field (see layout-wire.ts). Authoring stays legible; the parser still sees
+// the real format. The semantic assertions (names, hierarchy, heights) catch any reorder slip.
+const toWire = (l: string): string => {
+  const [rid, bid, name, type, parent = '', cont = '', L = '', M = '', S = '', height = ''] = l.split('|');
+  return [rid, bid, type, parent, cont, L, M, S, height, name].join('|');
+};
 const LIVE_LOG = [
   '7517622522816177423|crev_demo_tabset|CREV Demo Tabs|TabSet|||||',
   '2187765926705871955|4895|Overview|Tab|7517622522816177423||6|6|6',
@@ -49,7 +58,7 @@ const LIVE_LOG = [
   `4410778765552068593|5919|Test Buttons|ButtonContainer|${SCRID}|1450086538035735748|6|6|6`,
   '2047284016813479788|5920|Run Audit|ActionButton|4410778765552068593||6|6|6',
   '1764636994403434151|5921|Export|ActionButton|4410778765552068593||6|6|6',
-].map(l => SEP + l).join('\n');
+].map(l => SEP + toWire(l)).join('\n');
 
 const fakeIo = (log: string, ok = true): LayoutIO => ({ exec: vi.fn(async () => ({ ok, log })) });
 
@@ -82,10 +91,30 @@ describe('sync.parseFetchLog', () => {
   it('reads chartHeight (10th field) so height edits start from the real value, not a default', () => {
     // regression for the stress-test bug: the fetch omitted chartHeight, so a height edit started
     // from the 200 default and clobbered the live 470.
-    const chart = parseFetchLog(`${SEP}900|cd|Chart|BarChart|451|75384|4|6|6|470`)[0];
+    const chart = parseFetchLog(`${SEP}${toWire('900|cd|Chart|BarChart|451|75384|4|6|6|470')}`)[0];
     expect(chart.chartHeight).toBe(470);
-    // an old 9-field line (no height) still parses fine — height undefined
-    expect(parseFetchLog(`${SEP}901|x|W|Status|451|75384|6|6|6`)[0].chartHeight).toBeUndefined();
+    // a line with an empty height field still parses fine — height undefined
+    expect(parseFetchLog(`${SEP}${toWire('901|x|W|Status|451|75384|6|6|6')}`)[0].chartHeight).toBeUndefined();
+  });
+  it('preserves a pipe in a name without shifting structural fields (name is the last field)', () => {
+    // "Revenue | 2024" — a realistic name. The old name-in-the-middle format shifted every field
+    // after it and misclassified the node; name-last joins the remainder back intact.
+    const n = parseFetchLog(`${SEP}900|cd|BarChart|451|75384|3|6|6|470|Revenue | 2024`)[0];
+    expect(n.name).toBe('Revenue | 2024');
+    expect(n.type).toBe('BarChart');           // structure intact despite the pipe in the name
+    expect(n.parentRid).toBe('451');
+    expect(n.containerRid).toBe('75384');
+    expect(n.columnsLargeScreen).toBe(3);
+    expect(n.chartHeight).toBe(470);
+  });
+  it('degrades a newline in a name to truncation, never a dropped or shifted node', () => {
+    // A literal newline used to truncate the SEP block before field 9 → the node vanished entirely.
+    // With name last, the structural fields all precede it, so the node survives (name truncated).
+    const n = parseFetchLog(`${SEP}900|cd|BarChart|451|75384|3|6|6||First\nSecond`)[0];
+    expect(n).toBeDefined();
+    expect(n.type).toBe('BarChart');
+    expect(n.parentRid).toBe('451');
+    expect(n.name).toBe('First');              // truncated at the newline, but the node is kept
   });
 });
 
@@ -109,7 +138,7 @@ describe('sync.loadModel', () => {
     expect(bc.children.map(c => c.name)).toEqual(['Run Audit', 'Export']); // …with nested children
   });
   it('surfaces a container-less widget (RESULT-tab risk) as an orphan, not in the tree', async () => {
-    const stray = `${SEP}999|9001|Stray|TextElement|${SCRID}||||`; // parent=scorecard, no container
+    const stray = `${SEP}${toWire(`999|9001|Stray|TextElement|${SCRID}||||`)}`; // parent=scorecard, no container
     const { model, orphans } = await loadModel(fakeIo(LIVE_LOG + '\n' + stray), CTX);
     expect(orphans.map(o => o.businessId)).toEqual(['9001']);
     expect(findNode(model, '9001')).toBeNull();
@@ -137,7 +166,7 @@ const ENTERPRISE_LOG = [
   `212997087683636707|w1|Issue Status|SimpleStatus|${TMPL_RID}|432431197368212130|6|6|6`,
   `3010690603757079917|w2|Issue Summary|DescriptionView|${TMPL_RID}|432431197368212130|6|6|6`,
   `5194505591298034683|w3|Issue Trend|BarChart|${TMPL_RID}|432431197368212130|6|6|6`,
-].map(l => SEP + l).join('\n');
+].map(l => SEP + toWire(l)).join('\n');
 
 describe('sync.resolvePageContext', () => {
   it('enterprise: points the page root at the linked template + shared tabset, scoped to content', async () => {
@@ -217,8 +246,10 @@ describe('sync.applyModel', () => {
     const io = fakeIo(LIVE_LOG);
     const { baseline } = await loadModel(io, CTX);
     const desired = rename(baseline, '4969', 'Analyst Notes');
-    // live fetch now returns a DRIFTED page (a widget renamed by someone else)
-    const drifted = LIVE_LOG.replace('Register|RiskList', 'Register RENAMED|RiskList');
+    // live fetch now returns a DRIFTED page (widget 4964 renamed by someone else). `name` is the last
+    // wire field, so the rename mutates the line's trailing `|Register` (the tab "Risk Register" ends
+    // in `|Risk Register`, which this doesn't match).
+    const drifted = LIVE_LOG.replace('|Register', '|Register RENAMED');
     let committed = false;
     io.exec = vi.fn(async (code: string, commit = false) => {
       if (commit) { committed = true; return { ok: true, log: drifted }; }

@@ -71,7 +71,9 @@ export type PlanStep =
   // afterId is always a real same-kind sibling — diff anchors group[0] and reorders the rest after
   // their predecessor, so "move to first" never needs a null (it falls out of reordering the others).
   | { kind: 'reorder'; id: string; afterId: string }
-  | { kind: 'delete'; id: string; nodeKind: NodeKind; className: string; rehomeTo?: string };
+  // `rid` is threaded so the EC generator can address a businessId-less node by rid (its node lives
+  // only in the baseline, so ec.ts can't recover the rid from the desired model).
+  | { kind: 'delete'; id: string; nodeKind: NodeKind; className: string; rid?: string; rehomeTo?: string };
 
 export interface PlanNote {
   verb: 'create' | 'update' | 'move' | 'reorder' | 'delete';

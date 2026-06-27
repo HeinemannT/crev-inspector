@@ -16,7 +16,7 @@ import { walk } from './model';
 import { COMPOSITE_TYPES } from './constraints';
 // Shared EC sanitisation (escaping + identifier/id validation) — the same guards the other EC
 // generators use. ecClass/ecBid are thin aliases; ecStr wraps the shared escaper in quotes.
-import { formatEcLiteral, validateEcIdentifier as ecClass, validateBusinessId as ecBid } from '../ec-guards';
+import { formatEcLiteral, validateEcIdentifier as ecClass, validateBusinessId as ecBid, validateRid as ecRid } from '../ec-guards';
 import type { Breakpoint, LModel, LNode, PlanNote, PlanStep } from './types';
 
 const ecStr = (s: string): string => `"${formatEcLiteral(s)}"`;
@@ -34,7 +34,22 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
   walk(m, n => byId.set(n.id, n));
 
   const vars = new Map<string, string>();
-  const ref = (id: string): string => vars.get(id) ?? `t.${ecBid(id)}`;
+  // Reference an object in EC. New nodes from this batch → their `_n<k>` var. Existing nodes →
+  // `t.<businessId>`, EXCEPT a node that carries no businessId (reconstruct fell its `id` back to
+  // the rid, so `id === rid`): `t.<rid>` does NOT resolve (the `t.` namespace is businessId-keyed,
+  // and an all-digit rid slips past the businessId validator), so it would silently mis-target.
+  // Address those by rid via `lookup(<rid>)` instead — the same way the fetch reaches the page root.
+  const ref = (id: string): string => {
+    const v = vars.get(id);
+    if (v) return v;
+    const n = byId.get(id);
+    if (n?.rid && n.id === n.rid) return `lookup(${ecRid(n.rid)})`;
+    return `t.${ecBid(id)}`;
+  };
+  /** ref() for a node that may not be in the desired model (a delete subject lives only in the
+   *  baseline). Falls back to the threaded rid for the businessId-less case, since byId can't see it. */
+  const refDeleted = (id: string, rid?: string): string =>
+    (rid && id === rid) ? `lookup(${ecRid(rid)})` : `t.${ecBid(id)}`;
 
   const needWidget = plan.some(s => s.kind === 'create' && s.node.kind === 'widget');
   const needTabset = plan.some(s => s.kind === 'create' && s.node.kind === 'tab');
@@ -109,7 +124,7 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
       }
       case 'delete': {
         emit({ verb: 'delete', text: `Delete ${s.nodeKind} (${s.className})`,
-          ec: `${ref(s.id)}.delete()` });
+          ec: `${refDeleted(s.id, s.rid)}.delete()` });
         break;
       }
     }

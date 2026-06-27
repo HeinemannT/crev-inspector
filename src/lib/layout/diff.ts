@@ -101,7 +101,7 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
 
   // 5. deletes -- reverse depth (children before parents)
   const deletes = [...A.values()].filter(e => !B.has(e.node.id)).sort((x, y) => y.depth - x.depth);
-  deletes.forEach(e => steps.push({ kind: 'delete', id: e.node.id, nodeKind: e.node.kind, className: e.node.className }));
+  deletes.forEach(e => steps.push({ kind: 'delete', id: e.node.id, nodeKind: e.node.kind, className: e.node.className, rid: e.node.rid }));
 
   return steps;
 }
