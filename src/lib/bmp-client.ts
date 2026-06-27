@@ -25,6 +25,7 @@ import { pMap, compareVersions } from './util';
 import { parsePipeLines, parseSepBlocks, parseSepMultiObject } from './ec-parser';
 import { validateRid, validateEcIdentifier, formatEcLiteral } from './ec-guards';
 import { resolveNamespace } from './namespace';
+import { ecResolveTemplate } from './template-link';
 import {
   parsePipeRow, parsePipeRowWithKey, parseAbRow, makeCodeField,
 } from './flow-parser';
@@ -563,11 +564,7 @@ export class BmpClient {
     const ref = await this.resolveRef(rid);
     const code = [
       `_o := ${ref}`,
-      '_t := _o.linkedTo',
-      // Enterprise objects (CeIssue, CeRiskAssessment, etc.) use .template instead of .linkedTo
-      'IF _t = MISSING THEN',
-      '  _t := _o.template',
-      'ENDIF',
+      ...ecResolveTemplate('_o', '_t'),
       '_t.rid.whenMissing("MISSING") + "|||" + _t.name.whenMissing("") + "|||" + _t.className.whenMissing("") + "|||" + _t.id.whenMissing("")',
     ].join('\n');
     const ecResult = await this.executeEc(code, undefined, false);
@@ -620,11 +617,7 @@ export class BmpClient {
     for (const { rid, ref } of refs) {
       lines.push(`_o := ${ref}`);
       lines.push('IF _o != MISSING THEN');
-      lines.push('  _t := _o.linkedTo');
-      // Enterprise objects use .template instead of .linkedTo
-      lines.push('  IF _t = MISSING THEN');
-      lines.push('    _t := _o.template');
-      lines.push('  ENDIF');
+      lines.push(...ecResolveTemplate('_o', '_t', '  '));
       lines.push('  _tid := (IF _t != MISSING THEN _t.id.whenMissing("") ELSE "" ENDIF)');
       // Cascade target — for flow-bearing widgets we surface the next link in
       // the chain so the badge can render a second pill. Non-flow types skip
@@ -1307,8 +1300,7 @@ _r
       `_o := ${ref}`,
     ];
     if (target === 'template') {
-      lines.push('_t := _o.linkedTo');
-      lines.push('IF _t = MISSING THEN _t := _o.template ENDIF');
+      lines.push(...ecResolveTemplate('_o', '_t'));
       lines.push('IF _t = MISSING THEN');
       lines.push('  "no template"');
       lines.push('ELSE');

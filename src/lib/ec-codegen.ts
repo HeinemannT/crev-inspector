@@ -23,6 +23,7 @@ import {
 } from './widget-metadata';
 import type { PaneProp } from './bmp-client';
 import { validateEcIdentifier } from './ec-guards';
+import { ecResolveTemplate } from './template-link';
 
 /** Separator used by every walker EC + their parsers. Hardcoded string (never
  *  user input) so it can't be injected via EC values. */
@@ -240,8 +241,7 @@ export function buildObjectPaneEc(ref: string, paneProps: readonly string[]): st
     `_sep := "${FLOW_SEP}"`,
     `_o := ${ref}`,
     '_p := _o.webParent',
-    '_t := _o.linkedTo',
-    'IF _t = MISSING THEN _t := _o.template ENDIF',
+    ...ecResolveTemplate('_o', '_t'),
     '_r := ""',
     scalarBlock('instRid', '_o.rid.whenMissing("MISSING")'),
     scalarBlock('instId', '_o.id.whenMissing("")'),
