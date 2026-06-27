@@ -6,7 +6,7 @@
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import type { SwContext } from '../sw-context';
-import { loadPage, applyPage } from '../layout-service';
+import { loadPage, applyPage, loadBlastRadius } from '../layout-service';
 import { ensureContentScript } from '../tab-awareness';
 import { toggleInspect } from './inspect';
 import { errorMessage, log } from '../logger';
@@ -100,4 +100,13 @@ register('LAYOUT_APPLY', async (msg, respond) => {
     respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: errorMessage(e) });
     ctx.logActivity('error', 'Blueprint apply threw', e instanceof Error ? e.message : String(e));
   }
+});
+
+// Apply-preview blast radius. Best-effort and fire-and-respond: loadBlastRadius never throws (it
+// fails silently to nulls), so the preview shows warnings only when the rref walk came back in time.
+register('LAYOUT_BLAST', async (msg, respond) => {
+  const ctx = getCtx();
+  if (!ctx.client) { respond({ type: 'LAYOUT_BLAST_RESULT', fanout: null, blast: null }); return; }
+  const res = await loadBlastRadius(ctx.client, msg.pageId, msg.containerBids);
+  respond({ type: 'LAYOUT_BLAST_RESULT', fanout: res.fanout, blast: res.blast });
 });

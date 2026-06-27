@@ -16,6 +16,12 @@ import type { BmpClient } from './bmp-client';
 import type { LayoutIO, BlueprintCtx, LoadResult, ApplyResult } from './layout/sync';
 import { loadModel, applyModel, resolvePageContext } from './layout/sync';
 import type { LModel } from './layout/types';
+import { validateBusinessId } from './ec-guards';
+import {
+  buildInstanceFanoutEc, parseInstanceFanout,
+  buildContainerBlastEc, parseContainerBlast,
+  type InstanceFanout, type ContainerBlast,
+} from './layout/blast-radius';
 
 /** Wrap a BmpClient as a LayoutIO. `commit` → transactional executeEc. */
 export function makeLayoutIO(client: BmpClient): LayoutIO {
@@ -41,4 +47,28 @@ export async function loadPage(client: BmpClient, rid: string): Promise<{ ctx: B
  *  `loadPage` returned for this page (it carries the page root + tabset + tab scope). */
 export async function applyPage(client: BmpClient, ctx: BlueprintCtx, baseline: LModel, desired: LModel): Promise<ApplyResult> {
   return applyModel(makeLayoutIO(client), baseline, desired, ctx);
+}
+
+/** Apply-preview blast radius (best-effort; an `rref` walk can be slow, so callers fail silently).
+ *  (A) fan-out: is `pageId` a template master + how many instances inherit. (B) shared-structure:
+ *  for the touched container businessIds, which template-families OUTSIDE this page's own use them.
+ *  Returns nulls rather than throwing — the preview just omits the warning if BMP is slow/unhappy. */
+export async function loadBlastRadius(
+  client: BmpClient, pageId: string, containerBids: string[],
+): Promise<{ fanout: InstanceFanout | null; blast: ContainerBlast | null }> {
+  const io = makeLayoutIO(client);
+  let fanout: InstanceFanout | null = null;
+  let blast: ContainerBlast | null = null;
+  try {
+    const fan = await io.exec(buildInstanceFanoutEc(`t.${validateBusinessId(pageId)}`));
+    if (fan.ok && fan.log) fanout = parseInstanceFanout(fan.log);
+  } catch { /* fail silent — no fan-out warning */ }
+  const refs = containerBids.filter(b => { try { validateBusinessId(b); return true; } catch { return false; } });
+  if (fanout && refs.length) {
+    try {
+      const res = await io.exec(buildContainerBlastEc(refs.map(b => `t.${b}`)));
+      if (res.ok && res.log) blast = parseContainerBlast(res.log, fanout.ownFamilyKey);
+    } catch { /* fail silent — no shared-structure warning */ }
+  }
+  return { fanout, blast };
 }

@@ -16,6 +16,7 @@ import { render } from './view';
 
 type LoadResult = Extract<InspectorMessage, { type: 'LAYOUT_LOAD_RESULT' }>;
 type ApplyResult = Extract<InspectorMessage, { type: 'LAYOUT_APPLY_RESULT' }>;
+type BlastResult = Extract<InspectorMessage, { type: 'LAYOUT_BLAST_RESULT' }>;
 
 /** Adopt `m` as the new baseline: fresh history, clear selection. The single point where the editor
  *  rebases onto an authoritative server model (initial load + post-apply + stale-reload). */
@@ -46,6 +47,19 @@ export async function loadPage(rid: string): Promise<boolean> {
   if (orphans) showToast(`Blueprint: ${orphans} widget(s) not placed on any tab`, 'info');
   render();
   return true;
+}
+
+/** Best-effort blast-radius probe for the open apply-preview. Stores the result on `bp.blast` and
+ *  re-renders so the modal can show the warnings; silent on failure (the modal just omits them). The
+ *  preview must still be the same session + open when the reply lands. */
+export async function fetchBlast(pageId: string, containerBids: string[]): Promise<void> {
+  const g = bp.gen;
+  try {
+    const res = await sendRequest<BlastResult>({ type: 'LAYOUT_BLAST', pageId, containerBids });
+    if (!sameSession(g) || !bp.preview) return; // toggled off, or the user already closed the preview
+    bp.blast = { fanout: res?.fanout ?? null, blast: res?.blast ?? null };
+    render();
+  } catch { /* fail silent — no blast warning */ }
 }
 
 /** Fire the guarded apply and rebase the editor onto the result. */

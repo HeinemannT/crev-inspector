@@ -7,17 +7,17 @@
  * actions onto button handlers, and these call render() at click time. All cross-calls happen inside
  * functions (never at module-init), so ESM resolves the cycle cleanly.
  */
-import { findNode } from '../lib/layout/model';
+import { findNode, isTempId } from '../lib/layout/model';
 import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, findTabOf } from '../lib/layout/edit';
 import { diff } from '../lib/layout/diff';
 import { compile } from '../lib/layout/ec';
 import { History } from '../lib/layout/history';
-import type { LModel } from '../lib/layout/types';
+import type { LModel, PlanStep } from '../lib/layout/types';
 import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { render } from './view';
-import { applyPage } from './service';
+import { applyPage, fetchBlast } from './service';
 
 /** Push a new model state onto history and re-render. The one write path for staged edits. */
 export function mutate(next: LModel): void { bp.history?.push(next); render(); }
@@ -142,6 +142,19 @@ export function redo(): void {
 }
 export function discard(): void { if (bp.baseline) { bp.history = new History(bp.baseline); bp.selectedId = null; render(); } }
 
+/** Business ids of EXISTING containers the plan structurally touches (resize/rename/move/delete) —
+ *  the shared cells whose blast radius the preview checks. New (temp-id) containers are skipped (not
+ *  shared yet); tab/widget edits too (only containers reverse-resolve via rref(container)). */
+function touchedContainerBids(plan: PlanStep[], m: LModel): string[] {
+  const bids = new Set<string>();
+  for (const s of plan) {
+    if (s.kind === 'create') continue;
+    const kind = s.kind === 'reparent' || s.kind === 'delete' ? s.nodeKind : findNode(m, s.id)?.node.kind;
+    if (kind === 'container' && !isTempId(s.id)) bids.add(s.id);
+  }
+  return [...bids];
+}
+
 /** Apply opens a preview first — never commit blind. The plan is computed with the SAME diff+compile
  *  the SW will run, so the human-readable notes match exactly what gets executed. */
 export function openApplyPreview(): void {
@@ -150,14 +163,19 @@ export function openApplyPreview(): void {
   const plan = diff(bp.baseline, m);
   if (plan.length === 0) { showToast('Blueprint: nothing to apply', 'info'); return; }
   bp.preview = compile(plan, m).notes;
+  bp.blast = null;
   render();
+  // Best-effort + async: the modal renders now; the template-fan-out / shared-structure warnings
+  // appear when (if) the rref walk returns. Never blocks the confirm path.
+  void fetchBlast(bp.ctx.pageId, touchedContainerBids(plan, m));
 }
-export function closePreview(): void { bp.preview = null; render(); }
+export function closePreview(): void { bp.preview = null; bp.blast = null; render(); }
 
 /** Confirmed from the preview modal — fire the guarded SW apply (service owns the round-trip). */
 export function confirmApply(): void {
   if (!bp.ctx || !bp.baseline || !bp.env || !model() || bp.applying) return;
   bp.preview = null;
+  bp.blast = null;
   void applyPage();
 }
 

@@ -33,6 +33,20 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
     w.textContent = '⚠ This is a shared template — these changes affect every instance that uses it.';
     card.appendChild(w);
   }
+  // Blast radius (async, best-effort — appears once the rref probe returns; see actions.openApplyPreview).
+  const warn = (text: string) => { const w = document.createElement('div'); w.className = 'bp-modal-warn'; w.textContent = text; card.appendChild(w); };
+  const fanout = bp.blast?.fanout;
+  if (fanout?.isMaster) {
+    const n = fanout.instances.length;
+    warn(`⚠ This page is a template — ${n} linked scorecard${n === 1 ? '' : 's'} inherit from it. `
+      + 'Widget edits propagate to them; tab/container edits change every one.');
+  }
+  const xfam = bp.blast?.blast;
+  if (xfam && xfam.otherFamilies > 0) {
+    const names = xfam.families.map(f => f.name).filter(Boolean).slice(0, 2).join(', ');
+    warn(`⚠ Some containers here are shared with ${xfam.otherFamilies} page${xfam.otherFamilies === 1 ? '' : 's'} `
+      + `outside this template${names ? ` (${names}${xfam.otherFamilies > 2 ? ', …' : ''})` : ''} — your structural changes affect them too.`);
+  }
   // Blast-radius warning. Deleting a tab cascades to every container/widget under it (a tab's contents
   // can't re-home the way a deleted container's widgets do), so one delete gesture can stage many. Make
   // that scope explicit at the confirm gate — the rows below enumerate it, but the count is the headline.
