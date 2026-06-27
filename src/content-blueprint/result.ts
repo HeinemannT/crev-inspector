@@ -60,15 +60,49 @@ function activeModelTab(base: LModel, m: LModel, byRid: Map<string, Element>): {
   return null;
 }
 
+/** Per-type fallback heights (px) for a widget with no live DOM (an inactive tab) and no authored
+ *  height. Rough but type-aware, informed by the decompiled layout model: charts default to a tall
+ *  box (chartHeight 470 / autoSize cell-grid — live autoSize charts measure ~466), tables/lists are
+ *  medium, status/text are short. BMP has NO server height for content-driven widgets, so off the
+ *  active tab these are honest estimates, not ground truth. */
+const TYPE_EST: [RegExp, number][] = [
+  [/Chart$/, 300], [/(Table|List)$/, 200], [/(Description|Text|URLView)/, 130], [/Status/, 110],
+];
+function estimateHeight(className: string): number {
+  for (const [re, h] of TYPE_EST) if (re.test(className)) return h;
+  return 90;
+}
+
+/** Best height (px) for a widget cell so the wireframe reflects reality, in priority order:
+ *   1. its LIVE rendered height (the active tab's widgets are in the DOM — ground truth, all types,
+ *      incl. content-driven ones BMP gives no server height for),
+ *   2. its authored chartHeight (charts with autoSize off),
+ *   3. a per-type estimate (inactive tabs — no DOM to measure).
+ *  Capped so one huge table can't make the panel absurd. Containers return null: they size from
+ *  their children. */
+const HEIGHT_CAP = 520;
+function widgetHeight(node: LNode, byRid: Map<string, Element>): { px: number; measured: boolean } | null {
+  if (node.kind !== 'widget') return null;
+  if (node.rid) {
+    const el = byRid.get(node.rid);
+    if (el) { const h = el.getBoundingClientRect().height; if (h > 8) return { px: Math.min(Math.round(h), HEIGHT_CAP), measured: true }; }
+  }
+  if (node.height != null) return { px: Math.min(node.height, HEIGHT_CAP), measured: false };
+  return { px: estimateHeight(node.className), measured: false };
+}
+
 /** One widget/container cell. Containers recurse into a nested 6-col sub-grid. */
-function cell(base: LModel, node: LNode, parentId: string | null): HTMLElement {
+function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<string, Element>): HTMLElement {
   const el = document.createElement('div');
   el.dataset.bpid = node.id;
   el.dataset.bpkind = node.kind === 'container' ? 'container' : 'widget';
   el.style.gridColumn = `span ${Math.max(1, Math.min(6, node.cols.L))}`;
+  const h = widgetHeight(node, byRid);
+  if (h) el.style.height = `${h.px}px`;
   const state = cellState(base, node, parentId);
   el.className = `bp-rcell st-${state}` + (node.kind === 'container' ? ' bp-rcont' : '')
-    + (isChart(node.className) ? ' bp-rchart' : '') + (bp.selectedId === node.id ? ' sel' : '');
+    + (isChart(node.className) ? ' bp-rchart' : '')
+    + (h ? (h.measured ? ' bp-rsized' : ' bp-rest') : '') + (bp.selectedId === node.id ? ' sel' : '');
 
   const lab = document.createElement('div'); lab.className = 'bp-rlab';
   const nm = document.createElement('span'); nm.className = 'bp-rnm'; nm.textContent = node.name;
@@ -85,7 +119,7 @@ function cell(base: LModel, node: LNode, parentId: string | null): HTMLElement {
 
   if (node.kind === 'container') {
     const grid = document.createElement('div'); grid.className = 'bp-rgrid';
-    for (const child of orderChildren(node.children)) grid.appendChild(cell(base, child, node.id));
+    for (const child of orderChildren(node.children)) grid.appendChild(cell(base, child, node.id, byRid));
     if (!node.children.length) { const e = document.createElement('div'); e.className = 'bp-rempty'; e.textContent = 'empty'; grid.appendChild(e); }
     el.appendChild(grid);
   }
@@ -97,7 +131,7 @@ function cell(base: LModel, node: LNode, parentId: string | null): HTMLElement {
 /** One tab's section: a header (label + active marker, also a move-to-tab drop target) followed by
  *  its 6-col grid + a full-width add/drop zone. Rendered from the MODEL, so inactive tabs (no live
  *  DOM) render identically to the active one. */
-function tabSection(base: LModel, tab: LNode, isActive: boolean): HTMLElement {
+function tabSection(base: LModel, tab: LNode, isActive: boolean, byRid: Map<string, Element>): HTMLElement {
   const sec = document.createElement('div'); sec.className = 'bp-rtab-sec';
   const head = document.createElement('div');
   head.className = 'bp-rtab-h' + (isActive ? ' active' : '');
@@ -110,7 +144,7 @@ function tabSection(base: LModel, tab: LNode, isActive: boolean): HTMLElement {
   sec.appendChild(head);
 
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
-  for (const child of orderChildren(tab.children)) grid.appendChild(cell(base, child, tab.id));
+  for (const child of orderChildren(tab.children)) grid.appendChild(cell(base, child, tab.id, byRid));
   if (!tab.children.length) { const e = document.createElement('div'); e.className = 'bp-rempty'; e.textContent = `Tab "${tab.name}" is empty`; e.style.gridColumn = 'span 6'; grid.appendChild(e); }
   // Full-width add zone — drops a new widget at the tab's top level (also a click target for the picker).
   const add = document.createElement('div'); add.className = 'bp-radd-zone'; add.style.gridColumn = 'span 6';
@@ -143,7 +177,7 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   // Active tab first (it's where the user is), then the rest — so you can move ACROSS tabs by dragging
   // between sections, not just within the one BMP happens to be showing.
   const ordered = [activeTab, ...m.tabs.filter(t => t.id !== activeTab.id)];
-  for (const tab of ordered) wrap.appendChild(tabSection(base, tab, tab.id === activeTab.id));
+  for (const tab of ordered) wrap.appendChild(tabSection(base, tab, tab.id === activeTab.id, byRid));
   layer.appendChild(wrap);
   return true;
 }

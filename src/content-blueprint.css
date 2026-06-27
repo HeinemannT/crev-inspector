@@ -248,7 +248,9 @@
    containers = recessed (dashed), widget cells = raised. Cells are draggable (data-bpid) so drops
    land in final positions. State is signalled by border + corner tag (opaque, no translucent fill). */
 #crev-blueprint-layer .bp-result{position:absolute;z-index:6;padding:12px;background:var(--bp-ink);border:1px solid var(--bp-line);border-radius:6px;box-shadow:var(--bp-glow);background-image:linear-gradient(rgba(58,134,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(58,134,255,.05) 1px,transparent 1px);background-size:22px 22px}
-#crev-blueprint-layer .bp-rgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-content:start}
+/* align-items:start so each cell keeps its OWN (measured/authored) height instead of stretching to
+   the row's tallest — the wireframe then reflects real widget heights, not a uniform grid. */
+#crev-blueprint-layer .bp-rgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-content:start;align-items:start}
 #crev-blueprint-layer .bp-rroot{padding:0}
 /* per-tab section (cross-tab view): a header (drop-target for move-to-tab) + the tab's grid */
 #crev-blueprint-layer .bp-rtab-sec{margin-bottom:14px}
@@ -265,6 +267,9 @@
 #crev-blueprint-layer .bp-rcell:hover{border-color:var(--bp-cyan);box-shadow:inset 0 0 0 1px rgba(58,134,255,.35)}
 #crev-blueprint-layer .bp-rcell.sel{border-color:var(--bp-cyan-hi);box-shadow:inset 0 0 0 1px var(--bp-cyan-hi),0 0 0 1px rgba(110,168,255,.25)}
 #crev-blueprint-layer .bp-rchart{min-height:120px}
+/* estimated height (inactive tab, no live DOM to measure) — a faint dashed lower edge hints it's
+   approximate, vs the active tab's exact measured cells. */
+#crev-blueprint-layer .bp-rcell.bp-rest{border-bottom-style:dashed}
 #crev-blueprint-layer .bp-rcont{background:var(--bp-ink-3);border-style:dashed;border-color:rgba(136,166,192,.55)}
 #crev-blueprint-layer .bp-rcont>.bp-rgrid{margin-top:2px}
 #crev-blueprint-layer .bp-rcell.st-new{border-color:var(--bp-green);box-shadow:inset 0 0 0 1px rgba(116,214,166,.3)}
