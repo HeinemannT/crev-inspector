@@ -92,8 +92,10 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   if (!active) return false;
   const { tab, frame } = active;
 
+  // Anchor to the live content box (origin + width line up with BMP's real columns) and cover at
+  // least its full height, so the opaque panel masks the busy page beneath rather than floating over it.
   const wrap = document.createElement('div'); wrap.className = 'bp-result';
-  Object.assign(wrap.style, { left: `${frame.left}px`, top: `${frame.top}px`, width: `${frame.width}px` });
+  Object.assign(wrap.style, { left: `${frame.left}px`, top: `${frame.top}px`, width: `${frame.width}px`, minHeight: `${frame.height}px` });
 
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
   for (const child of orderChildren(tab.children)) grid.appendChild(cell(base, child, tab.id));
