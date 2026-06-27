@@ -309,6 +309,16 @@ function containerBox(baseNode: LNode, rect: Rect, m: LModel): HTMLElement {
     tab.append(cn, cw);
     if (changed && cur) tab.appendChild(delta(`${baseNode.cols.L}→${cur.cols.L}`));
   }
+  // Selected-container overlay: a light scrim over the WHOLE container area with a centred
+  // "CONTAINER · name" tag, so it's unambiguous you've grabbed the box and not a widget inside it.
+  // pointer-events:none keeps it purely visual (drag/handles still work via the box + its controls).
+  if (sel) {
+    const ov = document.createElement('div'); ov.className = 'bp-cont-ov';
+    const tg = document.createElement('span'); tg.className = 'bp-cont-ov-tag'; tg.textContent = 'CONTAINER';
+    const nm2 = document.createElement('span'); nm2.className = 'bp-cont-ov-nm'; nm2.textContent = cur?.name ?? baseNode.name;
+    ov.append(tg, nm2);
+    box.appendChild(ov);
+  }
   box.appendChild(tab);
   if (sel && cur) addHandles(box, cur);
   return box;
@@ -316,8 +326,11 @@ function containerBox(baseNode: LNode, rect: Rect, m: LModel): HTMLElement {
 
 function toolbar(node: LNode, r: Rect): HTMLElement {
   const t = document.createElement('div'); t.className = 'bp-tools';
+  // A container carries its own +/name handle (.bp-ctab) just above its box. Lift the toolbar above
+  // THAT handle so the two strips stack instead of colliding (the toolbar used to land on the + label).
+  const lift = node.kind === 'container' ? 60 : 32;
   t.style.left = `${Math.max(4, r.left)}px`;
-  t.style.top = `${Math.max(40, r.top - 32)}px`;
+  t.style.top = `${Math.max(40, r.top - lift)}px`;
 
   const lblW = document.createElement('span'); lblW.className = 'lbl'; lblW.textContent = 'W'; t.appendChild(lblW);
   const seg = document.createElement('div'); seg.className = 'bp-seg';

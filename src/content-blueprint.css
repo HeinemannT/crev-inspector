@@ -37,6 +37,12 @@
 #crev-blueprint-layer .bp-cont.sel{border-style:solid;border-color:var(--bp-cyan-hi);box-shadow:inset 0 0 0 1px rgba(110,168,255,.3)}
 #crev-blueprint-layer .bp-cont.sel::before,#crev-blueprint-layer .bp-cont.sel::after{border-color:var(--bp-cyan-hi)}
 #crev-blueprint-layer .bp-cont.changed{border-color:var(--bp-amber)}
+/* Selected-container scrim: a light wash over the whole container with a centred CONTAINER · name
+   tag, so container vs widget selection is unmistakable. Above the child widget boxes, but
+   pointer-events:none so it never eats a drag. */
+#crev-blueprint-layer .bp-cont-ov{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:rgba(150,172,194,.15);border-radius:2px;pointer-events:none}
+#crev-blueprint-layer .bp-cont-ov-tag{font:700 11px var(--bp-mono);letter-spacing:.14em;color:var(--bp-text);background:rgba(10,29,51,.78);padding:3px 10px;border-radius:3px;box-shadow:0 1px 6px rgba(2,12,22,.5)}
+#crev-blueprint-layer .bp-cont-ov-nm{max-width:90%;font:600 11px 'BPInter',sans-serif;color:var(--bp-text);background:rgba(10,29,51,.78);padding:2px 8px;border-radius:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* container handle — always-visible tab ABOVE the box top-left: the add "+" (and name/width on select) */
 #crev-blueprint-layer .bp-ctab{position:absolute;bottom:100%;left:-1px;margin-bottom:2px;z-index:8;display:inline-flex;align-items:center;gap:5px;max-width:calc(100% + 2px);padding:1px 4px;background:var(--bp-ink);border:1px solid rgba(136,166,192,.55);border-radius:3px;pointer-events:auto;white-space:nowrap;overflow:hidden}
 #crev-blueprint-layer .bp-ctab.sel{border-color:var(--bp-cyan-hi)}
