@@ -1,0 +1,228 @@
+/**
+ * Blueprint direct-manipulation gestures — pointer-driven edge-resize and drag-to-move/swap/reorder.
+ *
+ * Transient drag/resize state lives in module vars (not `bp`): it only drives a body-level ghost +
+ * insertion line and the layer's drop-target highlight between mousedown and mouseup, and nothing
+ * here needs to survive a render. Every gesture ends by staging a PURE edit op (edit.ts) through the
+ * controller — the live BMP grid never reflows, so the result shows as a delta badge, same as the
+ * menu-driven edits. `bp.dragging` suppresses the scroll re-render for the duration of a gesture.
+ */
+import { findNode } from '../lib/layout/model';
+import type { LNode } from '../lib/layout/types';
+import { ICON_ARROW_RIGHT } from '../lib/icons';
+import { bp, model } from './state';
+import { mutate, select, setHint, doSwap, doInsert, doMoveInto } from './actions';
+import { resize, setHeight } from '../lib/layout/edit';
+import { render } from './view';
+
+const isDescendant = (node: LNode, id: string): boolean => node.children.some(c => c.id === id || isDescendant(c, id));
+
+const clampL = (n: number): number => Math.max(1, Math.min(6, n));
+const DRAG_THRESHOLD = 6; // px of movement before a press becomes a drag rather than a click
+
+// The document-level pointer listeners of the in-flight gesture, tracked so teardown (cancelGesture)
+// can rip them out even if it lands mid-drag — otherwise they'd outlive the overlay session.
+let activeMove: ((e: MouseEvent) => void) | null = null;
+let activeUp: (() => void) | null = null;
+function bindGesture(mv: (e: MouseEvent) => void, up: () => void): void {
+  activeMove = mv; activeUp = up;
+  document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+}
+function unbindGesture(): void {
+  if (activeMove) document.removeEventListener('mousemove', activeMove);
+  if (activeUp) document.removeEventListener('mouseup', activeUp);
+  activeMove = null; activeUp = null;
+}
+
+/** Abort any in-flight gesture and remove its body-level artefacts. Called by disableBlueprint so a
+ *  drag/resize interrupted by teardown doesn't leak document listeners or orphan ghost/line elements. */
+export function cancelGesture(): void {
+  unbindGesture();
+  document.querySelectorAll('.bp-ghost,.bp-dropline,.bp-rzghost').forEach(el => el.remove());
+  dragId = null; action = null; ghost = null; dropline = null;
+  bp.dragging = false;
+}
+
+// ── edge resize ──────────────────────────────────────────────────────────────
+
+/** Wire a resize handle (right = width, bottom = height) onto the selected box. */
+export function armResize(handle: HTMLElement, id: string, dir: 'r' | 'b'): void {
+  handle.addEventListener('mousedown', (e) => startResize(e, id, dir));
+}
+
+function startResize(e: MouseEvent, id: string, dir: 'r' | 'b'): void {
+  e.preventDefault(); e.stopPropagation();
+  const m = model(); if (!m) return;
+  const f = findNode(m, id); if (!f) return;
+  const node = f.node;
+  const boxEl = (e.currentTarget as HTMLElement).parentElement; if (!boxEl) return;
+  const rect = boxEl.getBoundingClientRect();
+  const unit = rect.width / Math.max(1, node.cols.L); // px per grid column, from the node's own box
+  const startX = e.clientX, startY = e.clientY;
+  const startH = node.height ?? rect.height;
+  let nextL = node.cols.L, nextH = node.height ?? Math.round(rect.height);
+  bp.dragging = true;
+  const ghost = mkGhostRect();
+
+  const mv = (ev: MouseEvent): void => {
+    if (dir === 'r') {
+      nextL = clampL(Math.round((rect.width + (ev.clientX - startX)) / unit));
+      sizeGhost(ghost, rect.left, rect.top, nextL * unit, rect.height, `${nextL}/6`);
+    } else {
+      nextH = Math.max(20, Math.round(startH + (ev.clientY - startY)));
+      sizeGhost(ghost, rect.left, rect.top, rect.width, nextH, `${nextH}px`);
+    }
+  };
+  const up = (): void => {
+    unbindGesture();
+    ghost.remove(); bp.dragging = false;
+    if (dir === 'r' && nextL !== node.cols.L) mutate(resize(m, id, 'L', nextL));
+    else if (dir === 'b' && nextH !== node.height) mutate(setHeight(m, id, nextH));
+    else render();
+  };
+  bindGesture(mv, up);
+}
+
+function mkGhostRect(): HTMLElement {
+  const g = document.createElement('div'); g.className = 'bp-rzghost';
+  const lbl = document.createElement('span'); g.appendChild(lbl);
+  document.body.appendChild(g);
+  return g;
+}
+function sizeGhost(g: HTMLElement, left: number, top: number, w: number, h: number, label: string): void {
+  Object.assign(g.style, { left: `${left}px`, top: `${top}px`, width: `${w}px`, height: `${h}px` });
+  (g.firstChild as HTMLElement).textContent = label;
+}
+
+// ── drag to move / swap / reorder ──────────────────────────────────────────────
+
+type DragAction =
+  | { type: 'swap'; targetId: string }
+  | { type: 'insert'; targetId: string; before: boolean }
+  | { type: 'into'; targetId: string };
+
+let dragId: string | null = null;
+let ghost: HTMLElement | null = null;
+let dropline: HTMLElement | null = null;
+let action: DragAction | null = null;
+
+/** Wire drag-or-select onto a box: a small move starts a drag; a plain press selects. */
+export function armBox(el: HTMLElement, id: string): void {
+  el.addEventListener('mousedown', (e) => {
+    const tgt = e.target as HTMLElement;
+    if (tgt.closest('.bp-h') || tgt.isContentEditable || tgt.closest('button')) return; // handle/rename/buttons own their gesture
+    e.stopPropagation();
+    dragOrSelect(e, id);
+  });
+}
+
+function dragOrSelect(e: MouseEvent, id: string): void {
+  const sx = e.clientX, sy = e.clientY;
+  let started = false;
+  const mv = (ev: MouseEvent): void => {
+    if (!started) {
+      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < DRAG_THRESHOLD) return;
+      started = true; beginDrag(id);
+    }
+    ev.preventDefault(); // suppress native text selection over the BMP page while dragging
+    if (ghost) { ghost.style.left = `${ev.clientX + 14}px`; ghost.style.top = `${ev.clientY + 14}px`; }
+    markTarget(ev);
+  };
+  const up = (): void => {
+    unbindGesture();
+    if (!started) { select(id); return; }
+    endDrag();
+  };
+  bindGesture(mv, up);
+}
+
+function beginDrag(id: string): void {
+  dragId = id; action = null; bp.dragging = true;
+  const m = model(); const name = m ? findNode(m, id)?.node.name ?? id : id;
+  ghost = document.createElement('div'); ghost.className = 'bp-ghost';
+  const nm = document.createElement('span'); nm.className = 'nm';
+  const ic = document.createElement('span'); ic.className = 'bp-ic'; ic.innerHTML = ICON_ARROW_RIGHT; // trusted icon constant
+  const txt = document.createElement('span'); txt.textContent = name;
+  nm.append(ic, txt);
+  const act = document.createElement('span'); act.className = 'act';
+  ghost.append(nm, act); document.body.appendChild(ghost);
+  // setHint renders (showing the hint bar), so add the source highlight to the FRESH box afterwards —
+  // adding it first would be wiped by that render.
+  setHint('Drop on a widget centre to SWAP · its edge to REORDER · a box / empty slot / tab to MOVE');
+  bp.layer?.querySelector(`[data-bpid="${cssEsc(id)}"]`)?.classList.add('bp-dragsrc');
+}
+
+function setAct(text: string): void { const a = ghost?.querySelector('.act'); if (a) a.textContent = text; }
+
+function clearTargets(): void {
+  bp.layer?.querySelectorAll('.bp-drop,.bp-swap,.bp-tabdrop').forEach(el => el.classList.remove('bp-drop', 'bp-swap', 'bp-tabdrop'));
+  if (dropline) dropline.style.display = 'none';
+}
+
+function markTarget(ev: MouseEvent): void {
+  clearTargets(); action = null;
+  const m = model(); if (!m || !dragId) return;
+  if (ghost) ghost.style.display = 'none';
+  const under = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+  if (ghost) ghost.style.display = '';
+  const hit = under?.closest('[data-bpid]') as HTMLElement | null;
+  if (!hit) { setAct(''); return; }
+  const targetId = hit.dataset.bpid!;
+  const kind = hit.dataset.bpkind;
+  if (targetId === dragId) { setAct(''); return; }
+  const src = findNode(m, dragId);
+  if (src && isDescendant(src.node, targetId)) { setAct(''); return; } // never drop a node into its own subtree
+
+  if (kind === 'tab') {
+    hit.classList.add('bp-tabdrop'); action = { type: 'into', targetId };
+    setAct(`move to tab "${nameOf(m, targetId)}"`); return;
+  }
+  if (kind === 'avail') {
+    hit.classList.add('bp-drop'); action = { type: 'into', targetId };
+    setAct(`place in empty slot`); return;
+  }
+  if (kind === 'container') {
+    hit.classList.add('bp-drop'); action = { type: 'into', targetId };
+    setAct(`add into "${nameOf(m, targetId)}"`); return;
+  }
+  // widget: centre = swap, edge = insert before/after
+  const r = hit.getBoundingClientRect();
+  const relX = (ev.clientX - r.left) / r.width, relY = (ev.clientY - r.top) / r.height;
+  const edge = Math.max(Math.abs(relX - 0.5), Math.abs(relY - 0.5));
+  if (edge < 0.26) {
+    hit.classList.add('bp-swap'); action = { type: 'swap', targetId };
+    setAct(`swap with "${nameOf(m, targetId)}"`);
+  } else {
+    const dl = relX, dr = 1 - relX, dt = relY, db = 1 - relY, min = Math.min(dl, dr, dt, db);
+    const side = min === dl ? 'left' : min === dr ? 'right' : min === dt ? 'top' : 'bottom';
+    const before = side === 'left' || side === 'top';
+    showLine(r, side); action = { type: 'insert', targetId, before };
+    setAct(`${before ? 'insert before' : 'insert after'} "${nameOf(m, targetId)}"`);
+  }
+}
+
+function showLine(r: DOMRect, side: 'left' | 'right' | 'top' | 'bottom'): void {
+  if (!dropline) { dropline = document.createElement('div'); dropline.className = 'bp-dropline'; document.body.appendChild(dropline); }
+  const vert = side === 'left' || side === 'right', TH = 3;
+  dropline.style.display = 'block';
+  if (vert) Object.assign(dropline.style, { width: `${TH}px`, height: `${r.height}px`, top: `${r.top}px`, left: `${(side === 'left' ? r.left : r.right) - TH / 2}px` });
+  else Object.assign(dropline.style, { height: `${TH}px`, width: `${r.width}px`, left: `${r.left}px`, top: `${(side === 'top' ? r.top : r.bottom) - TH / 2}px` });
+}
+
+function endDrag(): void {
+  bp.layer?.querySelector('.bp-dragsrc')?.classList.remove('bp-dragsrc');
+  ghost?.remove(); ghost = null;
+  dropline?.remove(); dropline = null;
+  clearTargets(); setHint(null);
+  bp.dragging = false;
+  const A = action, id = dragId;
+  dragId = null; action = null;
+  if (A && id) {
+    if (A.type === 'swap') doSwap(id, A.targetId);
+    else if (A.type === 'insert') doInsert(id, A.targetId, A.before);
+    else doMoveInto(id, A.targetId);
+  } else { render(); }
+}
+
+const nameOf = (m: ReturnType<typeof model>, id: string): string => (m ? findNode(m, id)?.node.name ?? id : id);
+const cssEsc = (s: string): string => CSS.escape(s);

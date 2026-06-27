@@ -29,7 +29,8 @@
  * Pure render given the resolved `LinksModel` — see links.test.ts.
  */
 
-import { h } from '../../lib/dom';
+import { h, svg } from '../../lib/dom';
+import { ICON_WARNING } from '../../lib/icons';
 import { getTypeColor, getTypeAbbr } from '../../lib/types';
 import type { ObjectPaneIdentity } from '../../lib/types';
 import type { ConnTarget, ConnGroup } from '../../lib/connections';
@@ -177,7 +178,7 @@ function mainRow(dir: LinkDir, t: LinkTarget, nav: (rid: string) => void): HTMLE
   if (t.broken) {
     return h('div', { class: 'lk-row lk-row--broken', title: `Reference points to a missing object (${t.rid})` },
       dirGlyph(dir),
-      h('span', { class: 'lk-broken' }, `⚠ ${t.rid}`),
+      h('span', { class: 'lk-broken' }, svg(ICON_WARNING), ` ${t.rid}`),
       t.field ? h('span', { class: 'lk-field' }, t.field) : null,
     );
   }

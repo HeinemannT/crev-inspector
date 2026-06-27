@@ -36,7 +36,7 @@ export function showTooltipForElement(s: ContentState, el: HTMLElement, rid: str
     h('div', { class: 'crev-tt-row' }, `RID: ${rid}`),
     // Interaction hint — lives here (not a native `title`) so it can't paint a
     // browser tooltip over this very card.
-    h('div', { class: 'crev-tt-hint' }, 'Click open · Alt RID · Shift template · Ctrl ref · ⇧⇧ inspect'),
+    h('div', { class: 'crev-tt-hint' }, 'Click open · double-click details · right-click context · Alt RID · Shift template · Ctrl ref'),
   );
   tooltip.style.top = '-9999px';
   tooltip.style.left = '-9999px';

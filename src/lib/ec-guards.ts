@@ -36,6 +36,14 @@ export function validateRid(rid: string): string {
   return rid;
 }
 
+/** BMP business id (the `t.<id>` namespace key). Unlike an EC identifier it MAY start with a digit
+ *  (ids like `4957` are common) — they're generated per-IdSpace and are alphanumeric/underscore. */
+const BID_RE = /^[A-Za-z0-9_]+$/;
+export function validateBusinessId(id: string): string {
+  if (!BID_RE.test(id)) throw new Error(`Invalid business id: ${id}`);
+  return id;
+}
+
 /** Escape a value for embedding inside a double-quoted EC string literal:
  *  `"...${formatEcLiteral(v)}..."`. This is the *value-slot* guard referenced
  *  in the module comment — it escapes the four metacharacters the BMP EC parser

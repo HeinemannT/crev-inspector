@@ -79,6 +79,15 @@ export function registerTabListeners() {
     // first tab switch — that gap left the brush stuck-armed after a refresh).
     if (changeInfo.url || changeInfo.status === 'loading') {
       cancelPaintForTab(tabId);
+      // Blueprint is a per-page editing session — end it when ITS tab navigates/refreshes (keyed on the
+      // recorded blueprint tab, not the active-tab map, which is empty until the first tab switch). The
+      // content re-injects fresh (overlay gone), so without this the SW state + sidebar toggle would
+      // stay 'on' over a now-gone overlay. (Apply's own reload already toggled off → no-op there.)
+      if (windowId != null && ctx.blueprintTabByWindow.get(windowId) === tabId) {
+        ctx.blueprintActiveByWindow.set(windowId, false);
+        ctx.blueprintTabByWindow.delete(windowId);
+        ctx.sendToPanelByWindow(windowId, { type: 'BLUEPRINT_STATE', active: false });
+      }
     }
 
     // Cookie-based fast gate: early BMP detection on page load

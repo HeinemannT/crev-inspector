@@ -1,5 +1,8 @@
 import type { AuthMode, AuthVia } from './bmp-auth';
 export type { AuthMode, AuthVia };
+import type { LModel, PlanNote } from './layout/types';
+import type { BlueprintCtx } from './layout/sync';
+import type { InstanceFanout, ContainerBlast } from './layout/blast-radius';
 
 /** Unified connection state — single source of truth for health + auth */
 export interface ConnectionState {
@@ -390,9 +393,7 @@ export type ObjectViewMessage =
   | { type: 'FETCH_CHILDREN'; rid: string }
   | { type: 'FETCH_CHILDREN_RESULT'; rid: string; children: Array<{ rid: string; name?: string; type?: string; businessId?: string }>; error?: string }
   | { type: 'FETCH_LAYOUT_TREE'; rid: string }
-  | { type: 'LAYOUT_TREE_RESULT'; rid: string; nodes: LayoutNode[]; error?: string }
-  | { type: 'MOVE_OBJECT'; rid: string; relTo: string; position: 'above' | 'below' }
-  | { type: 'MOVE_OBJECT_RESULT'; rid: string; ok: boolean; error?: string };
+  | { type: 'LAYOUT_TREE_RESULT'; rid: string; nodes: LayoutNode[]; error?: string };
 
 /** A flat node in the layout subtree for a TabSet / Tab / Container /
  *  Scorecard. Parent linkage is via `parentRid`; the panel folds these
@@ -412,6 +413,9 @@ export interface LayoutNode {
   columnsLargeScreen?: number;
   columnsMediumScreen?: number;
   columnsSmallScreen?: number;
+  /** Authored chart/URLView height in px — needed so the blueprint edits from the real value
+   *  rather than a default (otherwise a height edit overwrites the live height). */
+  chartHeight?: number;
 }
 
 // ── Object Pane (sidepanel DetailView property editor) ──────────
@@ -610,6 +614,25 @@ export type NotificationMessage =
   | { type: 'PANEL_HELLO'; windowId: number };
 
 // ── Full union (backward-compatible) ─────────────────────────────
+/** Blueprint layout-builder messages (sidepanel/content ↔ SW). The SW owns BmpClient and runs
+ *  the layout-service; the panel holds the editable model + history and sends high-level
+ *  load/apply. Models are plain JSON (LModel) so they cross the port unchanged. */
+export type LayoutMessage =
+  // Blueprint overlay toggle: panel → SW (BLUEPRINT_TOGGLE) flips per-window state; SW → content/panel
+  // (BLUEPRINT_STATE) drives the overlay on/off. Mirrors the inspect/paint toggle convention.
+  | { type: 'BLUEPRINT_TOGGLE' }
+  | { type: 'BLUEPRINT_STATE'; active: boolean }
+  | { type: 'LAYOUT_LOAD'; rid: string }
+  // `env` = the active profile id at load time; the panel echoes it back on apply so the SW can
+  // reject a commit aimed at a different environment (the user switched profiles mid-edit).
+  | { type: 'LAYOUT_LOAD_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
+  | { type: 'LAYOUT_APPLY'; env: string; ctx: BlueprintCtx; baseline: LModel; desired: LModel }
+  | { type: 'LAYOUT_APPLY_RESULT'; ok: boolean; noop: boolean; stale?: boolean; script?: string; notes?: PlanNote[]; model?: LModel; baseline?: LModel; error?: string }
+  // Apply-preview blast radius: is the page a template master (fan-out), and do any touched shared
+  // containers reach pages outside the page's own template-family. Best-effort — both may be null.
+  | { type: 'LAYOUT_BLAST'; pageId: string; containers: { id: string; rid?: string }[] }
+  | { type: 'LAYOUT_BLAST_RESULT'; fanout: InstanceFanout | null; blast: ContainerBlast | null };
+
 export type InspectorMessage =
   | PageMessage | InspectMessage | CacheMessage | ServerLookupMessage
   | ConnectionMessage | ProfileMessage | EcMessage | StudioMessage | FrameOverlayMessage | EnrichMessage
@@ -617,7 +640,7 @@ export type InspectorMessage =
   | HistoryMessage | FavoritesMessage | ContextMenuMessage
   | OverlayModeMessage | ObjectViewMessage | ObjectPaneMessage
   | DiffMessage | CodeSearchMessage | ScriptHistoryMessage
-  | ColorMessage | NotificationMessage;
+  | ColorMessage | NotificationMessage | LayoutMessage;
 
 export interface WidgetInfo {
   rid: string;

@@ -16,7 +16,7 @@
 import type { BmpObject, InspectorMessage, ObjectPaneIdentity, ObjectPaneCard, ObjectPaneSiblingMsg } from '../lib/types';
 import { getTypeColor, getTypeAbbr } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
-import { ICON_FILE_JS, ICON_CODE, ICON_LAYOUT, ICON_SHIELD, ICON_ARROW_LEFT, ICON_ARROW_LINE_UP, ICON_X } from '../lib/icons';
+import { ICON_FILE_JS, ICON_CODE, ICON_LAYOUT, ICON_SHIELD, ICON_ARROW_LEFT, ICON_ARROW_LINE_UP, ICON_X, ICON_STAR_FILLED, ICON_STAR_HOLLOW } from '../lib/icons';
 import { resolveLayoutShortcut } from '../lib/layout-target';
 import { confirmModal } from '../lib/modal';
 import { displayValue } from './property-editors';
@@ -665,7 +665,7 @@ export class DetailView {
           objectType: s.identity.type, businessId: s.identity.businessId,
         });
       },
-    }, isPinned ? '★' : '☆');
+    }, svg(isPinned ? ICON_STAR_FILLED : ICON_STAR_HOLLOW));
 
     // Two-row header:
     //   Row 1 (context + actions): ← back · ↑parent ·········· edit · access · instance|template
@@ -737,7 +737,7 @@ export class DetailView {
       actionBar,
     );
 
-    const divider = h('div', { class: 'pane-divider', role: 'separator', 'aria-label': 'Resize divider', 'aria-valuenow': String(this.splitPct), 'aria-valuemin': '40', 'aria-valuemax': '85' });
+    const divider = h('div', { class: 'pane-divider', role: 'separator', 'aria-label': 'Drag to resize the panes', 'aria-valuenow': String(this.splitPct), 'aria-valuemin': '40', 'aria-valuemax': '85' });
     this.wireDivider(divider, panel);
 
     const treeArea = h('div', { class: 'pane-tree-area' },

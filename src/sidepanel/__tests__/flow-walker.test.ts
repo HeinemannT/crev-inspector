@@ -1,5 +1,9 @@
 /**
- * Renderer tests for the Flow walker — the chain-of-cards visualization.
+ * Renderer tests for the Flow walker — the icon-led card visualization.
+ *
+ * The single-child spine collapses: a lone top step renders as a `.flow-root`
+ * header (`.flow-root-head`), a single-child container (InputSet / NTG) renders
+ * as a quiet `.flow-group` line, and the leaves render as `.flow-card`s.
  *
  * @vitest-environment happy-dom
  */
@@ -44,9 +48,8 @@ describe('renderFlowSection', () => {
   });
 
   it('compact header surfaces step count + EC-bearing count', () => {
-    // UX pass replaced the prop-group-title with an inline `flow-section-head`
-    // (compact label + meta) so the section feels distinct without burning a
-    // full title row. The summary text moved with it.
+    // The header counts the RAW tree (not the collapsed spine): all 3 nodes,
+    // 1 of them with EC.
     const chain: FlowChainMsg = {
       steps: [
         step({
@@ -69,24 +72,71 @@ describe('renderFlowSection', () => {
     expect(head.textContent).toContain('1 with EC');
   });
 
-  it('renders one card per step with type chip + name', () => {
+  it('renders a lone top step as the root header with type pill + name', () => {
     const chain: FlowChainMsg = { steps: [step({
       identity: { rid: '7', businessId: 'ab_demo', name: 'Demo AB', type: 'ActionButton' },
     })] };
     const el = renderFlowSection(inputs({ chain }));
-    const card = el.querySelector('.flow-card');
-    expect(card).toBeTruthy();
-    expect(card!.querySelector('.flow-card-name')!.textContent).toBe('Demo AB');
-    expect(card!.querySelector('.flow-card-bid')!.textContent).toBe('ab_demo');
+    const head = el.querySelector('.flow-root-head');
+    expect(head).toBeTruthy();
+    expect(head!.querySelector('.flow-pill')).toBeTruthy();
+    expect(head!.querySelector('.flow-name')!.textContent).toBe('Demo AB');
+    // businessId now lives in the title tooltip, not a visible chip.
+    expect(head!.getAttribute('title')).toContain('ab_demo');
   });
 
-  it('clicking a card calls onNavigate with the step rid', () => {
+  it('clicking the root head calls onNavigate with the step rid', () => {
     const onNavigate = vi.fn();
     const chain: FlowChainMsg = { steps: [step({ identity: { rid: '42', businessId: 'b', name: 'N', type: 'ButtonInput' } })] };
     const el = renderFlowSection(inputs({ chain, onNavigate }));
-    const card = el.querySelector<HTMLElement>('.flow-card');
-    card!.click();
+    const head = el.querySelector<HTMLElement>('.flow-root-head');
+    head!.click();
     expect(onNavigate).toHaveBeenCalledWith('42');
+  });
+
+  it('collapses a single-child InputSet into a quiet container line', () => {
+    // InputView → InputSet (no inputs of its own): the spine collapses, so the
+    // InputView is the root header and the InputSet is a `.flow-group` line —
+    // not a nested card.
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '1', businessId: 'iv', name: 'IV', type: 'InputView' },
+      children: [step({
+        identity: { rid: '2', businessId: 'is', name: 'IS', type: 'InputSet' },
+        edgeLabel: 'inputSet',
+      })],
+    })] };
+    const el = renderFlowSection(inputs({ chain }));
+    expect(el.querySelector('.flow-root-head .flow-name')!.textContent).toBe('IV');
+    const group = el.querySelector('.flow-group');
+    expect(group).toBeTruthy();
+    expect(group!.querySelector('.flow-group-name')!.textContent).toBe('IS');
+    // No leaf cards in this degenerate chain.
+    expect(el.querySelector('.flow-card')).toBeNull();
+  });
+
+  it('renders InputSet leaves as cards under the collapsed spine', () => {
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '1', businessId: 'iv', name: 'IV', type: 'InputView' },
+      children: [step({
+        identity: { rid: '2', businessId: 'is', name: 'IS', type: 'InputSet' },
+        children: [
+          step({ identity: { rid: '3', businessId: 'ti', name: 'TI', type: 'TextInput' }, inputKey: 'title' }),
+          step({
+            identity: { rid: '4', businessId: 'bi', name: 'BI', type: 'ButtonInput' },
+            codeFields: [{ prop: 'expression', length: 10, lineCount: 1, firstLine: 'root.foo()' }],
+          }),
+        ],
+      })],
+    })] };
+    const el = renderFlowSection(inputs({ chain }));
+    // Root + container line.
+    expect(el.querySelector('.flow-root-head .flow-name')!.textContent).toBe('IV');
+    expect(el.querySelector('.flow-group-name')!.textContent).toBe('IS');
+    // Two leaf cards.
+    const cards = el.querySelectorAll('.flow-card');
+    expect(cards.length).toBe(2);
+    const names = [...cards].map(c => c.querySelector('.flow-name')!.textContent);
+    expect(names).toEqual(['TI', 'BI']);
   });
 
   it('greyed gate state appears when gateValue is not "true"', () => {
@@ -98,9 +148,9 @@ describe('renderFlowSection', () => {
       }],
     })] };
     const el = renderFlowSection(inputs({ chain }));
-    const code = el.querySelector('.flow-code--disabled');
+    const code = el.querySelector('.flow-cf--off');
     expect(code).toBeTruthy();
-    const gate = code!.querySelector('.flow-code-gate');
+    const gate = code!.querySelector('.flow-cf-gate');
     expect(gate!.textContent).toContain('Off');
     expect(gate!.textContent).toContain('useShowExpression');
   });
@@ -113,7 +163,7 @@ describe('renderFlowSection', () => {
       }],
     })] };
     const el = renderFlowSection(inputs({ chain }));
-    expect(el.querySelector('.flow-code--disabled')).toBeNull();
+    expect(el.querySelector('.flow-cf--off')).toBeNull();
   });
 
   it('Edit button on a code field dispatches OPEN_EDITOR', () => {
@@ -123,7 +173,7 @@ describe('renderFlowSection', () => {
       codeFields: [{ prop: 'expression', length: 1, lineCount: 1, firstLine: 'x' }],
     })] };
     const el = renderFlowSection(inputs({ chain, sendMessage }));
-    const btn = el.querySelector<HTMLButtonElement>('.flow-code-edit');
+    const btn = el.querySelector<HTMLButtonElement>('.flow-cf-edit');
     btn!.click();
     const open = sendMessage.mock.calls.map(c => c[0]).find(m => m.type === 'OPEN_EDITOR');
     expect(open).toEqual({ type: 'OPEN_EDITOR', rid: '99', property: 'expression' });
@@ -145,7 +195,7 @@ describe('renderFlowSection', () => {
       }],
     })] };
     const el = renderFlowSection(inputs({ chain, sendMessage }));
-    const btn = el.querySelector<HTMLButtonElement>('.flow-code-edit');
+    const btn = el.querySelector<HTMLButtonElement>('.flow-cf-edit');
     btn!.click();
     const open = sendMessage.mock.calls.map(c => c[0]).find(m => m.type === 'OPEN_EDITOR');
     // Edit must target the ExtendedExpression at 8123 (.expression), NOT the
@@ -153,30 +203,28 @@ describe('renderFlowSection', () => {
     expect(open).toEqual({ type: 'OPEN_EDITOR', rid: '8123', property: 'expression' });
   });
 
-  it('nests children under the parent without a relationship pill', () => {
-    // The edge label/pill was removed — the indentation rail conveys nesting.
-    // The child card still renders inside the parent's flow-children block.
-    const chain: FlowChainMsg = { steps: [step({
-      identity: { rid: '1', businessId: 'iv', name: 'IV', type: 'InputView' },
-      children: [step({
-        identity: { rid: '2', businessId: 'is', name: 'IS', type: 'InputSet' },
-        edgeLabel: 'inputSet',
-      })],
-    })] };
-    const el = renderFlowSection(inputs({ chain }));
-    expect(el.querySelector('.flow-edge-label')).toBeNull();
-    const childCard = el.querySelector('.flow-children .flow-card');
-    expect(childCard).toBeTruthy();
-    expect(childCard!.querySelector('.flow-card-name')!.textContent).toBe('IS');
-  });
-
-  it('renders the input key chip for *Input children', () => {
+  it('renders the input key binding line for *Input nodes', () => {
     const chain: FlowChainMsg = { steps: [step({
       identity: { rid: '1', businessId: 'ti', name: 'Title', type: 'TextInput' },
       inputKey: 'title',
     })] };
     const el = renderFlowSection(inputs({ chain }));
-    const key = el.querySelector('.flow-card-key');
+    const key = el.querySelector('.flow-key-val');
     expect(key!.textContent).toContain('title');
+  });
+
+  it('renders reads chips carrying the source rid for hover-flash', () => {
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '1', businessId: 'bi', name: 'BI', type: 'ButtonInput' },
+      codeFields: [{
+        prop: 'afterExpression', length: 20, lineCount: 2, firstLine: 'root.score := l * i',
+        reads: [{ key: 'likelihood', sourceRid: '55' }],
+      }],
+    })] };
+    const el = renderFlowSection(inputs({ chain }));
+    const chip = el.querySelector('.flow-reads-chip');
+    expect(chip).toBeTruthy();
+    expect(chip!.textContent).toContain('likelihood');
+    expect(chip!.getAttribute('data-source-rid')).toBe('55');
   });
 });

@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blueprint Mode — interactive gesture mockup</title>
+<style>
+:root{
+  --bg:#0B2138; --bg2:#0d2742; --ink:#EAF2FB; --dim:#9CC0DD;
+  --widget:#82B4DE; --chart:#93A7E6; --purple:#9D7BFF; --amber:#E0A85A;
+  --cyan:#46C9D6; --del:#E0727A; --guide:rgba(120,170,215,.22);
+}
+*{box-sizing:border-box}
+body{margin:0;background:#061320;color:var(--ink);font-family:Inter,system-ui,sans-serif;font-size:13px;
+  user-select:none}
+#sheet{position:relative;max-width:1280px;margin:74px auto 40px;padding:30px 26px;
+  background:
+    repeating-linear-gradient(0deg,transparent 0 31px,rgba(140,185,225,.05) 31px 32px),
+    repeating-linear-gradient(90deg,transparent 0 31px,rgba(140,185,225,.05) 31px 32px),
+    var(--bg);
+  border:1px solid var(--guide);border-radius:4px}
+#sheet.tmpl{box-shadow:inset 0 0 0 2px var(--amber),inset 0 0 40px rgba(224,166,90,.10)}
+
+/* mode bar */
+#bar{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:13px;
+  background:var(--bg);border:1px solid var(--purple);border-radius:8px;padding:7px 9px 7px 14px;
+  box-shadow:0 8px 28px rgba(0,0,0,.5)}
+#bar.tmpl{border-color:var(--amber)}
+.brand{display:flex;align-items:center;gap:7px;font-weight:600;letter-spacing:.1em;font-size:12px}
+.sep{width:1px;height:18px;background:rgba(156,192,221,.27)}
+.seg{display:inline-flex;border:1px solid rgba(156,192,221,.33);border-radius:5px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--ink);font:inherit;font-size:11px;font-weight:600;
+  letter-spacing:.04em;padding:4px 11px;cursor:pointer}
+.seg button.on{color:#0a0820}
+.seg button.on.tmpl{background:var(--amber)} .seg button.on.inst{background:var(--purple)}
+.note{font-size:10.5px;color:var(--dim)} .note.hot{color:var(--amber)}
+.pend{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--cyan);cursor:pointer}
+.pend .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan)}
+.btn{border:0;border-radius:5px;font:inherit;font-size:11px;font-weight:600;padding:5px 12px;cursor:pointer}
+.btn.apply{background:var(--cyan);color:#0a0820} #bar.tmpl .btn.apply{background:var(--amber)}
+.btn.disc{background:transparent;color:var(--dim);border:1px solid rgba(156,192,221,.33)}
+.iconbtn{border:1px solid rgba(156,192,221,.3);background:transparent;color:var(--ink);font-size:14px;line-height:1;
+  padding:4px 8px;border-radius:5px;cursor:pointer}
+.iconbtn:disabled{opacity:.3;cursor:default}
+.iconbtn:not(:disabled):hover{background:rgba(70,201,214,.15)}
+
+/* tabs */
+#tabs{display:flex;gap:5px;margin-bottom:18px;border-bottom:1px solid var(--guide)}
+#tabs button{border:0;background:transparent;color:var(--dim);font:inherit;font-size:12px;padding:7px 13px;
+  cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+#tabs button.on{color:var(--ink);border-bottom-color:var(--purple);font-weight:600}
+#tabs .addtab{color:var(--purple);font-weight:700;font-size:14px;padding:6px 11px}
+#tabs .tabx{margin-left:8px;opacity:.45;font-size:13px}
+#tabs .tabx:hover{opacity:1;color:var(--del)}
+#tabs .tname[contenteditable]{outline:1px solid var(--cyan);border-radius:2px;cursor:text;padding:0 2px}
+.tabdrop{outline:2px solid var(--cyan)!important;background:rgba(70,201,214,.2)!important;border-radius:4px 4px 0 0}
+
+/* grid rows */
+.rows{display:flex;flex-direction:column;gap:8px}
+.row{display:grid;grid-template-columns:repeat(6,1fr);gap:9px;align-items:start}
+.cell{grid-column:span var(--sp,6)}
+
+/* widget plate */
+.plate{position:relative;border:1.5px solid var(--widget);background:rgba(130,180,222,.06);
+  border-radius:3px;box-shadow:inset 0 0 22px rgba(130,180,222,.08);min-height:46px;cursor:pointer}
+.plate.chart{border-color:var(--chart);background:rgba(147,167,230,.06)}
+.plate.sel{border-color:var(--cyan);box-shadow:inset 0 0 0 1px var(--cyan)}
+.plate.staged{border-style:dashed}
+.plate.del{opacity:.4;border-color:var(--del)}
+.plate .lab{padding:7px 9px;font-size:12px;font-weight:600;color:var(--ink);display:flex;align-items:baseline;gap:7px}
+.plate .lab .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plate .lab .ty{font-weight:400;font-size:10.5px;letter-spacing:.04em;color:var(--widget);opacity:.85;flex:none}
+.plate.chart .lab .ty{color:var(--chart)}
+.plate .lab .wd{margin-left:auto;color:var(--dim);font-size:10px;font-weight:600;letter-spacing:.03em;flex:none}
+.plate .lab .new{background:var(--cyan);color:#0a0820;font-size:9px;font-weight:700;flex:none;
+  padding:1px 6px;border-radius:3px;letter-spacing:.08em}
+.strike{text-decoration:line-through;opacity:.5} .ren{color:var(--cyan)}
+.lab[contenteditable]{outline:1px solid var(--cyan);border-radius:2px;cursor:text}
+
+/* container */
+.cont{position:relative;border:1px dashed var(--purple);border-radius:4px;padding:5px;cursor:pointer}
+.cont.sel{border-color:var(--cyan);border-style:solid;box-shadow:inset 0 0 0 1px var(--cyan)}
+/* container label: absolute (zero flow space, faithful to the BMP overlay) + shown only on selection
+   (one at a time → no nested-tab overlap). The dashed outline conveys structure when unselected. */
+.ctab{position:absolute;top:4px;left:6px;z-index:6;display:none;align-items:center;gap:6px;background:var(--purple);
+  color:#0a0820;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;letter-spacing:.04em;
+  max-width:calc(100% - 12px);pointer-events:none;white-space:nowrap}
+.cont.sel>.ctab{display:inline-flex}
+
+/* dimension line */
+.dim{position:absolute;top:-8px;left:0;width:100%;display:flex;align-items:center;justify-content:center;
+  pointer-events:none}
+.dim svg{position:absolute;left:0;top:0}
+.dim span{background:var(--bg);color:var(--dim);font-size:9.5px;font-weight:600;letter-spacing:.06em;padding:0 6px;z-index:1}
+
+/* handles */
+.h{position:absolute;background:var(--bg);border:1px solid var(--cyan);border-radius:2px;z-index:3}
+.h.r{right:-5px;top:calc(50% - 12px);width:9px;height:24px;cursor:ew-resize}
+.h.b{bottom:-5px;left:calc(50% - 12px);height:9px;width:24px;cursor:ns-resize}
+
+/* available drop zone */
+.avail{grid-column:span var(--sp,2);align-self:stretch;position:relative;border:1.5px dashed var(--cyan);border-radius:3px;
+  background:repeating-linear-gradient(45deg,transparent 0 9px,rgba(70,201,214,.12) 9px 10px);
+  display:flex;align-items:center;justify-content:center;gap:7px;color:var(--cyan);font-size:12px;font-weight:600;
+  min-height:46px;cursor:pointer}
+/* drag-to-move */
+.plate{cursor:grab}
+.ghost{position:fixed;z-index:80;pointer-events:none;background:var(--bg);border:1.5px solid var(--cyan);
+  color:var(--ink);font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;
+  box-shadow:0 8px 22px rgba(0,0,0,.55);opacity:.96}
+body.dragging,body.dragging *{cursor:grabbing!important}
+body.dragging #sheet .plate:not(.dragsrc),body.dragging #sheet .cont{opacity:.55;transition:opacity .1s}
+.dragsrc{outline:2px dashed var(--cyan);outline-offset:1px;opacity:.5}
+.droptarget{outline:2px solid var(--cyan)!important;outline-offset:2px;background:rgba(70,201,214,.2)!important;opacity:1!important}
+.droptarget::after{content:attr(data-drop);position:absolute;top:4px;right:6px;font-size:9px;font-weight:700;
+  letter-spacing:.06em;color:var(--cyan);background:var(--bg);padding:1px 5px;border-radius:3px;z-index:4}
+/* insertion line (reorder) */
+.dropline{position:fixed;z-index:78;background:var(--cyan);box-shadow:0 0 9px rgba(70,201,214,.85);
+  border-radius:2px;pointer-events:none;display:none}
+.dropline::before,.dropline::after{content:"";position:absolute;width:7px;height:7px;background:var(--cyan);
+  border-radius:50%}
+.dropline.v::before{left:-2px;top:-4px}.dropline.v::after{left:-2px;bottom:-4px}
+.dropline.h::before{top:-2px;left:-4px}.dropline.h::after{top:-2px;right:-4px}
+/* swap target */
+.swaptarget{outline:2px solid var(--cyan)!important;outline-offset:2px;opacity:1!important;
+  background:rgba(70,201,214,.14)!important}
+.swaptarget::after{content:"⇄ swap";position:absolute;top:4px;right:6px;font-size:9px;font-weight:700;
+  color:#0a0820;background:var(--cyan);padding:1px 6px;border-radius:3px;z-index:4}
+.ghost .nm{display:block}
+.ghost .act{display:block;font-weight:500;font-size:9.5px;color:var(--cyan);margin-top:3px;letter-spacing:.02em;min-height:11px}
+
+/* selection toolbar */
+#toolbar{position:absolute;display:none;z-index:40;background:var(--bg);border:1px solid var(--cyan);
+  border-radius:6px;padding:5px;gap:4px;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+#toolbar button{border:0;background:transparent;color:var(--ink);font:inherit;font-size:11px;padding:5px 9px;
+  border-radius:4px;cursor:pointer;display:flex;align-items:center;gap:5px}
+#toolbar button:hover{background:rgba(70,201,214,.16)}
+#toolbar .w{display:flex;align-items:center;gap:3px;padding:0 6px;color:var(--dim);font-size:11px}
+#toolbar .w b{color:var(--ink);min-width:14px;text-align:center}
+#toolbar .step{width:20px;height:20px;border:1px solid rgba(156,192,221,.33);border-radius:4px;color:var(--ink);
+  cursor:pointer;line-height:1}
+
+/* add palette popover */
+#palette{position:absolute;display:none;z-index:60;background:var(--bg);border:1px solid var(--cyan);border-radius:8px;
+  padding:8px;width:230px;box-shadow:0 10px 32px rgba(0,0,0,.55)}
+#palette .ph{font-size:10px;letter-spacing:.08em;color:var(--dim);text-transform:uppercase;margin:2px 4px 7px}
+#palette .grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+#palette .opt{display:flex;align-items:center;gap:7px;padding:7px 8px;border-radius:5px;cursor:pointer;font-size:11.5px}
+#palette .opt:hover{background:rgba(70,201,214,.16)}
+#palette .opt .sw{width:9px;height:9px;border-radius:2px}
+#palette .where{margin-top:8px;border-top:1px solid var(--guide);padding-top:7px;display:flex;gap:5px}
+#palette .where button{flex:1;border:1px solid rgba(156,192,221,.33);background:transparent;color:var(--ink);
+  font:inherit;font-size:10.5px;padding:5px;border-radius:5px;cursor:pointer}
+#palette .where button.on{background:var(--cyan);color:#0a0820;border-color:var(--cyan)}
+
+/* pending tray */
+#tray{position:fixed;top:62px;right:18px;width:268px;z-index:45;background:var(--bg);border:1px solid var(--guide);
+  border-radius:8px;padding:10px 12px;display:none;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+#tray h4{margin:0 0 8px;font-size:11px;letter-spacing:.06em;color:var(--dim);text-transform:uppercase;font-weight:600}
+.pop{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;border-bottom:1px solid rgba(156,192,221,.12)}
+.pop:last-child{border-bottom:0}
+.pop .tag{font-size:9px;font-weight:700;letter-spacing:.05em;padding:1px 6px;border-radius:3px;color:#0a0820}
+.pop .x{margin-left:auto;color:var(--dim);cursor:pointer;font-size:14px;line-height:1}
+.hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--bg);border:1px solid var(--guide);
+  color:var(--dim);font-size:11px;padding:6px 13px;border-radius:6px;z-index:45;display:none}
+/* width column picker */
+#toolbar .colpick{display:flex;gap:2px;align-items:center;padding:0 2px}
+#toolbar .colseg{width:14px;height:17px;border:1px solid rgba(156,192,221,.4);border-radius:2px;cursor:pointer;transition:background .08s}
+#toolbar .colseg.on{background:var(--cyan);border-color:var(--cyan)}
+#toolbar .colseg.prev{background:rgba(70,201,214,.5);border-color:var(--cyan)}
+#toolbar .wlabel{color:var(--dim);font-size:10px;letter-spacing:.04em;padding-right:3px;min-width:24px}
+.ctab .cname{text-transform:uppercase}
+/* empty container drop area */
+.cont .emptyhint{display:flex;align-items:center;justify-content:center;height:44px;color:var(--purple);
+  font-size:11px;opacity:.7;border:1px dashed rgba(157,123,255,.45);border-radius:3px;margin-top:4px}
+/* apply preview modal */
+#modal{position:fixed;inset:0;z-index:100;background:rgba(4,12,22,.72);display:none;align-items:center;justify-content:center}
+.modal-card{width:540px;max-width:92vw;background:var(--bg2);border:1px solid var(--purple);border-radius:10px;
+  box-shadow:0 18px 60px rgba(0,0,0,.6);overflow:hidden}
+.modal-head{padding:14px 18px;font-size:15px;font-weight:600;border-bottom:1px solid var(--guide)}
+.modal-warn{padding:8px 18px;font-size:11.5px;color:var(--dim);background:rgba(156,192,221,.08)}
+.modal-warn.tmpl{color:var(--amber);background:rgba(224,166,90,.12)}
+.modal-body{max-height:46vh;overflow:auto;padding:4px 18px}
+.planrow{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(156,192,221,.1)}
+.planrow:last-child{border-bottom:0}
+.planrow .tag{font-size:9px;font-weight:700;letter-spacing:.05em;padding:2px 7px;border-radius:3px;color:#0a0820;margin-top:1px;white-space:nowrap}
+.planrow .pl{font-size:12.5px;color:var(--ink)}
+.planrow .ec{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:var(--cyan);margin-top:3px;opacity:.85;word-break:break-word}
+.modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:13px 18px;border-top:1px solid var(--guide)}
+#palette .opt.box{grid-column:1/-1;border-top:1px solid var(--guide);margin-top:3px;padding-top:9px}
+</style>
+</head>
+<body>
+<div id="bar"></div>
+<div id="tray"></div>
+<div id="sheet"></div>
+<div id="toolbar"></div>
+<div id="palette"></div>
+<div id="modal"></div>
+<div class="hint" id="hint"></div>
+
+<script>
+const C={widget:'#82B4DE',chart:'#93A7E6',purple:'#9D7BFF',cyan:'#46C9D6',amber:'#E0A85A',del:'#E0727A',
+  text:'#64748b',input:'#d97706',status:'#16a34a',misc:'#7f93c0'};
+const TYPES=[
+  {t:'CustomVisualization',ab:'CVO',c:C.widget},{t:'ExtendedTable',ab:'TBL',c:'#0d9488'},
+  {t:'BarChart',ab:'BAR',c:C.chart},{t:'PieChart',ab:'PIE',c:C.chart},{t:'BarLineChart',ab:'B+L',c:C.chart},
+  {t:'TextElement',ab:'TXT',c:'#7f93c0'},{t:'InputView',ab:'INP',c:'#d9a047'},
+  {t:'Status',ab:'STS',c:'#5bbf8a'},{t:'ActionButton',ab:'BTN',c:C.purple},
+];
+const isChart=t=>/Chart$/.test(t);
+const typeColor=t=>isChart(t)?C.chart:(TYPES.find(x=>x.t===t)?.c||C.widget);
+// default render heights by type, matched to the existing demo widgets so new ones look right
+const H_BY_TYPE={CustomVisualization:170,ExtendedTable:120,RiskList:120,CheckList:110,BarChart:200,PieChart:200,
+  BarLineChart:200,TextElement:64,DescriptionView:72,InputView:80,Status:90,SimpleStatus:90,FunctionStatus:90,ActionButton:48};
+const defaultH=t=>H_BY_TYPE[t]??(isChart(t)?200:90);
+
+// ---- model (Risk Register tab; ids + heights from the live demo) ----
+const BASE={
+  target:'template', hasTemplate:true, activeTab:1,
+  tabs:[
+    {id:'4895',name:'Overview',children:[
+      {kind:'container',name:'Summary',id:'c4',L:2,children:[{kind:'widget',name:'Exec Summary',type:'DescriptionView',id:'4958',L:6,h:70},{kind:'widget',name:'Overall Status',type:'Status',id:'4959',L:6,h:60}]},
+      {kind:'container',name:'Charts',id:'c7',L:4,children:[{kind:'widget',name:'Losses by Cat',type:'BarChart',id:'4960',L:3,h:150},{kind:'widget',name:'Exposure Split',type:'PieChart',id:'4961',L:3,h:150},{kind:'widget',name:'Top Risks',type:'ExtendedTable',id:'4962',L:6,h:120}]},
+      {kind:'widget',name:'Open Actions',type:'ExtendedTable',id:'4963',L:6,h:110},
+    ]},
+    {id:'4904',name:'Risk Register',children:[
+      {kind:'container',name:'KPIs',id:'cont_14',L:2,children:[
+        {kind:'widget',name:'Control Health',type:'FunctionStatus',id:'4965',L:6,h:92},
+        {kind:'widget',name:'Risk Appetite',type:'Status',id:'4966',L:6,h:92}]},
+      {kind:'container',name:'Side Panel',id:'cont_18',L:2,children:[
+        {kind:'container',name:'Detail',id:'cont_19',L:6,children:[
+          {kind:'widget',name:'By Owner',type:'PieChart',id:'4968',L:6,h:232},
+          {kind:'widget',name:'Notes',type:'TextElement',id:'4969',L:6,h:60}]}]},
+      {kind:'widget',name:'Register',type:'RiskList',id:'4964',L:4,h:92},
+      {kind:'widget',name:'Trend vs Target',type:'BarLineChart',id:'4967',L:4,h:232},
+    ]},
+    {id:'4914',name:'Controls',children:[
+      {kind:'container',name:'Control Library',id:'c23',L:6,children:[
+        {kind:'widget',name:'Scope',type:'DescriptionView',id:'4970',L:2,h:80},
+        {kind:'widget',name:'Owner Input',type:'InputView',id:'4971',L:4,h:80},
+        {kind:'widget',name:'Controls',type:'ExtendedTable',id:'4972',L:6,h:120}]},
+      {kind:'widget',name:'Run Test',type:'ActionButton',id:'4973',L:2,h:50},
+      {kind:'widget',name:'Checklist',type:'CheckList',id:'4974',L:4,h:90},
+    ]},
+  ],
+};
+const clone=o=>JSON.parse(JSON.stringify(o));
+let M=clone(BASE);          // working model
+let pending=[];             // staged ops (display)
+let sel=null;               // selected node id
+let history=[],histIdx=-1;  // undo/redo stack of {tabs, pending, activeTab}
+
+const $=s=>document.querySelector(s);
+const sheet=$('#sheet'),bar=$('#bar'),toolbar=$('#toolbar'),palette=$('#palette'),tray=$('#tray'),hint=$('#hint'),modal=$('#modal');
+
+// ---- model helpers ----
+function findNode(id,nodes=M.tabs[M.activeTab].children,parent=null){
+  for(const n of nodes){ if(n.id===id)return {node:n,parent,list:nodes};
+    if(n.children){const r=findNode(id,n.children,n);if(r)return r;} }
+  return null;
+}
+function tab(){return M.tabs[M.activeTab];}
+function stage(op){ pending=pending.filter(p=>!(p.id===op.id&&p.op===op.op)); pending.push(op); pushHistory(); renderBar(); renderTray(); }
+// ---- undo / redo (snapshot the whole working state per edit) ----
+function snapshot(){ return {tabs:clone(M.tabs),pending:clone(pending),activeTab:M.activeTab}; }
+function pushHistory(){ history=history.slice(0,histIdx+1); history.push(snapshot()); histIdx=history.length-1; }
+function resetHistory(){ history=[snapshot()]; histIdx=0; }
+function restoreSnap(s){ M.tabs=clone(s.tabs); pending=clone(s.pending); M.activeTab=Math.min(s.activeTab,M.tabs.length-1); sel=null; hideToolbar(); render(); }
+function undo(){ if(histIdx<=0){flash('Nothing to undo.');return;} histIdx--; restoreSnap(history[histIdx]); }
+function redo(){ if(histIdx>=history.length-1){flash('Nothing to redo.');return;} histIdx++; restoreSnap(history[histIdx]); }
+function clampL(v){return Math.max(1,Math.min(6,v));}
+
+// ---- row packing (so we can inject available drop zones) ----
+function pack(children){
+  const rows=[];let row=[],used=0;
+  for(const c of children){const sp=clampL(c.L);if(used+sp>6&&row.length){rows.push({cells:row,used});row=[];used=0;}row.push(c);used+=sp;}
+  if(row.length)rows.push({cells:row,used});
+  return rows.map(r=>({...r,gap:6-r.used}));
+}
+// containers-first ordering within a tab/container level
+function ordered(children){return [...children.filter(c=>c.kind==='container'),...children.filter(c=>c.kind!=='container')];}
+
+// ---- render ----
+function render(){
+  sheet.className=M.target==='template'?'tmpl':'';
+  // tabs
+  let html=`<div id="tabs">`+M.tabs.map((t,i)=>`<button data-tab="${i}" data-tabid="${t.id}" class="${i===M.activeTab?'on':''}"><span class="tname">${t.name}</span>${i===M.activeTab&&M.tabs.length>1?'<span class="tabx" title="Delete tab">×</span>':''}</button>`).join('')+`<button class="addtab" title="Add tab">+</button></div>`;
+  html+=`<div class="rows" data-level="root">`+renderLevel(tab().children,tab().id,true)+`</div>`;
+  sheet.innerHTML=html;
+  sheet.querySelectorAll('#tabs button[data-tab]').forEach(b=>b.onclick=e=>{ if(e.target.classList.contains('tabx')){e.stopPropagation();deleteTab(+b.dataset.tab);return;} M.activeTab=+b.dataset.tab;sel=null;hideToolbar();render(); });
+  sheet.querySelectorAll('#tabs .tname').forEach(s=>s.addEventListener('dblclick',e=>{e.stopPropagation();startTabRename(s);}));
+  sheet.querySelector('#tabs .addtab').onclick=addTab;
+  wire();
+  renderBar();renderTray();
+  if(sel)showToolbarFor(sel);
+}
+function renderLevel(children,parentId,allowAvail){
+  const rows=pack(ordered(children));
+  if(!rows.length&&allowAvail) return `<div class="row"><div class="avail" style="--sp:6" data-avail="${parentId}" data-gap="6"><svg width="14" height="14"><line x1="7" y1="3" x2="7" y2="11" stroke="${C.cyan}" stroke-width="1.6"/><line x1="3" y1="7" x2="11" y2="7" stroke="${C.cyan}" stroke-width="1.6"/></svg>Add widget</div></div>`;
+  return rows.map(r=>{
+    let cells=r.cells.map(renderCell).join('');
+    if(allowAvail&&r.gap>0) cells+=`<div class="avail" style="--sp:${r.gap}" data-avail="${parentId}" data-gap="${r.gap}" data-after="${r.cells[r.cells.length-1].id}"><svg width="14" height="14"><line x1="7" y1="3" x2="7" y2="11" stroke="${C.cyan}" stroke-width="1.6"/><line x1="3" y1="7" x2="11" y2="7" stroke="${C.cyan}" stroke-width="1.6"/></svg>Add widget</div>`;
+    return `<div class="row">${cells}</div>`;
+  }).join('');
+}
+function renderCell(n){
+  const p=pending.find(x=>x.id===n.id);
+  const sp=clampL(n.L);
+  if(n.kind==='container'){
+    const empty=!(n.children&&n.children.length);
+    return `<div class="cell cont ${sel===n.id?'sel':''}" style="--sp:${sp}" data-id="${n.id}">
+      <div class="ctab"><span class="cname">${n.name}</span> <span style="opacity:.8">${n.L}/6</span></div>
+      <div class="rows">${renderLevel(n.children||[],n.id,true)}</div>
+      ${sel===n.id?handles(false):''}</div>`;
+  }
+  const del=p?.op==='delete', ren=p?.op==='rename', staged=p&&p.op!=='delete';
+  const col=typeColor(n.type);
+  const name = ren?`<span class="strike">${ren.from}</span> <span class="ren">${ren.to}</span>`:n.name;
+  const isNew=p?.op==='add';
+  return `<div class="cell plate ${isChart(n.type)?'chart':''} ${sel===n.id?'sel':''} ${staged?'staged':''} ${del?'del':''}"
+      style="--sp:${sp};height:${n.h}px;${isNew?`border-color:${C.cyan};background:rgba(70,201,214,.12)`:''}" data-id="${n.id}">
+    <div class="lab" data-label><span class="nm">${name}</span><span class="ty">${(n.type||'').toUpperCase()}</span><span class="wd">${n.L}/6</span>${isNew?'<span class="new">NEW</span>':''}</div>
+    ${sel===n.id?handles(isChart(n.type)):''}</div>`;
+}
+function dimSvg(color,n){const c=color||C.cyan; const lbl=n?`${n.L} / 6`:'';
+  return `<div class="dim"><span style="color:${c}">${lbl}</span></div>`;}
+function handles(withV){return `<div class="h r" data-h="r"></div>`+(withV?`<div class="h b" data-h="b"></div>`:'');}
+
+// ---- mode bar ----
+function renderBar(){
+  const t=M.target,tmpl=t==='template';bar.className=tmpl?'tmpl':'';
+  const c=tmpl?C.amber:C.purple;
+  bar.innerHTML=`
+    <div class="brand"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" rx="1" fill="none" stroke="${c}"/><line x1="3" y1="1" x2="3" y2="4" stroke="${c}"/><line x1="7" y1="1" x2="7" y2="4" stroke="${c}"/><line x1="11" y1="1" x2="11" y2="4" stroke="${c}"/></svg>BLUEPRINT</div>
+    <div class="sep"></div>
+    <span class="note" style="color:#9CC0DD">editing</span>
+    <div class="seg">
+      <button class="inst ${t==='instance'?'on':''}" data-t="instance">INSTANCE</button>
+      <button class="tmpl ${t==='template'?'on':''}" data-t="template" ${M.hasTemplate?'':'disabled style=opacity:.4'}>TEMPLATE</button>
+    </div>
+    <span class="note ${tmpl?'hot':''}">${t==='template'?'shared template · all instances':'this instance only · override'}</span>
+    <div class="sep"></div>
+    <button class="iconbtn" data-undo title="Undo (Ctrl+Z)" ${histIdx>0?'':'disabled'}>↶</button>
+    <button class="iconbtn" data-redo title="Redo (Ctrl+Shift+Z)" ${histIdx<history.length-1?'':'disabled'}>↷</button>
+    <div class="pend" data-tray><span class="dot"></span>${pending.length} pending</div>
+    <button class="btn apply" data-apply>Apply</button>
+    <button class="btn disc" data-disc>Discard</button>`;
+  bar.querySelectorAll('.seg button').forEach(b=>{if(!b.disabled)b.onclick=()=>{M.target=b.dataset.t;render();};});
+  bar.querySelector('[data-undo]').onclick=undo;
+  bar.querySelector('[data-redo]').onclick=redo;
+  bar.querySelector('[data-apply]').onclick=openApplyPreview;
+  bar.querySelector('[data-disc]').onclick=discardPending;
+  bar.querySelector('[data-tray]').onclick=()=>{tray.style.display=tray.style.display==='block'?'none':'block';};
+}
+function renderTray(){
+  if(!pending.length){tray.style.display='none';tray.innerHTML='';return;}
+  const tagc={add:C.cyan,resize:C.cyan,height:C.chart,move:C.purple,rename:C.cyan,delete:C.del};
+  tray.innerHTML=`<h4>Pending changes · target: ${M.target}</h4>`+pending.map(p=>
+    `<div class="pop"><span class="tag" style="background:${tagc[p.op]}">${p.op.toUpperCase()}</span><span>${p.desc}</span></div>`).join('');
+}
+const planVerb=op=>({add:'CREATE',resize:'WIDTH',height:'HEIGHT',rename:'RENAME',move:'MOVE',delete:'DELETE'}[op]||op.toUpperCase());
+const tagColor=op=>({add:C.cyan,resize:C.cyan,height:C.chart,rename:C.cyan,move:C.purple,delete:C.del}[op]||C.cyan);
+function openApplyPreview(){
+  if(!pending.length){flash('Nothing to apply — no pending changes.');return;}
+  const tmpl=M.target==='template', tgt=M.target.toUpperCase();
+  const rows=pending.map(p=>`<div class="planrow"><span class="tag" style="background:${tagColor(p.op)}">${planVerb(p.op)}</span>
+    <div><div class="pl">${p.desc}</div>${p.ec?`<div class="ec">${p.ec}</div>`:''}</div></div>`).join('');
+  modal.innerHTML=`<div class="modal-card">
+    <div class="modal-head">Apply ${pending.length} change${pending.length>1?'s':''} to <b style="color:${tmpl?C.amber:C.purple}">${tgt}</b></div>
+    <div class="modal-warn ${tmpl?'tmpl':''}">${tmpl?'These changes update the SHARED TEMPLATE and apply to every instance.':'These changes apply to THIS INSTANCE only - they override the template.'}</div>
+    <div class="modal-body">${rows}</div>
+    <div class="modal-foot"><button class="btn disc" data-cancel>Cancel</button><button class="btn apply" data-confirm>Confirm &amp; apply</button></div>
+  </div>`;
+  modal.style.display='flex';
+  modal.onclick=e=>{if(e.target===modal)modal.style.display='none';};
+  modal.querySelector('[data-cancel]').onclick=()=>{modal.style.display='none';};
+  modal.querySelector('[data-confirm]').onclick=()=>{modal.style.display='none';applyPending();};
+}
+function applyPending(){ // "commit": fold working model into base, clear staging
+  pending=[]; sel=null; hideToolbar();
+  BASE.tabs=clone(M.tabs); // snapshot becomes new base
+  resetHistory();
+  flash(`Applied to ${M.target}. (mockup: no real BMP write)`); render();
+}
+function discardPending(){ pending=[]; revertWorking(); sel=null; hideToolbar(); resetHistory(); render(); }
+function revertWorking(){ const t=M.target,at=M.activeTab; M=clone(BASE); M.target=t; M.activeTab=Math.min(at,M.tabs.length-1); }
+
+// ---- tab management ----
+function addTab(){
+  const id='tab_'+rnd();
+  M.tabs.push({id,name:'New Tab',children:[]}); M.activeTab=M.tabs.length-1; sel=null; hideToolbar();
+  stage({id,op:'add',desc:`Create tab "New Tab"`,ec:`t.<tabset>.add(Tab) // BMP assigns id`}); render();
+}
+function deleteTab(i){
+  if(M.tabs.length<=1){flash('Cannot delete the last tab.');return;}
+  const t=M.tabs[i], n=t.children.reduce((a,c)=>a+(c.kind==='widget'?1:countWidgets(c)),0);
+  if(n&&!confirm(`Tab "${t.name}" holds ${n} widget(s). Delete it? In BMP its widgets would orphan to the RESULT tab.`))return;
+  M.tabs.splice(i,1); if(M.activeTab>=M.tabs.length)M.activeTab=M.tabs.length-1; sel=null; hideToolbar();
+  stage({id:t.id,op:'delete',desc:`Delete tab "${t.name}"`,ec:`t.${t.id}.delete()`}); render();
+}
+function startTabRename(s){
+  const id=s.closest('[data-tabid]').dataset.tabid, t=M.tabs.find(x=>x.id===id); if(!t)return;
+  const from=t.name; s.setAttribute('contenteditable','true'); s.focus();
+  const range=document.createRange();range.selectNodeContents(s);const g=getSelection();g.removeAllRanges();g.addRange(range);
+  const done=()=>{s.removeAttribute('contenteditable');const to=s.textContent.trim()||from;if(to!==from){t.name=to;stage({id,op:'rename',from,to,desc:`Rename tab "${from}" → "${to}"`,ec:`t.${id}.change(name := '${to}')`});}render();};
+  s.addEventListener('blur',done,{once:true});
+  s.addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();s.blur();}if(ev.key==='Escape'){s.textContent=from;s.blur();}});
+}
+
+// ---- gestures ----
+function wire(){
+  // widgets AND containers: mousedown decides drag-vs-select. stopPropagation so the
+  // innermost element (the one under the cursor) owns the gesture, not its ancestors.
+  sheet.querySelectorAll('.plate,.cont').forEach(el=>{
+    el.addEventListener('mousedown',e=>{ if(e.target.closest('.h')||e.target.closest('[contenteditable]'))return; e.stopPropagation(); dragOrSelect(e,el); });
+  });
+  // background click clears selection
+  sheet.onclick=e=>{ if(e.target===sheet||e.target.classList.contains('rows')||e.target.classList.contains('row')){ sel=null;hideToolbar();render(); } };
+  // rename via dblclick (widget label or container name)
+  sheet.querySelectorAll('.plate .lab,.ctab .cname').forEach(l=>l.addEventListener('dblclick',e=>{e.stopPropagation();startRename(l);}));
+  // add via available zone
+  sheet.querySelectorAll('.avail').forEach(a=>a.onclick=e=>{e.stopPropagation();openPalette(a);});
+  // resize handles
+  sheet.querySelectorAll('.h').forEach(h=>h.addEventListener('mousedown',e=>startResize(e,h)));
+}
+
+function startResize(e,h){
+  e.preventDefault();e.stopPropagation();
+  const cell=h.closest('[data-id]');const id=cell.dataset.id;const r=findNode(id);if(!r)return;
+  const node=r.node;const dir=h.dataset.h;
+  const row=cell.closest('.row');const unit=(row.getBoundingClientRect().width)/6;
+  const startW=cell.getBoundingClientRect().width, startH=node.h||cell.getBoundingClientRect().height, startX=e.clientX, startY=e.clientY;
+  const fromL=node.L, fromH=node.h;
+  const mv=ev=>{
+    if(dir==='r'){const nl=clampL(Math.round((startW+(ev.clientX-startX))/unit)); if(nl!==node.L){node.L=nl;render();}}
+    else{node.h=Math.max(40,Math.round(startH+(ev.clientY-startY)));cell.style.height=node.h+'px';}
+  };
+  const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);
+    if(dir==='r'&&node.L!==fromL)stage({id,op:'resize',from:fromL,to:node.L,desc:`Resize "${node.name}" to ${node.L}/6`,ec:`t.${id}.change(columnsLargeScreen := ${node.L})`});
+    if(dir==='b'&&node.h!==fromH)stage({id,op:'height',from:fromH,to:node.h,desc:`Set "${node.name}" height to ${node.h}px`,ec:`t.${id}.change(chartHeight := ${node.h})`});
+    render();};
+  document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
+}
+
+function startRename(l){
+  const cell=l.closest('[data-id]');const id=cell.dataset.id;const r=findNode(id);if(!r)return;
+  const from=r.node.name; l.textContent=from; l.setAttribute('contenteditable','true'); l.focus();
+  const range=document.createRange();range.selectNodeContents(l);const s=getSelection();s.removeAllRanges();s.addRange(range);
+  const done=()=>{l.removeAttribute('contenteditable');const to=l.textContent.trim()||from; if(to!==from){r.node.name=to;stage({id,op:'rename',from,to,desc:`Rename "${from}" → "${to}"`,ec:`t.${id}.change(name := '${to}')`});} render();};
+  l.addEventListener('blur',done,{once:true});
+  l.addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();l.blur();}if(ev.key==='Escape'){l.textContent=from;l.blur();}});
+}
+
+// selection toolbar (width stepper / move / rename / delete)
+function showToolbarFor(id){
+  const r=findNode(id);if(!r){hideToolbar();return;}
+  const cell=sheet.querySelector(`[data-id="${id}"]`);if(!cell){hideToolbar();return;}
+  const rc=cell.getBoundingClientRect();const node=r.node;
+  const isCont=node.kind==='container';
+  const contentType=['CustomVisualization','ExtendedTable','InputView'].includes(node.type);
+  toolbar.innerHTML=`
+    <div class="colpick" title="Width in columns — click to set">${[1,2,3,4,5,6].map(i=>`<span class="colseg ${i<=node.L?'on':''}" data-col="${i}"></span>`).join('')}</div>
+    <span class="wlabel">${node.L}/6</span>
+    <span class="w" style="opacity:.55">↔ drag to move</span>
+    ${contentType?`<button data-act="content">⌨ Edit content</button>`:''}
+    <button data-act="rename">✎ Rename</button>
+    <button data-act="delete" style="color:${C.del}">🗑 ${isCont?'Delete box':'Delete'}</button>`;
+  toolbar.style.display='flex';
+  toolbar.style.left=Math.max(8,rc.left+window.scrollX)+'px';
+  toolbar.style.top=(rc.top+window.scrollY-42)+'px';
+  toolbar.querySelectorAll('.colseg').forEach(seg=>{
+    seg.onmouseenter=()=>{const v=+seg.dataset.col;toolbar.querySelectorAll('.colseg').forEach((s,i)=>s.classList.toggle('prev',i<v));};
+    seg.onmouseleave=()=>toolbar.querySelectorAll('.colseg').forEach(s=>s.classList.remove('prev'));
+    seg.onclick=()=>{const from=node.L,to=+seg.dataset.col;if(to!==from){node.L=to;stage({id,op:'resize',from,to,desc:`Resize ${isCont?'box ':''}"${node.name}" to ${to}/6`,ec:`t.${id}.change(columnsLargeScreen := ${to})`});}render();};
+  });
+  const cbtn=toolbar.querySelector('[data-act="content"]'); if(cbtn)cbtn.onclick=()=>flash(`Would open the ${node.type==='ExtendedTable'?'Table Builder':node.type==='InputView'?'InputView':'CVO'} editor for "${node.name}".`);
+  toolbar.querySelector('[data-act="rename"]').onclick=()=>{const l=cell.querySelector('.lab,.ctab .cname');if(l)startRename(l);};
+  toolbar.querySelector('[data-act="delete"]').onclick=()=>doDelete(id);
+}
+function hideToolbar(){toolbar.style.display='none';}
+
+// add
+let palCtx=null;
+const plabel=t=>t.replace('CustomVisualization','CVO').replace('ExtendedTable','Table').replace('BarLineChart','Bar+Line');
+function openPalette(availEl){
+  palCtx={parent:availEl.dataset.avail,gap:+availEl.dataset.gap,after:availEl.dataset.after};
+  palette.innerHTML=`<div class="ph">Add to ${palCtx.gap}/6 slot</div>
+    <div class="grid">`+TYPES.map(t=>`<div class="opt" data-type="${t.t}"><span class="sw" style="background:${t.c}"></span>${plabel(t.t)}</div>`).join('')+`</div>
+    <div class="opt box" data-newbox><span class="sw" style="background:${C.purple}"></span>▦ New container (empty)</div>`;
+  const rc=availEl.getBoundingClientRect();
+  palette.style.display='block';palette.style.left=Math.min(rc.left+window.scrollX,innerWidth-246)+'px';palette.style.top=(rc.top+window.scrollY+8)+'px';
+  palette.querySelectorAll('.opt[data-type]').forEach(o=>o.onclick=()=>doAdd(o.dataset.type));
+  palette.querySelector('[data-newbox]').onclick=()=>doAddContainer();
+}
+const rnd=()=>Math.random().toString(36).slice(2,7);
+function doAdd(type){
+  const {parent,gap,after}=palCtx; palette.style.display='none';
+  const nid='new_'+rnd();
+  const list=(parent===tab().id)?tab().children:(findNode(parent)?.node.children||tab().children);
+  const pl=parent===tab().id?'tab':`"${nameOf(parent)}"`;
+  insertAt(list,after,{kind:'widget',name:'New '+plabel(type),type,id:nid,L:gap,h:defaultH(type)});
+  stage({id:nid,op:'add',desc:`Create ${type} in ${pl} (${gap}/6)`,
+    ec:`sc.add(${type}, container := t.${parent}, columnsLargeScreen := ${gap}) // BMP assigns id`});
+  sel=nid; render();
+}
+function doAddContainer(){
+  const {parent,gap,after}=palCtx; palette.style.display='none';
+  const bid='box_'+rnd();
+  const list=(parent===tab().id)?tab().children:(findNode(parent)?.node.children||tab().children);
+  const pl=parent===tab().id?'tab':`"${nameOf(parent)}"`;
+  insertAt(list,after,{kind:'container',name:'New Box',id:bid,L:gap,children:[]});
+  stage({id:bid,op:'add',desc:`Create empty container in ${pl} (${gap}/6)`,
+    ec:`t.${parent}.add(Container, columnsLargeScreen := ${gap}) // BMP assigns id`});
+  sel=bid; render();
+}
+
+// drag-to-move — position-aware outcome: swap · insert before/after · place · append · bind-to-tab
+let dragId=null,dragGhost=null,dragAction=null,dropline=null;
+const nameOf=id=>findNode(id)?.node.name||id;
+const setAct=t=>{const a=dragGhost&&dragGhost.querySelector('.act');if(a)a.textContent=t||'';};
+function dragOrSelect(e,el){
+  const id=el.dataset.id, sx=e.clientX, sy=e.clientY; let started=false;
+  const mv=ev=>{
+    if(!started){ if(Math.abs(ev.clientX-sx)+Math.abs(ev.clientY-sy)<6)return; started=true; beginDrag(el,id); }
+    dragGhost.style.left=(ev.clientX+14)+'px'; dragGhost.style.top=(ev.clientY+14)+'px'; markTarget(ev);
+  };
+  const up=()=>{ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up);
+    if(!started){ sel=id; render(); return; } endDrag(); };
+  document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+}
+function beginDrag(el,id){
+  dragId=id; el.classList.add('dragsrc'); document.body.classList.add('dragging');
+  dragGhost=document.createElement('div'); dragGhost.className='ghost';
+  dragGhost.innerHTML=`<span class="nm">↔ ${nameOf(id)}</span><span class="act"></span>`;
+  document.body.appendChild(dragGhost);
+  hint.textContent='Drop on a widget center to SWAP · on its edge to REORDER · on an empty slot or box to MOVE IN'; hint.style.display='block';
+}
+function clearInd(){ document.querySelectorAll('.droptarget,.swaptarget,.tabdrop').forEach(t=>{t.classList.remove('droptarget','swaptarget','tabdrop');t.removeAttribute('data-drop');}); if(dropline)dropline.style.display='none'; }
+function showLine(r,side){
+  if(!dropline){dropline=document.createElement('div');document.body.appendChild(dropline);}
+  const vert=(side==='left'||side==='right'),TH=3;
+  dropline.className='dropline '+(vert?'v':'h'); dropline.style.display='block';
+  if(vert){dropline.style.width=TH+'px';dropline.style.height=r.height+'px';dropline.style.top=r.top+'px';dropline.style.left=((side==='left'?r.left:r.right)-TH/2)+'px';}
+  else{dropline.style.height=TH+'px';dropline.style.width=r.width+'px';dropline.style.left=r.left+'px';dropline.style.top=((side==='top'?r.top:r.bottom)-TH/2)+'px';}
+}
+function markTarget(ev){
+  clearInd(); dragAction=null;
+  dragGhost.style.display='none'; const under=document.elementFromPoint(ev.clientX,ev.clientY); dragGhost.style.display='';
+  if(!under){setAct('');return;}
+  const src=findNode(dragId);
+  // cross-tab: hovering another tab button relocates the node to that tab
+  const tabBtn=under.closest('#tabs button[data-tab]');
+  if(tabBtn){ const ti=+tabBtn.dataset.tab; if(ti!==M.activeTab){ tabBtn.classList.add('tabdrop'); dragAction={type:'totab',tabIndex:ti}; setAct('move to tab "'+M.tabs[ti].name+'"'); } return; }
+  const plate=under.closest('.plate');
+  if(plate&&plate.dataset.id!==dragId){
+    if(src&&src.node.kind==='container'&&findNode(plate.dataset.id,src.node.children)){setAct('');return;} // not onto a widget inside itself
+    const r=plate.getBoundingClientRect();
+    const relX=(ev.clientX-r.left)/r.width, relY=(ev.clientY-r.top)/r.height;
+    const edge=Math.max(Math.abs(relX-.5),Math.abs(relY-.5));          // 0 center … .5 edge
+    if(edge<0.26){ plate.classList.add('swaptarget'); dragAction={type:'swap',targetId:plate.dataset.id}; setAct('swap with '+nameOf(plate.dataset.id)); }
+    else{ const dl=relX,dr=1-relX,dt=relY,db=1-relY,m=Math.min(dl,dr,dt,db);
+      const side=m===dl?'left':m===dr?'right':m===dt?'top':'bottom', before=(side==='left'||side==='top');
+      showLine(r,side); dragAction={type:'insert',targetId:plate.dataset.id,before};
+      setAct((before?'insert before ':'insert after ')+nameOf(plate.dataset.id)); }
+    return;
+  }
+  const avail=under.closest('.avail');
+  if(avail){ avail.setAttribute('data-drop','move here'); avail.classList.add('droptarget'); dragAction={type:'place',targetId:avail.dataset.avail,gap:+avail.dataset.gap,after:avail.dataset.after}; setAct('place in empty '+avail.dataset.gap+'/6 slot'); return; }
+  const cont=under.closest('.cont');
+  if(cont){
+    if(cont.dataset.id===dragId){setAct('');return;}
+    if(src&&src.node.kind==='container'&&findNode(cont.dataset.id,src.node.children)){setAct('');return;} // not into own descendant
+    cont.setAttribute('data-drop','add to box'); cont.classList.add('droptarget'); dragAction={type:'append',targetId:cont.dataset.id}; setAct('add into '+nameOf(cont.dataset.id)); return;
+  }
+  if(under.closest('#sheet')){ dragAction={type:'tab'}; setAct('bind to tab (own row)'); return; }
+  setAct('');
+}
+function endDrag(){
+  document.body.classList.remove('dragging');
+  sheet.querySelector('.dragsrc')?.classList.remove('dragsrc');
+  if(dragGhost){dragGhost.remove();dragGhost=null;}
+  if(dropline){dropline.remove();dropline=null;}
+  clearInd(); hint.style.display='none';
+  const A=dragAction, id=dragId;
+  if(A){
+    if(A.type==='swap') swapNodes(id,A.targetId);
+    else if(A.type==='insert') insertNode(id,A.targetId,A.before);
+    else if(A.type==='totab') moveToTab(id,A.tabIndex);
+    else relocate(id,A);
+    if(findNode(id)) sel=id;
+  }
+  dragId=null;dragAction=null; render();
+}
+function moveToTab(id,ti){
+  const r=findNode(id); if(!r)return; const node=r.node; r.list.splice(r.list.indexOf(node),1);
+  M.tabs[ti].children.push(node); M.activeTab=ti;
+  stage({id:node.id,op:'move',desc:`Move "${node.name}" to tab "${M.tabs[ti].name}"`,ec:`t.${node.id}.change(container := t.${M.tabs[ti].id})`});
+}
+function swapNodes(idA,idB){
+  const a=findNode(idA),b=findNode(idB); if(!a||!b)return;
+  const ca=a.parent?a.parent.id:tab().id, cb=b.parent?b.parent.id:tab().id;
+  const ia=a.list.indexOf(a.node), ib=b.list.indexOf(b.node);
+  if(a.list===b.list){ const t=a.list[ia]; a.list[ia]=a.list[ib]; a.list[ib]=t; }
+  else{ a.list[ia]=b.node; b.list[ib]=a.node; }
+  stage({id:idA,op:'move',desc:`Swap "${a.node.name}" ⇄ "${b.node.name}"`,ec:`t.${idA}.change(container := t.${cb}) · t.${idB}.change(container := t.${ca})`});
+}
+function insertNode(id,targetId,before){
+  const d=findNode(id); if(!d)return; const node=d.node;
+  d.list.splice(d.list.indexOf(node),1);
+  const t=findNode(targetId); if(!t){d.list.push(node);return;}
+  const ti=t.list.indexOf(t.node); t.list.splice(ti+(before?0:1),0,node);
+  stage({id:node.id,op:'move',desc:`Reorder "${node.name}" ${before?'before':'after'} "${t.node.name}"`,ec:`t.${node.id}.move${before?'Before':'After'}(t.${targetId})`});
+}
+function insertAt(list,afterId,node){ const i=afterId?list.findIndex(n=>n.id===afterId):-1; list.splice(i>=0?i+1:list.length,0,node); }
+function relocate(id,A){
+  const r=findNode(id); if(!r)return; const node=r.node; r.list.splice(r.list.indexOf(node),1);
+  if(A.type==='place'){ // drop into a row's empty slot → land IN that slot, not at the end
+    const dest=(A.targetId===tab().id)?tab().children:(findNode(A.targetId)?.node.children||tab().children);
+    if(node.L>A.gap)node.L=A.gap; insertAt(dest,A.after,node);
+    const where=A.targetId===tab().id?'tab':`"${nameOf(A.targetId)}"`;
+    stage({id:node.id,op:'move',desc:`Move "${node.name}" into ${where}`,ec:`t.${node.id}.change(container := t.${A.targetId})`}); return;
+  }
+  let destList,target,label;
+  if(A.type==='append'){ destList=findNode(A.targetId)?.node.children||tab().children; target=A.targetId; label=`"${nameOf(A.targetId)}"`; }
+  else { destList=tab().children; target=tab().id; label='tab'; }
+  destList.push(node);
+  stage({id:node.id,op:'move',desc:`Move "${node.name}" into ${label}`,ec:`t.${node.id}.change(container := t.${target})`});
+}
+
+// delete (with re-home for non-empty containers)
+function doDelete(id){
+  const r=findNode(id); if(!r)return; const node=r.node;
+  if(node.kind==='container'&&node.children?.length){
+    const n=countWidgets(node);
+    if(!confirm(`"${node.name}" holds ${n} widget(s). Re-home them to the tab before deleting?\n\n(Otherwise BMP would orphan them to the RESULT tab.)`))return;
+    // re-home leaf widgets up to the tab
+    collectWidgets(node).forEach(w=>tab().children.push(w));
+  }
+  const rehomed=node.kind==='container'&&node.children?.length;
+  r.list.splice(r.list.indexOf(node),1);
+  stage({id,op:'delete',desc:`Delete ${node.kind} "${node.name}"`+(rehomed?' (widgets re-homed to tab)':''),
+    ec:(rehomed?`re-home widgets to tab · `:'')+`t.${id}.delete()`});
+  sel=null;hideToolbar();render();
+}
+function countWidgets(n){return (n.children||[]).reduce((a,c)=>a+(c.kind==='widget'?1:countWidgets(c)),0);}
+function collectWidgets(n){let out=[];(n.children||[]).forEach(c=>{if(c.kind==='widget')out.push(c);else out=out.concat(collectWidgets(c));});return out;}
+
+// flash
+function flash(msg){hint.textContent=msg;hint.style.display='block';setTimeout(()=>{hint.style.display='none';},1800);}
+
+// keyboard: Esc deselects / closes popups, Delete removes the selection
+document.addEventListener('keydown',e=>{
+  if(document.querySelector('[contenteditable="true"]'))return;        // typing a name
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey?redo():undo(); return; }
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){ e.preventDefault(); redo(); return; }
+  if(e.key==='Escape'){ sel=null; hideToolbar(); palette.style.display='none'; modal.style.display='none'; render(); }
+  else if((e.key==='Delete'||e.key==='Backspace')&&sel){ e.preventDefault(); doDelete(sel); }
+});
+
+resetHistory();   // baseline = pristine state, so the first edit is undoable back to here
+render();
+</script>
+</body>
+</html>

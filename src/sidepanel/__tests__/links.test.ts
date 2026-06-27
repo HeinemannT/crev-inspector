@@ -103,10 +103,10 @@ describe('renderLinks', () => {
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
-  it('a broken target shows ⚠ and is not a navigation button', () => {
+  it('a broken target shows a warning icon and is not a navigation button', () => {
     const { el, onNavigate } = render({ outgoing: [tgt({ broken: true, rid: '999' })], incoming: [] });
     const broken = el!.querySelector<HTMLElement>('.lk-row--broken')!;
-    expect(broken.textContent).toContain('⚠');
+    expect(broken.querySelector('.lk-broken svg')).not.toBeNull();
     expect(broken.textContent).toContain('999');
     broken.click();
     expect(onNavigate).not.toHaveBeenCalled();

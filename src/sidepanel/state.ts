@@ -19,6 +19,7 @@ export const S = {
   settings: { ...DEFAULT_SETTINGS } as InspectorSettings,
   connState: { display: 'checking', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, networkOffline: false, lastUpdate: 0 } as ConnectionState,
   inspectActive: false,
+  blueprintActive: false,
   paintPhase: 'off' as PaintPhase,
   paintSourceName: null as string | null,
   cacheCount: 0,

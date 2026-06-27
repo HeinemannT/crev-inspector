@@ -116,7 +116,7 @@ export class WorkshopTab implements Tab {
       class: 'workshop-divider',
       role: 'separator',
       'aria-orientation': 'horizontal',
-      'aria-label': 'Resize between layout and detail halves',
+      'aria-label': 'Drag to resize the layout and detail panes',
       'aria-valuenow': String(this.splitPct),
       'aria-valuemin': String(SPLIT_MIN_PCT),
       'aria-valuemax': String(SPLIT_MAX_PCT),

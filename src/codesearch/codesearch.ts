@@ -13,7 +13,8 @@
 
 import type { InspectorMessage, CodeSearchResult } from '../lib/types';
 import { getTypeColor, getTypeAbbr, CHART_TYPES } from '../lib/types';
-import { h, render } from '../lib/dom';
+import { h, render, svg } from '../lib/dom';
+import { ICON_X, ICON_WARNING, ICON_CHEVRON, ICON_CHECK, ICON_SEARCH, ICON_COPY } from '../lib/icons';
 import { emptyState } from '../lib/empty-state';
 import { installCloseHandshake } from '../lib/frame-close-handshake';
 import { sendFireForget } from '../lib/messaging';
@@ -114,7 +115,7 @@ const searchClearBtn = h('button', {
     renderUI();
     searchInputEl.focus();
   },
-}, '✕') as HTMLButtonElement;
+}, svg(ICON_X)) as HTMLButtonElement;
 
 const searchStopBtn = h('button', {
   class: 'cs-search-stop',
@@ -223,7 +224,7 @@ function renderToolbar(): HTMLElement {
   // Uses the persistent input + button nodes (never recreated on keystroke);
   // syncSearchShell() sets their current state after they're (re)mounted.
   const searchShell = h('div', { class: 'cs-search-shell' },
-    h('span', { class: 'cs-search-icon' }, '⌕'),
+    h('span', { class: 'cs-search-icon' }, svg(ICON_SEARCH)),
     searchInputEl,
     searchClearBtn,
     searchStopBtn,
@@ -260,7 +261,7 @@ function renderToolbar(): HTMLElement {
   const scopeFeedback = !scopeSet
     ? null
     : scopeError
-      ? h('span', { class: 'cs-scope-feedback cs-scope-feedback--error', title: scopeError }, '⚠ ' + scopeError)
+      ? h('span', { class: 'cs-scope-feedback cs-scope-feedback--error', title: scopeError }, svg(ICON_WARNING), h('span', { class: 'cs-scope-feedback-name' }, scopeError))
       : scopeInfo
         ? h('span', { class: 'cs-scope-feedback cs-scope-feedback--ok', title: `${scopeInfo.type} · ${scopeInfo.businessId || scopeInfo.rid}` },
             '↳ ',
@@ -290,14 +291,14 @@ function renderToolbar(): HTMLElement {
   const resultControls = hasResults
     ? h('div', { class: 'cs-result-controls' },
         h('div', { class: 'cs-filter-shell' },
-          h('span', { class: 'cs-filter-icon' }, '⌕'),
+          h('span', { class: 'cs-filter-icon' }, svg(ICON_SEARCH)),
           filterInputEl,
           resultFilter
             ? h('button', {
                 class: 'cs-filter-clear',
                 title: 'Clear filter',
                 onClick: () => { resultFilter = ''; filterInputEl.value = ''; renderUI(); },
-              }, '✕')
+              }, svg(ICON_X))
             : null,
         ),
         h('button', {
@@ -308,7 +309,7 @@ function renderToolbar(): HTMLElement {
             for (const r of results) expandedGroups.add(r.rid);
             renderUI();
           },
-        }, '▾ Expand all'),
+        }, h('span', { class: 'cs-bulk-chev cs-bulk-chev--down' }, svg(ICON_CHEVRON)), ' Expand all'),
         h('button', {
           class: 'cs-bulk-btn',
           title: 'Collapse every section',
@@ -318,12 +319,12 @@ function renderToolbar(): HTMLElement {
             expandedGroups.clear();
             renderUI();
           },
-        }, '▸ Collapse all'),
+        }, h('span', { class: 'cs-bulk-chev' }, svg(ICON_CHEVRON)), ' Collapse all'),
         h('button', {
           class: 'cs-bulk-btn cs-copy-btn',
           title: 'Copy the matched objects (class, id, name) as a tab-separated table',
           onClick: copyResultsTable,
-        }, '⎘ Copy table'),
+        }, svg(ICON_COPY), ' Copy table'),
       )
     : null;
 
@@ -355,20 +356,20 @@ let copyFlashTimer: ReturnType<typeof setTimeout> | null = null;
 function flashCopied(count: number): void {
   const btn = document.querySelector<HTMLElement>('.cs-copy-btn');
   if (!btn) return;
-  btn.textContent = `✓ Copied ${count}`;
+  render(btn, svg(ICON_CHECK), ` Copied ${count}`);
   if (copyFlashTimer) clearTimeout(copyFlashTimer);
-  copyFlashTimer = setTimeout(() => { const b = document.querySelector<HTMLElement>('.cs-copy-btn'); if (b) b.textContent = '⎘ Copy table'; }, 1500);
+  copyFlashTimer = setTimeout(() => { const b = document.querySelector<HTMLElement>('.cs-copy-btn'); if (b) render(b, svg(ICON_COPY), ' Copy table'); }, 1500);
 }
 
 function renderErrorBanner(message: string): HTMLElement {
   return h('div', { class: 'cs-error', role: 'alert' },
-    h('span', { class: 'cs-error-icon' }, '⚠'),
+    h('span', { class: 'cs-error-icon' }, svg(ICON_WARNING)),
     h('span', { class: 'cs-error-text' }, message),
     h('button', {
       class: 'cs-error-dismiss',
       title: 'Dismiss',
       onClick: () => { lastError = null; renderUI(); },
-    }, '✕'),
+    }, svg(ICON_X)),
   );
 }
 
@@ -468,7 +469,7 @@ function renderResults(): HTMLElement {
       'data-action': 'toggle-section',
       title: sectionExpanded ? `Collapse ${typeName} results` : `Expand ${typeName} results`,
     },
-      h('span', { class: 'cs-section-chev' }, sectionExpanded ? '▾' : '▸'),
+      h('span', { class: `cs-section-chev${sectionExpanded ? ' is-open' : ''}` }, svg(ICON_CHEVRON)),
       h('span', { class: 'cs-type-chip', style: `--type-color:${getTypeColor(typeName)}` }, getTypeAbbr(typeName)),
       h('span', { class: 'cs-section-type' }, typeName),
       h('span', { class: 'cs-section-counts' },
@@ -501,7 +502,7 @@ function renderResults(): HTMLElement {
             }
           },
         },
-          h('span', { class: 'cs-result-chev' }, expanded ? '▾' : '▸'),
+          h('span', { class: `cs-result-chev${expanded ? ' is-open' : ''}` }, svg(ICON_CHEVRON)),
           h('span', { class: 'cs-result-name', title: first.name || '(unnamed)' }, first.name || '(unnamed)'),
           h('span', { class: 'cs-result-id' },
             h('span', { class: 'cs-result-id-label' }, 'id:'),

@@ -40,6 +40,10 @@ const scriptHistory = new ScriptHistoryManager('_default');
  *  chrome.windows.onRemoved + at boot we drop entries whose window
  *  doesn't exist anymore. */
 const inspectActiveByWindow = new Map<number, boolean>();
+/** Per-window blueprint-mode toggle state. On the ctx (not a handler-local Map) so it sits with the
+ *  other per-window UI toggles and can be cleared on a profile switch (the loaded layout is env-bound). */
+const blueprintActiveByWindow = new Map<number, boolean>();
+const blueprintTabByWindow = new Map<number, number>();
 let technicalOverlay = false;
 let settings: InspectorSettings = { ...DEFAULT_SETTINGS };
 let client: import('./lib/bmp-client').BmpClient | null = null;
@@ -118,6 +122,8 @@ const ctx: SwContext = {
   get settings() { return settings; },
   set settings(v) { settings = v; },
   inspectActiveByWindow,
+  blueprintActiveByWindow,
+  blueprintTabByWindow,
   isInspectActive(windowId: number | undefined): boolean {
     return windowId != null && inspectActiveByWindow.get(windowId) === true;
   },
@@ -421,8 +427,10 @@ function initPanelPort(port: chrome.runtime.Port) {
       portToWindowId.set(port, windowId);
 
       settingsReady.then(() => {
-        // Per-window inspect — this panel only cares about its own window.
+        // Per-window inspect + blueprint — this panel only cares about its own window. Re-pushed on
+        // connect so a reopened sidebar reflects the current toggle state (mirrors INSPECT_STATE).
         safeSend(port, { type: 'INSPECT_STATE', active: inspectActiveByWindow.get(windowId) === true });
+        safeSend(port, { type: 'BLUEPRINT_STATE', active: blueprintActiveByWindow.get(windowId) === true });
         safeSend(port, { type: 'CACHE_STATS', count: cache.size });
         // Flush queued broadcasts to the newly-registered panel. Multiple
         // panels racing to flush would each pop the queue; only the

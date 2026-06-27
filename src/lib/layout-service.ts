@@ -1,0 +1,82 @@
+/**
+ * layout-service — the imperative shell: binds the pure layout core (`layout/`) to the live
+ * `BmpClient` in the service worker. The core stays I/O-free; this is the ONE place that knows
+ * about `executeEc`. Handlers call these; tests exercise the core directly with a fake LayoutIO.
+ *
+ * One responsibility beyond plumbing: select transactional vs read-only runs (`commit`).
+ *
+ * SILENT-ROLLBACK detection lives in `applyModel` (sync.ts), not here. BMP can return a 200 / ok
+ * result whose transaction was nonetheless discarded with no ERROR logType. Rather than scrape the
+ * log for rollback phrases (brittle — a reworded or localized message slips past), `applyModel`
+ * re-fetches after the commit and confirms the page actually changed: a transactional commit is
+ * all-or-nothing, so an unchanged page after a non-empty plan IS the rollback. That structural check
+ * supersedes the old regex.
+ */
+import type { BmpClient } from './bmp-client';
+import type { LayoutIO, BlueprintCtx, LoadResult, ApplyResult } from './layout/sync';
+import { loadModel, applyModel, resolvePageContext } from './layout/sync';
+import type { LModel } from './layout/types';
+import { validateBusinessId, validateRid } from './ec-guards';
+import { log } from './logger';
+import {
+  buildInstanceFanoutEc, parseInstanceFanout,
+  buildContainerBlastEc, parseContainerBlast,
+  type InstanceFanout, type ContainerBlast,
+} from './layout/blast-radius';
+
+/** Wrap a BmpClient as a LayoutIO. `commit` → transactional executeEc. */
+export function makeLayoutIO(client: BmpClient): LayoutIO {
+  return {
+    async exec(code: string, commit = false) {
+      const r = await client.executeEc(code, undefined, commit);
+      return { ok: r.ok, log: r.log, error: r.error };
+    },
+  };
+}
+
+/** Resolve context + load the page model for a viewed object rid. Returns null ctx when the object
+ *  isn't an editable page (no tabset discoverable). */
+export async function loadPage(client: BmpClient, rid: string): Promise<{ ctx: BlueprintCtx; load: LoadResult } | null> {
+  const io = makeLayoutIO(client);
+  const ctx = await resolvePageContext(io, rid);
+  if (!ctx) return null;
+  const load = await loadModel(io, ctx);
+  return { ctx, load };
+}
+
+/** Apply an edit: diff baseline→desired, compile, commit, re-fetch. The ctx must be the one
+ *  `loadPage` returned for this page (it carries the page root + tabset + tab scope). */
+export async function applyPage(client: BmpClient, ctx: BlueprintCtx, baseline: LModel, desired: LModel): Promise<ApplyResult> {
+  return applyModel(makeLayoutIO(client), baseline, desired, ctx);
+}
+
+/** Apply-preview blast radius (best-effort; an `rref` walk can be slow, so callers fail silently).
+ *  (A) fan-out: is `pageId` a template master + how many instances inherit. (B) shared-structure:
+ *  for the touched container businessIds, which template-families OUTSIDE this page's own use them.
+ *  Returns nulls rather than throwing — the preview just omits the warning if BMP is slow/unhappy. */
+export async function loadBlastRadius(
+  client: BmpClient, pageId: string, containers: { id: string; rid?: string }[],
+): Promise<{ fanout: InstanceFanout | null; blast: ContainerBlast | null }> {
+  const io = makeLayoutIO(client);
+  let fanout: InstanceFanout | null = null;
+  let blast: ContainerBlast | null = null;
+  try {
+    const fan = await io.exec(buildInstanceFanoutEc(`t.${validateBusinessId(pageId)}`));
+    if (fan.ok && fan.log) fanout = parseInstanceFanout(fan.log);
+  } catch (e) { log.debug('blast:fanout', e); } // fail silent — no fan-out warning
+  // Build a ref per container. A businessId-less container (id === rid) must be addressed by
+  // lookup(<rid>), NOT t.<rid> — the same H2 trap the EC compiler avoids (an all-digit rid slips past
+  // the businessId validator and t.<rid> doesn't resolve). Invalid entries are dropped.
+  const refs = containers.flatMap(c => {
+    try {
+      return [c.rid && c.id === c.rid ? `lookup(${validateRid(c.rid)})` : `t.${validateBusinessId(c.id)}`];
+    } catch { return []; }
+  });
+  if (fanout && refs.length) {
+    try {
+      const res = await io.exec(buildContainerBlastEc(refs));
+      if (res.ok && res.log) blast = parseContainerBlast(res.log, fanout.ownFamilyKey);
+    } catch (e) { log.debug('blast:container', e); } // fail silent — no shared-structure warning
+  }
+  return { fanout, blast };
+}

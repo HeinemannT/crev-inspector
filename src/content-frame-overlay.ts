@@ -8,9 +8,9 @@
  * within the same kind swaps the iframe src.
  */
 
-import { h } from './lib/dom';
+import { h, svg } from './lib/dom';
 import { log } from './lib/logger';
-import { ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE } from './lib/icons';
+import { ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_X } from './lib/icons';
 import type { FrameKind } from './lib/types';
 
 const MIN_W = 360;
@@ -273,7 +273,7 @@ function createFrame(opts: MountFrameOptions, bounds: Bounds): FrameState {
       title: 'Close (Esc)',
       'aria-label': `Close ${opts.label}`,
       onClick: () => requestClose(opts.kind),
-    }, '✕'),
+    }, svg(ICON_X)),
   );
 
   const iframe = document.createElement('iframe');

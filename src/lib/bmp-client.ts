@@ -14,7 +14,8 @@ import {
 } from './bmp-types';
 import { deserializeStream } from './java-serial';
 import { COLOR_LINK_PROPS, colorLinkBid } from './types';
-import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessTraceAction, AccessTraceNode, AccessSubject, BmpObject } from './types';
+import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessTraceAction, AccessTraceNode, AccessSubject, BmpObject, LayoutNode } from './types';
+import { LAYOUT_SEP, parseLayoutNodes } from './layout-wire';
 import { log } from './logger';
 import { HEALTH_TIMEOUT, BATCH_CHUNK_SIZE, MAX_PARALLEL } from './constants';
 import { BmpAuth, AuthError } from './bmp-auth';
@@ -24,6 +25,7 @@ import { pMap, compareVersions } from './util';
 import { parsePipeLines, parseSepBlocks, parseSepMultiObject } from './ec-parser';
 import { validateRid, validateEcIdentifier, formatEcLiteral } from './ec-guards';
 import { resolveNamespace } from './namespace';
+import { ecResolveTemplate } from './template-link';
 import {
   parsePipeRow, parsePipeRowWithKey, parseAbRow, makeCodeField,
 } from './flow-parser';
@@ -562,11 +564,7 @@ export class BmpClient {
     const ref = await this.resolveRef(rid);
     const code = [
       `_o := ${ref}`,
-      '_t := _o.linkedTo',
-      // Enterprise objects (CeIssue, CeRiskAssessment, etc.) use .template instead of .linkedTo
-      'IF _t = MISSING THEN',
-      '  _t := _o.template',
-      'ENDIF',
+      ...ecResolveTemplate('_o', '_t'),
       '_t.rid.whenMissing("MISSING") + "|||" + _t.name.whenMissing("") + "|||" + _t.className.whenMissing("") + "|||" + _t.id.whenMissing("")',
     ].join('\n');
     const ecResult = await this.executeEc(code, undefined, false);
@@ -619,11 +617,7 @@ export class BmpClient {
     for (const { rid, ref } of refs) {
       lines.push(`_o := ${ref}`);
       lines.push('IF _o != MISSING THEN');
-      lines.push('  _t := _o.linkedTo');
-      // Enterprise objects use .template instead of .linkedTo
-      lines.push('  IF _t = MISSING THEN');
-      lines.push('    _t := _o.template');
-      lines.push('  ENDIF');
+      lines.push(...ecResolveTemplate('_o', '_t', '  '));
       lines.push('  _tid := (IF _t != MISSING THEN _t.id.whenMissing("") ELSE "" ENDIF)');
       // Cascade target — for flow-bearing widgets we surface the next link in
       // the chain so the badge can render a second pill. Non-flow types skip
@@ -741,19 +735,6 @@ export class BmpClient {
     return parseSepMultiObject(ecResult.log, sep);
   }
 
-  /** Reposition an object relative to a sibling. BMP exposes
-   *  `.moveBefore(other)` / `.moveAfter(other)` on every Node; this
-   *  wraps both with a single EC round-trip. Used by the Page tab's
-   *  drag-to-reorder for Tabs in a TabSet. */
-  async moveObject(rid: string, relTo: string, position: 'above' | 'below'): Promise<{ ok: boolean; error?: string }> {
-    const subj = await this.resolveRef(rid);
-    const dest = await this.resolveRef(relTo);
-    const method = position === 'above' ? 'moveBefore' : 'moveAfter';
-    const code = `${subj}.${method}(${dest})`;
-    const result = await this.executeEc(code, undefined, /* transactional */ true);
-    return { ok: result.ok, error: result.error };
-  }
-
   /** Walk the layout subtree of a Scorecard / TabSet / Tab / Container.
    *  Returns flat nodes with parent linkage + responsive sizing — the
    *  panel folds these into a tree client-side. Single round trip via
@@ -762,58 +743,25 @@ export class BmpClient {
    *  Returned types: Tab, TabSet, Container, plus widget objects bound to
    *  any container in the subtree (rendered as leaves with their cell
    *  reference). */
-  async fetchLayoutTree(rid: string): Promise<Array<{
-    rid: string; parentRid?: string; containerRid?: string;
-    businessId?: string; name?: string; type: string;
-    columnsLargeScreen?: number; columnsMediumScreen?: number; columnsSmallScreen?: number;
-  }>> {
+  async fetchLayoutTree(rid: string): Promise<LayoutNode[]> {
     const ref = await this.resolveRef(rid);
-    const sep = '<<<CREV_LAYOUT>>>';
-    // Fields: rid|bid|name|type|parentRid|containerRid|L|M|S
-    // Empty L/M/S indicate "this type doesn't carry the prop" (TabSet,
-    // widgets without responsive sizing) — we render those without a
-    // size pill in the UI.
+    // Emits the shared layout wire format (see layout-wire.ts): one node per LAYOUT_SEP marker, fields
+    // rid|bid|type|parentRid|containerRid|L|M|S|chartHeight|name. `name` is LAST (free-text, parsed as
+    // the rest) so a `|` in a name can't shift the structural fields.
     const ec = `
 _root := ${ref}
 _r := ""
 _root.descendants().forEach(_n:
      _p := _n.parent
      _c := _n.container
-     _r := _r + "${sep}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.name.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _p.rid.whenMissing("") + "|" + _c.rid.whenMissing("") + "|" + _n.columnsLargeScreen.whenMissing("") + "|" + _n.columnsMediumScreen.whenMissing("") + "|" + _n.columnsSmallScreen.whenMissing("") + "\\n"
+     _r := _r + "${LAYOUT_SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _p.rid.whenMissing("") + "|" + _c.rid.whenMissing("") + "|" + _n.columnsLargeScreen.whenMissing("") + "|" + _n.columnsMediumScreen.whenMissing("") + "|" + _n.columnsSmallScreen.whenMissing("") + "|" + _n.chartHeight.whenMissing("") + "|" + _n.name.whenMissing("") + "\\n"
 )
-_r := _r + "${sep}" + _root.rid + "|" + _root.id.whenMissing("") + "|" + _root.name.whenMissing("") + "|" + _root.className.whenMissing("") + "||||" + _root.columnsLargeScreen.whenMissing("") + "|" + _root.columnsMediumScreen.whenMissing("") + "|" + _root.columnsSmallScreen.whenMissing("") + "\\n"
+_r := _r + "${LAYOUT_SEP}" + _root.rid + "|" + _root.id.whenMissing("") + "|" + _root.className.whenMissing("") + "|||" + _root.columnsLargeScreen.whenMissing("") + "|" + _root.columnsMediumScreen.whenMissing("") + "|" + _root.columnsSmallScreen.whenMissing("") + "||" + _root.name.whenMissing("") + "\\n"
 _r
 `.trim();
     const result = await this.executeEc(ec);
     if (!result.ok || !result.log) return [];
-    const nodes: Array<{
-      rid: string; parentRid?: string; containerRid?: string;
-      businessId?: string; name?: string; type: string;
-      columnsLargeScreen?: number; columnsMediumScreen?: number; columnsSmallScreen?: number;
-    }> = [];
-    const seen = new Set<string>();
-    for (const block of result.log.split(sep)) {
-      const line = block.split('\n', 1)[0].trim();
-      if (!line) continue;
-      const parts = line.split('|');
-      if (parts.length < 9) continue;
-      const [nodeRid, bid, name, type, parentRid, containerRid, l, m, s] = parts;
-      if (!nodeRid || seen.has(nodeRid)) continue;
-      seen.add(nodeRid);
-      const numOrUndef = (v: string) => v && /^-?\d+$/.test(v) ? parseInt(v, 10) : undefined;
-      nodes.push({
-        rid: nodeRid,
-        businessId: bid || undefined,
-        name: name || undefined,
-        type: type || 'Unknown',
-        parentRid: parentRid || undefined,
-        containerRid: containerRid || undefined,
-        columnsLargeScreen: numOrUndef(l),
-        columnsMediumScreen: numOrUndef(m),
-        columnsSmallScreen: numOrUndef(s),
-      });
-    }
-    return nodes;
+    return parseLayoutNodes(result.log);
   }
 
   /** Fetch direct children of an object via EC */
@@ -860,7 +808,7 @@ _r
       `_r := _r + _sep + "instId" + _sep + _inst.id.whenMissing("") + "\\n"`,
       `_r := _r + _sep + "instName" + _sep + _inst.name.whenMissing("") + "\\n"`,
       `_r := _r + _sep + "instType" + _sep + _inst.className.whenMissing("") + "\\n"`,
-      '_tmpl := _inst.linkedTo',
+      ...ecResolveTemplate('_inst', '_tmpl'),
       `_r := _r + _sep + "tmplRid" + _sep + _tmpl.rid.whenMissing("MISSING") + "\\n"`,
       `_r := _r + _sep + "tmplId" + _sep + _tmpl.id.whenMissing("") + "\\n"`,
       `_r := _r + _sep + "tmplName" + _sep + _tmpl.name.whenMissing("") + "\\n"`,
@@ -1352,8 +1300,7 @@ _r
       `_o := ${ref}`,
     ];
     if (target === 'template') {
-      lines.push('_t := _o.linkedTo');
-      lines.push('IF _t = MISSING THEN _t := _o.template ENDIF');
+      lines.push(...ecResolveTemplate('_o', '_t'));
       lines.push('IF _t = MISSING THEN');
       lines.push('  "no template"');
       lines.push('ELSE');

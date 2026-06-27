@@ -20,6 +20,7 @@ import { getTypeColor, getTypeAbbr } from '../../lib/types';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { truncRid, copyText, ICON_COPY, ICON_SEARCH } from '../utils';
+import { ICON_CHEVRON, ICON_CHECK } from '../../lib/icons';
 import { resolveCopyText, getModifier, COPY_TOOLTIP } from '../../lib/namespace';
 import { DISPLAY_LIMIT_STEP, SEARCH_DEBOUNCE } from '../../lib/constants';
 import { S as shared } from '../state';
@@ -259,9 +260,9 @@ export class ObjectsTab implements Tab {
       h('div', { class: 'bx-frow' },
         h('button', { class: `bx-fchip${allActive ? ' active' : ''}`, 'data-action': 'all-types' }, 'All types'),
         h('button', { class: `bx-dd${this.ceTypes.size > 0 ? ' active' : ''}${this.openDropdown === 'ce' ? ' open' : ''}`, 'data-action': 'toggle-ce' },
-          ceLabel, h('span', { class: 'bx-dd-cv' }, '▾')),
+          ceLabel, h('span', { class: 'bx-dd-cv' }, svg(ICON_CHEVRON))),
         h('button', { class: `bx-dd${this.webTypes.size > 0 ? ' active' : ''}${this.openDropdown === 'web' ? ' open' : ''}`, 'data-action': 'toggle-web' },
-          webLabel, h('span', { class: 'bx-dd-cv' }, '▾')),
+          webLabel, h('span', { class: 'bx-dd-cv' }, svg(ICON_CHEVRON))),
       ),
       h('div', { class: 'bx-frow' },
         h('div', { class: 'bx-seg' },
@@ -269,7 +270,7 @@ export class ObjectsTab implements Tab {
             h('button', { class: `bx-seg-btn${this.source === s ? ' active' : ''}`, 'data-action': 'source', 'data-source': s },
               s === 'all' ? 'All' : s === 'touched' ? 'Touched' : 'Workspace')),
         ),
-        h('button', { class: 'bx-sort', 'data-action': 'sort', title: 'Cycle sort order' }, `Sort: ${sortLabel} ▾`),
+        h('button', { class: 'bx-sort', 'data-action': 'sort', title: 'Cycle sort order' }, `Sort: ${sortLabel} `, h('span', { class: 'bx-dd-cv' }, svg(ICON_CHEVRON))),
       ),
     );
   }
@@ -285,13 +286,13 @@ export class ObjectsTab implements Tab {
       // Filter input + a "select all (shown)" toggle on the RIGHT so it costs no
       // extra vertical space. Toggles the currently-filtered set on/off.
       h('div', { class: 'bx-dd-search' },
-        h('span', { class: 'bx-dd-search-icon' }, '⌕'),
+        h('span', { class: 'bx-dd-search-icon' }, svg(ICON_SEARCH)),
         input,
         h('button', {
           class: `bx-dd-all${allShownSelected ? ' on' : ''}`,
           'data-action': 'type-all', 'data-fam': kind,
           title: allShownSelected ? 'Deselect all shown' : 'Select all shown',
-        }, h('span', { class: 'bx-dd-box' }, allShownSelected ? '✓' : ''), 'All'),
+        }, h('span', { class: 'bx-dd-box' }, allShownSelected ? svg(ICON_CHECK) : null), 'All'),
       ),
       h('div', { class: 'bx-dd-list' },
         shown.length === 0
@@ -299,7 +300,7 @@ export class ObjectsTab implements Tab {
           : null,
         ...shown.map(t =>
           h('div', { class: `bx-dd-opt${selected.has(t) ? ' on' : ''}`, 'data-action': 'type-option', 'data-type': t, 'data-fam': kind },
-            h('span', { class: 'bx-dd-box' }, selected.has(t) ? '✓' : ''),
+            h('span', { class: 'bx-dd-box' }, selected.has(t) ? svg(ICON_CHECK) : null),
             h('span', { class: 'bx-dd-name' },
               h('span', { class: 'bx-chip bx-chip--sm', style: `--tc:${getTypeColor(t)}` }, getTypeAbbr(t)),
               t),

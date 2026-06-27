@@ -7,6 +7,7 @@ import { resolveAuthMode } from '../../lib/bmp-auth';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { ICON_EYE_OPEN, ICON_EYE_CLOSED } from '../utils';
+import { ICON_WARNING, ICON_REFRESH } from '../../lib/icons';
 import { S as shared, getTabPanel } from '../state';
 import { FLASH_INVALID_DURATION } from '../../lib/constants';
 import { confirmModal } from '../../lib/modal';
@@ -241,9 +242,10 @@ export class ConnectTab implements Tab {
     const urlWarn = container.querySelector('#pf-url-warn');
     if (urlInput && urlWarn) {
       urlInput.addEventListener('input', () => {
-        urlWarn.textContent = isInsecureUrl(urlInput.value)
-          ? '⚠ Password will be sent in clear over HTTP. Use https:// when available.'
-          : '';
+        urlWarn.textContent = '';
+        if (isInsecureUrl(urlInput.value)) {
+          urlWarn.append(svg(ICON_WARNING), ' Password will be sent in clear over HTTP. Use https:// when available.');
+        }
       });
     }
 
@@ -391,7 +393,7 @@ export class ConnectTab implements Tab {
         'data-action': 'update-refresh',
         title: 'Check now',
         'aria-label': 'Check for updates now',
-      }, '↻'),
+      }, svg(ICON_REFRESH)),
     );
     this.updatePanel = panel;
     return panel;
@@ -513,7 +515,7 @@ export class ConnectTab implements Tab {
           // toward HTTPS without nagging.
           h('span', { class: 'field-hint field-hint--security', id: 'pf-url-warn' },
             isInsecureUrl(ep.bmpUrl)
-              ? '⚠ Password will be sent in clear over HTTP. Use https:// when available.'
+              ? [svg(ICON_WARNING), ' Password will be sent in clear over HTTP. Use https:// when available.']
               : '',
           ),
         ),

@@ -7,6 +7,7 @@ import { getCtx } from '../sw-context';
 import { incrementGeneration } from '../enrichment';
 import { ensureContentScript } from '../tab-awareness';
 import { togglePaint } from '../paint';
+import { setBlueprintActive } from './layout';
 import { log } from '../logger';
 import type { InspectorMessage } from '../types';
 
@@ -36,6 +37,7 @@ export async function toggleInspect(windowId?: number) {
     return;
   }
   const next = !ctx.isInspectActive(targetWindowId);
+  if (next && ctx.blueprintActiveByWindow.get(targetWindowId)) await setBlueprintActive(targetWindowId, false); // inspect on ⇒ blueprint off
   ctx.setInspectActive(targetWindowId, next);
   if (!next) incrementGeneration();
   ctx.logActivity('info', next ? 'Inspect mode ON' : 'Inspect mode OFF');

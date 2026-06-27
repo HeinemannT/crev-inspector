@@ -22,6 +22,7 @@ import { updatePaintCursors, flashApplyResult } from './content-paint';
 import { showTooltipForElement, hideTooltip, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
 import { mountFrameOverlay, teardownFrameOverlayModule } from './content-frame-overlay';
+import { enableBlueprint, disableBlueprint } from './content-blueprint';
 import { sendFireForget } from './lib/messaging';
 
 declare global {
@@ -159,6 +160,7 @@ function handleConnectionState(state: ConnectionState) {
 
 function handleProfileSwitched(label: string) {
   showToast(`Switched to ${label}`, 'info');
+  disableBlueprint(); // any blueprint overlay is bound to the previous env's page — tear it down
   s.overlayProps.clear();
   renderOverlayCards(s);
   if (s.technicalOverlay) applyTechnicalOverlay(s);
@@ -228,6 +230,9 @@ onPortMessage((msg: InspectorMessage) => {
       setInspectMode(msg.active);
       if (!s.fromSync) broadcast('crev_sync_inspect', { active: msg.active });
       break;
+    // Blueprint: BLUEPRINT_STATE arrives via the one-shot channel (oneShotMessageListener), and
+    // LAYOUT_LOAD/APPLY are request/response via sendRequest (content-blueprint/service.ts) — neither
+    // is dispatched here.
     case 'BADGE_ENRICHMENT':
       // Drop the rid from `requestedRids` as soon as we get ANY
       // response — succeeded or failed. The dedup set's purpose is
@@ -360,6 +365,12 @@ document.body.addEventListener('contextmenu', (e) => {
         businessId: enrichment?.businessId,
       });
       sendFireForget({ type: 'SELECT_OBJECT', rid });
+      // Confirm the pick in-page — otherwise the only signal is the panel
+      // updating, which the user may not be looking at (it can be on another
+      // tab/window). Ring the element + a terse toast naming what's now context.
+      flashContext(ridEl as HTMLElement);
+      const label = enrichment?.name ?? enrichment?.businessId;
+      showToast(label ? `Context: ${label}` : 'Context set', 'info');
     }
   }
 }, { capture: true, signal: s.listenerLifetime.signal });
@@ -414,6 +425,12 @@ document.addEventListener('crev-interceptor', ((event: CustomEvent) => {
 function oneShotMessageListener(msg: InspectorMessage, _sender: chrome.runtime.MessageSender, sendResponse: (response?: unknown) => void): boolean {
   if (msg.type === 'INSPECT_STATE') {
     setInspectMode(msg.active);
+    return false;
+  }
+  // Blueprint toggle arrives via chrome.tabs.sendMessage (one-shot), like INSPECT_STATE — the
+  // SW's BLUEPRINT_TOGGLE handler relays here. (LAYOUT_*_RESULT come back on the port instead.)
+  if (msg.type === 'BLUEPRINT_STATE') {
+    if (msg.active) enableBlueprint(); else disableBlueprint();
     return false;
   }
   if (msg.type === 'GET_PAGE_INFO') {
@@ -493,6 +510,16 @@ function scrollAndHighlight(rid: string): void {
   }
 }
 
+/** Brief self-fading ring confirming a right-click context pick landed on this
+ *  element. Restart-safe: drop the class + force reflow so a rapid second pick
+ *  re-runs the animation instead of sitting idle on the spent one. */
+function flashContext(el: HTMLElement): void {
+  el.classList.remove('crev-context-flash');
+  void el.offsetWidth;
+  el.classList.add('crev-context-flash');
+  setTimeout(() => el.classList.remove('crev-context-flash'), 1400);
+}
+
 // ── Init ─────────────────────────────────────────────────────────
 
 function resetContentState() {
@@ -500,6 +527,7 @@ function resetContentState() {
   hideQuickInspector();
   destroyEnvTag();
   teardownFrameOverlayModule();
+  disableBlueprint();
   document.getElementById('crev-inspector-styles')?.remove();
   document.getElementById('crev-tooltip')?.remove();
   document.getElementById('crev-paint-banner')?.remove();

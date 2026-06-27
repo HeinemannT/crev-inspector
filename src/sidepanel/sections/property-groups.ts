@@ -15,7 +15,8 @@
  * between the two surfaces and stay per-module. Only the property GROUPS are
  * shared here.
  */
-import { h } from '../../lib/dom';
+import { h, svg } from '../../lib/dom';
+import { ICON_REFRESH } from '../../lib/icons';
 import { PROP_GROUPS, type PropDef } from '../pane-schema';
 import {
   colorLinkEditor, numberEditor, enumEditor, booleanEditor, sliderEditor,
@@ -214,7 +215,7 @@ export function renderPropRow(ctx: PaneGroupsCtx, def: PropDef): HTMLElement {
           title: `Reset to ${displayValue(original)}`,
           'aria-label': 'Revert this property',
           onClick: () => ctx.setDraft(def.prop, original),
-        }, '↻')
+        }, svg(ICON_REFRESH))
       : h('span', { class: 'prop-revert', 'aria-hidden': 'true' }),
   );
 }

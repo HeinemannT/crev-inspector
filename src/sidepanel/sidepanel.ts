@@ -11,7 +11,8 @@ import { PAINT_STYLE_PROPS } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
 import { log } from '../lib/logger';
-import { ICON_PAINT, ICON_REFRESH, ICON_LIGHTNING, ICON_TORNADO, ICON_SEARCH } from './utils';
+import { ICON_PAINT, ICON_REFRESH, ICON_LIGHTNING, ICON_TORNADO, ICON_SEARCH, ICON_CROSSHAIR, ICON_BLUEPRINT } from './utils';
+import { ICON_X } from '../lib/icons';
 import { DetailView } from './detail-view';
 import { onColorSetsData } from './color-picker';
 import { initReferenceView, showReferenceView, handleReferenceMessage, isReferenceActive } from './reference-view';
@@ -146,6 +147,10 @@ onPortMessage((msg: InspectorMessage) => {
   switch (msg.type) {
     case 'INSPECT_STATE':
       S.inspectActive = msg.active;
+      updateToggle();
+      break;
+    case 'BLUEPRINT_STATE':
+      S.blueprintActive = msg.active;
       updateToggle();
       break;
     case 'CACHE_STATS':
@@ -339,10 +344,17 @@ function buildApp(): void {
       title: 'Right-click to choose which styles get painted',
     }, svg(ICON_PAINT)),
     h('button', {
-      class: `inspect-toggle ${S.inspectActive ? 'active' : ''}`,
+      class: `header-icon-btn inspect-toggle ${S.inspectActive ? 'active' : ''}`,
       id: 'toggle-inspect',
+      'aria-label': 'Toggle inspect overlays',
       title: 'Toggle inspect overlays (Ctrl+Shift+X: rebind at chrome://extensions/shortcuts)',
-    }, 'Inspect', h('kbd', null, '⌃⇧X')),
+    }, svg(ICON_CROSSHAIR)),
+    h('button', {
+      class: `header-icon-btn blueprint-toggle ${S.blueprintActive ? 'active' : ''}`,
+      id: 'toggle-blueprint',
+      'aria-label': 'Toggle blueprint layout overlay',
+      title: 'Toggle the blueprint layout editor overlay on the live BMP page',
+    }, svg(ICON_BLUEPRINT)),
   );
 
   const tabBar = h('div', { class: 'tab-bar', role: 'tablist' },
@@ -454,6 +466,7 @@ function buildApp(): void {
     showPaintStyleMenu(e.currentTarget as HTMLElement);
   });
   app.querySelector('#toggle-inspect')?.addEventListener('click', () => sendMessage({ type: 'TOGGLE_INSPECT' }));
+  app.querySelector('#toggle-blueprint')?.addEventListener('click', () => sendMessage({ type: 'BLUEPRINT_TOGGLE' }));
   app.querySelector('#open-extended')?.addEventListener('click', () => sendMessage({ type: 'OPEN_EXTENDED' }));
   app.querySelector('#open-codesearch')?.addEventListener('click', () => sendMessage({ type: 'OPEN_CODE_SEARCH' }));
   app.querySelector('#header-status')?.addEventListener('click', () => showProfileSwitcher());
@@ -498,10 +511,9 @@ function renderActiveTab() {
 
 function updateToggle() {
   const btn = document.getElementById('toggle-inspect');
-  if (btn) {
-    btn.className = `inspect-toggle ${S.inspectActive ? 'active' : ''}`;
-    // Preserve the kbd chip — only toggle the class.
-  }
+  if (btn) btn.className = `header-icon-btn inspect-toggle ${S.inspectActive ? 'active' : ''}`;
+  const bp = document.getElementById('toggle-blueprint');
+  if (bp) bp.className = `header-icon-btn blueprint-toggle ${S.blueprintActive ? 'active' : ''}`;
 }
 
 function updateObjectsBadge() {
@@ -592,7 +604,7 @@ function statusStripText(): string {
     case 'online': return 'Online (not authenticated)';
     case 'needs-login': return 'Not logged in. Open BMP in a tab, log in, then retry.';
     case 'no-config-access': return 'Logged in, but this user has no Configuration Access role.';
-    case 'auth-failed': return 'Auth failed';
+    case 'auth-failed': return 'Sign-in failed. Check the profile username and password.';
     case 'server-down': return 'Server down';
     case 'unreachable': return s.networkOffline ? 'No network' : 'Unreachable';
   }
@@ -608,10 +620,14 @@ function refreshStatusStrip() {
   if (text) text.textContent = statusStripText();
   const reconnect = document.getElementById('strip-reconnect');
   if (reconnect) {
-    // 'needs-login' is recoverable in place (log into BMP, then retry), so it
-  // gets the prominent Reconnect button alongside the hard-error states.
-  const isError = ['unreachable', 'server-down', 'auth-failed', 'needs-login', 'no-config-access'].includes(S.connState.display);
-    reconnect.classList.toggle('hidden', !isError);
+    // Only show Reconnect where a plain re-test can actually recover: the
+    // network came back ('unreachable'), the server came back ('server-down'),
+    // or the user logged into BMP in a tab ('needs-login', retry in place).
+    // 'auth-failed' (wrong credentials) and 'no-config-access' (missing role)
+    // can't be fixed by re-running the same auth — the button would be false
+    // comfort, so the status text points at Edit profile / an admin instead.
+    const canRetest = ['unreachable', 'server-down', 'needs-login'].includes(S.connState.display);
+    reconnect.classList.toggle('hidden', !canRetest);
   }
   const btn = strip.querySelector('.status-strip-btn');
   if (btn) btn.classList.remove('spinning');
@@ -722,7 +738,7 @@ function renderLatencyPill(): HTMLElement {
     ? (connected ? 'No latency sample yet. Run any query to see it' : 'Not connected to BMP')
     : `BMP latency: ${label} (${ms} ms via ${source}). Thresholds: <80 / <160 / <320 / <600 / <1200 / ≥1200 ms.`;
   return h('div', { class: `status-bar-latency status-bar-latency--t${tier}`, id: 'status-bar-latency', title },
-    h('span', { class: 'status-bar-latency-dot' }, tier === -1 ? '✕' : ''),
+    h('span', { class: 'status-bar-latency-dot' }, tier === -1 ? svg(ICON_X) : null),
     h('span', { class: 'status-bar-latency-value' }, text),
   );
 }

@@ -8,7 +8,8 @@ import { getTypeColor, getTypeAbbr, TYPES_WITH_CODE } from './lib/types';
 import { FLOW_TYPES } from './lib/widget-metadata';
 import { getAllRidElements } from './lib/dom-scanner';
 import { log } from './lib/logger';
-import { ICON_CODE, ICON_FILE_JS } from './lib/icons';
+import { ICON_CODE, ICON_FILE_JS, ICON_CHECK } from './lib/icons';
+import { svg } from './lib/dom';
 import { DISCOVERED_RIDS_CAP, LABEL_DBLCLICK_WINDOW } from './lib/constants';
 import { resolveCopyText, getModifier } from './lib/namespace';
 import { sendToSW } from './lib/content-port';
@@ -78,8 +79,11 @@ function createCascadePill(cascade: { rid: string; businessId?: string; type?: s
   const text = document.createElement('span');
   text.className = 'crev-label-text';
   text.textContent = cascade.businessId ?? cascade.name ?? getTypeAbbr(cascade.type);
-  // No native `title` — the hover info card (content-tooltip) covers this; a
-  // browser tooltip would just paint over it.
+  // Unlike the main badge, the cascade pill carries no `data-crev-label`, so the
+  // hover info card never fires for it — a native `title` is safe here and is
+  // the only thing that explains this small secondary pill is a clickable link.
+  const cascadeId = cascade.name ?? cascade.businessId ?? cascade.type ?? 'object';
+  pill.title = `Linked ${cascade.type ?? 'object'}: ${cascadeId} (click to open)`;
   pill.appendChild(text);
 
   text.addEventListener('click', (e) => {
@@ -198,7 +202,8 @@ export function syncOverlays(s: ContentState) {
           if (bid) {
             navigator.clipboard.writeText(bid).then(() => {
               const originalText = labelText.textContent;
-              labelText.textContent = `✓ ${bid}`;
+              labelText.textContent = '';
+              labelText.append(svg(ICON_CHECK), ` ${bid}`);
               label.classList.add('crev-label-flash-ok');
               setTimeout(() => {
                 labelText.textContent = originalText;
