@@ -20,7 +20,22 @@
  */
 import type { LModel, LNode } from '../lib/layout/types';
 import { findNode, orderChildren, isTempId, isChart } from '../lib/layout/model';
-import { ICON_PLUS } from '../lib/icons';
+import {
+  ICON_PLUS, ICON_CHART, ICON_TABLE, ICON_LIST, ICON_CHECK_CIRCLE, ICON_CODE,
+  ICON_LINK, ICON_PLAY, ICON_PENCIL, ICON_BOOK, ICON_LAYOUT,
+} from '../lib/icons';
+
+/** Widget-type → Phosphor glyph, so each result cell carries a scannable icon instead of only a mono
+ *  type string (and the big empty chart/table cells aren't pure void). First match wins. */
+const TYPE_ICONS: [RegExp, string][] = [
+  [/Chart$/, ICON_CHART], [/Table$/, ICON_TABLE], [/List$/, ICON_LIST], [/Status/, ICON_CHECK_CIRCLE],
+  [/CustomVisualization/, ICON_CODE], [/URLView/, ICON_LINK], [/Button/, ICON_PLAY], [/Input/, ICON_PENCIL],
+  [/(Description|Text)/, ICON_BOOK], [/Container/, ICON_LAYOUT],
+];
+function typeIcon(className: string): string | null {
+  for (const [re, ic] of TYPE_ICONS) if (re.test(className)) return ic;
+  return null;
+}
 import type { Rect } from './geometry';
 import { unionRect, setIcon } from './geometry';
 import { armBox } from './gestures';
@@ -110,6 +125,8 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
     + (h ? (h.measured ? ' bp-rsized' : ' bp-rest') : '') + (bp.selectedId === node.id ? ' sel' : '');
 
   const lab = document.createElement('div'); lab.className = 'bp-rlab';
+  const icon = typeIcon(node.className);
+  if (icon) { const ic = document.createElement('span'); ic.className = 'bp-ric'; setIcon(ic, icon); lab.appendChild(ic); }
   const nm = document.createElement('span'); nm.className = 'bp-rnm'; nm.textContent = node.name;
   const ty = document.createElement('span'); ty.className = 'bp-rty'; ty.textContent = node.className.toUpperCase();
   lab.append(nm, ty);
@@ -127,6 +144,11 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
     for (const child of orderChildren(node.children)) grid.appendChild(cell(base, child, node.id, byRid));
     if (!node.children.length) { const e = document.createElement('div'); e.className = 'bp-rempty'; e.textContent = 'empty'; grid.appendChild(e); }
     el.appendChild(grid);
+  } else if (icon) {
+    // Faint, large type glyph centred in the leaf cell — so a tall empty chart/table box reads as a
+    // typed placeholder at a glance instead of pure void. Non-interactive, sits behind the label.
+    const wm = document.createElement('span'); wm.className = 'bp-rwm'; setIcon(wm, icon);
+    el.appendChild(wm);
   }
 
   armBox(el, node.id); // select on click, drag to move — drop targets are now final positions
