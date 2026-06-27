@@ -21,9 +21,11 @@
 import { h, svg } from '../../lib/dom';
 import { getTypeColor, getTypeAbbr } from '../../lib/types';
 import { ecPreviewSpan } from '../../lib/ec-format';
+import { resolveCopyText, getModifier, type CopyModifier } from '../../lib/namespace';
 import {
   ICON_KEY, ICON_CODE, ICON_LIGHTNING, ICON_ARROW_SQUARE_IN, ICON_ARROW_OUT,
-  ICON_EYE_SLASH, ICON_SUBTITLES_SLASH, ICON_CODE_BLOCK,
+  ICON_EYE_SLASH, ICON_SUBTITLES_SLASH, ICON_CODE_BLOCK, ICON_VARIABLE, ICON_CLOCK,
+  ICON_SHIELD, ICON_PENCIL, ICON_REFRESH,
 } from '../../lib/icons';
 import type { FlowChainMsg, FlowStepMsg, FlowCodeFieldMsg, InspectorMessage } from '../../lib/types';
 
@@ -47,6 +49,13 @@ const PROP_ICON: Record<string, string> = {
   showExpression: ICON_EYE_SLASH,    // visibility gate
   enableExpression: ICON_SUBTITLES_SLASH, // enabled / clickable gate
   defaultExpression: ICON_CODE_BLOCK, // provides the default value / text
+  validateExpression: ICON_SHIELD,   // gates the action on validation
+  editExpression: ICON_PENCIL,       // edit-mode expression
+  refreshExpression: ICON_REFRESH,   // refresh trigger
+  // ChangePropertyTransport action fields (write a property on the target):
+  function: ICON_VARIABLE,           // calc function (CorpoCalcExpression)
+  dateFunction: ICON_CLOCK,          // date function
+  // `value` (CorpoTokenListExpression) falls back to the generic code glyph.
 };
 
 function propIcon(prop: string): string {
@@ -152,6 +161,16 @@ function renderGroup(node: FlowStepMsg, input: FlowSectionInput): HTMLElement {
 }
 
 function renderLeaf(leaf: FlowStepMsg, input: FlowSectionInput): HTMLElement {
+  // A ButtonGroup is just a layout wrapper — don't give it a full card; draw a
+  // subtle outline with a small "group · name" label and lay its buttons inside.
+  if (leaf.identity.type === 'ButtonGroup' && leaf.children && leaf.children.length > 0) {
+    const box = h('div', { class: 'flow-groupbox' });
+    box.appendChild(h('div', { class: 'flow-grouplabel' },
+      leaf.identity.name ? `group · ${leaf.identity.name}` : 'group'));
+    for (const child of leaf.children) box.appendChild(renderLeaf(child, input));
+    return box;
+  }
+
   const card = h('div', { class: 'flow-card' });
   card.appendChild(renderNavHead('flow-card-head', leaf, input));
   if (leaf.hint) card.appendChild(h('div', { class: 'flow-hint' }, leaf.hint));
@@ -167,17 +186,60 @@ function renderLeaf(leaf: FlowStepMsg, input: FlowSectionInput): HTMLElement {
   return card;
 }
 
+const FLOW_COPY_HINT =
+  'Click: copy ID + open · Alt → RID · Shift → Template · Ctrl → Reference';
+
 function navAttrs(node: FlowStepMsg, input: FlowSectionInput) {
+  const { rid, businessId, type } = node.identity;
   return {
-    'data-rid': node.identity.rid,
+    'data-rid': rid,
     role: 'button',
     tabindex: '0',
-    title: `${node.identity.type} · ${node.identity.businessId || node.identity.rid}`,
-    onClick: () => input.onNavigate(node.identity.rid),
+    title: `${type} · ${businessId || rid}\n${FLOW_COPY_HINT}`,
+    onClick: (e: MouseEvent) => activateNode(e.currentTarget as HTMLElement, node, input, getModifier(e)),
     onKeydown: (e: KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.onNavigate(node.identity.rid); }
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        activateNode(e.currentTarget as HTMLElement, node, input, 'plain');
+      }
     },
   };
+}
+
+/** Click/activate a flow node. Mirrors the in-page overlay's gesture so the
+ *  sidebar's explore behaviour is consistent: a plain click is the
+ *  configurator's "I want this object" — copy its business id AND drill in;
+ *  a modifier-click copies a variant (Alt → RID, Shift → template, Ctrl → ref)
+ *  without navigating. See src/lib/namespace.ts (resolveCopyText). */
+function activateNode(head: HTMLElement, node: FlowStepMsg, input: FlowSectionInput, mod: CopyModifier): void {
+  const { rid, businessId, type } = node.identity;
+  if (mod === 'plain') {
+    if (businessId) { copyToClipboard(businessId); flashCopied(head, 'Copied ID'); }
+    input.onNavigate(rid);
+    return;
+  }
+  const { text, label } = resolveCopyText({ rid, businessId, type }, mod);
+  if (text) { copyToClipboard(text); flashCopied(head, `Copied ${label}`); }
+  else flashCopied(head, label); // e.g. "No template"
+}
+
+/** Optional-chained so it's a no-op when the clipboard is unavailable (the
+ *  visible flash is best-effort feedback, never a hard dependency). */
+function copyToClipboard(text: string): void {
+  navigator.clipboard?.writeText(text).catch(() => { /* blocked — silent */ });
+}
+
+/** Briefly swap the node's name to a confirmation so the copy is visible. */
+function flashCopied(head: HTMLElement, message: string): void {
+  const nameEl = head.querySelector<HTMLElement>('.flow-name, .flow-group-name');
+  if (!nameEl) return;
+  const original = nameEl.textContent;
+  nameEl.textContent = message;
+  head.classList.add('flow-flash-ok');
+  setTimeout(() => {
+    nameEl.textContent = original;
+    head.classList.remove('flow-flash-ok');
+  }, 700);
 }
 
 function renderNavHead(cls: string, node: FlowStepMsg, input: FlowSectionInput): HTMLElement {

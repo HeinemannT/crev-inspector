@@ -19,7 +19,7 @@
 
 import {
   ALL_CODE_FIELDS, ALL_REFERENCE_FIELDS, ALL_INDIRECT_FIELDS,
-  ALL_CONTEXT_FIELDS, ALL_ENABLED_BY_PROPS, type ContextFieldDef,
+  ALL_CONTEXT_FIELDS, ALL_ENABLED_BY_PROPS,
 } from './widget-metadata';
 import type { PaneProp } from './bmp-client';
 import { validateEcIdentifier } from './ec-guards';
@@ -70,6 +70,124 @@ function childEcEmit(prop: string, varName = '_c', prefix = ''): string {
 /** EC fragment that emits a single header section: `{sep}<label>{sep}<value>\n`. */
 function scalarBlock(label: string, valueExpr: string, prefix = ''): string {
   return `${prefix}_r := _r + _sep + "${label}" + _sep + ${valueExpr} + "\\n"`;
+}
+
+/** Pass-2 EC for an action/transport-group child `_c`: emit its code-field
+ *  block(s) keyed by className. Only EC-bearing transports emit anything —
+ *  ExtendedTransport.expression and ChangePropertyTransport.value / function /
+ *  dateFunction (verified live against the "Action group" fixture: output()
+ *  returns the raw source and is empty-safe). Every other transport
+ *  (Smtp/File/Soap/RunReport/AddObject/ActivateForms/…) carries no EC and
+ *  renders as a bare node. `keyPrefix` (`child` | `actchild`) matches the
+ *  block keys each walk's parser reads. EC requires a mandatory ELSE. */
+function transportChildEc(keyPrefix: string, indent: string, varName = '_c'): string[] {
+  const slot = (prop: string, ind: string): string => {
+    validateEcIdentifier(prop);
+    return `${ind}_r := _r + _sep + "${keyPrefix}_${prop}_" + ${varName}.rid.whenMissing("") + _sep + output(${varName}.${prop}.whenMissing("")) + "\\n"`;
+  };
+  return [
+    `${indent}IF ${varName}.className = "ExtendedTransport" THEN`,
+    slot('expression', indent + '  '),
+    `${indent}ELSE`,
+    `${indent}  IF ${varName}.className = "ChangePropertyTransport" THEN`,
+    slot('value', indent + '    '),
+    slot('function', indent + '    '),
+    slot('dateFunction', indent + '    '),
+    `${indent}  ELSE`,
+    `${indent}    _r := _r`,
+    `${indent}  ENDIF`,
+    `${indent}ENDIF`,
+  ];
+}
+
+/** Supplemental EC for an InputSet walk: for every DIRECT child that is an
+ *  action-bearing button (ButtonInput / ActionButton with an actionObject),
+ *  emit the action graph — owner→group identity rows, group→transport rows,
+ *  and per-transport EC. Emitted AFTER the flat `children` + per-child EC
+ *  blocks so the contiguous identity blocks aren't split. `setVar` is the EC
+ *  var holding the InputSet. Verified live against t.153. */
+function inputActionEc(setVar: string): string[] {
+  // Visit every action-bearing button — direct InputSet children AND buttons
+  // nested inside a ButtonGroup — binding _b to the button and _ao to its
+  // actionObject, then running `inner` (which uses _b / _ao). Buttons may share
+  // an actionObject (e.g. two buttons → one transport group); the parser
+  // dedupes transports and fans them out to every owner.
+  const visit = (inner: string[]): string[] => {
+    const block = (btn: string, ind: string): string[] => [
+      `${ind}_b := ${btn}`,
+      `${ind}IF _b.className = "ButtonInput" OR _b.className = "ActionButton" THEN`,
+      `${ind}  _ao := _b.actionObject`,
+      `${ind}  IF _ao != MISSING THEN`,
+      ...inner.map(l => `${ind}    ${l}`),
+      `${ind}  ELSE`,
+      `${ind}    _r := _r`,
+      `${ind}  ENDIF`,
+      `${ind}ELSE`,
+      `${ind}  _r := _r`,
+      `${ind}ENDIF`,
+    ];
+    return [
+      `${setVar}.children().forEach(_c:`,
+      ...block('_c', '  '),
+      '  IF _c.className = "ButtonGroup" THEN',
+      '    _c.children().forEach(_g:',
+      ...block('_g', '      '),
+      '    )',
+      '  ELSE',
+      '    _r := _r',
+      '  ENDIF',
+      ')',
+    ];
+  };
+  return [
+    // owner→group: ownerButtonRid|ntgRid|ntgId|ntgName|ntgClassName
+    `_r := _r + _sep + "actiongroups" + _sep + "\\n"`,
+    ...visit([
+      '_r := _r + _b.rid.whenMissing("") + "|" + _ao.rid.whenMissing("") + "|" + _ao.id.whenMissing("") + "|" + _ao.name.whenMissing("") + "|" + _ao.className.whenMissing("") + "\\n"',
+    ]),
+    // group→transport identity: ntgRid|transportRid|id|name|className
+    `_r := _r + _sep + "actiontransports" + _sep + "\\n"`,
+    ...visit([
+      '_ao.children().forEach(_t:',
+      '  _r := _r + _ao.rid.whenMissing("") + "|" + _t.rid.whenMissing("") + "|" + _t.id.whenMissing("") + "|" + _t.name.whenMissing("") + "|" + _t.className.whenMissing("") + "\\n"',
+      ')',
+    ]),
+    // per-transport EC (child_ prefix, keyed by transport rid)
+    ...visit([
+      '_ao.children().forEach(_t:',
+      ...transportChildEc('child', '  ', '_t'),
+      ')',
+    ]),
+  ];
+}
+
+/** Supplemental EC for a ButtonGroup: surface each group's child buttons.
+ *  Emits a `groupkids` block (groupRid|childRid|id|name|className|key) plus the
+ *  per-child input EC (child_ prefix, keyed by child rid) so the buttons inside
+ *  a group are no longer invisible. The renderer draws a subtle group outline.
+ *  Verified live against t.153. */
+function buttonGroupEc(setVar: string): string[] {
+  return [
+    `_r := _r + _sep + "groupkids" + _sep + "\\n"`,
+    `${setVar}.children().forEach(_c:`,
+    '  IF _c.className = "ButtonGroup" THEN',
+    '    _c.children().forEach(_g:',
+    '      _r := _r + _c.rid.whenMissing("") + "|" + _g.rid.whenMissing("") + "|" + _g.id.whenMissing("") + "|" + _g.name.whenMissing("") + "|" + _g.className.whenMissing("") + "|" + _g.key.whenMissing("") + "\\n"',
+    '    )',
+    '  ELSE',
+    '    _r := _r',
+    '  ENDIF',
+    ')',
+    `${setVar}.children().forEach(_c:`,
+    '  IF _c.className = "ButtonGroup" THEN',
+    '    _c.children().forEach(_g:',
+    ...CHILD_EC_PROPS.map(p => childEcEmit(p, '_g', '      ')),
+    '    )',
+    '  ELSE',
+    '    _r := _r',
+    '  ENDIF',
+    ')',
+  ];
 }
 
 // ── Common preamble / footer ─────────────────────────────────────
@@ -131,6 +249,8 @@ export function buildInputViewFlowEc(ref: string): string {
     '  _is.children().forEach(_c:',
     ...childEcAll('    '),
     '  )',
+    ...buttonGroupEc('_is').map(l => '  ' + l),
+    ...inputActionEc('_is').map(l => '  ' + l),
     'ENDIF',
     ...footer(),
   ].join('\n');
@@ -149,26 +269,26 @@ export function buildInputSetFlowEc(ref: string): string {
     '_o.children().forEach(_c:',
     ...childEcAll('  '),
     ')',
+    ...buttonGroupEc('_o'),
+    ...inputActionEc('_o'),
     ...footer(),
   ].join('\n');
 }
 
-/** Walk a NotificationTransportGroup → its ExtendedTransport children. The
- *  className filter keeps non-EC siblings out of the chain. */
+/** Walk a NotificationTransportGroup → ALL its transport children. Every child
+ *  is surfaced as a node so the full action group is visible (Smtp / File /
+ *  RunReport / AddObject / ActivateForms / …); EC is attached to the ones that
+ *  carry it (ExtendedTransport, ChangePropertyTransport) — see transportChildEc. */
 export function buildTransportGroupFlowEc(ref: string): string {
   return [
     ...preamble(ref),
     pipeRow('_o', 'grp'),
     `_r := _r + _sep + "children" + _sep + "\\n"`,
     '_o.children().forEach(_c:',
-    '  IF _c.className = "ExtendedTransport" THEN',
-    pipeRowNoKey('_c', '    '),
-    '  ENDIF',
+    pipeRowNoKey('_c', '  '),
     ')',
     '_o.children().forEach(_c:',
-    '  IF _c.className = "ExtendedTransport" THEN',
-    childEcEmit('expression', '_c', '    '),
-    '  ENDIF',
+    ...transportChildEc('child', '  '),
     ')',
     ...footer(),
   ].join('\n');
@@ -178,9 +298,12 @@ export function buildTransportGroupFlowEc(ref: string): string {
  * fetchActionButtonFlow EC. The button itself carries direct EC (expression /
  * init / after) plus an indirect showExpression that resolves through
  * ExtendedExpression.expression. The chain target depends on actionType:
- *   ACTION   → walk actionObject (NotificationTransportGroup) → ExtendedTransport
+ *   ACTION   → walk actionObject (NotificationTransportGroup) → ALL transports
  *   ADD / NAVIGATE → expression on the button IS the EC (no chain to walk)
  *   EDIT     → actionObject is the edit target (no EC chain)
+ * The actionObject's children are walked in full (every transport is a node);
+ * EC attaches to ExtendedTransport / ChangePropertyTransport — see
+ * transportChildEc.
  */
 export function buildActionButtonFlowEc(ref: string): string {
   return [
@@ -196,18 +319,24 @@ export function buildActionButtonFlowEc(ref: string): string {
     // so the Edit button on the indirect EC opens the TARGET's `.expression`
     // field, not the AB's `.showExpression` (which is a Reference, not an EC).
     scalarBlock('ab_showExpression_rid', '_o.showExpression.rid.whenMissing("")'),
+    // enableExpression + validateExpression are indirect too (Reference →
+    // ExtendedExpression), read + redirected exactly like showExpression.
+    // editExpression + refreshExpression are DIRECT expression fields (verified
+    // live on t.151: editExpression='this.object', the others deref/empty-safe).
+    scalarBlock('ab_enableExpression', 'output(_o.enableExpression.expression.whenMissing(""))'),
+    scalarBlock('ab_enableExpression_rid', '_o.enableExpression.rid.whenMissing("")'),
+    scalarBlock('ab_validateExpression', 'output(_o.validateExpression.expression.whenMissing(""))'),
+    scalarBlock('ab_validateExpression_rid', '_o.validateExpression.rid.whenMissing("")'),
+    scalarBlock('ab_editExpression', 'output(_o.editExpression.whenMissing(""))'),
+    scalarBlock('ab_refreshExpression', 'output(_o.refreshExpression.whenMissing(""))'),
     'IF _act != MISSING THEN',
     pipeRow('_act', 'act', '  '),
     `  _r := _r + _sep + "actchildren" + _sep + "\\n"`,
     '  _act.children().forEach(_c:',
-    '    IF _c.className = "ExtendedTransport" THEN',
-    pipeRowNoKey('_c', '      '),
-    '    ENDIF',
+    pipeRowNoKey('_c', '    '),
     '  )',
     '  _act.children().forEach(_c:',
-    '    IF _c.className = "ExtendedTransport" THEN',
-    `      _r := _r + _sep + "actchild_expression_" + _c.rid.whenMissing("") + _sep + output(_c.expression.whenMissing("")) + "\\n"`,
-    '    ENDIF',
+    ...transportChildEc('actchild', '    '),
     '  )',
     'ENDIF',
     ...footer(),
@@ -350,5 +479,4 @@ export function buildObjectPaneEc(ref: string, paneProps: readonly string[]): st
   return lines.join('\n');
 }
 
-// Re-export ContextFieldDef so test files can import from one place if needed.
-export type { ContextFieldDef, PaneProp };
+export type { PaneProp };

@@ -4051,6 +4051,14 @@ body.crev-divider-dragging * { user-select: none; }
   border-radius: var(--radius-sm);
 }
 
+/* Copy-confirmation flash — the node name briefly turns success-green while it
+   shows "Copied ID" (see activateNode/flashCopied in flow-walker.ts). */
+.flow-flash-ok .flow-name,
+.flow-flash-ok .flow-group-name {
+  color: var(--success);
+  transition: color var(--duration-fast) var(--ease-default);
+}
+
 .flow-hint {
   margin-top: var(--space-1);
   padding: 2px var(--space-2);
@@ -4233,6 +4241,28 @@ body.crev-divider-dragging * { user-select: none; }
   margin: var(--space-2) 0 0;
   padding-left: var(--space-3);
   border-left: 2px solid var(--surface-3);
+}
+
+/* ButtonGroup wrapper — a subtle dashed outline around its buttons with a tiny
+   "group · name" caption. The group object itself isn't worth a card; this just
+   shows the buttons belong together without eating vertical space. */
+.flow-groupbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  border: 1px dashed var(--surface-4);
+  border-radius: var(--radius-sm);
+}
+.flow-grouplabel {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Scrollbar ─────────────────────────────────── */
