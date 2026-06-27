@@ -19,16 +19,8 @@ import { bp, model } from './state';
 import { render } from './view';
 import { applyPage, fetchBlast, createTabset } from './service';
 
-/** Push a new model state onto history and re-render. The one write path for staged edits. On the
- *  FIRST edit, surface the result view (final positions, honest drop targets, real heights) — but only
- *  once, so a user who toggles back to the live photo isn't yanked away on their next edit. */
-export function mutate(next: LModel): void {
-  bp.history?.push(next);
-  if (!bp.resultAutoShown && !bp.resultView && bp.baseline && diff(bp.baseline, next).length > 0) {
-    bp.resultView = true; bp.resultAutoShown = true;
-  }
-  render();
-}
+/** Push a new model state onto history and re-render. The one write path for staged edits. */
+export function mutate(next: LModel): void { bp.history?.push(next); render(); }
 
 export function select(id: string | null): void { bp.selectedId = id; render(); }
 export function setWidth(id: string, n: number): void { const m = model(); if (m) mutate(resize(m, id, 'L', n)); }
@@ -119,10 +111,6 @@ export function revertNode(id: string): void {
 export function setHint(text: string | null): void { if (bp.hint !== text) { bp.hint = text; render(); } }
 export function toggleTray(): void { bp.trayOpen = !bp.trayOpen; render(); }
 
-/** Flip between the LIVE view (diff badges anchored over BMP's frozen grid) and the RESULT view (the
- *  edited model laid out as a CSS-grid wireframe — what the page becomes after Apply). A manual toggle
- *  counts as the auto-surface having happened, so we never override the user's choice afterwards. */
-export function toggleResultView(): void { bp.resultView = !bp.resultView; bp.resultAutoShown = true; bp.selectedId = null; render(); }
 
 /** A self-clearing hint-bar message for actions with no spatial gesture of their own (undo/redo).
  *  The timer only clears its OWN text, so a later gesture hint isn't clobbered. The caller renders. */

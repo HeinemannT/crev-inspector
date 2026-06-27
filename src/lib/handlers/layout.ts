@@ -76,6 +76,23 @@ register('LAYOUT_LOAD', async (msg, respond) => {
   }
 });
 
+register('LAYOUT_CAPTURE', async (_msg, respond, meta) => {
+  try {
+    // Capture the sender tab's window viewport. captureVisibleTab needs the windowId; derive it from
+    // the sender tab (the BMP content tab), not lastFocused (which may be the side panel/devtools).
+    let windowId: number | undefined = meta.panelWindowId;
+    if (windowId == null && meta.senderTabId != null) {
+      windowId = (await chrome.tabs.get(meta.senderTabId).catch(() => null))?.windowId ?? undefined;
+    }
+    const dataUrl = windowId != null
+      ? await chrome.tabs.captureVisibleTab(windowId, { format: 'png' })
+      : await chrome.tabs.captureVisibleTab({ format: 'png' });
+    respond({ type: 'LAYOUT_CAPTURE_RESULT', ok: true, dataUrl });
+  } catch (e) {
+    respond({ type: 'LAYOUT_CAPTURE_RESULT', ok: false, error: errorMessage(e) });
+  }
+});
+
 register('LAYOUT_CREATE_TABSET', async (msg, respond) => {
   const ctx = getCtx();
   if (!ctx.client) { respond({ type: 'LAYOUT_CREATE_TABSET_RESULT', ok: false, error: 'Not connected' }); return; }

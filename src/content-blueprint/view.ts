@@ -23,6 +23,7 @@ import {
 import { armBox, armResize } from './gestures';
 import { renderChip, previewModal, trayPanel, hintBar, createTabsetModal } from './view-panels';
 import { renderResult } from './result';
+import { scheduleThumbs } from './thumbs';
 
 export function render(): void {
   const layer = bp.layer;
@@ -44,11 +45,14 @@ export function render(): void {
   header.append(renderChip(ctx, pending), tabBar(base, m));
   layer.appendChild(header);
 
-  // RESULT view: render the edited model as a CSS-grid wireframe (final positions) instead of badges
-  // over the frozen grid. Falls back to the live view if it can't anchor (no active tab in the DOM).
-  // The selection toolbar + pickers + tray + preview modal still apply (rendered at the foot below).
-  if (bp.resultView && renderResult(base, m, byRid, layer)) {
+  // The result canvas IS the editor: the edited model laid out as a CSS-grid wireframe (final
+  // positions, real heights, all tabs, honest drop targets). It's always the primary surface; the
+  // live diff-over-frozen-grid path below is only a fallback for a page the result view can't anchor
+  // to (no active tab with live widgets). (The live "real page" view is slated to move into inspect
+  // mode — see docs/blueprint.md.) Selection toolbar + pickers + tray + modal render at the foot.
+  if (renderResult(base, m, byRid, layer)) {
     renderFloatingChrome(byRid, m);
+    scheduleThumbs(byRid, render); // grab thumbnails of any newly-visible widgets, then repaint
     return;
   }
 
@@ -136,7 +140,7 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
 /** Anchor a floating panel to a node's result-view cell (the result wireframe has no live DOM rect,
  *  so anchorRect returns null there). Reads the rendered cell's on-screen box. */
 function resultAnchor(id: string): Rect | null {
-  if (!bp.resultView || !bp.layer) return null;
+  if (!bp.layer) return null;
   const el = bp.layer.querySelector(`.bp-rcell[data-bpid="${CSS.escape(id)}"]`) as HTMLElement | null;
   if (!el) return null;
   const r = el.getBoundingClientRect();

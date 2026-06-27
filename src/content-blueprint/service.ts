@@ -25,7 +25,6 @@ function rebase(m: LModel): void {
   bp.baseline = m;
   bp.history = new History(m);
   bp.selectedId = null;
-  bp.resultAutoShown = false; // a freshly-loaded page may auto-surface the result view on its first edit
 }
 
 /** True if the session we started this I/O for is still the live one. A reply that arrives after the

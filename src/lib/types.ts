@@ -628,6 +628,11 @@ export type LayoutMessage =
   // Create a dedicated tabset for a RESULT-only page (no tabset), move its widgets onto it, then load.
   | { type: 'LAYOUT_CREATE_TABSET'; page: NeedsTabset; name: string }
   | { type: 'LAYOUT_CREATE_TABSET_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
+  // Screenshot the visible BMP viewport (for result-canvas widget thumbnails). The content script
+  // crops per-widget regions from the returned image — no per-element snapshot lib, and CVO iframes
+  // are captured (they're real pixels), unlike html2canvas.
+  | { type: 'LAYOUT_CAPTURE' }
+  | { type: 'LAYOUT_CAPTURE_RESULT'; ok: boolean; dataUrl?: string; error?: string }
   | { type: 'LAYOUT_APPLY'; env: string; ctx: BlueprintCtx; baseline: LModel; desired: LModel }
   | { type: 'LAYOUT_APPLY_RESULT'; ok: boolean; noop: boolean; stale?: boolean; script?: string; notes?: PlanNote[]; model?: LModel; baseline?: LModel; error?: string }
   // Apply-preview blast radius: is the page a template master (fan-out), and do any touched shared

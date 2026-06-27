@@ -45,7 +45,7 @@ describe('renderResult (CSS-grid mirror)', () => {
   beforeEach(() => {
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(
       { left: 100, top: 50, right: 700, bottom: 300, width: 600, height: 250, x: 100, y: 50, toJSON: () => ({}) } as DOMRect);
-    bp.selectedId = null; bp.resultView = true;
+    bp.selectedId = null;
   });
 
   const m = mdl([tab('t1', [container('A', 4, [widget('w1', 6), widget('w2', 3)]), widget('w2top', 2)])]);

@@ -95,10 +95,26 @@ stateless per request.
   carries the date it was last live-checked.
 - UI is validated by the e2e rig above (the content overlay has no headless DOM harness).
 
+## The canvas: result view
+
+Blueprint opens **straight onto the result canvas** — the edited model laid out as a CSS-grid mirror
+of BMP's 6-col model (final positions, real heights, all tabs), which is the single surface you edit
+on (honest drop targets: you drop where you see it land). Each cell shows a **thumbnail** of the real
+widget (SW `captureVisibleTab` → per-rid crop in `thumbs.ts`; off-screen / inactive-tab widgets fall
+back to a Phosphor type icon + watermark), so the wireframe is recognisable as the page itself. The
+old **live diff-over-frozen-grid view** is now only a fallback for a page the result view can't anchor
+to; it carries the stale-drop-target hazard and exists to be **retired into inspect mode** (the
+"see the real page with overlays" role belongs there, not as a second editor) — see follow-ups.
+
 ## Status & follow-ups
 
-Phases 1–4 complete (engine, safety, full interactive UI, composite editing). Remaining (Phase 4
-remainder + 5): a fully **live-derived** add palette per host (needs the server add-menu command,
-not yet confirmed over the bridge) and **real display names** (the `#L#<key>.typename` localization
-bundle) — the curated palette ships now; an automated in-extension e2e harness; telemetry beyond the
-activity-log audit of applied EC.
+Phases 1–4 complete (engine, safety, full interactive UI, composite editing); result-canvas + widget
+thumbnails shipped. Remaining:
+- **Integrate the live view into inspect mode** — move the real-page-with-overlays role to the
+  existing inspect overlay and drop the live editing path from blueprint entirely (it's currently only
+  a no-anchor fallback). Kills the stale-drop-target hazard and lets the frozen-DOM geometry inference
+  (`unionRect`/`anchorRect`/`addGapZones`/`stackY`) be deleted.
+- A fully **live-derived** add palette per host (needs the server add-menu command, not yet confirmed
+  over the bridge) and **real display names** (the `#L#<key>.typename` localization bundle) — the
+  curated palette ships now.
+- An automated in-extension e2e harness; telemetry beyond the activity-log audit of applied EC.

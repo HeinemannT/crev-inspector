@@ -12,10 +12,10 @@ import { findNode } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
 import { diff } from '../lib/layout/diff';
-import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_LAYOUT, ICON_BLUEPRINT, ICON_WARNING } from '../lib/icons';
+import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_WARNING } from '../lib/icons';
 import { bp, model } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
-import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, toggleResultView, discard, openApplyPreview, exitBlueprint, doCreateTabset } from './actions';
+import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, discard, openApplyPreview, exitBlueprint, doCreateTabset } from './actions';
 import type { NeedsTabset } from '../lib/layout/sync';
 
 const VERB_ICON: Record<PlanNote['verb'], string> = { create: ICON_PLUS, update: ICON_PENCIL, move: ICON_ARROW_RIGHT, reorder: ICON_SWAP, delete: ICON_TRASH };
@@ -184,9 +184,6 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   const redoB = mkIconBtn(ICON_ARROW_REDO, redo); redoB.title = 'Redo'; redoB.disabled = !bp.history?.canRedo(); c.appendChild(redoB);
   const trayB = mkIconBtn(ICON_LIST, toggleTray, String(pending)); trayB.title = 'Pending changes'; trayB.disabled = pending === 0;
   if (bp.trayOpen) trayB.classList.add('on'); c.appendChild(trayB);
-  const resB = mkIconBtn(ICON_LAYOUT, toggleResultView, 'Result');
-  resB.title = bp.resultView ? 'Showing the result layout — click for the live page' : 'Preview the result layout (final positions)';
-  if (bp.resultView) resB.classList.add('on'); c.appendChild(resB);
   const discardB = mkBtn('Discard', discard); discardB.disabled = pending === 0 || bp.applying; c.appendChild(discardB);
   const applyB = mkBtn(bp.applying ? 'Applying…' : `Apply${pending ? ` (${pending})` : ''}`, openApplyPreview);
   applyB.className = 'apply'; applyB.disabled = pending === 0 || bp.applying; c.appendChild(applyB);

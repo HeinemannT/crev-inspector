@@ -15,6 +15,7 @@ import { bp, STYLE_ID, isBlueprintActive } from './content-blueprint/state';
 import { render } from './content-blueprint/view';
 import { select, onKeydown } from './content-blueprint/actions';
 import { cancelGesture } from './content-blueprint/gestures';
+import { clearThumbs } from './content-blueprint/thumbs';
 import { loadPage } from './content-blueprint/service';
 
 export { isBlueprintActive };
@@ -86,6 +87,7 @@ function ridSignature(): string {
 export function disableBlueprint(): void {
   if (!bp.active) return;
   cancelGesture(); // rip out any in-flight drag/resize listeners + body-level ghost/line elements
+  clearThumbs();   // drop captured widget thumbnails (a new session re-captures fresh)
   if (bp.onScroll) {
     window.removeEventListener('scroll', bp.onScroll, true);
     window.removeEventListener('resize', bp.onScroll, true);
@@ -96,7 +98,7 @@ export function disableBlueprint(): void {
   bp.observer?.disconnect();
   bp.layer?.remove();
   document.getElementById(STYLE_ID)?.remove(); // don't leak the injected stylesheet past teardown
-  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, pickerOpts: null, movePicker: null, onScroll: null, onKey: null, raf: 0, hint: null, trayOpen: false, dragging: false, renaming: false, observer: null, ridSig: '', mutRaf: 0, resultView: false, resultAutoShown: false, needsTabset: null, creatingTabset: false });
+  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, pickerOpts: null, movePicker: null, onScroll: null, onKey: null, raf: 0, hint: null, trayOpen: false, dragging: false, renaming: false, observer: null, ridSig: '', mutRaf: 0, needsTabset: null, creatingTabset: false });
 }
 // Load/apply results are handled by content-blueprint/service.ts (the sendRequest promises), not by
 // a port-dispatched handler — see that module.

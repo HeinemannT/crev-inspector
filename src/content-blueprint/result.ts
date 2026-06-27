@@ -40,6 +40,7 @@ import type { Rect } from './geometry';
 import { unionRect, setIcon } from './geometry';
 import { armBox } from './gestures';
 import { openPicker } from './actions';
+import { thumbFor } from './thumbs';
 import { bp } from './state';
 
 /** A small "+" add button for a result container/tab cell. armBox already ignores mousedowns that
@@ -144,11 +145,18 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
     for (const child of orderChildren(node.children)) grid.appendChild(cell(base, child, node.id, byRid));
     if (!node.children.length) { const e = document.createElement('div'); e.className = 'bp-rempty'; e.textContent = 'empty'; grid.appendChild(e); }
     el.appendChild(grid);
-  } else if (icon) {
-    // Faint, large type glyph centred in the leaf cell — so a tall empty chart/table box reads as a
-    // typed placeholder at a glance instead of pure void. Non-interactive, sits behind the label.
-    const wm = document.createElement('span'); wm.className = 'bp-rwm'; setIcon(wm, icon);
-    el.appendChild(wm);
+  } else {
+    // A captured thumbnail of the real widget makes the cell recognisable as the page itself; if we
+    // don't have one yet (off-screen, or a blank/iframe crop), fall back to the faint type watermark so
+    // a tall empty box still reads as a typed placeholder. Both sit behind the label.
+    const thumb = node.rid ? thumbFor(node.rid) : undefined;
+    if (thumb) {
+      const t = document.createElement('div'); t.className = 'bp-rthumb'; t.style.backgroundImage = `url("${thumb}")`;
+      el.appendChild(t);
+    } else if (icon) {
+      const wm = document.createElement('span'); wm.className = 'bp-rwm'; setIcon(wm, icon);
+      el.appendChild(wm);
+    }
   }
 
   armBox(el, node.id); // select on click, drag to move — drop targets are now final positions
