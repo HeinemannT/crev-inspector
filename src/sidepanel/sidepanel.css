@@ -3943,102 +3943,114 @@ body.crev-divider-dragging * { user-select: none; }
 }
 .flow-error { color: var(--danger); }
 
-/* Vertical chain — each object is a distinct card; nesting is shown by an
- * indented rail down the left of each child group. */
+/* Vertical chain — the single-child spine collapses to a header (the widget,
+ * keeping its type pill) plus light "container" context lines; the leaves
+ * render as cards. Every field line is icon-led: a leading glyph then content,
+ * no gutter labels. */
 .flow-chain {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  padding: 2px var(--space-3) 4px;
+  gap: var(--space-2);
+  padding: 4px var(--space-3) 6px;
 }
 
-.flow-step {
+.flow-root {
   display: flex;
   flex-direction: column;
+  gap: var(--space-1);
 }
+.flow-root-head { margin-bottom: 1px; }
 
-/* Each object is its own card: faint border + a 3 px type-colour left edge so
- * "this is a CVO / InputView / ButtonInput" reads at a glance. Gaps + the rail
- * (on .flow-children) separate and nest them. */
-.flow-card {
-  background: var(--surface-1);
-  border: 1px solid var(--surface-2);
-  border-left: 3px solid var(--type-color, var(--surface-4));
-  border-radius: var(--radius-sm);
-  padding: 7px var(--space-3) 7px 10px;
-  cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-default),
-              border-color var(--duration-fast) var(--ease-default);
-}
-
-.flow-card:hover {
-  background: var(--surface-2);
-  border-top-color: var(--surface-3);
-  border-right-color: var(--surface-3);
-  border-bottom-color: var(--surface-3);
-}
-.flow-card:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.flow-card--highlight {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.18), var(--shadow-2);
-}
-
-.flow-card-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.flow-card-chip {
+/* Type pill — solid for real nodes, outline for the quiet container lines.
+ * `--tc` is the per-type colour set inline. */
+.flow-pill {
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px 6px;
+  padding: 3px 5px;
   border-radius: var(--radius-sm);
-  background: var(--type-color, var(--surface-3));
+  background: var(--tc, var(--surface-4));
   color: #fff;
-  font-size: var(--text-xs);
+  font-size: var(--text-2xs);
   font-weight: var(--weight-semi);
-  letter-spacing: 0.4px;
+  letter-spacing: 0.03em;
   line-height: 1;
-  flex-shrink: 0;
+}
+.flow-pill--out {
+  background: transparent;
+  color: var(--tc, var(--text-2));
+  border: 1px solid color-mix(in srgb, var(--tc, var(--surface-4)) 50%, transparent);
 }
 
-.flow-card-name {
+/* Navigable head rows (root + leaf). The whole row is the click target. */
+.flow-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.flow-nav:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.flow-name {
   flex: 1;
-  font-size: var(--text-sm);
+  min-width: 0;
+  font-size: var(--text-base);
   font-weight: var(--weight-semi);
   color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.flow-root-head .flow-name { font-weight: var(--weight-bold); }
+.flow-card-head .flow-name { font-size: var(--text-sm); }
 
-.flow-card-key {
-  padding: 1px 6px;
-  /* Keys are identifiers — sapphire, the EC id-space colour — not the
-   * overloaded purple accent. Bright enough to read at a glance. */
-  background: rgba(116, 199, 236, 0.14);
-  color: var(--ec-idspace);
-  border: 1px solid rgba(116, 199, 236, 0.32);
+/* Container context line — outline pill + name, deliberately quiet. */
+.flow-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 2px 0;
+  cursor: pointer;
+}
+.flow-group:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.flow-group-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Leaf card */
+.flow-card {
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
   border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  letter-spacing: 0.2px;
+  padding: 8px 10px;
+  transition: border-color var(--duration-fast) var(--ease-default);
+}
+.flow-card:hover { border-color: var(--surface-4); }
+
+/* Source-row flash when a sibling's `reads` chip is hovered. */
+.flow-card.flow-flash {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.18);
+}
+.flow-root.flow-flash {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
-.flow-card-bid {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-3);
-}
-
-.flow-card-hint {
+.flow-hint {
   margin-top: var(--space-1);
   padding: 2px var(--space-2);
   font-size: var(--text-xs);
@@ -4047,52 +4059,76 @@ body.crev-divider-dragging * { user-select: none; }
   border-radius: var(--radius-sm);
 }
 
-.flow-code {
+/* ── Field lines (key binding + code) ── */
+.flow-fields {
   margin-top: var(--space-2);
-  padding-top: var(--space-1);
-  border-top: 1px solid var(--surface-2);
-  cursor: default;
-}
-
-.flow-code-head {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  flex-direction: column;
+  gap: 7px;
+}
+.flow-root > .flow-fields { margin-top: var(--space-1); }
+
+.flow-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.flow-ic {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 1px;
+  display: inline-flex;
+}
+.flow-ic--key { color: var(--text-1); }            /* key glyph white — binding is primary */
+.flow-ic--code { color: var(--accent-bright); }
+
+/* key binding value — white mono identifier */
+.flow-key-val {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.flow-code-prop {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semi);
-  color: var(--text-2);
+/* a code field block: icon-led head + indented sub-items */
+.flow-cf-head { align-items: baseline; }
+.flow-cf-tx {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
-.flow-code-meta {
-  font-size: var(--text-xs);
-  color: var(--text-3);
-  font-family: var(--font-mono);
-}
-
-.flow-code-edit {
-  margin-left: auto;
+.flow-cf-prop { color: var(--accent-bright); font-weight: var(--weight-medium); }
+.flow-cf-lines { color: var(--text-3); }
+.flow-cf-edit {
+  flex: none;
   padding: 1px 6px !important;
   font-size: var(--text-xs);
 }
 
-.flow-code-preview {
-  margin-top: 2px;
-  padding: 2px var(--space-2);
-  background: var(--surface-0);
-  border-left: 2px solid var(--surface-3);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
+/* sub-items align under the prop name (past the leading icon) */
+.flow-cf-sub {
+  margin-top: 4px;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.flow-cf-prev {
+  background: var(--ec-bg);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
   color: var(--text-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.flow-code-preview--empty {
+.flow-cf-prev--empty {
   color: var(--text-3);
   font-style: italic;
 }
@@ -4148,26 +4184,19 @@ body.crev-divider-dragging * { user-select: none; }
  * default `display: block` would break the layout. */
 .ref-match-text.ec-preview { display: inline; }
 
-/* Gated EC row inside a flow card — the EC text is visible but dimmed and
-   carries an explicit hint that the runtime gate is off (useShowExpression /
-   useEnableExpression = false). Mirrors the code-row--disabled style used by
-   the standalone code-fields section. */
-.flow-code--disabled {
-  opacity: 0.55;
-}
-.flow-code--disabled:hover {
-  opacity: 0.8;
-}
-.flow-code-gate {
-  margin-top: 4px;
-  padding: 2px var(--space-2);
+/* Runtime gate note — the EC is gated by a boolean toggle (useShowExpression /
+   useEnableExpression) that is currently false, so it won't run. The whole
+   .flow-cf is dimmed; this line spells out which toggle is off. */
+.flow-cf-gate {
   font-size: var(--text-xs);
-  color: var(--warning-text, var(--text-2));
+  color: var(--warning);
   font-style: italic;
 }
+.flow-cf--off { opacity: 0.55; }
+.flow-cf--off:hover { opacity: 0.82; }
 
-.flow-reads {
-  margin-top: var(--space-1);
+/* `reads` chips — sapphire id-space identifiers; hover flashes the source row. */
+.flow-cf-reads {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -4175,8 +4204,7 @@ body.crev-divider-dragging * { user-select: none; }
   font-size: var(--text-xs);
   color: var(--text-3);
 }
-
-.flow-reads-label { font-style: italic; }
+.flow-cf-reads-label { font-style: italic; }
 
 .flow-reads-chip {
   padding: 1px 6px;
@@ -4193,40 +4221,15 @@ body.crev-divider-dragging * { user-select: none; }
   color: var(--surface-0);
 }
 
-/* Children indent under a visible rail — the rail (a 2 px line in the object's
- * type-neutral grey) makes the parent→child nesting unmistakable. The rail is
- * inset from the parent card and the child cards sit to its right. */
-.flow-children {
+/* Nested leaf branch (rare: nested input sets) — indent under a hairline rail
+   so no node is dropped and the extra depth stays legible. */
+.flow-subcards {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  margin: var(--space-1) 0 0 9px;
+  margin: var(--space-2) 0 0;
   padding-left: var(--space-3);
-  border-left: 2px solid var(--text-3);
-}
-
-/* Root object's name gets the most weight; nested objects keep full size
- * (the rail conveys depth now, so no need to shrink them). */
-.flow-step--depth-0 > .flow-card .flow-card-name { font-weight: var(--weight-bold); }
-.flow-step--depth-1 > .flow-card .flow-card-name,
-.flow-step--depth-2 > .flow-card .flow-card-name,
-.flow-step--depth-3 > .flow-card .flow-card-name {
-  font-weight: var(--weight-medium);
-  color: var(--text-2);
-  font-size: var(--text-xs);
-}
-.flow-step--depth-1 > .flow-card .flow-card-chip,
-.flow-step--depth-2 > .flow-card .flow-card-chip,
-.flow-step--depth-3 > .flow-card .flow-card-chip {
-  font-size: var(--text-2xs);
-  padding: 1px 4px;
-}
-
-/* Code field inside a flow card spans the card's full width. Previously the
- * preview line would wrap awkwardly when shoved next to a long card head. */
-.flow-card > .flow-code {
-  margin-top: 4px;
-  width: 100%;
+  border-left: 2px solid var(--surface-3);
 }
 
 /* ── Scrollbar ─────────────────────────────────── */
