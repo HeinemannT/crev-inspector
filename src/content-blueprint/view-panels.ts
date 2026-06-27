@@ -33,6 +33,15 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
     w.textContent = '⚠ This is a shared template — these changes affect every instance that uses it.';
     card.appendChild(w);
   }
+  // Blast-radius warning. Deleting a tab cascades to every container/widget under it (a tab's contents
+  // can't re-home the way a deleted container's widgets do), so one delete gesture can stage many. Make
+  // that scope explicit at the confirm gate — the rows below enumerate it, but the count is the headline.
+  const deletes = notes.filter(n => n.verb === 'delete').length;
+  if (deletes > 0) {
+    const w = document.createElement('div'); w.className = 'bp-modal-warn';
+    w.textContent = `⚠ ${deletes} object${deletes === 1 ? '' : 's'} will be permanently deleted — this can't be undone after Apply.`;
+    card.appendChild(w);
+  }
   // Pre-commit lint: empty-tab and structural-on-instance warnings (undo is frozen while this modal
   // is open, so the model behind these matches exactly what Confirm will apply).
   const lm = model();

@@ -17,7 +17,9 @@
  *   ✓ height on charts / URLView only        change(chartHeight)
  *   ✓ rename (widget/container/tab)           change(name)
  *   ✓ move/cross-tab (re-point binding)       change(container := …)
- *   ✓ reparent a container                    change(parent := <container>)   [verified]
+ *   ✓ reparent a container → container        change(parent := <container>)   [verified]
+ *   ✓ reparent a container → tab              change(parent := <tab>)         [verified 2026-06-27:
+ *       moved cont_crev_demo_enterprise_4 Overview→Risk Register via parent:=t.4904, accepted]
  *   ✓ reorder siblings (incl. just-created)   moveBefore/moveAfter            [verified on vars]
  *   ✓ add widget (5 types bare) / container / tab   <root>.add(…)             [verified]
  *   ✓ delete                                  delete()  (re-home first)
