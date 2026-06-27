@@ -204,26 +204,41 @@ export function pickFarSide(sourceRid: string, junctionRid: string, fars: ConnTa
 
 // ── Inbound scan ("referenced by", C3) ──────────────────────────────
 
+/** Max inbound referrers surfaced — single source of truth for the server-side
+ *  emission cap, the parser cap, and the "first N referrers shown" UI note, so
+ *  they can never drift apart. */
+export const INBOUND_CAP = 100;
+
 /**
  * EC for the universal inbound scan: `rref()` returns every object that
  * references this one, regardless of whether a reverse ref is declared — so it
  * surfaces edges BMP's own UI can't (an undeclared inbound reference). One row
  * per referrer: rid|id|name|className.
+ *
+ * Emission is capped server-side at INBOUND_CAP+1 rows. `rref()` on a heavily-
+ * referenced object (a shared property / common template / FileResource used
+ * everywhere) can return thousands of referrers; without the cap the server
+ * builds and transmits ALL of them only for the client to keep the first 100.
+ * The forEach still iterates — `rref` has no early break — but only the bounded
+ * concat/payload is paid (mirrors the siblings cap in buildObjectPaneEc). The
+ * +1 lets parseInbound still flag "capped".
  */
 export function buildInboundEc(ref: string): string {
   return [
     `_o := ${ref}`,
     '_r := ""',
+    '_n := 0',
     '_o.rref().forEach(_t:',
-    `     _r := _r + ${ROW('_t')} + "\\n"`,
+    '     _n := _n + 1',
+    `     IF _n <= ${INBOUND_CAP + 1} THEN`,
+    `          _r := _r + ${ROW('_t')} + "\\n"`,
+    '     ELSE',
+    '          _r := _r',
+    '     ENDIF',
     ')',
     '_r',
   ].join('\n');
 }
-
-/** Max inbound referrers surfaced — single source of truth so the parser cap
- *  and the "first N referrers shown" UI note can never drift apart. */
-export const INBOUND_CAP = 100;
 
 /** Parse the inbound rows, capped (a heavily-referenced object can have many). */
 export function parseInbound(log: string, cap = INBOUND_CAP): { targets: ConnTarget[]; capped: boolean } {
