@@ -38,6 +38,13 @@ export function scheduleThumbs(byRid: Map<string, Element>, onCaptured: () => vo
   timer = setTimeout(() => { void captureMissing(byRid, onCaptured); }, 320);
 }
 
+/** Capture the initial viewport NOW (awaitable). Called at load BEFORE the opaque result panel is
+ *  rendered, so there's no panel to hide and therefore NO flicker — the bulk of thumbnails are ready
+ *  for the first paint. (captureMissing's hide is conditional on the panel existing.) */
+export async function captureViewportNow(byRid: Map<string, Element>): Promise<void> {
+  await captureMissing(byRid, () => {});
+}
+
 async function captureMissing(byRid: Map<string, Element>, onCaptured: () => void): Promise<void> {
   if (capturing) return;
   const targets: { rid: string; rect: DOMRect }[] = [];

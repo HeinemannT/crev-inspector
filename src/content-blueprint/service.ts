@@ -12,6 +12,8 @@ import { showToast } from '../lib/toast';
 import type { InspectorMessage } from '../lib/types';
 import type { LModel } from '../lib/layout/types';
 import { bp, model } from './state';
+import { ridElementMap } from './geometry';
+import { captureViewportNow } from './thumbs';
 import { render } from './view';
 
 type LoadResult = Extract<InspectorMessage, { type: 'LAYOUT_LOAD_RESULT' }>;
@@ -53,6 +55,12 @@ export async function loadPage(rid: string): Promise<boolean> {
   bp.env = res.env ?? null;
   const orphans = res.orphans?.length ?? 0;
   if (orphans) showToast(`Blueprint: ${orphans} widget(s) not placed on any tab`, 'info');
+  // Grab the initial viewport's widget thumbnails BEFORE the first render paints the opaque result
+  // panel — there's no panel to hide yet, so the capture is flicker-free and the thumbnails are ready
+  // for the first paint. Best-effort: render regardless. (Later scroll-in widgets capture via the
+  // debounced scheduleThumbs, which does briefly hide the panel.)
+  try { await captureViewportNow(ridElementMap()); } catch { /* thumbnails are best-effort */ }
+  if (!sameSession(g)) return false;
   render();
   return true;
 }
