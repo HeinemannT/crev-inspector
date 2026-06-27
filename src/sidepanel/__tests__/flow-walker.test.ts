@@ -58,7 +58,7 @@ describe('renderFlowSection', () => {
             step({ identity: { rid: '2', businessId: 'ti', name: 'TI', type: 'TextInput' } }),
             step({
               identity: { rid: '3', businessId: 'bi', name: 'BI', type: 'ButtonInput' },
-              codeFields: [{ prop: 'expression', length: 10, lineCount: 1, firstLine: 'root.foo()' }],
+              codeFields: [{ prop: 'expression', lineCount: 1, firstLine: 'root.foo()' }],
             }),
           ],
         }),
@@ -144,7 +144,7 @@ describe('renderFlowSection', () => {
           step({ identity: { rid: '3', businessId: 'ti', name: 'TI', type: 'TextInput' }, inputKey: 'title' }),
           step({
             identity: { rid: '4', businessId: 'bi', name: 'BI', type: 'ButtonInput' },
-            codeFields: [{ prop: 'expression', length: 10, lineCount: 1, firstLine: 'root.foo()' }],
+            codeFields: [{ prop: 'expression', lineCount: 1, firstLine: 'root.foo()' }],
           }),
         ],
       })],
@@ -164,7 +164,7 @@ describe('renderFlowSection', () => {
     const chain: FlowChainMsg = { steps: [step({
       identity: { rid: '5', businessId: 'bi', name: 'BI', type: 'ButtonInput' },
       codeFields: [{
-        prop: 'showExpression', length: 10, lineCount: 1, firstLine: 'this.isAdmin',
+        prop: 'showExpression', lineCount: 1, firstLine: 'this.isAdmin',
         gateProp: 'useShowExpression', gateValue: 'false',
       }],
     })] };
@@ -179,7 +179,7 @@ describe('renderFlowSection', () => {
   it('gated state is NOT applied when gateValue is "true"', () => {
     const chain: FlowChainMsg = { steps: [step({
       codeFields: [{
-        prop: 'showExpression', length: 1, lineCount: 1, firstLine: 'x',
+        prop: 'showExpression', lineCount: 1, firstLine: 'x',
         gateProp: 'useShowExpression', gateValue: 'true',
       }],
     })] };
@@ -191,7 +191,7 @@ describe('renderFlowSection', () => {
     const sendMessage = vi.fn();
     const chain: FlowChainMsg = { steps: [step({
       identity: { rid: '99', businessId: 'b', name: 'N', type: 'ButtonInput' },
-      codeFields: [{ prop: 'expression', length: 1, lineCount: 1, firstLine: 'x' }],
+      codeFields: [{ prop: 'expression', lineCount: 1, firstLine: 'x' }],
     })] };
     const el = renderFlowSection(inputs({ chain, sendMessage }));
     const btn = el.querySelector<HTMLButtonElement>('.flow-cf-edit');
@@ -211,7 +211,7 @@ describe('renderFlowSection', () => {
     const chain: FlowChainMsg = { steps: [step({
       identity: { rid: '7000', businessId: 'ab', name: 'AB', type: 'ActionButton' },
       codeFields: [{
-        prop: 'showExpression', length: 5, lineCount: 1, firstLine: 'this.isAdmin',
+        prop: 'showExpression', lineCount: 1, firstLine: 'this.isAdmin',
         targetRid: '8123', targetProp: 'expression',
       }],
     })] };
@@ -272,7 +272,7 @@ describe('renderFlowSection', () => {
               identity: { rid: '4', businessId: 'ntg', name: 'Action group', type: 'NotificationTransportGroup' },
               children: [step({
                 identity: { rid: '5', businessId: 'xtr', name: 'Email', type: 'ExtendedTransport' },
-                codeFields: [{ prop: 'expression', length: 5, lineCount: 1, firstLine: 't.x()' }],
+                codeFields: [{ prop: 'expression', lineCount: 1, firstLine: 't.x()' }],
               })],
             })],
           }),
@@ -293,7 +293,7 @@ describe('renderFlowSection', () => {
     const chain: FlowChainMsg = { steps: [step({
       identity: { rid: '1', businessId: 'bi', name: 'BI', type: 'ButtonInput' },
       codeFields: [{
-        prop: 'afterExpression', length: 20, lineCount: 2, firstLine: 'root.score := l * i',
+        prop: 'afterExpression', lineCount: 2, firstLine: 'root.score := l * i',
         reads: [{ key: 'likelihood', sourceRid: '55' }],
       }],
     })] };

@@ -528,7 +528,6 @@ export type ObjectPaneMessage =
 // Flow walker — InputView/ActionButton/Label downstream graph
 export interface FlowCodeFieldMsg {
   prop: string;
-  length: number;
   lineCount: number;
   firstLine: string;
   reads?: Array<{ key: string; sourceRid: string }>;

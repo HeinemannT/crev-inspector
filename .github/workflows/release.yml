@@ -48,14 +48,26 @@ jobs:
         # Refuses to ship a release whose tag doesn't match manifest.version —
         # otherwise the update banner in the panel would always think we're
         # behind. Strip the leading "v" from the tag for comparison.
+        #
+        # Beta / pre-releases: tag as `vX.Y.Z-beta.N` (or -rc.N / -alpha.N).
+        # Chrome manifest versions must be 1-4 integers and CAN'T carry a -beta
+        # label, so we match the manifest against the BASE version (suffix
+        # stripped) and mark the GitHub release as a prerelease. Keep manifest at
+        # the plain `X.Y.Z`; the suffix lives only in the tag.
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
+          BASE_VERSION="${TAG_VERSION%%-*}"
           MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
-          if [ "$TAG_VERSION" != "$MANIFEST_VERSION" ]; then
-            echo "::error::Tag ($TAG_VERSION) does not match manifest.json version ($MANIFEST_VERSION). Bump one to match the other before tagging."
+          if [ "$BASE_VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "::error::Tag base ($BASE_VERSION) does not match manifest.json version ($MANIFEST_VERSION). Bump one to match the other before tagging."
             exit 1
           fi
           echo "VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
+          if [ "$TAG_VERSION" != "$BASE_VERSION" ]; then
+            echo "PRERELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "PRERELEASE=false" >> "$GITHUB_ENV"
+          fi
 
       - name: Test
         # Gate the release on the test suite. A broken test must never
@@ -90,4 +102,6 @@ jobs:
           files: crev-inspector-${{ env.VERSION }}.zip
           generate_release_notes: false
           draft: false
-          prerelease: false
+          # true for -beta/-rc/-alpha tags (see the version step), so GitHub's
+          # "latest release" — and the in-panel update check — skip prereleases.
+          prerelease: ${{ env.PRERELEASE }}
