@@ -72,6 +72,34 @@ function scalarBlock(label: string, valueExpr: string, prefix = ''): string {
   return `${prefix}_r := _r + _sep + "${label}" + _sep + ${valueExpr} + "\\n"`;
 }
 
+/** Pass-2 EC for an action/transport-group child `_c`: emit its code-field
+ *  block(s) keyed by className. Only EC-bearing transports emit anything —
+ *  ExtendedTransport.expression and ChangePropertyTransport.value / function /
+ *  dateFunction (verified live against the "Action group" fixture: output()
+ *  returns the raw source and is empty-safe). Every other transport
+ *  (Smtp/File/Soap/RunReport/AddObject/ActivateForms/…) carries no EC and
+ *  renders as a bare node. `keyPrefix` (`child` | `actchild`) matches the
+ *  block keys each walk's parser reads. EC requires a mandatory ELSE. */
+function transportChildEc(keyPrefix: string, indent: string): string[] {
+  const slot = (prop: string, ind: string): string => {
+    validateEcIdentifier(prop);
+    return `${ind}_r := _r + _sep + "${keyPrefix}_${prop}_" + _c.rid.whenMissing("") + _sep + output(_c.${prop}.whenMissing("")) + "\\n"`;
+  };
+  return [
+    `${indent}IF _c.className = "ExtendedTransport" THEN`,
+    slot('expression', indent + '  '),
+    `${indent}ELSE`,
+    `${indent}  IF _c.className = "ChangePropertyTransport" THEN`,
+    slot('value', indent + '    '),
+    slot('function', indent + '    '),
+    slot('dateFunction', indent + '    '),
+    `${indent}  ELSE`,
+    `${indent}    _r := _r`,
+    `${indent}  ENDIF`,
+    `${indent}ENDIF`,
+  ];
+}
+
 // ── Common preamble / footer ─────────────────────────────────────
 
 /** Standard EC opening — declare the separator + the target object + the
@@ -153,22 +181,20 @@ export function buildInputSetFlowEc(ref: string): string {
   ].join('\n');
 }
 
-/** Walk a NotificationTransportGroup → its ExtendedTransport children. The
- *  className filter keeps non-EC siblings out of the chain. */
+/** Walk a NotificationTransportGroup → ALL its transport children. Every child
+ *  is surfaced as a node so the full action group is visible (Smtp / File /
+ *  RunReport / AddObject / ActivateForms / …); EC is attached to the ones that
+ *  carry it (ExtendedTransport, ChangePropertyTransport) — see transportChildEc. */
 export function buildTransportGroupFlowEc(ref: string): string {
   return [
     ...preamble(ref),
     pipeRow('_o', 'grp'),
     `_r := _r + _sep + "children" + _sep + "\\n"`,
     '_o.children().forEach(_c:',
-    '  IF _c.className = "ExtendedTransport" THEN',
-    pipeRowNoKey('_c', '    '),
-    '  ENDIF',
+    pipeRowNoKey('_c', '  '),
     ')',
     '_o.children().forEach(_c:',
-    '  IF _c.className = "ExtendedTransport" THEN',
-    childEcEmit('expression', '_c', '    '),
-    '  ENDIF',
+    ...transportChildEc('child', '  '),
     ')',
     ...footer(),
   ].join('\n');
@@ -178,9 +204,12 @@ export function buildTransportGroupFlowEc(ref: string): string {
  * fetchActionButtonFlow EC. The button itself carries direct EC (expression /
  * init / after) plus an indirect showExpression that resolves through
  * ExtendedExpression.expression. The chain target depends on actionType:
- *   ACTION   → walk actionObject (NotificationTransportGroup) → ExtendedTransport
+ *   ACTION   → walk actionObject (NotificationTransportGroup) → ALL transports
  *   ADD / NAVIGATE → expression on the button IS the EC (no chain to walk)
  *   EDIT     → actionObject is the edit target (no EC chain)
+ * The actionObject's children are walked in full (every transport is a node);
+ * EC attaches to ExtendedTransport / ChangePropertyTransport — see
+ * transportChildEc.
  */
 export function buildActionButtonFlowEc(ref: string): string {
   return [
@@ -200,14 +229,10 @@ export function buildActionButtonFlowEc(ref: string): string {
     pipeRow('_act', 'act', '  '),
     `  _r := _r + _sep + "actchildren" + _sep + "\\n"`,
     '  _act.children().forEach(_c:',
-    '    IF _c.className = "ExtendedTransport" THEN',
-    pipeRowNoKey('_c', '      '),
-    '    ENDIF',
+    pipeRowNoKey('_c', '    '),
     '  )',
     '  _act.children().forEach(_c:',
-    '    IF _c.className = "ExtendedTransport" THEN',
-    `      _r := _r + _sep + "actchild_expression_" + _c.rid.whenMissing("") + _sep + output(_c.expression.whenMissing("")) + "\\n"`,
-    '    ENDIF',
+    ...transportChildEc('actchild', '    '),
     '  )',
     'ENDIF',
     ...footer(),

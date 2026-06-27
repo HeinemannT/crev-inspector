@@ -10,6 +10,7 @@
  * - EC syntax validation (no bare inline IF after :=)
  */
 import { describe, it, expect } from 'vitest';
+import { buildActionButtonFlowEc, buildTransportGroupFlowEc } from '../ec-codegen';
 
 // ── EC code generators (must match bmp-client.ts EXACTLY) ──
 
@@ -223,5 +224,43 @@ describe('RID injection safety', () => {
     expect(ridRegex.test('12345\n_x := evil()')).toBe(false);
     expect(ridRegex.test('')).toBe(false);
     expect(ridRegex.test('abc')).toBe(false);
+  });
+});
+
+describe('action / transport-group flow EC (full action-graph walk)', () => {
+  it('action-button walk stays IF/ENDIF-balanced with the nested transport dispatch', () => {
+    // The per-class dispatch nests IF (ExtendedTransport) → ELSE → IF
+    // (ChangePropertyTransport) → ELSE → ENDIF → ENDIF; an off-by-one there
+    // would corrupt the whole AB flow parse. Verified live against t.150.
+    expect(validateEcSyntax(buildActionButtonFlowEc('t.150'))).toEqual([]);
+    expect(validateEcSyntax(buildTransportGroupFlowEc('t.101'))).toEqual([]);
+  });
+
+  it('walks ALL actionObject children, not just ExtendedTransport', () => {
+    const code = buildActionButtonFlowEc('t.150');
+    // Old walk gated BOTH passes behind `className = "ExtendedTransport"` (2
+    // occurrences). The new walk emits every child's identity row ungated and
+    // keeps the className check only for the pass-2 EC dispatch (1 occurrence).
+    const guards = code.match(/IF _c\.className = "ExtendedTransport"/g) ?? [];
+    expect(guards.length).toBe(1);
+  });
+
+  it('emits per-class EC slots for the EC-bearing transports', () => {
+    const code = buildActionButtonFlowEc('t.150');
+    expect(code).toContain('actchild_expression_');        // ExtendedTransport
+    expect(code).toContain('IF _c.className = "ChangePropertyTransport" THEN');
+    expect(code).toContain('actchild_value_');             // ChangePropertyTransport.value
+    expect(code).toContain('actchild_function_');          // .function
+    expect(code).toContain('actchild_dateFunction_');      // .dateFunction
+  });
+
+  it('transport-group walk surfaces all children + the same EC slots (child_ prefix)', () => {
+    const code = buildTransportGroupFlowEc('t.101');
+    const guards = code.match(/IF _c\.className = "ExtendedTransport"/g) ?? [];
+    expect(guards.length).toBe(1);
+    expect(code).toContain('child_expression_');
+    expect(code).toContain('child_value_');
+    expect(code).toContain('child_function_');
+    expect(code).toContain('child_dateFunction_');
   });
 });

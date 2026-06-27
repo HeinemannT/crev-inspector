@@ -24,7 +24,7 @@ import { ecPreviewSpan } from '../../lib/ec-format';
 import { resolveCopyText, getModifier, type CopyModifier } from '../../lib/namespace';
 import {
   ICON_KEY, ICON_CODE, ICON_LIGHTNING, ICON_ARROW_SQUARE_IN, ICON_ARROW_OUT,
-  ICON_EYE_SLASH, ICON_SUBTITLES_SLASH, ICON_CODE_BLOCK,
+  ICON_EYE_SLASH, ICON_SUBTITLES_SLASH, ICON_CODE_BLOCK, ICON_VARIABLE, ICON_CLOCK,
 } from '../../lib/icons';
 import type { FlowChainMsg, FlowStepMsg, FlowCodeFieldMsg, InspectorMessage } from '../../lib/types';
 
@@ -48,6 +48,10 @@ const PROP_ICON: Record<string, string> = {
   showExpression: ICON_EYE_SLASH,    // visibility gate
   enableExpression: ICON_SUBTITLES_SLASH, // enabled / clickable gate
   defaultExpression: ICON_CODE_BLOCK, // provides the default value / text
+  // ChangePropertyTransport action fields (write a property on the target):
+  function: ICON_VARIABLE,           // calc function (CorpoCalcExpression)
+  dateFunction: ICON_CLOCK,          // date function
+  // `value` (CorpoTokenListExpression) falls back to the generic code glyph.
 };
 
 function propIcon(prop: string): string {

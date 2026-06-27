@@ -96,6 +96,24 @@ function buildChildCodeFields(
   return out;
 }
 
+/** Code fields for one action/transport-group child, keyed by `keyPrefix`
+ *  (`child` for the transport-group walk, `actchild` for the action-button
+ *  walk). Mirrors transportChildEc in ec-codegen: ExtendedTransport.expression
+ *  and ChangePropertyTransport.value / function / dateFunction. Non-EC
+ *  transports yield no fields and render as a bare node. */
+function buildTransportCodeFields(
+  data: Record<string, string>,
+  childRid: string,
+  keyPrefix: string,
+): FlowCodeField[] {
+  const out: FlowCodeField[] = [];
+  for (const prop of ['expression', 'value', 'function', 'dateFunction'] as const) {
+    const text = data[`${keyPrefix}_${prop}_${childRid}`];
+    if (text) out.push(makeCodeField(prop, text, []));
+  }
+  return out;
+}
+
 export interface ConnectionResult {
   ok: boolean;
   message: string;
@@ -1154,8 +1172,8 @@ _r
 
     for (const c of childRows) {
       const child: FlowStep = { identity: c };
-      const expr = data[`child_expression_${c.rid}`];
-      if (expr) child.codeFields = [makeCodeField('expression', expr, [])];
+      const code = buildTransportCodeFields(data, c.rid, 'child');
+      if (code.length > 0) child.codeFields = code;
       grpStep.children!.push(child);
     }
 
@@ -1226,8 +1244,8 @@ _r
     }).filter((r): r is FlowIdentity => r !== null);
     for (const c of childRows) {
       const child: FlowStep = { identity: c };
-      const childExpr = data[`actchild_expression_${c.rid}`];
-      if (childExpr) child.codeFields = [makeCodeField('expression', childExpr, [])];
+      const code = buildTransportCodeFields(data, c.rid, 'actchild');
+      if (code.length > 0) child.codeFields = code;
       actStep.children!.push(child);
     }
 
