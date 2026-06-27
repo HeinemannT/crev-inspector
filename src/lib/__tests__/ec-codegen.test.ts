@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildActionButtonFlowEc, buildTransportGroupFlowEc,
-  buildInputViewFlowEc, buildInputSetFlowEc,
+  buildInputViewFlowEc, buildInputSetFlowEc, buildObjectPaneEc,
 } from '../ec-codegen';
 
 // ── EC code generators (must match bmp-client.ts EXACTLY) ──
@@ -297,3 +297,27 @@ describe('InputView / InputSet flow EC (button groups + button actions)', () => 
     expect(code).toContain('"actiontransports"');
   });
 });
+
+describe('object-pane EC (EAV query) — conditional emission', () => {
+  const code = buildObjectPaneEc('t.150', ['width', 'headerColor']);
+
+  it('keeps identity / parent / template / card blocks unconditional', () => {
+    // parseIdentityBlock depends on these being present (they use the MISSING
+    // sentinel), so they must NOT be guarded.
+    for (const label of ['instRid', 'instId', 'parRid', 'tmplRid', 'cardRid']) {
+      expect(code).toContain(`_sep + "${label}" + _sep`);
+    }
+  });
+
+  it('guards every EAV slot (style / code / ref / ctx / gate) on non-empty', () => {
+    // style props, code, ctx, gate -> condEcBlock (IF _v != "")
+    expect(code).toContain('IF _v != "" THEN');
+    expect(code).toContain('"inst_width"');
+    expect(code).toContain('"tmpl_width"');
+    // references -> condRefEc (read once, emit 4 only if resolved)
+    expect(code).toContain('IF _ref != MISSING THEN');
+    expect(code).toContain('ref_actionObject_rid');
+    // the old unconditional reference read must be gone
+    expect(code).not.toContain('_o.actionObject.rid.whenMissing');
+  });
+})
