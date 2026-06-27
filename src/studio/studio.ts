@@ -28,7 +28,7 @@ import { h, svg, render as renderDom } from '../lib/dom'
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
 import { getTypeAbbr, getTypeColor, type StudioChild, type StudioChildType } from '../lib/types'
-import { ICON_PLAY, ICON_REFRESH, ICON_FILE_HTML, ICON_FILE_JS, ICON_CHECK, ICON_WRAP, ICON_BRACKETS } from '../lib/icons'
+import { ICON_PLAY, ICON_REFRESH, ICON_FILE_HTML, ICON_FILE_JS, ICON_CHECK, ICON_X, ICON_WARNING, ICON_WRAP, ICON_BRACKETS } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
 import { isCvoSandboxOutbound, type CvoRenderRequest, type CvoConsoleLevel, type CvoLib } from './cvo-protocol'
 import { StudioConsole } from './studio-console'
@@ -767,7 +767,7 @@ function renderChildRow(c: StudioChild): HTMLElement {
     keyInput,
     ...inputs,
     h('button', { class: 'btn-micro', title: 'Save this input', onClick: () => doSaveChild(c, keyInput.value.trim(), collect()) }, 'Save'),
-    h('button', { class: 'btn-micro studio-child-del', title: 'Remove this input', onClick: () => doRemoveChild(c) }, '✕'),
+    h('button', { class: 'btn-micro studio-child-del', title: 'Remove this input', 'aria-label': 'Remove this input', onClick: () => doRemoveChild(c) }, svg(ICON_X)),
   )
 }
 
@@ -810,7 +810,7 @@ function renderDepsInto(el: HTMLElement): void {
     fileRes.length + cdns.length === 0 ? h('div', { class: 'studio-panel-empty' }, 'No external dependencies') : null,
     ...fileRes.map(rid => {
       const cached = libCache.get(rid)
-      const status = cached === undefined ? '…' : cached ? '✓ loaded' : '✗ unavailable'
+      const status = cached === undefined ? '…' : cached ? [svg(ICON_CHECK), ' loaded'] : [svg(ICON_X), ' unavailable']
       const ref = refCache.get(rid)
       const label = ref && ref.id ? (ref.name ? `${ref.id} · ${ref.name}` : ref.id) : rid
       return h('div', { class: 'studio-dep-row' },
@@ -822,7 +822,7 @@ function renderDepsInto(el: HTMLElement): void {
     ...cdns.map(u => h('div', { class: 'studio-dep-row' },
       h('span', { class: 'studio-dep-kind studio-dep-kind--cdn' }, 'CDN'),
       h('span', { class: 'studio-dep-id', title: u }, u),
-      h('span', { class: 'studio-dep-status studio-dep-warn' }, "⚠ won't load if air-gapped"),
+      h('span', { class: 'studio-dep-status studio-dep-warn' }, svg(ICON_WARNING), " won't load if air-gapped"),
     )),
     h('button', { class: 'studio-panel-add', title: 'Host a JS/asset file as a BMP FileResource', onClick: doHostResource }, '+ Host resource'),
   )

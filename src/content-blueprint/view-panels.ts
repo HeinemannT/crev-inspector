@@ -12,12 +12,21 @@ import { findNode } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
 import { diff } from '../lib/layout/diff';
-import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT } from '../lib/icons';
+import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_WARNING } from '../lib/icons';
 import { bp, model } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
 import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, discard, openApplyPreview, exitBlueprint } from './actions';
 
 const VERB_ICON: Record<PlanNote['verb'], string> = { create: ICON_PLUS, update: ICON_PENCIL, move: ICON_ARROW_RIGHT, reorder: ICON_SWAP, delete: ICON_TRASH };
+
+/** A warning banner row: a leading warning-triangle icon followed by the message
+ *  text (replaces the former text '⚠ ' prefix). */
+function warnRow(text: string): HTMLElement {
+  const w = document.createElement('div'); w.className = 'bp-modal-warn';
+  const ic = document.createElement('span'); ic.className = 'bp-modal-warn-ic'; setIcon(ic, ICON_WARNING);
+  w.append(ic, document.createTextNode(text));
+  return w;
+}
 
 /** The apply-preview: the exact plan as human-readable steps + the blast-radius warning, behind a confirm. */
 export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement {
@@ -29,22 +38,20 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   h.textContent = `Apply ${notes.length} change${notes.length === 1 ? '' : 's'} to ${ctx.pageClass} ${ctx.pageId}`;
   card.appendChild(h);
   if (shared) {
-    const w = document.createElement('div'); w.className = 'bp-modal-warn';
-    w.textContent = '⚠ This is a shared template. These changes affect every instance that uses it.';
-    card.appendChild(w);
+    card.appendChild(warnRow('This is a shared template. These changes affect every instance that uses it.'));
   }
   // Blast radius (async, best-effort — appears once the rref probe returns; see actions.openApplyPreview).
-  const warn = (text: string) => { const w = document.createElement('div'); w.className = 'bp-modal-warn'; w.textContent = text; card.appendChild(w); };
+  const warn = (text: string) => { card.appendChild(warnRow(text)); };
   const fanout = bp.blast?.fanout;
   if (fanout?.isMaster) {
     const n = fanout.instances.length;
-    warn(`⚠ This page is a template. ${n} linked scorecard${n === 1 ? '' : 's'} inherit from it. `
+    warn(`This page is a template. ${n} linked scorecard${n === 1 ? '' : 's'} inherit from it. `
       + 'Widget edits propagate to them, and tab or container edits change every one.');
   }
   const xfam = bp.blast?.blast;
   if (xfam && xfam.otherFamilies > 0) {
     const names = xfam.families.map(f => f.name).filter(Boolean).slice(0, 2).join(', ');
-    warn(`⚠ Some containers here are shared with ${xfam.otherFamilies} page${xfam.otherFamilies === 1 ? '' : 's'} `
+    warn(`Some containers here are shared with ${xfam.otherFamilies} page${xfam.otherFamilies === 1 ? '' : 's'} `
       + `outside this template${names ? ` (${names}${xfam.otherFamilies > 2 ? ', …' : ''})` : ''}. Your structural changes affect them too.`);
   }
   // Blast-radius warning. Deleting a tab cascades to every container/widget under it (a tab's contents
@@ -52,18 +59,14 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   // that scope explicit at the confirm gate — the rows below enumerate it, but the count is the headline.
   const deletes = notes.filter(n => n.verb === 'delete').length;
   if (deletes > 0) {
-    const w = document.createElement('div'); w.className = 'bp-modal-warn';
-    w.textContent = `⚠ ${deletes} object${deletes === 1 ? '' : 's'} will be permanently deleted. This can't be undone after Apply.`;
-    card.appendChild(w);
+    card.appendChild(warnRow(`${deletes} object${deletes === 1 ? '' : 's'} will be permanently deleted. This can't be undone after Apply.`));
   }
   // Pre-commit lint: empty-tab and structural-on-instance warnings (undo is frozen while this modal
   // is open, so the model behind these matches exactly what Confirm will apply).
   const lm = model();
   if (lm && bp.baseline) {
     for (const msg of lint(lm, lm.target, diff(bp.baseline, lm))) {
-      const w = document.createElement('div'); w.className = 'bp-modal-warn';
-      w.textContent = `⚠ ${msg}`;
-      card.appendChild(w);
+      card.appendChild(warnRow(msg));
     }
   }
   const list = document.createElement('div'); list.className = 'bp-modal-list';
@@ -126,7 +129,12 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   b.append(mark, wordmark);
   const id = document.createElement('span'); id.textContent = `${ctx.pageClass} ${ctx.pageId}`;
   c.append(b, id);
-  if (shared) { const w = document.createElement('span'); w.className = 'warn'; w.textContent = '⚠ Shared template. Affects all instances'; c.appendChild(w); }
+  if (shared) {
+    const w = document.createElement('span'); w.className = 'warn';
+    const ic = document.createElement('span'); ic.className = 'warn-ic'; setIcon(ic, ICON_WARNING);
+    w.append(ic, document.createTextNode('Shared template. Affects all instances'));
+    c.appendChild(w);
+  }
   c.appendChild(sp());
   const undoB = mkIconBtn(ICON_ARROW_UNDO, undo); undoB.title = 'Undo'; undoB.disabled = !bp.history?.canUndo(); c.appendChild(undoB);
   const redoB = mkIconBtn(ICON_ARROW_REDO, redo); redoB.title = 'Redo'; redoB.disabled = !bp.history?.canRedo(); c.appendChild(redoB);

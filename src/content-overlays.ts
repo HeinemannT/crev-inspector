@@ -8,7 +8,8 @@ import { getTypeColor, getTypeAbbr, TYPES_WITH_CODE } from './lib/types';
 import { FLOW_TYPES } from './lib/widget-metadata';
 import { getAllRidElements } from './lib/dom-scanner';
 import { log } from './lib/logger';
-import { ICON_CODE, ICON_FILE_JS } from './lib/icons';
+import { ICON_CODE, ICON_FILE_JS, ICON_CHECK } from './lib/icons';
+import { svg } from './lib/dom';
 import { DISCOVERED_RIDS_CAP, LABEL_DBLCLICK_WINDOW } from './lib/constants';
 import { resolveCopyText, getModifier } from './lib/namespace';
 import { sendToSW } from './lib/content-port';
@@ -201,7 +202,8 @@ export function syncOverlays(s: ContentState) {
           if (bid) {
             navigator.clipboard.writeText(bid).then(() => {
               const originalText = labelText.textContent;
-              labelText.textContent = `✓ ${bid}`;
+              labelText.textContent = '';
+              labelText.append(svg(ICON_CHECK), ` ${bid}`);
               label.classList.add('crev-label-flash-ok');
               setTimeout(() => {
                 labelText.textContent = originalText;

@@ -6,7 +6,8 @@
  * (color-set-cache.ts) — only the first open in a browser session pays the
  * BMP round-trip; the ↻ button forces a reload when colours changed.
  */
-import { h, render } from '../lib/dom';
+import { h, render, svg } from '../lib/dom';
+import { ICON_REFRESH } from '../lib/icons';
 import type { ColorSetData, InspectorMessage } from '../lib/types';
 
 let cache: ColorSetData[] | null = null;
@@ -56,7 +57,7 @@ export function openColorPicker(opts: PickerOpts): void {
       drawBody();
       opts.sendMessage({ type: 'FETCH_COLOR_SETS', force: true });
     },
-  }, '↻');
+  }, svg(ICON_REFRESH));
 
   const close = () => {
     document.removeEventListener('keydown', onKey, true);

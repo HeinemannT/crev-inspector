@@ -87,7 +87,10 @@ body {
   font-size: 16px;
   line-height: 1;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
 }
+.cs-search-icon svg { width: 15px; height: 15px; }
 .cs-search-input {
   flex: 1;
   min-width: 0;
@@ -689,3 +692,24 @@ body {
 .cs-line-text .ec-tok-num     { color: var(--ec-num); }
 .cs-line-text .ec-tok-cmt     { color: var(--ec-cmt); font-style: italic; }
 .cs-line-text .ec-tok-op      { color: var(--ec-op); }
+
+/* ── SVG icon sizing (glyph→SVG migration) ─────────────────────── */
+.cs-search-clear svg,
+.cs-filter-clear svg,
+.cs-error-dismiss svg { width: 11px; height: 11px; }
+.cs-filter-icon { display: inline-flex; align-items: center; justify-content: center; }
+.cs-filter-icon svg { width: 13px; height: 13px; }
+.cs-error-icon { display: inline-flex; align-items: center; justify-content: center; }
+.cs-error-icon svg { width: 14px; height: 14px; }
+.cs-scope-feedback > svg { width: 12px; height: 12px; flex-shrink: 0; }
+.cs-bulk-btn { display: inline-flex; align-items: center; gap: 4px; }
+.cs-bulk-btn svg { width: 12px; height: 12px; }
+.cs-bulk-chev { display: inline-flex; align-items: center; }
+.cs-bulk-chev svg { width: 11px; height: 11px; }
+.cs-bulk-chev--down svg { transform: rotate(90deg); }
+.cs-section-chev,
+.cs-result-chev { display: inline-flex; align-items: center; justify-content: center; }
+.cs-section-chev svg,
+.cs-result-chev svg { width: 11px; height: 11px; transition: transform 0.12s ease; }
+.cs-section-chev.is-open svg,
+.cs-result-chev.is-open svg { transform: rotate(90deg); }

@@ -523,6 +523,9 @@ body {
  * reflects what's in the buffer. Amber so it reads as advisory, not
  * error. */
 .editor-output-stale {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   padding: var(--space-0) var(--space-2);
   border-radius: 999px;
   font-size: var(--text-xs);
@@ -532,6 +535,7 @@ body {
   line-height: 1.4;
   cursor: help;
 }
+.editor-output-stale svg { width: 11px; height: 11px; flex-shrink: 0; }
 
 .editor-output-pill {
   display: inline-flex;

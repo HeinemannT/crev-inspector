@@ -45,6 +45,7 @@
 .crev-label--edge-inside:hover { transform: translateY(-1px); }
 .crev-label-flash-pick { background: #ff832b !important; }
 .crev-label-flash-ok { background: #42be65 !important; }
+.crev-label-flash-ok .crev-label-text svg { width: 11px; height: 11px; vertical-align: -1px; }
 .crev-label-flash-error { background: #fa4d56 !important; }
 
 /* Brief ring on the element a right-click promotes to context. Box-shadow only
@@ -693,6 +694,7 @@ body.crev-task-open #crev-paint-banner.crev-overlay-blocked {
 
 .crev-eo-titlebar-spacer { flex: 1; }
 
+.crev-eo-btn svg { width: 12px; height: 12px; }
 .crev-eo-btn {
   display: inline-flex;
   align-items: center;

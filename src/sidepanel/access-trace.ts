@@ -10,7 +10,7 @@
  * `routeAccessMessage`.
  */
 import { h, render, svg } from '../lib/dom';
-import { ICON_X_CIRCLE, ICON_CHECK_CIRCLE, ICON_CHEVRON } from '../lib/icons';
+import { ICON_X_CIRCLE, ICON_CHECK_CIRCLE, ICON_MINUS_CIRCLE, ICON_CHECK, ICON_CHEVRON } from '../lib/icons';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import type { AccessSubject, AccessTraceAction, AccessTraceNode, InspectorMessage } from '../lib/types';
 
@@ -305,7 +305,7 @@ function renderResult(): HTMLElement | null {
     ),
     kids.length ? h('div', { class: 'atrace-summary' }, summary) : null,
     h('div', { class: 'atrace-toolbar' },
-      h('button', { class: 'atrace-link', title: 'Copy verdict + tree as text', onClick: () => copyResult() }, state.copied ? 'Copied ✓' : 'Copy'),
+      h('button', { class: 'atrace-link', title: 'Copy verdict + tree as text', onClick: () => copyResult() }, state.copied ? ['Copied ', svg(ICON_CHECK)] : 'Copy'),
       kids.length ? h('button', { class: 'atrace-link', onClick: () => expandAll() }, 'Expand all') : null,
       kids.length ? h('button', { class: 'atrace-link', onClick: () => collapseAll() }, 'Collapse all') : null,
     ),
@@ -363,7 +363,7 @@ function renderCollapsedRow(node: AccessTraceNode, count: number): HTMLElement {
   const subject = statementSubject(node) ?? 'statement';
   return h('div', { class: 'atrace-node atrace-node--no', title: `${count} statements reference ${subject}; none grant access` },
     h('span', { class: 'atrace-node-tw' }, '·'),
-    h('span', { class: 'atrace-node-icon' }, '✗'),
+    h('span', { class: 'atrace-node-icon' }, svg(ICON_X_CIRCLE)),
     h('span', { class: 'atrace-node-label' }, subject),
     h('span', { class: 'atrace-node-count' }, `${count} statements`),
   );
@@ -446,8 +446,8 @@ function renderNode(node: AccessTraceNode, path: string): HTMLElement {
     class: `atrace-node atrace-node--${resClass}`,
     onClick: hasKids ? () => { if (isOpen) state.expanded.delete(path); else state.expanded.add(path); rerender({ keepScroll: true }); } : undefined,
   },
-    h('span', { class: 'atrace-node-tw' }, hasKids ? (isOpen ? '▾' : '▸') : '·'),
-    h('span', { class: 'atrace-node-icon' }, node.result === true ? '✓' : node.result === false ? '✗' : '–'),
+    h('span', { class: `atrace-node-tw${hasKids && isOpen ? ' is-open' : ''}` }, hasKids ? svg(ICON_CHEVRON) : '·'),
+    h('span', { class: 'atrace-node-icon' }, svg(node.result === true ? ICON_CHECK_CIRCLE : node.result === false ? ICON_X_CIRCLE : ICON_MINUS_CIRCLE)),
     h('span', { class: 'atrace-node-label' }, label),
     node.timedOut ? h('span', { class: 'atrace-node-timeout' }, 'timed out') : null,
     detail ? h('span', { class: 'atrace-node-detail' }, detail) : null,

@@ -14,6 +14,7 @@ import { getTypeColor, getTypeAbbr } from '../../lib/types';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { truncRid, ICON_REFRESH, ICON_CROSSHAIR, ICON_LAYOUT, ICON_BLUEPRINT } from '../utils';
+import { ICON_CHEVRON, ICON_SPINNER } from '../../lib/icons';
 import type { Tab, SendFn } from './tab-types';
 import { LAYOUT_BEARING_TYPES } from '../../lib/layout-target';
 
@@ -512,7 +513,7 @@ export class WorkshopLayoutPane implements Tab {
           h('span', { class: 'section-title-icon', 'aria-hidden': 'true' }, svg(ICON_LAYOUT)),
           'Layout',
           layoutLoading
-            ? h('span', { class: 'layout-loading-spinner' }, '⏳')
+            ? h('span', { class: 'layout-loading-spinner', 'aria-label': 'Loading', role: 'status' }, svg(ICON_SPINNER))
             : h('button', {
                 class: 'refresh-enrich-btn',
                 'data-action': 'refresh-layout',
@@ -543,7 +544,7 @@ export class WorkshopLayoutPane implements Tab {
             'aria-expanded': this.previewSectionExpanded ? 'true' : 'false',
             title: this.previewSectionExpanded ? 'Click to collapse' : 'Click to expand',
           },
-            h('span', { class: 'section-chev' }, this.previewSectionExpanded ? '▾' : '▸'),
+            h('span', { class: `section-chev${this.previewSectionExpanded ? ' is-open' : ''}` }, svg(ICON_CHEVRON)),
             'Preview',
           ));
           if (this.previewSectionExpanded) {
@@ -876,10 +877,10 @@ export class WorkshopLayoutPane implements Tab {
       // reorder/resize — lives in the in-page blueprint overlay now; this tree is read-only navigation.)
       h('span', { class: 'layout-handle layout-handle--spacer', 'aria-hidden': 'true' }),
       h('span', {
-        class: `layout-chev${hasKids ? ' clickable' : ''}`,
+        class: `layout-chev${hasKids ? ' clickable' : ''}${hasKids && isExpanded ? ' is-open' : ''}`,
         'data-action': hasKids ? 'toggle-layout-node' : undefined,
         'data-rid': node.rid,
-      }, hasKids ? (isExpanded ? '▾' : '▸') : '  '),
+      }, hasKids ? svg(ICON_CHEVRON) : '  '),
       h('span', { class: 'layout-type', style: `--type-color:${color}`, title: node.type }, getTypeAbbr(node.type)),
       h('span', {
         class: 'layout-name',

@@ -17,7 +17,7 @@ import { closeOverlayKeyBinding, installDirtyGuards } from '../editor-core/overl
 import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { captureTypingFocus } from '../lib/focus-keep'
-import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_CODE, ICON_CHEVRON } from '../lib/icons'
+import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_CODE, ICON_CHEVRON, ICON_WARNING } from '../lib/icons'
 import { renderEcOutput, ecOutputToText, parseBmpDurationMs, formatRunTiming } from './ec-output'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
@@ -1100,7 +1100,7 @@ function renderBottomContentInner() {
         // this output reflects — keeps the user from acting on results
         // that no longer match the buffer.
         staleAfterPreview
-          ? h('span', { class: 'editor-output-stale', title: 'You edited the code after this preview ran' }, '⚠ stale. Preview again')
+          ? h('span', { class: 'editor-output-stale', title: 'You edited the code after this preview ran' }, svg(ICON_WARNING), ' stale. Preview again')
           : null,
         h('div', { class: 'editor-output-header-spacer' }),
         // Output-specific controls moved here from the bottom bar —

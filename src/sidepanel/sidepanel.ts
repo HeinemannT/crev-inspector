@@ -12,6 +12,7 @@ import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
 import { log } from '../lib/logger';
 import { ICON_PAINT, ICON_REFRESH, ICON_LIGHTNING, ICON_TORNADO, ICON_SEARCH, ICON_CROSSHAIR, ICON_BLUEPRINT } from './utils';
+import { ICON_X } from '../lib/icons';
 import { DetailView } from './detail-view';
 import { onColorSetsData } from './color-picker';
 import { initReferenceView, showReferenceView, handleReferenceMessage, isReferenceActive } from './reference-view';
@@ -737,7 +738,7 @@ function renderLatencyPill(): HTMLElement {
     ? (connected ? 'No latency sample yet. Run any query to see it' : 'Not connected to BMP')
     : `BMP latency: ${label} (${ms} ms via ${source}). Thresholds: <80 / <160 / <320 / <600 / <1200 / ≥1200 ms.`;
   return h('div', { class: `status-bar-latency status-bar-latency--t${tier}`, id: 'status-bar-latency', title },
-    h('span', { class: 'status-bar-latency-dot' }, tier === -1 ? '✕' : ''),
+    h('span', { class: 'status-bar-latency-dot' }, tier === -1 ? svg(ICON_X) : null),
     h('span', { class: 'status-bar-latency-value' }, text),
   );
 }

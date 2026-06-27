@@ -166,7 +166,9 @@
 #crev-blueprint-layer .bp-chip .bp-mark svg{display:block;width:13px;height:13px}
 #crev-blueprint-layer .bp-chip.tmpl b{color:var(--bp-amber)}
 #crev-blueprint-layer .bp-chip>span{font:600 11px/1 var(--bp-mono);color:var(--bp-muted)}
-#crev-blueprint-layer .bp-chip .warn{color:var(--bp-amber);font:600 11px 'BPInter',sans-serif}
+#crev-blueprint-layer .bp-chip .warn{display:inline-flex;align-items:center;gap:4px;color:var(--bp-amber);font:600 11px 'BPInter',sans-serif}
+#crev-blueprint-layer .bp-chip .warn .warn-ic{display:inline-flex;flex:none}
+#crev-blueprint-layer .bp-chip .warn .warn-ic svg{width:12px;height:12px;display:block}
 #crev-blueprint-layer .bp-chip .sp{flex:1;font-size:0}
 #crev-blueprint-layer .bp-chip button{height:26px;padding:0 11px;border-radius:5px;border:1px solid var(--bp-line);background:var(--bp-ink-2);color:var(--bp-text);font:600 11px 'BPInter',sans-serif;cursor:pointer}
 #crev-blueprint-layer .bp-chip button:hover:not(:disabled){border-color:var(--bp-cyan);color:var(--bp-cyan)}
@@ -208,7 +210,9 @@
 #crev-blueprint-layer .bp-modal{width:520px;max-width:92vw;max-height:80vh;display:flex;flex-direction:column;border:1px solid var(--bp-cyan);border-radius:8px;box-shadow:0 14px 52px rgba(0,0,0,.6)}
 #crev-blueprint-layer .bp-modal.tmpl{border-color:var(--bp-amber)}
 #crev-blueprint-layer .bp-modal-h{padding:14px 16px;font:700 14px 'BPInter',sans-serif;border-bottom:1px solid var(--bp-line)}
-#crev-blueprint-layer .bp-modal-warn{margin:10px 14px 0;padding:8px 10px;background:rgba(232,179,102,.12);border:1px solid var(--bp-amber);border-radius:5px;color:var(--bp-amber);font:600 11.5px 'BPInter',sans-serif}
+#crev-blueprint-layer .bp-modal-warn{display:flex;align-items:flex-start;gap:6px;margin:10px 14px 0;padding:8px 10px;background:rgba(232,179,102,.12);border:1px solid var(--bp-amber);border-radius:5px;color:var(--bp-amber);font:600 11.5px 'BPInter',sans-serif}
+#crev-blueprint-layer .bp-modal-warn .bp-modal-warn-ic{display:inline-flex;flex:none;margin-top:1px}
+#crev-blueprint-layer .bp-modal-warn .bp-modal-warn-ic svg{width:13px;height:13px;display:block}
 #crev-blueprint-layer .bp-modal-list{overflow:auto;padding:8px 6px;display:flex;flex-direction:column;gap:2px}
 #crev-blueprint-layer .bp-prow{display:flex;align-items:baseline;gap:8px;padding:6px 10px;border-radius:4px;font:12px 'BPInter',sans-serif}
 #crev-blueprint-layer .bp-prow:hover{background:var(--bp-ink-3)}

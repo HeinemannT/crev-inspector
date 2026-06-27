@@ -6,7 +6,8 @@
  * Callbacks fire on row click → caller swaps the pane to that RID.
  */
 
-import { h } from '../lib/dom';
+import { h, svg } from '../lib/dom';
+import { ICON_CHEVRON, ICON_ARROW_LINE_UP } from '../lib/icons';
 import { getTypeColor, getTypeAbbr } from '../lib/types';
 import type { ObjectPaneIdentity, ObjectPaneSiblingMsg } from '../lib/types';
 
@@ -39,7 +40,7 @@ export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): 
     root.appendChild(
       h('div', { class: 'pane-tree-crumb', 'data-rid': data.parent.rid, role: 'button', tabindex: '0',
         title: `Open parent: ${data.parent.name || data.parent.businessId}` },
-        h('span', { class: 'pane-tree-crumb-arrow' }, '↑'),
+        h('span', { class: 'pane-tree-crumb-arrow' }, svg(ICON_ARROW_LINE_UP)),
         h('span', {
           class: 'pane-tree-chip',
           style: `--type-color:${getTypeColor(data.parent.type)}`,
@@ -51,7 +52,7 @@ export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): 
   } else {
     root.appendChild(
       h('div', { class: 'pane-tree-crumb pane-tree-crumb--root' },
-        h('span', { class: 'pane-tree-crumb-arrow' }, '↑'),
+        h('span', { class: 'pane-tree-crumb-arrow' }, svg(ICON_ARROW_LINE_UP)),
         h('span', { class: 'pane-tree-meta' }, '(top level)'),
       ),
     );
@@ -87,7 +88,7 @@ export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): 
         class: `pane-tree-expander${data.childrenExpanded ? ' pane-tree-expander--open' : ''}`,
         'aria-expanded': data.childrenExpanded ? 'true' : 'false',
         title: data.childrenExpanded ? 'Hide children' : 'Show children',
-      }, h('span', { class: 'pane-tree-caret' }, '▸'),
+      }, h('span', { class: 'pane-tree-caret' }, svg(ICON_CHEVRON)),
          h('span', null, data.childrenExpanded ? 'Hide children' : 'Show children'));
       expander.addEventListener('click', (e) => { e.stopPropagation(); handlers.onToggleChildren(); });
       siblingList.appendChild(h('div', { class: 'pane-tree-expander-wrap' }, expander));
