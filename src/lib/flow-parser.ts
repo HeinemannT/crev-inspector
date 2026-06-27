@@ -15,8 +15,6 @@ export interface FlowIdentity {
 
 export interface FlowCodeField {
   prop: string;
-  /** Character count of the raw EC content. */
-  length: number;
   /** Actual newline-separated line count. */
   lineCount: number;
   firstLine: string;
@@ -59,10 +57,12 @@ export interface FlowChain {
  *  than shifting every column after it. Returns `[...leading, name, ...trailing]`
  *  or null if the row is too short / has no rid.
  *
- *  Note: BMP names can't be escaped in EC (no inline string-replace), so a
- *  literal newline in a name still splits the row upstream — that fragment is
- *  then dropped by the min-columns guard, which corrupts only that one node,
- *  never its siblings' columns. */
+ *  Note: EC has no inline string-replace (confirmed — only str/num/date/math),
+ *  so a name can't be sanitised server-side. A `|` in a name is handled here; a
+ *  literal newline would still split the row upstream and drop that one node via
+ *  the min-columns guard — but it never corrupts a sibling's columns, and BMP
+ *  names are single-line in practice, so we accept it rather than depend on a
+ *  workspace string-util library. */
 export function splitNamedRow(line: string, leading: number, trailing: number): string[] | null {
   const parts = line.split('|');
   if (parts.length < leading + 1 + trailing || !parts[0]) return null;
@@ -116,7 +116,7 @@ export function makeCodeField(
   for (const ik of inputKeys) {
     if (ik.key && matchesAsToken(content, ik.key)) reads.push(ik);
   }
-  const f: FlowCodeField = { prop, length: content.length, lineCount, firstLine };
+  const f: FlowCodeField = { prop, lineCount, firstLine };
   if (reads.length > 0) f.reads = reads;
   return f;
 }
