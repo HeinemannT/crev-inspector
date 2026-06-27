@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   refFieldsFromSchema, buildConnectionsEc, parseConnections,
   buildJunctionEc, parseJunctions, pickFarSide,
-  buildInboundEc, parseInbound,
+  buildInboundEc, parseInbound, INBOUND_CAP,
   type SchemaProp, type RefField, type ConnTarget,
 } from '../connections';
 import { FLOW_SEP } from '../ec-codegen';
@@ -160,11 +160,14 @@ describe('junction inlining (C2)', () => {
 });
 
 describe('inbound scan (C3)', () => {
-  it('buildInboundEc walks rref() emitting identity rows', () => {
+  it('buildInboundEc walks rref() emitting identity rows, capped server-side', () => {
     const ec = buildInboundEc('lookup(123)');
     expect(ec).toContain('_o := lookup(123)');
     expect(ec).toContain('_o.rref().forEach(_t:');
     expect(ec).toContain('_t.rid.whenMissing("")');
+    // Server-side cap so a heavily-referenced object can't emit thousands of
+    // rows just for the client to keep INBOUND_CAP.
+    expect(ec).toContain(`IF _n <= ${INBOUND_CAP + 1} THEN`);
   });
 
   it('parseInbound parses referrer rows', () => {
