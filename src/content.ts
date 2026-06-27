@@ -365,6 +365,12 @@ document.body.addEventListener('contextmenu', (e) => {
         businessId: enrichment?.businessId,
       });
       sendFireForget({ type: 'SELECT_OBJECT', rid });
+      // Confirm the pick in-page — otherwise the only signal is the panel
+      // updating, which the user may not be looking at (it can be on another
+      // tab/window). Ring the element + a terse toast naming what's now context.
+      flashContext(ridEl as HTMLElement);
+      const label = enrichment?.name ?? enrichment?.businessId;
+      showToast(label ? `Context: ${label}` : 'Context set', 'info');
     }
   }
 }, { capture: true, signal: s.listenerLifetime.signal });
@@ -502,6 +508,16 @@ function scrollAndHighlight(rid: string): void {
     target.classList.add('crev-graph-highlight');
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
+}
+
+/** Brief self-fading ring confirming a right-click context pick landed on this
+ *  element. Restart-safe: drop the class + force reflow so a rapid second pick
+ *  re-runs the animation instead of sitting idle on the spent one. */
+function flashContext(el: HTMLElement): void {
+  el.classList.remove('crev-context-flash');
+  void el.offsetWidth;
+  el.classList.add('crev-context-flash');
+  setTimeout(() => el.classList.remove('crev-context-flash'), 1400);
 }
 
 // ── Init ─────────────────────────────────────────────────────────

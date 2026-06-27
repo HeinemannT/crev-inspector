@@ -603,7 +603,7 @@ function statusStripText(): string {
     case 'online': return 'Online (not authenticated)';
     case 'needs-login': return 'Not logged in. Open BMP in a tab, log in, then retry.';
     case 'no-config-access': return 'Logged in, but this user has no Configuration Access role.';
-    case 'auth-failed': return 'Auth failed';
+    case 'auth-failed': return 'Sign-in failed. Check the profile username and password.';
     case 'server-down': return 'Server down';
     case 'unreachable': return s.networkOffline ? 'No network' : 'Unreachable';
   }
@@ -619,10 +619,14 @@ function refreshStatusStrip() {
   if (text) text.textContent = statusStripText();
   const reconnect = document.getElementById('strip-reconnect');
   if (reconnect) {
-    // 'needs-login' is recoverable in place (log into BMP, then retry), so it
-  // gets the prominent Reconnect button alongside the hard-error states.
-  const isError = ['unreachable', 'server-down', 'auth-failed', 'needs-login', 'no-config-access'].includes(S.connState.display);
-    reconnect.classList.toggle('hidden', !isError);
+    // Only show Reconnect where a plain re-test can actually recover: the
+    // network came back ('unreachable'), the server came back ('server-down'),
+    // or the user logged into BMP in a tab ('needs-login', retry in place).
+    // 'auth-failed' (wrong credentials) and 'no-config-access' (missing role)
+    // can't be fixed by re-running the same auth — the button would be false
+    // comfort, so the status text points at Edit profile / an admin instead.
+    const canRetest = ['unreachable', 'server-down', 'needs-login'].includes(S.connState.display);
+    reconnect.classList.toggle('hidden', !canRetest);
   }
   const btn = strip.querySelector('.status-strip-btn');
   if (btn) btn.classList.remove('spinning');

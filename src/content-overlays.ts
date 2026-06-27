@@ -78,8 +78,11 @@ function createCascadePill(cascade: { rid: string; businessId?: string; type?: s
   const text = document.createElement('span');
   text.className = 'crev-label-text';
   text.textContent = cascade.businessId ?? cascade.name ?? getTypeAbbr(cascade.type);
-  // No native `title` — the hover info card (content-tooltip) covers this; a
-  // browser tooltip would just paint over it.
+  // Unlike the main badge, the cascade pill carries no `data-crev-label`, so the
+  // hover info card never fires for it — a native `title` is safe here and is
+  // the only thing that explains this small secondary pill is a clickable link.
+  const cascadeId = cascade.name ?? cascade.businessId ?? cascade.type ?? 'object';
+  pill.title = `Linked ${cascade.type ?? 'object'}: ${cascadeId} (click to open)`;
   pill.appendChild(text);
 
   text.addEventListener('click', (e) => {
