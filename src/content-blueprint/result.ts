@@ -94,32 +94,56 @@ function cell(base: LModel, node: LNode, parentId: string | null): HTMLElement {
   return el;
 }
 
-/**
- * Render the result wireframe into `layer`. Returns false when it can't anchor (no active tab with
- * live widgets) so the caller can fall back to the live view.
- */
-export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element>, layer: HTMLElement): boolean {
-  const active = activeModelTab(base, m, byRid);
-  if (!active) return false;
-  const { tab, frame } = active;
-
-  // Anchor to the live content box (origin + width line up with BMP's real columns) and cover at
-  // least its full height, so the opaque panel masks the busy page beneath rather than floating over it.
-  const wrap = document.createElement('div'); wrap.className = 'bp-result';
-  Object.assign(wrap.style, { left: `${frame.left}px`, top: `${frame.top}px`, width: `${frame.width}px`, minHeight: `${frame.height}px` });
+/** One tab's section: a header (label + active marker, also a move-to-tab drop target) followed by
+ *  its 6-col grid + a full-width add/drop zone. Rendered from the MODEL, so inactive tabs (no live
+ *  DOM) render identically to the active one. */
+function tabSection(base: LModel, tab: LNode, isActive: boolean): HTMLElement {
+  const sec = document.createElement('div'); sec.className = 'bp-rtab-sec';
+  const head = document.createElement('div');
+  head.className = 'bp-rtab-h' + (isActive ? ' active' : '');
+  head.dataset.bpid = tab.id; head.dataset.bpkind = 'avail'; // drop here = move to this tab's root
+  const tk = document.createElement('span'); tk.className = 'bp-rtab-k'; tk.textContent = 'TAB';
+  const tn = document.createElement('span'); tn.className = 'bp-rtab-nm'; tn.textContent = tab.name;
+  head.append(tk, tn);
+  if (isActive) { const b = document.createElement('span'); b.className = 'bp-rtab-badge'; b.textContent = 'ON SCREEN'; head.appendChild(b); }
+  head.appendChild(addBtn(tab.id, `Add a widget to ${tab.name}`));
+  sec.appendChild(head);
 
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
   for (const child of orderChildren(tab.children)) grid.appendChild(cell(base, child, tab.id));
   if (!tab.children.length) { const e = document.createElement('div'); e.className = 'bp-rempty'; e.textContent = `Tab "${tab.name}" is empty`; e.style.gridColumn = 'span 6'; grid.appendChild(e); }
   // Full-width add zone — drops a new widget at the tab's top level (also a click target for the picker).
   const add = document.createElement('div'); add.className = 'bp-radd-zone'; add.style.gridColumn = 'span 6';
-  add.dataset.bpid = tab.id; add.dataset.bpkind = 'avail'; // also a move drop-target (move to tab root)
+  add.dataset.bpid = tab.id; add.dataset.bpkind = 'avail';
   const ai = document.createElement('span'); ai.className = 'bp-radd-ic'; setIcon(ai, ICON_PLUS);
   const at = document.createElement('span'); at.textContent = `Add to "${tab.name}"`;
   add.append(ai, at);
   add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(tab.id); });
   grid.appendChild(add);
-  wrap.appendChild(grid);
+  sec.appendChild(grid);
+  return sec;
+}
+
+/**
+ * Render the result wireframe into `layer`. Renders EVERY tab stacked (the model carries all tabs'
+ * structure; only the active tab has live DOM, which we use to anchor the panel's origin + width).
+ * Returns false when it can't anchor (no active tab with live widgets) so the caller falls back to
+ * the live view.
+ */
+export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element>, layer: HTMLElement): boolean {
+  const active = activeModelTab(base, m, byRid);
+  if (!active) return false;
+  const { tab: activeTab, frame } = active;
+
+  // Anchor to the live content box (origin + width line up with BMP's real columns) and cover at
+  // least its full height, so the opaque panel masks the busy page beneath rather than floating over it.
+  const wrap = document.createElement('div'); wrap.className = 'bp-result';
+  Object.assign(wrap.style, { left: `${frame.left}px`, top: `${frame.top}px`, width: `${frame.width}px`, minHeight: `${frame.height}px` });
+
+  // Active tab first (it's where the user is), then the rest — so you can move ACROSS tabs by dragging
+  // between sections, not just within the one BMP happens to be showing.
+  const ordered = [activeTab, ...m.tabs.filter(t => t.id !== activeTab.id)];
+  for (const tab of ordered) wrap.appendChild(tabSection(base, tab, tab.id === activeTab.id));
   layer.appendChild(wrap);
   return true;
 }

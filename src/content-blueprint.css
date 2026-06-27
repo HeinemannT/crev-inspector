@@ -243,6 +243,17 @@
 #crev-blueprint-layer .bp-result{position:absolute;z-index:6;padding:12px;background:var(--bp-ink);border:1px solid var(--bp-line);border-radius:6px;box-shadow:var(--bp-glow);background-image:linear-gradient(rgba(58,134,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(58,134,255,.05) 1px,transparent 1px);background-size:22px 22px}
 #crev-blueprint-layer .bp-rgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-content:start}
 #crev-blueprint-layer .bp-rroot{padding:0}
+/* per-tab section (cross-tab view): a header (drop-target for move-to-tab) + the tab's grid */
+#crev-blueprint-layer .bp-rtab-sec{margin-bottom:14px}
+#crev-blueprint-layer .bp-rtab-sec:last-child{margin-bottom:0}
+#crev-blueprint-layer .bp-rtab-h{display:flex;align-items:center;gap:8px;margin-bottom:7px;padding:4px 8px;border:1px solid var(--bp-line);border-left:3px solid var(--bp-rest);border-radius:3px;background:rgba(16,48,82,.4);pointer-events:auto}
+#crev-blueprint-layer .bp-rtab-h.active{border-left-color:var(--bp-cyan-hi);background:rgba(58,134,255,.12)}
+#crev-blueprint-layer .bp-rtab-h.bp-drop{outline:2px solid var(--bp-cyan-hi);outline-offset:1px;background:rgba(58,134,255,.28)}
+#crev-blueprint-layer .bp-rtab-k{font:700 8px var(--bp-mono);letter-spacing:.1em;color:var(--bp-ink);background:var(--bp-muted);padding:2px 5px;border-radius:2px;flex:none}
+#crev-blueprint-layer .bp-rtab-h.active .bp-rtab-k{background:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-rtab-nm{font:600 12px 'BPInter',sans-serif;color:var(--bp-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#crev-blueprint-layer .bp-rtab-badge{font:700 8px var(--bp-mono);letter-spacing:.06em;color:var(--bp-cyan-hi);border:1px solid var(--bp-cyan-hi);border-radius:2px;padding:1px 5px;flex:none}
+#crev-blueprint-layer .bp-rtab-h .bp-radd{margin-left:auto}
 #crev-blueprint-layer .bp-rcell{position:relative;min-height:50px;display:flex;flex-direction:column;gap:4px;padding:7px 9px;border:1.5px solid var(--bp-rest);border-radius:3px;background:var(--bp-ink-2);pointer-events:auto;cursor:grab;overflow:hidden;transition:box-shadow .12s,border-color .12s}
 #crev-blueprint-layer .bp-rcell:hover{border-color:var(--bp-cyan);box-shadow:inset 0 0 0 1px rgba(58,134,255,.35)}
 #crev-blueprint-layer .bp-rcell.sel{border-color:var(--bp-cyan-hi);box-shadow:inset 0 0 0 1px var(--bp-cyan-hi),0 0 0 1px rgba(110,168,255,.25)}

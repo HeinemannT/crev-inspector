@@ -69,6 +69,27 @@ describe('renderResult (CSS-grid mirror)', () => {
     expect((layer.querySelector('.bp-rcell[data-bpid="w1"]') as HTMLElement).style.gridColumn).toBe('span 6');
   });
 
+  it('renders ALL tabs stacked (cross-tab), marking only the active one, active first', () => {
+    // t1 has the live widgets (in byRid) → active; t2 has none → inactive but still rendered.
+    const multi = mdl([
+      tab('t1', [widget('w1', 6)]),
+      tab('t2', [widget('z1', 6)]),
+    ]);
+    const layer = document.createElement('div');
+    expect(renderResult(multi, multi, byRid, layer)).toBe(true);
+    const secs = [...layer.querySelectorAll('.bp-rtab-sec')];
+    expect(secs).toHaveLength(2);
+    // active tab section comes first and is marked; each header is a move-to-tab drop target
+    const heads = secs.map(s => s.querySelector('.bp-rtab-h') as HTMLElement);
+    expect(heads[0].dataset.bpid).toBe('t1');
+    expect(heads[0].classList.contains('active')).toBe(true);
+    expect(heads[1].dataset.bpid).toBe('t2');
+    expect(heads[1].classList.contains('active')).toBe(false);
+    expect(heads.every(h => h.dataset.bpkind === 'avail')).toBe(true);
+    // the inactive tab's widget renders from the model even with no live DOM
+    expect(layer.querySelector('.bp-rcell[data-bpid="z1"]')).not.toBeNull();
+  });
+
   it('exposes add affordances: a + on each container and a tab-level add/drop zone', () => {
     const layer = document.createElement('div');
     renderResult(m, m, byRid, layer);
