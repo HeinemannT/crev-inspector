@@ -9,11 +9,11 @@
  * have no DOM, so they draw as dashed placeholders in their host's area.
  */
 import type { LModel, LNode } from '../lib/layout/types';
-import { findNode, walk, hasHeight, isChart, orderChildren } from '../lib/layout/model';
+import { findNode, walk, hasHeight, isChart, orderChildren, isResultTab } from '../lib/layout/model';
 import { COMPOSITE_TYPES, COMPOSITE_CHILDREN } from '../lib/layout/constraints';
 import { isAncestorOf } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
-import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_X, ICON_LAYOUT } from '../lib/icons';
+import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_X, ICON_LAYOUT, ICON_LINK } from '../lib/icons';
 import { bp, model, PALETTE, MOST_USED } from './state';
 import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkBtn, mkIconBtn, delta } from './geometry';
 import {
@@ -616,13 +616,19 @@ function tabPill(id: string, name: string, state: 'same' | 'renamed' | 'gone' | 
   const gone = state === 'gone';
   const pill = document.createElement('div');
   pill.className = `bp-tab st-${state}` + (viewed ? ' sel' : '') + (live ? ' live' : '');
+  const shared = isResultTab({ kind: 'tab', id }); // the shared Result tab — view + edit its widgets, but
   pill.dataset.bpid = id; pill.dataset.bpkind = 'tab'; // drop target for cross-tab moves
-  pill.title = gone ? 'Deleted — use Undo to restore' : 'Show this tab in the canvas';
+  pill.title = gone ? 'Deleted — use Undo to restore'
+    : shared ? 'The shared Result tab — its widgets are editable, but the tab itself is shared across scorecards (rename/delete disabled)'
+    : 'Show this tab in the canvas';
+  if (shared) pill.classList.add('shared');
   if (!gone) pill.addEventListener('mousedown', (e) => { e.stopPropagation(); viewTab(id); });
   if (live) { const d = document.createElement('span'); d.className = 'bp-tlive'; d.title = 'On screen in BMP'; pill.appendChild(d); }
   if (state === 'new') { const t = document.createElement('span'); t.className = 'newtag'; t.textContent = 'NEW'; pill.appendChild(t); }
   const nm = document.createElement('span'); nm.className = 'bp-tnm'; nm.textContent = name; pill.appendChild(nm);
-  if (!gone) {
+  if (shared) { const lk = document.createElement('span'); lk.className = 'bp-tshared'; setIcon(lk, ICON_LINK); lk.title = 'Shared across scorecards'; pill.appendChild(lk); }
+  // the Result tab can't be renamed or deleted (that edits the shared default_tabset) — omit its controls
+  if (!gone && !shared) {
     const edit = document.createElement('button'); edit.className = 'bp-tedit'; setIcon(edit, ICON_PENCIL); edit.title = `Rename "${name}"`;
     edit.addEventListener('mousedown', (e) => { e.stopPropagation(); inlineRename(id, nm); });
     pill.appendChild(edit);

@@ -221,6 +221,9 @@
 #crev-blueprint-layer .bp-tab.st-gone .bp-tnm{text-decoration:line-through}
 #crev-blueprint-layer .bp-tnm[contenteditable]{outline:1px solid var(--bp-cyan-hi);border-radius:var(--bp-r);padding:0 2px}
 #crev-blueprint-layer .bp-tedit,#crev-blueprint-layer .bp-tdel{width:17px;height:17px;border-radius:var(--bp-r);border:1px solid transparent;background:transparent;color:var(--bp-muted);font:500 11px/1 var(--bp-mono);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+#crev-blueprint-layer .bp-tshared{flex:none;display:flex;align-items:center;color:var(--bp-muted);margin-left:1px}
+#crev-blueprint-layer .bp-tshared svg{display:block;width:11px;height:11px}
+#crev-blueprint-layer .bp-tab.shared{border-style:dashed}
 #crev-blueprint-layer .bp-tedit:hover{background:var(--bp-cyan);color:var(--bp-ground)}
 #crev-blueprint-layer .bp-tdel:hover{background:var(--bp-red);color:var(--bp-ground)}
 #crev-blueprint-layer .bp-tabs>button{height:26px;padding:0 11px;border-radius:var(--bp-r);border:var(--bp-hair) dashed var(--bp-cyan);background:transparent;color:var(--bp-cyan);font:500 11px 'BPInter',sans-serif;cursor:pointer}

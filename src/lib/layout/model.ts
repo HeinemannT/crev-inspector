@@ -22,6 +22,14 @@ function kindOf(type: string): NodeKind {
   return 'widget';
 }
 
+/** BMP's constant businessId for a scorecard's intrinsic "Result" tab. It lives in the SHARED
+ *  `default_tabset` (not the page's own tabset), so editing its structure (the tab itself, or any
+ *  container created on it) reaches every object that shares that tabset — hence it's locked against
+ *  rename/delete and carries a loud blast-radius warning on apply. Its directly-bound widgets are the
+ *  page's own objects, so editing THOSE is page-local and safe. */
+export const RESULT_TAB_ID = 'RESULT';
+export const isResultTab = (n: { kind: NodeKind; id: string }): boolean => n.kind === 'tab' && n.id === RESULT_TAB_ID;
+
 /** Layout owner of a node — uniform across kinds: a portal placement (`containerRid`) wins,
  *  else the structural parent (`parentRid`). This one rule covers every observed case:
  *   - widget bound to a portal cell      → containerRid (the cell)
@@ -81,10 +89,10 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx): LM
     };
   };
 
-  // tabs = the children of the tabset (any node whose owner is the tabset rid AND is a Tab)
-  const tabsetWire = nodes.find(n => n.businessId === ctx.tabsetId || n.rid === ctx.tabsetId);
-  const tabWires = tabsetWire ? (childrenOf.get(tabsetWire.rid) ?? []).filter(n => kindOf(n.type) === 'tab') : [];
-  let tabs = tabWires.map(build);
+  // tabs = every emitted Tab node, in emit order. Not just the page tabset's children: a page can show
+  // tabs from more than one tabset (the shared "Result" tab lives in default_tabset, not the page's own
+  // tabset, yet renders in the same strip). Tabs never nest, so each Tab node is a root here.
+  let tabs = nodes.filter(n => kindOf(n.type) === 'tab').map(build);
   // shared-tabset pages keep only tabs that hold one of THIS page's widgets (see tabScope doc)
   if (ctx.tabScope === 'withContent') tabs = tabs.filter(t => descendantWidgets(t).length > 0);
 

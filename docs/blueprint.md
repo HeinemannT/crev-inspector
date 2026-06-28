@@ -100,6 +100,21 @@ owns widgets (a widget binds to its cell via `container`). `sync.resolvePageCont
 Page root is referenced `t.<id>` (resolves a Scorecard AND a template). Widgets are fetched with
 `lookup(<rid>).descendants()` so composites (ButtonContainer → buttons) come along.
 
+### The shared Result tab
+
+A scorecard's intrinsic **Result** tab (`t.RESULT`) lives in the SHARED `default_tabset`, not the
+page's own tabset — so it renders in the strip but isn't one of the page's tabs. The fetch emits it as
+a normal Tab node with its REAL parent (so it slots into the tab list), and keeps its directly-bound
+widgets' container binding so they attach to it (they're the page's own objects — editing them is
+page-local). `reconstruct` collects tabs from ANY emitted Tab node (not just the page tabset's
+children), so the foreign-tabset tab comes along with no special-casing; and `diff` groups reorders by
+parent, so a foreign-tabset tab never chains with the page's tabs. The only real special cases are
+`isResultTab` (model.ts): the tab pill omits rename/delete (editing the tab edits the shared tabset),
+and the apply preview raises a loud blast-radius warning — louder still when the plan adds/moves a
+**container** there, since a container on the shared tab appears on every scorecard that uses
+`default_tabset`. We deliberately don't pull in `t.RESULT`'s own Row/Column scaffold (a big shared
+grid) — the page's widgets bind to the tab directly, so adopting just them mirrors what BMP renders.
+
 ## Message flow
 
 ```

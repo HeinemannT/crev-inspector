@@ -69,7 +69,8 @@ describe('sync.buildFetchEc', () => {
     expect(ec).toContain('_sc := lookup(451704949656267090)');
     expect(ec).toContain('_ts.descendants().forEach');
     expect(ec).toContain('_sc.descendants().forEach');   // org side recurses (composites)
-    expect(ec).toContain('= "RESULT"');                  // phantom placement collapses to empty
+    expect(ec).toContain('_res := t.RESULT');            // the shared Result tab is adopted into the strip
+    expect(ec).toContain('|RESULT|Tab|');                // ...emitted as a Tab node with its real parent
   });
   it('rejects an unsafe rid / business id (no EC injection)', () => {
     expect(() => buildFetchEc({ ...CTX, pageRid: '1); delete()' })).toThrow(/Invalid RID/);

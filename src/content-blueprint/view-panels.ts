@@ -6,9 +6,9 @@
  * builders and the tab/picker/rename cluster (which is coupled to inline-rename + render) stay in
  * view.ts.
  */
-import type { LModel, PlanNote } from '../lib/layout/types';
+import type { LModel, LNode, PlanNote } from '../lib/layout/types';
 import type { BlueprintCtx } from '../lib/layout/sync';
-import { findNode } from '../lib/layout/model';
+import { findNode, isResultTab } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
 import { diff, summarizeChanges } from '../lib/layout/diff';
@@ -36,6 +36,28 @@ function infoRow(text: string): HTMLElement {
   const dot = document.createElement('span'); dot.className = 'bp-modal-info-dot';
   w.append(dot, document.createTextNode(text));
   return w;
+}
+
+/** Does the staged plan touch the shared Result tab, and does it touch CONTAINERS there? Built from the
+ *  union of the Result subtree in baseline + desired (so a move IN, a move OUT, and a staged add are all
+ *  caught), then matched against the plan's step ids. Container impact is called out louder. */
+function resultImpact(): { touched: boolean; containers: boolean } {
+  const base = bp.baseline, m = model();
+  if (!base || !m) return { touched: false, containers: false };
+  const subtree = (mm: LModel): Map<string, LNode['kind']> => {
+    const ids = new Map<string, LNode['kind']>();
+    const t = mm.tabs.find(isResultTab);
+    if (t) { const rec = (n: LNode) => { ids.set(n.id, n.kind); n.children.forEach(rec); }; rec(t); }
+    return ids;
+  };
+  const ids = new Map([...subtree(base), ...subtree(m)]);
+  let touched = false, containers = false;
+  for (const s of diff(base, m)) {
+    const sid = s.kind === 'create' ? s.node.id : s.id; // a created node carries its id on `node`
+    const k = ids.get(sid);
+    if (k !== undefined) { touched = true; if (k === 'container') containers = true; }
+  }
+  return { touched, containers };
 }
 
 /** The apply-preview: the exact plan as human-readable steps + the blast-radius warning, behind a confirm. */
@@ -69,6 +91,15 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
     const names = xfam.families.map(f => f.name).filter(Boolean).slice(0, 2).join(', ');
     warn(`Some containers here are shared with ${xfam.otherFamilies} page${xfam.otherFamilies === 1 ? '' : 's'} `
       + `outside this template${names ? ` (${names}${xfam.otherFamilies > 2 ? ', …' : ''})` : ''}. Your structural changes affect them too.`);
+  }
+  // Shared Result-tab warning. The Result tab lives in the SHARED default_tabset, so structural edits
+  // there (above all a new/moved container) land on every scorecard that uses it — louder than a normal
+  // widget edit, which only touches this scorecard's own objects. Computed locally (no probe needed).
+  const ri = resultImpact();
+  if (ri.touched) {
+    card.appendChild(warnRow(ri.containers
+      ? 'You are changing containers on the shared Result tab. A container added or moved here appears on EVERY scorecard that uses the default tab set, not just this one.'
+      : "You are editing the shared Result tab. These widgets are this scorecard's own, but the tab is shared across scorecards — review before applying."));
   }
   // Blast-radius warning. Deleting a tab cascades to every container/widget under it (a tab's contents
   // can't re-home the way a deleted container's widgets do), so one delete gesture can stage many. Make

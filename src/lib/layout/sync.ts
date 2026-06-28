@@ -105,21 +105,28 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `_sc := ${sc}`,
     `_r := ""`,
     `_r := _r + "${SEP}" + ${root} + "\\n"`,
+    // The scorecard's intrinsic "Result" tab lives in the SHARED default_tabset, not this page's tabset,
+    // so `_ts.descendants()` below never reaches it. Emit it here (with its REAL parent) when it's a
+    // different tabset, so it's just another Tab node in the list — reconstruct collects tabs by kind,
+    // and diff groups reorders by parent, so a foreign-tabset tab needs no special-casing downstream.
+    // Emitted first so it leads the strip (as BMP shows it). Its widgets bind to the tab directly and
+    // come through the org loop unchanged; we don't pull in its shared Row/Column scaffold.
+    `_res := t.RESULT`,
+    `IF _res.className.whenMissing("") = "Tab" AND _res.parent.rid.whenMissing("") != _ts.rid THEN`,
+    `     _r := _r + "${SEP}" + _res.rid + "|RESULT|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + _res.name.whenMissing("Result") + "\\n"`,
+    `ELSE`,
+    `     _r := _r`,
+    `ENDIF`,
     // grid: tabs + containers — parentRid set, containerRid always empty, no chartHeight.
     `_ts.descendants().forEach(_n:`,
     `     _r := _r + "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + _n.name.whenMissing("") + "\\n"`,
     `)`,
-    // org model: widgets + composites (recursive). Emit BOTH parent (composite nesting) and
-    // container (portal placement). The phantom RESULT placement collapses to empty so a
-    // container-less widget falls through to its org parent.
+    // org model: widgets + composites (recursive). Emit BOTH parent (composite nesting) and container
+    // (portal placement). A widget bound to the Result tab keeps that binding so it attaches to the tab
+    // emitted above; a widget on the phantom RESULT placement of a no-tabset page still resolves to an
+    // org parent and is pruned as an orphan there.
     `_sc.descendants().forEach(_w:`,
-    `     _crid := _w.container.rid.whenMissing("")`,
-    `     IF _w.container.id.whenMissing("") = "RESULT" THEN`,
-    `          _crid := ""`,
-    `     ELSE`,
-    `          _crid := _crid`,
-    `     ENDIF`,
-    `     _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _crid + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
+    `     _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
     `)`,
     `_r`,
   ].join('\n');

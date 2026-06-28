@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { LayoutNode as WireNode } from '../../types';
 import type { LModel, LNode } from '../types';
-import { reconstruct, findNode, descendantWidgets, isChart } from '../model';
+import { reconstruct, findNode, descendantWidgets, isChart, isResultTab } from '../model';
 import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, isAncestorOf } from '../edit';
 import { diff, summarizeChanges } from '../diff';
 import { compile } from '../ec';
@@ -40,6 +40,20 @@ describe('model.reconstruct', () => {
     expect(kids.map(c => c.kind)).toEqual(['container', 'widget']); // containers first
     expect(kids[0].children[0].name).toBe('Chart');
     expect(m.tabs[0].children[0].cols.L).toBe(3);
+  });
+
+  it('adopts a foreign-tabset tab (the shared Result tab) with its directly-bound widgets', () => {
+    const wire: WireNode[] = [
+      { rid: 'r_ts', businessId: 'ts1', type: 'TabSet' },
+      // the shared Result tab lives in ANOTHER tabset (parent r_def, not the page's r_ts), emitted first
+      { rid: 'r_res', businessId: 'RESULT', type: 'Tab', parentRid: 'r_def', name: 'Result' },
+      { rid: 'r_ra', businessId: '5920', type: 'ActionButton', containerRid: 'r_res', columnsLargeScreen: 6, name: 'Run Audit' },
+      { rid: 'r_tab', businessId: 'tab1', type: 'Tab', parentRid: 'r_ts', columnsLargeScreen: 6, name: 'Overview' },
+    ];
+    const m = reconstruct(wire, { pageId: '4957', tabsetId: 'ts1' });
+    expect(m.tabs.map(t => t.id)).toEqual(['RESULT', 'tab1']); // Result leads the strip (emit order)
+    expect(isResultTab(m.tabs[0])).toBe(true);
+    expect(m.tabs[0].children.map(c => c.name)).toEqual(['Run Audit']); // its directly-bound widget attaches
   });
 });
 
