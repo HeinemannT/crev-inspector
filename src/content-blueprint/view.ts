@@ -681,9 +681,15 @@ function inlineRename(id: string, nm: HTMLElement | null): void {
   bp.renaming = true; // freeze re-render: a render() would textContent='' the layer and destroy this field
   const range = document.createRange(); range.selectNodeContents(nm);
   const sel = getSelection(); sel?.removeAllRanges(); sel?.addRange(range);
-  nm.addEventListener('blur', () => { bp.renaming = false; nm.removeAttribute('contenteditable'); doRename(id, nm.textContent ?? ''); }, { once: true });
+  let cancelled = false;
+  nm.addEventListener('blur', () => {
+    bp.renaming = false; nm.removeAttribute('contenteditable');
+    if (cancelled) { render(); return; } // Escape — close the field without committing
+    doRename(id, nm.textContent ?? '');
+  }, { once: true });
   nm.addEventListener('keydown', (e) => {
-    if ((e as KeyboardEvent).key === 'Enter') { e.preventDefault(); nm.blur(); }
-    if ((e as KeyboardEvent).key === 'Escape') { nm.textContent = findNode(model()!, id)?.node.name ?? ''; nm.blur(); }
+    const ke = e as KeyboardEvent;
+    if (ke.key === 'Enter') { e.preventDefault(); nm.blur(); }       // commit
+    else if (ke.key === 'Escape') { e.preventDefault(); cancelled = true; nm.blur(); } // cancel
   });
 }

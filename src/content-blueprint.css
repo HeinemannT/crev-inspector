@@ -166,7 +166,7 @@
 #crev-blueprint-layer .bp-lab .newtag{color:var(--bp-green);border:var(--bp-hair) solid var(--bp-green);font:700 9px/1 'BPInter',sans-serif;padding:1px 4px;border-radius:var(--bp-r);letter-spacing:.06em}
 /* an open inline-rename field — clearly editable: purple ring + light fill, so it never looks like
    plain text (the result-cell .bp-rnm had no rule at all, so renaming there looked like nothing happened) */
-#crev-blueprint-layer .bp-nm[contenteditable],#crev-blueprint-layer .bp-tnm[contenteditable],#crev-blueprint-layer .bp-rnm[contenteditable]{outline:2px solid var(--bp-cyan-hi);outline-offset:1px;background:rgba(138,63,252,.1);border-radius:var(--bp-r);padding:0 3px;cursor:text}
+#crev-blueprint-layer .bp-nm[contenteditable],#crev-blueprint-layer .bp-tnm[contenteditable],#crev-blueprint-layer .bp-rnm[contenteditable]{outline:2px solid var(--bp-cyan-hi);outline-offset:1px;background:rgba(138,63,252,.1);border-radius:var(--bp-r);padding:0 3px;cursor:text;overflow:visible;text-overflow:clip;max-width:none}
 
 /* ── floating widget toolbar ─────────────────────────── */
 /* Selection toolbar sits ABOVE the canvas (z 30 > result z 6) and below the header (z 50) — it

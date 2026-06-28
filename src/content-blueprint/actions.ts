@@ -54,7 +54,15 @@ export function viewTab(id: string): void {
 }
 export function setWidth(id: string, n: number): void { const m = model(); if (m) mutate(resize(m, id, 'L', n)); }
 export function setH(id: string, px: number): void { const m = model(); if (m) mutate(setHeight(m, id, px)); }
-export function doRename(id: string, name: string): void { const m = model(); if (m) mutate(rename(m, id, name)); }
+export function doRename(id: string, name: string): void {
+  const m = model(); if (!m) return;
+  const cur = findNode(m, id)?.node;
+  const next = name.trim();
+  // Trim, reject an empty name, and skip a no-op (same name, or opened-then-closed) so neither commits
+  // a phantom edit / pushes a history entry you'd have to undo through — just re-render to close the field.
+  if (!cur || next === '' || next === cur.name) { render(); return; }
+  mutate(rename(m, id, next));
+}
 export function doDelete(id: string): void { const m = model(); if (m) { bp.selectedId = null; mutate(remove(m, id)); } }
 
 /** Open the add picker for a tab/container. `opts.afterId` inserts the new widget right after that
