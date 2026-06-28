@@ -186,6 +186,23 @@ function markTarget(ev: MouseEvent): void {
     setAct(fit != null ? `place in empty slot (resize to ${fit} col)` : `place in empty slot`); return;
   }
   if (kind === 'container') {
+    // A container dropped on a container: its EDGES insert it before/after at the same level (reorder —
+    // "connect to the upper/lower edge"), the CENTRE nests it inside. A widget always drops INTO.
+    if (src && src.node.kind === 'container') {
+      const r = hit.getBoundingClientRect();
+      const relX = (ev.clientX - r.left) / r.width, relY = (ev.clientY - r.top) / r.height;
+      if (Math.max(Math.abs(relX - 0.5), Math.abs(relY - 0.5)) < 0.3) {
+        hit.classList.add('bp-drop'); action = { type: 'into', targetId };
+        setAct(`nest inside "${nameOf(m, targetId)}"`);
+      } else {
+        const dl = relX, dr = 1 - relX, dt = relY, db = 1 - relY, min = Math.min(dl, dr, dt, db);
+        const side = min === dl ? 'left' : min === dr ? 'right' : min === dt ? 'top' : 'bottom';
+        const before = side === 'left' || side === 'top';
+        showLine(r, side); action = { type: 'insert', targetId, before };
+        setAct(`place ${before ? 'before' : 'after'} "${nameOf(m, targetId)}"`);
+      }
+      return;
+    }
     hit.classList.add('bp-drop'); action = { type: 'into', targetId };
     setAct(`add into "${nameOf(m, targetId)}"`); return;
   }

@@ -261,8 +261,13 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   // left the empty right columns as bare page. Anchor the width to BMP's real content grid instead.
   const contentW = bmpContentWidth(byRid, frame.left);
   const width = contentW > frame.width ? contentW : frame.width;
+  const docTop = frame.top + window.scrollY;
+  // Full-bleed grid backdrop BEHIND the panel — fills the whole editor width edge-to-edge (the panel
+  // itself stays at content width so the cards keep BMP's column alignment). Height set after layout.
+  const bg = document.createElement('div'); bg.className = 'bp-canvas-bg'; bg.style.top = `${docTop}px`;
+  layer.appendChild(bg);
   const wrap = document.createElement('div'); wrap.className = 'bp-result';
-  Object.assign(wrap.style, { left: `${frame.left + window.scrollX}px`, top: `${frame.top + window.scrollY}px`, width: `${width}px`, minHeight: `${minH}px` });
+  Object.assign(wrap.style, { left: `${frame.left + window.scrollX}px`, top: `${docTop}px`, width: `${width}px`, minHeight: `${minH}px` });
 
   const reordered = reorderedIds(base, m);
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
@@ -278,6 +283,7 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   wrap.appendChild(grid);
 
   layer.appendChild(wrap);
+  bg.style.height = `${wrap.offsetHeight}px`; // match the backdrop to the panel's laid-out height
   return true;
 }
 

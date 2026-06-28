@@ -72,13 +72,19 @@ export function addFromPicker(className: string): void {
 
 export function addTabAction(): void { const m = model(); if (m) { const r = addTab(m, m.tabs.length, 'New Tab'); bp.selectedId = r.id; mutate(r.model); } }
 
-/** Add an empty container to a tab/container (from the picker's "New container" option). */
+/** Add an empty container to a tab/container (from the picker's "New container" option). Honours the
+ *  picker's positional + sized intent the same way addFromPicker does: dropped into a free-column gap,
+ *  the new container inherits that gap's width and lands right after the row's last cell (so adding a
+ *  container beside a 3-wide widget makes a 3-wide container in the gap, not a full-width one at the end). */
 export function addContainerTo(parentId: string): void {
   const m = model(); if (!m) return;
   const f = findNode(m, parentId);
-  const idx = f ? f.node.children.length : 0;
-  const r = addContainer(m, parentId, idx);
-  bp.picker = null;
+  const kids = f ? f.node.children : m.tabs;
+  const afterId = bp.pickerOpts?.afterId;
+  const at = afterId ? kids.findIndex(c => c.id === afterId) : -1;
+  const idx = at >= 0 ? at + 1 : kids.length;
+  const r = addContainer(m, parentId, idx, bp.pickerOpts?.cols ?? 6);
+  bp.picker = null; bp.pickerOpts = null;
   bp.selectedId = r.id;
   mutate(r.model);
 }

@@ -444,7 +444,11 @@ function toolbar(node: LNode, r: Rect): HTMLElement {
   const t = document.createElement('div'); t.className = 'bp-tools';
   // A container carries its own +/name handle (.bp-ctab) just above its box. Lift the toolbar above
   // THAT handle so the two strips stack instead of colliding (the toolbar used to land on the + label).
-  const lift = node.kind === 'container' ? 60 : 32;
+  // Lift the toolbar above the cell. In the LIVE view a container carries a +/name handle (.bp-ctab)
+  // just above its box, so it needs extra clearance; the RESULT view has no such handle, so the big
+  // container lift just left the bar floating misaligned far above. Match the cell tightly there.
+  const inResult = !!bp.layer?.querySelector('.bp-result');
+  const lift = inResult ? 38 : (node.kind === 'container' ? 60 : 32);
   // document space (the layer is absolute) so the toolbar scrolls with the cell it anchors to.
   t.style.left = `${Math.max(4, r.left) + window.scrollX}px`;
   t.style.top = `${Math.max(0, r.top - lift) + window.scrollY}px`;
