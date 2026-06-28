@@ -121,14 +121,17 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
     // Tabs own their rename/add/delete on the pill itself — the generic toolbar's Rename targets
     // a `.bp-box .bp-nm` a pill doesn't have, and its W/Delete just duplicate the pill. Skip it.
     if (selBox && selBox.node.kind !== 'tab') {
-      const anchor = anchorRect(selBox.node, byRid) ?? resultAnchor(selBox.node.id);
+      // Prefer the RESULT CELL's box — that's the surface the user sees and edits. anchorRect (the live
+      // widget's real-page position) is only the fallback for the no-result live view; using it first
+      // anchored the toolbar to where the widget sits on the real page, not its result cell.
+      const anchor = resultAnchor(selBox.node.id) ?? anchorRect(selBox.node, byRid);
       if (anchor) layer.appendChild(toolbar(selBox.node, anchor));
     }
   }
 
   if (bp.movePicker) {
     const f = findNode(m, bp.movePicker);
-    const anchor = (f ? anchorRect(f.node, byRid) : null) ?? resultAnchor(bp.movePicker);
+    const anchor = resultAnchor(bp.movePicker) ?? (f ? anchorRect(f.node, byRid) : null);
     layer.appendChild(moveMenu(bp.movePicker, anchor ?? { left: 80, top: 80, width: 0, height: 0 }));
   }
   if (bp.picker) layer.appendChild(pickerPanel(byRid));
@@ -374,7 +377,8 @@ function toolbar(node: LNode, r: Rect): HTMLElement {
 function pickerPanel(byRid: Map<string, Element>): HTMLElement {
   const cid = bp.picker!;
   const host = bp.baseline ? findNode(bp.baseline, cid)?.node : null;
-  const rect = host ? unionRect(host, byRid) : null;
+  // Open next to the result cell the user clicked (primary surface); fall back to the live union box.
+  const rect = resultAnchor(cid) ?? (host ? unionRect(host, byRid) : null);
   const back = document.createElement('div'); back.className = 'bp-pick-back';
   back.addEventListener('mousedown', (e) => { if (e.target === back) closePicker(); });
   const panel = document.createElement('div'); panel.className = 'bp-pick';
@@ -498,7 +502,9 @@ function tabPill(id: string, name: string, state: 'same' | 'renamed' | 'gone' | 
 // ── inline rename (view-level: edits the rendered name span in place, then commits) ──────────────
 function startRename(id: string): void {
   render();
-  inlineRename(id, bp.layer?.querySelector('.bp-box.sel .bp-nm') as HTMLElement | null);
+  // The selected node's editable name span: a result-cell `.bp-rnm` (the primary canvas) or a live
+  // box `.bp-nm` (the fallback view). Querying only the live one silently no-op'd rename in the canvas.
+  inlineRename(id, bp.layer?.querySelector('.bp-rcell.sel .bp-rnm, .bp-box.sel .bp-nm') as HTMLElement | null);
 }
 function startTabRename(id: string, nm: HTMLElement): void { inlineRename(id, nm); }
 function inlineRename(id: string, nm: HTMLElement | null): void {
