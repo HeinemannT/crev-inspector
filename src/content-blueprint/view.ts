@@ -653,6 +653,8 @@ function tabPill(id: string, name: string, state: 'same' | 'renamed' | 'gone' | 
   if (shared) { const lk = document.createElement('span'); lk.className = 'bp-tshared'; setIcon(lk, ICON_LINK); lk.title = 'Shared across scorecards'; pill.appendChild(lk); }
   // the Result tab can't be renamed or deleted (that edits the shared default_tabset) — omit its controls
   if (!gone && !shared) {
+    nm.title = 'Double-click to rename'; // same gesture as a cell name (the pill click switches tabs)
+    nm.addEventListener('dblclick', (e) => { e.stopPropagation(); inlineRename(id, nm); });
     const edit = document.createElement('button'); edit.className = 'bp-tedit'; setIcon(edit, ICON_PENCIL); edit.title = `Rename "${name}"`;
     edit.addEventListener('mousedown', (e) => { e.stopPropagation(); inlineRename(id, nm); });
     pill.appendChild(edit);

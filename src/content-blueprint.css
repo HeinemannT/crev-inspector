@@ -343,6 +343,9 @@
 #crev-blueprint-layer .bp-rwm svg{width:46px;height:46px;display:block}
 #crev-blueprint-layer .bp-rchart .bp-rwm svg{width:60px;height:60px}
 #crev-blueprint-layer .bp-rwm-ty{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);font:500 8.5px var(--bp-mono);letter-spacing:.08em;color:var(--bp-muted);opacity:.5;pointer-events:none;white-space:nowrap}
+/* a short cell (e.g. a content-driven TextElement/InputView) can't fit the centred glyph + caption
+   without overlapping the header — hide both there (the header name + type still identify it). */
+#crev-blueprint-layer .bp-rcell.bp-rshort .bp-rwm,#crev-blueprint-layer .bp-rcell.bp-rshort .bp-rwm-ty{display:none}
 /* name dominant; type + width are small mono annotations (dimension-callout style) */
 #crev-blueprint-layer .bp-rnm{font:600 12.5px/1.2 'BPInter',sans-serif;color:var(--bp-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 #crev-blueprint-layer .bp-rty{font:500 8.5px var(--bp-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--bp-muted);flex:none}

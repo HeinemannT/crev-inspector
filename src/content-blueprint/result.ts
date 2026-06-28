@@ -123,6 +123,7 @@ function estimateHeight(className: string): number {
  *  their children. (`measured` only drives the faint dashed "estimated" edge — authored + live are both
  *  exact, so both clear it.) */
 const HEIGHT_CAP = 520;
+const SHORT_CELL_HEIGHT = 104; // below this a cell can't fit label + centred watermark + caption → hide the watermark
 function widgetHeight(node: LNode, byRid: Map<string, Element>): { px: number; measured: boolean } | null {
   if (node.kind !== 'widget') return null;
   if (node.height != null) return { px: Math.min(node.height, HEIGHT_CAP), measured: true };
@@ -171,8 +172,11 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   const h = widgetHeight(node, byRid);
   if (h) el.style.height = `${h.px}px`;
   const state = cellState(base, node, parentId, reordered);
+  // Too short to fit the label + the centred type watermark + the caption without overlap → drop the
+  // watermark (CSS hides .bp-rwm on .bp-rshort). Short content widgets (TextElement, InputView) hit this.
+  const short = node.kind === 'widget' && !!h && h.px < SHORT_CELL_HEIGHT;
   el.className = `bp-rcell st-${state}` + (node.kind === 'container' ? ' bp-rcont' : '')
-    + (isChart(node.className) ? ' bp-rchart' : '')
+    + (isChart(node.className) ? ' bp-rchart' : '') + (short ? ' bp-rshort' : '')
     + (h ? (h.measured ? ' bp-rsized' : ' bp-rest') : '') + (bp.selectedId === node.id ? ' sel' : '');
 
   const lab = document.createElement('div'); lab.className = 'bp-rlab';
