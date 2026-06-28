@@ -23,11 +23,14 @@ import {
 import { armBox, armResize } from './gestures';
 import { renderChip, previewModal, trayPanel, hintBar, createTabsetModal } from './view-panels';
 import { renderResult } from './result';
-import { scheduleThumbs } from './thumbs';
+import { scheduleThumbs, isCapturing } from './thumbs';
 
 export function render(): void {
   const layer = bp.layer;
   if (!layer) return;
+  // A thumbnail screenshot is in flight (the layer is hidden so the camera sees the real page).
+  // Repainting now would put the overlay back into the shot — bail; the capture re-renders when done.
+  if (isCapturing()) return;
   // No-tabset page: show the create-tabset prompt (there's no model to edit until one exists).
   if (bp.needsTabset) {
     layer.textContent = '';

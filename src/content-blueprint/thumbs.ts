@@ -25,6 +25,11 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 /** Cached thumbnail for a widget, or undefined if not captured yet. */
 export function thumbFor(rid: string): string | undefined { return cache.get(rid); }
 
+/** True while a screenshot is in flight. render() MUST bail during this — otherwise a concurrent
+ *  render (mutation/scroll observer) repaints the overlay back over the page mid-capture and we end up
+ *  screenshotting the wireframe itself instead of the real widgets. */
+export function isCapturing(): boolean { return capturing; }
+
 /** Drop all thumbnails (session teardown / hard refresh). */
 export function clearThumbs(): void { cache.clear(); }
 
@@ -55,16 +60,19 @@ async function captureMissing(byRid: Map<string, Element>, onCaptured: () => voi
   }
   if (!targets.length) return;
 
+  // capturing=true makes render() bail (see isCapturing), so nothing repaints the overlay over the page
+  // while the screenshot is in flight. We hide the WHOLE layer (not just .bp-result) so neither the
+  // panel NOR the chip can leak into the shot.
   capturing = true;
-  const panel = document.getElementById(LAYER_ID)?.querySelector('.bp-result') as HTMLElement | null;
+  const layer = document.getElementById(LAYER_ID) as HTMLElement | null;
   try {
-    if (panel) panel.style.visibility = 'hidden';            // reveal the real page for the shot
+    if (layer) layer.style.visibility = 'hidden';            // reveal the real page for the shot
     await nextFrames(2);                                      // let the hide paint before capturing
     const res = await sendRequest<CaptureResult>({ type: 'LAYOUT_CAPTURE' });
-    if (panel) panel.style.visibility = '';
+    if (layer) layer.style.visibility = '';                  // restore ASAP, before the (slower) crop
     if (res?.ok && res.dataUrl) await crop(res.dataUrl, targets);
   } catch { /* leave uncached → cell keeps icon + watermark */ }
-  finally { capturing = false; }
+  finally { if (layer) layer.style.visibility = ''; capturing = false; }
   onCaptured();
 }
 
