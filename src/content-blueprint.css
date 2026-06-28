@@ -349,7 +349,6 @@
 #crev-blueprint-layer .bp-rtag.st-new{color:var(--bp-green)}
 #crev-blueprint-layer .bp-rtag.st-moved{color:var(--bp-amber-lt)}
 #crev-blueprint-layer .bp-rtag.st-changed{color:var(--bp-amber)}
-#crev-blueprint-layer .bp-rempty{grid-column:span 6;padding:8px;text-align:center;font:500 10px 'BPInter',sans-serif;color:var(--bp-muted);border:var(--bp-hair) dashed var(--bp-line-2);border-radius:var(--bp-r)}
 /* drag drop-target feedback ON result cells */
 #crev-blueprint-layer .bp-rcell.bp-drop{border:var(--bp-emph) solid var(--bp-cyan-hi);background:rgba(110,168,255,.12)}
 #crev-blueprint-layer .bp-rcell.bp-swap{border:var(--bp-emph) solid var(--bp-cyan-hi)}

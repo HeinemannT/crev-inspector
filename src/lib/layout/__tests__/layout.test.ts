@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { LayoutNode as WireNode } from '../../types';
 import type { LModel, LNode } from '../types';
 import { reconstruct, findNode, descendantWidgets, isChart } from '../model';
-import { resize, setHeight, rename, move, swap, insertRelative, addWidget, addContainer, addTab, remove, moveToTab, isAncestorOf } from '../edit';
+import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, isAncestorOf } from '../edit';
 import { diff, summarizeChanges } from '../diff';
 import { compile } from '../ec';
 import { guard, lint, checkReorder, checkHeight, checkAddTarget } from '../constraints';
@@ -144,12 +144,12 @@ describe('gesture edit ops (drag-to-move / reorder / cross-tab)', () => {
     const used = b.tabs[0].children.reduce((s, c) => s + c.cols.L, 0);
     expect(used).toBe(6);
   });
-  it('moveToTab appends a widget onto another tab', () => {
+  it('moveInto appends a widget onto another tab', () => {
     const a = model(
       n({ id: 't1', kind: 'tab', className: 'Tab', name: 'One', children: [n({ id: 'w', kind: 'widget', className: 'X' })] }),
       n({ id: 't2', kind: 'tab', className: 'Tab', name: 'Two', children: [] }),
     );
-    const b = moveToTab(a, 'w', 't2');
+    const b = moveInto(a, 'w', 't2');
     expect(findNode(b, 'w')!.parent!.id).toBe('t2');
     expect(b.tabs[0].children).toHaveLength(0);
     expect(diff(a, b).some(s => s.kind === 'reparent')).toBe(true);
@@ -244,7 +244,7 @@ describe('diff + ec compile', () => {
       n({ id: 'tA', kind: 'tab', className: 'Tab', name: 'A', children: [n({ id: 'w', kind: 'widget', className: 'X' })] }),
       n({ id: 'tB', kind: 'tab', className: 'Tab', name: 'B', children: [] }),
     );
-    const d = moveToTab(base, 'w', 'tB');
+    const d = moveInto(base, 'w', 'tB');
     const { script } = compile(diff(base, d), d);
     expect(script).toBe('t.w.change(container := t.tB)');
   });

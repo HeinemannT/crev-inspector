@@ -23,15 +23,24 @@ import {
 import { armBox, armResize } from './gestures';
 import { renderChip, previewModal, trayPanel, hintBar, createTabsetModal } from './view-panels';
 import { renderResult, typeIcon } from './result';
-import { isCapturing } from './thumbs';
+
+// The pending-change count is recomputed on every render, but a pure scroll/observer render leaves the
+// model unchanged — and diff() builds two index maps and is ~O(n²) in its reorder phase. Memoise the count
+// by (baseline identity, history revision): both invalidate it on a real edit/load. (present() clones, so
+// we key on the revision counter, not the model object.)
+let pendCache: { base: LModel; rev: number; changes: number } | null = null;
+function pendingCount(base: LModel, m: LModel): number {
+  const rev = bp.history?.revision() ?? -1;
+  if (pendCache && pendCache.base === base && pendCache.rev === rev) return pendCache.changes;
+  const changes = summarizeChanges(diff(base, m), m).changes;
+  pendCache = { base, rev, changes };
+  return changes;
+}
 
 export function render(): void {
   const layer = bp.layer;
   if (!layer) return;
   if (bp.peek) layer.classList.add('bp-peek'); // keep a sticky peek across re-renders (add-only: don't kill a transient hover)
-  // A thumbnail screenshot is in flight (the layer is hidden so the camera sees the real page).
-  // Repainting now would put the overlay back into the shot — bail; the capture re-renders when done.
-  if (isCapturing()) return;
   // No-tabset page: show the create-tabset prompt (there's no model to edit until one exists).
   if (bp.needsTabset) {
     layer.textContent = '';
@@ -48,7 +57,7 @@ export function render(): void {
   const oldRects = flip ? cellRects(layer) : null;
   layer.textContent = '';
   const byRid = ridElementMap();
-  const pending = summarizeChanges(diff(base, m), m).changes; // headline = logical changes, not raw EC actions
+  const pending = pendingCount(base, m); // headline = logical changes; memoised so pure scroll/observer renders skip diff()
   // Command chip + the tab bar (tab manager AND canvas switcher — the canvas shows one tab at a time,
   // these pills pick which). BMP's live tab is marked so you can tell the on-screen tab from a peeked one.
   const liveId = base.tabs.find((t) => unionRect(t, byRid))?.id ?? null;

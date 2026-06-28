@@ -31,13 +31,20 @@ export async function setBlueprintActive(windowId: number, active: boolean): Pro
   } catch (e) { log.swallow('blueprint:toggleQuery', e); }
 }
 
-register('BLUEPRINT_TOGGLE', async (_msg, _respond, meta) => {
+/** Flip blueprint on/off for a window (defaulting to the last-focused one — used by both the
+ *  BLUEPRINT_TOGGLE message and the Ctrl+Shift+B keyboard command). Blueprint and inspect are mutually
+ *  exclusive, so turning blueprint on turns inspect off. */
+export async function toggleBlueprint(windowId?: number): Promise<void> {
   const ctx = getCtx();
-  const windowId = meta.panelWindowId ?? (await chrome.windows.getLastFocused().catch(() => null))?.id;
-  if (windowId == null) return;
-  const next = !ctx.blueprintActiveByWindow.get(windowId);
-  if (next && ctx.isInspectActive(windowId)) await toggleInspect(windowId); // blueprint on ⇒ inspect off
-  await setBlueprintActive(windowId, next);
+  const wid = windowId ?? (await chrome.windows.getLastFocused().catch(() => null))?.id;
+  if (wid == null) return;
+  const next = !ctx.blueprintActiveByWindow.get(wid);
+  if (next && ctx.isInspectActive(wid)) await toggleInspect(wid); // blueprint on ⇒ inspect off
+  await setBlueprintActive(wid, next);
+}
+
+register('BLUEPRINT_TOGGLE', async (_msg, _respond, meta) => {
+  await toggleBlueprint(meta.panelWindowId ?? undefined);
 });
 
 /** Environment fingerprint stamped at load and re-checked at apply. Combines the active profile id
@@ -73,23 +80,6 @@ register('LAYOUT_LOAD', async (msg, respond) => {
   } catch (e) {
     respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: errorMessage(e) });
     ctx.logActivity('error', 'Blueprint load threw', e instanceof Error ? e.message : String(e));
-  }
-});
-
-register('LAYOUT_CAPTURE', async (_msg, respond, meta) => {
-  try {
-    // Capture the sender tab's window viewport. captureVisibleTab needs the windowId; derive it from
-    // the sender tab (the BMP content tab), not lastFocused (which may be the side panel/devtools).
-    let windowId: number | undefined = meta.panelWindowId;
-    if (windowId == null && meta.senderTabId != null) {
-      windowId = (await chrome.tabs.get(meta.senderTabId).catch(() => null))?.windowId ?? undefined;
-    }
-    const dataUrl = windowId != null
-      ? await chrome.tabs.captureVisibleTab(windowId, { format: 'png' })
-      : await chrome.tabs.captureVisibleTab({ format: 'png' });
-    respond({ type: 'LAYOUT_CAPTURE_RESULT', ok: true, dataUrl });
-  } catch (e) {
-    respond({ type: 'LAYOUT_CAPTURE_RESULT', ok: false, error: errorMessage(e) });
   }
 });
 

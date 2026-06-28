@@ -15,7 +15,6 @@ import { bp, STYLE_ID, isBlueprintActive } from './content-blueprint/state';
 import { render } from './content-blueprint/view';
 import { select, onKeydown } from './content-blueprint/actions';
 import { cancelGesture } from './content-blueprint/gestures';
-import { clearThumbs } from './content-blueprint/thumbs';
 import { loadPage } from './content-blueprint/service';
 
 export { isBlueprintActive };
@@ -87,7 +86,6 @@ function ridSignature(): string {
 export function disableBlueprint(): void {
   if (!bp.active) return;
   cancelGesture(); // rip out any in-flight drag/resize listeners + body-level ghost/line elements
-  clearThumbs();   // drop captured widget thumbnails (a new session re-captures fresh)
   if (bp.onScroll) {
     window.removeEventListener('scroll', bp.onScroll, true);
     window.removeEventListener('resize', bp.onScroll, true);

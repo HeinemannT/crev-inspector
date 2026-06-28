@@ -20,7 +20,7 @@ import { startHealthPolling, runAuthTest, stopHealthPolling, pollHealth } from '
 import { restoreActivity, logActivity } from './lib/activity';
 import { createSettingsReady, loadSettingsFrom, onProfileSwitch, handleSessionCookieRemoved } from './lib/settings';
 import { registerTabListeners, sendPageInfoToPanel } from './lib/tab-awareness';
-import { handleContentMessage, handlePanelMessage, handleOneShotMessage, toggleInspect } from './lib/message-router';
+import { handleContentMessage, handlePanelMessage, handleOneShotMessage, toggleInspect, toggleBlueprint } from './lib/message-router';
 import { setContextRid, getContextRid, deleteContextRid } from './lib/context-rid';
 import { pushPaintState, paintStateMessage, cancelPaint } from './lib/paint';
 import { openEditorWindow, openExtendedWindow } from './lib/editor';
@@ -508,6 +508,9 @@ chrome.commands.onCommand.addListener((command) => {
   }
   if (command === 'toggle-inspect') {
     toggleInspect();
+  }
+  if (command === 'toggle-blueprint') {
+    toggleBlueprint();
   }
   if (command === 'open-extended') {
     // Mount on the user's most-recently-focused window's active tab. We have no

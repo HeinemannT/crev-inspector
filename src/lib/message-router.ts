@@ -96,3 +96,4 @@ export function handleOneShotMessage(
 // ── Legacy exports (used by service-worker.ts) ───────────────────
 
 export { toggleInspect } from './handlers/inspect';
+export { toggleBlueprint } from './handlers/layout';
