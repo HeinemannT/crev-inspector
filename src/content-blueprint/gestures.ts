@@ -179,9 +179,10 @@ function markTarget(ev: MouseEvent): void {
   }
   if (kind === 'avail') {
     hit.classList.add('bp-drop');
-    // A trailing-gap slot carries its free-column width — dropping a wider widget here resizes it to fit.
+    // A trailing-gap slot carries its free-column width — dropping a WIDER node (widget OR container)
+    // here resizes it down to fit the slot.
     const free = Number(hit.dataset.bpfree) || undefined;
-    const fit = free != null && src?.node.kind === 'widget' && src.node.cols.L > free ? free : undefined;
+    const fit = free != null && src != null && src.node.cols.L > free ? free : undefined;
     action = { type: 'into', targetId, fitCols: fit };
     setAct(fit != null ? `place in empty slot (resize to ${fit} col)` : `place in empty slot`); return;
   }

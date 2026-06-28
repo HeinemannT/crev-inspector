@@ -283,8 +283,24 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   wrap.appendChild(grid);
 
   layer.appendChild(wrap);
-  bg.style.height = `${wrap.offsetHeight}px`; // match the backdrop to the panel's laid-out height
+  // Extend the backdrop to cover whichever is lower: the panel, or the bottom of EVERY widget on the
+  // page (in document space, incl. below the fold) — so a scroll never exposes real BMP widgets that
+  // sit below the modelled content (e.g. a persistent action bar rendered under every tab). We can't use
+  // unionAllVisible here (it drops off-screen widgets) since the canvas no longer re-renders on scroll.
+  bg.style.height = `${Math.max(docTop + wrap.offsetHeight, allWidgetsBottomDoc(byRid)) - docTop}px`;
   return true;
+}
+
+/** Document-space bottom (px) of every laid-out widget on the page, viewport-visible or not — used to
+ *  size the canvas backdrop so nothing real peeks out below it when scrolled. */
+function allWidgetsBottomDoc(byRid: Map<string, Element>): number {
+  let maxBottom = 0;
+  for (const el of byRid.values()) {
+    const r = el.getBoundingClientRect();
+    if (r.width < 8 || r.height < 8) continue;
+    maxBottom = Math.max(maxBottom, r.bottom + window.scrollY);
+  }
+  return maxBottom;
 }
 
 /** BMP's true content-grid width (the full 6-column area) so the wireframe spans the whole content

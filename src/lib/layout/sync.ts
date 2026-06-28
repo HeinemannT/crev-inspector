@@ -125,8 +125,14 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     // (portal placement). A widget bound to the Result tab keeps that binding so it attaches to the tab
     // emitted above; a widget on the phantom RESULT placement of a no-tabset page still resolves to an
     // org parent and is pruned as an orphan there.
+    // Skip ActionButtons flagged displayOnActionMenu — BMP renders those in the page's action MENU, not
+    // in the grid, so they're not part of the editable layout (showing them would invent a phantom cell).
     `_sc.descendants().forEach(_w:`,
-    `     _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
+    `     IF _w.className.whenMissing("") = "ActionButton" AND _w.displayOnActionMenu.whenMissing(false) = true THEN`,
+    `          _r := _r`,
+    `     ELSE`,
+    `          _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
+    `     ENDIF`,
     `)`,
     `_r`,
   ].join('\n');
