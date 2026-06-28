@@ -94,20 +94,22 @@ function estimateHeight(className: string): number {
 }
 
 /** Best height (px) for a widget cell so the wireframe reflects reality, in priority order:
- *   1. its LIVE rendered height (the active tab's widgets are in the DOM — ground truth, all types,
- *      incl. content-driven ones BMP gives no server height for),
- *   2. its authored chartHeight (charts with autoSize off),
+ *   1. its AUTHORED height (chartHeight, or a staged height edit) — the explicit pixel height BMP will
+ *      render, so a height change PREVIEWS immediately instead of being masked by the un-applied live size,
+ *   2. its LIVE rendered height (active-tab widgets are in the DOM — ground truth for content-driven
+ *      widgets BMP gives no server height for, which carry no authored height),
  *   3. a per-type estimate (inactive tabs — no DOM to measure).
  *  Capped so one huge table can't make the panel absurd. Containers return null: they size from
- *  their children. */
+ *  their children. (`measured` only drives the faint dashed "estimated" edge — authored + live are both
+ *  exact, so both clear it.) */
 const HEIGHT_CAP = 520;
 function widgetHeight(node: LNode, byRid: Map<string, Element>): { px: number; measured: boolean } | null {
   if (node.kind !== 'widget') return null;
+  if (node.height != null) return { px: Math.min(node.height, HEIGHT_CAP), measured: true };
   if (node.rid) {
     const el = byRid.get(node.rid);
     if (el) { const h = el.getBoundingClientRect().height; if (h > 8) return { px: Math.min(Math.round(h), HEIGHT_CAP), measured: true }; }
   }
-  if (node.height != null) return { px: Math.min(node.height, HEIGHT_CAP), measured: false };
   return { px: estimateHeight(node.className), measured: false };
 }
 
@@ -216,8 +218,13 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   const strip = bmpTabStripBottom();
   const top = strip ? Math.max(frame.top, strip + 6) : frame.top;
   const minH = Math.max(60, frame.height - (top - frame.top));
+  // Span the FULL 6-column content area, not just the occupied columns: when no top-level row fills all
+  // six (e.g. Risk Register), the widget union is narrower than BMP's grid, which squished the panel and
+  // left the empty right columns as bare page. Anchor the width to BMP's real content grid instead.
+  const contentW = bmpContentWidth(byRid, frame.left);
+  const width = contentW > frame.width ? contentW : frame.width;
   const wrap = document.createElement('div'); wrap.className = 'bp-result';
-  Object.assign(wrap.style, { left: `${frame.left}px`, top: `${top}px`, width: `${frame.width}px`, minHeight: `${minH}px` });
+  Object.assign(wrap.style, { left: `${frame.left}px`, top: `${top}px`, width: `${width}px`, minHeight: `${minH}px` });
 
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
   if (tab.children.length) fillGrid(grid, base, tab.children, tab.id, byRid);
@@ -245,6 +252,26 @@ function bmpTabStripBottom(): number {
     if (r.width > 4 && r.height > 4 && r.top >= 0 && r.top < innerHeight) b = Math.max(b, r.bottom);
   }
   return b;
+}
+
+/** BMP's true content-grid width (the full 6-column area) so the wireframe spans the whole content
+ *  region even when the occupied widgets don't fill all six columns. Walk up from the topmost visible
+ *  widget to the widest ancestor that shares the content's left edge (BMP's grid sits at the same left
+ *  as its widgets; the page wrapper above it starts at x=0, so the left-match excludes it). 0 if none. */
+function bmpContentWidth(byRid: Map<string, Element>, left: number): number {
+  let probe: Element | null = null, ty = Infinity;
+  for (const e of byRid.values()) {
+    const r = e.getBoundingClientRect();
+    if (r.width < 8 || r.height < 8 || r.bottom <= 0 || r.top >= innerHeight) continue;
+    if (r.top < ty) { ty = r.top; probe = e; }
+  }
+  let best = 0, el: Element | null = probe;
+  for (let i = 0; i < 12 && el; i++) {
+    const r = el.getBoundingClientRect();
+    if (Math.abs(r.left - left) <= 6 && r.width > best && r.width <= innerWidth) best = r.width;
+    el = el.parentElement;
+  }
+  return best;
 }
 
 /** Bounding box of ALL currently-visible widgets (any tab/orphan) — the fallback anchor when no model

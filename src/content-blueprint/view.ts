@@ -404,7 +404,7 @@ function toolbar(node: LNode, r: Rect): HTMLElement {
 
   if (node.kind === 'widget' && hasHeight(node.className)) {
     const hl = document.createElement('span'); hl.className = 'lbl'; hl.textContent = 'H'; t.appendChild(hl);
-    t.append(mkIconBtn(ICON_MINUS, () => setH(node.id, (node.height ?? 200) - 40)), mkIconBtn(ICON_PLUS, () => setH(node.id, (node.height ?? 200) + 40)));
+    t.appendChild(heightControl(node, r));
   }
   if (node.kind === 'widget' && COMPOSITE_TYPES.has(node.className)) t.appendChild(mkIconBtn(ICON_PLUS, () => openPicker(node.id), 'Child'));
   if (node.kind === 'widget') t.appendChild(mkIconBtn(ICON_ARROW_RIGHT, () => openMovePicker(node.id), 'Move'));
@@ -412,6 +412,25 @@ function toolbar(node: LNode, r: Rect): HTMLElement {
   const del = mkIconBtn(ICON_TRASH, () => doDelete(node.id), 'Delete'); del.classList.add('del');
   t.appendChild(del);
   return t;
+}
+
+/** Height control: small −/+ steppers (10px each) flanking a number input for an EXACT pixel height.
+ *  The input seeds from the authored height, falling back to the cell's current rendered height (`r`),
+ *  and commits on Enter/blur; the steppers nudge in 10px increments. setH re-renders (rebuilding this). */
+function heightControl(node: LNode, r: Rect): HTMLElement {
+  const box = document.createElement('div'); box.className = 'bp-hbox';
+  const base = (): number => Math.round(node.height ?? r.height);
+  const minus = document.createElement('button'); minus.className = 'bp-hstep'; setIcon(minus, ICON_MINUS); minus.title = '−10px';
+  minus.addEventListener('mousedown', (e) => { e.stopPropagation(); setH(node.id, Math.max(20, base() - 10)); });
+  const inp = document.createElement('input'); inp.className = 'bp-hpx'; inp.type = 'number'; inp.min = '20'; inp.value = String(base()); inp.title = 'Height in pixels';
+  inp.addEventListener('mousedown', (e) => e.stopPropagation());
+  const commit = (): void => { const v = parseInt(inp.value, 10); if (!isNaN(v) && v >= 20) setH(node.id, v); };
+  inp.addEventListener('change', commit);
+  inp.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') { e.preventDefault(); commit(); } e.stopPropagation(); });
+  const plus = document.createElement('button'); plus.className = 'bp-hstep'; setIcon(plus, ICON_PLUS); plus.title = '+10px';
+  plus.addEventListener('mousedown', (e) => { e.stopPropagation(); setH(node.id, base() + 10); });
+  box.append(minus, inp, plus);
+  return box;
 }
 
 /** The add picker — searchable. A composite target offers only its valid children; else the palette. */
