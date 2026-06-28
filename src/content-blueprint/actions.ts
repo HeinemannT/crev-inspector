@@ -19,8 +19,9 @@ import { bp, model } from './state';
 import { render } from './view';
 import { applyPage, fetchBlast, createTabset } from './service';
 
-/** Push a new model state onto history and re-render. The one write path for staged edits. */
-export function mutate(next: LModel): void { bp.history?.push(next); render(); }
+/** Push a new model state onto history and re-render. The one write path for staged edits. Flags the
+ *  next render to FLIP-animate cells from their old to new positions (so moves/reorders read as motion). */
+export function mutate(next: LModel): void { bp.history?.push(next); bp.flipNext = true; render(); }
 
 export function select(id: string | null): void { bp.selectedId = id; render(); }
 export function setWidth(id: string, n: number): void { const m = model(); if (m) mutate(resize(m, id, 'L', n)); }

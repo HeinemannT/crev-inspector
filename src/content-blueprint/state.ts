@@ -40,13 +40,14 @@ export interface BpState {
   mutRaf: number;               // rAF id coalescing mutation-driven re-renders (0 = none)
   needsTabset: NeedsTabset | null; // page has RESULT widgets but no tabset → show the create-tabset prompt
   creatingTabset: boolean;      // create-tabset request in flight (disables the prompt's Create button)
+  flipNext: boolean;            // animate result cells from old→new position on the next render (set by an edit)
 }
 
 export const bp: BpState = {
   active: false, baseline: null, ctx: null, env: null, history: null,
   layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null,
   onScroll: null, onKey: null, raf: 0, gen: 0, hint: null, trayOpen: false, dragging: false, renaming: false,
-  observer: null, ridSig: '', mutRaf: 0, needsTabset: null, creatingTabset: false,
+  observer: null, ridSig: '', mutRaf: 0, needsTabset: null, creatingTabset: false, flipNext: false,
 };
 
 export function isBlueprintActive(): boolean { return bp.active; }

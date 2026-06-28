@@ -13,12 +13,12 @@ import { findNode, walk, hasHeight, isChart, orderChildren } from '../lib/layout
 import { COMPOSITE_TYPES, COMPOSITE_CHILDREN } from '../lib/layout/constraints';
 import { isAncestorOf } from '../lib/layout/edit';
 import { diff } from '../lib/layout/diff';
-import { ICON_PLUS, ICON_X, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_REFRESH } from '../lib/icons';
+import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT } from '../lib/icons';
 import { bp, model, PALETTE } from './state';
 import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkIconBtn, delta } from './geometry';
 import {
   select, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
-  openMovePicker, closeMovePicker, moveTo, addTabAction,
+  openMovePicker, closeMovePicker, moveTo,
 } from './actions';
 import { armBox, armResize } from './gestures';
 import { renderChip, previewModal, trayPanel, hintBar, createTabsetModal } from './view-panels';
@@ -39,13 +39,19 @@ export function render(): void {
   }
   const base = bp.baseline, m = model(), ctx = bp.ctx;
   if (!base || !m || !ctx) return;
+  // FLIP: record cell positions BEFORE the clear when this render follows an edit (bp.flipNext), so we
+  // can animate them to their new spots after. Not on scroll/observer renders (cells would slide on
+  // every scroll). Captured by bpid so a cell that re-parents (moved into another container) still flips.
+  const flip = bp.flipNext; bp.flipNext = false;
+  const oldRects = flip ? cellRects(layer) : null;
   layer.textContent = '';
   const byRid = ridElementMap();
   const pending = diff(base, m).length;
-  // chip + tab strip are one card (single border/width), not two stacked pills of different sizes
+  // Just the command chip now — the standalone tab strip was removed as redundant with BMP's own tab
+  // bar (and tab management moved into the result-canvas section headers).
   const header = document.createElement('div');
   header.className = 'bp-header' + (ctx.target === 'template' ? ' tmpl' : '');
-  header.append(renderChip(ctx, pending), tabBar(base, m));
+  header.append(renderChip(ctx, pending));
   layer.appendChild(header);
 
   // The result canvas IS the editor: the edited model laid out as a CSS-grid wireframe (final
@@ -55,6 +61,7 @@ export function render(): void {
   // mode — see docs/blueprint.md.) Selection toolbar + pickers + tray + modal render at the foot.
   if (renderResult(base, m, byRid, layer)) {
     renderFloatingChrome(byRid, m);
+    if (oldRects) flipFrom(layer, oldRects); // animate moved/reordered cells to their new positions
     scheduleThumbs(byRid, render); // grab thumbnails of any newly-visible widgets, then repaint
     return;
   }
@@ -141,6 +148,37 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
   if (bp.trayOpen) layer.appendChild(trayPanel(base, m));
   if (bp.hint) layer.appendChild(hintBar(bp.hint));
   if (bp.preview) layer.appendChild(previewModal(bp.preview, ctx));
+}
+
+/** Snapshot each result cell's on-screen box, keyed by bpid — the "First" of a FLIP. */
+function cellRects(layer: HTMLElement): Map<string, DOMRect> {
+  const m = new Map<string, DOMRect>();
+  layer.querySelectorAll('.bp-rcell[data-bpid]').forEach(el => m.set((el as HTMLElement).dataset.bpid!, el.getBoundingClientRect()));
+  return m;
+}
+
+/** FLIP: for each freshly-rendered cell that existed before, translate it back to its OLD position and
+ *  transition to 0 — so a moved/reordered cell slides to its new home instead of jumping. */
+function flipFrom(layer: HTMLElement, old: Map<string, DOMRect>): void {
+  const moved: HTMLElement[] = [];
+  for (const el of layer.querySelectorAll('.bp-rcell[data-bpid]') as NodeListOf<HTMLElement>) {
+    const o = old.get(el.dataset.bpid!); if (!o) continue;
+    const n = el.getBoundingClientRect();
+    const dx = o.left - n.left, dy = o.top - n.top;
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) continue;
+    el.style.transition = 'none';
+    el.style.transform = `translate(${dx}px, ${dy}px)`;
+    moved.push(el);
+  }
+  if (!moved.length) return;
+  // Two rAFs: the first lets the inverted (old-position) transform paint, the second animates it to 0.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    for (const el of moved) {
+      el.style.transition = 'transform .24s cubic-bezier(.2,.7,.3,1)';
+      el.style.transform = '';
+      el.addEventListener('transitionend', () => { el.style.transition = ''; }, { once: true });
+    }
+  }));
 }
 
 /** Anchor a floating panel to a node's result-view cell (the result wireframe has no live DOM rect,
@@ -465,43 +503,6 @@ function pickRow(label: string, tag: string, on: () => void): HTMLButtonElement 
   return b;
 }
 
-/** Tab manager — a strip under the chip listing every tab (rename inline, delete, add widget) + "+ Tab".
- *  Rendered from the BASELINE tabs so deletions stay visible (struck), with staged new tabs appended. */
-function tabBar(base: LModel, m: LModel): HTMLElement {
-  const bar = document.createElement('div'); bar.className = 'bp-tabs';
-  const lbl = document.createElement('span'); lbl.className = 'bp-tabs-l'; lbl.textContent = 'TABS'; bar.appendChild(lbl);
-  for (const bt of base.tabs) {
-    const cur = findNode(m, bt.id)?.node;
-    bar.appendChild(tabPill(bt.id, cur?.name ?? bt.name, !cur ? 'gone' : (cur.name !== bt.name ? 'renamed' : 'same')));
-  }
-  for (const mt of m.tabs) {
-    if (!base.tabs.some(b => b.id === mt.id)) bar.appendChild(tabPill(mt.id, mt.name, 'new'));
-  }
-  bar.appendChild(mkIconBtn(ICON_PLUS, addTabAction, 'Tab'));
-  return bar;
-}
-
-function tabPill(id: string, name: string, state: 'same' | 'renamed' | 'gone' | 'new'): HTMLElement {
-  const pill = document.createElement('div'); pill.className = `bp-tab st-${state}` + (bp.selectedId === id ? ' sel' : '');
-  pill.dataset.bpid = id; pill.dataset.bpkind = 'tab'; // drop target for cross-tab moves
-  pill.addEventListener('mousedown', (e) => { e.stopPropagation(); select(id); });
-  if (state === 'new') { const t = document.createElement('span'); t.className = 'newtag'; t.textContent = 'NEW'; pill.appendChild(t); }
-  const nm = document.createElement('span'); nm.className = 'bp-tnm'; nm.textContent = name;
-  nm.addEventListener('mousedown', (e) => { if (state !== 'gone') { e.stopPropagation(); startTabRename(id, nm); } });
-  pill.appendChild(nm);
-  if (state !== 'gone') {
-    const add = document.createElement('button'); add.className = 'bp-tadd'; setIcon(add, ICON_PLUS); add.title = `Add a widget to ${name}`;
-    add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(id); });
-    pill.appendChild(add);
-  }
-  const del = document.createElement('button'); del.className = 'bp-tdel';
-  setIcon(del, state === 'gone' ? ICON_REFRESH : ICON_X);
-  del.title = state === 'gone' ? 'Undo delete (use Undo)' : `Delete tab "${name}" and its contents`;
-  if (state !== 'gone') del.addEventListener('mousedown', (e) => { e.stopPropagation(); doDelete(id); });
-  pill.appendChild(del);
-  return pill;
-}
-
 // ── inline rename (view-level: edits the rendered name span in place, then commits) ──────────────
 function startRename(id: string): void {
   render();
@@ -509,7 +510,6 @@ function startRename(id: string): void {
   // box `.bp-nm` (the fallback view). Querying only the live one silently no-op'd rename in the canvas.
   inlineRename(id, bp.layer?.querySelector('.bp-rcell.sel .bp-rnm, .bp-box.sel .bp-nm') as HTMLElement | null);
 }
-function startTabRename(id: string, nm: HTMLElement): void { inlineRename(id, nm); }
 function inlineRename(id: string, nm: HTMLElement | null): void {
   if (!nm) return;
   nm.setAttribute('contenteditable', 'true');

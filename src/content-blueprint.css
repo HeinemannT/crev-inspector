@@ -6,19 +6,19 @@
    metadata (type codes, dimensions, EC), a faint grid texture on the header. Every `font` shorthand
    carries a generic fallback so a missing webfont degrades to sans/mono, never the UA serif. */
 #crev-blueprint-layer{
-  --bp-ink:#0a1d33;        /* panel ground */
-  --bp-ink-2:#103052;      /* raised control */
-  --bp-ink-3:#0c243d;      /* recessed (inputs) */
-  --bp-line:#2f5d7e;       /* hairline border */
-  --bp-cyan:#3a86ff;       /* primary accent — interaction only (hover, select, actions, add-zones) */
-  --bp-cyan-hi:#6ea8ff;    /* selected / bright */
-  --bp-rest:#6f93b0;       /* neutral blue-grey — resting widget outlines (no cyan at rest) */
-  --bp-text:#d6e9f5;       /* primary text */
-  --bp-muted:#88a6c0;      /* secondary text + labels */
-  --bp-amber:#e0a96b;      /* changed / template */
-  --bp-red:#e3737d;        /* delete */
-  --bp-green:#74d6a6;      /* create */
-  --bp-glow:0 6px 24px rgba(2,12,22,.5);
+  --bp-ink:#21395a;        /* panel ground — medium blueprint blue (lighter than the old deep navy) */
+  --bp-ink-2:#2c4a72;      /* raised control / widget cell */
+  --bp-ink-3:#1b2f4c;      /* recessed (inputs, nested containers) */
+  --bp-line:#46739f;       /* hairline border */
+  --bp-cyan:#5b9bff;       /* primary accent — interaction only (hover, select, actions, add-zones) */
+  --bp-cyan-hi:#8fbcff;    /* selected / bright */
+  --bp-rest:#88a6c2;       /* neutral blue-grey — resting widget outlines (no cyan at rest) */
+  --bp-text:#eef5fc;       /* primary text */
+  --bp-muted:#aec6dd;      /* secondary text + labels */
+  --bp-amber:#e7b577;      /* changed / template */
+  --bp-red:#ef8088;        /* delete */
+  --bp-green:#86e0b3;      /* create */
+  --bp-glow:0 6px 24px rgba(8,22,40,.45);
   --bp-mono:'BPMono',ui-monospace,'JetBrains Mono',monospace;
   position:fixed;inset:0;z-index:2147483600;
   font:12px/1.35 'BPInter',system-ui,-apple-system,sans-serif;
@@ -310,4 +310,17 @@
 #crev-blueprint-layer .bp-radd-zone{display:flex;align-items:center;justify-content:center;gap:7px;min-height:34px;border:1.5px dashed var(--bp-cyan);border-radius:3px;background:repeating-linear-gradient(45deg,rgba(58,134,255,.05) 0 6px,rgba(58,134,255,.22) 6px 11px);color:var(--bp-cyan);font:700 11px 'BPInter',sans-serif;cursor:pointer;pointer-events:auto}
 #crev-blueprint-layer .bp-radd-zone:hover{border-color:var(--bp-cyan-hi);background:repeating-linear-gradient(45deg,rgba(58,134,255,.12) 0 6px,rgba(58,134,255,.36) 6px 11px)}
 #crev-blueprint-layer .bp-radd-zone.bp-drop{outline:2px solid var(--bp-cyan-hi);outline-offset:1px;background:rgba(58,134,255,.32)}
+/* per-row gap add zone — fills the trailing free columns of a partial row (e.g. an empty right side) */
+#crev-blueprint-layer .bp-rgap{display:flex;align-items:center;justify-content:center;min-height:48px;border:1.5px dashed rgba(120,150,180,.4);border-radius:3px;color:var(--bp-muted);cursor:pointer;pointer-events:auto;background:transparent;transition:border-color .12s,background .12s,color .12s}
+#crev-blueprint-layer .bp-rgap:hover{border-color:var(--bp-cyan);color:var(--bp-cyan);background:repeating-linear-gradient(45deg,rgba(91,155,255,.06) 0 6px,rgba(91,155,255,.2) 6px 11px)}
+#crev-blueprint-layer .bp-rgap.bp-drop{border-style:solid;border-color:var(--bp-cyan-hi);background:rgba(91,155,255,.28)}
+#crev-blueprint-layer .bp-rgap-ic{display:inline-flex;opacity:.7}#crev-blueprint-layer .bp-rgap-ic svg{width:13px;height:13px;display:block}
+#crev-blueprint-layer .bp-rgap:hover .bp-rgap-ic{opacity:1}
+/* section-header tab delete + the "New tab" zone */
+#crev-blueprint-layer .bp-rtab-del{flex:none;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border:0;border-radius:3px;background:transparent;color:var(--bp-muted);cursor:pointer;padding:0}
+#crev-blueprint-layer .bp-rtab-del:hover{background:var(--bp-red);color:var(--bp-ink)}
+#crev-blueprint-layer .bp-rtab-del svg{width:11px;height:11px;display:block}
+#crev-blueprint-layer .bp-rtab-nm[contenteditable]{outline:1px solid var(--bp-cyan-hi);border-radius:2px;padding:0 3px;cursor:text}
+#crev-blueprint-layer .bp-rnewtab{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:10px;min-height:34px;border:1.5px dashed var(--bp-line);border-radius:4px;color:var(--bp-muted);font:600 11px 'BPInter',sans-serif;cursor:pointer;pointer-events:auto}
+#crev-blueprint-layer .bp-rnewtab:hover{border-color:var(--bp-cyan);color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-radd-ic{display:inline-flex}#crev-blueprint-layer .bp-radd-ic svg{width:13px;height:13px;display:block}

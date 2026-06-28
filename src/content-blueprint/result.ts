@@ -21,7 +21,7 @@
 import type { LModel, LNode } from '../lib/layout/types';
 import { findNode, orderChildren, isTempId, isChart } from '../lib/layout/model';
 import {
-  ICON_PLUS, ICON_CHART, ICON_TABLE, ICON_LIST, ICON_CHECK_CIRCLE, ICON_CODE,
+  ICON_PLUS, ICON_X, ICON_CHART, ICON_TABLE, ICON_LIST, ICON_CHECK_CIRCLE, ICON_CODE,
   ICON_LINK, ICON_PLAY, ICON_PENCIL, ICON_BOOK, ICON_LAYOUT,
 } from '../lib/icons';
 
@@ -39,7 +39,7 @@ function typeIcon(className: string): string | null {
 import type { Rect } from './geometry';
 import { unionRect, setIcon } from './geometry';
 import { armBox } from './gestures';
-import { openPicker } from './actions';
+import { openPicker, doDelete, doRename, addTabAction } from './actions';
 import { thumbFor } from './thumbs';
 import { bp } from './state';
 
@@ -112,6 +112,31 @@ function widgetHeight(node: LNode, byRid: Map<string, Element>): { px: number; m
   return { px: estimateHeight(node.className), measured: false };
 }
 
+/** A small "+" zone filling the trailing FREE columns of a row, so the empty right side of a
+ *  partly-filled row (e.g. Risk Register) is a real add target. Sized to the gap so the new widget
+ *  lands in it; also a move drop-target. */
+function gapCell(parentId: string, free: number): HTMLElement {
+  const z = document.createElement('div'); z.className = 'bp-rgap'; z.style.gridColumn = `span ${free}`;
+  z.dataset.bpid = parentId; z.dataset.bpkind = 'avail';
+  const ic = document.createElement('span'); ic.className = 'bp-rgap-ic'; setIcon(ic, ICON_PLUS); z.appendChild(ic);
+  z.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(parentId, { cols: free }); });
+  return z;
+}
+
+/** Append a parent's children to `grid`, packed into 6-col rows, dropping a gapCell in each row's
+ *  trailing free columns. Mirrors BMP's left-to-right wrap, and makes every empty slot fillable. */
+function fillGrid(grid: HTMLElement, base: LModel, children: LNode[], parentId: string, byRid: Map<string, Element>): void {
+  let used = 0;
+  for (const c of orderChildren(children)) {
+    const sp = Math.max(1, Math.min(6, c.cols.L));
+    if (used + sp > 6 && used > 0) { grid.appendChild(gapCell(parentId, 6 - used)); used = 0; }
+    grid.appendChild(cell(base, c, parentId, byRid));
+    used += sp;
+    if (used >= 6) used = 0;
+  }
+  if (used > 0) grid.appendChild(gapCell(parentId, 6 - used));
+}
+
 /** One widget/container cell. Containers recurse into a nested 6-col sub-grid. */
 function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<string, Element>): HTMLElement {
   const el = document.createElement('div');
@@ -142,8 +167,8 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
 
   if (node.kind === 'container') {
     const grid = document.createElement('div'); grid.className = 'bp-rgrid';
-    for (const child of orderChildren(node.children)) grid.appendChild(cell(base, child, node.id, byRid));
-    if (!node.children.length) { const e = document.createElement('div'); e.className = 'bp-rempty'; e.textContent = 'empty'; grid.appendChild(e); }
+    if (node.children.length) fillGrid(grid, base, node.children, node.id, byRid);
+    else grid.appendChild(gapCell(node.id, 6)); // empty container → a full add slot
     el.appendChild(grid);
   } else {
     // A captured thumbnail of the real widget makes the cell recognisable as the page itself; if we
@@ -163,9 +188,20 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   return el;
 }
 
-/** One tab's section: a header (label + active marker, also a move-to-tab drop target) followed by
- *  its 6-col grid + a full-width add/drop zone. Rendered from the MODEL, so inactive tabs (no live
- *  DOM) render identically to the active one. */
+/** Inline-rename a tab from its section header: make the name span editable, commit on blur/Enter.
+ *  Self-contained (sets bp.renaming so the re-render doesn't destroy the field mid-edit). */
+function editTabName(tabId: string, span: HTMLElement): void {
+  span.setAttribute('contenteditable', 'true'); span.focus(); bp.renaming = true;
+  const range = document.createRange(); range.selectNodeContents(span);
+  const sel = getSelection(); sel?.removeAllRanges(); sel?.addRange(range);
+  span.addEventListener('blur', () => { bp.renaming = false; span.removeAttribute('contenteditable'); doRename(tabId, span.textContent ?? ''); }, { once: true });
+  span.addEventListener('keydown', (e) => { const k = (e as KeyboardEvent).key; if (k === 'Enter') { e.preventDefault(); span.blur(); } if (k === 'Escape') span.blur(); });
+}
+
+/** One tab's section: a header (editable name, active marker, add + delete; also a move-to-tab drop
+ *  target) followed by its 6-col grid. Rendered from the MODEL, so inactive tabs render like the
+ *  active one. Tab management lives here now — the standalone tab bar was removed as redundant with
+ *  BMP's own tab strip. */
 function tabSection(base: LModel, tab: LNode, isActive: boolean, byRid: Map<string, Element>): HTMLElement {
   const sec = document.createElement('div'); sec.className = 'bp-rtab-sec';
   const head = document.createElement('div');
@@ -173,19 +209,24 @@ function tabSection(base: LModel, tab: LNode, isActive: boolean, byRid: Map<stri
   head.dataset.bpid = tab.id; head.dataset.bpkind = 'avail'; // drop here = move to this tab's root
   const tk = document.createElement('span'); tk.className = 'bp-rtab-k'; tk.textContent = 'TAB';
   const tn = document.createElement('span'); tn.className = 'bp-rtab-nm'; tn.textContent = tab.name;
+  tn.title = 'Click to rename';
+  tn.addEventListener('mousedown', (e) => { e.stopPropagation(); editTabName(tab.id, tn); });
   head.append(tk, tn);
   if (isActive) { const b = document.createElement('span'); b.className = 'bp-rtab-badge'; b.textContent = 'ON SCREEN'; head.appendChild(b); }
   head.appendChild(addBtn(tab.id, `Add a widget to ${tab.name}`));
+  const del = document.createElement('button'); del.className = 'bp-rtab-del'; setIcon(del, ICON_X);
+  del.title = `Delete tab "${tab.name}" and its contents`;
+  del.addEventListener('mousedown', (e) => { e.stopPropagation(); doDelete(tab.id); });
+  head.appendChild(del);
   sec.appendChild(head);
 
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
-  for (const child of orderChildren(tab.children)) grid.appendChild(cell(base, child, tab.id, byRid));
-  if (!tab.children.length) { const e = document.createElement('div'); e.className = 'bp-rempty'; e.textContent = `Tab "${tab.name}" is empty`; e.style.gridColumn = 'span 6'; grid.appendChild(e); }
-  // Full-width add zone — drops a new widget at the tab's top level (also a click target for the picker).
+  if (tab.children.length) fillGrid(grid, base, tab.children, tab.id, byRid);
+  // Full-width add zone — a NEW ROW below all content (the per-row gaps cover partial rows).
   const add = document.createElement('div'); add.className = 'bp-radd-zone'; add.style.gridColumn = 'span 6';
   add.dataset.bpid = tab.id; add.dataset.bpkind = 'avail';
   const ai = document.createElement('span'); ai.className = 'bp-radd-ic'; setIcon(ai, ICON_PLUS);
-  const at = document.createElement('span'); at.textContent = `Add to "${tab.name}"`;
+  const at = document.createElement('span'); at.textContent = tab.children.length ? `Add a row to "${tab.name}"` : `Tab "${tab.name}" is empty — add a widget`;
   add.append(ai, at);
   add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(tab.id); });
   grid.appendChild(add);
@@ -200,19 +241,42 @@ function tabSection(base: LModel, tab: LNode, isActive: boolean, byRid: Map<stri
  * the live view.
  */
 export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element>, layer: HTMLElement): boolean {
+  // Anchor to the active model tab's content box when there is one; otherwise (e.g. BMP's Result tab,
+  // where the visible widgets are RESULT orphans not in any model tab) anchor to ALL visible widgets,
+  // so the canvas still pops up. Returns false only when truly nothing is on screen.
   const active = activeModelTab(base, m, byRid);
-  if (!active) return false;
-  const { tab: activeTab, frame } = active;
+  const frame = active?.frame ?? unionAllVisible(byRid);
+  if (!frame) return false;
+  const activeId = active?.tab.id ?? null;
 
-  // Anchor to the live content box (origin + width line up with BMP's real columns) and cover at
-  // least its full height, so the opaque panel masks the busy page beneath rather than floating over it.
   const wrap = document.createElement('div'); wrap.className = 'bp-result';
   Object.assign(wrap.style, { left: `${frame.left}px`, top: `${frame.top}px`, width: `${frame.width}px`, minHeight: `${frame.height}px` });
 
   // Active tab first (it's where the user is), then the rest — so you can move ACROSS tabs by dragging
-  // between sections, not just within the one BMP happens to be showing.
-  const ordered = [activeTab, ...m.tabs.filter(t => t.id !== activeTab.id)];
-  for (const tab of ordered) wrap.appendChild(tabSection(base, tab, tab.id === activeTab.id, byRid));
+  // between sections. With no active tab, render in model order (none marked ON SCREEN).
+  const ordered = activeId ? [m.tabs.find(t => t.id === activeId)!, ...m.tabs.filter(t => t.id !== activeId)] : m.tabs;
+  for (const tab of ordered) wrap.appendChild(tabSection(base, tab, tab.id === activeId, byRid));
+
+  // "+ New tab" — tab management moved off the standalone tab bar into the canvas.
+  const newTab = document.createElement('div'); newTab.className = 'bp-rnewtab';
+  const ni = document.createElement('span'); ni.className = 'bp-radd-ic'; setIcon(ni, ICON_PLUS);
+  const nt = document.createElement('span'); nt.textContent = 'New tab';
+  newTab.append(ni, nt);
+  newTab.addEventListener('mousedown', (e) => { e.stopPropagation(); addTabAction(); });
+  wrap.appendChild(newTab);
+
   layer.appendChild(wrap);
   return true;
+}
+
+/** Bounding box of ALL currently-visible widgets (any tab/orphan) — the fallback anchor when no model
+ *  tab is active. */
+function unionAllVisible(byRid: Map<string, Element>): Rect | null {
+  let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity, any = false;
+  for (const el of byRid.values()) {
+    const rc = el.getBoundingClientRect();
+    if (rc.width < 8 || rc.height < 8 || rc.bottom <= 0 || rc.top >= innerHeight) continue;
+    l = Math.min(l, rc.left); t = Math.min(t, rc.top); r = Math.max(r, rc.right); b = Math.max(b, rc.bottom); any = true;
+  }
+  return any ? { left: l, top: t, width: r - l, height: b - t } : null;
 }
