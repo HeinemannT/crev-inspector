@@ -223,6 +223,19 @@ describe('diff + ec compile', () => {
     expect(reorders.some(s => s.id === 'RESULT' || s.afterId === 'RESULT')).toBe(false); // ...but never via RESULT
   });
 
+  it('emits NO phantom reorder for an unchanged model with a Result tab (excluded from both orders)', () => {
+    // The Result tab must be filtered from the desired group AND the natural/surviving order — excluding
+    // it from only one made them mismatch and emit a spurious moveAfter for every page tab after it
+    // (it showed as un-discardable "MOVED TAB" pending changes).
+    const m = model(
+      n({ id: 'RESULT', kind: 'tab', className: 'Tab', name: 'Result' }),
+      n({ id: 't1', kind: 'tab', className: 'Tab', name: 'A' }),
+      n({ id: 't2', kind: 'tab', className: 'Tab', name: 'B' }),
+      n({ id: 't3', kind: 'tab', className: 'Tab', name: 'C' }),
+    );
+    expect(diff(m, m)).toEqual([]); // identity diff = no steps at all
+  });
+
   it('compiles a child into a composite as <composite>.add(Child) (not container:=<widget>)', () => {
     const base = model(n({ id: 'tab1', kind: 'tab', className: 'Tab', name: 'T', children: [
       n({ id: 'bc', kind: 'widget', className: 'ButtonContainer', name: 'Buttons', children: [] }),

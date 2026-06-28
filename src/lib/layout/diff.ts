@@ -90,11 +90,12 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
   for (const pid of parents) {
     for (const kind of ['tab', 'container', 'widget'] as NodeKind[]) {
       // `index()` parents EVERY tab under the page's tabsetId — including the shared Result tab, whose
-      // REAL parent is default_tabset. So it lands in this group with the page's own tabs. Exclude it:
-      // it's pinned first and not user-reorderable, and a chained `t.<pageTab>.moveAfter(t.RESULT)` would
-      // be cross-tabset (misplace/error). (Latent today — tab pills have no drag-reorder — but this keeps
-      // it correct if that's ever added.)
-      const group = childIdsOf(B, pid).filter(id => kindOfId(id) === kind && !(kind === 'tab' && isResultTab(B.get(id)!.node)));
+      // REAL parent is default_tabset. So it lands in this group with the page's own tabs. Exclude it
+      // from BOTH the desired order AND the natural/surviving order below (excluding it from only one
+      // would make them mismatch and emit a phantom reorder for every tab after it). It's pinned first
+      // and not user-reorderable, and a chained `t.<pageTab>.moveAfter(t.RESULT)` would be cross-tabset.
+      const excluded = (id: string): boolean => kind === 'tab' && !!B.get(id) && isResultTab(B.get(id)!.node);
+      const group = childIdsOf(B, pid).filter(id => kindOfId(id) === kind && !excluded(id));
       if (group.length < 2) continue;
       // `natural` = the order BMP produces from the create+reparent steps ALONE (before any reorder),
       // so a reorder only emits when the desired order genuinely differs from it. That order is:
@@ -106,7 +107,7 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
       // box re-emit a moveAfter for each sibling -> "1 move = N changes". Including them at their
       // appended slot means an append-move needs no reorder at all. When an interleave IS wanted the
       // join still mismatches and the full chain (which reconstructs the exact order) fires.
-      const survivingBase = childIdsOf(A, pid).filter(id => B.get(id)?.parentId === pid && kindOfId(id) === kind);
+      const survivingBase = childIdsOf(A, pid).filter(id => B.get(id)?.parentId === pid && kindOfId(id) === kind && !excluded(id));
       const createdIn = group.filter(id => !A.has(id));
       const reparentedIn = group.filter(id => A.has(id) && !survivingBase.includes(id));
       const natural = [...survivingBase, ...createdIn, ...reparentedIn];
