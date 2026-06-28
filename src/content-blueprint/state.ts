@@ -59,6 +59,18 @@ export const model = (): LModel | null => bp.history?.present() ?? null;
 /** Curated add palette — the common, verified-addable widget types grouped for the picker. Display
  *  names are friendly; the key is the BMP className. (A full per-host live-derived palette is a
  *  later refinement — these all add cleanly to a Scorecard/template container.) */
+/** Quick-access widgets shown in a "Most used" section at the top of the add picker. A fixed shortlist
+ *  (not customizable) — the full PALETTE below still lists every type, so this is a convenience, not the
+ *  only path. All verified addable via a bare `_sc.add(<className>)` (incl. CreateObjectView). */
+export const MOST_USED: { key: string; name: string }[] = [
+  { key: 'InputView', name: 'Input View' },
+  { key: 'ExtendedTable', name: 'Extended Table' },
+  { key: 'DescriptionView', name: 'Description View' },
+  { key: 'TextElement', name: 'Text Element' },
+  { key: 'ActionButton', name: 'Action Button' },
+  { key: 'CreateObjectView', name: 'Create Object View' },
+];
+
 export const PALETTE: { group: string; items: { key: string; name: string }[] }[] = [
   { group: 'Status', items: [
     { key: 'SimpleStatus', name: 'Simple Status' }, { key: 'Status', name: 'Status' },

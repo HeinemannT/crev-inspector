@@ -13,8 +13,8 @@ import { findNode, walk, hasHeight, isChart, orderChildren } from '../lib/layout
 import { COMPOSITE_TYPES, COMPOSITE_CHILDREN } from '../lib/layout/constraints';
 import { isAncestorOf } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
-import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_X } from '../lib/icons';
-import { bp, model, PALETTE } from './state';
+import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_X, ICON_LAYOUT } from '../lib/icons';
+import { bp, model, PALETTE, MOST_USED } from './state';
 import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkIconBtn, delta } from './geometry';
 import {
   select, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
@@ -22,7 +22,7 @@ import {
 } from './actions';
 import { armBox, armResize } from './gestures';
 import { renderChip, previewModal, trayPanel, hintBar, createTabsetModal } from './view-panels';
-import { renderResult } from './result';
+import { renderResult, typeIcon } from './result';
 import { isCapturing } from './thumbs';
 
 export function render(): void {
@@ -450,19 +450,28 @@ function pickerPanel(byRid: Map<string, Element>): HTMLElement {
   head.textContent = composite ? `Add to ${host?.name}` : `Add widget to ${host?.name ?? 'container'}`;
   const search = document.createElement('input'); search.className = 'bp-pick-s'; search.placeholder = 'Search…';
   const list = document.createElement('div'); list.className = 'bp-pick-list';
+  const matches = (it: { key: string; name: string }, ql: string): boolean =>
+    !ql || it.name.toLowerCase().includes(ql) || it.key.toLowerCase().includes(ql);
   const fill = (q: string): void => {
     list.textContent = '';
     const ql = q.trim().toLowerCase();
-    // Structure FIRST (not buried): create an empty container — a grouping box you then add widgets into.
-    // Not offered for composite hosts (they only take fixed children). Matches a "container/box/group" search.
-    if (!composite && (!ql || 'container box group structure'.includes(ql))) {
-      const gh = document.createElement('div'); gh.className = 'bp-pick-grp'; gh.textContent = 'Structure'; list.appendChild(gh);
-      const boxRow = pickRow('New container (empty box)', 'box', () => addContainerTo(cid));
+    // "New container" FIRST as its own distinct row (no section header): a grouping box you then add
+    // widgets into. Icon + cyan so it stands apart from the widget rows. Not for composite hosts.
+    if (!composite && (!ql || 'container box group'.includes(ql))) {
+      const boxRow = pickRow('New container', 'empty box', () => addContainerTo(cid), ICON_LAYOUT);
       boxRow.classList.add('bp-pick-box');
       list.appendChild(boxRow);
     }
+    // "Most used" quick-access section (icons), then the full palette below (redundant by design).
+    if (!composite) {
+      const mu = MOST_USED.filter(it => matches(it, ql));
+      if (mu.length) {
+        const gh = document.createElement('div'); gh.className = 'bp-pick-grp'; gh.textContent = 'Most used'; list.appendChild(gh);
+        for (const it of mu) list.appendChild(pickRow(it.name, it.key, () => addFromPicker(it.key), typeIcon(it.key)));
+      }
+    }
     for (const grp of groups) {
-      const items = grp.items.filter(it => !ql || it.name.toLowerCase().includes(ql) || it.key.toLowerCase().includes(ql));
+      const items = grp.items.filter(it => matches(it, ql));
       if (!items.length) continue;
       const gh = document.createElement('div'); gh.className = 'bp-pick-grp'; gh.textContent = grp.group; list.appendChild(gh);
       for (const it of items) list.appendChild(pickRow(it.name, it.key, () => addFromPicker(it.key)));
@@ -515,11 +524,13 @@ function addDest(list: HTMLElement, dest: LNode, label: string, widgetId: string
 
 /** A picker/move row: name + a muted kind tag. textContent only — names come from BMP (a container
  *  could be named with HTML), so never innerHTML them. */
-function pickRow(label: string, tag: string, on: () => void): HTMLButtonElement {
+function pickRow(label: string, tag: string, on: () => void, icon?: string | null): HTMLButtonElement {
   const b = document.createElement('button'); b.className = 'bp-pick-it';
-  const nm = document.createElement('span'); nm.textContent = label;
+  const left = document.createElement('span'); left.className = 'bp-pick-l';
+  if (icon) { const ic = document.createElement('span'); ic.className = 'bp-pick-ic'; setIcon(ic, icon); left.appendChild(ic); }
+  const nm = document.createElement('span'); nm.textContent = label; left.appendChild(nm);
   const k = document.createElement('span'); k.className = 'k'; k.textContent = tag;
-  b.append(nm, k);
+  b.append(left, k);
   b.addEventListener('mousedown', (e) => { e.stopPropagation(); on(); });
   return b;
 }

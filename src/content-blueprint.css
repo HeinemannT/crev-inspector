@@ -92,9 +92,11 @@
 /* chip tray toggle active */
 #crev-blueprint-layer .bp-chip button.on{background:var(--bp-cyan);color:var(--bp-ground);border-color:var(--bp-cyan)}
 
-/* picker: new-container (structure) option — a prominent cyan-tinted row */
-#crev-blueprint-layer .bp-pick-box{color:var(--bp-cyan)}
-#crev-blueprint-layer .bp-pick-box:hover{background:rgba(110,168,255,.12)}
+/* picker: new-container option — a distinct cyan row (icon + label) that stands apart from widgets */
+#crev-blueprint-layer .bp-pick-box{color:var(--bp-cyan);font-weight:600;margin-bottom:2px}
+#crev-blueprint-layer .bp-pick-box .bp-pick-ic{color:var(--bp-cyan)}
+#crev-blueprint-layer .bp-pick-box .k{color:var(--bp-cyan);opacity:.7}
+#crev-blueprint-layer .bp-pick-box:hover{background:rgba(110,168,255,.16)}
 
 /* pending tray (docked top-right) */
 #crev-blueprint-layer .bp-tray{position:fixed;top:92px;right:16px;width:272px;max-height:60vh;overflow:auto;z-index:40;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);padding:10px 12px;pointer-events:auto}
@@ -226,9 +228,12 @@
 #crev-blueprint-layer .bp-pick-s:focus{border-color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-pick-list{overflow:auto;padding:0 6px 8px}
 #crev-blueprint-layer .bp-pick-grp{padding:7px 8px 3px;color:var(--bp-muted);font:700 9px var(--bp-mono);letter-spacing:.1em;text-transform:uppercase}
-#crev-blueprint-layer .bp-pick-it{display:flex;justify-content:space-between;align-items:baseline;width:100%;padding:6px 9px;border:0;border-radius:var(--bp-r);background:transparent;color:var(--bp-text);font:12px 'BPInter',sans-serif;cursor:pointer;text-align:left}
+#crev-blueprint-layer .bp-pick-it{display:flex;justify-content:space-between;align-items:center;width:100%;padding:6px 9px;border:0;border-radius:var(--bp-r);background:transparent;color:var(--bp-text);font:12px 'BPInter',sans-serif;cursor:pointer;text-align:left}
 #crev-blueprint-layer .bp-pick-it:hover{background:rgba(110,168,255,.1)}
-#crev-blueprint-layer .bp-pick-it .k{font:10px var(--bp-mono);color:var(--bp-muted)}
+#crev-blueprint-layer .bp-pick-it .k{font:10px var(--bp-mono);color:var(--bp-muted);flex:none}
+#crev-blueprint-layer .bp-pick-l{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#crev-blueprint-layer .bp-pick-ic{flex:none;display:inline-flex;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-pick-ic svg{width:13px;height:13px;display:block}
 
 /* ── apply preview modal ─────────────────────────────── */
 #crev-blueprint-layer .bp-modal-back{position:fixed;inset:0;z-index:60;background:rgba(4,12,22,.6);display:flex;align-items:center;justify-content:center;pointer-events:auto}

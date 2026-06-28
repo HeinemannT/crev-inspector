@@ -29,10 +29,10 @@ import {
  *  type string (and the big empty chart/table cells aren't pure void). First match wins. */
 const TYPE_ICONS: [RegExp, string][] = [
   [/Chart$/, ICON_CHART], [/Table$/, ICON_TABLE], [/List$/, ICON_LIST], [/Status/, ICON_CHECK_CIRCLE],
-  [/CustomVisualization/, ICON_CODE], [/URLView/, ICON_LINK], [/Button/, ICON_PLAY], [/Input/, ICON_PENCIL],
-  [/(Description|Text)/, ICON_BOOK], [/Container/, ICON_LAYOUT],
+  [/CustomVisualization/, ICON_CODE], [/URLView/, ICON_LINK], [/Button/, ICON_PLAY],
+  [/(Input|Create|ObjectView)/, ICON_PENCIL], [/(Description|Text)/, ICON_BOOK], [/Container/, ICON_LAYOUT],
 ];
-function typeIcon(className: string): string | null {
+export function typeIcon(className: string): string | null {
   for (const [re, ic] of TYPE_ICONS) if (re.test(className)) return ic;
   return null;
 }
