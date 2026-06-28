@@ -24,6 +24,9 @@ import { applyPage, fetchBlast, createTabset } from './service';
 export function mutate(next: LModel): void { bp.history?.push(next); bp.flipNext = true; render(); }
 
 export function select(id: string | null): void { bp.selectedId = id; render(); }
+/** Show a tab in the canvas (header tab-bar click). The canvas renders one tab at a time; this picks
+ *  which, independent of BMP's live tab (an inactive tab renders from estimates). */
+export function viewTab(id: string): void { bp.viewTabId = id; bp.selectedId = id; render(); }
 export function setWidth(id: string, n: number): void { const m = model(); if (m) mutate(resize(m, id, 'L', n)); }
 export function setH(id: string, px: number): void { const m = model(); if (m) mutate(setHeight(m, id, px)); }
 export function doRename(id: string, name: string): void { const m = model(); if (m) mutate(rename(m, id, name)); }

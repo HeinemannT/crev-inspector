@@ -46,6 +46,7 @@ describe('renderResult (CSS-grid mirror)', () => {
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(
       { left: 100, top: 50, right: 700, bottom: 300, width: 600, height: 250, x: 100, y: 50, toJSON: () => ({}) } as DOMRect);
     bp.selectedId = null;
+    bp.viewTabId = null;
   });
 
   const m = mdl([tab('t1', [container('A', 4, [widget('w1', 6), widget('w2', 3)]), widget('w2top', 2)])]);
@@ -69,25 +70,26 @@ describe('renderResult (CSS-grid mirror)', () => {
     expect((layer.querySelector('.bp-rcell[data-bpid="w1"]') as HTMLElement).style.gridColumn).toBe('span 6');
   });
 
-  it('renders ALL tabs stacked (cross-tab), marking only the active one, active first', () => {
-    // t1 has the live widgets (in byRid) → active; t2 has none → inactive but still rendered.
+  it('renders ONE tab at a time — the live/active tab by default, the viewed tab when set', () => {
+    // t1 has the live widgets (in byRid) → active; t2 has none. The canvas shows one tab; the header
+    // tab bar (view.ts) switches via bp.viewTabId. No per-tab section headers in the canvas anymore.
     const multi = mdl([
       tab('t1', [widget('w1', 6)]),
       tab('t2', [widget('z1', 6)]),
     ]);
     const layer = document.createElement('div');
     expect(renderResult(multi, multi, byRid, layer)).toBe(true);
-    const secs = [...layer.querySelectorAll('.bp-rtab-sec')];
-    expect(secs).toHaveLength(2);
-    // active tab section comes first and is marked; each header is a move-to-tab drop target
-    const heads = secs.map(s => s.querySelector('.bp-rtab-h') as HTMLElement);
-    expect(heads[0].dataset.bpid).toBe('t1');
-    expect(heads[0].classList.contains('active')).toBe(true);
-    expect(heads[1].dataset.bpid).toBe('t2');
-    expect(heads[1].classList.contains('active')).toBe(false);
-    expect(heads.every(h => h.dataset.bpkind === 'avail')).toBe(true);
-    // the inactive tab's widget renders from the model even with no live DOM
-    expect(layer.querySelector('.bp-rcell[data-bpid="z1"]')).not.toBeNull();
+    // default → active tab t1: its widget renders, the other tab's does not, and there are no sections
+    expect(layer.querySelector('.bp-rcell[data-bpid="w1"]')).not.toBeNull();
+    expect(layer.querySelector('.bp-rcell[data-bpid="z1"]')).toBeNull();
+    expect(layer.querySelector('.bp-rtab-sec')).toBeNull();
+
+    // switch the viewed tab → now t2's widget renders (from the model, even with no live DOM) and t1's doesn't
+    bp.viewTabId = 't2';
+    const layer2 = document.createElement('div');
+    expect(renderResult(multi, multi, byRid, layer2)).toBe(true);
+    expect(layer2.querySelector('.bp-rcell[data-bpid="z1"]')).not.toBeNull();
+    expect(layer2.querySelector('.bp-rcell[data-bpid="w1"]')).toBeNull();
   });
 
   it('exposes add affordances: a + on each container and a tab-level add/drop zone', () => {

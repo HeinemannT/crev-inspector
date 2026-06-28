@@ -21,7 +21,7 @@
 import type { LModel, LNode } from '../lib/layout/types';
 import { findNode, orderChildren, isTempId, isChart } from '../lib/layout/model';
 import {
-  ICON_PLUS, ICON_X, ICON_CHART, ICON_TABLE, ICON_LIST, ICON_CHECK_CIRCLE, ICON_CODE,
+  ICON_PLUS, ICON_CHART, ICON_TABLE, ICON_LIST, ICON_CHECK_CIRCLE, ICON_CODE,
   ICON_LINK, ICON_PLAY, ICON_PENCIL, ICON_BOOK, ICON_LAYOUT,
 } from '../lib/icons';
 
@@ -39,7 +39,7 @@ function typeIcon(className: string): string | null {
 import type { Rect } from './geometry';
 import { unionRect, setIcon } from './geometry';
 import { armBox } from './gestures';
-import { openPicker, doDelete, doRename, addTabAction } from './actions';
+import { openPicker } from './actions';
 import { thumbFor } from './thumbs';
 import { bp } from './state';
 
@@ -188,37 +188,32 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   return el;
 }
 
-/** Inline-rename a tab from its section header: make the name span editable, commit on blur/Enter.
- *  Self-contained (sets bp.renaming so the re-render doesn't destroy the field mid-edit). */
-function editTabName(tabId: string, span: HTMLElement): void {
-  span.setAttribute('contenteditable', 'true'); span.focus(); bp.renaming = true;
-  const range = document.createRange(); range.selectNodeContents(span);
-  const sel = getSelection(); sel?.removeAllRanges(); sel?.addRange(range);
-  span.addEventListener('blur', () => { bp.renaming = false; span.removeAttribute('contenteditable'); doRename(tabId, span.textContent ?? ''); }, { once: true });
-  span.addEventListener('keydown', (e) => { const k = (e as KeyboardEvent).key; if (k === 'Enter') { e.preventDefault(); span.blur(); } if (k === 'Escape') span.blur(); });
+/** Pick the tab to show in the canvas: the explicit header-bar selection if it still exists, else
+ *  BMP's live/active tab, else the first model tab (so a non-live page still shows something). */
+function viewedTab(m: LModel, activeId: string | null): LNode | null {
+  if (bp.viewTabId) { const t = m.tabs.find(t => t.id === bp.viewTabId); if (t) return t; }
+  if (activeId) { const t = m.tabs.find(t => t.id === activeId); if (t) return t; }
+  return m.tabs[0] ?? null;
 }
 
-/** One tab's section: a header (editable name, active marker, add + delete; also a move-to-tab drop
- *  target) followed by its 6-col grid. Rendered from the MODEL, so inactive tabs render like the
- *  active one. Tab management lives here now — the standalone tab bar was removed as redundant with
- *  BMP's own tab strip. */
-function tabSection(base: LModel, tab: LNode, isActive: boolean, byRid: Map<string, Element>): HTMLElement {
-  const sec = document.createElement('div'); sec.className = 'bp-rtab-sec';
-  const head = document.createElement('div');
-  head.className = 'bp-rtab-h' + (isActive ? ' active' : '');
-  head.dataset.bpid = tab.id; head.dataset.bpkind = 'avail'; // drop here = move to this tab's root
-  const tk = document.createElement('span'); tk.className = 'bp-rtab-k'; tk.textContent = 'TAB';
-  const tn = document.createElement('span'); tn.className = 'bp-rtab-nm'; tn.textContent = tab.name;
-  tn.title = 'Click to rename';
-  tn.addEventListener('mousedown', (e) => { e.stopPropagation(); editTabName(tab.id, tn); });
-  head.append(tk, tn);
-  if (isActive) { const b = document.createElement('span'); b.className = 'bp-rtab-badge'; b.textContent = 'ON SCREEN'; head.appendChild(b); }
-  head.appendChild(addBtn(tab.id, `Add a widget to ${tab.name}`));
-  const del = document.createElement('button'); del.className = 'bp-rtab-del'; setIcon(del, ICON_X);
-  del.title = `Delete tab "${tab.name}" and its contents`;
-  del.addEventListener('mousedown', (e) => { e.stopPropagation(); doDelete(tab.id); });
-  head.appendChild(del);
-  sec.appendChild(head);
+/**
+ * Render the result wireframe into `layer` — ONE tab at a time (the header tab bar switches/manages
+ * tabs; the canvas just lays out the chosen tab's grid). Anchored to the live content box for column
+ * alignment. Returns false when it can't anchor (nothing on screen) so the caller falls back.
+ */
+export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element>, layer: HTMLElement): boolean {
+  // Anchor to the active model tab's content box when there is one; otherwise (e.g. BMP's Result tab,
+  // where the visible widgets are RESULT orphans not in any model tab) anchor to ALL visible widgets,
+  // so the canvas still pops up. Returns false only when truly nothing is on screen.
+  const active = activeModelTab(base, m, byRid);
+  const frame = active?.frame ?? unionAllVisible(byRid);
+  if (!frame) return false;
+  const activeId = active?.tab.id ?? null;
+  const tab = viewedTab(m, activeId);
+  if (!tab) return false;
+
+  const wrap = document.createElement('div'); wrap.className = 'bp-result';
+  Object.assign(wrap.style, { left: `${frame.left}px`, top: `${frame.top}px`, width: `${frame.width}px`, minHeight: `${frame.height}px` });
 
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
   if (tab.children.length) fillGrid(grid, base, tab.children, tab.id, byRid);
@@ -230,40 +225,7 @@ function tabSection(base: LModel, tab: LNode, isActive: boolean, byRid: Map<stri
   add.append(ai, at);
   add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(tab.id); });
   grid.appendChild(add);
-  sec.appendChild(grid);
-  return sec;
-}
-
-/**
- * Render the result wireframe into `layer`. Renders EVERY tab stacked (the model carries all tabs'
- * structure; only the active tab has live DOM, which we use to anchor the panel's origin + width).
- * Returns false when it can't anchor (no active tab with live widgets) so the caller falls back to
- * the live view.
- */
-export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element>, layer: HTMLElement): boolean {
-  // Anchor to the active model tab's content box when there is one; otherwise (e.g. BMP's Result tab,
-  // where the visible widgets are RESULT orphans not in any model tab) anchor to ALL visible widgets,
-  // so the canvas still pops up. Returns false only when truly nothing is on screen.
-  const active = activeModelTab(base, m, byRid);
-  const frame = active?.frame ?? unionAllVisible(byRid);
-  if (!frame) return false;
-  const activeId = active?.tab.id ?? null;
-
-  const wrap = document.createElement('div'); wrap.className = 'bp-result';
-  Object.assign(wrap.style, { left: `${frame.left}px`, top: `${frame.top}px`, width: `${frame.width}px`, minHeight: `${frame.height}px` });
-
-  // Active tab first (it's where the user is), then the rest — so you can move ACROSS tabs by dragging
-  // between sections. With no active tab, render in model order (none marked ON SCREEN).
-  const ordered = activeId ? [m.tabs.find(t => t.id === activeId)!, ...m.tabs.filter(t => t.id !== activeId)] : m.tabs;
-  for (const tab of ordered) wrap.appendChild(tabSection(base, tab, tab.id === activeId, byRid));
-
-  // "+ New tab" — tab management moved off the standalone tab bar into the canvas.
-  const newTab = document.createElement('div'); newTab.className = 'bp-rnewtab';
-  const ni = document.createElement('span'); ni.className = 'bp-radd-ic'; setIcon(ni, ICON_PLUS);
-  const nt = document.createElement('span'); nt.textContent = 'New tab';
-  newTab.append(ni, nt);
-  newTab.addEventListener('mousedown', (e) => { e.stopPropagation(); addTabAction(); });
-  wrap.appendChild(newTab);
+  wrap.appendChild(grid);
 
   layer.appendChild(wrap);
   return true;

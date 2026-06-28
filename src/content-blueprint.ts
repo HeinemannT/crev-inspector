@@ -71,7 +71,7 @@ export function enableBlueprint(): void {
       bp.mutRaf = 0;
       if (!bp.active || !bp.baseline || bp.dragging || bp.renaming) return;
       const sig = ridSignature();
-      if (sig !== bp.ridSig) { bp.ridSig = sig; render(); }
+      if (sig !== bp.ridSig) { bp.ridSig = sig; bp.viewTabId = null; render(); } // BMP switched tab → canvas follows it
     });
   });
   bp.observer.observe(document.body, { childList: true, subtree: true });
@@ -98,7 +98,7 @@ export function disableBlueprint(): void {
   bp.observer?.disconnect();
   bp.layer?.remove();
   document.getElementById(STYLE_ID)?.remove(); // don't leak the injected stylesheet past teardown
-  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, pickerOpts: null, movePicker: null, onScroll: null, onKey: null, raf: 0, hint: null, trayOpen: false, dragging: false, renaming: false, observer: null, ridSig: '', mutRaf: 0, needsTabset: null, creatingTabset: false, flipNext: false });
+  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, pickerOpts: null, movePicker: null, onScroll: null, onKey: null, raf: 0, hint: null, trayOpen: false, dragging: false, renaming: false, observer: null, ridSig: '', mutRaf: 0, needsTabset: null, creatingTabset: false, flipNext: false, viewTabId: null });
 }
 // Load/apply results are handled by content-blueprint/service.ts (the sendRequest promises), not by
 // a port-dispatched handler — see that module.

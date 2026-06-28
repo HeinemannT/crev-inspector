@@ -13,11 +13,11 @@ import { findNode, walk, hasHeight, isChart, orderChildren } from '../lib/layout
 import { COMPOSITE_TYPES, COMPOSITE_CHILDREN } from '../lib/layout/constraints';
 import { isAncestorOf } from '../lib/layout/edit';
 import { diff } from '../lib/layout/diff';
-import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT } from '../lib/icons';
+import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_X } from '../lib/icons';
 import { bp, model, PALETTE } from './state';
 import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkIconBtn, delta } from './geometry';
 import {
-  select, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
+  select, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
   openMovePicker, closeMovePicker, moveTo,
 } from './actions';
 import { armBox, armResize } from './gestures';
@@ -47,11 +47,12 @@ export function render(): void {
   layer.textContent = '';
   const byRid = ridElementMap();
   const pending = diff(base, m).length;
-  // Just the command chip now — the standalone tab strip was removed as redundant with BMP's own tab
-  // bar (and tab management moved into the result-canvas section headers).
+  // Command chip + the tab bar (tab manager AND canvas switcher — the canvas shows one tab at a time,
+  // these pills pick which). BMP's live tab is marked so you can tell the on-screen tab from a peeked one.
+  const liveId = base.tabs.find((t) => unionRect(t, byRid))?.id ?? null;
   const header = document.createElement('div');
   header.className = 'bp-header' + (ctx.target === 'template' ? ' tmpl' : '');
-  header.append(renderChip(ctx, pending));
+  header.append(renderChip(ctx, pending), tabBar(base, m, liveId));
   layer.appendChild(header);
 
   // The result canvas IS the editor: the edited model laid out as a CSS-grid wireframe (final
@@ -501,6 +502,48 @@ function pickRow(label: string, tag: string, on: () => void): HTMLButtonElement 
   b.append(nm, k);
   b.addEventListener('mousedown', (e) => { e.stopPropagation(); on(); });
   return b;
+}
+
+// ── header tab bar (manage tabs + switch which one the canvas shows) ──────────────
+/** The tab strip under the chip. Each pill switches the canvas to that tab (click), renames (pencil),
+ *  and deletes (✕); it's also a cross-tab move drop-target (data-bpkind=tab). Rendered from the
+ *  BASELINE tabs so a staged delete stays visible (struck), with staged-new tabs appended. The pill
+ *  for BMP's live (on-screen) tab carries a dot; the currently-viewed tab is highlighted. */
+function tabBar(base: LModel, m: LModel, liveId: string | null): HTMLElement {
+  const viewedId = bp.viewTabId ?? liveId;
+  const bar = document.createElement('div'); bar.className = 'bp-tabs';
+  const lbl = document.createElement('span'); lbl.className = 'bp-tabs-l'; lbl.textContent = 'TABS'; bar.appendChild(lbl);
+  for (const bt of base.tabs) {
+    const cur = findNode(m, bt.id)?.node;
+    const state = !cur ? 'gone' : (cur.name !== bt.name ? 'renamed' : 'same');
+    bar.appendChild(tabPill(bt.id, cur?.name ?? bt.name, state, bt.id === viewedId, bt.id === liveId));
+  }
+  for (const mt of m.tabs) {
+    if (!base.tabs.some(b => b.id === mt.id)) bar.appendChild(tabPill(mt.id, mt.name, 'new', mt.id === viewedId, mt.id === liveId));
+  }
+  bar.appendChild(mkIconBtn(ICON_PLUS, addTabAction, 'Tab'));
+  return bar;
+}
+
+function tabPill(id: string, name: string, state: 'same' | 'renamed' | 'gone' | 'new', viewed: boolean, live: boolean): HTMLElement {
+  const gone = state === 'gone';
+  const pill = document.createElement('div');
+  pill.className = `bp-tab st-${state}` + (viewed ? ' sel' : '') + (live ? ' live' : '');
+  pill.dataset.bpid = id; pill.dataset.bpkind = 'tab'; // drop target for cross-tab moves
+  pill.title = gone ? 'Deleted — use Undo to restore' : 'Show this tab in the canvas';
+  if (!gone) pill.addEventListener('mousedown', (e) => { e.stopPropagation(); viewTab(id); });
+  if (live) { const d = document.createElement('span'); d.className = 'bp-tlive'; d.title = 'On screen in BMP'; pill.appendChild(d); }
+  if (state === 'new') { const t = document.createElement('span'); t.className = 'newtag'; t.textContent = 'NEW'; pill.appendChild(t); }
+  const nm = document.createElement('span'); nm.className = 'bp-tnm'; nm.textContent = name; pill.appendChild(nm);
+  if (!gone) {
+    const edit = document.createElement('button'); edit.className = 'bp-tedit'; setIcon(edit, ICON_PENCIL); edit.title = `Rename "${name}"`;
+    edit.addEventListener('mousedown', (e) => { e.stopPropagation(); inlineRename(id, nm); });
+    pill.appendChild(edit);
+    const del = document.createElement('button'); del.className = 'bp-tdel'; setIcon(del, ICON_X); del.title = `Delete tab "${name}" and its contents`;
+    del.addEventListener('mousedown', (e) => { e.stopPropagation(); doDelete(id); });
+    pill.appendChild(del);
+  }
+  return pill;
 }
 
 // ── inline rename (view-level: edits the rendered name span in place, then commits) ──────────────
