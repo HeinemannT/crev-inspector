@@ -217,10 +217,12 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
 
   // Keep the opaque panel BELOW BMP's own tab strip — otherwise (e.g. the unmodeled "Result" tab, where
   // the fallback anchor can reach a chrome rid up at the strip row) it paints over the tabs, hiding them
-  // AND swallowing their clicks. On a real model tab the content already sits below the strip, so this is
-  // a no-op there.
+  // AND swallowing their clicks. Only at the TOP of the page, though: BMP's strip is sticky, so clamping
+  // unconditionally would PIN the panel under it and freeze scrolling (the panel must follow the content
+  // up so a tall wireframe's lower rows can scroll into view). Once scrolled, anchor straight to the
+  // content. On a real model tab at rest the content already sits below the strip, so this is a no-op.
   const strip = bmpTabStripBottom();
-  const top = strip ? Math.max(frame.top, strip + 6) : frame.top;
+  const top = strip && window.scrollY <= 2 ? Math.max(frame.top, strip + 6) : frame.top;
   const minH = Math.max(60, frame.height - (top - frame.top));
   // Span the FULL 6-column content area, not just the occupied columns: when no top-level row fills all
   // six (e.g. Risk Register), the widget union is narrower than BMP's grid, which squished the panel and

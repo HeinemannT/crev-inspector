@@ -35,6 +35,7 @@ export function render(): void {
   if (bp.needsTabset) {
     layer.textContent = '';
     layer.appendChild(createTabsetModal(bp.needsTabset));
+    neutralizeScrollRoom();
     return;
   }
   const base = bp.baseline, m = model(), ctx = bp.ctx;
@@ -63,8 +64,10 @@ export function render(): void {
   if (renderResult(base, m, byRid, layer)) {
     renderFloatingChrome(byRid, m);
     if (oldRects) flipFrom(layer, oldRects); // animate moved/reordered cells to their new positions
+    ensureScrollRoom(layer.querySelector('.bp-result')); // let the page scroll to a panel taller than BMP's content
     return;
   }
+  neutralizeScrollRoom(); // live-fallback boxes anchor within the page's own scroll — no extra room needed
 
   // container boxes first (behind), sized to the union of their live child-widget rects
   walk(base, (node) => {
@@ -179,6 +182,35 @@ function flipFrom(layer: HTMLElement, old: Map<string, DOMRect>): void {
       el.addEventListener('transitionend', () => { el.style.transition = ''; }, { once: true });
     }
   }));
+}
+
+/** The wireframe panel can be TALLER than BMP's live content — a staged add below the last row, a
+ *  height-bumped cell, or just the bottom "Add a row" zone — but the page's scroll height is sized to
+ *  BMP's content, leaving that overflow in an unreachable dead zone (no scrollbar reaches it). BMP scrolls
+ *  the document itself (no inner scroll container), so a hidden body-level spacer extends the document's
+ *  scrollHeight to cover the overflow.
+ *
+ *  We pin the spacer at the panel's DOCUMENT-space bottom (`rect.bottom + scrollY`). That's scroll-
+ *  invariant: the panel follows the content (panel.top = frame.top = top0 − scrollY), so bottom + scrollY
+ *  collapses to a constant. (It only looped before because the sticky-strip clamp froze the panel in the
+ *  viewport, so bottom + scrollY grew with every scroll — fixed by clamping only at the top of the page.) */
+function ensureScrollRoom(panel: Element | null): void {
+  if (!panel) return;
+  let sp = bp.scrollSpacer;
+  if (!sp) {
+    sp = document.createElement('div'); sp.id = 'crev-blueprint-scroll-spacer';
+    sp.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;margin:0;padding:0;border:0;pointer-events:none;visibility:hidden';
+    document.body.appendChild(sp); bp.scrollSpacer = sp;
+  }
+  const r = panel.getBoundingClientRect();
+  sp.style.top = `${Math.round(r.bottom + window.scrollY + 24)}px`; // panel bottom in document space + a little margin
+}
+
+/** Collapse the scroll spacer (top:0) so it adds no room — for the live-fallback / no-tabset renders that
+ *  don't have a tall panel. NOT done on every result render: removing it while scrolled to the bottom
+ *  shrinks scrollHeight, the browser clamps scrollY, and the re-measure under-extends (a scroll jump). */
+function neutralizeScrollRoom(): void {
+  if (bp.scrollSpacer) bp.scrollSpacer.style.top = '0px';
 }
 
 /** Anchor a floating panel to a node's result-view cell (the result wireframe has no live DOM rect,
