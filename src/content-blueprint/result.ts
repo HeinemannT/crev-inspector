@@ -40,7 +40,6 @@ import type { Rect } from './geometry';
 import { unionRect, setIcon } from './geometry';
 import { armBox } from './gestures';
 import { openPicker } from './actions';
-import { thumbFor } from './thumbs';
 import { bp } from './state';
 
 /** A small "+" add button for a result container/tab cell. armBox already ignores mousedowns that
@@ -156,7 +155,7 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   const nm = document.createElement('span'); nm.className = 'bp-rnm'; nm.textContent = node.name;
   const ty = document.createElement('span'); ty.className = 'bp-rty'; ty.textContent = node.className.toUpperCase();
   lab.append(nm, ty);
-  const wd = document.createElement('span'); wd.className = 'bp-rwd'; wd.textContent = `${node.cols.L}/6`; lab.appendChild(wd);
+  const wd = document.createElement('span'); wd.className = 'bp-rwd'; wd.textContent = node.cols.L >= 6 ? 'full' : `${node.cols.L} col`; lab.appendChild(wd);
   if (state !== 'same') {
     const tag = document.createElement('span'); tag.className = `bp-rtag st-${state}`;
     tag.textContent = state === 'moved' ? 'MOVED' : state === 'new' ? 'NEW' : 'CHANGED';
@@ -171,17 +170,15 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
     else grid.appendChild(gapCell(node.id, 6)); // empty container → a full add slot
     el.appendChild(grid);
   } else {
-    // A captured thumbnail of the real widget makes the cell recognisable as the page itself; if we
-    // don't have one yet (off-screen, or a blank/iframe crop), fall back to the faint type watermark so
-    // a tall empty box still reads as a typed placeholder. Both sit behind the label.
-    const thumb = node.rid ? thumbFor(node.rid) : undefined;
-    if (thumb) {
-      const t = document.createElement('div'); t.className = 'bp-rthumb'; t.style.backgroundImage = `url("${thumb}")`;
-      el.appendChild(t);
-    } else if (icon) {
+    // Pure line-art: a faint type glyph fills the cell body with a small mono type caption beneath, so a
+    // tall empty box reads as a typed placeholder (the dominant name + this glyph carry recognisability —
+    // no photographic thumbnail, which fought the blueprint aesthetic).
+    if (icon) {
       const wm = document.createElement('span'); wm.className = 'bp-rwm'; setIcon(wm, icon);
       el.appendChild(wm);
     }
+    const cap = document.createElement('span'); cap.className = 'bp-rwm-ty'; cap.textContent = node.className.toUpperCase();
+    el.appendChild(cap);
   }
 
   armBox(el, node.id); // select on click, drag to move — drop targets are now final positions

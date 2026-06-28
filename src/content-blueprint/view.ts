@@ -23,7 +23,7 @@ import {
 import { armBox, armResize } from './gestures';
 import { renderChip, previewModal, trayPanel, hintBar, createTabsetModal } from './view-panels';
 import { renderResult } from './result';
-import { scheduleThumbs, isCapturing } from './thumbs';
+import { isCapturing } from './thumbs';
 
 export function render(): void {
   const layer = bp.layer;
@@ -63,7 +63,6 @@ export function render(): void {
   if (renderResult(base, m, byRid, layer)) {
     renderFloatingChrome(byRid, m);
     if (oldRects) flipFrom(layer, oldRects); // animate moved/reordered cells to their new positions
-    scheduleThumbs(byRid, render); // grab thumbnails of any newly-visible widgets, then repaint
     return;
   }
 
