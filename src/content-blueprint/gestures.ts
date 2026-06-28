@@ -185,7 +185,10 @@ function markTarget(ev: MouseEvent): void {
     hit.classList.add('bp-drop'); action = { type: 'into', targetId };
     setAct(`add into "${nameOf(m, targetId)}"`); return;
   }
-  // widget: centre = swap, edge = insert before/after
+  // widget target: centre = swap, edge = insert before/after — but ONLY widget-on-widget. A container
+  // dropped on a widget is cross-band (containers render before tab-bound widgets, so a swap there just
+  // reorders containers and an insert reparents oddly); ignore it — drop containers on tabs/containers.
+  if (src && src.node.kind !== 'widget') { setAct(''); return; }
   const r = hit.getBoundingClientRect();
   const relX = (ev.clientX - r.left) / r.width, relY = (ev.clientY - r.top) / r.height;
   const edge = Math.max(Math.abs(relX - 0.5), Math.abs(relY - 0.5));
