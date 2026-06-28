@@ -1,16 +1,16 @@
 /**
- * Constraints — "what BMP can actually serve", encoded once as data. Two tiers, by how they're wired:
+ * Constraints — "what BMP can actually serve", encoded once as data. How they're enforced:
  *
- *  - LIVE pre-commit gate: `lint()` runs over the whole model + plan and its warnings are rendered in
- *    the Apply-preview modal (empty-tab-won't-appear, structural-edit-on-an-instance-is-unverified).
- *    This is the one path a user actually sees before committing.
- *  - Gesture affordance (enforced inline, not through here): the builder simply doesn't OFFER an
- *    illegal gesture — "+ Add" appears only on tabs/containers/composites, height only on charts —
- *    so a leaf-add or bad reorder is unreachable by construction. The per-gesture `guard`/`check*`
- *    helpers below encode those same rules as data for a future single-source gesture-gate (Phase 2,
- *    the "route every gesture through one guard" fold); they're test-covered but not yet on the hot
- *    path. `COMPOSITE_TYPES`/`COMPOSITE_CHILDREN` and `checkTabVisibility`/`checkStructuralTarget`
- *    (via `lint`) ARE live.
+ *  - LIVE pre-commit gate: `lint()` runs over the whole model + plan and its warnings render in the
+ *    Apply-preview modal (empty-tab-won't-appear, structural-edit-on-an-instance scope note). This is
+ *    the one path a user sees before committing. `checkTabVisibility`/`checkStructuralTarget` feed it.
+ *  - Gesture affordance (enforced inline, not here): the builder simply doesn't OFFER an illegal
+ *    gesture — "+ Add" appears only on tabs/containers/composites, height only on charts — so a
+ *    leaf-add or bad reorder is unreachable by construction. `COMPOSITE_TYPES`/`COMPOSITE_CHILDREN`
+ *    drive that affordance in the picker/gestures.
+ *
+ * (A per-gesture `guard()`/`check*` layer once lived here as data for a future single-source gate; it
+ * was never wired and was removed — the affordance + lint above are the real enforcement.)
  *
  * Serveability verified live via ec_preview on demo scorecard 4957 (2026-06-26):
  *   ✓ resize width (widget+container)        change(columnsLargeScreen)
@@ -24,8 +24,7 @@
  *   ✓ add widget (5 types bare) / container / tab   <root>.add(…)             [verified]
  *   ✓ delete                                  delete()  (re-home first)
  */
-import { hasHeight } from './model';
-import type { Guard, LintMsg, LModel, LNode, NodeKind, PlanStep, SaveTarget } from './types';
+import type { Guard, LintMsg, LModel, LNode, PlanStep, SaveTarget } from './types';
 
 /** Widget types that render blank until configured — add places the shell, content is a hand-off. */
 export const WIDGET_NEEDS_CONFIG = new Set([
@@ -52,33 +51,6 @@ export const COMPOSITE_CHILDREN: Record<string, { key: string; name: string }[]>
 const ok: Guard = { ok: true, level: 'ok' };
 const warn = (reason: string): Guard => ({ ok: true, level: 'warn', reason });
 const info = (reason: string): Guard => ({ ok: true, level: 'info', reason });
-const forbid = (reason: string): Guard => ({ ok: false, level: 'forbidden', reason });
-
-/** Where can a new widget/container be added? Tabs and Containers are the real cells. Adding into a
- *  WIDGET — a composite (ButtonContainer…) or nonsensically a leaf — isn't serveable by the current
- *  compiler: it would emit `container := <widget>`, which BMP rejects. Block it until composite
- *  editing is wired (Phase 4). */
-export function checkAddTarget(parentKind: NodeKind, parentClassName?: string): Guard {
-  if (parentKind !== 'widget') return ok;
-  // composites accept children via `<composite>.add(child)`; a plain leaf widget is not a drop target
-  return parentClassName && COMPOSITE_TYPES.has(parentClassName)
-    ? ok
-    : forbid('widgets can only be added into a tab, container, or composite');
-}
-
-/** Height is only authorable on charts and URLView; everything else is content-driven in BMP. */
-export function checkHeight(className: string): Guard {
-  return hasHeight(className) ? ok : forbid(`${className} has no height property; height is content-driven in BMP`);
-}
-
-/** Containers always render before tab-bound widgets, so a widget can't be ordered before a
- *  container in the same tab — BMP would ignore the order and render the container first. */
-export function checkReorder(draggedKind: NodeKind, targetKind: NodeKind, before: boolean): Guard {
-  if (draggedKind === 'widget' && targetKind === 'container' && before) {
-    return forbid('a widget cannot render before a container in the same tab (containers render first)');
-  }
-  return ok;
-}
 
 /** A tab only appears in the page's tab strip once a widget resolves to it; an empty tab is
  *  invisible on the page even though the Tab object exists. */
@@ -95,29 +67,6 @@ export function checkStructuralTarget(target: SaveTarget, op: 'add' | 'delete'):
   return target === 'instance'
     ? info(`This ${op} applies directly to this instance, not a shared template.`)
     : ok;
-}
-
-/** Tabs and containers are shared portal objects; editing their geometry/identity affects every
- *  page bound to the same TabSet. (Dedicated per-page tabsets avoid this, but we don't assume it.) */
-export function checkSharedEdit(nodeKind: NodeKind, op: 'resize' | 'rename' | 'delete' | 'reorder'): Guard {
-  if (nodeKind === 'widget') return ok;
-  return warn(`${nodeKind}s are shared layout. This ${op} affects every page bound to the same TabSet`);
-}
-
-/** Aggregate gate used by the UI before committing a gesture and by apply before executing. */
-export type GestureCheck =
-  | { type: 'height'; className: string }
-  | { type: 'reorder'; draggedKind: NodeKind; targetKind: NodeKind; before: boolean }
-  | { type: 'structural'; target: SaveTarget; op: 'add' | 'delete' }
-  | { type: 'sharedEdit'; nodeKind: NodeKind; op: 'resize' | 'rename' | 'delete' | 'reorder' };
-
-export function guard(check: GestureCheck): Guard {
-  switch (check.type) {
-    case 'height': return checkHeight(check.className);
-    case 'reorder': return checkReorder(check.draggedKind, check.targetKind, check.before);
-    case 'structural': return checkStructuralTarget(check.target, check.op);
-    case 'sharedEdit': return checkSharedEdit(check.nodeKind, check.op);
-  }
 }
 
 /** Whole-model + plan lint surfaced in the Apply preview — what a user should see before commit.

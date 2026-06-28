@@ -5,7 +5,7 @@ import { reconstruct, findNode, descendantWidgets, isChart, isResultTab } from '
 import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, isAncestorOf } from '../edit';
 import { diff, summarizeChanges } from '../diff';
 import { compile } from '../ec';
-import { guard, lint, checkReorder, checkHeight, checkAddTarget } from '../constraints';
+import { lint } from '../constraints';
 import { History } from '../history';
 
 // ── factories ────────────────────────────────────────────────────────────────
@@ -362,29 +362,6 @@ describe('diff + ec compile', () => {
 });
 
 describe('constraints', () => {
-  it('forbids a widget ordered before a container (containers-first)', () => {
-    expect(checkReorder('widget', 'container', true).level).toBe('forbidden');
-    expect(checkReorder('widget', 'container', false).level).toBe('ok');
-    expect(checkReorder('container', 'container', true).level).toBe('ok');
-  });
-  it('forbids height on non-chart types', () => {
-    expect(checkHeight('BarChart').ok).toBe(true);
-    expect(checkHeight('URLView').ok).toBe(true);
-    expect(checkHeight('ExtendedTable').ok).toBe(false);
-  });
-  it('allows add into a tab/container/composite, forbids add into a leaf widget', () => {
-    expect(checkAddTarget('tab').ok).toBe(true);
-    expect(checkAddTarget('container').ok).toBe(true);
-    expect(checkAddTarget('widget', 'ButtonContainer').ok).toBe(true);    // composite — now supported
-    expect(checkAddTarget('widget', 'SimpleStatus').ok).toBe(false);      // leaf — nonsensical
-  });
-  it('notes instance structural ops (info, not a warning — verified live) and warns on shared edits', () => {
-    // Structural add/delete on an instance is verified to work, so it's an info-level scope note.
-    expect(guard({ type: 'structural', target: 'instance', op: 'add' }).level).toBe('info');
-    expect(guard({ type: 'structural', target: 'template', op: 'add' }).level).toBe('ok');
-    expect(guard({ type: 'sharedEdit', nodeKind: 'container', op: 'resize' }).level).toBe('warn');
-    expect(guard({ type: 'sharedEdit', nodeKind: 'widget', op: 'resize' }).level).toBe('ok');
-  });
   it('lints empty tabs (invisible on the page)', () => {
     const m = model(n({ id: 'empty', kind: 'tab', className: 'Tab', name: 'Empty', children: [] }));
     const msg = lint(m, 'template', [])[0];

@@ -214,8 +214,6 @@ applied edits come back as the new baseline. This is intentional, not a bug.
   (`unionRect`/`anchorRect`/`addGapZones`/`stackY` in geometry.ts/view.ts) be deleted.
 - A fully **live-derived** add palette per host (needs the server add-menu command) + **real display
   names**; the curated PALETTE / MOST_USED ship now.
-- `constraints.ts` has a test-covered "Phase 2" gesture-gate layer (`checkAddTarget`/`checkHeight`/
-  `checkReorder`/`guard`) that isn't wired to the hot path yet — wire it or remove it together.
 - Perf: the result canvas rebuilds the whole layer each render (a scroll-time translate-instead-of-
   rebuild path is the next optimisation after the diff memo).
 - **Deferred cleanup** (from the maintainability pass): unify `cellState` (result.ts) and `nodeState`
