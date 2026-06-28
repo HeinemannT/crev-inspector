@@ -19,7 +19,7 @@
  * rendering (no live anchor for inactive tabs) is a follow-up.
  */
 import type { LModel, LNode } from '../lib/layout/types';
-import { findNode, orderChildren, isTempId, isChart } from '../lib/layout/model';
+import { findNode, orderChildren, isTempId, isChart, walk } from '../lib/layout/model';
 import {
   ICON_PLUS, ICON_CHART, ICON_TABLE, ICON_LIST, ICON_CHECK_CIRCLE, ICON_CODE,
   ICON_LINK, ICON_PLAY, ICON_PENCIL, ICON_BOOK, ICON_LAYOUT,
@@ -42,17 +42,6 @@ import { armBox } from './gestures';
 import { openPicker } from './actions';
 import { bp } from './state';
 
-/** A drafting dimension line for a container header: ◄──────► — two SVG arrowhead caps with a flex line
- *  between them (so the rule meets the arrowheads cleanly instead of poking through). Trusted constant
- *  markup (no user data), inherits its colour from CSS so it stays at the container's frame weight. */
-const DIM_CAP_L = '<svg class="bp-rdim-cap" width="6" height="8" viewBox="0 0 6 8" fill="currentColor"><path d="M6 0 0 4l6 4Z"/></svg>';
-const DIM_CAP_R = '<svg class="bp-rdim-cap" width="6" height="8" viewBox="0 0 6 8" fill="currentColor"><path d="M0 0l6 4-6 4Z"/></svg>';
-function dimLine(): HTMLElement {
-  const d = document.createElement('div'); d.className = 'bp-rdim';
-  d.innerHTML = DIM_CAP_L + '<span class="bp-rdim-line"></span>' + DIM_CAP_R;
-  return d;
-}
-
 /** A small "+" add button for a result container/tab cell. armBox already ignores mousedowns that
  *  land on a <button>, so this never starts a drag/select — it just opens the add picker for `id`. */
 function addBtn(id: string, title: string): HTMLButtonElement {
@@ -65,15 +54,46 @@ export type CellState = 'same' | 'new' | 'moved' | 'changed';
 
 /** Classify a model node against the baseline for result-view colouring. A field change (width/name/
  *  height) outranks a pure move, so a moved-AND-edited widget reads as 'changed' (yellow) while a
- *  move with no other edit reads as 'moved' (lighter yellow) — matching the at-a-glance colour code. */
-export function cellState(base: LModel, node: LNode, modelParentId: string | null): CellState {
+ *  move with no other edit reads as 'moved' (lighter yellow) — matching the at-a-glance colour code.
+ *  `reordered` carries the ids whose order changed within an unchanged parent (a swap/drag-reorder),
+ *  which look 'same' field-wise but should still read as 'moved'. */
+const NO_REORDER: ReadonlySet<string> = new Set();
+export function cellState(base: LModel, node: LNode, modelParentId: string | null, reordered: ReadonlySet<string> = NO_REORDER): CellState {
   if (isTempId(node.id)) return 'new';
   const b = findNode(base, node.id);
   if (!b) return 'new';
   const bn = b.node;
   if (bn.cols.L !== node.cols.L || bn.name !== node.name || bn.height !== node.height) return 'changed';
   if ((b.parent?.id ?? null) !== modelParentId) return 'moved';
+  if (reordered.has(node.id)) return 'moved';
   return 'same';
+}
+
+/** Ids reordered WITHIN an unchanged parent group — a swap or drag-reorder where parent, width, name
+ *  and height are all unchanged, so cellState would otherwise read 'same'. A cell is flagged when its
+ *  preceding same-kind, baseline-surviving sibling differs from baseline; that's symmetric (both halves
+ *  of a swap light up) and limited to genuine reorders. Only groups whose membership is IDENTICAL to
+ *  baseline are considered, so an insert / cross-container move (already coloured 'new' / parent-'moved')
+ *  doesn't light up the neighbours its index-shift dragged along. */
+function reorderedIds(base: LModel, m: LModel): Set<string> {
+  const out = new Set<string>();
+  const consider = (parentId: string, kids: LNode[]): void => {
+    const bf = findNode(base, parentId);
+    const baseKids = bf ? bf.node.children : base.tabs.find(t => t.id === parentId)?.children;
+    if (!baseKids) return; // parent absent from baseline (a new container) — nothing to compare against
+    for (const kind of ['container', 'widget'] as const) {
+      const cur = orderChildren(kids).filter(c => c.kind === kind).map(c => c.id);
+      const bas = orderChildren(baseKids).filter(c => c.kind === kind).map(c => c.id);
+      // membership-unchanged guard: same id set, no staged adds
+      if (cur.length !== bas.length || cur.some(id => isTempId(id) || !bas.includes(id))) continue;
+      const basePred = new Map<string, string | null>();
+      bas.forEach((id, i) => basePred.set(id, i > 0 ? bas[i - 1] : null));
+      cur.forEach((id, i) => { if ((i > 0 ? cur[i - 1] : null) !== basePred.get(id)) out.add(id); });
+    }
+  };
+  m.tabs.forEach(t => consider(t.id, t.children));
+  walk(m, n => { if (n.kind === 'container') consider(n.id, n.children); });
+  return out;
 }
 
 /** The active tab = the model tab whose baseline widgets are currently in the live DOM. */
@@ -140,13 +160,13 @@ function gapCell(parentId: string, free: number, afterId?: string): HTMLElement 
 
 /** Append a parent's children to `grid`, packed into 6-col rows, dropping a gapCell in each row's
  *  trailing free columns. Mirrors BMP's left-to-right wrap, and makes every empty slot fillable. */
-function fillGrid(grid: HTMLElement, base: LModel, children: LNode[], parentId: string, byRid: Map<string, Element>): void {
+function fillGrid(grid: HTMLElement, base: LModel, children: LNode[], parentId: string, byRid: Map<string, Element>, reordered: ReadonlySet<string>): void {
   let used = 0;
   let lastId: string | undefined; // the cell a trailing gap sits right after — its add inserts there
   for (const c of orderChildren(children)) {
     const sp = Math.max(1, Math.min(6, c.cols.L));
     if (used + sp > 6 && used > 0) { grid.appendChild(gapCell(parentId, 6 - used, lastId)); used = 0; }
-    grid.appendChild(cell(base, c, parentId, byRid));
+    grid.appendChild(cell(base, c, parentId, byRid, reordered));
     lastId = c.id;
     used += sp;
     if (used >= 6) used = 0;
@@ -155,14 +175,14 @@ function fillGrid(grid: HTMLElement, base: LModel, children: LNode[], parentId: 
 }
 
 /** One widget/container cell. Containers recurse into a nested 6-col sub-grid. */
-function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<string, Element>): HTMLElement {
+function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<string, Element>, reordered: ReadonlySet<string>): HTMLElement {
   const el = document.createElement('div');
   el.dataset.bpid = node.id;
   el.dataset.bpkind = node.kind === 'container' ? 'container' : 'widget';
   el.style.gridColumn = `span ${Math.max(1, Math.min(6, node.cols.L))}`;
   const h = widgetHeight(node, byRid);
   if (h) el.style.height = `${h.px}px`;
-  const state = cellState(base, node, parentId);
+  const state = cellState(base, node, parentId, reordered);
   el.className = `bp-rcell st-${state}` + (node.kind === 'container' ? ' bp-rcont' : '')
     + (isChart(node.className) ? ' bp-rchart' : '')
     + (h ? (h.measured ? ' bp-rsized' : ' bp-rest') : '') + (bp.selectedId === node.id ? ' sel' : '');
@@ -183,9 +203,8 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   el.appendChild(lab);
 
   if (node.kind === 'container') {
-    el.appendChild(dimLine()); // drafting dimension rule beneath the title (arrowheads meet the line, no overlap)
     const grid = document.createElement('div'); grid.className = 'bp-rgrid';
-    if (node.children.length) fillGrid(grid, base, node.children, node.id, byRid);
+    if (node.children.length) fillGrid(grid, base, node.children, node.id, byRid, reordered);
     else grid.appendChild(gapCell(node.id, 6)); // empty container → a full add slot
     el.appendChild(grid);
   } else {
@@ -205,7 +224,8 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
 }
 
 /** Pick the tab to show in the canvas: the explicit header-bar selection if it still exists, else
- *  BMP's live/active tab, else the first model tab (so a non-live page still shows something). */
+ *  BMP's live/active tab, else the first model tab (so a non-live page still shows something). Only
+ *  the fallback when the caller doesn't pass a resolved `viewedId` (the tests render headless). */
 function viewedTab(m: LModel, activeId: string | null): LNode | null {
   if (bp.viewTabId) { const t = m.tabs.find(t => t.id === bp.viewTabId); if (t) return t; }
   if (activeId) { const t = m.tabs.find(t => t.id === activeId); if (t) return t; }
@@ -216,16 +236,19 @@ function viewedTab(m: LModel, activeId: string | null): LNode | null {
  * Render the result wireframe into `layer` — ONE tab at a time (the header tab bar switches/manages
  * tabs; the canvas just lays out the chosen tab's grid). Anchored to the live content box for column
  * alignment. Returns false when it can't anchor (nothing on screen) so the caller falls back.
+ *
+ * `viewedId` is the tab id the caller (render) resolved for BOTH the canvas and the highlighted tab
+ * pill, so the two never disagree (the canvas would otherwise fall back to the first model tab while
+ * the pill bar — using a different rule — highlighted nothing, e.g. on BMP's non-model Result tab).
  */
-export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element>, layer: HTMLElement): boolean {
+export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element>, layer: HTMLElement, viewedId?: string | null): boolean {
   // Anchor to the active model tab's content box when there is one; otherwise (e.g. BMP's Result tab,
   // where the visible widgets are RESULT orphans not in any model tab) anchor to ALL visible widgets,
   // so the canvas still pops up. Returns false only when truly nothing is on screen.
   const active = activeModelTab(base, m, byRid);
   const frame = active?.frame ?? unionAllVisible(byRid);
   if (!frame) return false;
-  const activeId = active?.tab.id ?? null;
-  const tab = viewedTab(m, activeId);
+  const tab = (viewedId ? m.tabs.find(t => t.id === viewedId) : null) ?? viewedTab(m, active?.tab.id ?? null);
   if (!tab) return false;
 
   // Keep the opaque panel BELOW BMP's own tab strip — otherwise (e.g. the unmodeled "Result" tab, where
@@ -245,8 +268,9 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   const wrap = document.createElement('div'); wrap.className = 'bp-result';
   Object.assign(wrap.style, { left: `${frame.left}px`, top: `${top}px`, width: `${width}px`, minHeight: `${minH}px` });
 
+  const reordered = reorderedIds(base, m);
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
-  if (tab.children.length) fillGrid(grid, base, tab.children, tab.id, byRid);
+  if (tab.children.length) fillGrid(grid, base, tab.children, tab.id, byRid, reordered);
   // Full-width add zone — a NEW ROW below all content (the per-row gaps cover partial rows).
   const add = document.createElement('div'); add.className = 'bp-radd-zone'; add.style.gridColumn = 'span 6';
   add.dataset.bpid = tab.id; add.dataset.bpkind = 'avail';

@@ -40,6 +40,10 @@ function pendingCount(base: LModel, m: LModel): number {
 export function render(): void {
   const layer = bp.layer;
   if (!layer) return;
+  // An inline-rename field is open — a rebuild here would textContent='' the layer and destroy the
+  // contenteditable span mid-edit (focus() scrolling it into view fires a scroll→render that otherwise
+  // wipes the field the instant it appears). Freeze until blur commits and clears the flag.
+  if (bp.renaming) return;
   if (bp.peek) layer.classList.add('bp-peek'); // keep a sticky peek across re-renders (add-only: don't kill a transient hover)
   // No-tabset page: show the create-tabset prompt (there's no model to edit until one exists).
   if (bp.needsTabset) {
@@ -61,9 +65,13 @@ export function render(): void {
   // Command chip + the tab bar (tab manager AND canvas switcher — the canvas shows one tab at a time,
   // these pills pick which). BMP's live tab is marked so you can tell the on-screen tab from a peeked one.
   const liveId = base.tabs.find((t) => unionRect(t, byRid))?.id ?? null;
+  // One resolved viewed-tab id for BOTH the canvas and the highlighted pill, so they never disagree:
+  // an explicit pick, else BMP's live model tab, else the first model tab (when BMP sits on the
+  // non-model Result tab). Without this the canvas showed the first tab while no pill was highlighted.
+  const viewedId = bp.viewTabId ?? liveId ?? m.tabs[0]?.id ?? null;
   const header = document.createElement('div');
   header.className = 'bp-header' + (ctx.target === 'template' ? ' tmpl' : '');
-  header.append(renderChip(ctx, pending), tabBar(base, m, liveId));
+  header.append(renderChip(ctx, pending), tabBar(base, m, liveId, viewedId));
   layer.appendChild(header);
 
   // The result canvas IS the editor: the edited model laid out as a CSS-grid wireframe (final
@@ -71,7 +79,7 @@ export function render(): void {
   // live diff-over-frozen-grid path below is only a fallback for a page the result view can't anchor
   // to (no active tab with live widgets). (The live "real page" view is slated to move into inspect
   // mode — see docs/blueprint.md.) Selection toolbar + pickers + tray + modal render at the foot.
-  if (renderResult(base, m, byRid, layer)) {
+  if (renderResult(base, m, byRid, layer, viewedId)) {
     renderFloatingChrome(byRid, m);
     if (oldRects) flipFrom(layer, oldRects); // animate moved/reordered cells to their new positions
     ensureScrollRoom(layer.querySelector('.bp-result')); // let the page scroll to a panel taller than BMP's content
@@ -589,8 +597,7 @@ function pickRow(label: string, tag: string, on: () => void, icon?: string | nul
  *  and deletes (✕); it's also a cross-tab move drop-target (data-bpkind=tab). Rendered from the
  *  BASELINE tabs so a staged delete stays visible (struck), with staged-new tabs appended. The pill
  *  for BMP's live (on-screen) tab carries a dot; the currently-viewed tab is highlighted. */
-function tabBar(base: LModel, m: LModel, liveId: string | null): HTMLElement {
-  const viewedId = bp.viewTabId ?? liveId;
+function tabBar(base: LModel, m: LModel, liveId: string | null, viewedId: string | null): HTMLElement {
   const bar = document.createElement('div'); bar.className = 'bp-tabs';
   const lbl = document.createElement('span'); lbl.className = 'bp-tabs-l'; lbl.textContent = 'TABS'; bar.appendChild(lbl);
   for (const bt of base.tabs) {

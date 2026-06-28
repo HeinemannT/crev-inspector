@@ -38,6 +38,12 @@ describe('cellState (result-view diff classification)', () => {
   it('flags an unchanged node in place as same', () => {
     expect(cellState(base, widget('w2', 3), 't1')).toBe('same');
   });
+  it('flags a node listed in the reordered set as moved', () => {
+    // swapped within its container but otherwise unchanged — cellState alone reads 'same',
+    // the reordered set (computed in renderResult) is what lights it up.
+    expect(cellState(base, widget('w2', 3), 't1', new Set(['w2']))).toBe('moved');
+    expect(cellState(base, widget('w2', 3), 't1', new Set(['other']))).toBe('same');
+  });
 });
 
 describe('renderResult (CSS-grid mirror)', () => {
