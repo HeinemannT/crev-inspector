@@ -309,7 +309,7 @@ function availZone(parentId: string, parentName: string, r: Rect, opts?: { after
   const ic = document.createElement('span'); ic.className = 'ic'; setIcon(ic, ICON_PLUS);
   const tx = document.createElement('span'); tx.textContent = 'Add widget';
   z.append(ic, tx);
-  z.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(parentId, opts); });
+  z.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(parentId, { ...opts, at: { x: e.clientX, y: e.clientY } }); });
   return z;
 }
 
@@ -389,7 +389,7 @@ function containerBox(baseNode: LNode, rect: Rect, m: LModel): HTMLElement {
   const tab = document.createElement('div'); tab.className = 'bp-ctab' + (sel ? ' sel' : '');
   const add = document.createElement('button');
   add.className = 'bp-cadd'; setIcon(add, ICON_PLUS); add.title = `Add a widget to ${baseNode.name}`;
-  add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(baseNode.id); });
+  add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(baseNode.id, { at: { x: e.clientX, y: e.clientY } }); });
   tab.appendChild(add);
   if (sel) {
     const cn = document.createElement('span'); cn.className = 'cname'; cn.textContent = cur?.name ?? baseNode.name;
@@ -469,12 +469,14 @@ function heightControl(node: LNode, r: Rect): HTMLElement {
 function pickerPanel(byRid: Map<string, Element>): HTMLElement {
   const cid = bp.picker!;
   const host = bp.baseline ? findNode(bp.baseline, cid)?.node : null;
-  // Open next to the result cell the user clicked (primary surface); fall back to the live union box.
-  const rect = resultAnchor(cid) ?? (host ? unionRect(host, byRid) : null);
   const back = document.createElement('div'); back.className = 'bp-pick-back';
   back.addEventListener('mousedown', (e) => { if (e.target === back) closePicker(); });
   const panel = document.createElement('div'); panel.className = 'bp-pick';
-  if (rect) { panel.style.left = `${Math.min(rect.left, window.innerWidth - 320)}px`; panel.style.top = `${Math.min(rect.top + 24, window.innerHeight - 420)}px`; }
+  // Anchor at the CLICK point ("where I am") when we have it — a tab-level add zone has no cell to anchor
+  // to, which used to dump the picker at the top. Fall back to the clicked cell's box, then the live union.
+  const at = bp.pickerOpts?.at;
+  const rect = at ? { left: at.x, top: at.y - 8, width: 0, height: 0 } : (resultAnchor(cid) ?? (host ? unionRect(host, byRid) : null));
+  if (rect) { panel.style.left = `${Math.max(4, Math.min(rect.left, window.innerWidth - 320))}px`; panel.style.top = `${Math.max(40, Math.min(rect.top + (at ? 0 : 24), window.innerHeight - 420))}px`; }
   else { panel.style.left = '50%'; panel.style.top = '80px'; panel.style.transform = 'translateX(-50%)'; }
   const composite = host && host.kind === 'widget' && COMPOSITE_TYPES.has(host.className) ? host.className : null;
   const groups = composite ? [{ group: `${composite} children`, items: COMPOSITE_CHILDREN[composite] ?? [] }] : PALETTE;
@@ -532,26 +534,31 @@ function moveMenu(widgetId: string, r: Rect): HTMLElement {
   const list = document.createElement('div'); list.className = 'bp-pick-list';
   const dragged = cur?.node ?? null;
   for (const tab of m.tabs) {
-    addDest(list, tab, tab.name, widgetId, curParentId, dragged);
-    const rec = (n: LNode, path: string): void => {
+    addDest(list, tab, tab.name, widgetId, curParentId, dragged, 0);
+    const rec = (n: LNode, depth: number): void => {
       for (const c of n.children) {
-        if (c.kind === 'container') { addDest(list, c, `${path} / ${c.name}`, widgetId, curParentId, dragged); rec(c, `${path} / ${c.name}`); }
+        if (c.kind === 'container') { addDest(list, c, c.name, widgetId, curParentId, dragged, depth); rec(c, depth + 1); }
       }
     };
-    rec(tab, tab.name);
+    rec(tab, 1);
   }
   if (!list.children.length) { const e = document.createElement('div'); e.className = 'bp-pick-grp'; e.textContent = 'nowhere else to move'; list.appendChild(e); }
   panel.append(head, list);
   back.appendChild(panel);
   return back;
 }
-function addDest(list: HTMLElement, dest: LNode, label: string, widgetId: string, curParentId: string | null, dragged: LNode | null): void {
+function addDest(list: HTMLElement, dest: LNode, label: string, widgetId: string, curParentId: string | null, dragged: LNode | null, depth: number): void {
   if (dest.id === curParentId || dest.id === widgetId) return;
   // Never offer a destination inside the dragged node's own subtree — moving a node into its own
   // descendant would orphan that subtree. (Latent today since the menu is widget-only and lists
   // containers/tabs, but correct by construction for when containers gain a move menu.)
   if (dragged && isAncestorOf(dragged, dest.id)) return;
-  list.appendChild(pickRow(label, dest.kind === 'tab' ? 'tab' : 'container', () => moveTo(widgetId, dest.id)));
+  const isTab = dest.kind === 'tab';
+  const row = pickRow(label, isTab ? 'tab' : 'container', () => moveTo(widgetId, dest.id));
+  // Hierarchy: tabs are the headers; nested containers are smaller, lighter, and indented under them.
+  row.classList.add(isTab ? 'bp-mv-tab' : 'bp-mv-cont');
+  if (!isTab) row.style.paddingLeft = `${10 + depth * 13}px`;
+  list.appendChild(row);
 }
 
 /** A picker/move row: name + a muted kind tag. textContent only — names come from BMP (a container

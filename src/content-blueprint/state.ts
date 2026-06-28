@@ -24,7 +24,7 @@ export interface BpState {
   blast: { fanout: InstanceFanout | null; blast: ContainerBlast | null } | null; // preview blast radius (async, best-effort)
   blastSeq: number;             // bumped per openApplyPreview; a late blast reply for an older seq is dropped
   picker: string | null;        // containerId/compositeId/tabId the add picker is open for
-  pickerOpts: { afterId?: string; cols?: number } | null; // positional insert: place after a sibling, sized to a gap
+  pickerOpts: { afterId?: string; cols?: number; at?: { x: number; y: number } } | null; // positional insert (after a sibling, sized to a gap) + the click point to anchor the picker popup at
   movePicker: string | null;    // widgetId the move-destination menu is open for
   onScroll: (() => void) | null;
   onKey: ((e: KeyboardEvent) => void) | null;

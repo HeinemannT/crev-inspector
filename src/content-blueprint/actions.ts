@@ -34,7 +34,7 @@ export function doDelete(id: string): void { const m = model(); if (m) { bp.sele
 
 /** Open the add picker for a tab/container. `opts.afterId` inserts the new widget right after that
  *  sibling (else appends); `opts.cols` sizes it to a detected free-column gap (else full width). */
-export function openPicker(containerId: string, opts?: { afterId?: string; cols?: number }): void {
+export function openPicker(containerId: string, opts?: { afterId?: string; cols?: number; at?: { x: number; y: number } }): void {
   bp.picker = containerId; bp.pickerOpts = opts ?? null; bp.selectedId = null; render();
 }
 export function closePicker(): void { bp.picker = null; bp.pickerOpts = null; render(); }
@@ -74,7 +74,13 @@ export function moveTo(id: string, destId: string): void {
 }
 
 // ── direct-manipulation drops (gestures.ts stages these on drop) ──────────────
-export function doMoveInto(id: string, destId: string): void { const m = model(); if (m) { bp.selectedId = id; mutate(moveInto(m, id, destId)); } }
+export function doMoveInto(id: string, destId: string, fitCols?: number): void {
+  const m = model(); if (!m) return;
+  bp.selectedId = id;
+  let next = moveInto(m, id, destId);
+  if (fitCols != null) next = resize(next, id, 'L', fitCols); // dropped into a sized empty slot → fit it
+  mutate(next);
+}
 export function doSwap(a: string, b: string): void { const m = model(); if (m) { bp.selectedId = a; mutate(swap(m, a, b)); } }
 export function doInsert(id: string, targetId: string, before: boolean): void { const m = model(); if (m) { bp.selectedId = id; mutate(insertRelative(m, id, targetId, before)); } }
 

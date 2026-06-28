@@ -42,11 +42,22 @@ import { armBox } from './gestures';
 import { openPicker } from './actions';
 import { bp } from './state';
 
+/** A drafting dimension line for a container header: ◄──────► — two SVG arrowhead caps with a flex line
+ *  between them (so the rule meets the arrowheads cleanly instead of poking through). Trusted constant
+ *  markup (no user data), inherits its colour from CSS so it stays at the container's frame weight. */
+const DIM_CAP_L = '<svg class="bp-rdim-cap" width="6" height="8" viewBox="0 0 6 8" fill="currentColor"><path d="M6 0 0 4l6 4Z"/></svg>';
+const DIM_CAP_R = '<svg class="bp-rdim-cap" width="6" height="8" viewBox="0 0 6 8" fill="currentColor"><path d="M0 0l6 4-6 4Z"/></svg>';
+function dimLine(): HTMLElement {
+  const d = document.createElement('div'); d.className = 'bp-rdim';
+  d.innerHTML = DIM_CAP_L + '<span class="bp-rdim-line"></span>' + DIM_CAP_R;
+  return d;
+}
+
 /** A small "+" add button for a result container/tab cell. armBox already ignores mousedowns that
  *  land on a <button>, so this never starts a drag/select — it just opens the add picker for `id`. */
 function addBtn(id: string, title: string): HTMLButtonElement {
   const b = document.createElement('button'); b.className = 'bp-radd'; setIcon(b, ICON_PLUS); b.title = title;
-  b.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(id); });
+  b.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(id, { at: { x: e.clientX, y: e.clientY } }); });
   return b;
 }
 
@@ -119,11 +130,11 @@ function widgetHeight(node: LNode, byRid: Map<string, Element>): { px: number; m
  *  lands in it; also a move drop-target. */
 function gapCell(parentId: string, free: number, afterId?: string): HTMLElement {
   const z = document.createElement('div'); z.className = 'bp-rgap'; z.style.gridColumn = `span ${free}`;
-  z.dataset.bpid = parentId; z.dataset.bpkind = 'avail';
+  z.dataset.bpid = parentId; z.dataset.bpkind = 'avail'; z.dataset.bpfree = String(free); // a widget dropped here resizes to fit the slot
   const ic = document.createElement('span'); ic.className = 'bp-rgap-ic'; setIcon(ic, ICON_PLUS); z.appendChild(ic);
   // Insert the new widget AT the clicked gap (right after the row's last cell), not appended at the end
   // of the parent — otherwise adding to an empty right-side slot drops the widget far below, off-screen.
-  z.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(parentId, afterId ? { cols: free, afterId } : { cols: free }); });
+  z.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(parentId, { cols: free, at: { x: e.clientX, y: e.clientY }, ...(afterId ? { afterId } : {}) }); });
   return z;
 }
 
@@ -172,6 +183,7 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   el.appendChild(lab);
 
   if (node.kind === 'container') {
+    el.appendChild(dimLine()); // drafting dimension rule beneath the title (arrowheads meet the line, no overlap)
     const grid = document.createElement('div'); grid.className = 'bp-rgrid';
     if (node.children.length) fillGrid(grid, base, node.children, node.id, byRid);
     else grid.appendChild(gapCell(node.id, 6)); // empty container → a full add slot
@@ -241,7 +253,7 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   const ai = document.createElement('span'); ai.className = 'bp-radd-ic'; setIcon(ai, ICON_PLUS);
   const at = document.createElement('span'); at.textContent = tab.children.length ? `Add a row to "${tab.name}"` : `Tab "${tab.name}" is empty — add a widget`;
   add.append(ai, at);
-  add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(tab.id); });
+  add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(tab.id, { at: { x: e.clientX, y: e.clientY } }); });
   grid.appendChild(add);
   wrap.appendChild(grid);
 

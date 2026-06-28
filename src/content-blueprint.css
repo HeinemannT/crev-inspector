@@ -93,6 +93,11 @@
 /* chip tray toggle active */
 #crev-blueprint-layer .bp-chip button.on{background:var(--bp-cyan);color:var(--bp-ground);border-color:var(--bp-cyan)}
 
+/* move-menu hierarchy: tabs are the headers (bolder); nested containers are smaller, lighter, indented */
+#crev-blueprint-layer .bp-move .bp-mv-tab{font-weight:600;color:var(--bp-text);margin-top:4px}
+#crev-blueprint-layer .bp-move .bp-pick-list>.bp-mv-tab:first-child{margin-top:0}
+#crev-blueprint-layer .bp-move .bp-mv-cont{font-size:11px;padding-top:4px;padding-bottom:4px;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-move .bp-mv-cont .k{font-size:9px;opacity:.8}
 /* picker: new-container option — a distinct cyan row (icon + label) that stands apart from widgets */
 #crev-blueprint-layer .bp-pick-box{color:var(--bp-cyan);font-weight:600;margin-bottom:2px}
 #crev-blueprint-layer .bp-pick-box .bp-pick-ic{color:var(--bp-cyan)}
@@ -299,16 +304,17 @@
    full-width rule capped with outward arrowheads at both ends (◄────►), so the container reads as a
    measured span. Just for containers. Glyph + "CONTAINER" tag dropped (the dashed frame says container);
    width + add float right, vertically centred with the caption. */
-#crev-blueprint-layer .bp-rcont>.bp-rlab{position:relative;display:flex;align-items:center;justify-content:center;min-height:15px;margin:-5px -7px 9px;padding:3px 8px 7px;background:none;border-bottom:var(--bp-hair) solid var(--bp-line-2)}
+/* Title row — symmetric vertical padding so the caption sits cleanly centred; width + add float right. */
+#crev-blueprint-layer .bp-rcont>.bp-rlab{position:relative;display:flex;align-items:center;justify-content:center;margin:-5px -7px 0;padding:3px 8px;background:none}
 #crev-blueprint-layer .bp-rcont>.bp-rlab .bp-ric,#crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rty{display:none}
-#crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rnm{text-transform:none;letter-spacing:.01em;font-size:10.5px;font-weight:600;line-height:1;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rnm{text-transform:none;letter-spacing:.01em;font-size:10.5px;font-weight:600;line-height:1.3;color:var(--bp-muted)}
 #crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rwd{position:absolute;right:24px;top:50%;transform:translateY(-50%);margin:0}
 #crev-blueprint-layer .bp-rcont>.bp-rlab .bp-radd{position:absolute;right:2px;top:50%;transform:translateY(-50%);margin:0}
-/* dimension-line arrowheads at the two ends of the underline — slim outward chevrons, kept at the frame's
-   weight (--bp-line-2) so the span reads as part of the container, not louder than its dashed bound. */
-#crev-blueprint-layer .bp-rcont>.bp-rlab::before,#crev-blueprint-layer .bp-rcont>.bp-rlab::after{content:"";position:absolute;bottom:-2px;width:0;height:0;border-top:2px solid transparent;border-bottom:2px solid transparent;pointer-events:none}
-#crev-blueprint-layer .bp-rcont>.bp-rlab::before{left:0;border-right:7px solid var(--bp-line-2)}
-#crev-blueprint-layer .bp-rcont>.bp-rlab::after{right:0;border-left:7px solid var(--bp-line-2)}
+/* dimension line under the title: ◄──────► — SVG arrowhead caps + a flex rule that meets them cleanly.
+   Kept at the frame weight (--bp-line-2) so it reads as part of the container, not louder than its bound. */
+#crev-blueprint-layer .bp-rdim{display:flex;align-items:center;margin:1px 1px 8px;height:8px;color:var(--bp-line-2)}
+#crev-blueprint-layer .bp-rdim-cap{flex:none;display:block}
+#crev-blueprint-layer .bp-rdim-line{flex:1;height:0;border-top:var(--bp-hair) solid currentColor}
 #crev-blueprint-layer .bp-rcont>.bp-rgrid{margin-top:0}
 /* State colour runs through the cell — border + icon + name — so an added/changed/moved widget reads at
    a glance: added = green, changed = yellow, moved-only = lighter yellow. (Deleted cells aren't shown in

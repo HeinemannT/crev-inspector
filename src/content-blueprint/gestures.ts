@@ -99,7 +99,7 @@ function sizeGhost(g: HTMLElement, left: number, top: number, w: number, h: numb
 type DragAction =
   | { type: 'swap'; targetId: string }
   | { type: 'insert'; targetId: string; before: boolean }
-  | { type: 'into'; targetId: string };
+  | { type: 'into'; targetId: string; fitCols?: number }; // fitCols: resize to fill a sized empty slot
 
 let dragId: string | null = null;
 let ghost: HTMLElement | null = null;
@@ -178,8 +178,12 @@ function markTarget(ev: MouseEvent): void {
     setAct(`move to tab "${nameOf(m, targetId)}"`); return;
   }
   if (kind === 'avail') {
-    hit.classList.add('bp-drop'); action = { type: 'into', targetId };
-    setAct(`place in empty slot`); return;
+    hit.classList.add('bp-drop');
+    // A trailing-gap slot carries its free-column width — dropping a wider widget here resizes it to fit.
+    const free = Number(hit.dataset.bpfree) || undefined;
+    const fit = free != null && src?.node.kind === 'widget' && src.node.cols.L > free ? free : undefined;
+    action = { type: 'into', targetId, fitCols: fit };
+    setAct(fit != null ? `place in empty slot (resize to ${fit} col)` : `place in empty slot`); return;
   }
   if (kind === 'container') {
     hit.classList.add('bp-drop'); action = { type: 'into', targetId };
@@ -227,7 +231,7 @@ function endDrag(): void {
   if (A && id) {
     if (A.type === 'swap') doSwap(id, A.targetId);
     else if (A.type === 'insert') doInsert(id, A.targetId, A.before);
-    else doMoveInto(id, A.targetId);
+    else doMoveInto(id, A.targetId, A.fitCols);
   } else { render(); }
 }
 
