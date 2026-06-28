@@ -646,20 +646,21 @@ function tabPill(id: string, name: string, state: 'same' | 'renamed' | 'gone' | 
     : shared ? 'The shared Result tab — its widgets are editable, but the tab itself is shared across scorecards (rename/delete disabled)'
     : 'Show this tab in the canvas';
   if (shared) pill.classList.add('shared');
-  if (!gone) pill.addEventListener('mousedown', (e) => { e.stopPropagation(); viewTab(id); });
+  // click switches the tab — but NOT when clicking into the open rename field (that would navigate away).
+  if (!gone) pill.addEventListener('mousedown', (e) => { if ((e.target as HTMLElement).isContentEditable) return; e.stopPropagation(); viewTab(id); });
   if (live) { const d = document.createElement('span'); d.className = 'bp-tlive'; d.title = 'On screen in BMP'; pill.appendChild(d); }
   if (state === 'new') { const t = document.createElement('span'); t.className = 'newtag'; t.textContent = 'NEW'; pill.appendChild(t); }
   const nm = document.createElement('span'); nm.className = 'bp-tnm'; nm.textContent = name; pill.appendChild(nm);
   if (shared) { const lk = document.createElement('span'); lk.className = 'bp-tshared'; setIcon(lk, ICON_LINK); lk.title = 'Shared across scorecards'; pill.appendChild(lk); }
-  // the Result tab can't be renamed or deleted (that edits the shared default_tabset) — omit its controls
+  // the Result tab can't be renamed or deleted (that edits the shared default_tabset) — omit its controls.
+  // preventDefault on these buttons stops the default mousedown focus-grab, which would otherwise steal
+  // focus from the rename field inlineRename just opened (the "click Rename, nothing happens" bug).
   if (!gone && !shared) {
-    nm.title = 'Double-click to rename'; // same gesture as a cell name (the pill click switches tabs)
-    nm.addEventListener('dblclick', (e) => { e.stopPropagation(); inlineRename(id, nm); });
     const edit = document.createElement('button'); edit.className = 'bp-tedit'; setIcon(edit, ICON_PENCIL); edit.title = `Rename "${name}"`;
-    edit.addEventListener('mousedown', (e) => { e.stopPropagation(); inlineRename(id, nm); });
+    edit.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); inlineRename(id, nm); });
     pill.appendChild(edit);
     const del = document.createElement('button'); del.className = 'bp-tdel'; setIcon(del, ICON_X); del.title = `Delete tab "${name}" and its contents`;
-    del.addEventListener('mousedown', (e) => { e.stopPropagation(); doDelete(id); });
+    del.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); doDelete(id); });
     pill.appendChild(del);
   }
   return pill;
