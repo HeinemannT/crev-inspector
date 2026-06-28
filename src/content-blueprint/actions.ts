@@ -9,7 +9,7 @@
  */
 import { findNode, isTempId } from '../lib/layout/model';
 import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, findTabOf } from '../lib/layout/edit';
-import { diff } from '../lib/layout/diff';
+import { diff, summarizeChanges } from '../lib/layout/diff';
 import { compile } from '../lib/layout/ec';
 import { History } from '../lib/layout/history';
 import type { LModel, PlanStep } from '../lib/layout/types';
@@ -127,7 +127,7 @@ function flashHint(text: string): void {
 
 /** Count of staged changes vs baseline — so undo/redo can confirm where the model now stands. */
 function pendingLabel(m: LModel): string {
-  const n = bp.baseline ? diff(bp.baseline, m).length : 0;
+  const n = bp.baseline ? summarizeChanges(diff(bp.baseline, m), m).changes : 0;
   return n === 0 ? 'back to original' : `${n} pending change${n === 1 ? '' : 's'}`;
 }
 

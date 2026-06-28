@@ -11,7 +11,7 @@ import type { BlueprintCtx } from '../lib/layout/sync';
 import { findNode } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
-import { diff } from '../lib/layout/diff';
+import { diff, summarizeChanges } from '../lib/layout/diff';
 import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_WARNING } from '../lib/icons';
 import { bp, model } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
@@ -45,7 +45,13 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   back.addEventListener('mousedown', (e) => { if (e.target === back) closePreview(); });
   const card = document.createElement('div'); card.className = 'bp-modal' + (shared ? ' tmpl' : '');
   const h = document.createElement('div'); h.className = 'bp-modal-h';
-  h.textContent = `Apply ${notes.length} change${notes.length === 1 ? '' : 's'} to ${ctx.pageClass} ${ctx.pageId}`;
+  // Headline = logical changes; "(N actions)" exposes the raw EC step count when it differs (an insert
+  // can compile to a create + a moveAfter chain). The list below still enumerates every action.
+  const lm0 = model();
+  const sum = lm0 && bp.baseline ? summarizeChanges(diff(bp.baseline, lm0), lm0) : { changes: notes.length, actions: notes.length };
+  h.textContent = `Apply ${sum.changes} change${sum.changes === 1 ? '' : 's'}`
+    + (sum.actions !== sum.changes ? ` (${sum.actions} actions)` : '')
+    + ` to ${ctx.pageClass} ${ctx.pageId}`;
   card.appendChild(h);
   if (shared) {
     card.appendChild(warnRow('This is a shared template. These changes affect every instance that uses it.'));
@@ -99,8 +105,13 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
 /** Docked pending-changes tray — one row per changed node, each with a revert. Toggled from the chip. */
 export function trayPanel(base: LModel, m: LModel): HTMLElement {
   const plan = diff(base, m);
+  const { changes, actions } = summarizeChanges(plan, m);
   const wrap = document.createElement('div'); wrap.className = 'bp-tray';
-  const h = document.createElement('div'); h.className = 'bp-tray-h'; h.textContent = `Pending changes · ${plan.length}`;
+  // Headline = logical changes; the "· N actions" exposes the underlying EC steps without hiding them
+  // (one insert can compile to a create + a moveAfter chain). Singular-aware.
+  const h = document.createElement('div'); h.className = 'bp-tray-h';
+  h.textContent = `${changes} change${changes === 1 ? '' : 's'}`
+    + (actions !== changes ? ` · ${actions} action${actions === 1 ? '' : 's'}` : '');
   wrap.appendChild(h);
   if (!plan.length) { const e = document.createElement('div'); e.className = 'bp-tray-empty'; e.textContent = 'No staged changes'; wrap.appendChild(e); return wrap; }
   const seen = new Set<string>();

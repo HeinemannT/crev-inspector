@@ -3,7 +3,7 @@ import type { LayoutNode as WireNode } from '../../types';
 import type { LModel, LNode } from '../types';
 import { reconstruct, findNode, descendantWidgets, isChart } from '../model';
 import { resize, setHeight, rename, move, swap, insertRelative, addWidget, addContainer, addTab, remove, moveToTab, isAncestorOf } from '../edit';
-import { diff } from '../diff';
+import { diff, summarizeChanges } from '../diff';
 import { compile } from '../ec';
 import { guard, lint, checkReorder, checkHeight, checkAddTarget } from '../constraints';
 import { History } from '../history';
@@ -153,6 +153,39 @@ describe('gesture edit ops (drag-to-move / reorder / cross-tab)', () => {
     expect(findNode(b, 'w')!.parent!.id).toBe('t2');
     expect(b.tabs[0].children).toHaveLength(0);
     expect(diff(a, b).some(s => s.kind === 'reparent')).toBe(true);
+  });
+});
+
+describe('summarizeChanges (logical changes vs raw actions)', () => {
+  it('counts a mid-list insert as ONE change even when it emits a moveAfter chain', () => {
+    // tab with three widgets; insert a 4th between the 1st and 2nd → create + reorder side-effects
+    const base = model(n({ id: 't', kind: 'tab', className: 'Tab', name: 'T', children: [
+      n({ id: 'a', kind: 'widget', className: 'SimpleStatus', name: 'A' }),
+      n({ id: 'b', kind: 'widget', className: 'SimpleStatus', name: 'B' }),
+      n({ id: 'c', kind: 'widget', className: 'SimpleStatus', name: 'C' }),
+    ] }));
+    const desired = addWidget(base, 't', 1, 'BarChart', 'New').model; // inserted at index 1 (mid-list)
+    const plan = diff(base, desired);
+    const { changes, actions } = summarizeChanges(plan, desired);
+    expect(plan.some(s => s.kind === 'create')).toBe(true);
+    expect(actions).toBeGreaterThan(1);     // the create + its reorder chain
+    expect(changes).toBe(1);                // ...but ONE logical change (the inserted widget)
+  });
+  it('counts a pure reorder gesture as one change', () => {
+    const base = model(n({ id: 't', kind: 'tab', className: 'Tab', name: 'T', children: [
+      n({ id: 'a', kind: 'widget', className: 'SimpleStatus', name: 'A' }),
+      n({ id: 'b', kind: 'widget', className: 'SimpleStatus', name: 'B' }),
+    ] }));
+    const desired = insertRelative(base, 'b', 'a', true); // move B before A — reorder only, no create
+    expect(summarizeChanges(diff(base, desired), desired).changes).toBe(1);
+  });
+  it('counts independent field edits on two nodes as two changes', () => {
+    const base = demo();
+    const desired = rename(resize(base, 'w1', 'L', 2), 'rw', 'Renamed');
+    expect(summarizeChanges(diff(base, desired), desired).changes).toBe(2);
+  });
+  it('reports zero for an unchanged model', () => {
+    expect(summarizeChanges(diff(demo(), demo()), demo())).toEqual({ changes: 0, actions: 0 });
   });
 });
 

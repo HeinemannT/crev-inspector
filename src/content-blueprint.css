@@ -92,8 +92,9 @@
 /* chip tray toggle active */
 #crev-blueprint-layer .bp-chip button.on{background:var(--bp-cyan);color:var(--bp-ground);border-color:var(--bp-cyan)}
 
-/* picker: new-container option */
-#crev-blueprint-layer .bp-pick-box{border-top:var(--bp-hair) solid var(--bp-line-2);margin-top:4px;color:var(--bp-cyan)}
+/* picker: new-container (structure) option — a prominent cyan-tinted row */
+#crev-blueprint-layer .bp-pick-box{color:var(--bp-cyan)}
+#crev-blueprint-layer .bp-pick-box:hover{background:rgba(110,168,255,.12)}
 
 /* pending tray (docked top-right) */
 #crev-blueprint-layer .bp-tray{position:fixed;top:92px;right:16px;width:272px;max-height:60vh;overflow:auto;z-index:40;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);padding:10px 12px;pointer-events:auto}

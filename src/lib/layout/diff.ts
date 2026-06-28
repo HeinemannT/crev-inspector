@@ -117,3 +117,31 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
 
   return steps;
 }
+
+/**
+ * Headline change count vs raw action count. A single edit often compiles to several EC actions — e.g.
+ * inserting one widget mid-list emits a create PLUS a moveAfter chain to re-seat its siblings. Those
+ * reorders are a SIDE-EFFECT of the insert, not separate user changes, so the headline shouldn't inflate.
+ *
+ * `changes` = distinct nodes the user actually acted on: every create/update/reparent/delete subject,
+ * plus any sibling-group that has reorders WITHOUT a create/reparent to explain them (a genuine
+ * drag-to-reorder). `actions` = plan.length (every EC step), still surfaced so the work isn't hidden.
+ */
+export function summarizeChanges(plan: PlanStep[], desired: LModel): { changes: number; actions: number } {
+  const idx = index(desired);
+  const subjects = new Set<string>();        // create/update/reparent/delete — the acted-on nodes
+  const causeParents = new Set<string>();    // parents whose membership changed (create/reparent) — explains reorders
+  for (const s of plan) {
+    if (s.kind === 'create') { subjects.add(s.node.id); causeParents.add(s.parentId); }
+    else if (s.kind === 'update' || s.kind === 'delete') subjects.add(s.id);
+    else if (s.kind === 'reparent') { subjects.add(s.id); causeParents.add(s.toParentId); }
+  }
+  // reorder-only sibling groups not explained by an insert/move = a real reorder gesture; count once each
+  const reorderGroups = new Set<string>();
+  for (const s of plan) {
+    if (s.kind !== 'reorder') continue;
+    const p = idx.get(s.id)?.parentId;
+    if (p && !causeParents.has(p)) reorderGroups.add(p);
+  }
+  return { changes: subjects.size + reorderGroups.size, actions: plan.length };
+}

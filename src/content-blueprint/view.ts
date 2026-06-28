@@ -12,7 +12,7 @@ import type { LModel, LNode } from '../lib/layout/types';
 import { findNode, walk, hasHeight, isChart, orderChildren } from '../lib/layout/model';
 import { COMPOSITE_TYPES, COMPOSITE_CHILDREN } from '../lib/layout/constraints';
 import { isAncestorOf } from '../lib/layout/edit';
-import { diff } from '../lib/layout/diff';
+import { diff, summarizeChanges } from '../lib/layout/diff';
 import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_X } from '../lib/icons';
 import { bp, model, PALETTE } from './state';
 import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkIconBtn, delta } from './geometry';
@@ -46,7 +46,7 @@ export function render(): void {
   const oldRects = flip ? cellRects(layer) : null;
   layer.textContent = '';
   const byRid = ridElementMap();
-  const pending = diff(base, m).length;
+  const pending = summarizeChanges(diff(base, m), m).changes; // headline = logical changes, not raw EC actions
   // Command chip + the tab bar (tab manager AND canvas switcher — the canvas shows one tab at a time,
   // these pills pick which). BMP's live tab is marked so you can tell the on-screen tab from a peeked one.
   const liveId = base.tabs.find((t) => unionRect(t, byRid))?.id ?? null;
@@ -453,6 +453,14 @@ function pickerPanel(byRid: Map<string, Element>): HTMLElement {
   const fill = (q: string): void => {
     list.textContent = '';
     const ql = q.trim().toLowerCase();
+    // Structure FIRST (not buried): create an empty container — a grouping box you then add widgets into.
+    // Not offered for composite hosts (they only take fixed children). Matches a "container/box/group" search.
+    if (!composite && (!ql || 'container box group structure'.includes(ql))) {
+      const gh = document.createElement('div'); gh.className = 'bp-pick-grp'; gh.textContent = 'Structure'; list.appendChild(gh);
+      const boxRow = pickRow('New container (empty box)', 'box', () => addContainerTo(cid));
+      boxRow.classList.add('bp-pick-box');
+      list.appendChild(boxRow);
+    }
     for (const grp of groups) {
       const items = grp.items.filter(it => !ql || it.name.toLowerCase().includes(ql) || it.key.toLowerCase().includes(ql));
       if (!items.length) continue;
@@ -460,12 +468,6 @@ function pickerPanel(byRid: Map<string, Element>): HTMLElement {
       for (const it of items) list.appendChild(pickRow(it.name, it.key, () => addFromPicker(it.key)));
     }
     if (!list.children.length) { const e = document.createElement('div'); e.className = 'bp-pick-grp'; e.textContent = 'no match'; list.appendChild(e); }
-    // structural option: a new empty container (not for composite hosts, which only take fixed children)
-    if (!composite && !ql) {
-      const boxRow = pickRow('New container (empty box)', 'box', () => addContainerTo(cid));
-      boxRow.classList.add('bp-pick-box');
-      list.appendChild(boxRow);
-    }
   };
   search.addEventListener('input', () => fill(search.value));
   fill('');
