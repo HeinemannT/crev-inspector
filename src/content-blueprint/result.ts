@@ -116,11 +116,13 @@ function widgetHeight(node: LNode, byRid: Map<string, Element>): { px: number; m
 /** A small "+" zone filling the trailing FREE columns of a row, so the empty right side of a
  *  partly-filled row (e.g. Risk Register) is a real add target. Sized to the gap so the new widget
  *  lands in it; also a move drop-target. */
-function gapCell(parentId: string, free: number): HTMLElement {
+function gapCell(parentId: string, free: number, afterId?: string): HTMLElement {
   const z = document.createElement('div'); z.className = 'bp-rgap'; z.style.gridColumn = `span ${free}`;
   z.dataset.bpid = parentId; z.dataset.bpkind = 'avail';
   const ic = document.createElement('span'); ic.className = 'bp-rgap-ic'; setIcon(ic, ICON_PLUS); z.appendChild(ic);
-  z.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(parentId, { cols: free }); });
+  // Insert the new widget AT the clicked gap (right after the row's last cell), not appended at the end
+  // of the parent — otherwise adding to an empty right-side slot drops the widget far below, off-screen.
+  z.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(parentId, afterId ? { cols: free, afterId } : { cols: free }); });
   return z;
 }
 
@@ -128,14 +130,16 @@ function gapCell(parentId: string, free: number): HTMLElement {
  *  trailing free columns. Mirrors BMP's left-to-right wrap, and makes every empty slot fillable. */
 function fillGrid(grid: HTMLElement, base: LModel, children: LNode[], parentId: string, byRid: Map<string, Element>): void {
   let used = 0;
+  let lastId: string | undefined; // the cell a trailing gap sits right after — its add inserts there
   for (const c of orderChildren(children)) {
     const sp = Math.max(1, Math.min(6, c.cols.L));
-    if (used + sp > 6 && used > 0) { grid.appendChild(gapCell(parentId, 6 - used)); used = 0; }
+    if (used + sp > 6 && used > 0) { grid.appendChild(gapCell(parentId, 6 - used, lastId)); used = 0; }
     grid.appendChild(cell(base, c, parentId, byRid));
+    lastId = c.id;
     used += sp;
     if (used >= 6) used = 0;
   }
-  if (used > 0) grid.appendChild(gapCell(parentId, 6 - used));
+  if (used > 0) grid.appendChild(gapCell(parentId, 6 - used, lastId));
 }
 
 /** One widget/container cell. Containers recurse into a nested 6-col sub-grid. */
