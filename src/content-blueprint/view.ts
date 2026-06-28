@@ -37,6 +37,16 @@ function pendingCount(base: LModel, m: LModel): number {
   return changes;
 }
 
+/** The model tab BMP is actually showing. Prefer BMP's OWN selected tab (matched by name) over the
+ *  "first model tab with visible widgets" heuristic — the shared Result tab's widgets render on every
+ *  tab (a persistent action bar), so once Result leads the list the heuristic would always pick it. */
+function liveModelTabId(base: LModel, byRid: Map<string, Element>): string | null {
+  const sel = document.querySelector('.corpo-tabSet__tab--selected, .corpo-tabSet__tab[aria-selected="true"]');
+  const name = sel?.textContent?.trim();
+  if (name) { const t = base.tabs.find((t) => t.name === name); if (t) return t.id; }
+  return base.tabs.find((t) => unionRect(t, byRid))?.id ?? null;
+}
+
 export function render(): void {
   const layer = bp.layer;
   if (!layer) return;
@@ -64,7 +74,7 @@ export function render(): void {
   const pending = pendingCount(base, m); // headline = logical changes; memoised so pure scroll/observer renders skip diff()
   // Command chip + the tab bar (tab manager AND canvas switcher — the canvas shows one tab at a time,
   // these pills pick which). BMP's live tab is marked so you can tell the on-screen tab from a peeked one.
-  const liveId = base.tabs.find((t) => unionRect(t, byRid))?.id ?? null;
+  const liveId = liveModelTabId(base, byRid);
   // One resolved viewed-tab id for BOTH the canvas and the highlighted pill, so they never disagree:
   // an explicit pick, else BMP's live model tab, else the first model tab (when BMP sits on the
   // non-model Result tab). Without this the canvas showed the first tab while no pill was highlighted.

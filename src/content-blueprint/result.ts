@@ -242,14 +242,15 @@ function viewedTab(m: LModel, activeId: string | null): LNode | null {
  * the pill bar — using a different rule — highlighted nothing, e.g. on BMP's non-model Result tab).
  */
 export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element>, layer: HTMLElement, viewedId?: string | null): boolean {
-  // Anchor to the active model tab's content box when there is one; otherwise (e.g. BMP's Result tab,
-  // where the visible widgets are RESULT orphans not in any model tab) anchor to ALL visible widgets,
-  // so the canvas still pops up. Returns false only when truly nothing is on screen.
-  const active = activeModelTab(base, m, byRid);
-  const frame = active?.frame ?? unionAllVisible(byRid);
-  if (!frame) return false;
-  const tab = (viewedId ? m.tabs.find(t => t.id === viewedId) : null) ?? viewedTab(m, active?.tab.id ?? null);
+  const tab = (viewedId ? m.tabs.find(t => t.id === viewedId) : null) ?? viewedTab(m, activeModelTab(base, m, byRid)?.tab.id ?? null);
   if (!tab) return false;
+  // Anchor to the VIEWED tab's OWN live widgets — not just "the first tab with any visible widgets".
+  // The shared Result tab's widgets render on every tab (a persistent action bar), so the old heuristic
+  // would anchor the canvas to those (bottom of the page) regardless of which tab you're editing. When
+  // the viewed tab has no live widgets on screen (peeking an off-screen tab), fall back to all visible.
+  const baseTab = base.tabs.find(t => t.id === tab.id);
+  const frame = (baseTab ? unionRect(baseTab, byRid) : null) ?? unionAllVisible(byRid);
+  if (!frame) return false;
 
   // Keep the opaque panel BELOW BMP's own tab strip — otherwise (e.g. the unmodeled "Result" tab, where
   // the fallback anchor can reach a chrome rid up at the strip row) it paints over the tabs, hiding them
