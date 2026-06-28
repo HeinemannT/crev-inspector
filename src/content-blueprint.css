@@ -22,9 +22,10 @@
   --bp-cyan-hi:#9cc4ff;     /* selected line + corner ticks */
   --bp-text:#eef5fc;        /* primary text */
   --bp-muted:#9fb8d0;       /* secondary text, type/width annotations, watermark glyph */
-  --bp-amber:#e7b577;       /* changed / template */
+  --bp-amber:#e7b577;       /* changed — yellow hue */
+  --bp-amber-lt:#f2dcb2;    /* moved (not otherwise changed) — lighter yellow hue */
   --bp-red:#ef8088;         /* delete */
-  --bp-green:#86e0b3;       /* create */
+  --bp-green:#86e0b3;       /* create / added */
   --bp-mono:'BPMono',ui-monospace,'JetBrains Mono',monospace;
   position:fixed;inset:0;z-index:2147483600;
   font:12px/1.35 'BPInter',system-ui,-apple-system,sans-serif;
@@ -289,23 +290,34 @@
 #crev-blueprint-layer .bp-rcell.bp-rest{border-bottom-style:dashed}
 /* Container = a transparent dashed FRAME with corner brackets, so it reads as a grouping outline rather
    than a heavy nested box — distinct from the hairline-outlined widget cells it holds. */
-#crev-blueprint-layer .bp-rcont{background:transparent;border-style:dashed;border-color:var(--bp-line-2);padding:6px 7px}
+#crev-blueprint-layer .bp-rcont{background:transparent;border-style:dashed;border-color:var(--bp-line-2);padding:5px 7px}
 #crev-blueprint-layer .bp-rcont::before,#crev-blueprint-layer .bp-rcont::after{content:"";position:absolute;width:8px;height:8px;border:var(--bp-emph) solid var(--bp-line-2);pointer-events:none}
 #crev-blueprint-layer .bp-rcont::before{top:-1px;left:-1px;border-right:0;border-bottom:0}
 #crev-blueprint-layer .bp-rcont::after{bottom:-1px;right:-1px;border-left:0;border-top:0}
 #crev-blueprint-layer .bp-rcont:hover{border-color:var(--bp-cyan)}
-/* its header is a quiet CENTRED caption (no fill, no underline) — clear but understated, so the
-   container reads as a labelled grouping without shouting. The glyph + "CONTAINER" tag are dropped (the
-   dashed frame already says container); width + add button float to the right, vertically centred. */
-#crev-blueprint-layer .bp-rcont>.bp-rlab{position:relative;justify-content:center;align-items:center;margin:0 0 6px;padding:2px 0;background:none}
+/* Its header is a quiet CENTRED caption (mixed case, tight) sitting over a drafting DIMENSION LINE — a
+   full-width rule capped with outward arrowheads at both ends (◄────►), so the container reads as a
+   measured span. Just for containers. Glyph + "CONTAINER" tag dropped (the dashed frame says container);
+   width + add float right, vertically centred with the caption. */
+#crev-blueprint-layer .bp-rcont>.bp-rlab{position:relative;display:flex;align-items:center;justify-content:center;min-height:15px;margin:-5px -7px 9px;padding:3px 8px 7px;background:none;border-bottom:var(--bp-hair) solid var(--bp-line-1)}
 #crev-blueprint-layer .bp-rcont>.bp-rlab .bp-ric,#crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rty{display:none}
-#crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rnm{text-transform:uppercase;letter-spacing:.09em;font-size:9.5px;font-weight:600;color:var(--bp-muted)}
-#crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rwd{position:absolute;right:22px;top:50%;transform:translateY(-50%);margin:0}
-#crev-blueprint-layer .bp-rcont>.bp-rlab .bp-radd{position:absolute;right:0;top:50%;transform:translateY(-50%);margin:0}
+#crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rnm{text-transform:none;letter-spacing:.01em;font-size:10.5px;font-weight:600;line-height:1;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rwd{position:absolute;right:24px;top:50%;transform:translateY(-50%);margin:0}
+#crev-blueprint-layer .bp-rcont>.bp-rlab .bp-radd{position:absolute;right:2px;top:50%;transform:translateY(-50%);margin:0}
+/* dimension-line arrowheads at the two ends of the underline — outward chevrons (CSS border triangles) */
+#crev-blueprint-layer .bp-rcont>.bp-rlab::before,#crev-blueprint-layer .bp-rcont>.bp-rlab::after{content:"";position:absolute;bottom:-3px;width:0;height:0;border-top:3px solid transparent;border-bottom:3px solid transparent;pointer-events:none}
+#crev-blueprint-layer .bp-rcont>.bp-rlab::before{left:0;border-right:6px solid var(--bp-line-1)}
+#crev-blueprint-layer .bp-rcont>.bp-rlab::after{right:0;border-left:6px solid var(--bp-line-1)}
 #crev-blueprint-layer .bp-rcont>.bp-rgrid{margin-top:0}
+/* State colour runs through the cell — border + icon + name — so an added/changed/moved widget reads at
+   a glance: added = green, changed = yellow, moved-only = lighter yellow. (Deleted cells aren't shown in
+   the canvas; deletion is red in the pending tray.) */
 #crev-blueprint-layer .bp-rcell.st-new{border-color:var(--bp-green)}
-#crev-blueprint-layer .bp-rcell.st-moved{border-color:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-rcell.st-new .bp-ric,#crev-blueprint-layer .bp-rcell.st-new .bp-rnm{color:var(--bp-green)}
+#crev-blueprint-layer .bp-rcell.st-moved{border-color:var(--bp-amber-lt)}
+#crev-blueprint-layer .bp-rcell.st-moved .bp-ric,#crev-blueprint-layer .bp-rcell.st-moved .bp-rnm{color:var(--bp-amber-lt)}
 #crev-blueprint-layer .bp-rcell.st-changed{border-color:var(--bp-amber)}
+#crev-blueprint-layer .bp-rcell.st-changed .bp-ric,#crev-blueprint-layer .bp-rcell.st-changed .bp-rnm{color:var(--bp-amber)}
 /* label = a flat title block: name + type + width on one row, a hairline rule under it (full cell width) */
 #crev-blueprint-layer .bp-rlab{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;position:relative;z-index:1;margin:-7px -9px 0;padding:5px 9px 4px;background:transparent;border-bottom:var(--bp-div) solid var(--bp-line-2)}
 /* per-type glyph next to the name (scannable type cue — identity, so muted not cyan) */
@@ -323,7 +335,7 @@
 /* state = an OUTLINED revision mark (no fill), coloured by kind */
 #crev-blueprint-layer .bp-rtag{font:700 8px var(--bp-mono);letter-spacing:.05em;padding:0 3px;border-radius:var(--bp-r);background:transparent;border:var(--bp-hair) solid currentColor;flex:none}
 #crev-blueprint-layer .bp-rtag.st-new{color:var(--bp-green)}
-#crev-blueprint-layer .bp-rtag.st-moved{color:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-rtag.st-moved{color:var(--bp-amber-lt)}
 #crev-blueprint-layer .bp-rtag.st-changed{color:var(--bp-amber)}
 #crev-blueprint-layer .bp-rempty{grid-column:span 6;padding:8px;text-align:center;font:500 10px 'BPInter',sans-serif;color:var(--bp-muted);border:var(--bp-hair) dashed var(--bp-line-2);border-radius:var(--bp-r)}
 /* drag drop-target feedback ON result cells */

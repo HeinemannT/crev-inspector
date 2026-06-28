@@ -52,15 +52,16 @@ function addBtn(id: string, title: string): HTMLButtonElement {
 
 export type CellState = 'same' | 'new' | 'moved' | 'changed';
 
-/** Classify a model node against the baseline for result-view colouring. */
+/** Classify a model node against the baseline for result-view colouring. A field change (width/name/
+ *  height) outranks a pure move, so a moved-AND-edited widget reads as 'changed' (yellow) while a
+ *  move with no other edit reads as 'moved' (lighter yellow) — matching the at-a-glance colour code. */
 export function cellState(base: LModel, node: LNode, modelParentId: string | null): CellState {
   if (isTempId(node.id)) return 'new';
   const b = findNode(base, node.id);
   if (!b) return 'new';
-  const baseParentId = b.parent?.id ?? null;
-  if (baseParentId !== modelParentId) return 'moved';
   const bn = b.node;
   if (bn.cols.L !== node.cols.L || bn.name !== node.name || bn.height !== node.height) return 'changed';
+  if ((b.parent?.id ?? null) !== modelParentId) return 'moved';
   return 'same';
 }
 
