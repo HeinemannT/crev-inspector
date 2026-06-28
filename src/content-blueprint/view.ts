@@ -17,7 +17,7 @@ import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_
 import { bp, model, PALETTE, MOST_USED } from './state';
 import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkBtn, mkIconBtn, delta, placeDoc, docX, docY } from './geometry';
 import {
-  select, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
+  select, beginRename, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
   openMovePicker, closeMovePicker, moveTo,
 } from './actions';
 import { armBox, armResize } from './gestures';
@@ -190,6 +190,7 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
   if (bp.trayOpen) layer.appendChild(trayPanel(base, m));
   if (bp.hint) layer.appendChild(hintBar(bp.hint));
   if (bp.preview) layer.appendChild(previewModal(bp.preview, ctx));
+  openPendingRename(); // the cell is freshly rendered + selected — safe to make its name editable now
 }
 
 /** Snapshot each result cell's on-screen box, keyed by bpid — the "First" of a FLIP. */
@@ -481,7 +482,7 @@ function toolbar(node: LNode, r: Rect): HTMLElement {
   }
   if (node.kind === 'widget' && COMPOSITE_TYPES.has(node.className)) t.appendChild(mkIconBtn(ICON_PLUS, () => openPicker(node.id), 'Child'));
   if (node.kind === 'widget') t.appendChild(mkIconBtn(ICON_ARROW_RIGHT, () => openMovePicker(node.id), 'Move'));
-  t.appendChild(mkIconBtn(ICON_PENCIL, () => startRename(node.id), 'Rename'));
+  t.appendChild(mkIconBtn(ICON_PENCIL, () => beginRename(node.id), 'Rename'));
   const del = mkIconBtn(ICON_TRASH, () => doDelete(node.id), 'Delete'); del.classList.add('del');
   t.appendChild(del);
   return t;
@@ -663,10 +664,12 @@ function tabPill(id: string, name: string, state: 'same' | 'renamed' | 'gone' | 
 }
 
 // ── inline rename (view-level: edits the rendered name span in place, then commits) ──────────────
-function startRename(id: string): void {
-  render();
-  // The selected node's editable name span: a result-cell `.bp-rnm` (the primary canvas) or a live
-  // box `.bp-nm` (the fallback view). Querying only the live one silently no-op'd rename in the canvas.
+/** Open a pending inline-rename (flagged by beginRename) once the cell has been freshly rendered +
+ *  selected. Called at the end of every render. The editable span is the selected result-cell `.bp-rnm`
+ *  (primary canvas) or the live box `.bp-nm` (fallback). */
+function openPendingRename(): void {
+  if (!bp.renameId) return;
+  const id = bp.renameId; bp.renameId = null;
   inlineRename(id, bp.layer?.querySelector('.bp-rcell.sel .bp-rnm, .bp-box.sel .bp-nm') as HTMLElement | null);
 }
 function inlineRename(id: string, nm: HTMLElement | null): void {

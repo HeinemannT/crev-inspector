@@ -24,6 +24,9 @@ import { applyPage, fetchBlast, createTabset } from './service';
 export function mutate(next: LModel): void { bp.history?.push(next); bp.flipNext = true; render(); }
 
 export function select(id: string | null): void { bp.selectedId = id; render(); }
+/** Begin renaming a node: select it and flag the next render to open its inline-rename field. The one
+ *  entry point — used by BOTH double-click on a cell name and the toolbar pencil. */
+export function beginRename(id: string): void { bp.selectedId = id; bp.renameId = id; render(); }
 /** Header tab-bar click = switch the REAL tab, same as BMP's own tab strip (not a separate "peek").
  *  Click BMP's matching native tab so it navigates; our MutationObserver then follows it. Falls back to
  *  a canvas-only view (viewTabId) when there's no live BMP tab to drive (e.g. an unmodeled page). */

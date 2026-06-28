@@ -302,7 +302,10 @@
 #crev-blueprint-layer .bp-rgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-content:start;align-items:start}
 #crev-blueprint-layer .bp-rroot{padding:0}
 #crev-blueprint-layer .bp-rcell{position:relative;min-height:50px;display:flex;flex-direction:column;gap:4px;padding:7px 9px;border:var(--bp-hair) solid var(--bp-line-1);background:#fff;box-shadow:var(--bp-shadow);pointer-events:auto;cursor:grab;overflow:hidden;transition:background .12s,border-color .12s}
-#crev-blueprint-layer .bp-rcell:hover{border-color:var(--bp-cyan);background:rgba(138,63,252,.05)}
+/* hover tint: an OPAQUE light-purple (a translucent one would replace the white fill and show the grid
+   backdrop through the card), and `:not(:has())` so only the directly-hovered cell reacts — not its
+   ancestor container (a cell is also a .bp-rcell, and CSS :hover matches ancestors). */
+#crev-blueprint-layer .bp-rcell:hover:not(:has(.bp-rcell:hover)){border-color:var(--bp-cyan);background:#f6f1ff}
 #crev-blueprint-layer .bp-rcell.sel{border:var(--bp-emph) solid var(--bp-cyan-hi)}
 #crev-blueprint-layer .bp-rchart{min-height:120px}
 /* estimated height (inactive tab, no live DOM to measure) — a faint dashed lower edge hints it's

@@ -26,7 +26,7 @@ import {
 } from '../lib/icons';
 import { type Rect, unionRect, setIcon, docX, docY, widgetRects } from './geometry';
 import { armBox } from './gestures';
-import { openPicker } from './actions';
+import { openPicker, beginRename } from './actions';
 import { bp } from './state';
 
 /** Widget-type → Phosphor glyph, so each result cell carries a scannable icon instead of only a mono
@@ -179,6 +179,8 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   const icon = typeIcon(node.className);
   if (icon) { const ic = document.createElement('span'); ic.className = 'bp-ric'; setIcon(ic, icon); lab.appendChild(ic); }
   const nm = document.createElement('span'); nm.className = 'bp-rnm'; nm.textContent = node.name;
+  nm.title = 'Double-click to rename';
+  nm.addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(node.id); }); // the expected gesture
   const ty = document.createElement('span'); ty.className = 'bp-rty'; ty.textContent = node.className.toUpperCase();
   lab.append(nm, ty);
   const wd = document.createElement('span'); wd.className = 'bp-rwd'; wd.textContent = node.cols.L >= 6 ? 'full' : `${node.cols.L} col`; lab.appendChild(wd);
