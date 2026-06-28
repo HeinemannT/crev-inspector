@@ -11,12 +11,12 @@
  * widgets (encoded in `orderChildren`). `grid-template-columns: repeat(6, 1fr)` + `grid-column: span
  * cols.L` reproduces exactly that wrap via the browser's own auto-placement — a too-wide item leaves
  * the trailing gap and wraps, same as BMP. The grid is anchored to the live content box (origin +
- * width measured from the active tab's widget rects) so columns line up pixel-wise with the real page.
+ * width measured from the page's widget rects) so columns line up pixel-wise with the real page.
  *
- * Spike scope: renders the ACTIVE tab (the one whose widgets are in the live DOM, so we can measure
- * the content box). Cells are selectable + draggable (they carry data-bpid/data-bpkind, so the
- * existing gesture machinery treats them as honest, final-position drop targets). Cross-tab result
- * rendering (no live anchor for inactive tabs) is a follow-up.
+ * Tab selection: the caller (view.render) resolves ONE `viewedId` and passes it in; this view renders
+ * that tab. It anchors to that tab's own live widgets when they're on screen (peeking an off-screen tab
+ * falls back to all visible widgets). Cells are selectable + draggable (they carry data-bpid/data-bpkind,
+ * so the gesture machinery treats them as honest, final-position drop targets).
  */
 import type { LModel, LNode } from '../lib/layout/types';
 import { findNode, orderChildren, isTempId, isChart, walk } from '../lib/layout/model';
@@ -24,6 +24,10 @@ import {
   ICON_PLUS, ICON_CHART, ICON_TABLE, ICON_LIST, ICON_CHECK_CIRCLE, ICON_CODE,
   ICON_LINK, ICON_PLAY, ICON_PENCIL, ICON_BOOK, ICON_LAYOUT,
 } from '../lib/icons';
+import { type Rect, unionRect, setIcon, docX, docY, widgetRects } from './geometry';
+import { armBox } from './gestures';
+import { openPicker } from './actions';
+import { bp } from './state';
 
 /** Widget-type → Phosphor glyph, so each result cell carries a scannable icon instead of only a mono
  *  type string (and the big empty chart/table cells aren't pure void). First match wins. */
@@ -36,11 +40,6 @@ export function typeIcon(className: string): string | null {
   for (const [re, ic] of TYPE_ICONS) if (re.test(className)) return ic;
   return null;
 }
-import type { Rect } from './geometry';
-import { unionRect, setIcon } from './geometry';
-import { armBox } from './gestures';
-import { openPicker } from './actions';
-import { bp } from './state';
 
 /** A small "+" add button for a result container/tab cell. armBox already ignores mousedowns that
  *  land on a <button>, so this never starts a drag/select — it just opens the add picker for `id`. */
@@ -96,16 +95,6 @@ function reorderedIds(base: LModel, m: LModel): Set<string> {
   return out;
 }
 
-/** The active tab = the model tab whose baseline widgets are currently in the live DOM. */
-function activeModelTab(base: LModel, m: LModel, byRid: Map<string, Element>): { tab: LNode; frame: Rect } | null {
-  for (const bt of base.tabs) {
-    const frame = unionRect(bt, byRid);
-    if (!frame) continue;
-    const mt = m.tabs.find(t => t.id === bt.id);
-    if (mt) return { tab: mt, frame };
-  }
-  return null;
-}
 
 /** Per-type fallback heights (px) for a widget with no live DOM (an inactive tab) and no authored
  *  height. Rough but type-aware, informed by the decompiled layout model + live measurement:
@@ -223,15 +212,6 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   return el;
 }
 
-/** Pick the tab to show in the canvas: the explicit header-bar selection if it still exists, else
- *  BMP's live/active tab, else the first model tab (so a non-live page still shows something). Only
- *  the fallback when the caller doesn't pass a resolved `viewedId` (the tests render headless). */
-function viewedTab(m: LModel, activeId: string | null): LNode | null {
-  if (bp.viewTabId) { const t = m.tabs.find(t => t.id === bp.viewTabId); if (t) return t; }
-  if (activeId) { const t = m.tabs.find(t => t.id === activeId); if (t) return t; }
-  return m.tabs[0] ?? null;
-}
-
 /**
  * Render the result wireframe into `layer` — ONE tab at a time (the header tab bar switches/manages
  * tabs; the canvas just lays out the chosen tab's grid). Anchored to the live content box for column
@@ -239,10 +219,11 @@ function viewedTab(m: LModel, activeId: string | null): LNode | null {
  *
  * `viewedId` is the tab id the caller (render) resolved for BOTH the canvas and the highlighted tab
  * pill, so the two never disagree (the canvas would otherwise fall back to the first model tab while
- * the pill bar — using a different rule — highlighted nothing, e.g. on BMP's non-model Result tab).
+ * the pill bar — using a different rule — highlighted nothing, e.g. on BMP's non-model Result tab). It's
+ * optional only so the headless tests can render without a resolution step (they default to tab 0).
  */
 export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element>, layer: HTMLElement, viewedId?: string | null): boolean {
-  const tab = (viewedId ? m.tabs.find(t => t.id === viewedId) : null) ?? viewedTab(m, activeModelTab(base, m, byRid)?.tab.id ?? null);
+  const tab = (viewedId ? m.tabs.find(t => t.id === viewedId) : null) ?? m.tabs[0] ?? null;
   if (!tab) return false;
   // Anchor to the VIEWED tab's OWN live widgets — not just "the first tab with any visible widgets".
   // The shared Result tab's widgets render on every tab (a persistent action bar), so the old heuristic
@@ -261,13 +242,13 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   // left the empty right columns as bare page. Anchor the width to BMP's real content grid instead.
   const contentW = bmpContentWidth(byRid, frame.left);
   const width = contentW > frame.width ? contentW : frame.width;
-  const docTop = frame.top + window.scrollY;
+  const docTop = docY(frame.top);
   // Full-bleed grid backdrop BEHIND the panel — fills the whole editor width edge-to-edge (the panel
   // itself stays at content width so the cards keep BMP's column alignment). Height set after layout.
   const bg = document.createElement('div'); bg.className = 'bp-canvas-bg'; bg.style.top = `${docTop}px`;
   layer.appendChild(bg);
   const wrap = document.createElement('div'); wrap.className = 'bp-result';
-  Object.assign(wrap.style, { left: `${frame.left + window.scrollX}px`, top: `${docTop}px`, width: `${width}px`, minHeight: `${minH}px` });
+  Object.assign(wrap.style, { left: `${docX(frame.left)}px`, top: `${docTop}px`, width: `${width}px`, minHeight: `${minH}px` });
 
   const reordered = reorderedIds(base, m);
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
@@ -295,11 +276,7 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
  *  size the canvas backdrop so nothing real peeks out below it when scrolled. */
 function allWidgetsBottomDoc(byRid: Map<string, Element>): number {
   let maxBottom = 0;
-  for (const el of byRid.values()) {
-    const r = el.getBoundingClientRect();
-    if (r.width < 8 || r.height < 8) continue;
-    maxBottom = Math.max(maxBottom, r.bottom + window.scrollY);
-  }
+  for (const r of widgetRects(byRid)) maxBottom = Math.max(maxBottom, docY(r.bottom));
   return maxBottom;
 }
 
@@ -323,13 +300,12 @@ function bmpContentWidth(byRid: Map<string, Element>, left: number): number {
   return best;
 }
 
-/** Bounding box of ALL currently-visible widgets (any tab/orphan) — the fallback anchor when no model
+/** Bounding box of ALL currently ON-SCREEN widgets (any tab/orphan) — the fallback anchor when no model
  *  tab is active. */
 function unionAllVisible(byRid: Map<string, Element>): Rect | null {
   let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity, any = false;
-  for (const el of byRid.values()) {
-    const rc = el.getBoundingClientRect();
-    if (rc.width < 8 || rc.height < 8 || rc.bottom <= 0 || rc.top >= innerHeight) continue;
+  for (const rc of widgetRects(byRid)) {
+    if (rc.bottom <= 0 || rc.top >= innerHeight) continue; // on-screen only
     l = Math.min(l, rc.left); t = Math.min(t, rc.top); r = Math.max(r, rc.right); b = Math.max(b, rc.bottom); any = true;
   }
   return any ? { left: l, top: t, width: r - l, height: b - t } : null;

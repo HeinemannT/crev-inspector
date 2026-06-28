@@ -8,11 +8,41 @@ import { getAllRidElements } from '../lib/dom-scanner';
 
 export interface Rect { left: number; top: number; width: number; height: number; }
 
+// ── viewport → document space ────────────────────────────────────────────────
+// The blueprint layer is position:absolute at the document origin, so it scrolls natively with the
+// page. Every element anchored to live BMP content is measured in VIEWPORT space (getBoundingClientRect)
+// and must be placed in DOCUMENT space (+ scroll offset). These three helpers are the ONE place that
+// conversion happens, so it can't drift across the box builders.
+
+/** Document-space X / Y for a viewport coordinate. */
+export const docX = (x: number): number => x + window.scrollX;
+export const docY = (y: number): number => y + window.scrollY;
+
+/** Place an absolutely-positioned overlay box from a VIEWPORT rect, converting to document space.
+ *  `inflate` grows the box on all sides (a container frame draws a few px outside its child union). */
+export function placeDoc(el: HTMLElement, r: Rect, inflate = 0): void {
+  Object.assign(el.style, {
+    left: `${docX(r.left - inflate)}px`,
+    top: `${docY(r.top - inflate)}px`,
+    width: `${r.width + inflate * 2}px`,
+    height: `${r.height + inflate * 2}px`,
+  });
+}
+
 /** rid → live DOM element, the same map the inspect overlay uses (widgets carry data-rid). */
 export function ridElementMap(): Map<string, Element> {
   const map = new Map<string, Element>();
   for (const { element, rid } of getAllRidElements(false)) if (!map.has(rid)) map.set(rid, element);
   return map;
+}
+
+/** Viewport rects of every laid-out widget (skips zero / degenerate boxes). The single source the
+ *  result canvas uses to find its anchor, content width, and backdrop extent — callers add their own
+ *  viewport/scroll filtering on top. */
+export function widgetRects(byRid: Map<string, Element>): DOMRect[] {
+  const out: DOMRect[] = [];
+  for (const el of byRid.values()) { const r = el.getBoundingClientRect(); if (r.width >= 8 && r.height >= 8) out.push(r); }
+  return out;
 }
 
 /** Bounding box of all of a node's live child widgets — the container's on-screen area. */

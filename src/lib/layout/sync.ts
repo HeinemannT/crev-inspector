@@ -23,7 +23,7 @@
  * re-fetch is the new source of truth, which also makes apply idempotent (a second apply of
  * an already-applied model diffs to an empty plan).
  */
-import { reconstruct, walk } from './model';
+import { reconstruct, walk, RESULT_TAB_ID } from './model';
 import type { ReconstructCtx } from './model';
 import { diff } from './diff';
 import { compile } from './ec';
@@ -111,9 +111,9 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     // and diff groups reorders by parent, so a foreign-tabset tab needs no special-casing downstream.
     // Emitted first so it leads the strip (as BMP shows it). Its widgets bind to the tab directly and
     // come through the org loop unchanged; we don't pull in its shared Row/Column scaffold.
-    `_res := t.RESULT`,
+    `_res := t.${RESULT_TAB_ID}`,
     `IF _res.className.whenMissing("") = "Tab" AND _res.parent.rid.whenMissing("") != _ts.rid THEN`,
-    `     _r := _r + "${SEP}" + _res.rid + "|RESULT|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + _res.name.whenMissing("Result") + "\\n"`,
+    `     _r := _r + "${SEP}" + _res.rid + "|${RESULT_TAB_ID}|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + _res.name.whenMissing("Result") + "\\n"`,
     `ELSE`,
     `     _r := _r`,
     `ENDIF`,

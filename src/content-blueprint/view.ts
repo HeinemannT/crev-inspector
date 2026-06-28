@@ -15,7 +15,7 @@ import { isAncestorOf } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_X, ICON_LAYOUT, ICON_LINK } from '../lib/icons';
 import { bp, model, PALETTE, MOST_USED } from './state';
-import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkBtn, mkIconBtn, delta } from './geometry';
+import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkBtn, mkIconBtn, delta, placeDoc, docX, docY } from './geometry';
 import {
   select, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
   openMovePicker, closeMovePicker, moveTo,
@@ -23,6 +23,8 @@ import {
 import { armBox, armResize } from './gestures';
 import { renderChip, previewModal, trayPanel, hintBar, createTabsetModal } from './view-panels';
 import { renderResult, typeIcon } from './result';
+
+const STACKED_ADD_STEP = 42; // px each staged-add placeholder is offset below the previous, in the live fallback
 
 // The pending-change count is recomputed on every render, but a pure scroll/observer render leaves the
 // model unchanged — and diff() builds two index maps and is ~O(n²) in its reorder phase. Memoise the count
@@ -90,11 +92,22 @@ export function render(): void {
   // to (no active tab with live widgets). (The live "real page" view is slated to move into inspect
   // mode — see docs/blueprint.md.) Selection toolbar + pickers + tray + modal render at the foot.
   if (renderResult(base, m, byRid, layer, viewedId)) {
+    bp.resultMode = true;
     renderFloatingChrome(byRid, m);
     if (oldRects) flipFrom(layer, oldRects); // animate moved/reordered cells to their new positions
     ensureScrollRoom(layer.querySelector('.bp-result')); // let the page scroll to a panel taller than BMP's content
     return;
   }
+  bp.resultMode = false;
+  renderLiveFallback(base, m, byRid, layer);
+  renderFloatingChrome(byRid, m);
+}
+
+/** The LIVE-fallback render path (for a page the result canvas can't anchor to): boxes anchored to
+ *  BMP's frozen DOM with edits shown as badges, plus staged-add placeholders and empty-space add zones.
+ *  Slated to move into inspect mode (see docs/blueprint.md) — kept out of render() so the primary path
+ *  reads as "chrome → result-or-fallback → floating chrome". */
+function renderLiveFallback(base: LModel, m: LModel, byRid: Map<string, Element>, layer: HTMLElement): void {
   neutralizeScrollRoom(); // live-fallback boxes anchor within the page's own scroll — no extra room needed
 
   // container boxes first (behind), sized to the union of their live child-widget rects
@@ -130,7 +143,7 @@ export function render(): void {
     const rect = host ? anchorRect(host, byRid) : null; // union for a container, own box for a composite
     if (!rect) return;
     const offset = stackY.get(parent.id) ?? 0;
-    stackY.set(parent.id, offset + 42);
+    stackY.set(parent.id, offset + STACKED_ADD_STEP);
     layer.appendChild(newWidgetBox(node, { left: rect.left, top: rect.top + rect.height + 4 + offset, width: rect.width, height: 38 }, moved ? 'moved' : 'new'));
   });
 
@@ -147,8 +160,6 @@ export function render(): void {
     const extra = stackY.size ? Math.max(...stackY.values()) : 0;
     layer.appendChild(availZone(activeTab.id, activeTab.name, { left: lr.left, top: lr.top + lr.height + 8 + extra, width: lr.width, height: 40 }));
   }
-
-  renderFloatingChrome(byRid, m);
 }
 
 /** Selection toolbar + move-menu + add-picker + tray + hint + apply modal. These anchor to a node's
@@ -276,7 +287,7 @@ function widgetBox(baseNode: LNode, r: DOMRect, m: LModel, baseParentId: string 
     + (state === 'gone' ? ' del' : '')
     + (moved ? ' moved' : '')
     + (sel ? ' sel' : '');
-  Object.assign(box.style, { left: `${r.left + window.scrollX}px`, top: `${r.top + window.scrollY}px`, width: `${r.width}px`, height: `${r.height}px` });
+  placeDoc(box, r);
   if (state !== 'gone') armBox(box, baseNode.id);
   else box.addEventListener('mousedown', (e) => { e.stopPropagation(); select(baseNode.id); });
 
@@ -300,7 +311,7 @@ function widgetBox(baseNode: LNode, r: DOMRect, m: LModel, baseParentId: string 
 function newWidgetBox(node: LNode, r: Rect, variant: 'new' | 'moved' = 'new'): HTMLElement {
   const box = document.createElement('div');
   box.className = 'bp-box bp-new' + (variant === 'moved' ? ' bp-moveghost' : '') + (isChart(node.className) ? ' bp-chart' : '');
-  Object.assign(box.style, { left: `${r.left + window.scrollX}px`, top: `${r.top + window.scrollY}px`, width: `${r.width}px`, height: `${r.height}px` });
+  placeDoc(box, r);
   if (variant === 'new') {
     box.dataset.bpid = node.id; box.dataset.bpkind = 'new';
     if (bp.selectedId === node.id) box.classList.add('sel');
@@ -332,7 +343,7 @@ function addHandles(box: HTMLElement, node: LNode): void {
 function availZone(parentId: string, parentName: string, r: Rect, opts?: { afterId?: string; cols?: number }): HTMLElement {
   const z = document.createElement('div'); z.className = 'bp-avail';
   z.dataset.bpid = parentId; z.dataset.bpkind = 'avail';
-  Object.assign(z.style, { left: `${r.left + window.scrollX}px`, top: `${r.top + window.scrollY}px`, width: `${r.width}px`, height: `${r.height}px` });
+  placeDoc(z, r);
   z.title = `Add a widget to ${parentName}`;
   const ic = document.createElement('span'); ic.className = 'ic'; setIcon(ic, ICON_PLUS);
   const tx = document.createElement('span'); tx.textContent = 'Add widget';
@@ -409,7 +420,7 @@ function containerBox(baseNode: LNode, rect: Rect, m: LModel): HTMLElement {
   const box = document.createElement('div');
   box.dataset.bpid = baseNode.id; box.dataset.bpkind = 'container';
   box.className = 'bp-cont' + (sel ? ' sel' : '') + (changed ? ' changed' : '');
-  Object.assign(box.style, { left: `${rect.left - 3 + window.scrollX}px`, top: `${rect.top - 3 + window.scrollY}px`, width: `${rect.width + 6}px`, height: `${rect.height + 6}px` });
+  placeDoc(box, rect, 3); // a container frame draws 3px outside its child union
   armBox(box, baseNode.id);
   // A handle ABOVE the container's top-left, always visible: it marks where each container is (so they
   // read clearly) and hosts the add "+". It sits above the row, so it never collides with the top-left
@@ -447,11 +458,10 @@ function toolbar(node: LNode, r: Rect): HTMLElement {
   // Lift the toolbar above the cell. In the LIVE view a container carries a +/name handle (.bp-ctab)
   // just above its box, so it needs extra clearance; the RESULT view has no such handle, so the big
   // container lift just left the bar floating misaligned far above. Match the cell tightly there.
-  const inResult = !!bp.layer?.querySelector('.bp-result');
-  const lift = inResult ? 38 : (node.kind === 'container' ? 60 : 32);
+  const lift = bp.resultMode ? 38 : (node.kind === 'container' ? 60 : 32);
   // document space (the layer is absolute) so the toolbar scrolls with the cell it anchors to.
-  t.style.left = `${Math.max(4, r.left) + window.scrollX}px`;
-  t.style.top = `${Math.max(0, r.top - lift) + window.scrollY}px`;
+  t.style.left = `${docX(Math.max(4, r.left))}px`;
+  t.style.top = `${docY(Math.max(0, r.top - lift))}px`;
 
   const lblW = document.createElement('span'); lblW.className = 'lbl'; lblW.textContent = 'W'; t.appendChild(lblW);
   const seg = document.createElement('div'); seg.className = 'bp-seg';

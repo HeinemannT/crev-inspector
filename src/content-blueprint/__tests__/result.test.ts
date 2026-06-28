@@ -76,24 +76,23 @@ describe('renderResult (CSS-grid mirror)', () => {
     expect((layer.querySelector('.bp-rcell[data-bpid="w1"]') as HTMLElement).style.gridColumn).toBe('span 6');
   });
 
-  it('renders ONE tab at a time — the live/active tab by default, the viewed tab when set', () => {
-    // t1 has the live widgets (in byRid) → active; t2 has none. The canvas shows one tab; the header
-    // tab bar (view.ts) switches via bp.viewTabId. No per-tab section headers in the canvas anymore.
+  it('renders ONE tab at a time — the first tab by default, the passed viewedId when given', () => {
+    // The canvas shows one tab; the caller (view.render) resolves which and passes it as viewedId. No
+    // per-tab section headers in the canvas anymore.
     const multi = mdl([
       tab('t1', [widget('w1', 6)]),
       tab('t2', [widget('z1', 6)]),
     ]);
     const layer = document.createElement('div');
     expect(renderResult(multi, multi, byRid, layer)).toBe(true);
-    // default → active tab t1: its widget renders, the other tab's does not, and there are no sections
+    // default (no viewedId) → first tab t1: its widget renders, the other tab's does not, no sections
     expect(layer.querySelector('.bp-rcell[data-bpid="w1"]')).not.toBeNull();
     expect(layer.querySelector('.bp-rcell[data-bpid="z1"]')).toBeNull();
     expect(layer.querySelector('.bp-rtab-sec')).toBeNull();
 
-    // switch the viewed tab → now t2's widget renders (from the model, even with no live DOM) and t1's doesn't
-    bp.viewTabId = 't2';
+    // pass viewedId t2 → now t2's widget renders (from the model, even with no live DOM) and t1's doesn't
     const layer2 = document.createElement('div');
-    expect(renderResult(multi, multi, byRid, layer2)).toBe(true);
+    expect(renderResult(multi, multi, byRid, layer2, 't2')).toBe(true);
     expect(layer2.querySelector('.bp-rcell[data-bpid="z1"]')).not.toBeNull();
     expect(layer2.querySelector('.bp-rcell[data-bpid="w1"]')).toBeNull();
   });

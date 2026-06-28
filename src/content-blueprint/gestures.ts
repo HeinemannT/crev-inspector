@@ -18,7 +18,9 @@ import { render } from './view';
 const isDescendant = (node: LNode, id: string): boolean => node.children.some(c => c.id === id || isDescendant(c, id));
 
 const clampL = (n: number): number => Math.max(1, Math.min(6, n));
-const DRAG_THRESHOLD = 6; // px of movement before a press becomes a drag rather than a click
+const DRAG_THRESHOLD = 6;      // px of movement before a press becomes a drag rather than a click
+const SWAP_ZONE = 0.26;        // centre fraction of a widget target that means "swap" (vs edge = insert)
+const CONTAINER_NEST_ZONE = 0.3; // centre fraction of a container target that means "nest into" (vs edge = reorder)
 
 // The document-level pointer listeners of the in-flight gesture, tracked so teardown (cancelGesture)
 // can rip them out even if it lands mid-drag — otherwise they'd outlive the overlay session.
@@ -188,17 +190,15 @@ function markTarget(ev: MouseEvent): void {
   }
   if (kind === 'container') {
     // A container dropped on a container: its EDGES insert it before/after at the same level (reorder —
-    // "connect to the upper/lower edge"), the CENTRE nests it inside. A widget always drops INTO.
+    // "connect to the upper/lower edge"), the CENTRE (within CONTAINER_NEST_ZONE) nests it inside. A
+    // widget always drops INTO.
     if (src && src.node.kind === 'container') {
       const r = hit.getBoundingClientRect();
-      const relX = (ev.clientX - r.left) / r.width, relY = (ev.clientY - r.top) / r.height;
-      if (Math.max(Math.abs(relX - 0.5), Math.abs(relY - 0.5)) < 0.3) {
+      if (edgeness(r, ev) < CONTAINER_NEST_ZONE) {
         hit.classList.add('bp-drop'); action = { type: 'into', targetId };
         setAct(`nest inside "${nameOf(m, targetId)}"`);
       } else {
-        const dl = relX, dr = 1 - relX, dt = relY, db = 1 - relY, min = Math.min(dl, dr, dt, db);
-        const side = min === dl ? 'left' : min === dr ? 'right' : min === dt ? 'top' : 'bottom';
-        const before = side === 'left' || side === 'top';
+        const { side, before } = nearestEdge(r, ev);
         showLine(r, side); action = { type: 'insert', targetId, before };
         setAct(`place ${before ? 'before' : 'after'} "${nameOf(m, targetId)}"`);
       }
@@ -207,20 +207,16 @@ function markTarget(ev: MouseEvent): void {
     hit.classList.add('bp-drop'); action = { type: 'into', targetId };
     setAct(`add into "${nameOf(m, targetId)}"`); return;
   }
-  // widget target: centre = swap, edge = insert before/after — but ONLY widget-on-widget. A container
-  // dropped on a widget is cross-band (containers render before tab-bound widgets, so a swap there just
-  // reorders containers and an insert reparents oddly); ignore it — drop containers on tabs/containers.
+  // widget target: centre (within SWAP_ZONE) = swap, edge = insert before/after — but ONLY widget-on-
+  // widget. A container dropped on a widget is cross-band (containers render before tab-bound widgets, so
+  // a swap there just reorders containers and an insert reparents oddly); ignore it.
   if (src && src.node.kind !== 'widget') { setAct(''); return; }
   const r = hit.getBoundingClientRect();
-  const relX = (ev.clientX - r.left) / r.width, relY = (ev.clientY - r.top) / r.height;
-  const edge = Math.max(Math.abs(relX - 0.5), Math.abs(relY - 0.5));
-  if (edge < 0.26) {
+  if (edgeness(r, ev) < SWAP_ZONE) {
     hit.classList.add('bp-swap'); action = { type: 'swap', targetId };
     setAct(`swap with "${nameOf(m, targetId)}"`);
   } else {
-    const dl = relX, dr = 1 - relX, dt = relY, db = 1 - relY, min = Math.min(dl, dr, dt, db);
-    const side = min === dl ? 'left' : min === dr ? 'right' : min === dt ? 'top' : 'bottom';
-    const before = side === 'left' || side === 'top';
+    const { side, before } = nearestEdge(r, ev);
     showLine(r, side); action = { type: 'insert', targetId, before };
     // When the target sits in a different parent than the dragged node, this edge-drop also REPARENTS
     // (places it there) — call that out so "place after X" doesn't read as a pure same-box reorder.
@@ -228,6 +224,21 @@ function markTarget(ev: MouseEvent): void {
     const crossing = !!tParent && (src?.parent?.id ?? null) !== tParent.id;
     setAct(`place ${before ? 'before' : 'after'} "${nameOf(m, targetId)}"${crossing ? ` (into ${tParent!.name})` : ''}`);
   }
+}
+
+/** How close to centre (0 = centre, ~0.5 = edge) the pointer is within a target box — distinguishes a
+ *  centre drop (swap / nest) from an edge drop (insert before/after). */
+function edgeness(r: DOMRect, ev: MouseEvent): number {
+  const relX = (ev.clientX - r.left) / r.width, relY = (ev.clientY - r.top) / r.height;
+  return Math.max(Math.abs(relX - 0.5), Math.abs(relY - 0.5));
+}
+
+/** The edge of `r` the pointer is nearest, and whether dropping there means "insert before" the target. */
+function nearestEdge(r: DOMRect, ev: MouseEvent): { side: 'left' | 'right' | 'top' | 'bottom'; before: boolean } {
+  const relX = (ev.clientX - r.left) / r.width, relY = (ev.clientY - r.top) / r.height;
+  const dl = relX, dr = 1 - relX, dt = relY, db = 1 - relY, min = Math.min(dl, dr, dt, db);
+  const side = min === dl ? 'left' : min === dr ? 'right' : min === dt ? 'top' : 'bottom';
+  return { side, before: side === 'left' || side === 'top' };
 }
 
 function showLine(r: DOMRect, side: 'left' | 'right' | 'top' | 'bottom'): void {

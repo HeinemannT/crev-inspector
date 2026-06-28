@@ -26,9 +26,10 @@ export interface BpState {
   picker: string | null;        // containerId/compositeId/tabId the add picker is open for
   pickerOpts: { afterId?: string; cols?: number; at?: { x: number; y: number } } | null; // positional insert (after a sibling, sized to a gap) + the click point to anchor the picker popup at
   movePicker: string | null;    // widgetId the move-destination menu is open for
-  onScroll: (() => void) | null;
+  onResize: (() => void) | null; // window 'resize' handler (re-anchors the canvas; scroll is native)
   onKey: ((e: KeyboardEvent) => void) | null;
-  raf: number;                  // requestAnimationFrame id coalescing scroll re-renders (0 = none)
+  raf: number;                  // requestAnimationFrame id coalescing resize re-renders (0 = none)
+  resultMode: boolean;          // last render used the result canvas (vs the live-fallback) — read by chrome
   gen: number;                  // session generation, bumped on each enable; in-flight I/O captures it
                                 //   and bails if it changed (toggle-off-then-on starts a new session)
   hint: string | null;          // transient contextual hint shown in the bottom bar (gesture coaching)
@@ -46,12 +47,24 @@ export interface BpState {
   peek: boolean;                // sticky peek toggle (overlay faded so the live widgets show); hover peeks transiently
 }
 
-export const bp: BpState = {
-  active: false, baseline: null, ctx: null, env: null, history: null,
-  layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null,
-  onScroll: null, onKey: null, raf: 0, gen: 0, hint: null, trayOpen: false, dragging: false, renaming: false,
-  observer: null, ridSig: '', mutRaf: 0, needsTabset: null, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
-};
+/** Every per-session field at its idle/empty value. Defined ONCE so the initial `bp` and the teardown
+ *  reset can't drift (a field added to one but not the other used to leak across sessions). `gen` is the
+ *  sole field NOT reset here — it's the monotonic session counter. */
+function freshState(): Omit<BpState, 'gen'> {
+  return {
+    active: false, baseline: null, ctx: null, env: null, history: null,
+    layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null,
+    onResize: null, onKey: null, raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
+    observer: null, ridSig: '', mutRaf: 0, needsTabset: null, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
+  };
+}
+
+export const bp: BpState = { gen: 0, ...freshState() };
+
+/** Reset every per-session field to idle (preserving the monotonic `gen`) — called on teardown so no
+ *  selection, blast probe, observer, peek, etc. leaks into the next session. Listeners/observers/DOM are
+ *  torn down by the caller BEFORE this nulls their references. */
+export function resetState(): void { Object.assign(bp, freshState()); }
 
 export function isBlueprintActive(): boolean { return bp.active; }
 
