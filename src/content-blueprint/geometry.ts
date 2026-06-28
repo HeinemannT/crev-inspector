@@ -70,10 +70,18 @@ export function anchorRect(node: LNode, byRid: Map<string, Element>): Rect | nul
  *  innerHTML is safe). Crisper + correctly centred vs unicode glyphs. */
 export function setIcon(el: HTMLElement, svg: string): void { el.innerHTML = svg; }
 
+// Buttons fire on mousedown (to beat BMP's own handlers) and preventDefault — WITHOUT it, the button's
+// default mousedown action grabs focus, which STEALS it from an inline-rename field the handler just
+// opened + focused (the field blurs and closes → "click Rename, nothing happens"). preventDefault is
+// safe because we act on mousedown, not click, and these buttons never need keyboard focus.
+const wireBtn = (b: HTMLButtonElement, on: () => void): void => {
+  b.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); on(); });
+};
+
 /** A button wired to a click handler (mousedown so it beats BMP's own handlers; stops propagation). */
 export function mkBtn(text: string, on: () => void): HTMLButtonElement {
   const b = document.createElement('button'); b.className = 'btn'; b.textContent = text;
-  b.addEventListener('mousedown', (e) => { e.stopPropagation(); on(); });
+  wireBtn(b, on);
   return b;
 }
 
@@ -82,7 +90,7 @@ export function mkIconBtn(svg: string, on: () => void, label?: string): HTMLButt
   const b = document.createElement('button'); b.className = 'btn';
   const ic = document.createElement('span'); ic.className = 'bp-ic'; ic.innerHTML = svg; b.appendChild(ic);
   if (label) { const s = document.createElement('span'); s.textContent = label; b.appendChild(s); }
-  b.addEventListener('mousedown', (e) => { e.stopPropagation(); on(); });
+  wireBtn(b, on);
   return b;
 }
 export function delta(text: string): HTMLElement { const s = document.createElement('span'); s.className = 'delta'; s.textContent = text; return s; }
