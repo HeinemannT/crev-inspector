@@ -277,7 +277,10 @@
    the live content box. An OPAQUE cyanotype panel (so the busy live page doesn't bleed through) with a
    faint two-tier blueprint grid. Widget cells = transparent regions with hairline outlines; containers =
    dashed frames with corner brackets. Cells are draggable (data-bpid) so drops land in final positions. */
-#crev-blueprint-layer .bp-result{position:absolute;z-index:6;padding:12px;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r);background-image:linear-gradient(var(--bp-grid) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid) 1px,transparent 1px),linear-gradient(var(--bp-grid-2) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid-2) 1px,transparent 1px);background-size:22px 22px,22px 22px,110px 110px,110px 110px}
+/* The canvas ground is 90% opaque (10% see-through) so a faint HINT of the real widgets bleeds through —
+   orientation without losing the line-art. Only the canvas; the chrome panels (header/tray/modal) stay
+   fully opaque via --bp-ground. */
+#crev-blueprint-layer .bp-result{position:absolute;z-index:6;padding:12px;background:rgba(16,53,100,.9);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r);background-image:linear-gradient(var(--bp-grid) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid) 1px,transparent 1px),linear-gradient(var(--bp-grid-2) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid-2) 1px,transparent 1px);background-size:22px 22px,22px 22px,110px 110px,110px 110px}
 /* align-items:start so each cell keeps its OWN (measured/authored) height instead of stretching to
    the row's tallest — the wireframe then reflects real widget heights, not a uniform grid. */
 #crev-blueprint-layer .bp-rgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-content:start;align-items:start}
@@ -304,17 +307,17 @@
    full-width rule capped with outward arrowheads at both ends (◄────►), so the container reads as a
    measured span. Just for containers. Glyph + "CONTAINER" tag dropped (the dashed frame says container);
    width + add float right, vertically centred with the caption. */
-/* Title row — symmetric vertical padding so the caption sits cleanly centred; width + add float right. */
-#crev-blueprint-layer .bp-rcont>.bp-rlab{position:relative;display:flex;align-items:center;justify-content:center;margin:-5px -7px 0;padding:3px 8px;background:none}
+/* Title row — tight, the caption sits cleanly centred; width + add float right. */
+#crev-blueprint-layer .bp-rcont>.bp-rlab{position:relative;display:flex;align-items:center;justify-content:center;margin:-5px -7px 0;padding:2px 8px 0;background:none}
 #crev-blueprint-layer .bp-rcont>.bp-rlab .bp-ric,#crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rty{display:none}
-#crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rnm{text-transform:none;letter-spacing:.01em;font-size:10.5px;font-weight:600;line-height:1.3;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rnm{text-transform:none;letter-spacing:.01em;font-size:10.5px;font-weight:600;line-height:1.25;color:var(--bp-muted)}
 #crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rwd{position:absolute;right:24px;top:50%;transform:translateY(-50%);margin:0}
 #crev-blueprint-layer .bp-rcont>.bp-rlab .bp-radd{position:absolute;right:2px;top:50%;transform:translateY(-50%);margin:0}
-/* dimension line under the title: ◄──────► — SVG arrowhead caps + a flex rule that meets them cleanly.
-   Kept at the frame weight (--bp-line-2) so it reads as part of the container, not louder than its bound. */
-#crev-blueprint-layer .bp-rdim{display:flex;align-items:center;margin:1px 1px 8px;height:8px;color:var(--bp-line-2)}
+/* dimension line under the title: ◄- - - - -► — SVG arrowhead caps + a DASHED rule between them, tight to
+   the caption and inset from the corners so the heads clear the + / "N col". Frame weight (--bp-line-2). */
+#crev-blueprint-layer .bp-rdim{display:flex;align-items:center;margin:2px 7px 7px;height:7px;color:var(--bp-line-2)}
 #crev-blueprint-layer .bp-rdim-cap{flex:none;display:block}
-#crev-blueprint-layer .bp-rdim-line{flex:1;height:0;border-top:var(--bp-hair) solid currentColor}
+#crev-blueprint-layer .bp-rdim-line{flex:1;height:0;border-top:var(--bp-hair) dashed currentColor;margin:0 1px}
 #crev-blueprint-layer .bp-rcont>.bp-rgrid{margin-top:0}
 /* State colour runs through the cell — border + icon + name — so an added/changed/moved widget reads at
    a glance: added = green, changed = yellow, moved-only = lighter yellow. (Deleted cells aren't shown in
