@@ -12,7 +12,7 @@ import { findNode } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
 import { diff, summarizeChanges } from '../lib/layout/diff';
-import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_WARNING } from '../lib/icons';
+import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_WARNING, ICON_EYE_SLASH } from '../lib/icons';
 import { bp, model } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
 import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, discard, openApplyPreview, exitBlueprint, doCreateTabset } from './actions';
@@ -191,6 +191,11 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
     c.appendChild(w);
   }
   c.appendChild(sp());
+  // Peek: HOVER (don't click) to fade the overlay so the real widgets show through underneath.
+  const peek = mkIconBtn(ICON_EYE_SLASH, () => {}); peek.title = 'Hover to peek at the live widgets underneath';
+  peek.addEventListener('mouseenter', () => bp.layer?.classList.add('bp-peek'));
+  peek.addEventListener('mouseleave', () => bp.layer?.classList.remove('bp-peek'));
+  c.appendChild(peek);
   const undoB = mkIconBtn(ICON_ARROW_UNDO, undo); undoB.title = 'Undo'; undoB.disabled = !bp.history?.canUndo(); c.appendChild(undoB);
   const redoB = mkIconBtn(ICON_ARROW_REDO, redo); redoB.title = 'Redo'; redoB.disabled = !bp.history?.canRedo(); c.appendChild(redoB);
   const trayB = mkIconBtn(ICON_LIST, toggleTray, String(pending)); trayB.title = 'Pending changes'; trayB.disabled = pending === 0;

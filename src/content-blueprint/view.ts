@@ -15,7 +15,7 @@ import { isAncestorOf } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_X, ICON_LAYOUT } from '../lib/icons';
 import { bp, model, PALETTE, MOST_USED } from './state';
-import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkIconBtn, delta } from './geometry';
+import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkBtn, mkIconBtn, delta } from './geometry';
 import {
   select, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
   openMovePicker, closeMovePicker, moveTo,
@@ -591,7 +591,7 @@ function tabBar(base: LModel, m: LModel, liveId: string | null): HTMLElement {
   for (const mt of m.tabs) {
     if (!base.tabs.some(b => b.id === mt.id)) bar.appendChild(tabPill(mt.id, mt.name, 'new', mt.id === viewedId, mt.id === liveId));
   }
-  bar.appendChild(mkIconBtn(ICON_PLUS, addTabAction, 'Tab'));
+  bar.appendChild(mkBtn('+ Tab', addTabAction)); // plain "+ Tab" text (no icon — the icon mis-aligned)
   return bar;
 }
 

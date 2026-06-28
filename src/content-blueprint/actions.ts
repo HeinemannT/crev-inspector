@@ -24,9 +24,27 @@ import { applyPage, fetchBlast, createTabset } from './service';
 export function mutate(next: LModel): void { bp.history?.push(next); bp.flipNext = true; render(); }
 
 export function select(id: string | null): void { bp.selectedId = id; render(); }
-/** Show a tab in the canvas (header tab-bar click). The canvas renders one tab at a time; this picks
- *  which, independent of BMP's live tab (an inactive tab renders from estimates). */
-export function viewTab(id: string): void { bp.viewTabId = id; bp.selectedId = id; render(); }
+/** Header tab-bar click = switch the REAL tab, same as BMP's own tab strip (not a separate "peek").
+ *  Click BMP's matching native tab so it navigates; our MutationObserver then follows it. Falls back to
+ *  a canvas-only view (viewTabId) when there's no live BMP tab to drive (e.g. an unmodeled page). */
+export function viewTab(id: string): void {
+  const m = model();
+  const tab = m?.tabs.find(t => t.id === id);
+  if (tab) {
+    const native = [...document.querySelectorAll('.corpo-tabSet__tab')].find(t => t.textContent?.trim() === tab.name);
+    if (native) {
+      const el = (native.querySelector('a') as HTMLElement) ?? (native as HTMLElement);
+      for (const ev of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
+        el.dispatchEvent(ev.startsWith('pointer')
+          ? new PointerEvent(ev, { bubbles: true, cancelable: true, view: window, pointerId: 1 })
+          : new MouseEvent(ev, { bubbles: true, cancelable: true, view: window, button: 0 }));
+      }
+      bp.viewTabId = null; // follow the live tab the observer will pick up
+      return;
+    }
+  }
+  bp.viewTabId = id; bp.selectedId = id; render();
+}
 export function setWidth(id: string, n: number): void { const m = model(); if (m) mutate(resize(m, id, 'L', n)); }
 export function setH(id: string, px: number): void { const m = model(); if (m) mutate(setHeight(m, id, px)); }
 export function doRename(id: string, name: string): void { const m = model(); if (m) mutate(rename(m, id, name)); }

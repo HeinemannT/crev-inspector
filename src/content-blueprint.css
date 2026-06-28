@@ -277,10 +277,11 @@
    the live content box. An OPAQUE cyanotype panel (so the busy live page doesn't bleed through) with a
    faint two-tier blueprint grid. Widget cells = transparent regions with hairline outlines; containers =
    dashed frames with corner brackets. Cells are draggable (data-bpid) so drops land in final positions. */
-/* The canvas ground is 90% opaque (10% see-through) so a faint HINT of the real widgets bleeds through —
-   orientation without losing the line-art. Only the canvas; the chrome panels (header/tray/modal) stay
-   fully opaque via --bp-ground. */
-#crev-blueprint-layer .bp-result{position:absolute;z-index:6;padding:12px;background:rgba(16,53,100,.9);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r);background-image:linear-gradient(var(--bp-grid) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid) 1px,transparent 1px),linear-gradient(var(--bp-grid-2) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid-2) 1px,transparent 1px);background-size:22px 22px,22px 22px,110px 110px,110px 110px}
+/* Opaque cyanotype ground (the busy live page must not bleed through). A momentary see-through is on
+   demand instead — hover the peek (slashed-eye) control in the header to fade the canvas. */
+#crev-blueprint-layer .bp-result{position:absolute;z-index:6;padding:12px;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r);background-image:linear-gradient(var(--bp-grid) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid) 1px,transparent 1px),linear-gradient(var(--bp-grid-2) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid-2) 1px,transparent 1px);background-size:22px 22px,22px 22px,110px 110px,110px 110px;transition:opacity .12s}
+/* Peek: while hovering the slashed-eye control, fade the overlay to a sliver so the real widgets show. */
+#crev-blueprint-layer.bp-peek .bp-result,#crev-blueprint-layer.bp-peek .bp-box,#crev-blueprint-layer.bp-peek .bp-cont,#crev-blueprint-layer.bp-peek .bp-tools{opacity:.2}
 /* align-items:start so each cell keeps its OWN (measured/authored) height instead of stretching to
    the row's tallest — the wireframe then reflects real widget heights, not a uniform grid. */
 #crev-blueprint-layer .bp-rgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-content:start;align-items:start}
@@ -330,8 +331,9 @@
 #crev-blueprint-layer .bp-rcell.st-changed .bp-ric,#crev-blueprint-layer .bp-rcell.st-changed .bp-rnm{color:var(--bp-amber)}
 /* label = a flat title block: name + type + width on one row, a hairline rule under it (full cell width) */
 #crev-blueprint-layer .bp-rlab{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;position:relative;z-index:1;margin:-7px -9px 0;padding:5px 9px 4px;background:transparent;border-bottom:var(--bp-div) solid var(--bp-line-2)}
-/* per-type glyph next to the name (scannable type cue — identity, so muted not cyan) */
-#crev-blueprint-layer .bp-ric{flex:none;display:inline-flex;color:var(--bp-muted)}
+/* per-type glyph next to the name — follows the NAME's colour (white at rest; the state rules below
+   recolour both icon + name together for added/changed/moved). */
+#crev-blueprint-layer .bp-ric{flex:none;display:inline-flex;color:var(--bp-text)}
 #crev-blueprint-layer .bp-ric svg{width:12px;height:12px;display:block}
 /* faint large type watermark filling the empty cell body + a mono type caption under it */
 #crev-blueprint-layer .bp-rwm{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:var(--bp-muted);opacity:.16;pointer-events:none}
