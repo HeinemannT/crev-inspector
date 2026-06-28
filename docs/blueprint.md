@@ -47,23 +47,41 @@ the view modules only READ `bp`.** The actions↔view import cycle is deliberate
 cross-calls happen inside functions, never at module load).
 
 ```
-content-blueprint.ts   lifecycle: enable/disable, the @font-face + CSS inject, window listeners
-                       (scroll/resize/keydown), the MutationObserver that follows BMP tab switches.
+content-blueprint.ts   lifecycle: enable/disable (resetState on teardown), the @font-face + CSS inject,
+                       window listeners (resize/keydown — scroll is native, see below), the
+                       MutationObserver that follows BMP tab switches.
 state.ts               the `bp` singleton + constants (LAYER_ID, PALETTE, MOST_USED). DATA ONLY.
-view.ts                render() — rebuilds the overlay from `bp` each call; per-element builders, the
-                       header tab bar, the toolbar, the add-picker, the move-menu, inline-rename, the
-                       page-scroll spacer (ensureScrollRoom), the per-frame pendingCount memo.
+                       freshState()/resetState() are the single source for the per-session field list.
+view.ts                render() — rebuilds the overlay from `bp` each call (chrome → result canvas OR
+                       renderLiveFallback → floating chrome); per-element builders, the header tab bar,
+                       the toolbar, add-picker, move-menu, inline-rename, ensureScrollRoom, pendingCount memo.
 view-panels.ts         the chrome panels: command chip (incl. the peek control), apply-preview modal,
                        pending tray, hint bar, create-tabset modal. Pure builders — they never call render().
 result.ts              renderResult() — THE canvas: the edited model as a CSS-grid mirror of BMP's
-                       6-col model, one tab at a time. cellState() classifies cells for colour.
+                       6-col model, ONE tab (the caller-resolved `viewedId`). cellState() colours cells;
+                       a full-bleed .bp-canvas-bg backdrop sized to cover every widget on the page.
 actions.ts             the controller: each gesture → a pure edit op → bp.history.push → render().
                        mutate() is the one write path. viewTab() drives BMP's real tab. togglePeek().
 gestures.ts            pointer-driven drag-to-move/swap/reorder + edge-resize; arms cells via armBox().
-geometry.ts            DOM measurement: ridElementMap, unionRect, anchorRect, the button factories.
+                       edgeness()/nearestEdge() classify a drop; SWAP_ZONE/CONTAINER_NEST_ZONE name the bands.
+geometry.ts            DOM measurement + placement: ridElementMap, unionRect, anchorRect, widgetRects,
+                       the button factories, and placeDoc()/docX/docY (the ONE viewport→document convert).
 service.ts             SW I/O (sendRequest): loadPage / applyPage / createTabset; sameSession guard.
 content-blueprint.css  the injected stylesheet, scoped to #crev-blueprint-layer.
 ```
+
+### Coordinate space & scrolling
+
+`#crev-blueprint-layer` is `position:absolute` at the document origin, so the canvas + cards **scroll
+natively with the page** — there is no JS scroll-follow (it lagged and painted over BMP's non-sticky
+header/tabs). Consequences a new dev must respect:
+- Elements anchored to live BMP content are *measured* in viewport space (`getBoundingClientRect`) and
+  must be *placed* in document space. **Always** go through `placeDoc()` / `docX` / `docY` (geometry.ts)
+  — never write `+ window.scrollX` inline again.
+- The floating chrome (header chip, tray, hint, modals, pickers, move-menu) is `position:fixed` in CSS,
+  so it stays viewport-pinned regardless of the layer.
+- `render()` runs on edit / resize / tab-switch — **not** on scroll. Anything that must track a scroll
+  is wrong; fix the document-space placement instead.
 
 ## The canvas (result view)
 
@@ -75,17 +93,18 @@ which, and clicking a tab pill drives BMP's *real* tab (clicks the native `.corp
 MutationObserver follows). Fidelity is exact for columns (verified live, ~6/6 within gap rounding);
 height is the only approximation (live-measured on the active tab, per-type estimate off it).
 
-Visual language is **line-art cyanotype** — one opaque blue ground, near-white hairlines, drafting
-motifs (corner ticks, container dimension lines, hatched add-zones), no fills/shadows/glows. Cells
-are pure line-art: a faint type glyph + mono caption. **There are no thumbnails** — the photographic
-`captureVisibleTab` thumbnail pipeline (thumbs.ts, the `LAYOUT_CAPTURE` message) was removed; it
-fought the aesthetic and added a screenshot round-trip. State is colour-coded through border + icon +
-name: **added = green, changed = yellow, moved-only = lighter yellow**; deleted = red in the tray.
+Visual language is an **architect sketch on white** (the tokens live at the top of
+content-blueprint.css): a white canvas with a faint two-tier gray grid (a full-bleed `.bp-canvas-bg`
+backdrop behind the cards), tech-navy hairline cards, gray dashed grouping containers, a light
+lifted-paper shadow. **CREV purple (#8a3ffc)** is the single interaction accent (hover / selection /
+drop / add); state stays semantic — green = new, amber = changed, red = delete, shown as solid filled
+pills. Cells are line-art: a faint type glyph + mono caption (no thumbnails — the old `captureVisibleTab`
+pipeline was removed). To restyle, edit the `--bp-*` token block; component rules inherit from it.
 
 **Peek** (the slashed-eye control in the command chip): hover for a transient fade, or click to keep
-it sticky — fades the overlay to 0.2 opacity so the real widgets show through. State: `bp.peek` + the
-`.bp-peek` class on the layer (render adds the class but never removes it mid-frame, so a transient
-hover survives a scroll re-render).
+it sticky — fades the overlay to **full transparency** so the real widgets show through. State:
+`bp.peek` + the `.bp-peek` class on the layer (render adds the class but never removes it mid-frame, so
+a transient hover survives a re-render).
 
 ## Two-model split & context resolution
 
@@ -199,3 +218,7 @@ applied edits come back as the new baseline. This is intentional, not a bug.
   `checkReorder`/`guard`) that isn't wired to the hot path yet — wire it or remove it together.
 - Perf: the result canvas rebuilds the whole layer each render (a scroll-time translate-instead-of-
   rebuild path is the next optimisation after the diff memo).
+- **Deferred cleanup** (from the maintainability pass): unify `cellState` (result.ts) and `nodeState`
+  (view.ts) — they compare the same width/name/height fields; share the 6-col row packing between
+  `packRows` (view.ts) and `fillGrid` (result.ts); add an `eachInSubtree(node, fn)` helper for the
+  hand-written subtree walks scattered across view-panels/result/view.
