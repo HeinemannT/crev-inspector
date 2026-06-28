@@ -8,7 +8,7 @@
  */
 import type { LModel, LNode, PlanNote } from '../lib/layout/types';
 import type { BlueprintCtx } from '../lib/layout/sync';
-import { findNode, isResultTab } from '../lib/layout/model';
+import { findNode, isResultTab, eachInSubtree } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
 import { diff, summarizeChanges } from '../lib/layout/diff';
@@ -47,7 +47,7 @@ function resultImpact(): { touched: boolean; containers: boolean } {
   const subtree = (mm: LModel): Map<string, LNode['kind']> => {
     const ids = new Map<string, LNode['kind']>();
     const t = mm.tabs.find(isResultTab);
-    if (t) { const rec = (n: LNode) => { ids.set(n.id, n.kind); n.children.forEach(rec); }; rec(t); }
+    if (t) eachInSubtree(t, n => ids.set(n.id, n.kind));
     return ids;
   };
   const ids = new Map([...subtree(base), ...subtree(m)]);

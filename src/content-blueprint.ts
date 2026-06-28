@@ -13,7 +13,7 @@ import { showToast } from './lib/toast';
 import BLUEPRINT_CSS from './content-blueprint.css';
 import { bp, STYLE_ID, isBlueprintActive, resetState } from './content-blueprint/state';
 import { render } from './content-blueprint/view';
-import { select, onKeydown } from './content-blueprint/actions';
+import { select, onKeydown, clearHintTimer } from './content-blueprint/actions';
 import { cancelGesture } from './content-blueprint/gestures';
 import { loadPage } from './content-blueprint/service';
 
@@ -87,6 +87,7 @@ function ridSignature(): string {
 export function disableBlueprint(): void {
   if (!bp.active) return;
   cancelGesture(); // rip out any in-flight drag/resize listeners + body-level ghost/line elements
+  clearHintTimer(); // a pending flashHint render() must not fire after teardown
   if (bp.onResize) window.removeEventListener('resize', bp.onResize, true);
   if (bp.onKey) window.removeEventListener('keydown', bp.onKey, true);
   if (bp.raf) cancelAnimationFrame(bp.raf);

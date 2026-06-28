@@ -9,7 +9,7 @@
  * have no DOM, so they draw as dashed placeholders in their host's area.
  */
 import type { LModel, LNode } from '../lib/layout/types';
-import { findNode, walk, hasHeight, isChart, orderChildren, isResultTab } from '../lib/layout/model';
+import { findNode, walk, hasHeight, isChart, orderChildren, isResultTab, fieldsChanged } from '../lib/layout/model';
 import { COMPOSITE_TYPES, COMPOSITE_CHILDREN } from '../lib/layout/constraints';
 import { isAncestorOf } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
@@ -268,9 +268,7 @@ type NodeState = 'same' | 'changed' | 'gone';
 function nodeState(baseNode: LNode, m: LModel): NodeState {
   const cur = findNode(m, baseNode.id);
   if (!cur) return 'gone';
-  const c = cur.node;
-  if (c.cols.L !== baseNode.cols.L || c.name !== baseNode.name || c.height !== baseNode.height) return 'changed';
-  return 'same';
+  return fieldsChanged(baseNode, cur.node) ? 'changed' : 'same';
 }
 
 function widgetBox(baseNode: LNode, r: DOMRect, m: LModel, baseParentId: string | null): HTMLElement {

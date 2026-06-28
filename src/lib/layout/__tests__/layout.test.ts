@@ -204,6 +204,25 @@ describe('summarizeChanges (logical changes vs raw actions)', () => {
 });
 
 describe('diff + ec compile', () => {
+  it('never chains the shared Result tab in a tab reorder (it is cross-tabset, pinned first)', () => {
+    // RESULT (the shared default_tabset tab) leads the strip; the page tabs follow. diff.index() parents
+    // ALL tabs under the page tabset, so without the isResultTab guard a page-tab reorder would emit
+    // t.<pageTab>.moveAfter(t.RESULT) — a cross-tabset move that misplaces/errors.
+    const base = model(
+      n({ id: 'RESULT', kind: 'tab', className: 'Tab', name: 'Result' }),
+      n({ id: 't1', kind: 'tab', className: 'Tab', name: 'A' }),
+      n({ id: 't2', kind: 'tab', className: 'Tab', name: 'B' }),
+    );
+    const desired = model(
+      n({ id: 'RESULT', kind: 'tab', className: 'Tab', name: 'Result' }),
+      n({ id: 't2', kind: 'tab', className: 'Tab', name: 'B' }),
+      n({ id: 't1', kind: 'tab', className: 'Tab', name: 'A' }),
+    );
+    const reorders = diff(base, desired).filter(s => s.kind === 'reorder');
+    expect(reorders.length).toBeGreaterThan(0); // the page tabs DO reorder
+    expect(reorders.some(s => s.id === 'RESULT' || s.afterId === 'RESULT')).toBe(false); // ...but never via RESULT
+  });
+
   it('compiles a child into a composite as <composite>.add(Child) (not container:=<widget>)', () => {
     const base = model(n({ id: 'tab1', kind: 'tab', className: 'Tab', name: 'T', children: [
       n({ id: 'bc', kind: 'widget', className: 'ButtonContainer', name: 'Buttons', children: [] }),

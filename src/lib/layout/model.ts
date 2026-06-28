@@ -153,6 +153,19 @@ export function walk(m: LModel, fn: (n: LNode, parent: LNode | null) => void): v
   rec(m.tabs, null);
 }
 
+/** Visit `node` and all its descendants, pre-order. The single-subtree counterpart to `walk` (which
+ *  covers the whole model) — use instead of hand-rolling `const rec = n => { …; n.children.forEach(rec) }`. */
+export function eachInSubtree(node: LNode, fn: (n: LNode) => void): void {
+  fn(node);
+  for (const c of node.children) eachInSubtree(c, fn);
+}
+
+/** Do a node's editable scalar fields (column span, name, height) differ? The shared field-compare
+ *  behind the result canvas's `cellState` and the live view's `nodeState` "changed" classification. */
+export function fieldsChanged(a: LNode, b: LNode): boolean {
+  return a.cols.L !== b.cols.L || a.name !== b.name || a.height !== b.height;
+}
+
 /** All widget leaves reachable from a node (for container delete re-home). */
 export function descendantWidgets(n: LNode): LNode[] {
   const out: LNode[] = [];

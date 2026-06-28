@@ -31,7 +31,11 @@ export function viewTab(id: string): void {
   const m = model();
   const tab = m?.tabs.find(t => t.id === id);
   if (tab) {
-    const native = [...document.querySelectorAll('.corpo-tabSet__tab')].find(t => t.textContent?.trim() === tab.name);
+    // Match BMP's native tab by the BASELINE name — the DOM still shows the original text, so a STAGED
+    // rename (tab.name in the edited model) wouldn't match and we'd silently fall back to a canvas-only
+    // view (the live/canvas divergence liveModelTabId exists to avoid).
+    const domName = findNode(bp.baseline ?? m!, id)?.node.name ?? tab.name;
+    const native = [...document.querySelectorAll('.corpo-tabSet__tab')].find(t => t.textContent?.trim() === domName);
     if (native) {
       const el = (native.querySelector('a') as HTMLElement) ?? (native as HTMLElement);
       for (const ev of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
@@ -152,6 +156,9 @@ export function togglePeek(): void { bp.peek = !bp.peek; bp.layer?.classList.tog
 /** A self-clearing hint-bar message for actions with no spatial gesture of their own (undo/redo).
  *  The timer only clears its OWN text, so a later gesture hint isn't clobbered. The caller renders. */
 let hintTimer: ReturnType<typeof setTimeout> | undefined;
+/** Cancel a pending flashHint timer — called on teardown so its deferred render() closure can't fire
+ *  after the session is gone. */
+export function clearHintTimer(): void { if (hintTimer) { clearTimeout(hintTimer); hintTimer = undefined; } }
 function flashHint(text: string): void {
   bp.hint = text;
   if (hintTimer) clearTimeout(hintTimer);

@@ -12,7 +12,7 @@
  * Reparent-before-delete prevents the RESULT-orphan: widgets are re-pointed to the tab before
  * their old container is removed.
  */
-import { isTempId } from './model';
+import { isTempId, isResultTab } from './model';
 import type { Breakpoint, LModel, LNode, NodeKind, PlanStep } from './types';
 
 interface Entry {
@@ -89,7 +89,12 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
   const parents = new Set([...B.values()].map(e => e.parentId));
   for (const pid of parents) {
     for (const kind of ['tab', 'container', 'widget'] as NodeKind[]) {
-      const group = childIdsOf(B, pid).filter(id => kindOfId(id) === kind);
+      // `index()` parents EVERY tab under the page's tabsetId — including the shared Result tab, whose
+      // REAL parent is default_tabset. So it lands in this group with the page's own tabs. Exclude it:
+      // it's pinned first and not user-reorderable, and a chained `t.<pageTab>.moveAfter(t.RESULT)` would
+      // be cross-tabset (misplace/error). (Latent today — tab pills have no drag-reorder — but this keeps
+      // it correct if that's ever added.)
+      const group = childIdsOf(B, pid).filter(id => kindOfId(id) === kind && !(kind === 'tab' && isResultTab(B.get(id)!.node)));
       if (group.length < 2) continue;
       // `natural` = the order BMP produces from the create+reparent steps ALONE (before any reorder),
       // so a reorder only emits when the desired order genuinely differs from it. That order is:

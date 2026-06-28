@@ -19,7 +19,7 @@
  * so the gesture machinery treats them as honest, final-position drop targets).
  */
 import type { LModel, LNode } from '../lib/layout/types';
-import { findNode, orderChildren, isTempId, isChart, walk } from '../lib/layout/model';
+import { findNode, orderChildren, isTempId, isChart, walk, fieldsChanged } from '../lib/layout/model';
 import {
   ICON_PLUS, ICON_CHART, ICON_TABLE, ICON_LIST, ICON_CHECK_CIRCLE, ICON_CODE,
   ICON_LINK, ICON_PLAY, ICON_PENCIL, ICON_BOOK, ICON_LAYOUT,
@@ -61,8 +61,7 @@ export function cellState(base: LModel, node: LNode, modelParentId: string | nul
   if (isTempId(node.id)) return 'new';
   const b = findNode(base, node.id);
   if (!b) return 'new';
-  const bn = b.node;
-  if (bn.cols.L !== node.cols.L || bn.name !== node.name || bn.height !== node.height) return 'changed';
+  if (fieldsChanged(b.node, node)) return 'changed';
   if ((b.parent?.id ?? null) !== modelParentId) return 'moved';
   if (reordered.has(node.id)) return 'moved';
   return 'same';

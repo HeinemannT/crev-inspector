@@ -107,10 +107,12 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `_r := _r + "${SEP}" + ${root} + "\\n"`,
     // The scorecard's intrinsic "Result" tab lives in the SHARED default_tabset, not this page's tabset,
     // so `_ts.descendants()` below never reaches it. Emit it here (with its REAL parent) when it's a
-    // different tabset, so it's just another Tab node in the list — reconstruct collects tabs by kind,
-    // and diff groups reorders by parent, so a foreign-tabset tab needs no special-casing downstream.
+    // different tabset, so it's just another Tab node in the list — reconstruct collects tabs by kind.
     // Emitted first so it leads the strip (as BMP shows it). Its widgets bind to the tab directly and
-    // come through the org loop unchanged; we don't pull in its shared Row/Column scaffold.
+    // come through the org loop unchanged; we don't pull in its shared Row/Column scaffold. NOTE: diff's
+    // index() parents all tabs under this page's tabsetId, so the Result tab is NOT auto-isolated by
+    // parent — diff.ts excludes it from the tab reorder group explicitly (see isResultTab there), and
+    // the UI blocks its rename/delete. Don't assume the foreign parent protects it.
     `_res := t.${RESULT_TAB_ID}`,
     `IF _res.className.whenMissing("") = "Tab" AND _res.parent.rid.whenMissing("") != _ts.rid THEN`,
     `     _r := _r + "${SEP}" + _res.rid + "|${RESULT_TAB_ID}|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + _res.name.whenMissing("Result") + "\\n"`,
