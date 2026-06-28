@@ -28,6 +28,7 @@ import { isCapturing } from './thumbs';
 export function render(): void {
   const layer = bp.layer;
   if (!layer) return;
+  if (bp.peek) layer.classList.add('bp-peek'); // keep a sticky peek across re-renders (add-only: don't kill a transient hover)
   // A thumbnail screenshot is in flight (the layer is hidden so the camera sees the real page).
   // Repainting now would put the overlay back into the shot — bail; the capture re-renders when done.
   if (isCapturing()) return;

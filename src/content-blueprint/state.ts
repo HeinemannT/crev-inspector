@@ -43,13 +43,14 @@ export interface BpState {
   flipNext: boolean;            // animate result cells from old→new position on the next render (set by an edit)
   viewTabId: string | null;     // tab shown in the canvas (header tab bar switches it); null → follow BMP's live tab
   scrollSpacer: HTMLElement | null; // body-level spacer that extends page scroll height to cover a taller-than-content panel
+  peek: boolean;                // sticky peek toggle (overlay faded so the live widgets show); hover peeks transiently
 }
 
 export const bp: BpState = {
   active: false, baseline: null, ctx: null, env: null, history: null,
   layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null,
   onScroll: null, onKey: null, raf: 0, gen: 0, hint: null, trayOpen: false, dragging: false, renaming: false,
-  observer: null, ridSig: '', mutRaf: 0, needsTabset: null, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null,
+  observer: null, ridSig: '', mutRaf: 0, needsTabset: null, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
 };
 
 export function isBlueprintActive(): boolean { return bp.active; }

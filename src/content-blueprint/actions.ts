@@ -138,6 +138,9 @@ export function revertNode(id: string): void {
 
 export function setHint(text: string | null): void { if (bp.hint !== text) { bp.hint = text; render(); } }
 export function toggleTray(): void { bp.trayOpen = !bp.trayOpen; render(); }
+/** Sticky peek toggle — keep the overlay faded so the live widgets stay visible (hover gives a transient
+ *  peek; this click keeps it on). The faded state is a class on the layer; render() keeps it in sync. */
+export function togglePeek(): void { bp.peek = !bp.peek; bp.layer?.classList.toggle('bp-peek', bp.peek); render(); }
 
 
 /** A self-clearing hint-bar message for actions with no spatial gesture of their own (undo/redo).

@@ -99,7 +99,7 @@ export function disableBlueprint(): void {
   bp.layer?.remove();
   bp.scrollSpacer?.remove(); // drop the page-scroll-extension spacer (it lives on body, outside the layer)
   document.getElementById(STYLE_ID)?.remove(); // don't leak the injected stylesheet past teardown
-  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, pickerOpts: null, movePicker: null, onScroll: null, onKey: null, raf: 0, hint: null, trayOpen: false, dragging: false, renaming: false, observer: null, ridSig: '', mutRaf: 0, needsTabset: null, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null });
+  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, pickerOpts: null, movePicker: null, onScroll: null, onKey: null, raf: 0, hint: null, trayOpen: false, dragging: false, renaming: false, observer: null, ridSig: '', mutRaf: 0, needsTabset: null, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false });
 }
 // Load/apply results are handled by content-blueprint/service.ts (the sendRequest promises), not by
 // a port-dispatched handler — see that module.
