@@ -209,8 +209,15 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   const tab = viewedTab(m, activeId);
   if (!tab) return false;
 
+  // Keep the opaque panel BELOW BMP's own tab strip — otherwise (e.g. the unmodeled "Result" tab, where
+  // the fallback anchor can reach a chrome rid up at the strip row) it paints over the tabs, hiding them
+  // AND swallowing their clicks. On a real model tab the content already sits below the strip, so this is
+  // a no-op there.
+  const strip = bmpTabStripBottom();
+  const top = strip ? Math.max(frame.top, strip + 6) : frame.top;
+  const minH = Math.max(60, frame.height - (top - frame.top));
   const wrap = document.createElement('div'); wrap.className = 'bp-result';
-  Object.assign(wrap.style, { left: `${frame.left}px`, top: `${frame.top}px`, width: `${frame.width}px`, minHeight: `${frame.height}px` });
+  Object.assign(wrap.style, { left: `${frame.left}px`, top: `${top}px`, width: `${frame.width}px`, minHeight: `${minH}px` });
 
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
   if (tab.children.length) fillGrid(grid, base, tab.children, tab.id, byRid);
@@ -226,6 +233,18 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
 
   layer.appendChild(wrap);
   return true;
+}
+
+/** Bottom (viewport px) of BMP's own tab control, so the wireframe panel can sit BELOW it rather than
+ *  painting over the tabs the user switches with. BMP-specific selector (stable Corporater component
+ *  class); 0 when no tab strip is on screen, so the caller skips the clamp. */
+function bmpTabStripBottom(): number {
+  let b = 0;
+  for (const el of document.querySelectorAll('.corpo-tabSet__tab')) {
+    const r = el.getBoundingClientRect();
+    if (r.width > 4 && r.height > 4 && r.top >= 0 && r.top < innerHeight) b = Math.max(b, r.bottom);
+  }
+  return b;
 }
 
 /** Bounding box of ALL currently-visible widgets (any tab/orphan) — the fallback anchor when no model
