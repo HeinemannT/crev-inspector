@@ -252,22 +252,17 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   const frame = (baseTab ? unionRect(baseTab, byRid) : null) ?? unionAllVisible(byRid);
   if (!frame) return false;
 
-  // Keep the opaque panel BELOW BMP's own tab strip — otherwise (e.g. the unmodeled "Result" tab, where
-  // the fallback anchor can reach a chrome rid up at the strip row) it paints over the tabs, hiding them
-  // AND swallowing their clicks. Only at the TOP of the page, though: BMP's strip is sticky, so clamping
-  // unconditionally would PIN the panel under it and freeze scrolling (the panel must follow the content
-  // up so a tall wireframe's lower rows can scroll into view). Once scrolled, anchor straight to the
-  // content. On a real model tab at rest the content already sits below the strip, so this is a no-op.
-  const strip = bmpTabStripBottom();
-  const top = strip && window.scrollY <= 2 ? Math.max(frame.top, strip + 6) : frame.top;
-  const minH = Math.max(60, frame.height - (top - frame.top));
+  // Position in DOCUMENT space (frame is viewport-relative; add the scroll offset). The layer is
+  // document-absolute, so the panel then scrolls natively with the page — no strip clamp needed (BMP's
+  // header/tabs aren't sticky; they scroll away with everything else).
+  const minH = Math.max(60, frame.height);
   // Span the FULL 6-column content area, not just the occupied columns: when no top-level row fills all
   // six (e.g. Risk Register), the widget union is narrower than BMP's grid, which squished the panel and
   // left the empty right columns as bare page. Anchor the width to BMP's real content grid instead.
   const contentW = bmpContentWidth(byRid, frame.left);
   const width = contentW > frame.width ? contentW : frame.width;
   const wrap = document.createElement('div'); wrap.className = 'bp-result';
-  Object.assign(wrap.style, { left: `${frame.left}px`, top: `${top}px`, width: `${width}px`, minHeight: `${minH}px` });
+  Object.assign(wrap.style, { left: `${frame.left + window.scrollX}px`, top: `${frame.top + window.scrollY}px`, width: `${width}px`, minHeight: `${minH}px` });
 
   const reordered = reorderedIds(base, m);
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
@@ -284,18 +279,6 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
 
   layer.appendChild(wrap);
   return true;
-}
-
-/** Bottom (viewport px) of BMP's own tab control, so the wireframe panel can sit BELOW it rather than
- *  painting over the tabs the user switches with. BMP-specific selector (stable Corporater component
- *  class); 0 when no tab strip is on screen, so the caller skips the clamp. */
-function bmpTabStripBottom(): number {
-  let b = 0;
-  for (const el of document.querySelectorAll('.corpo-tabSet__tab')) {
-    const r = el.getBoundingClientRect();
-    if (r.width > 4 && r.height > 4 && r.top >= 0 && r.top < innerHeight) b = Math.max(b, r.bottom);
-  }
-  return b;
 }
 
 /** BMP's true content-grid width (the full 6-column area) so the wireframe spans the whole content

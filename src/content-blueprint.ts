@@ -54,9 +54,10 @@ export function enableBlueprint(): void {
   head.appendChild(c); layer.appendChild(head);
   document.body.appendChild(layer);
   bp.layer = layer;
-  // Scroll/resize re-renders are coalesced to one per animation frame (smooth on large pages).
+  // The layer is document-absolute, so the canvas + cards scroll natively with the page — NO scroll
+  // re-render (that JS-follow was the lag + header-overshadow). Only a RESIZE needs a re-anchor (BMP
+  // reflows its widgets), coalesced to one animation frame.
   bp.onScroll = () => { if (bp.baseline && !bp.raf && !bp.dragging && !bp.renaming) bp.raf = requestAnimationFrame(() => { bp.raf = 0; render(); }); };
-  window.addEventListener('scroll', bp.onScroll, true);
   window.addEventListener('resize', bp.onScroll, true);
   bp.onKey = onKeydown;
   window.addEventListener('keydown', bp.onKey, true);

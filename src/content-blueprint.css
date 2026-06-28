@@ -22,23 +22,24 @@
   --bp-cyan:#a56bff;        /* interaction line — hover / add intent (light CREV purple). Never a fill at rest */
   --bp-cyan-hi:#8a3ffc;     /* selection / active — CREV purple */
   --bp-text:#002147;        /* primary text — navy */
-  --bp-muted:#94a3b8;       /* secondary text, type/width annotations, watermark glyph — gray */
+  --bp-muted:#4b5563;       /* secondary text, type/width annotations, watermark glyph — readable mid-gray (darker than the dashed-border gray, which stays light) */
   --bp-amber:#d97706;       /* changed — amber */
   --bp-amber-lt:#f59e0b;    /* moved (not otherwise changed) — lighter amber */
   --bp-red:#e11d48;         /* delete — precision-red */
   --bp-green:#16a34a;       /* create / added / NEW — green */
   --bp-shadow:0 1px 2px 0 rgba(0,33,71,.12); /* draft-level shadow-sm — lifted paper on the cards + chrome */
   --bp-mono:'BPMono',ui-monospace,'JetBrains Mono',monospace;
-  position:fixed;inset:0;z-index:2147483600;
+  /* DOCUMENT-absolute (not viewport-fixed): the canvas + cards are positioned in document space and
+     scroll natively with the page — no JS-follow, no lag, no painting over BMP's (non-sticky) header
+     and tabs. The floating chrome (header chip, tray, hint, modals, pickers) is position:fixed in its
+     own rules, so it stays pinned to the viewport regardless. */
+  position:absolute;top:0;left:0;width:100%;z-index:2147483600;
   font:12px/1.35 'BPInter',system-ui,-apple-system,sans-serif;
   color:var(--bp-text);pointer-events:none;
 }
-/* hand-drawn (wobbly) borders for the cell + container cards — 4 presets cycled by position so the
-   wobble reads organic, not stamped. CodeMyUI's asymmetric border-radius trick. Chrome panels stay crisp. */
-#crev-blueprint-layer .bp-rcell,#crev-blueprint-layer .bp-box,#crev-blueprint-layer .bp-cont{border-radius:255px 15px 225px 15px/15px 225px 15px 255px}
-#crev-blueprint-layer .bp-rcell:nth-child(4n+2){border-radius:15px 225px 15px 255px/255px 15px 225px 15px}
-#crev-blueprint-layer .bp-rcell:nth-child(4n+3){border-radius:225px 15px 255px 15px/15px 255px 15px 225px}
-#crev-blueprint-layer .bp-rcell:nth-child(4n){border-radius:15px 255px 15px 225px/225px 15px 255px 15px}
+/* the move-menu floats like the picker but has no fixed backdrop, so pin it to the viewport itself */
+#crev-blueprint-layer .bp-pick.bp-move{position:fixed}
+/* crisp square cards — straight borders, no radius (matches the draft's sketch-border). */
 #crev-blueprint-layer *{box-sizing:border-box}
 
 /* lifted-paper shadow on every floating chrome panel (matches the cards) */
@@ -285,7 +286,7 @@
    dashed frames with corner brackets. Cells are draggable (data-bpid) so drops land in final positions. */
 /* Opaque cyanotype ground (the busy live page must not bleed through). A momentary see-through is on
    demand instead — hover the peek (slashed-eye) control in the header to fade the canvas. */
-#crev-blueprint-layer .bp-result{position:absolute;z-index:6;padding:12px;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r);box-shadow:var(--bp-shadow);background-image:linear-gradient(var(--bp-grid-2) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid-2) 1px,transparent 1px),linear-gradient(var(--bp-grid) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid) 1px,transparent 1px);background-size:40px 40px,40px 40px,10px 10px,10px 10px;transition:opacity .12s}
+#crev-blueprint-layer .bp-result{position:absolute;z-index:6;padding:12px;background:var(--bp-ground);background-image:linear-gradient(var(--bp-grid-2) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid-2) 1px,transparent 1px),linear-gradient(var(--bp-grid) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid) 1px,transparent 1px);background-size:40px 40px,40px 40px,10px 10px,10px 10px;transition:opacity .12s}
 /* Peek: while hovering (or toggling) the slashed-eye control, fully hide the overlay so the real widgets show. */
 #crev-blueprint-layer.bp-peek .bp-result,#crev-blueprint-layer.bp-peek .bp-box,#crev-blueprint-layer.bp-peek .bp-cont,#crev-blueprint-layer.bp-peek .bp-tools{opacity:0}
 /* align-items:start so each cell keeps its OWN (measured/authored) height instead of stretching to

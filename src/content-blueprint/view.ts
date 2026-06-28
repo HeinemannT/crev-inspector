@@ -276,7 +276,7 @@ function widgetBox(baseNode: LNode, r: DOMRect, m: LModel, baseParentId: string 
     + (state === 'gone' ? ' del' : '')
     + (moved ? ' moved' : '')
     + (sel ? ' sel' : '');
-  Object.assign(box.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  Object.assign(box.style, { left: `${r.left + window.scrollX}px`, top: `${r.top + window.scrollY}px`, width: `${r.width}px`, height: `${r.height}px` });
   if (state !== 'gone') armBox(box, baseNode.id);
   else box.addEventListener('mousedown', (e) => { e.stopPropagation(); select(baseNode.id); });
 
@@ -300,7 +300,7 @@ function widgetBox(baseNode: LNode, r: DOMRect, m: LModel, baseParentId: string 
 function newWidgetBox(node: LNode, r: Rect, variant: 'new' | 'moved' = 'new'): HTMLElement {
   const box = document.createElement('div');
   box.className = 'bp-box bp-new' + (variant === 'moved' ? ' bp-moveghost' : '') + (isChart(node.className) ? ' bp-chart' : '');
-  Object.assign(box.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  Object.assign(box.style, { left: `${r.left + window.scrollX}px`, top: `${r.top + window.scrollY}px`, width: `${r.width}px`, height: `${r.height}px` });
   if (variant === 'new') {
     box.dataset.bpid = node.id; box.dataset.bpkind = 'new';
     if (bp.selectedId === node.id) box.classList.add('sel');
@@ -332,7 +332,7 @@ function addHandles(box: HTMLElement, node: LNode): void {
 function availZone(parentId: string, parentName: string, r: Rect, opts?: { afterId?: string; cols?: number }): HTMLElement {
   const z = document.createElement('div'); z.className = 'bp-avail';
   z.dataset.bpid = parentId; z.dataset.bpkind = 'avail';
-  Object.assign(z.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  Object.assign(z.style, { left: `${r.left + window.scrollX}px`, top: `${r.top + window.scrollY}px`, width: `${r.width}px`, height: `${r.height}px` });
   z.title = `Add a widget to ${parentName}`;
   const ic = document.createElement('span'); ic.className = 'ic'; setIcon(ic, ICON_PLUS);
   const tx = document.createElement('span'); tx.textContent = 'Add widget';
@@ -409,7 +409,7 @@ function containerBox(baseNode: LNode, rect: Rect, m: LModel): HTMLElement {
   const box = document.createElement('div');
   box.dataset.bpid = baseNode.id; box.dataset.bpkind = 'container';
   box.className = 'bp-cont' + (sel ? ' sel' : '') + (changed ? ' changed' : '');
-  Object.assign(box.style, { left: `${rect.left - 3}px`, top: `${rect.top - 3}px`, width: `${rect.width + 6}px`, height: `${rect.height + 6}px` });
+  Object.assign(box.style, { left: `${rect.left - 3 + window.scrollX}px`, top: `${rect.top - 3 + window.scrollY}px`, width: `${rect.width + 6}px`, height: `${rect.height + 6}px` });
   armBox(box, baseNode.id);
   // A handle ABOVE the container's top-left, always visible: it marks where each container is (so they
   // read clearly) and hosts the add "+". It sits above the row, so it never collides with the top-left
@@ -445,8 +445,9 @@ function toolbar(node: LNode, r: Rect): HTMLElement {
   // A container carries its own +/name handle (.bp-ctab) just above its box. Lift the toolbar above
   // THAT handle so the two strips stack instead of colliding (the toolbar used to land on the + label).
   const lift = node.kind === 'container' ? 60 : 32;
-  t.style.left = `${Math.max(4, r.left)}px`;
-  t.style.top = `${Math.max(40, r.top - lift)}px`;
+  // document space (the layer is absolute) so the toolbar scrolls with the cell it anchors to.
+  t.style.left = `${Math.max(4, r.left) + window.scrollX}px`;
+  t.style.top = `${Math.max(0, r.top - lift) + window.scrollY}px`;
 
   const lblW = document.createElement('span'); lblW.className = 'lbl'; lblW.textContent = 'W'; t.appendChild(lblW);
   const seg = document.createElement('div'); seg.className = 'bp-seg';
