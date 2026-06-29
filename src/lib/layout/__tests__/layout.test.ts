@@ -168,8 +168,9 @@ describe('G3 style edits (setStyle → diff → ec)', () => {
     const base = styleModel();
     const desired = setStyle(base, 'w1', { fontColorBid: 'C_BLUE', shadow: true, transparency: 20 });
     const upd = diff(base, desired).find(s => s.kind === 'update');
+    // emit order follows the style catalog (STYLE_PROPS): …transparency, shadow… (order is immaterial to `.change()`)
     expect(upd).toMatchObject({ id: 'w1', styleAssign: [
-      { prop: 'fontColor', value: 'C_BLUE' }, { prop: 'shadow', value: true }, { prop: 'transparency', value: 20 },
+      { prop: 'fontColor', value: 'C_BLUE' }, { prop: 'transparency', value: 20 }, { prop: 'shadow', value: true },
     ] });
   });
 

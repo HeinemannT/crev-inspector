@@ -27,4 +27,11 @@ describe('styleAssignRhs', () => {
     expect(styleAssignRhs('shadow', true, fmt)).toBe('TRUE');
     expect(styleAssignRhs('headerStyle', 'INSIDE', fmt)).toBe('"INSIDE"');
   });
+
+  it('CLEARS an enum prop with its reset literal, never "" (verified: `:= ""` errors on enums)', () => {
+    expect(styleAssignRhs('headerStyle', '', fmt)).toBe('"None"');
+    expect(styleAssignRhs('borderStyle', '', fmt)).toBe('"None"');
+    // a real enum value still passes through the scalar formatter
+    expect(styleAssignRhs('borderStyle', 'LINE', fmt)).toBe('"LINE"');
+  });
 });

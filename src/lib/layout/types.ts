@@ -6,6 +6,8 @@
  * what lets the whole edit/diff/ec core stay pure and unit-testable.
  */
 
+import { STYLE_PROPS } from '../style-props';
+
 export type Breakpoint = 'L' | 'M' | 'S';
 export type NodeKind = 'tab' | 'container' | 'widget';
 export type SaveTarget = 'instance' | 'template';
@@ -48,22 +50,14 @@ export interface NodeStyle {
 }
 
 /** G3 — maps each NodeStyle field to its BMP property name + the "unset/default" value the diff treats
- *  as absence. The single bridge between the parsed style model and the apply EC: diff compares each
- *  field (absent → `def`), and ec.ts hands the changed (prop, value) to `styleAssignRhs`. A colour `def`
- *  of '' doubles as the CLEAR value (verified: `headerColor := ""` unsets the link); the enum/number/bool
- *  defaults are the BMP "no styling" baseline. Add a field here and load + diff + apply pick it up. */
+ *  as absence. DERIVED from the single style catalog (`STYLE_PROPS`) so the two can't drift: diff compares
+ *  each field (absent → `def`) and ec.ts hands the changed (prop, value) to `styleAssignRhs`. Add a prop
+ *  to STYLE_PROPS (with its nodeKey/def) and load + diff + apply pick it up. */
 export const STYLE_NODE_FIELDS: ReadonlyArray<{
   key: keyof NodeStyle;
   prop: string;
   def: string | number | boolean;
-}> = [
-  { key: 'headerColorBid', prop: 'headerColor',  def: '' },
-  { key: 'fontColorBid',   prop: 'fontColor',    def: '' },
-  { key: 'shadow',         prop: 'shadow',       def: false },
-  { key: 'headerStyle',    prop: 'headerStyle',  def: '' },
-  { key: 'borderStyle',    prop: 'borderStyle',  def: '' },
-  { key: 'transparency',   prop: 'transparency', def: 0 },
-];
+}> = STYLE_PROPS.map(p => ({ key: p.nodeKey as keyof NodeStyle, prop: p.prop, def: p.def }));
 
 /** The appearance props that changed `base → desired` as `(BMP prop, value)` pairs, with each field's
  *  absence folded to its BMP default. Shared by BOTH apply paths so they can't drift: diff uses it for an

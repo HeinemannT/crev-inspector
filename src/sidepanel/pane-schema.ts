@@ -14,6 +14,7 @@
  */
 
 import type { PANE_PROPS } from '../lib/bmp-client';
+import { styleOptions } from '../lib/style-props';
 
 export type EditorKind = 'color' | 'number' | 'enum' | 'boolean' | 'slider' | 'text';
 
@@ -166,15 +167,10 @@ export const PROP_GROUPS: Array<{ title: string; props: PropDef[] }> = [
       { prop: 'showToolMenu',  label: 'Tool menu',      kind: 'boolean', availableOn: HAS_TOOLS_MENU_TYPES },
       { prop: 'disableSearch', label: 'Disable search', kind: 'boolean', availableOn: HAS_DISABLE_SEARCH_TYPES },
       { prop: 'shadow',        label: 'Shadow',         kind: 'boolean', availableOn: APPEARANCE_TYPES },
-      { prop: 'headerStyle',   label: 'Header style',   kind: 'enum',    availableOn: APPEARANCE_TYPES, options: [
-        { value: 'INSIDE',  label: 'Inside' },
-        { value: 'OUTSIDE', label: 'Outside' },
-        { value: 'NONE',    label: 'None' },
-      ]},
-      { prop: 'borderStyle',   label: 'Border',         kind: 'enum',    availableOn: APPEARANCE_TYPES, options: [
-        { value: 'LINE',  label: 'Line' },
-        { value: 'NONE',  label: 'None' },
-      ]},
+      // Enum members come from the single style catalog (style-props) so this pane and the blueprint
+      // Style toolbar can't drift on the values. Labels are the catalog's compact form.
+      { prop: 'headerStyle',   label: 'Header style',   kind: 'enum',    availableOn: APPEARANCE_TYPES, options: [...styleOptions('headerStyle')] },
+      { prop: 'borderStyle',   label: 'Border',         kind: 'enum',    availableOn: APPEARANCE_TYPES, options: [...styleOptions('borderStyle')] },
       { prop: 'transparency',  label: 'Transparency',   kind: 'slider',  availableOn: APPEARANCE_TYPES,
         range: { min: 0, max: 100, step: 1, unit: '%' } },
     ],

@@ -15,6 +15,7 @@ import { isAncestorOf } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_X, ICON_LAYOUT, ICON_LINK } from '../lib/icons';
 import { colorLinkBid } from '../lib/types';
+import { styleOptions } from '../lib/style-props';
 import { renderSwatchGrid } from '../sidepanel/swatch-grid';
 import { bp, model, PALETTE, MOST_USED } from './state';
 import { colorRgb, colorInfo, colorSets } from './colors';
@@ -495,14 +496,10 @@ function toolbar(node: LNode, r: Rect): HTMLElement {
 }
 
 // ── G3 style-mode toolbar (appearance: colours, shadow, header/border, transparency) ──────────────
-// Values match the parsed NodeStyle space (enumMember-normalised, uppercase) and the side panel's
-// pane-schema option values, so the toolbar, the fetch, and the apply all speak the same strings.
-const HEADER_STYLE_OPTS: { value: string; label: string }[] = [
-  { value: 'INSIDE', label: 'In' }, { value: 'OUTSIDE', label: 'Out' }, { value: 'NONE', label: 'None' },
-];
-const BORDER_STYLE_OPTS: { value: string; label: string }[] = [
-  { value: 'LINE', label: 'Line' }, { value: 'NONE', label: 'None' },
-];
+// The enum option lists come from the single style catalog (style-props) — same source the side panel's
+// pane-schema reads — so the toolbar, the fetch, and the apply can't drift on the member names.
+const HEADER_STYLE_OPTS = styleOptions('headerStyle');
+const BORDER_STYLE_OPTS = styleOptions('borderStyle');
 
 /** The style-mode selection toolbar — a compact 2-row appearance panel (Photoshop-style) in place of the
  *  layout W/H/move/rename strip. Row 1 = the two colour slots; row 2 = shadow / border / header / fade.
@@ -560,7 +557,7 @@ function colorSlot(label: string, nodeId: string, prop: 'headerColor' | 'fontCol
 
 /** A segmented choice — the option whose value === current lights up (none when unset). Auto-width
  *  buttons (vs the layout strip's fixed 20px) so labels like "Out"/"None" aren't clipped. */
-function segChoice(opts: { value: string; label: string }[], current: string | undefined, onPick: (v: string) => void): HTMLElement {
+function segChoice(opts: readonly { value: string; label: string }[], current: string | undefined, onPick: (v: string) => void): HTMLElement {
   const seg = document.createElement('div'); seg.className = 'bp-seg bp-sseg';
   for (const o of opts) {
     const b = document.createElement('button'); b.textContent = o.label;

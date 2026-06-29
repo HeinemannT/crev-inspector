@@ -16,8 +16,12 @@ export const INVALID_COLOR_BID = Symbol('invalid-color-bid');
  *    link via its reset literal `""` (verified live: `headerColor := ""` unsets the colour — the old
  *    code SKIPPED empties on a wrong "MISSING is the only clear, and it's a no-op" assumption, so the
  *    panel silently couldn't unset a colour).
- *  - other props: handed to `formatScalar` (the caller's string/number/bool EC-literal formatter, passed
- *    in so this module stays decoupled from BmpClient).
+ *  - other props: an EMPTY value ('') is a CLEAR → the prop's own type-correct reset literal
+ *    (`styleResetLiteral`, e.g. enum → "None"); `:= ""` ERRORS on enum/number props, so this is the ONE
+ *    place that decides clear semantics for scalars too (previously only colour links cleared correctly,
+ *    so the blueprint's enum-clear path emitted `headerStyle := ""` and BMP rejected it). A real value is
+ *    handed to `formatScalar` (the caller's string/number/bool EC-literal formatter, injected so this
+ *    module stays decoupled from BmpClient).
  *  Returns INVALID_COLOR_BID for a malformed colour id so the caller can reject the whole change. */
 export function styleAssignRhs(
   prop: string,
@@ -30,5 +34,6 @@ export function styleAssignRhs(
     if (!/^[A-Za-z0-9_]+$/.test(bid)) return INVALID_COLOR_BID;
     return `t.${bid}`;
   }
+  if (value === '') return styleResetLiteral(prop); // enum/scalar clear → "None"/0/FALSE, never `:= ""`
   return formatScalar(value);
 }
