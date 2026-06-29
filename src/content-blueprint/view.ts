@@ -14,7 +14,7 @@ import { COMPOSITE_TYPES, COMPOSITE_CHILDREN } from '../lib/layout/constraints';
 import { isAncestorOf } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_X, ICON_LAYOUT, ICON_LINK } from '../lib/icons';
-import { colorLinkBid } from '../lib/types';
+import { colorLinkBid } from '../lib/color-util';
 import { styleOptions } from '../lib/style-props';
 import { renderSwatchGrid } from '../sidepanel/swatch-grid';
 import { bp, model, PALETTE, MOST_USED } from './state';
@@ -25,7 +25,7 @@ import {
   openMovePicker, closeMovePicker, moveTo, doCreateTabset, setNodeStyle, openSwatch, closeSwatch, applySwatch,
 } from './actions';
 import { armBox, armResize } from './gestures';
-import { renderChip, modeSwitch, previewModal, trayPanel, hintBar } from './view-panels';
+import { renderChip, modeSwitch, scopeClass, previewModal, trayPanel, hintBar } from './view-panels';
 import { renderResult, typeIcon } from './result';
 
 const STACKED_ADD_STEP = 42; // px each staged-add placeholder is offset below the previous, in the live fallback
@@ -79,8 +79,7 @@ export function render(): void {
   // non-model Result tab). Without this the canvas showed the first tab while no pill was highlighted.
   const viewedId = bp.viewTabId ?? liveId ?? m.tabs[0]?.id ?? null;
   const header = document.createElement('div');
-  const instScope = ctx.target !== 'template' && !!ctx.templateId;
-  header.className = 'bp-header' + (ctx.target === 'template' ? ' tmpl' : instScope ? ' inst' : '') + (bp.mode === 'style' ? ' style' : '');
+  header.className = 'bp-header' + scopeClass(ctx) + (bp.mode === 'style' ? ' style' : '');
   // The vertical mode switch sits at the left, spanning the chip + tab rows; the chip and tab bar stack
   // in the main column to its right.
   const main = document.createElement('div'); main.className = 'bp-header-main';
@@ -522,7 +521,8 @@ function styleToolbar(node: LNode, r: Rect): HTMLElement {
   row2.append(
     styleGroup('Shadow', segChoice([{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }], s.shadow ? 'on' : 'off', (v) => setNodeStyle(node.id, { shadow: v === 'on' }))),
     styleGroup('Border', segChoice(BORDER_STYLE_OPTS, s.borderStyle, (v) => setNodeStyle(node.id, { borderStyle: v }))),
-    styleGroup('Header', segChoice(HEADER_STYLE_OPTS, s.headerStyle, (v) => setNodeStyle(node.id, { headerStyle: v }))),
+    // "Header bar" = the headerStyle placement (In/Out/None) — distinct from the "Header" colour slot in row 1.
+    styleGroup('Header bar', segChoice(HEADER_STYLE_OPTS, s.headerStyle, (v) => setNodeStyle(node.id, { headerStyle: v }))),
     styleGroup('Fade', transpControl(node, s.transparency ?? 0)),
   );
 
@@ -568,27 +568,40 @@ function segChoice(opts: readonly { value: string; label: string }[], current: s
   return seg;
 }
 
+/** A −/+ number stepper around a numeric input — shared by the transparency control and the height
+ *  control. The steppers + commit read the LIVE input value (`current()`), so a typed-but-not-yet-Entered
+ *  value is respected (type "55" then click + ⇒ 65, not old+10). `commit` receives the clamped result. */
+function stepper(opts: { value: number; min: number; max?: number; step: number; title: string; suffix?: string; commit: (v: number) => void }): HTMLElement {
+  const { value, min, max = Infinity, step, title, suffix = '', commit } = opts;
+  const clamp = (n: number): number => Math.max(min, Math.min(max, n));
+  const box = document.createElement('div'); box.className = 'bp-hbox';
+  const inp = document.createElement('input'); inp.className = 'bp-hpx'; inp.type = 'number';
+  inp.min = String(min); if (max !== Infinity) inp.max = String(max);
+  inp.value = String(value); inp.title = title;
+  inp.addEventListener('mousedown', (e) => e.stopPropagation());
+  const current = (): number => { const v = parseInt(inp.value, 10); return isNaN(v) ? value : v; };
+  const apply = (v: number): void => commit(clamp(v));
+  inp.addEventListener('change', () => apply(current()));
+  inp.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') { e.preventDefault(); apply(current()); } e.stopPropagation(); });
+  const step1 = (dir: -1 | 1): HTMLButtonElement => {
+    const b = document.createElement('button'); b.className = 'bp-hstep'; setIcon(b, dir < 0 ? ICON_MINUS : ICON_PLUS);
+    b.title = `${dir < 0 ? '−' : '+'}${step}${suffix}`;
+    b.addEventListener('mousedown', (e) => { e.stopPropagation(); apply(current() + dir * step); });
+    return b;
+  };
+  box.append(step1(-1), inp, step1(1));
+  return box;
+}
+
 /** Transparency stepper: −/+ 10 around a 0–100 number input (BMP `transparency`, 0 = opaque). */
 function transpControl(node: LNode, val: number): HTMLElement {
-  const box = document.createElement('div'); box.className = 'bp-hbox';
-  const clamp = (n: number): number => Math.max(0, Math.min(100, n));
-  const minus = document.createElement('button'); minus.className = 'bp-hstep'; setIcon(minus, ICON_MINUS); minus.title = '−10';
-  minus.addEventListener('mousedown', (e) => { e.stopPropagation(); setNodeStyle(node.id, { transparency: clamp(val - 10) }); });
-  const inp = document.createElement('input'); inp.className = 'bp-hpx'; inp.type = 'number'; inp.min = '0'; inp.max = '100'; inp.value = String(val); inp.title = 'Transparency (0 = opaque, 100 = clear)';
-  inp.addEventListener('mousedown', (e) => e.stopPropagation());
-  const commit = (): void => { const v = parseInt(inp.value, 10); if (!isNaN(v)) setNodeStyle(node.id, { transparency: clamp(v) }); };
-  inp.addEventListener('change', commit);
-  inp.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') { e.preventDefault(); commit(); } e.stopPropagation(); });
-  const plus = document.createElement('button'); plus.className = 'bp-hstep'; setIcon(plus, ICON_PLUS); plus.title = '+10';
-  plus.addEventListener('mousedown', (e) => { e.stopPropagation(); setNodeStyle(node.id, { transparency: clamp(val + 10) }); });
-  box.append(minus, inp, plus);
-  return box;
+  return stepper({ value: val, min: 0, max: 100, step: 10, title: 'Transparency (0 = opaque, 100 = clear)',
+    commit: (v) => setNodeStyle(node.id, { transparency: v }) });
 }
 
 /** The colour swatch popup (style mode) — searchable, folder-grouped CorpoColors over the shared
  *  `renderSwatchGrid`, themed for the overlay. Picking links the colour to the open slot; "None" clears
- *  it. Filter + folder state are popup-local (rebuilt in place to keep the search field focused). */
-const swatchExpanded = new Set<string>(['Basics']);
+ *  it. Filter is popup-local; folder-open state lives in `bp.swatchExpanded` (reset on teardown). */
 function swatchPopup(byRid: Map<string, Element>): HTMLElement {
   const sw = bp.swatch!;
   const m = model();
@@ -611,8 +624,8 @@ function swatchPopup(byRid: Map<string, Element>): HTMLElement {
     host.textContent = '';
     host.appendChild(renderSwatchGrid({
       sets: colorSets(), q, currentBid: curBid, includeBasics: true,
-      expanded: swatchExpanded,
-      onToggle: (label) => { if (swatchExpanded.has(label)) swatchExpanded.delete(label); else swatchExpanded.add(label); paint(); },
+      expanded: bp.swatchExpanded,
+      onToggle: (label) => { if (bp.swatchExpanded.has(label)) bp.swatchExpanded.delete(label); else bp.swatchExpanded.add(label); paint(); },
       onPick: (bidName) => applySwatch(colorLinkBid(bidName)),
       onClear: () => applySwatch(''),
     }));
@@ -626,23 +639,11 @@ function swatchPopup(byRid: Map<string, Element>): HTMLElement {
   return back;
 }
 
-/** Height control: small −/+ steppers (10px each) flanking a number input for an EXACT pixel height.
- *  The input seeds from the authored height, falling back to the cell's current rendered height (`r`),
- *  and commits on Enter/blur; the steppers nudge in 10px increments. setH re-renders (rebuilding this). */
+/** Height control: an EXACT pixel-height stepper. Seeds from the authored height, falling back to the
+ *  cell's current rendered height (`r`); −/+ nudge 10px. setH re-renders (rebuilding this). */
 function heightControl(node: LNode, r: Rect): HTMLElement {
-  const box = document.createElement('div'); box.className = 'bp-hbox';
-  const base = (): number => Math.round(node.height ?? r.height);
-  const minus = document.createElement('button'); minus.className = 'bp-hstep'; setIcon(minus, ICON_MINUS); minus.title = '−10px';
-  minus.addEventListener('mousedown', (e) => { e.stopPropagation(); setH(node.id, Math.max(20, base() - 10)); });
-  const inp = document.createElement('input'); inp.className = 'bp-hpx'; inp.type = 'number'; inp.min = '20'; inp.value = String(base()); inp.title = 'Height in pixels';
-  inp.addEventListener('mousedown', (e) => e.stopPropagation());
-  const commit = (): void => { const v = parseInt(inp.value, 10); if (!isNaN(v) && v >= 20) setH(node.id, v); };
-  inp.addEventListener('change', commit);
-  inp.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') { e.preventDefault(); commit(); } e.stopPropagation(); });
-  const plus = document.createElement('button'); plus.className = 'bp-hstep'; setIcon(plus, ICON_PLUS); plus.title = '+10px';
-  plus.addEventListener('mousedown', (e) => { e.stopPropagation(); setH(node.id, base() + 10); });
-  box.append(minus, inp, plus);
-  return box;
+  return stepper({ value: Math.round(node.height ?? r.height), min: 20, step: 10, suffix: 'px',
+    title: 'Height in pixels', commit: (v) => setH(node.id, v) });
 }
 
 /** The add picker — searchable. A composite target offers only its valid children; else the palette. */

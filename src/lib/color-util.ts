@@ -27,6 +27,13 @@ export function contrastInk(rgb: string): string {
   return (0.299 * t[0] + 0.587 * t[1] + 0.114 * t[2]) > 150 ? '#1a1a1a' : '#fff';
 }
 
+/** A colour-link draft value is stored as `"<bid> <name>"` (the picker writes both so the UI can show the
+ *  name without a cache hit). Both the display layer and the EC serializer need just the leading bid —
+ *  extract it here so the parse rule lives in one place. */
+export function colorLinkBid(value: unknown): string {
+  return String(value ?? '').trim().split(/\s+/)[0] ?? '';
+}
+
 /** BMP stringifies enums as "EnumName.value" (e.g. "HeaderStyle.inside", "BorderStyle.LINE"). Reduce to
  *  the bare uppercase member ("INSIDE" / "LINE"); a value with no prefix passes through uppercased. */
 export function enumMember(raw: string): string {

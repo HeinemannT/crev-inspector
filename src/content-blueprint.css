@@ -257,7 +257,6 @@
 #crev-blueprint-layer .bp-tshared svg{display:block;width:11px;height:11px}
 /* the shared Result tab — a clearly visible solid frame + faint fill (was a too-faint dashed hairline) */
 #crev-blueprint-layer .bp-tab.shared{border:1.5px solid var(--bp-muted);background:rgba(75,85,99,.08)}
-#crev-blueprint-layer .bp-tshared{color:var(--bp-muted)}
 #crev-blueprint-layer .bp-tedit:hover{background:var(--bp-cyan);color:var(--bp-ground)}
 #crev-blueprint-layer .bp-tdel:hover{background:var(--bp-red);color:var(--bp-ground)}
 #crev-blueprint-layer .bp-tabs>button{height:26px;padding:0 11px;border-radius:var(--bp-r);border:var(--bp-hair) dashed var(--bp-cyan);background:transparent;color:var(--bp-cyan);font:500 11px 'BPInter',sans-serif;cursor:pointer}
@@ -290,12 +289,6 @@
 #crev-blueprint-layer .bp-modal-info{display:flex;align-items:flex-start;gap:8px;margin:8px 14px 0;padding:7px 10px;background:transparent;border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r);color:var(--bp-muted);font:500 11.5px 'BPInter',sans-serif}
 #crev-blueprint-layer .bp-modal-info .bp-modal-info-dot{flex:none;width:6px;height:6px;margin-top:5px;border-radius:50%;background:var(--bp-muted)}
 /* create-tabset prompt (RESULT-only page) */
-#crev-blueprint-layer .bp-cts{width:440px;max-width:92vw}
-#crev-blueprint-layer .bp-cts-body{padding:14px 16px}
-#crev-blueprint-layer .bp-cts-p{margin:0 0 12px;font:400 12px/1.5 'BPInter',sans-serif;color:var(--bp-muted)}
-#crev-blueprint-layer .bp-cts-lbl{display:block;font:600 10px var(--bp-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--bp-muted)}
-#crev-blueprint-layer .bp-cts-input{margin-top:6px;width:100%;padding:8px 10px;border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r);background:transparent;color:var(--bp-text);font:500 13px 'BPInter',sans-serif;outline:none}
-#crev-blueprint-layer .bp-cts-input:focus{border-color:var(--bp-cyan-hi)}
 #crev-blueprint-layer .bp-modal-list{overflow:auto;padding:8px 6px;display:flex;flex-direction:column;gap:2px}
 #crev-blueprint-layer .bp-prow{display:flex;align-items:baseline;gap:8px;padding:6px 10px;border-radius:var(--bp-r);font:12px 'BPInter',sans-serif}
 #crev-blueprint-layer .bp-prow:hover{background:rgba(21,101,192,.08)}

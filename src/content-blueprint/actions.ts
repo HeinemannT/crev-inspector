@@ -18,6 +18,7 @@ import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { render } from './view';
 import { applyPage, fetchBlast, createTabset } from './service';
+import { ensureColorSets } from './colors';
 
 /** Push a new model state onto history and re-render. The one write path for staged edits. Flags the
  *  next render to FLIP-animate cells from their old to new positions (so moves/reorders read as motion). */
@@ -60,6 +61,16 @@ export function setH(id: string, px: number): void { const m = model(); if (m) m
  *  the link), a boolean/number/enum-string. Goes through history like any edit (undo/redo). */
 export function setNodeStyle(id: string, patch: Partial<NodeStyle>): void { const m = model(); if (m) mutate(setStyle(m, id, patch)); }
 /** Open the colour swatch popup for a node's headerColor/fontColor slot (style mode). */
+/** G3: switch between LAYOUT editing (cols/move/rename) and STYLE editing (colours/shadow/border). A pure
+ *  client-side render switch over the SAME loaded model — no refetch — so it's instant and keeps staged
+ *  edits. Closes any transient per-cell UI (a swatch/picker/move popup left open in the other mode). */
+export function setMode(mode: 'layout' | 'style'): void {
+  if (!bp.active || bp.mode === mode) return;
+  bp.mode = mode;
+  bp.swatch = null; bp.picker = null; bp.pickerOpts = null; bp.movePicker = null; // don't leave a popup hanging across modes
+  if (mode === 'style') void ensureColorSets(); // lazy-load colours so cells can tint (re-renders on arrival)
+  render();
+}
 export function openSwatch(nodeId: string, prop: 'headerColor' | 'fontColor'): void { bp.swatch = { nodeId, prop }; render(); }
 export function closeSwatch(): void { if (bp.swatch) { bp.swatch = null; render(); } }
 /** Pick (or clear, bid='') the open swatch popup's colour: stage the style edit on its target slot and

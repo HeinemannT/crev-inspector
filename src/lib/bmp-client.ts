@@ -13,7 +13,7 @@ import {
   parseTreeNodeInfo,
 } from './bmp-types';
 import { deserializeStream } from './java-serial';
-import { colorLinkBid } from './types';
+import { colorLinkBid } from './color-util';
 import { styleAssignRhs, INVALID_COLOR_BID } from './style-ec';
 import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessTraceAction, AccessTraceNode, AccessSubject, BmpObject, LayoutNode } from './types';
 import { LAYOUT_SEP, parseLayoutNodes } from './layout-wire';

@@ -26,6 +26,7 @@ export interface BpState {
   pickerOpts: { afterId?: string; cols?: number; at?: { x: number; y: number } } | null; // positional insert (after a sibling, sized to a gap) + the click point to anchor the picker popup at
   movePicker: string | null;    // widgetId the move-destination menu is open for
   swatch: { nodeId: string; prop: 'headerColor' | 'fontColor' } | null; // G3: the colour swatch popup target (style mode), null = closed
+  swatchExpanded: Set<string>; // G3: which swatch-popup colour folders are open (per session; 'Basics' open by default)
   renameId: string | null;      // node whose inline-rename should OPEN on the next render (dbl-click / toolbar pencil)
   onResize: (() => void) | null; // window 'resize' handler (re-anchors the canvas; scroll is native)
   onKey: ((e: KeyboardEvent) => void) | null;
@@ -58,7 +59,7 @@ export interface BpState {
 function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
-    layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, swatch: null, renameId: null,
+    layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, swatch: null, swatchExpanded: new Set(['Basics']), renameId: null,
     onResize: null, onKey: null, onPop: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
     observer: null, resizeObs: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
   };

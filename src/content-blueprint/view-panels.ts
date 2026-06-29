@@ -15,10 +15,18 @@ import { diff, summarizeChanges } from '../lib/layout/diff';
 import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_EYE_SLASH } from '../lib/icons';
 import { bp, model } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
-import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, discard, openApplyPreview, exitBlueprint } from './actions';
-import { setEditTarget, setMode } from '../content-blueprint'; // runtime-only (click handlers) — no init-time cycle
+import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, discard, openApplyPreview, exitBlueprint, setMode } from './actions';
+import { setEditTarget } from '../content-blueprint'; // runtime-only (click handler) — no init-time cycle
 
 const VERB_ICON: Record<PlanNote['verb'], string> = { create: ICON_PLUS, update: ICON_PENCIL, move: ICON_ARROW_RIGHT, reorder: ICON_SWAP, delete: ICON_TRASH };
+
+/** Scope accent class for the chip / header / modal: TEMPLATE = blue (` tmpl`), an instance reusing a
+ *  template = orange (` inst`), a plain page = none. One place so the three surfaces can't disagree. */
+export function scopeClass(ctx: BlueprintCtx): string {
+  if (ctx.target === 'template') return ' tmpl';
+  if (ctx.templateId) return ' inst';
+  return '';
+}
 
 /** A warning banner row: a leading warning-triangle icon followed by the message
  *  text (replaces the former text '⚠ ' prefix). */
@@ -63,10 +71,9 @@ function resultImpact(): { touched: boolean; containers: boolean } {
 /** The apply-preview: the exact plan as human-readable steps + the blast-radius warning, behind a confirm. */
 export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement {
   const shared = ctx.target === 'template';
-  const inst = !shared && !!ctx.templateId;
   const back = document.createElement('div'); back.className = 'bp-modal-back';
   back.addEventListener('mousedown', (e) => { if (e.target === back) closePreview(); });
-  const card = document.createElement('div'); card.className = 'bp-modal' + (shared ? ' tmpl' : inst ? ' inst' : '');
+  const card = document.createElement('div'); card.className = 'bp-modal' + scopeClass(ctx);
   const h = document.createElement('div'); h.className = 'bp-modal-h';
   // Headline = logical changes; "(N actions)" exposes the raw EC step count when it differs (an insert
   // can compile to a create + a moveAfter chain). The list below still enumerates every action.
@@ -195,10 +202,8 @@ export function modeSwitch(): HTMLElement {
 
 /** Command chip — page id, undo/redo, pending tray toggle, discard, apply, exit. */
 export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
-  const shared = ctx.target === 'template';
-  const inst = !shared && !!ctx.templateId; // editing an instance that has a linked template → orange scope cue
   const styling = bp.mode === 'style';
-  const c = document.createElement('div'); c.className = 'bp-chip' + (shared ? ' tmpl' : inst ? ' inst' : '') + (styling ? ' style' : '');
+  const c = document.createElement('div'); c.className = 'bp-chip' + scopeClass(ctx) + (styling ? ' style' : '');
   const b = document.createElement('b');
   // The wordmark morphs with the mode — BLUEPRINT (cyan) in layout, STYLE (purple) in style — so the
   // mode is legible without the old horizontal toggle (that role moved to the vertical switch at left).

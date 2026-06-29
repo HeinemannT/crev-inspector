@@ -22,7 +22,7 @@ import {
   colorLinkEditor, numberEditor, enumEditor, booleanEditor, sliderEditor,
   displayValue, type PropEditorContext,
 } from '../property-editors';
-import { colorLinkBid } from '../../lib/types';
+import { colorLinkBid } from '../../lib/color-util';
 import { lookupColor } from '../color-picker';
 
 /** The host surface (sidebar DetailView / Object View popout) implements this so

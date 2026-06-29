@@ -6,7 +6,7 @@
  * `_tgt.p := _src.p`, a different operation; it shares only the reset literals via PAINT_PROP_RESET).
  */
 import { COLOR_LINK_PROPS, styleResetLiteral } from './style-props';
-import { colorLinkBid } from './types';
+import { colorLinkBid } from './color-util';
 
 /** A sentinel returned when a colour-link value carries a malformed businessId. */
 export const INVALID_COLOR_BID = Symbol('invalid-color-bid');

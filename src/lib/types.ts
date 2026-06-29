@@ -887,14 +887,6 @@ export const SCRIPT_PROPS = [
   'expression', 'html', 'javascript',
 ] as const;
 
-/** A colour-link draft value is stored as `"<bid> <name>"` (the picker writes
- *  both so the UI can show the name without a cache hit). Both the display
- *  layer and the EC serializer need just the leading bid — extract it here so
- *  the parse rule lives in one place. */
-export function colorLinkBid(value: unknown): string {
-  return String(value ?? '').trim().split(/\s+/)[0] ?? '';
-}
-
 /** Map from BMP type → code property names to fetch/save.
  *  All HasExtendedExpression types use 'expression' (CorpoExtendedExpression).
  *  CustomVisualization uses plain String properties 'html' and 'javascript'.
