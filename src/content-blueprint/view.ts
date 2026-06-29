@@ -78,7 +78,8 @@ export function render(): void {
   // non-model Result tab). Without this the canvas showed the first tab while no pill was highlighted.
   const viewedId = bp.viewTabId ?? liveId ?? m.tabs[0]?.id ?? null;
   const header = document.createElement('div');
-  header.className = 'bp-header' + (ctx.target === 'template' ? ' tmpl' : '') + (bp.mode === 'style' ? ' style' : '');
+  const instScope = ctx.target !== 'template' && !!ctx.templateId;
+  header.className = 'bp-header' + (ctx.target === 'template' ? ' tmpl' : instScope ? ' inst' : '') + (bp.mode === 'style' ? ' style' : '');
   // The vertical mode switch sits at the left, spanning the chip + tab rows; the chip and tab bar stack
   // in the main column to its right.
   const main = document.createElement('div'); main.className = 'bp-header-main';

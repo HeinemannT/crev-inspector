@@ -63,9 +63,10 @@ function resultImpact(): { touched: boolean; containers: boolean } {
 /** The apply-preview: the exact plan as human-readable steps + the blast-radius warning, behind a confirm. */
 export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement {
   const shared = ctx.target === 'template';
+  const inst = !shared && !!ctx.templateId;
   const back = document.createElement('div'); back.className = 'bp-modal-back';
   back.addEventListener('mousedown', (e) => { if (e.target === back) closePreview(); });
-  const card = document.createElement('div'); card.className = 'bp-modal' + (shared ? ' tmpl' : '');
+  const card = document.createElement('div'); card.className = 'bp-modal' + (shared ? ' tmpl' : inst ? ' inst' : '');
   const h = document.createElement('div'); h.className = 'bp-modal-h';
   // Headline = logical changes; "(N actions)" exposes the raw EC step count when it differs (an insert
   // can compile to a create + a moveAfter chain). The list below still enumerates every action.
@@ -75,16 +76,17 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
     + (sum.actions !== sum.changes ? ` (${sum.actions} actions)` : '')
     + ` to ${ctx.pageClass} ${ctx.pageId}`;
   card.appendChild(h);
-  if (shared) {
-    card.appendChild(warnRow('This is a shared template. These changes affect every instance that uses it.'));
-  }
   // Blast radius (async, best-effort — appears once the rref probe returns; see actions.openApplyPreview).
   const warn = (text: string) => { card.appendChild(warnRow(text)); };
+  // ONE shared-template warning: the fanout version (with the live instance count) supersedes the static
+  // one when the probe has returned — they otherwise both say "this is a template" and read as redundant.
   const fanout = bp.blast?.fanout;
   if (fanout?.isMaster) {
     const n = fanout.instances.length;
-    warn(`This page is a template. ${n} linked scorecard${n === 1 ? '' : 's'} inherit from it. `
-      + 'Widget edits propagate to them, and tab or container edits change every one.');
+    warn(`This is a shared template — ${n} linked scorecard${n === 1 ? '' : 's'} inherit from it. `
+      + 'Widget edits propagate to them; tab or container edits change every one.');
+  } else if (shared) {
+    warn('This is a shared template. These changes affect every instance that uses it.');
   }
   const xfam = bp.blast?.blast;
   if (xfam && xfam.otherFamilies > 0) {
@@ -194,15 +196,18 @@ export function modeSwitch(): HTMLElement {
 /** Command chip — page id, undo/redo, pending tray toggle, discard, apply, exit. */
 export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   const shared = ctx.target === 'template';
+  const inst = !shared && !!ctx.templateId; // editing an instance that has a linked template → orange scope cue
   const styling = bp.mode === 'style';
-  const c = document.createElement('div'); c.className = 'bp-chip' + (shared ? ' tmpl' : '') + (styling ? ' style' : '');
+  const c = document.createElement('div'); c.className = 'bp-chip' + (shared ? ' tmpl' : inst ? ' inst' : '') + (styling ? ' style' : '');
   const b = document.createElement('b');
   // The wordmark morphs with the mode — BLUEPRINT (cyan) in layout, STYLE (purple) in style — so the
   // mode is legible without the old horizontal toggle (that role moved to the vertical switch at left).
   const mark = document.createElement('span'); mark.className = 'bp-mark'; setIcon(mark, styling ? ICON_PAINT : ICON_BLUEPRINT);
-  const wordmark = document.createElement('span'); wordmark.textContent = styling ? 'STYLE' : 'BLUEPRINT';
+  // Fixed-width word so the chip (centred header) doesn't resize/shift when the shorter "STYLE" replaces
+  // "BLUEPRINT" — the box is sized to the longer word and the text left-aligns in it.
+  const wordmark = document.createElement('span'); wordmark.className = 'bp-word'; wordmark.textContent = styling ? 'STYLE' : 'BLUEPRINT';
   b.append(mark, wordmark);
-  const id = document.createElement('span'); id.textContent = `${ctx.pageClass} ${ctx.pageId}`;
+  const id = document.createElement('span'); id.className = 'bp-pgid'; id.textContent = `${ctx.pageClass} ${ctx.pageId}`;
   c.append(b, id);
   // F: template/instance target toggle — shown whenever this page reuses a template (you can edit the
   // shared template OR just this instance). Default is the template. The active segment + the tmpl

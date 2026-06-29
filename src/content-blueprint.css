@@ -193,7 +193,9 @@
 
 /* ── unified header: ONE fixed card; chip + tab strip are full-width inner rows ── */
 #crev-blueprint-layer .bp-header{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:50;display:flex;flex-direction:row;align-items:stretch;min-width:440px;max-width:94vw;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);overflow:hidden;pointer-events:auto}
-#crev-blueprint-layer .bp-header.tmpl{border-color:var(--bp-amber)}
+/* scope accent: TEMPLATE = blue (the shared definition), INSTANCE = orange (a local override) */
+#crev-blueprint-layer .bp-header.tmpl{border-color:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-header.inst{border-color:var(--bp-amber)}
 #crev-blueprint-layer .bp-header-main{display:flex;flex-direction:column;flex:1;min-width:0}
 /* vertical mode switch at the left — top = Layout (blueprint), bottom = Style (paint); spans both rows */
 #crev-blueprint-layer .bp-vswitch{display:flex;flex-direction:column;flex:none;border-right:var(--bp-hair) solid var(--bp-line-2)}
@@ -209,9 +211,14 @@
 #crev-blueprint-layer .bp-chip b{display:inline-flex;align-items:center;gap:6px;font:600 10px/1 'BPInter',sans-serif;letter-spacing:.13em;color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-chip .bp-mark{display:inline-flex}
 #crev-blueprint-layer .bp-chip .bp-mark svg{display:block;width:13px;height:13px}
+#crev-blueprint-layer .bp-chip .bp-word{display:inline-block;min-width:68px}
 #crev-blueprint-layer .bp-chip.style b{color:var(--bp-accent,#8a3ffc)}
 #crev-blueprint-layer .bp-chip>span{font:500 11px/1 var(--bp-mono);color:var(--bp-muted)}
+/* page-id truncates first when the chip is clamped to max-width (narrow window) — so the action buttons
+   (esp. Exit) are never the ones clipped by the header's overflow:hidden. Template mode is widest. */
+#crev-blueprint-layer .bp-chip .bp-pgid{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #crev-blueprint-layer .bp-chip .sp{flex:1;font-size:0}
+#crev-blueprint-layer .bp-chip b,#crev-blueprint-layer .bp-chip button{flex:none}
 #crev-blueprint-layer .bp-chip button{height:26px;padding:0 11px;border-radius:var(--bp-r);border:var(--bp-hair) solid var(--bp-line-2);background:transparent;color:var(--bp-text);font:500 11px 'BPInter',sans-serif;cursor:pointer}
 #crev-blueprint-layer .bp-chip button:hover:not(:disabled){border-color:var(--bp-cyan);color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-chip button:disabled{opacity:.3;cursor:default}
@@ -220,15 +227,17 @@
 #crev-blueprint-layer .bp-chip button.plain:hover:not(:disabled){background:rgba(74,144,217,.12)}
 #crev-blueprint-layer .bp-chip button.apply{background:var(--bp-cyan);color:var(--bp-ground);border-color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-chip button.apply:hover:not(:disabled){background:var(--bp-cyan-hi);color:var(--bp-ground)}
-#crev-blueprint-layer .bp-chip.tmpl button.apply{background:var(--bp-amber);border-color:var(--bp-amber)}
+/* template apply = blue (= default cyan); instance apply = orange */
+#crev-blueprint-layer .bp-chip.inst button.apply{background:var(--bp-amber);border-color:var(--bp-amber)}
+#crev-blueprint-layer .bp-chip.inst button.apply:hover:not(:disabled){background:var(--bp-amber);filter:brightness(.92)}
 /* F: template/instance target toggle. flex:none + the spacer (.sp) keeps the action buttons aligned no
    matter the toggle/blast width (the old free-flowing warning text used to shove them — that's item E). */
 #crev-blueprint-layer .bp-target{display:inline-flex;flex:none;border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r);overflow:hidden}
 #crev-blueprint-layer .bp-chip .bp-target-b{height:22px;padding:0 9px;border:0;border-radius:0;background:transparent;color:var(--bp-muted);font:600 10.5px 'BPInter',sans-serif;letter-spacing:.01em}
 #crev-blueprint-layer .bp-chip .bp-target-b+.bp-target-b{border-left:var(--bp-hair) solid var(--bp-line-2)}
 #crev-blueprint-layer .bp-chip .bp-target-b:hover:not(.on){color:var(--bp-text)}
-#crev-blueprint-layer .bp-chip .bp-target-b.on{background:var(--bp-amber);color:var(--bp-ground)}        /* Template active = shared (amber) */
-#crev-blueprint-layer .bp-chip .bp-target-b:last-child.on{background:var(--bp-cyan);color:var(--bp-ground)} /* This instance active = local (cyan) */
+#crev-blueprint-layer .bp-chip .bp-target-b.on{background:var(--bp-cyan);color:var(--bp-ground)}            /* Template active = shared definition (blue) */
+#crev-blueprint-layer .bp-chip .bp-target-b:last-child.on{background:var(--bp-amber);color:var(--bp-ground)} /* This instance active = local override (orange) */
 
 #crev-blueprint-layer .bp-tabs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:7px 10px 7px 12px;border-top:var(--bp-hair) solid var(--bp-line-2)}
 #crev-blueprint-layer .bp-tabs-l{color:var(--bp-muted);font:700 9px/1 var(--bp-mono);letter-spacing:.12em;margin-right:2px}
@@ -272,7 +281,8 @@
 /* ── apply preview modal ─────────────────────────────── */
 #crev-blueprint-layer .bp-modal-back{position:fixed;inset:0;z-index:60;background:rgba(0,33,71,.4);display:flex;align-items:center;justify-content:center;pointer-events:auto}
 #crev-blueprint-layer .bp-modal{width:520px;max-width:92vw;max-height:80vh;display:flex;flex-direction:column;border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui)}
-#crev-blueprint-layer .bp-modal.tmpl{border-color:var(--bp-amber)}
+#crev-blueprint-layer .bp-modal.tmpl{border-color:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-modal.inst{border-color:var(--bp-amber)}
 #crev-blueprint-layer .bp-modal-h{padding:14px 16px;font:600 14px 'BPInter',sans-serif;border-bottom:var(--bp-hair) solid var(--bp-line-2)}
 #crev-blueprint-layer .bp-modal-warn{display:flex;align-items:flex-start;gap:6px;margin:10px 14px 0;padding:8px 10px;background:rgba(217,119,6,.1);border:var(--bp-hair) solid var(--bp-amber);border-radius:var(--bp-r);color:var(--bp-amber);font:500 11.5px 'BPInter',sans-serif}
 #crev-blueprint-layer .bp-modal-warn .bp-modal-warn-ic{display:inline-flex;flex:none;margin-top:1px}
@@ -298,7 +308,7 @@
 #crev-blueprint-layer .bp-modal-foot button:hover{border-color:var(--bp-cyan);color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-modal-foot button.apply{background:var(--bp-cyan);color:var(--bp-ground);border-color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-modal-foot button.apply:hover{background:var(--bp-cyan-hi)}
-#crev-blueprint-layer .bp-modal.tmpl .bp-modal-foot button.apply{background:var(--bp-amber);border-color:var(--bp-amber)}
+#crev-blueprint-layer .bp-modal.inst .bp-modal-foot button.apply{background:var(--bp-amber);border-color:var(--bp-amber)}
 
 /* ── result view (model-computed wireframe — final positions) ───────────────── */
 /* A CSS-grid mirror of BMP's 6-col model for ONE tab (the header tab bar switches which), anchored to
