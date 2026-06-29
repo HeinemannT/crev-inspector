@@ -76,6 +76,14 @@ describe('sync.buildFetchEc', () => {
     expect(() => buildFetchEc({ ...CTX, pageRid: '1); delete()' })).toThrow(/Invalid RID/);
     expect(() => buildFetchEc({ ...CTX, tabsetId: 't"; x' })).toThrow(/Invalid business id/);
   });
+  it('resultOnly: emits the Result tab + org widgets only — NOT default_tabset\'s shared scaffold', () => {
+    const ec = buildFetchEc({ ...CTX, resultOnly: true });
+    expect(ec).toContain('_res := t.RESULT');          // the Result tab node...
+    expect(ec).toContain('|RESULT|Tab|');              // ...emitted as a Tab
+    expect(ec).toContain('_sc.descendants().forEach'); // the page's own widgets
+    expect(ec).not.toContain('_ts.descendants()');     // NOT the shared Row/Column scaffold
+    expect(ec).not.toContain('_ts := ');               // no tabset root walk at all
+  });
 });
 
 describe('sync.parseFetchLog', () => {

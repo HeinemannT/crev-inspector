@@ -100,6 +100,33 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
   // raw name as the final field.
   // tabset root: no parent, no container, no height (5 empties: parent|container|L|M|S), then height empty, then name.
   const root = `${ts}.rid + "|" + ${ts}.id.whenMissing("") + "|" + ${ts}.className.whenMissing("") + "|||||" + "|" + "|" + ${ts}.name.whenMissing("")`;
+  // org model: widgets + composites (recursive). Emit BOTH parent (composite nesting) and container
+  // (portal placement). A widget bound to the Result tab keeps that binding so it attaches to the Result
+  // tab node. Skip ActionButtons flagged displayOnActionMenu — BMP renders those in the page's action
+  // MENU, not the grid, so they're not part of the editable layout. Shared by both fetch shapes.
+  const orgLoop = [
+    `_sc.descendants().forEach(_w:`,
+    `     IF _w.className.whenMissing("") = "ActionButton" AND _w.displayOnActionMenu.whenMissing(false) = true THEN`,
+    `          _r := _r`,
+    `     ELSE`,
+    `          _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
+    `     ENDIF`,
+    `)`,
+  ];
+  // RESULT-only page (no dedicated tabset): emit ONLY the Result tab node (NOT default_tabset's shared
+  // Row/Column scaffold — that belongs to every scorecard) plus the page's own org widgets, which bind to
+  // it. Crucially we do NOT walk default_tabset.descendants() here, or the shared scaffold would leak in
+  // and the page's widgets would render under empty generic Rows. (Verified live: scorecard 462.)
+  if (ctx.resultOnly) {
+    return [
+      `_sc := ${sc}`,
+      `_r := ""`,
+      `_res := t.${RESULT_TAB_ID}`,
+      `_r := _r + "${SEP}" + _res.rid + "|${RESULT_TAB_ID}|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + _res.name.whenMissing("Result") + "\\n"`,
+      ...orgLoop,
+      `_r`,
+    ].join('\n');
+  }
   return [
     `_ts := ${ts}`,
     `_sc := ${sc}`,
@@ -123,19 +150,7 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `_ts.descendants().forEach(_n:`,
     `     _r := _r + "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + _n.name.whenMissing("") + "\\n"`,
     `)`,
-    // org model: widgets + composites (recursive). Emit BOTH parent (composite nesting) and container
-    // (portal placement). A widget bound to the Result tab keeps that binding so it attaches to the tab
-    // emitted above; a widget on the phantom RESULT placement of a no-tabset page still resolves to an
-    // org parent and is pruned as an orphan there.
-    // Skip ActionButtons flagged displayOnActionMenu — BMP renders those in the page's action MENU, not
-    // in the grid, so they're not part of the editable layout (showing them would invent a phantom cell).
-    `_sc.descendants().forEach(_w:`,
-    `     IF _w.className.whenMissing("") = "ActionButton" AND _w.displayOnActionMenu.whenMissing(false) = true THEN`,
-    `          _r := _r`,
-    `     ELSE`,
-    `          _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
-    `     ENDIF`,
-    `)`,
+    ...orgLoop,
     `_r`,
   ].join('\n');
 }
