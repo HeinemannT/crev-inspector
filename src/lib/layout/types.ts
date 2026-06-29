@@ -34,7 +34,6 @@ export type PageClass =
  *  reset allowlist in the EC compiler (ec.ts), and the revert-arrow labels (result.ts). Add a prop here
  *  and the whole chain picks it up. BMP property names. */
 export const OVERRIDABLE_PROPS = ['columnsLargeScreen', 'name', 'chartHeight'] as const;
-export type OverridableProp = typeof OVERRIDABLE_PROPS[number];
 
 /** G3 — a widget's appearance, read from the fetch and (in style mode) staged for edit. Colours are
  *  CorpoColor LINKS, stored as the colour's businessId (resolved to rgb client-side via the colour-set

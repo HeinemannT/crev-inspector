@@ -16,41 +16,6 @@ export interface PropEditorContext {
   onChange: (next: PropValue) => void;
 }
 
-/** Hex-or-shorthand color check. BMP accepts #rgb and #rrggbb. */
-const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
-
-export function colorEditor(ctx: PropEditorContext): HTMLElement {
-  const isValidColor = ctx.value === '' || HEX_COLOR.test(ctx.value);
-  const swatch = h('span', {
-    class: 'prop-color-swatch',
-    style: ctx.value && isValidColor ? `background:${ctx.value}` : '',
-    title: ctx.value || 'none',
-  });
-  const text = h('input', {
-    class: `prop-color-input${!isValidColor ? ' prop-input--invalid' : ''}`,
-    type: 'text',
-    value: ctx.value,
-    placeholder: '#000000',
-    spellcheck: 'false',
-  }) as HTMLInputElement;
-  const native = h('input', {
-    class: 'prop-color-picker',
-    type: 'color',
-    value: isValidColor && ctx.value ? expandColor(ctx.value) : '#000000',
-    'aria-label': 'Color picker',
-  }) as HTMLInputElement;
-
-  text.addEventListener('input', () => ctx.onChange(text.value));
-  native.addEventListener('input', () => {
-    text.value = native.value;
-    ctx.onChange(native.value);
-  });
-
-  return h('div', { class: `prop-cell prop-cell--color${ctx.dirty ? ' prop-cell--dirty' : ''}` },
-    swatch, text, native,
-  );
-}
-
 /** Linked-colour cell: a swatch + name button that opens the colour picker.
  *  BMP colours are CorpoColor LINKS, not hex — so there's no text input; the
  *  value flows back through ctx.onChange (called by the picker on pick). */
@@ -67,12 +32,6 @@ export function colorLinkEditor(
     h('span', { class: 'prop-color-link-name' }, opts.name || 'Link a colour…'),
   );
   return h('div', { class: `prop-cell prop-cell--color${ctx.dirty ? ' prop-cell--dirty' : ''}` }, btn);
-}
-
-/** Expand #rgb → #rrggbb for the native color picker. */
-function expandColor(c: string): string {
-  if (c.length === 4) return `#${c[1]}${c[1]}${c[2]}${c[2]}${c[3]}${c[3]}`;
-  return c;
 }
 
 export function booleanEditor(ctx: PropEditorContext): HTMLElement {

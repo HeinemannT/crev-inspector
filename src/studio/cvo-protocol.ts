@@ -73,9 +73,6 @@ export type CvoSandboxOutbound =
   | CvoRenderedMessage
   | CvoSandboxReady
 
-/** Everything the sandbox can receive from the studio. */
-export type CvoSandboxInbound = CvoRenderRequest
-
 /** Narrow an untrusted postMessage payload to a sandbox-outbound message. */
 export function isCvoSandboxOutbound(v: unknown): v is CvoSandboxOutbound {
   if (typeof v !== 'object' || v === null) return false

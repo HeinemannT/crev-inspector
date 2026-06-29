@@ -8,7 +8,6 @@ import type { BlueprintCtx } from '../lib/layout/sync';
 import type { InstanceFanout, ContainerBlast } from '../lib/layout/blast-radius';
 import { History } from '../lib/layout/history';
 
-export const LAYER_ID = 'crev-blueprint-layer';
 export const STYLE_ID = 'crev-blueprint-style';
 
 export interface BpState {

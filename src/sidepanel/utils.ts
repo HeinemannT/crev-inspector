@@ -5,7 +5,7 @@ import { h, svg } from '../lib/dom';
 import { ICON_COPY } from '../lib/icons';
 
 // Re-export icons used by sidepanel consumers
-export { ICON_COPY, ICON_REFRESH, ICON_ARROW_LEFT, ICON_PAINT, ICON_CROSSHAIR, ICON_TORNADO, ICON_EYE_OPEN, ICON_EYE_CLOSED, ICON_STAR_FILLED, ICON_STAR_HOLLOW, ICON_SEARCH, ICON_LIGHTNING, ICON_PIN, ICON_LAYOUT, ICON_BLUEPRINT } from '../lib/icons';
+export { ICON_COPY, ICON_REFRESH, ICON_ARROW_LEFT, ICON_PAINT, ICON_CROSSHAIR, ICON_TORNADO, ICON_EYE_OPEN, ICON_EYE_CLOSED, ICON_STAR_FILLED, ICON_STAR_HOLLOW, ICON_SEARCH, ICON_LIGHTNING, ICON_LAYOUT, ICON_BLUEPRINT } from '../lib/icons';
 
 /** Copy button with optional tooltip override. */
 export function copyBtn(text: string, tooltip?: string): HTMLElement {

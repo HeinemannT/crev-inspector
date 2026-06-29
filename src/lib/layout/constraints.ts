@@ -26,11 +26,6 @@
  */
 import type { Guard, LintMsg, LModel, LNode, PlanStep, SaveTarget } from './types';
 
-/** Widget types that render blank until configured — add places the shell, content is a hand-off. */
-export const WIDGET_NEEDS_CONFIG = new Set([
-  'CustomVisualization', 'ExtendedTable', 'InputView', 'URLView',
-]);
-
 /** Composite widgets that hold children via `<composite>.add(child)` — NOT the `container :=` binding
  *  a normal widget uses. (Verified live: a child binds to its ButtonContainer parent, not a cell.)
  *  Adding INTO one needs a different EC verb that compile doesn't emit yet, so the builder must block
