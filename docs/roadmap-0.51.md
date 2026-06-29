@@ -150,20 +150,28 @@ Reuse: `color-picker.ts`, `color-set-cache.ts`, `fetchColorSets`
 headerColor/fontColor), `APPLY_OBJECT_CHANGES` handler
 (`handlers/objects.ts:828-857`).
 
-- **G1 — Styling tab scaffold:** new side-panel tab next to Inspect/Browse/Log
-  with three legible sections: (1) **Colors** — searchable Photoshop-style
-  swatches sourced from workspace colorsets (reuse fetch+cache); (2)
-  **Properties** — shadow/border/transparency/disable/search/header-style; (3)
-  **Visibility**.
-- **G2 — Paintbrush:** copy a captured style set onto other objects (reuse
-  `applyObjectChanges`); respects the Phase 3 instance/template target.
-- **G3 — Blueprint preview (Q-G decided — IN 0.51):** color the wireframe cells
-  and drop their lines/headers to preview changes by hooking `result.ts:167`
-  (`cell`); fallback to a small text annotation per cell where live styling
-  proves fragile. This is the fragile part of the release — sequence it after
-  G1/G2 and after Phase 1's cell-rendering correctness lands.
-
-We leave the existing sidebar shadow/border controls as-is.
+- **G1 — Styling tab scaffold ☑ (built, then retired in G3 Stage C):** a
+  side-panel Style tab with Colors / Properties / Visibility sections. It
+  proved the shared property model (swatch grid, `buildChangesPayload`) but was
+  superseded by in-canvas Style mode — see Stage C below. The reusable pieces
+  (`swatch-grid.ts`, `pane-edit.ts`, the colour-clear fix) live on; the tab
+  itself is gone.
+- **G2 — Paintbrush ☑:** copy a captured style set onto other objects
+  (`content-paint.ts` / `lib/paint.ts` / `handlers/paint.ts`); respects the
+  Phase 3 instance/template target.
+- **G3 — Blueprint Style mode ☑ (Q-G decided — IN 0.51):** evolved past a
+  read-only preview into a full **mode toggle** (layout ⇄ style), peer to the
+  instance/template toggle. In style mode the wireframe paints each cell's
+  real appearance (`result.ts applyStyle`) AND becomes editable:
+  - **Stage A** — the mode switch + render path (cells show colours, shadow,
+    border, header-drop, transparency).
+  - **Stage B** — live editing: a per-cell appearance toolbar (header/font
+    colour chips, shadow, header-style, border, transparency) + a searchable
+    CorpoColor swatch popup; edits stage into `LNode.style` with undo/redo and
+    apply through `LAYOUT_APPLY` via the shared `styleAssignRhs` (so the
+    blueprint apply and any side-panel apply can't diverge). EC verified live.
+  - **Stage C** — retire the G1 sidebar Style tab now that styling lives on the
+    canvas.
 
 ---
 

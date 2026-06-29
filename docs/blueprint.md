@@ -50,8 +50,11 @@ cross-calls happen inside functions, never at module load).
 content-blueprint.ts   lifecycle: enable/disable (resetState on teardown), the @font-face + CSS inject,
                        window listeners (resize/keydown — scroll is native, see below), the
                        MutationObserver that follows BMP tab switches.
-state.ts               the `bp` singleton + constants (LAYER_ID, PALETTE, MOST_USED). DATA ONLY.
-                       freshState()/resetState() are the single source for the per-session field list.
+state.ts               the `bp` singleton + constants (STYLE_ID, PALETTE, MOST_USED) + `bp.mode`
+                       (layout|style). DATA ONLY. freshState()/resetState() = the per-session field list.
+colors.ts              style mode's colour data: fetch the per-profile colour sets once (one-shot
+                       channel), keep a bid→rgb ColorSetIndex; colorRgb()/colorSets() feed the cell
+                       tints + the swatch popup.
 view.ts                render() — rebuilds the overlay from `bp` each call (chrome → result canvas OR
                        renderLiveFallback → floating chrome); per-element builders, the header tab bar,
                        the toolbar, add-picker, move-menu, inline-rename, ensureScrollRoom, pendingCount memo.
@@ -105,6 +108,32 @@ pipeline was removed). To restyle, edit the `--bp-*` token block; component rule
 it sticky — fades the overlay to **full transparency** so the real widgets show through. State:
 `bp.peek` + the `.bp-peek` class on the layer (render adds the class but never removes it mid-frame, so
 a transient hover survives a re-render).
+
+## Style mode (G3)
+
+`bp.mode` toggles the canvas between **layout** (cols / move / rename / add / delete) and **style**
+(appearance) — a pure render switch over the SAME loaded model, peer to the instance/template toggle,
+flipped from the command chip (`view-panels.ts`). In style mode:
+- each cell paints its real appearance — header tint + contrast ink, font colour, shadow, border,
+  header-drop, transparency (`result.ts applyStyle`); a cell whose style differs from baseline gets the
+  amber `bp-style-dirty` ring.
+- the selection toolbar swaps to a **style toolbar** (`view.ts styleToolbar`): header/font colour chips,
+  a shadow toggle, header-style + border segmented choices, a transparency stepper. A colour chip opens
+  the **swatch popup** — the shared `renderSwatchGrid` (folders = colour sets, searchable, a "None" clear)
+  themed for the overlay; picking links the CorpoColor, "None" clears it.
+- drag is disabled (style edits appearance, not layout — `gestures.ts` select-only).
+
+Edits stage into `LNode.style` (`edit.setStyle`) with full undo/redo, and apply through the normal
+`LAYOUT_APPLY` path: `diff.changedStyle` emits only the fields that moved (absence folded to a BMP
+default), folded into the same `t.<bid>.change(...)` as any other update. Colours and scalars are
+serialised by the **shared `styleAssignRhs`** (`lib/style-ec.ts`, also used by the side-panel object
+apply) so the two "set a style prop" paths can't diverge — colour links → `t.<bid>` (or `""` to clear,
+verified live), enums → uppercase strings (`"INSIDE"`/`"LINE"`), shadow → `TRUE`/`FALSE`. The catalog of
+style props + their reset literals lives in `lib/style-props.ts`; the NodeStyle↔BMP-prop map in
+`lib/layout/types.ts STYLE_NODE_FIELDS`.
+
+(Styling once had a dedicated side-panel tab; it was retired once Style mode landed. The colour fetch
++ `ColorSetIndex` + `swatch-grid.ts` it introduced are shared and live on.)
 
 ## Two-model split & context resolution
 
