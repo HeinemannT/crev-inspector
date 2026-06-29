@@ -18,7 +18,7 @@ import { COMPOSITE_TYPES } from './constraints';
 // generators use. ecClass/ecBid are thin aliases; ecStr wraps the shared escaper in quotes.
 import { formatEcLiteral, validateEcIdentifier as ecClass, validateBusinessId as ecBid, validateRid as ecRid } from '../ec-guards';
 import { styleAssignRhs, INVALID_COLOR_BID } from '../style-ec';
-import { OVERRIDABLE_PROPS } from './types';
+import { OVERRIDABLE_PROPS, styleAssignments } from './types';
 import type { Breakpoint, LModel, LNode, PlanNote, PlanStep } from './types';
 
 const ecStr = (s: string): string => `"${formatEcLiteral(s)}"`;
@@ -27,6 +27,17 @@ const ecStr = (s: string): string => `"${formatEcLiteral(s)}"`;
  *  identically (the shared `styleAssignRhs` delegates non-colour props here). */
 const ecScalar = (v: string | number | boolean): string =>
   typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : typeof v === 'number' ? String(v) : ecStr(v);
+
+/** Compile a list of `(prop, value)` appearance assignments to `prop := rhs` EC fragments via the shared
+ *  `styleAssignRhs` (colour links → t.<bid> or "" to clear; scalars → ecScalar). Shared by the create and
+ *  update paths. A malformed colour bid aborts the whole compile (better than emitting bad EC). */
+function styleEcParts(assigns: { prop: string; value: string | number | boolean }[], label: string): string[] {
+  return assigns.map(a => {
+    const rhs = styleAssignRhs(a.prop, a.value, ecScalar);
+    if (rhs === INVALID_COLOR_BID) throw new Error(`invalid colour id for ${a.prop} on "${label}"`);
+    return `${a.prop} := ${rhs}`;
+  });
+}
 
 const COL_PROP: Record<Breakpoint, string> = { L: 'columnsLargeScreen', M: 'columnsMediumScreen', S: 'columnsSmallScreen' };
 
@@ -108,6 +119,14 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
           emit({ verb: 'create', text: `Add ${n.className} "${n.name}" (${n.cols.L}/6) to ${where}`,
             ec: `${v} := _sc.add(${ecClass(n.className)}, name := ${ecStr(n.name)}, container := ${ref(s.parentId)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}${h}) // BMP assigns id` });
         }
+        // G3: a widget created AND styled in the same batch carries its appearance on `n.style`. The create
+        // above has no baseline (diff couldn't pair it for an update), so emit the style as a follow-up
+        // `.change()` on the just-captured `_n<k>` var — the verified set-a-style path. (Tabs/containers
+        // never carry style, so styleAssignments returns [].)
+        {
+          const sa = styleAssignments(undefined, n.style);
+          if (sa.length) emit({ verb: 'update', text: `Style "${n.name}"`, ec: `${v}.change(${styleEcParts(sa, n.name).join(', ')})` });
+        }
         break;
       }
       case 'update': {
@@ -118,14 +137,8 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         if (s.cols) (['L', 'M', 'S'] as Breakpoint[]).forEach(bp => { if (s.cols![bp] != null) parts.push(`${COL_PROP[bp]} := ${s.cols![bp]}`); });
         if (s.name != null) parts.push(`name := ${ecStr(s.name)}`);
         if (s.height != null) parts.push(`chartHeight := ${s.height}`);
-        // G3 appearance: colour links → `prop := t.<bid>` (or `:= ""` to clear), scalars → ecScalar. The
-        // shared `styleAssignRhs` (also used by the side-panel apply) decides which, so the two paths
-        // can't diverge. A malformed colour bid aborts the whole compile rather than emit bad EC.
-        for (const a of s.styleAssign ?? []) {
-          const rhs = styleAssignRhs(a.prop, a.value, ecScalar);
-          if (rhs === INVALID_COLOR_BID) throw new Error(`invalid colour id for ${a.prop} on "${byId.get(s.id)?.name ?? s.id}"`);
-          parts.push(`${a.prop} := ${rhs}`);
-        }
+        // G3 appearance edits — same shared compiler as the create path (styleEcParts).
+        if (s.styleAssign?.length) parts.push(...styleEcParts(s.styleAssign, byId.get(s.id)?.name ?? s.id));
         const resets = (s.resetProps ?? []).filter(p => RESETTABLE.has(p)); // F2 — revert override to template
         if (!parts.length && !resets.length) break;
         const label = byId.get(s.id)?.name ?? s.id;

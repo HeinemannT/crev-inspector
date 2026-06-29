@@ -65,6 +65,24 @@ export const STYLE_NODE_FIELDS: ReadonlyArray<{
   { key: 'transparency',   prop: 'transparency', def: 0 },
 ];
 
+/** The appearance props that changed `base → desired` as `(BMP prop, value)` pairs, with each field's
+ *  absence folded to its BMP default. Shared by BOTH apply paths so they can't drift: diff uses it for an
+ *  existing node's edits (base = its baseline style), and the EC compiler uses it for a NEWLY-created
+ *  widget (base = undefined, so every non-default styled field is emitted as a follow-up `.change()` on
+ *  the new object — a create step has no baseline, so its style would otherwise be silently dropped). */
+export function styleAssignments(
+  base: NodeStyle | undefined,
+  desired: NodeStyle | undefined,
+): { prop: string; value: string | number | boolean }[] {
+  const out: { prop: string; value: string | number | boolean }[] = [];
+  for (const f of STYLE_NODE_FIELDS) {
+    const av = base?.[f.key] ?? f.def;
+    const bv = desired?.[f.key] ?? f.def;
+    if (av !== bv) out.push({ prop: f.prop, value: bv });
+  }
+  return out;
+}
+
 /** A node in the editable layout tree.
  *  Tree parentage means different things by kind: a widget's parent is the cell it BINDS to
  *  (`container :=`); a container's/tab's parent is its STRUCTURAL parent. `kind` disambiguates. */

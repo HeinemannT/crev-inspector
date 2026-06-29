@@ -13,7 +13,7 @@
  * their old container is removed.
  */
 import { isTempId, isResultTab } from './model';
-import { STYLE_NODE_FIELDS } from './types';
+import { styleAssignments } from './types';
 import type { Breakpoint, LModel, LNode, NodeKind, PlanStep } from './types';
 
 interface Entry {
@@ -49,17 +49,11 @@ function changedCols(a: LNode, b: LNode): Partial<Record<Breakpoint, number | nu
   return Object.keys(out).length ? out : undefined;
 }
 
-/** G3: per-field appearance changes baseline→desired. Each field is compared with its absent value
- *  folded to the BMP "no styling" default (`STYLE_NODE_FIELDS.def`), so toggling a prop on/off (or
- *  clearing a colour back to '') emits exactly the props that moved — and an untouched widget emits
- *  nothing. The value is the bid for a colour link ('' = clear), or the typed scalar otherwise. */
+/** G3: per-field appearance changes baseline→desired (shared `styleAssignments`, undefined when nothing
+ *  moved). Only for nodes present in both models — a NEWLY-created widget's style is emitted by the EC
+ *  compiler instead (its create step has no baseline here). */
 function changedStyle(a: LNode, b: LNode): { prop: string; value: string | number | boolean }[] | undefined {
-  const out: { prop: string; value: string | number | boolean }[] = [];
-  for (const f of STYLE_NODE_FIELDS) {
-    const av = a.style?.[f.key] ?? f.def;
-    const bv = b.style?.[f.key] ?? f.def;
-    if (av !== bv) out.push({ prop: f.prop, value: bv });
-  }
+  const out = styleAssignments(a.style, b.style);
   return out.length ? out : undefined;
 }
 

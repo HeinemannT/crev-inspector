@@ -197,6 +197,27 @@ describe('G3 style edits (setStyle → diff → ec)', () => {
     expect(upd).toMatchObject({ styleAssign: [{ prop: 'shadow', value: false }] });
     expect(compile(diff(base, off), off).script).toContain('shadow := FALSE');
   });
+
+  it('a widget CREATED and styled in one batch emits the style on the new var', () => {
+    // The bug: a create step has no baseline, so the style would otherwise be dropped. The compiler must
+    // emit a follow-up `_n0.change(...)` on the captured variable.
+    const base = styleModel();
+    const added = addWidget(base, 'tab1', 1, 'SimpleStatus', 'New');
+    const desired = setStyle(added.model, added.id, { headerColorBid: 'C_GREEN', shadow: true, borderStyle: 'NONE' });
+    const { script } = compile(diff(base, desired), desired);
+    expect(script).toMatch(/_n0 := _sc\.add\(SimpleStatus/);     // the create
+    expect(script).toMatch(/_n0\.change\([^)]*headerColor := t\.C_GREEN/); // …then the style on the same var
+    expect(script).toContain('shadow := TRUE');
+    expect(script).toContain('borderStyle := "NONE"');
+  });
+
+  it('a created widget with NO style emits no follow-up change', () => {
+    const base = styleModel();
+    const added = addWidget(base, 'tab1', 1, 'SimpleStatus', 'Plain');
+    const { script } = compile(diff(base, added.model), added.model);
+    expect(script).toMatch(/_n0 := _sc\.add\(SimpleStatus/);
+    expect(script).not.toContain('_n0.change(');
+  });
 });
 
 describe('isAncestorOf (move-into-own-subtree guard)', () => {
