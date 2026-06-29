@@ -57,8 +57,23 @@ export function enableBlueprint(): void {
   // The layer is document-absolute, so the canvas + cards scroll natively with the page — NO scroll
   // re-render (that JS-follow was the lag + header-overshadow). Only a RESIZE needs a re-anchor (BMP
   // reflows its widgets), coalesced to one animation frame.
-  bp.onResize = () => { if (bp.baseline && !bp.raf && !bp.dragging && !bp.renaming) bp.raf = requestAnimationFrame(() => { bp.raf = 0; render(); }); };
+  const coalescedRender = () => { if (bp.baseline && !bp.raf && !bp.dragging && !bp.renaming) bp.raf = requestAnimationFrame(() => { bp.raf = 0; render(); }); };
+  bp.onResize = coalescedRender;
   window.addEventListener('resize', bp.onResize, true);
+  // BMP renders a tall widget's content asynchronously (an ExtendedTable fetches its rows AFTER the tab
+  // switches), so a re-render fired on the tab switch alone measures the table before it's grown and the
+  // canvas backdrop ends up too short — the real table then peeks out below it. A ResizeObserver on the
+  // body's content box catches that later growth (the page reflows taller) and re-renders to re-measure.
+  // The overlay's own layer + scroll-spacer are position:absolute (out of flow), so they don't change the
+  // content box → no feedback loop. Coalesced through the same rAF as resize.
+  let lastBodyH = 0;
+  bp.resizeObs = new ResizeObserver((entries) => {
+    const h = entries[0]?.contentRect.height ?? 0;
+    if (Math.abs(h - lastBodyH) < 2) return; // ignore sub-pixel jitter / animation churn
+    lastBodyH = h;
+    coalescedRender();
+  });
+  bp.resizeObs.observe(document.body);
   bp.onKey = onKeydown;
   window.addEventListener('keydown', bp.onKey, true);
   layer.addEventListener('mousedown', (e) => { if (e.target === layer) select(null); }); // empty space deselects
@@ -93,6 +108,7 @@ export function disableBlueprint(): void {
   if (bp.raf) cancelAnimationFrame(bp.raf);
   if (bp.mutRaf) cancelAnimationFrame(bp.mutRaf);
   bp.observer?.disconnect();
+  bp.resizeObs?.disconnect();
   bp.layer?.remove();
   bp.scrollSpacer?.remove(); // drop the page-scroll-extension spacer (it lives on body, outside the layer)
   document.getElementById(STYLE_ID)?.remove(); // don't leak the injected stylesheet past teardown

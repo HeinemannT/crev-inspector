@@ -38,6 +38,7 @@ export interface BpState {
   dragging: boolean;            // a pointer drag is in flight — suppresses scroll re-renders mid-gesture
   renaming: boolean;            // an inline-rename field is open — suppresses re-renders (they'd destroy it)
   observer: MutationObserver | null; // watches BMP content for tab switches (visible rid set changes)
+  resizeObs: ResizeObserver | null;  // watches BMP content height — re-render when a widget grows (async table rows) so the backdrop keeps covering it
   ridSig: string;               // signature of the visible rids at last render — re-render when it changes
   mutRaf: number;               // rAF id coalescing mutation-driven re-renders (0 = none)
   creatingTabset: boolean;      // create-tabset request in flight (disables the tab-bar "+ Create tabset" button)
@@ -55,7 +56,7 @@ function freshState(): Omit<BpState, 'gen'> {
     active: false, baseline: null, ctx: null, env: null, history: null,
     layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, renameId: null,
     onResize: null, onKey: null, raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
-    observer: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
+    observer: null, resizeObs: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
   };
 }
 
