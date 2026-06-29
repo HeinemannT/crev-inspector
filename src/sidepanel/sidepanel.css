@@ -4504,14 +4504,35 @@ body.crev-divider-dragging * { user-select: none; }
 .style-color-refresh:hover { color: var(--text-1); border-color: var(--accent); }
 .style-color-refresh svg { width: 13px; height: 13px; }
 
-/* Swatch grid — dense Photoshop-style squares, grouped by colour set. */
-.style-grid-host { max-height: 220px; overflow-y: auto; }
+/* Swatch grid — collapsible folders (one per colour set) of dense,
+ * Photoshop-style square swatches. Folders collapse because a workspace can
+ * carry hundreds of colours; each header previews a few so it stays
+ * identifiable while closed. */
+.style-grid-host { max-height: 260px; overflow-y: auto; }
 .sw-loading, .sw-empty { padding: var(--space-3); text-align: center; color: var(--text-3); font-size: var(--text-sm); }
-.sw-group-label {
-  font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--text-3); margin: var(--space-2) 0 var(--space-1);
+
+.sw-folder { border-top: 1px solid var(--surface-2); }
+.sw-folder:first-child { border-top: none; }
+.sw-folder-head {
+  display: flex; align-items: center; gap: var(--space-1); width: 100%;
+  padding: var(--space-1) 0; background: transparent; border: none; cursor: pointer;
+  color: var(--text-2); text-align: left;
 }
-.sw-cells { display: grid; grid-template-columns: repeat(auto-fill, 22px); gap: 4px; }
+.sw-folder-head:hover { color: var(--text-1); }
+.sw-folder-chevron { display: grid; place-items: center; flex-shrink: 0; color: var(--text-3); transition: transform var(--duration-fast) var(--ease-default); }
+.sw-folder-chevron svg { width: 11px; height: 11px; }
+.sw-folder-head.open .sw-folder-chevron { transform: rotate(90deg); }
+.sw-folder-name {
+  font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: 0.06em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sw-folder-preview { display: flex; gap: 2px; margin-left: var(--space-1); flex: 1; overflow: hidden; }
+.sw-folder-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.12); }
+.sw-folder-count {
+  margin-left: auto; flex-shrink: 0; font-size: var(--text-2xs); color: var(--text-3);
+  background: var(--surface-2); border-radius: var(--radius-sm); padding: 0 5px;
+}
+.sw-cells { display: grid; grid-template-columns: repeat(auto-fill, 22px); gap: 4px; padding: 2px 0 var(--space-2); }
 .sw-cell {
   width: 22px; height: 22px; border-radius: var(--radius-sm); cursor: pointer;
   background: var(--sw); border: 1px solid rgba(255,255,255,0.14);

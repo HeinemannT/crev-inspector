@@ -57,6 +57,9 @@ export class StyleTab implements Tab {
   private sets: ColorSetData[] | null = null;
   private activeColor: ColorProp = 'headerColor';
   private colorFilter = '';
+  // Open colour folders. Basics starts open (small, useful); the rest stay
+  // collapsed since a workspace can carry hundreds of colours.
+  private expandedSets = new Set<string>(['Basics']);
 
   private panel: HTMLElement | null = null;
   private gridHost: HTMLElement | null = null;
@@ -332,6 +335,12 @@ export class StyleTab implements Tab {
       q: this.colorFilter,
       currentBid: colorLinkBid(value) || null,
       includeBasics: true,
+      expanded: this.expandedSets,
+      onToggle: (label) => {
+        if (this.expandedSets.has(label)) this.expandedSets.delete(label);
+        else this.expandedSets.add(label);
+        this.repaintGrid();
+      },
       onPick: (bidName) => this.setDraft(this.activeColor, bidName),
     }));
   }

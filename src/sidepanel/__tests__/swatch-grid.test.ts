@@ -1,4 +1,6 @@
 /**
+ * @vitest-environment happy-dom
+ *
  * Swatch-grid model + the shared draft→changes coercion.
  *
  * resolveSwatchGroups turns fetched colour sets into folders of swatches,
@@ -7,7 +9,7 @@
  * buildChangesPayload coerces a string draft into the typed APPLY payload.
  */
 import { describe, it, expect } from 'vitest';
-import { resolveSwatchGroups, BASIC_COLORS } from '../swatch-grid';
+import { resolveSwatchGroups, renderSwatchGrid, BASIC_COLORS } from '../swatch-grid';
 import { buildChangesPayload } from '../pane-edit';
 import type { ColorSetData } from '../../lib/types';
 
@@ -56,6 +58,34 @@ describe('resolveSwatchGroups', () => {
   it('exposes a non-empty Basics palette', () => {
     expect(BASIC_COLORS.length).toBeGreaterThan(0);
     expect(BASIC_COLORS.map(b => b.name)).toContain('White');
+  });
+});
+
+describe('renderSwatchGrid folders', () => {
+  const base = { sets, currentBid: null, includeBasics: true, onToggle: () => {}, onPick: () => {} };
+
+  it('renders a folder per group and only opens expanded ones', () => {
+    const el = renderSwatchGrid({ ...base, expanded: new Set(['Brand']) });
+    const folders = el.querySelectorAll('.sw-folder');
+    expect(folders.length).toBe(3); // Basics + Brand + Status
+    const openHeads = el.querySelectorAll('.sw-folder-head.open');
+    expect(openHeads.length).toBe(1); // only Brand
+    // collapsed folders show no swatch cells, the open one does
+    expect(el.querySelectorAll('.sw-cells').length).toBe(1);
+  });
+
+  it('force-opens every matching folder while searching', () => {
+    const el = renderSwatchGrid({ ...base, q: 'r', expanded: new Set() });
+    // every shown folder is open despite nothing being in `expanded`
+    const folders = el.querySelectorAll('.sw-folder');
+    const cellGroups = el.querySelectorAll('.sw-cells');
+    expect(cellGroups.length).toBe(folders.length);
+    expect(folders.length).toBeGreaterThan(0);
+  });
+
+  it('shows a loading state when sets are null', () => {
+    const el = renderSwatchGrid({ ...base, sets: null, expanded: new Set() });
+    expect(el.querySelector('.sw-loading')).toBeTruthy();
   });
 });
 

@@ -16,7 +16,8 @@
  * shows a dense Photoshop-style square grid) — only the data model is shared, so
  * neither surface constrains the other's layout.
  */
-import { h } from '../lib/dom';
+import { h, svg } from '../lib/dom';
+import { ICON_CHEVRON } from '../lib/icons';
 import type { ColorSetData } from '../lib/types';
 
 export interface Swatch {
@@ -97,41 +98,72 @@ export interface SwatchGridOpts {
   q?: string;
   currentBid: string | null;          // highlight the linked colour
   includeBasics?: boolean;
+  expanded: ReadonlySet<string>;      // labels of the open folders (ignored while searching)
+  onToggle: (label: string) => void;  // folder header clicked
   onPick: (bidName: string) => void;  // receives "<bid> <name>"
 }
 
-/** Dense, Photoshop-style square swatch grid for the Style tab. */
+/** Collapsible, searchable swatch folders (one per colour set) for the Style
+ *  tab. Workspaces carry hundreds of colours, so folders are collapsed by
+ *  default — each header previews a few of its colours so it's identifiable
+ *  while closed. A live filter narrows swatches and force-opens every folder
+ *  that still has a match (so search results are always visible). */
 export function renderSwatchGrid(opts: SwatchGridOpts): HTMLElement {
   const wrap = h('div', { class: 'sw-grid-wrap' });
   if (opts.sets === null) {
     wrap.appendChild(h('div', { class: 'sw-loading' }, 'Loading colours…'));
     return wrap;
   }
-  const groups = resolveSwatchGroups(opts.sets, { q: opts.q, includeBasics: opts.includeBasics });
+  const q = (opts.q ?? '').trim();
+  const groups = resolveSwatchGroups(opts.sets, { q, includeBasics: opts.includeBasics });
   if (groups.length === 0) {
-    const q = (opts.q ?? '').trim();
     wrap.appendChild(h('div', { class: 'sw-empty' }, q ? `No colours match “${q}”.` : 'No colours found.'));
     return wrap;
   }
+  const searching = q !== '';
   for (const g of groups) {
-    wrap.appendChild(h('div', { class: 'sw-group-label' }, g.label));
-    const grid = h('div', { class: 'sw-cells' });
-    for (const s of g.swatches) {
-      const selected = s.applyable && s.bid === opts.currentBid;
-      const title = s.applyable
-        ? `${s.name} · ${s.bid}`
-        : `${s.name} — no matching workspace colour to link`;
-      grid.appendChild(h('button', {
-        class: `sw-cell${selected ? ' sw-cell--sel' : ''}${s.applyable ? '' : ' sw-cell--disabled'}`,
-        type: 'button',
-        title,
-        'aria-label': s.name,
-        disabled: s.applyable ? undefined : 'true',
-        style: `--sw: ${s.rgb}`,
-        onClick: s.applyable ? () => opts.onPick(`${s.bid} ${s.name}`.trim()) : undefined,
-      }));
-    }
-    wrap.appendChild(grid);
+    const open = searching || opts.expanded.has(g.label);
+    wrap.appendChild(folder(g, open, searching, opts));
   }
   return wrap;
+}
+
+function folder(g: SwatchGroup, open: boolean, searching: boolean, opts: SwatchGridOpts): HTMLElement {
+  // A few preview dots so a collapsed folder is still identifiable by colour.
+  const preview = h('span', { class: 'sw-folder-preview', 'aria-hidden': 'true' },
+    ...g.swatches.slice(0, 6).map(s => h('span', { class: 'sw-folder-dot', style: `background:${s.rgb}` })));
+  const header = h('button', {
+    class: `sw-folder-head${open ? ' open' : ''}`,
+    type: 'button',
+    'aria-expanded': open ? 'true' : 'false',
+    // While searching the folders are forced open, so the toggle is inert.
+    onClick: searching ? undefined : () => opts.onToggle(g.label),
+  },
+    h('span', { class: 'sw-folder-chevron' }, svg(ICON_CHEVRON)),
+    h('span', { class: 'sw-folder-name' }, g.label),
+    open ? null : preview,
+    h('span', { class: 'sw-folder-count' }, String(g.swatches.length)),
+  );
+  const body = open ? swatchCells(g, opts) : null;
+  return h('div', { class: 'sw-folder' }, header, body);
+}
+
+function swatchCells(g: SwatchGroup, opts: SwatchGridOpts): HTMLElement {
+  const grid = h('div', { class: 'sw-cells' });
+  for (const s of g.swatches) {
+    const selected = s.applyable && s.bid === opts.currentBid;
+    const title = s.applyable
+      ? `${s.name} · ${s.bid}`
+      : `${s.name} — no matching workspace colour to link`;
+    grid.appendChild(h('button', {
+      class: `sw-cell${selected ? ' sw-cell--sel' : ''}${s.applyable ? '' : ' sw-cell--disabled'}`,
+      type: 'button',
+      title,
+      'aria-label': s.name,
+      disabled: s.applyable ? undefined : 'true',
+      style: `--sw: ${s.rgb}`,
+      onClick: s.applyable ? () => opts.onPick(`${s.bid} ${s.name}`.trim()) : undefined,
+    }));
+  }
+  return grid;
 }
