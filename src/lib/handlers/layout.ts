@@ -66,17 +66,11 @@ register('LAYOUT_LOAD', async (msg, respond) => {
       ctx.logActivity('warn', `Blueprint load: ${msg.rid} is not an editable page`);
       return;
     }
-    if (res.kind === 'needsTabset') {
-      // Loadable once a tabset exists — hand the page back so the overlay can offer to create one.
-      respond({ type: 'LAYOUT_LOAD_RESULT', ok: true, env: envToken(ctx), needsTabset: res.page });
-      ctx.logActivity('info', `Blueprint: ${res.page.pageClass} ${res.page.pageId} has no tabset (offer to create one)`);
-      return;
-    }
     respond({
       type: 'LAYOUT_LOAD_RESULT', ok: true, env: envToken(ctx),
       ctx: res.ctx, model: res.load.model, baseline: res.load.baseline, orphans: res.load.orphans,
     });
-    ctx.logActivity('success', `Blueprint loaded ${res.ctx.pageClass} ${res.ctx.pageId} (${Date.now() - t0}ms)`);
+    ctx.logActivity('success', `Blueprint loaded ${res.ctx.pageClass} ${res.ctx.pageId}${res.ctx.resultOnly ? ' (result-only, no tabset)' : ''} (${Date.now() - t0}ms)`);
   } catch (e) {
     respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: errorMessage(e) });
     ctx.logActivity('error', 'Blueprint load threw', e instanceof Error ? e.message : String(e));

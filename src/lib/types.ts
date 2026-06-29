@@ -624,7 +624,7 @@ export type LayoutMessage =
   | { type: 'LAYOUT_LOAD'; rid: string }
   // `env` = the active profile id at load time; the panel echoes it back on apply so the SW can
   // reject a commit aimed at a different environment (the user switched profiles mid-edit).
-  | { type: 'LAYOUT_LOAD_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; needsTabset?: NeedsTabset; error?: string }
+  | { type: 'LAYOUT_LOAD_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
   // Create a dedicated tabset for a RESULT-only page (no tabset), move its widgets onto it, then load.
   | { type: 'LAYOUT_CREATE_TABSET'; page: NeedsTabset; name: string }
   | { type: 'LAYOUT_CREATE_TABSET_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }

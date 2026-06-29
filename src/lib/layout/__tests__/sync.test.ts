@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   buildFetchEc, parseFetchLog, loadModel, applyModel,
-  resolvePageContext, isNeedsTabset, buildCreateTabsetEc, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
+  resolvePageContext, buildCreateTabsetEc, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
 } from '../sync';
 import { addContainer, rename } from '../edit';
 import { findNode } from '../model';
@@ -173,7 +173,7 @@ describe('sync.resolvePageContext', () => {
   it('enterprise: points the page root at the linked template + shared tabset, scoped to content', async () => {
     const probe = `${'<<<CREV_CTX>>>'}enterprise|${TMPL_RID}|5923|EnterpriseTemplate|default_tabset`;
     const r = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '5977812347502735400');
-    expect(r && !isNeedsTabset(r)).toBe(true);
+    expect(r).not.toBeNull();
     const ctx = r as BlueprintCtx;
     expect(ctx.pageId).toBe('5923');            // edit the TEMPLATE, not the instance
     expect(ctx.pageRid).toBe(TMPL_RID);
@@ -184,18 +184,21 @@ describe('sync.resolvePageContext', () => {
   it('direct: edits the object itself with its discovered dedicated tabset', async () => {
     const probe = `${'<<<CREV_CTX>>>'}direct|451704949656267090|4957|Scorecard|crev_demo_tabset|n|9`;
     const r = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '451704949656267090');
-    expect(r && !isNeedsTabset(r)).toBe(true);
+    expect(r).not.toBeNull();
     const ctx = r as BlueprintCtx;
     expect(ctx.pageId).toBe('4957');
     expect(ctx.pageRid).toBe('451704949656267090');
     expect(ctx.tabsetId).toBe('crev_demo_tabset');
     expect(ctx.tabScope).toBe('all');           // dedicated tabset → keep all tabs
+    expect(ctx.resultOnly).toBeFalsy();
   });
-  it('no tabset but RESULT widgets → needsTabset (createable)', async () => {
+  it('no dedicated tabset but RESULT widgets → loadable resultOnly ctx (via default_tabset)', async () => {
     const probe = `${'<<<CREV_CTX>>>'}direct|999|888|Scorecard||n|4`; // empty tabsetId, 4 widgets
     const r = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '999');
-    expect(isNeedsTabset(r)).toBe(true);
-    expect(r).toMatchObject({ needsTabset: true, pageRid: '999', pageId: '888', pageClass: 'Scorecard' });
+    expect(r).toMatchObject({
+      pageRid: '999', pageId: '888', pageClass: 'Scorecard',
+      tabsetId: DEFAULT_TABSET, tabScope: 'withContent', target: 'instance', resultOnly: true,
+    });
   });
   it('returns null when no tabset AND no widgets (empty / not a page)', async () => {
     const probe = `${'<<<CREV_CTX>>>'}direct|999|888|Scorecard||n|0`; // empty tabsetId, 0 widgets

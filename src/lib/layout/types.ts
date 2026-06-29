@@ -61,6 +61,9 @@ export interface LModel {
   tabs: LNode[];
   target: SaveTarget;
   hasTemplate: boolean;
+  /** True when the page has no dedicated tabset (its widgets sit on the shared Result tab). The UI
+   *  shows a "+ Create tabset" affordance in the tab bar so the configurator can organise the page. */
+  resultOnly?: boolean;
 }
 
 /** One step of an apply plan (the diff between baseline and desired). */

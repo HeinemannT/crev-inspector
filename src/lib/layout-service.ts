@@ -14,7 +14,7 @@
  */
 import type { BmpClient } from './bmp-client';
 import type { LayoutIO, BlueprintCtx, NeedsTabset, LoadResult, ApplyResult } from './layout/sync';
-import { loadModel, applyModel, resolvePageContext, isNeedsTabset, createTabsetAndLoad } from './layout/sync';
+import { loadModel, applyModel, resolvePageContext, createTabsetAndLoad } from './layout/sync';
 import type { LModel } from './layout/types';
 import { validateBusinessId, validateRid } from './ec-guards';
 import { log } from './logger';
@@ -34,21 +34,20 @@ export function makeLayoutIO(client: BmpClient): LayoutIO {
   };
 }
 
-/** The outcome of resolving + loading a page: a loaded editor model, a "needs a tabset" page (the
- *  caller offers to create one), or null (not an editable page). */
+/** The outcome of resolving + loading a page: a loaded editor model (possibly flagged `resultOnly`
+ *  when the page has no dedicated tabset), or null (not an editable page). */
 export type LoadPageResult =
   | { kind: 'page'; ctx: BlueprintCtx; load: LoadResult }
-  | { kind: 'needsTabset'; page: NeedsTabset }
   | null;
 
-/** Resolve context + load the page model for a viewed object rid. */
+/** Resolve context + load the page model for a viewed object rid. A page with no dedicated tabset is
+ *  loaded through default_tabset (its widgets on the shared Result tab) and flagged `resultOnly`. */
 export async function loadPage(client: BmpClient, rid: string): Promise<LoadPageResult> {
   const io = makeLayoutIO(client);
-  const r = await resolvePageContext(io, rid);
-  if (!r) return null;
-  if (isNeedsTabset(r)) return { kind: 'needsTabset', page: r };
-  const load = await loadModel(io, r);
-  return { kind: 'page', ctx: r, load };
+  const ctx = await resolvePageContext(io, rid);
+  if (!ctx) return null;
+  const load = await loadModel(io, ctx);
+  return { kind: 'page', ctx, load };
 }
 
 /** Create a dedicated tabset for a RESULT-only page (moving its widgets onto it), then load it. */

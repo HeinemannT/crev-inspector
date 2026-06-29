@@ -65,6 +65,10 @@ export interface ReconstructCtx {
   tabsetId: string;
   target?: 'instance' | 'template';
   hasTemplate?: boolean;
+  /** True when the page has no dedicated tabset — its widgets sit on the shared Result tab. The page
+   *  still loads (showing the Result tab + its widgets, via default_tabset + withContent); the UI then
+   *  offers a "+ Create tabset" affordance in the tab bar instead of a blocking modal. */
+  resultOnly?: boolean;
   /** How to derive the page's tab list from the tabset:
    *   - 'all' (default): every tab the tabset owns — correct for a DEDICATED tabset (Scorecard /
    *     ModelPage), where the tabset belongs to this page.
@@ -122,6 +126,7 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx): LM
     tabs,
     target: ctx.target ?? 'template',
     hasTemplate: ctx.hasTemplate ?? false,
+    ...(ctx.resultOnly ? { resultOnly: true } : {}),
   };
 }
 

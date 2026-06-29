@@ -238,11 +238,12 @@ export interface NeedsTabset {
 }
 
 /** Resolve the blueprint context for a viewed object — see `buildContextEc`. Returns:
- *   - a BlueprintCtx when the page has a discoverable tabset (loadable),
- *   - a NeedsTabset when it's a direct page with RESULT widgets but no tabset (createable),
+ *   - a BlueprintCtx with a discovered tabset (a normal page), or
+ *   - a BlueprintCtx flagged `resultOnly` for a direct page that owns widgets but has no dedicated
+ *     tabset (loaded through default_tabset + withContent — its widgets sit on the shared Result tab),
  *   - null when it's not an editable page (no tabset AND no widgets, or the probe failed).
  *  The template/instance blast-radius distinction (`.linkedTo`) is recorded via hasTemplate. */
-export async function resolvePageContext(io: LayoutIO, rid: string): Promise<BlueprintCtx | NeedsTabset | null> {
+export async function resolvePageContext(io: LayoutIO, rid: string): Promise<BlueprintCtx | null> {
   const res = await io.exec(buildContextEc(rid));
   if (!res.ok || !res.log) return null;
   const line = res.log.split(CTX)[1]?.split('\n', 1)[0]?.trim();
@@ -259,10 +260,16 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
   }
   if (kind === 'direct') {
     if (!tabsetId) {
-      // No tabset discovered. If the object still owns widgets (on the RESULT tab), it's a createable
-      // page; otherwise it's empty / not a page.
+      // No dedicated tabset. If the object still owns widgets (they sit on the shared Result tab), load
+      // it through default_tabset — withContent keeps only the Result tab — and flag it `resultOnly` so
+      // the UI offers a "+ Create tabset" affordance in the tab bar. An object with no widgets isn't a
+      // page. (createTabsetAndLoad reads pageRid/pageId/pageClass straight off this ctx.)
       return Number(wcount ?? '0') > 0
-        ? { needsTabset: true, pageRid: pRid, pageId: pId, pageClass: (pClass || 'Scorecard') as BlueprintCtx['pageClass'] }
+        ? {
+            pageId: pId, pageRid: pRid, pageClass: (pClass || 'Scorecard') as BlueprintCtx['pageClass'],
+            tabsetId: DEFAULT_TABSET, target: 'instance', hasTemplate: hasLink === 'y',
+            tabScope: 'withContent', resultOnly: true,
+          }
         : null;
     }
     // The object owns its widgets → editing is INSTANCE-scoped (low blast radius). hasTemplate just
@@ -274,11 +281,6 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
     };
   }
   return null;
-}
-
-/** Type guard: did the resolve land on the "needs a tabset" case? */
-export function isNeedsTabset(r: BlueprintCtx | NeedsTabset | null): r is NeedsTabset {
-  return !!r && (r as NeedsTabset).needsTabset === true;
 }
 
 /**

@@ -37,13 +37,6 @@ export async function loadPage(rid: string): Promise<boolean> {
   const g = bp.gen;
   const res = await sendRequest<LoadResult>({ type: 'LAYOUT_LOAD', rid });
   if (!sameSession(g)) return false; // toggled off (or off-then-on) before the reply arrived
-  // RESULT-only page with no tabset → keep the overlay up and show the create-tabset prompt.
-  if (res?.ok && res.needsTabset) {
-    bp.needsTabset = res.needsTabset;
-    bp.env = res.env ?? null;
-    render();
-    return true;
-  }
   if (!res?.ok || !res.model || !res.ctx) {
     showToast(`Blueprint: ${res?.error || 'could not load this page'}`, 'error');
     return false;
@@ -57,11 +50,13 @@ export async function loadPage(rid: string): Promise<boolean> {
   return true;
 }
 
-/** Create a dedicated tabset for a RESULT-only page (the create-tabset prompt's confirm), then adopt
- *  the freshly-loaded model. */
+/** Create a dedicated tabset for the current RESULT-only page (the tab-bar "+ Create tabset"
+ *  affordance), moving its widgets onto it, then adopt the freshly-loaded model. The page identity
+ *  comes from the loaded ctx (which carries pageRid/pageId/pageClass). */
 export async function createTabset(name: string): Promise<void> {
-  const page = bp.needsTabset;
-  if (!page || bp.creatingTabset) return;
+  const c = bp.ctx;
+  if (!c || !c.resultOnly || bp.creatingTabset) return;
+  const page = { needsTabset: true as const, pageRid: c.pageRid, pageId: c.pageId, pageClass: c.pageClass };
   const g = bp.gen;
   bp.creatingTabset = true; render();
   const res = await sendRequest<CreateTabsetResult>({ type: 'LAYOUT_CREATE_TABSET', page, name });
@@ -72,9 +67,8 @@ export async function createTabset(name: string): Promise<void> {
     render();
     return;
   }
-  bp.needsTabset = null;
   rebase(res.model);
-  bp.ctx = res.ctx;
+  bp.ctx = res.ctx; // the new ctx carries a real tabset (no longer resultOnly)
   bp.env = res.env ?? null;
   showToast('Blueprint: tabset created. You can now arrange this page.', 'success');
   render();

@@ -4,7 +4,7 @@
  * means neither the view nor the controller owns it, and there's no import cycle through it.
  */
 import type { LModel, PlanNote } from '../lib/layout/types';
-import type { BlueprintCtx, NeedsTabset } from '../lib/layout/sync';
+import type { BlueprintCtx } from '../lib/layout/sync';
 import type { InstanceFanout, ContainerBlast } from '../lib/layout/blast-radius';
 import { History } from '../lib/layout/history';
 
@@ -40,8 +40,7 @@ export interface BpState {
   observer: MutationObserver | null; // watches BMP content for tab switches (visible rid set changes)
   ridSig: string;               // signature of the visible rids at last render — re-render when it changes
   mutRaf: number;               // rAF id coalescing mutation-driven re-renders (0 = none)
-  needsTabset: NeedsTabset | null; // page has RESULT widgets but no tabset → show the create-tabset prompt
-  creatingTabset: boolean;      // create-tabset request in flight (disables the prompt's Create button)
+  creatingTabset: boolean;      // create-tabset request in flight (disables the tab-bar "+ Create tabset" button)
   flipNext: boolean;            // animate result cells from old→new position on the next render (set by an edit)
   viewTabId: string | null;     // tab shown in the canvas (header tab bar switches it); null → follow BMP's live tab
   scrollSpacer: HTMLElement | null; // body-level spacer that extends page scroll height to cover a taller-than-content panel
@@ -56,7 +55,7 @@ function freshState(): Omit<BpState, 'gen'> {
     active: false, baseline: null, ctx: null, env: null, history: null,
     layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, renameId: null,
     onResize: null, onKey: null, raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
-    observer: null, ridSig: '', mutRaf: 0, needsTabset: null, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
+    observer: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
   };
 }
 

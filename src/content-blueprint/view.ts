@@ -18,10 +18,10 @@ import { bp, model, PALETTE, MOST_USED } from './state';
 import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkBtn, mkIconBtn, delta, placeDoc, docX, docY } from './geometry';
 import {
   select, beginRename, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
-  openMovePicker, closeMovePicker, moveTo,
+  openMovePicker, closeMovePicker, moveTo, doCreateTabset,
 } from './actions';
 import { armBox, armResize } from './gestures';
-import { renderChip, previewModal, trayPanel, hintBar, createTabsetModal } from './view-panels';
+import { renderChip, previewModal, trayPanel, hintBar } from './view-panels';
 import { renderResult, typeIcon } from './result';
 
 const STACKED_ADD_STEP = 42; // px each staged-add placeholder is offset below the previous, in the live fallback
@@ -57,13 +57,6 @@ export function render(): void {
   // wipes the field the instant it appears). Freeze until blur commits and clears the flag.
   if (bp.renaming) return;
   if (bp.peek) layer.classList.add('bp-peek'); // keep a sticky peek across re-renders (add-only: don't kill a transient hover)
-  // No-tabset page: show the create-tabset prompt (there's no model to edit until one exists).
-  if (bp.needsTabset) {
-    layer.textContent = '';
-    layer.appendChild(createTabsetModal(bp.needsTabset));
-    neutralizeScrollRoom();
-    return;
-  }
   const base = bp.baseline, m = model(), ctx = bp.ctx;
   if (!base || !m || !ctx) return;
   // FLIP: record cell positions BEFORE the clear when this render follows an edit (bp.flipNext), so we
@@ -632,7 +625,16 @@ function tabBar(base: LModel, m: LModel, liveId: string | null, viewedId: string
   for (const mt of m.tabs) {
     if (!base.tabs.some(b => b.id === mt.id)) bar.appendChild(tabPill(mt.id, mt.name, 'new', mt.id === viewedId, mt.id === liveId));
   }
-  bar.appendChild(mkBtn('+ Tab', addTabAction)); // plain "+ Tab" text (no icon — the icon mis-aligned)
+  if (m.resultOnly) {
+    // No dedicated tabset: adding a plain tab would hit the shared default_tabset. Offer to create a
+    // tabset of the page's own instead (one click — names it after the page; the Tab can be renamed).
+    const b = mkBtn(bp.creatingTabset ? 'Creating…' : '+ Create tabset', () => doCreateTabset(m.pageId));
+    b.title = 'This page has no tabset of its own — create one to organise its widgets into tabs';
+    b.disabled = bp.creatingTabset;
+    bar.appendChild(b);
+  } else {
+    bar.appendChild(mkBtn('+ Tab', addTabAction)); // plain "+ Tab" text (no icon — the icon mis-aligned)
+  }
   return bar;
 }
 
