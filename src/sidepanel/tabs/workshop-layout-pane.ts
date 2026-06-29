@@ -461,11 +461,8 @@ export class WorkshopLayoutPane implements Tab {
       }
 
       children.push(h('div', { class: 'workshop-ctx-strip' },
-        h('span', {
-          class: `workshop-ctx-dot workshop-ctx-dot--${detected ? 'on' : checking ? 'checking' : 'off'}`,
-          title: detected ? 'On a BMP page' : checking ? 'Detecting…' : 'Not a BMP page',
-          'aria-hidden': 'true',
-        }),
+        // (No status dot here — page-detection is already conveyed by the body text + the header/bottom
+        // connection indicators; the green dot before the context label was redundant.)
         body,
         h('button', {
           class: `workshop-ctx-picker${this.pickingContext ? ' active' : ''}`,
@@ -496,13 +493,6 @@ export class WorkshopLayoutPane implements Tab {
       // your page location, the object tree's root row names the object
       // (with its business id), and the detail half below is the full
       // editor. A separate "object + id" header just repeated the name.
-
-      // Auto-detect hint
-      if (this.contextAutoDetected) {
-        children.push(h('div', { class: 'inspector-auto-hint' },
-          'Auto-detected from page URL. Right-click a BMP element to override',
-        ));
-      }
 
       // Layout subtree — only for portal grid-bearing contexts (TabSet /
       // Tab / Container). Each row's `columnsLargeScreen` renders as a

@@ -178,7 +178,12 @@ export class ConnectTab implements Tab {
         }, 'Also labels inline RID elements the widget size filter hides.'),
       ),
 
-      // ── Maintenance ────────────────────────────────────
+      // ── Version/update line, then the quiet reference (guidance) ──
+      this.renderUpdateBanner(),
+      this.renderReference(),
+
+      // ── Maintenance — placed UNDER the guidance (it's the least-used, most-destructive
+      //    section: cache + reset live), so it doesn't sit between detection and the reference. ──
       h('div', { class: 'section-header' },
         h('span', { class: 'section-title section-title--flush' }, 'Maintenance'),
       ),
@@ -215,10 +220,6 @@ export class ConnectTab implements Tab {
           title: 'Reset all internal state: cache, enrichment, activity log, context RIDs, history. Favorites + server profiles are kept.',
         }, 'Reset all'),
       ),
-
-      // ── Footer: version/update line, then the quiet reference ──
-      this.renderUpdateBanner(),
-      this.renderReference(),
     );
 
     render(container, ...children);

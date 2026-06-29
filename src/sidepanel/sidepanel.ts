@@ -408,7 +408,10 @@ function buildApp(): void {
   // 'needs-login' is recoverable in place (log into BMP, then retry), so it
   // gets the prominent Reconnect button alongside the hard-error states.
   const isError = ['unreachable', 'server-down', 'auth-failed', 'needs-login', 'no-config-access'].includes(S.connState.display);
-  const statusStrip = h('div', { class: `status-strip ${statusStripClass()}`, id: 'status-strip' },
+  // The connection strip lives ONLY on the Connect tab — on the other tabs it's redundant with the header
+  // status + bottom bar. (switchTab toggles this `hidden` class; the strip stays mounted so its by-id
+  // refresh keeps working.)
+  const statusStrip = h('div', { class: `status-strip ${statusStripClass()}${S.activeTab === 'connect' ? '' : ' hidden'}`, id: 'status-strip' },
     h('span', { class: `status-dot ${statusDotClass()}`, id: 'strip-dot' }),
     h('span', { class: 'status-strip-text', id: 'strip-text' }, statusStripText()),
     h('button', {
@@ -494,6 +497,8 @@ function switchTab(tab: string) {
     const panel = getTabPanel(panelName);
     if (panel) panel.classList.toggle('active', panelName === tab);
   }
+  // The connection strip is Connect-only (redundant elsewhere with the header + bottom bar).
+  app.querySelector('#status-strip')?.classList.toggle('hidden', tab !== 'connect');
 
   renderActiveTab();
 }
@@ -613,7 +618,8 @@ function statusStripText(): string {
 function refreshStatusStrip() {
   const strip = document.getElementById('status-strip');
   if (!strip) return;
-  strip.className = `status-strip ${statusStripClass()}`;
+  // Keep the Connect-only gate: a live status update must not un-hide the strip on another tab.
+  strip.className = `status-strip ${statusStripClass()}${S.activeTab === 'connect' ? '' : ' hidden'}`;
   const dot = document.getElementById('strip-dot');
   if (dot) dot.className = `status-dot ${statusDotClass()}`;
   const text = document.getElementById('strip-text');
