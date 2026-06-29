@@ -48,12 +48,9 @@ export function enableBlueprint(): void {
   ensureStyle();
   const layer = document.createElement('div');
   layer.id = 'crev-blueprint-layer';
-  const head = document.createElement('div'); head.className = 'bp-header';
-  const c = document.createElement('div'); c.className = 'bp-chip';
-  c.innerHTML = '<b>BLUEPRINT</b><span>loading…</span>';
-  head.appendChild(c); layer.appendChild(head);
   document.body.appendChild(layer);
   bp.layer = layer;
+  mountLoadingShell();
   // The layer is document-absolute, so the canvas + cards scroll natively with the page — NO scroll
   // re-render (that JS-follow was the lag + header-overshadow). Only a RESIZE needs a re-anchor (BMP
   // reflows its widgets), coalesced to one animation frame.
@@ -76,6 +73,20 @@ export function enableBlueprint(): void {
   bp.resizeObs.observe(document.body);
   bp.onKey = onKeydown;
   window.addEventListener('keydown', bp.onKey, true);
+  bp.loadedRid = rid;
+  // Browser back/forward (popstate) is a soft navigation in BMP's portal — the document stays, so our
+  // overlay survives but its loaded model is for the OLD page. Detect a PAGE change (the URL ?rid=
+  // changed) and reload the overlay onto the new page; a same-page back (only ?tabrid= changed) is left
+  // to the MutationObserver, which follows the tab. Off a BMP object entirely → tear down. (Graceful
+  // teardown only — staged edits on the old page are dropped, same as a manual reload.)
+  bp.onPop = () => {
+    if (!bp.active) return;
+    const next = extractUrlRids().rid;
+    if (!next) { disableBlueprint(); return; }
+    if (next === bp.loadedRid) return; // same page — the observer re-anchors to the new tab
+    reloadForRid(next);
+  };
+  window.addEventListener('popstate', bp.onPop);
   layer.addEventListener('mousedown', (e) => { if (e.target === layer) select(null); }); // empty space deselects
   // Watch BMP content for a tab switch (SPA — no reload): when the set of visible widget rids changes,
   // re-render so the overlay follows to the newly-shown tab. Gated by the rid signature so the overlay's
@@ -84,12 +95,42 @@ export function enableBlueprint(): void {
     if (bp.mutRaf || !bp.active) return;
     bp.mutRaf = requestAnimationFrame(() => {
       bp.mutRaf = 0;
-      if (!bp.active || !bp.baseline || bp.dragging || bp.renaming) return;
+      if (!bp.active || bp.dragging || bp.renaming) return;
+      // A different PAGE is now showing — a link-nav (pushState, no popstate) or a back/forward to
+      // another object. The loaded model is for the old page, so reload onto the new one rather than
+      // painting a stale wireframe over it. (Back/forward also fires popstate, which clears it more
+      // immediately; this catches the forward link-navs popstate misses.)
+      const urlRid = extractUrlRids().rid;
+      if (urlRid && urlRid !== bp.loadedRid) { reloadForRid(urlRid); return; }
+      if (!bp.baseline) return;
       const sig = ridSignature();
-      if (sig !== bp.ridSig) { bp.ridSig = sig; bp.viewTabId = null; render(); } // BMP switched tab → canvas follows it
+      if (sig !== bp.ridSig) { bp.ridSig = sig; bp.viewTabId = null; render(); } // same page → canvas follows the tab switch
     });
   });
   bp.observer.observe(document.body, { childList: true, subtree: true });
+  void loadPage(rid).then((ok) => { if (!ok) disableBlueprint(); });
+}
+
+/** Reset the layer to the "loading…" chip — the initial shell, and what a page-change reload shows
+ *  while the new model fetches (render() no-ops with no baseline, so it won't clear the stale canvas). */
+function mountLoadingShell(): void {
+  const layer = bp.layer; if (!layer) return;
+  layer.textContent = '';
+  const head = document.createElement('div'); head.className = 'bp-header';
+  const c = document.createElement('div'); c.className = 'bp-chip';
+  c.innerHTML = '<b>BLUEPRINT</b><span>loading…</span>';
+  head.appendChild(c); layer.appendChild(head);
+}
+
+/** Reload the overlay onto a different page (back/forward changed the URL ?rid=). Drops the stale model
+ *  + any staged edits, bumps the session gen so an in-flight load/apply from the old page can't land, and
+ *  re-loads for the new rid — tearing down if it isn't an editable page. */
+function reloadForRid(rid: string): void {
+  bp.loadedRid = rid;
+  bp.gen += 1; // invalidate any in-flight load/apply for the old page
+  bp.baseline = null; bp.ctx = null; bp.history = null; bp.selectedId = null; bp.viewTabId = null; bp.ridSig = '';
+  bp.peek = false; bp.layer?.classList.remove('bp-peek');
+  mountLoadingShell(); // clear the old page's canvas immediately (render() won't, with no baseline)
   void loadPage(rid).then((ok) => { if (!ok) disableBlueprint(); });
 }
 
@@ -105,6 +146,7 @@ export function disableBlueprint(): void {
   clearHintTimer(); // a pending flashHint render() must not fire after teardown
   if (bp.onResize) window.removeEventListener('resize', bp.onResize, true);
   if (bp.onKey) window.removeEventListener('keydown', bp.onKey, true);
+  if (bp.onPop) window.removeEventListener('popstate', bp.onPop);
   if (bp.raf) cancelAnimationFrame(bp.raf);
   if (bp.mutRaf) cancelAnimationFrame(bp.mutRaf);
   bp.observer?.disconnect();
