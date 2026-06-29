@@ -23,11 +23,11 @@ import { findNode, orderChildren, isTempId, isChart, walk, fieldsChanged } from 
 import { COMPOSITE_TYPES } from '../lib/layout/constraints';
 import {
   ICON_PLUS, ICON_CHART, ICON_TABLE, ICON_LIST, ICON_CHECK_CIRCLE, ICON_CODE,
-  ICON_LINK, ICON_PLAY, ICON_PENCIL, ICON_BOOK, ICON_LAYOUT,
+  ICON_LINK, ICON_PLAY, ICON_PENCIL, ICON_BOOK, ICON_LAYOUT, ICON_REVERT,
 } from '../lib/icons';
 import { type Rect, unionRect, setIcon, docX, docY, widgetRects } from './geometry';
 import { armBox } from './gestures';
-import { openPicker } from './actions';
+import { openPicker, toggleResetProp } from './actions';
 import { bp } from './state';
 
 /** Widget-type → Phosphor glyph, so each result cell carries a scannable icon instead of only a mono
@@ -170,6 +170,22 @@ function fillGrid(grid: HTMLElement, base: LModel, children: LNode[], parentId: 
   if (used > 0) grid.appendChild(gapCell(parentId, 6 - used, lastId));
 }
 
+/** F2: the blue revert arrow shown next to an overridden property in instance view — it IS the
+ *  indicator (this prop overrides the template) AND the control (click to stage/unstage a reset to the
+ *  template). `label` is the human word for the title (width/name/height); `prop` is the BMP name. */
+function revertArrow(node: LNode, prop: string, label: string): HTMLElement {
+  const b = document.createElement('button');
+  const staged = (node.resets ?? []).includes(prop);
+  b.className = 'bp-revert' + (staged ? ' staged' : '');
+  setIcon(b, ICON_REVERT);
+  b.title = staged
+    ? `${label}: reset staged — reverts to the template on Apply (click to cancel)`
+    : `${label} overrides the template — click to reset it to the template value`;
+  // mousedown + stopPropagation so it doesn't start a cell select/drag (overlay convention).
+  b.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); toggleResetProp(node.id, prop); });
+  return b;
+}
+
 /** One widget/container cell. Containers recurse into a nested 6-col sub-grid. */
 function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<string, Element>, reordered: ReadonlySet<string>): HTMLElement {
   const el = document.createElement('div');
@@ -190,10 +206,15 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   const lab = document.createElement('div'); lab.className = 'bp-rlab';
   const icon = typeIcon(node.className);
   if (icon) { const ic = document.createElement('span'); ic.className = 'bp-ric'; setIcon(ic, icon); lab.appendChild(ic); }
+  const over = node.overrides ?? []; // F2: props that override the template → blue revert arrows (instance view only)
   const nm = document.createElement('span'); nm.className = 'bp-rnm'; nm.textContent = node.name;
   const ty = document.createElement('span'); ty.className = 'bp-rty'; ty.textContent = node.className.toUpperCase();
-  lab.append(nm, ty);
+  lab.appendChild(nm);
+  if (over.includes('name')) lab.appendChild(revertArrow(node, 'name', 'name'));
+  lab.appendChild(ty);
   const wd = document.createElement('span'); wd.className = 'bp-rwd'; wd.textContent = node.cols.L >= 6 ? 'full' : `${node.cols.L} col`; lab.appendChild(wd);
+  if (over.includes('columnsLargeScreen')) lab.appendChild(revertArrow(node, 'columnsLargeScreen', 'width'));
+  if (over.includes('chartHeight')) lab.appendChild(revertArrow(node, 'chartHeight', 'height'));
   if (state !== 'same') {
     const tag = document.createElement('span'); tag.className = `bp-rtag st-${state}`;
     tag.textContent = state === 'moved' ? 'MOVED' : state === 'new' ? 'NEW' : 'CHANGED';

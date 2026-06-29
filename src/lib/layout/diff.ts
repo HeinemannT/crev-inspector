@@ -73,8 +73,12 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
     const name = a.node.name !== b.node.name ? b.node.name : undefined;
     // null = a cleared height (set → unset). Carried for the stale-guard, same as cols above.
     const height = a.node.height !== b.node.height ? (b.node.height ?? null) : undefined;
-    if (cols || name !== undefined || height !== undefined) {
-      steps.push({ kind: 'update', id, className: b.node.className, cols, name, height });
+    // F2: newly-staged resets (props in desired.resets that the baseline didn't have). A staged reset
+    // doesn't change the VALUE (it's reverted on apply), so it carries here even with no cols/name/height.
+    const baseResets = a.node.resets ?? [];
+    const resetProps = (b.node.resets ?? []).filter(p => !baseResets.includes(p));
+    if (cols || name !== undefined || height !== undefined || resetProps.length) {
+      steps.push({ kind: 'update', id, className: b.node.className, cols, name, height, ...(resetProps.length ? { resetProps } : {}) });
     }
     if (a.parentId !== b.parentId) {
       steps.push({ kind: 'reparent', id, nodeKind: b.node.kind, toParentId: b.parentId, toParentKind: b.parentKind });

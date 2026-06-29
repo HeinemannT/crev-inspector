@@ -46,6 +46,12 @@ export interface LNode {
   /** Authored height in px — charts (`chartHeight`) and URLView only. Undefined = content-driven. */
   height?: number;
   children: LNode[];
+  /** F2 — instance view only: BMP property names whose value OVERRIDES the linked template (this widget
+   *  is inherited via `linkedTo` and its value differs). Drives the blue revert arrows. From the fetch. */
+  overrides?: string[];
+  /** F2 — staged resets: BMP property names the user has marked to revert to the template (`.reset(p)`).
+   *  Subset of `overrides`. Staged like any edit (mutated in the model → undo/redo), applied on Apply. */
+  resets?: string[];
 }
 
 /** The whole page being edited (a Scorecard, ModelPage, or Enterprise template). */
@@ -72,7 +78,9 @@ export type PlanStep =
   // A `null` col/height means CLEARED (the value was set in the baseline and is unset in the target).
   // diff carries it so the stale-guard sees a concurrent server-side clear as drift; ec.ts does not
   // emit it (BMP has no verified clear verb — `:= MISSING` is a no-op on these fields).
-  | { kind: 'update'; id: string; className: string; cols?: Partial<Record<Breakpoint, number | null>>; name?: string; height?: number | null }
+  // `resetProps` (F2) = BMP property names to revert to the linked template via `.reset(p)` — emitted
+  // alongside (or instead of) value changes; the value itself is unchanged when only a reset is staged.
+  | { kind: 'update'; id: string; className: string; cols?: Partial<Record<Breakpoint, number | null>>; name?: string; height?: number | null; resetProps?: string[] }
   | { kind: 'reparent'; id: string; nodeKind: NodeKind; toParentId: string; toParentKind: NodeKind }
   // afterId is always a real same-kind sibling — diff anchors group[0] and reorders the rest after
   // their predecessor, so "move to first" never needs a null (it falls out of reordering the others).

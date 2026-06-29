@@ -23,6 +23,10 @@ const ecStr = (s: string): string => `"${formatEcLiteral(s)}"`;
 
 const COL_PROP: Record<Breakpoint, string> = { L: 'columnsLargeScreen', M: 'columnsMediumScreen', S: 'columnsSmallScreen' };
 
+/** F2: the only properties a reset may target — bare EC identifiers in `.reset(<prop>)`, so allowlisted
+ *  to keep the emitted EC injection-proof (kept in sync with sync.ts OVERRIDE_PROPS). */
+const RESETTABLE = new Set(['columnsLargeScreen', 'columnsMediumScreen', 'columnsSmallScreen', 'name', 'chartHeight']);
+
 /** Responsive-width suffix for an add() — M/S are only emitted when authored (else BMP defaults). */
 const colsSuffix = (cols: { L: number; M?: number; S?: number }): string =>
   (cols.M != null ? `, ${COL_PROP.M} := ${cols.M}` : '') + (cols.S != null ? `, ${COL_PROP.S} := ${cols.S}` : '');
@@ -107,10 +111,13 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         if (s.cols) (['L', 'M', 'S'] as Breakpoint[]).forEach(bp => { if (s.cols![bp] != null) parts.push(`${COL_PROP[bp]} := ${s.cols![bp]}`); });
         if (s.name != null) parts.push(`name := ${ecStr(s.name)}`);
         if (s.height != null) parts.push(`chartHeight := ${s.height}`);
-        if (!parts.length) break;
+        const resets = (s.resetProps ?? []).filter(p => RESETTABLE.has(p)); // F2 — revert override to template
+        if (!parts.length && !resets.length) break;
         const label = byId.get(s.id)?.name ?? s.id;
-        emit({ verb: 'update', text: `Update "${label}" (${parts.length} change${parts.length > 1 ? 's' : ''})`,
+        if (parts.length) emit({ verb: 'update', text: `Update "${label}" (${parts.length} change${parts.length > 1 ? 's' : ''})`,
           ec: `${ref(s.id)}.change(${parts.join(', ')})` });
+        // `.reset(<prop>)` drops the instance override so the property re-inherits the template's value.
+        for (const p of resets) emit({ verb: 'update', text: `Reset "${label}" ${p} to template`, ec: `${ref(s.id)}.reset(${p})` });
         break;
       }
       case 'reparent': {

@@ -23,6 +23,19 @@ export function resize(m: LModel, id: string, bp: Breakpoint, n: number): LModel
   return edit(m, c => { const f = findNode(c, id); if (f) f.node.cols[bp] = clampCol(n); });
 }
 
+/** F2: toggle a staged reset of `prop` (a BMP property name) on node `id`. Only a prop that actually
+ *  OVERRIDES the template (present in node.overrides) can be reset; toggling adds/removes it from
+ *  node.resets. The value is left unchanged — it reverts to the template's on apply (`.reset(prop)`). */
+export function toggleReset(m: LModel, id: string, prop: string): LModel {
+  return edit(m, c => {
+    const f = findNode(c, id);
+    if (!f || !(f.node.overrides ?? []).includes(prop)) return;
+    const resets = new Set(f.node.resets ?? []);
+    resets.has(prop) ? resets.delete(prop) : resets.add(prop);
+    f.node.resets = resets.size ? [...resets] : undefined;
+  });
+}
+
 export function setHeight(m: LModel, id: string, px: number): LModel {
   return edit(m, c => { const f = findNode(c, id); if (f && hasHeight(f.node.className)) f.node.height = Math.max(20, Math.round(px)); });
 }

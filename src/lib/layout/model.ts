@@ -88,7 +88,7 @@ export interface ReconstructCtx {
   tabScope?: 'all' | 'withContent';
 }
 
-export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx): LModel {
+export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx, overrides?: Map<string, string[]>): LModel {
   const byRid = new Map<string, WireNode>();
   for (const n of nodes) byRid.set(n.rid, n);
 
@@ -102,8 +102,10 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx): LM
 
   const build = (wire: WireNode): LNode => {
     const kids = (childrenOf.get(wire.rid) ?? []).map(build);
+    const id = wire.businessId ?? wire.rid;
+    const ovr = overrides?.get(id);
     return {
-      id: wire.businessId ?? wire.rid,
+      id,
       rid: wire.rid,
       kind: kindOf(wire.type),
       className: wire.type,
@@ -114,6 +116,7 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx): LM
         ...(wire.columnsSmallScreen != null ? { S: wire.columnsSmallScreen } : {}),
       },
       ...(wire.chartHeight != null ? { height: wire.chartHeight } : {}),
+      ...(ovr && ovr.length ? { overrides: ovr } : {}),
       children: orderChildren(kids),
     };
   };
@@ -154,7 +157,12 @@ export function cloneModel(m: LModel): LModel {
   return { ...m, tabs: m.tabs.map(cloneNode) };
 }
 export function cloneNode(n: LNode): LNode {
-  return { ...n, cols: { ...n.cols }, children: n.children.map(cloneNode) };
+  return {
+    ...n, cols: { ...n.cols },
+    ...(n.overrides ? { overrides: [...n.overrides] } : {}),
+    ...(n.resets ? { resets: [...n.resets] } : {}),
+    children: n.children.map(cloneNode),
+  };
 }
 
 export interface Found {

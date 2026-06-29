@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { LayoutNode as WireNode } from '../../types';
 import type { LModel, LNode } from '../types';
 import { reconstruct, findNode, descendantWidgets, isChart, isResultTab } from '../model';
-import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, isAncestorOf } from '../edit';
+import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, isAncestorOf, toggleReset } from '../edit';
 import { diff, summarizeChanges } from '../diff';
 import { compile } from '../ec';
 import { lint } from '../constraints';
@@ -103,6 +103,44 @@ describe('model.reconstruct', () => {
     expect(box.cols.L).toBe(3);
     expect(box.children.map(c => c.id)).toEqual(['456', '457']); // nested under the container
     expect(result.children.map(c => c.id)).not.toContain('456'); // not also siblings on Result
+  });
+});
+
+describe('F2 reset overrides (instance → template)', () => {
+  // A small one-widget model whose widget overrides the template on width + name.
+  const overModel = (): LModel => reconstruct(
+    [
+      { rid: 'r_ts', businessId: 'ts1', type: 'TabSet' },
+      { rid: 'r_tab', businessId: 'tab1', type: 'Tab', parentRid: 'r_ts', columnsLargeScreen: 6, name: 'T' },
+      { rid: 'r_w', businessId: 'w1', type: 'BarChart', containerRid: 'r_tab', columnsLargeScreen: 2, name: 'W' },
+    ],
+    { pageId: '4957', tabsetId: 'ts1' },
+    new Map([['w1', ['columnsLargeScreen', 'name']]]),
+  );
+
+  it('attaches overrides to the node from the override map', () => {
+    expect(findNode(overModel(), 'w1')!.node.overrides).toEqual(['columnsLargeScreen', 'name']);
+  });
+
+  it('toggleReset stages only an overridden prop, and toggles off', () => {
+    const m = overModel();
+    const staged = toggleReset(m, 'w1', 'columnsLargeScreen');
+    expect(findNode(staged, 'w1')!.node.resets).toEqual(['columnsLargeScreen']);
+    expect(findNode(toggleReset(staged, 'w1', 'columnsLargeScreen'), 'w1')!.node.resets).toBeUndefined();
+    // a prop that doesn't override the template can't be staged
+    expect(findNode(toggleReset(m, 'w1', 'chartHeight'), 'w1')!.node.resets).toBeUndefined();
+  });
+
+  it('diff → compile emits .reset(<prop>) for a staged reset, with no value change', () => {
+    const base = overModel();
+    const desired = toggleReset(toggleReset(base, 'w1', 'columnsLargeScreen'), 'w1', 'name');
+    const plan = diff(base, desired);
+    const upd = plan.find(s => s.kind === 'update');
+    expect(upd).toMatchObject({ id: 'w1', resetProps: ['columnsLargeScreen', 'name'] });
+    const { script } = compile(plan, desired);
+    expect(script).toContain('t.w1.reset(columnsLargeScreen)');
+    expect(script).toContain('t.w1.reset(name)');
+    expect(script).not.toContain('.change(');   // a staged reset doesn't change the value
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  buildFetchEc, parseFetchLog, loadModel, applyModel,
+  buildFetchEc, parseFetchLog, parseOverrides, loadModel, applyModel,
   resolvePageContext, buildCreateTabsetEc, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
 } from '../sync';
 import { addContainer, rename } from '../edit';
@@ -75,6 +75,16 @@ describe('sync.buildFetchEc', () => {
   it('rejects an unsafe rid / business id (no EC injection)', () => {
     expect(() => buildFetchEc({ ...CTX, pageRid: '1); delete()' })).toThrow(/Invalid RID/);
     expect(() => buildFetchEc({ ...CTX, tabsetId: 't"; x' })).toThrow(/Invalid business id/);
+  });
+  it('emits the F2 override channel for an inherited widget + parseOverrides reads it', () => {
+    const ec = buildFetchEc(CTX);
+    expect(ec).toContain('<<<CREV_OVER>>>');                // the channel is emitted
+    expect(ec).toContain('_w.columnsLargeScreen.whenMissing("") <> _lt.columnsLargeScreen'); // compares vs linkedTo
+    // parser: only OVER lines are read, layout (SEP) lines are ignored; props split on comma.
+    const log = `${SEP}${toWire('1|w1|W|BarChart|451|cell|2|6|6')}\n<<<CREV_OVER>>>w1|columnsLargeScreen,name\n`;
+    const map = parseOverrides(log);
+    expect(map.get('w1')).toEqual(['columnsLargeScreen', 'name']);
+    expect(parseFetchLog(log).map(n => n.businessId)).toEqual(['w1']); // layout parser unaffected by OVER lines
   });
   it('resultOnly: emits the Result tab + org widgets only — NOT default_tabset\'s shared scaffold', () => {
     const ec = buildFetchEc({ ...CTX, resultOnly: true });

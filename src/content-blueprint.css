@@ -376,6 +376,12 @@
 #crev-blueprint-layer .bp-rnm{font:600 12.5px/1.2 'BPInter',sans-serif;color:var(--bp-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 #crev-blueprint-layer .bp-rty{font:500 8.5px var(--bp-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--bp-muted);flex:none}
 #crev-blueprint-layer .bp-rwd{margin-left:auto;font:500 8.5px var(--bp-mono);color:var(--bp-muted);flex:none}
+/* F2 revert arrow — blue. Indicates a property overrides the template AND resets it on click; the
+   filled .staged state shows a reset is queued for Apply. flex:none so it never stretches the label. */
+#crev-blueprint-layer .bp-revert{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;height:16px;padding:0;margin:0 0 0 2px;border:0;border-radius:var(--bp-r);background:transparent;color:var(--bp-cyan-hi);cursor:pointer}
+#crev-blueprint-layer .bp-revert svg{width:11px;height:11px;display:block}
+#crev-blueprint-layer .bp-revert:hover{background:rgba(21,101,192,.16)}
+#crev-blueprint-layer .bp-revert.staged{background:var(--bp-cyan-hi);color:#fff}
 /* state = an OUTLINED revision mark (no fill), coloured by kind */
 /* state pill — a SOLID filled badge (like the draft's), uppercase mono, white text, clearly legible */
 #crev-blueprint-layer .bp-rtag{font:700 9px var(--bp-mono);letter-spacing:.04em;text-transform:uppercase;padding:1px 5px;border-radius:var(--bp-r);border:0;color:#fff;flex:none}

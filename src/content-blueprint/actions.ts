@@ -8,7 +8,7 @@
  * functions (never at module-init), so ESM resolves the cycle cleanly.
  */
 import { findNode, isTempId } from '../lib/layout/model';
-import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, findTabOf } from '../lib/layout/edit';
+import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, findTabOf, toggleReset } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { compile } from '../lib/layout/ec';
 import { History } from '../lib/layout/history';
@@ -53,6 +53,8 @@ export function viewTab(id: string): void {
   bp.viewTabId = id; bp.selectedId = id; render();
 }
 export function setWidth(id: string, n: number): void { const m = model(); if (m) mutate(resize(m, id, 'L', n)); }
+/** F2: stage/unstage a reset of one overridden property back to the template (the blue revert arrow). */
+export function toggleResetProp(id: string, prop: string): void { const m = model(); if (m) mutate(toggleReset(m, id, prop)); }
 export function setH(id: string, px: number): void { const m = model(); if (m) mutate(setHeight(m, id, px)); }
 export function doRename(id: string, name: string): void {
   const m = model(); if (!m) return;

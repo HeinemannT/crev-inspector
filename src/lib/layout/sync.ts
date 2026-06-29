@@ -75,6 +75,10 @@ export interface ApplyResult {
 
 const SEP = LAYOUT_SEP;          // shared wire marker (see layout-wire.ts)
 const CTX = '<<<CREV_CTX>>>';
+const OVER = '<<<CREV_OVER>>>';  // F2: per-widget override channel — `<OVER>bid|prop1,prop2` lines, parsed separately from the layout wire
+/** BMP property names whose instance value can override the linked template (and be reset). Kept in
+ *  sync with the editable scalar fields the blueprint shows: width, name, chart height. */
+const OVERRIDE_PROPS = ['columnsLargeScreen', 'name', 'chartHeight'] as const;
 // Shared EC id/rid sanitisation (the same guards the other EC generators use).
 const ecBid = validateBusinessId;
 const ecRid = validateRid;
@@ -104,12 +108,28 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
   // (portal placement). A widget bound to the Result tab keeps that binding so it attaches to the Result
   // tab node. Skip ActionButtons flagged displayOnActionMenu — BMP renders those in the page's action
   // MENU, not the grid, so they're not part of the editable layout. Shared by both fetch shapes.
+  // F2 override channel: for an inherited widget (linkedTo a template counterpart), emit a separate
+  // `<OVER>bid|prop,...` line listing the props whose value differs from the template — the parser picks
+  // these up independently of the layout wire (they sit on a different marker, so parseLayoutNodes skips
+  // them). Empty for local widgets and for template-mode loads (the template's widgets have no linkedTo).
+  const overEmit = [
+    `          _lt := _w.linkedTo`,
+    `          IF _lt.rid.whenMissing("") <> "" THEN`,
+    `               _ovr := ""`,
+    ...OVERRIDE_PROPS.map(p =>
+      `               IF _w.${p}.whenMissing("") <> _lt.${p}.whenMissing("") THEN _ovr := _ovr + "${p}," ELSE _ovr := _ovr ENDIF`),
+    `               IF _ovr <> "" THEN _r := _r + "${OVER}" + _w.id.whenMissing("") + "|" + _ovr + "\\n" ELSE _r := _r ENDIF`,
+    `          ELSE`,
+    `               _r := _r`,
+    `          ENDIF`,
+  ];
   const orgLoop = [
     `_sc.descendants().forEach(_w:`,
     `     IF _w.className.whenMissing("") = "ActionButton" AND _w.displayOnActionMenu.whenMissing(false) = true THEN`,
     `          _r := _r`,
     `     ELSE`,
     `          _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
+    ...overEmit,
     `     ENDIF`,
     `)`,
   ];
@@ -157,6 +177,19 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
 
 /** Parse the merged-fetch log into wire nodes — the shared layout wire parser (see layout-wire.ts). */
 export const parseFetchLog = parseLayoutNodes;
+
+/** Parse the F2 override channel (`<OVER>bid|prop,prop` lines) into a businessId → prop-names map. It
+ *  rides the same log as the layout wire but on a distinct marker, so the two parsers read it
+ *  independently (parseLayoutNodes only looks at SEP blocks). */
+export function parseOverrides(log: string): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const block of (log || '').split(OVER).slice(1)) {
+    const [bid, props] = (block.split('\n', 1)[0] ?? '').trim().split('|');
+    const list = (props ?? '').split(',').filter(Boolean);
+    if (bid && list.length) map.set(bid, list);
+  }
+  return map;
+}
 
 /** Orphans = widget-ish nodes the reconstruct couldn't place (their owner wasn't a layout node
  *  — typically the scorecard itself, i.e. a widget left on the phantom RESULT tab). Found by
@@ -351,9 +384,11 @@ export async function createTabsetAndLoad(io: LayoutIO, page: NeedsTabset, name:
 export async function loadModel(io: LayoutIO, ctx: BlueprintCtx): Promise<LoadResult> {
   const res = await io.exec(buildFetchEc(ctx));
   if (!res.ok) throw new Error(res.error || 'layout fetch failed');
-  const nodes = parseFetchLog(res.log ?? '');
-  const model = reconstruct(nodes, ctx);
-  const baseline = reconstruct(nodes, ctx); // independent clone — diff target, never mutated
+  const log = res.log ?? '';
+  const nodes = parseFetchLog(log);
+  const overrides = parseOverrides(log); // F2: per-widget overridden props (instance view → reset arrows)
+  const model = reconstruct(nodes, ctx, overrides);
+  const baseline = reconstruct(nodes, ctx, overrides); // independent clone — diff target, never mutated
   return { model, baseline, orphans: findOrphans(nodes, model) };
 }
 
