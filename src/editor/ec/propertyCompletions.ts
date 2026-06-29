@@ -19,7 +19,8 @@
  */
 import type { CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import type { TypeSchemaProp, TypeOptionSet } from '../../lib/types';
-import { getInference, getSchema, intersectionSchema, ensureSchemaNow, getOption, getOptions, ensureOptionsNow, subscribe } from './typeInference';
+import { getInference, getSchema, intersectionSchema, ensureSchemaNow, getOption, getOptions, ensureOptionsNow, getRefType, ensureRefType, subscribe } from './typeInference';
+import { ID_SPACE_PREFIXES } from '../../lib/ec-grammar';
 
 /** BMP class names are PascalCase, and the SW schema/options guard requires it,
  *  but EC accepts a camelCase SELECT target (`SELECT ceRiskAssessment`). Upper-
@@ -75,6 +76,18 @@ const ELEMENT_CONTEXT_METHODS = new Set([
   'table', 'addColumn', 'addRow', 'map', 'forEach', 'filter', 'calculate',
   'as', 'sort', 'sortReverse', 'groupBy', 'distinct', 'sum', 'avg', 'min', 'max', 'count',
 ]);
+
+/** Chain methods that collapse a list to ONE element at a dot-member position,
+ *  so `<list>.first().<prop>` offers the element's properties. Element type is
+ *  the receiver list's element type (same as inferredTypes(root)). `ancestor` is
+ *  handled separately — its type comes from the call argument, not the receiver. */
+const PICK_ONE_DOT = new Set(['first', 'last', 'item']);
+
+/** Max accessor hops past the `prefix.bid` of a concrete reference path that the
+ *  nested-hop resolver will navigate (`ceras.foo.parent` = 1, `…parent.owner` = 2).
+ *  A guardrail: each hop is an O(1) single-object server nav, but bounding depth
+ *  keeps the injected EC tiny and the blast radius small. */
+const MAX_REF_HOPS = 2;
 
 /** Comparators that mark a VALUE position (so a property-name source must not fire). */
 const VALUE_POS_RE = /[=<>!]|\b(?:CONTAINS|IN)\b/i;
@@ -220,9 +233,103 @@ export function findWhereClass(window: string): string | null {
   return last[1];
 }
 
+/** (D) General `<object>.<prop>` dot-member position. The unifying "identify the
+ *  object on the left of the dot" resolver: returns the SINGLE object's type(s)
+ *  — or a `ref` string to resolve async — when the expression immediately left of
+ *  the dot at `wordStart` denotes one object. Handles:
+ *    - scalar var          `_obj.`              → its inferred type
+ *    - pick-one chain      `_l.first().`        → the list's element type
+ *    - ancestor cast       `_o.ancestor(T).`    → T
+ *    - self                `self.`              → enclosing list element type
+ *    - ns.bid reference    `ceras.foo.`         → resolved async via getRefType
+ *    - CONCRETE nested hop `ceras.foo.parent.`  → resolved async (≤ MAX_REF_HOPS)
+ *  Returns null for list receivers (those want methods — extendedCompletions owns
+ *  that) and for nested hops off a NON-concrete base (`_obj.someRef.` /
+ *  `_l.first().parent.`): resolving those would require a SELECT scan, which we
+ *  refuse so a big workspace can't be hammered. Nested hops silently yield nothing
+ *  when the reference is empty on the object — by design. `wordStart` is line-local
+ *  (member access never wraps lines). */
+export function resolveDotMember(text: string, wordStart: number): { types?: string[]; ref?: string } | null {
+  if (wordStart < 1 || text[wordStart - 1] !== '.') return null;
+  let i = wordStart - 2; // char before the dot
+  while (i >= 0 && /\s/.test(text[i])) i--;
+  if (i < 0) return null;
+
+  // ── Call-chain receiver: `… .first()` / `.last()` / `.item(n)` / `.ancestor(T)`.
+  if (text[i] === ')') {
+    let depth = 0;
+    let j = i;
+    for (; j >= 0; j--) {
+      if (text[j] === ')') depth++;
+      else if (text[j] === '(') { depth--; if (depth === 0) break; }
+    }
+    if (j < 0) return null;
+    const argText = text.slice(j, i + 1); // `(...)` of the last call
+    let m = j - 1;
+    while (m >= 0 && /\s/.test(text[m])) m--;
+    const methodEnd = m;
+    while (m >= 0 && /\w/.test(text[m])) m--;
+    const method = text.slice(m + 1, methodEnd + 1);
+    if (m < 0 || text[m] !== '.') return null; // not a `.method()` call
+
+    // `.ancestor(T)` → scalar of the argument type, independent of the receiver.
+    if (method === 'ancestor') {
+      const arg = /^\(\s*([A-Za-z][A-Za-z0-9_]*)\s*\)$/.exec(argText.trim());
+      return arg ? { types: [pascal(arg[1])] } : null;
+    }
+    // Pick-one collapse: element type = the root list var's element type.
+    if (PICK_ONE_DOT.has(method)) {
+      const root = chainRoot(text, m - 1);
+      const types = root ? inferredTypes(root) : null;
+      return types ? { types } : null;
+    }
+    // filter/sort/children/descendants/… stay lists — offer methods, not props.
+    return null;
+  }
+
+  // ── Dotted-identifier receiver: ns.bid[.accessor…] | self | scalar var.
+  // Take the maximal trailing dotted identifier path left of the dot. A call
+  // (`(`/`)`) or any non-[\w.] char terminates the match, so a list- or
+  // call-rooted receiver (`_l.first().parent`) never lands here — it's handled
+  // by the call-chain branch above or rejected.
+  if (!/[\w.]/.test(text[i])) return null;
+  const pathMatch = /[A-Za-z_][\w.]*$/.exec(text.slice(0, i + 1));
+  if (!pathMatch) return null;
+  const segs = pathMatch[0].split('.');
+  if (segs.some(s => s.length === 0)) return null; // trailing/double dot — not a path
+
+  // ns.bid[.accessor…] — a CONCRETE single-object navigation from a known ID
+  // space. Resolve its class async (one O(1) server nav, cached). This is the
+  // ONLY nested-hop shape we resolve: a literal namespace root means no SELECT /
+  // mass scan is ever needed. Depth is capped so the injected EC stays tiny.
+  if (segs.length >= 2 && ID_SPACE_PREFIXES.has(segs[0])) {
+    const hops = segs.length - 2; // accessors after `prefix.bid`
+    if (hops > MAX_REF_HOPS) return null; // guardrail: bound navigation depth
+    return { ref: pathMatch[0] };
+  }
+
+  // Standalone single identifier: `self` (enclosing list element) or a var.
+  if (segs.length === 1) {
+    const ident = segs[0];
+    if (ident === 'self') {
+      const types = resolveSelfType(text, i - ident.length + 1);
+      return types ? { types } : null;
+    }
+    const inf = getInference(ident);
+    // Only a SCALAR var is one object whose props we offer. A list var at a bare
+    // dot wants methods (.first/.filter/…), owned by extendedCompletions.
+    return inf && inf.kind === 'scalar' ? { types: [inf.type] } : null;
+  }
+
+  // Multi-segment without a known namespace root (`_obj.someRef.`): a nested hop
+  // off a non-concrete base. The base isn't a single resolvable object and the
+  // target class is data-dependent — deliberately unsupported (no mass scan).
+  return null;
+}
+
 /** Resolve the applicable class(es) + the word-start offset at the cursor, or
  *  null when the cursor is not at a property-accessor position. */
-function resolveContext(state: CompletionContext['state'], pos: number): { types: string[]; from: number; method?: string } | null {
+function resolveContext(state: CompletionContext['state'], pos: number): { types?: string[]; ref?: string; from: number; method?: string; member?: boolean } | null {
   const line = state.doc.lineAt(pos);
   const offset = pos - line.from;
   if (insideString(line.text, offset)) return null;
@@ -246,18 +353,12 @@ function resolveContext(state: CompletionContext['state'], pos: number): { types
     return { types, from, method: call.method };
   }
 
-  // (C) bare `self.<prop>` dot-member — offer the element type's properties so
-  // `self.title` works like `self.ref(...)`. Composes with extendedCompletions
-  // (which adds the method list after the dot). Only when `self` is standalone.
-  const SELF_DOT = 'self.';
-  if (wordStart >= SELF_DOT.length && line.text.slice(wordStart - SELF_DOT.length, wordStart) === SELF_DOT) {
-    const selfAt = wordStart - SELF_DOT.length;
-    const before = selfAt - 1;
-    if (before < 0 || !/[\w.]/.test(line.text[before])) {
-      const types = resolveSelfType(line.text, selfAt);
-      if (types) return { types, from };
-    }
-  }
+  // (D) General `<object>.<prop>` dot-member — the unified resolver. Covers
+  // `self.title`, a scalar var's `_obj.title`, a pick-one chain
+  // `_list.first().title`, and a `ns.bid` reference `ceras.foo.title` (async).
+  // Composes with extendedCompletions, which adds the method list after the dot.
+  const member = resolveDotMember(line.text, wordStart);
+  if (member) return { ...member, from, member: true };
 
   // (B) WHERE property-name position. Scan a bounded window back from the word
   // so a SELECT on a previous line is still found, without walking the whole doc.
@@ -272,7 +373,7 @@ function lookup(types: string[]): TypeSchemaProp[] | undefined {
   return types.length > 1 ? intersectionSchema(types) : getSchema(types[0]);
 }
 
-function build(props: TypeSchemaProp[], from: number, method?: string): CompletionResult | null {
+function build(props: TypeSchemaProp[], from: number, method?: string, member?: boolean): CompletionResult | null {
   const filtered = method ? props.filter(p => propFilterFor(method)(p.configClass)) : props;
   if (!filtered.length) return null;
   return {
@@ -281,8 +382,14 @@ function build(props: TypeSchemaProp[], from: number, method?: string): Completi
       label: p.accessor,
       detail: p.label || (p.systemobject ? 'system' : 'property'),
       type: 'property',
-      // Custom properties rank above system ones (id/name/parent/…).
-      boost: p.systemobject ? -1 : 1,
+      // Custom props always rank above system ones (id/name/parent/…). In a
+      // `obj.` DOT-MEMBER position the user explicitly referenced an object and
+      // wants its fields, so the WHOLE property set outranks the generic method
+      // list that extendedCompletions adds at boost 0 (custom +2, system +1) —
+      // otherwise an object with only system props (e.g. Organisation) buries
+      // `name`/`id`/`location` below ~30 methods. In a WHERE / method-arg slot
+      // there are no competing methods, so the original ±1 split is kept.
+      boost: member ? (p.systemobject ? 1 : 2) : (p.systemobject ? -1 : 1),
     })),
     validFor: /^[\w]*$/,
   };
@@ -292,7 +399,12 @@ function build(props: TypeSchemaProp[], from: number, method?: string): Completi
  *  data is already cached; else kick `ensure()` and resolve once a typeInference
  *  `notify()` makes it available. `giveUp()` (optional) short-circuits to null
  *  when we can prove the data will never match (e.g. options loaded but the prop
- *  isn't a list). 2s timeout + abort handling so nothing leaks or dangles. */
+ *  isn't a list). 2s timeout + abort handling so nothing leaks or dangles.
+ *
+ *  `ensure()` is idempotent (every cache-fill it calls guards on has/inflight)
+ *  and is re-run on each `notify()` so MULTI-STAGE sources make progress: the
+ *  dot-member ref path first resolves `ns.bid` → class, and only the next
+ *  `ensure()` pass — now that the class is known — fetches that class's schema. */
 function awaitCompletion(
   context: CompletionContext,
   tryBuild: () => CompletionResult | null,
@@ -309,10 +421,19 @@ function awaitCompletion(
       if (context.aborted) { cleanup(); resolve(null); return; }
       const r = tryBuild();
       if (r) { cleanup(); resolve(r); return; }
-      if (giveUp && giveUp()) { cleanup(); resolve(null); }
+      if (giveUp && giveUp()) { cleanup(); resolve(null); return; }
+      ensure(); // advance to the next stage now that more data has landed
     });
     const cleanup = () => { clearTimeout(timeout); unsubscribe(); };
   });
+}
+
+/** Concrete type(s) for a resolveContext result: the synchronous `types`, or the
+ *  class a `ns.bid` ref has resolved to (undefined until HOVER_RESOLVE lands). */
+function ctxTypes(ctx: { types?: string[]; ref?: string }): string[] | undefined {
+  if (ctx.types) return ctx.types;
+  if (ctx.ref) { const t = getRefType(ctx.ref); if (t) return [t]; }
+  return undefined;
 }
 
 export function propertyCompletions(context: CompletionContext): CompletionResult | Promise<CompletionResult | null> | null {
@@ -320,8 +441,16 @@ export function propertyCompletions(context: CompletionContext): CompletionResul
   if (!ctx) return null;
   return awaitCompletion(
     context,
-    () => { const p = lookup(ctx.types); return p ? build(p, ctx.from, ctx.method) : null; },
-    () => ctx.types.forEach(ensureSchemaNow),
+    () => { const ts = ctxTypes(ctx); if (!ts) return null; const p = lookup(ts); return p ? build(p, ctx.from, ctx.method, ctx.member) : null; },
+    () => {
+      // Stage 1 (ref path only): resolve ns.bid → class. Stage 2: fetch schema
+      // once the class is known. ensure() re-runs per notify, so both progress.
+      if (ctx.ref) ensureRefType(ctx.ref);
+      const ts = ctxTypes(ctx);
+      if (ts) ts.forEach(ensureSchemaNow);
+    },
+    // A ref that BMP resolved to no class will never yield props — stop waiting.
+    () => ctx.ref !== undefined && getRefType(ctx.ref) === null,
   );
 }
 

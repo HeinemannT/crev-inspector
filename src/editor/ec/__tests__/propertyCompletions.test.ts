@@ -7,7 +7,7 @@
  * value source owns those.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { findAccessorCall, findWhereClass, parseComparison, chainRoot, resolveSelfType } from '../propertyCompletions';
+import { findAccessorCall, findWhereClass, parseComparison, chainRoot, resolveSelfType, resolveDotMember } from '../propertyCompletions';
 import { scanDocForInferences, _resetForTests } from '../typeInference';
 
 /** Build the minimal doc-like object scanDocForInferences expects from a string. */
@@ -182,5 +182,103 @@ describe('resolveSelfType', () => {
 
   it('returns null when the receiver is not a tracked var', () => {
     expect(resolveSelfType('unknown.table(self.', 'unknown.table('.length)).toBeNull();
+  });
+});
+
+describe('resolveDotMember', () => {
+  beforeEach(() => _resetForTests());
+
+  // `at` = the offset where the partial property word starts (right after the dot).
+  const at = (line: string) => line.length;
+
+  it('returns null when the cursor is not immediately after a dot', () => {
+    expect(resolveDotMember('_obj', 4)).toBeNull();
+    expect(resolveDotMember('_obj ', 5)).toBeNull();
+  });
+
+  it('offers props for a tracked SCALAR var (_obj.<prop>)', () => {
+    scanDocForInferences(docOf('_l := SELECT CeRiskAssessment\n_o := _l.first()'));
+    const line = '_o.';
+    expect(resolveDotMember(line, at(line))).toEqual({ types: ['CeRiskAssessment'] });
+  });
+
+  it('stays silent for a LIST var at a bare dot (methods, not props)', () => {
+    scanDocForInferences(docOf('_l := SELECT CeRiskAssessment'));
+    const line = '_l.';
+    expect(resolveDotMember(line, at(line))).toBeNull();
+  });
+
+  it('collapses an inline .first()/.last() chain to the element type', () => {
+    scanDocForInferences(docOf('_l := SELECT CeRiskAssessment'));
+    expect(resolveDotMember('_l.first().', '_l.first().'.length)).toEqual({ types: ['CeRiskAssessment'] });
+    expect(resolveDotMember('_l.last().', '_l.last().'.length)).toEqual({ types: ['CeRiskAssessment'] });
+  });
+
+  it('collapses a multi-step chain (.filter(...).first()) to the element type', () => {
+    scanDocForInferences(docOf('_l := SELECT CeRiskAssessment'));
+    const line = '_l.filter(subtype = t.master).first().';
+    expect(resolveDotMember(line, line.length)).toEqual({ types: ['CeRiskAssessment'] });
+  });
+
+  it('stays silent for a list-returning chain (.filter() with no pick-one)', () => {
+    scanDocForInferences(docOf('_l := SELECT CeRiskAssessment'));
+    const line = '_l.filter(subtype = t.master).';
+    expect(resolveDotMember(line, line.length)).toBeNull();
+  });
+
+  it('types an .ancestor(T) chain from the call argument', () => {
+    const line = '_o.ancestor(Organisation).';
+    expect(resolveDotMember(line, line.length)).toEqual({ types: ['Organisation'] });
+  });
+
+  it('returns a ref for a ns.bid reference (ceras.foo.<prop>) — resolved async', () => {
+    const line = 'ceras.stmt_supplier_failure.';
+    expect(resolveDotMember(line, line.length)).toEqual({ ref: 'ceras.stmt_supplier_failure' });
+  });
+
+  it('returns a nav-path ref for a CONCRETE nested hop (ceras.foo.parent.<prop>)', () => {
+    const line = 'ceras.stmt_supplier_failure.owning_org.';
+    expect(resolveDotMember(line, line.length)).toEqual({ ref: 'ceras.stmt_supplier_failure.owning_org' });
+  });
+
+  it('resolves a nested hop up to MAX_REF_HOPS (2) but not beyond', () => {
+    const ok = 'ceras.foo.parent.owner.'; // 2 hops past the bid
+    expect(resolveDotMember(ok, ok.length)).toEqual({ ref: 'ceras.foo.parent.owner' });
+    const tooDeep = 'ceras.foo.parent.owner.org.'; // 3 hops → refused
+    expect(resolveDotMember(tooDeep, tooDeep.length)).toBeNull();
+  });
+
+  it('does NOT treat a non-namespace receiver as a ref', () => {
+    // `notns` is not an ID-space prefix, so `notns.foo.` is a nested hop — unsupported.
+    const line = 'notns.foo.';
+    expect(resolveDotMember(line, line.length)).toBeNull();
+  });
+
+  it('refuses a nested hop off a NON-concrete base (_obj.someRef.<prop>) — would need a SELECT scan', () => {
+    scanDocForInferences(docOf('_l := SELECT CeRiskAssessment\n_o := _l.first()'));
+    const line = '_o.owner_reference.';
+    expect(resolveDotMember(line, line.length)).toBeNull();
+  });
+
+  it('refuses a nested hop off a call-rooted base (_l.first().parent.)', () => {
+    scanDocForInferences(docOf('_l := SELECT CeRiskAssessment'));
+    const line = '_l.first().parent.';
+    expect(resolveDotMember(line, line.length)).toBeNull();
+  });
+
+  it('does NOT treat a prefix after a dot as a ns.bid (obj.ceras.x)', () => {
+    const line = 'obj.ceras.x.';
+    expect(resolveDotMember(line, line.length)).toBeNull();
+  });
+
+  it('resolves self.<prop> to the enclosing element type', () => {
+    scanDocForInferences(docOf('_l := SELECT Foo'));
+    const line = '_l.table(self.';
+    expect(resolveDotMember(line, line.length)).toEqual({ types: ['Foo'] });
+  });
+
+  it('stays silent for an unknown/untracked scalar var', () => {
+    const line = '_mystery.';
+    expect(resolveDotMember(line, line.length)).toBeNull();
   });
 });

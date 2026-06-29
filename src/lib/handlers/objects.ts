@@ -156,33 +156,44 @@ function extractCachedCode(obj: BmpObject): string | undefined {
   return code.length > 500 ? code.slice(0, 500) : code;
 }
 
+/** A `namespace.businessId` reference, optionally followed by accessor hops
+ *  (`ceras.foo.parent.owning_org`). This is interpolated raw into `_o := <ref>`,
+ *  so it is an EC-injection surface: lock it to a lowercase-prefixed dotted
+ *  navigation path — no spaces, parens, operators, quotes, or statement
+ *  separators can pass. The client validates first; this is the server backstop.
+ *  Hop count is generous (the client enforces the real policy cap). */
+const HOVER_REF_RE = /^[a-z]{1,6}\.[A-Za-z0-9_]+(?:\.[A-Za-z_]\w*){0,6}$/;
+
 register('HOVER_RESOLVE', async (msg, respond) => {
   const ctx = getCtx();
-  if (!ctx.client) { respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref }); return; }
-    try {
-      // EC: resolve namespace.bid reference to identity + code preview in one call.
-      // output() returns raw text without evaluating the expression.
-      // Code is only fetched for known code-bearing types (IF/ELSE guards).
-      const ec = buildHoverResolveEc(msg.ref);
-      const result = await ctx.client.executeEc(ec, undefined, false);
-      if (!result.ok || !result.log?.includes('|||')) {
-        respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref });
-        return;
-      }
-      const line = result.log.trim().split('\n').find(l => l.includes('|||'));
-      if (!line) { respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref }); return; }
-      const parts = line.split('|||').map(s => s.trim());
-      const codeRaw = parts.slice(4).join('|||').trim(); // code may contain ||| inside
-      const codePreview = codeRaw && codeRaw.length > 500 ? codeRaw.slice(0, 500) : (codeRaw || undefined);
-      respond({
-        type: 'HOVER_RESOLVE_RESULT', ref: msg.ref,
-        name: parts[0] || undefined, objectType: parts[1] || undefined,
-        rid: parts[2] || undefined, businessId: parts[3] || undefined,
-        codePreview,
-      });
-    } catch {
+  if (!ctx.client || typeof msg.ref !== 'string' || !HOVER_REF_RE.test(msg.ref)) {
+    respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref });
+    return;
+  }
+  try {
+    // EC: resolve namespace.bid reference to identity + code preview in one call.
+    // output() returns raw text without evaluating the expression.
+    // Code is only fetched for known code-bearing types (IF/ELSE guards).
+    const ec = buildHoverResolveEc(msg.ref);
+    const result = await ctx.client.executeEc(ec, undefined, false);
+    if (!result.ok || !result.log?.includes('|||')) {
       respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref });
+      return;
     }
+    const line = result.log.trim().split('\n').find(l => l.includes('|||'));
+    if (!line) { respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref }); return; }
+    const parts = line.split('|||').map(s => s.trim());
+    const codeRaw = parts.slice(4).join('|||').trim(); // code may contain ||| inside
+    const codePreview = codeRaw && codeRaw.length > 500 ? codeRaw.slice(0, 500) : (codeRaw || undefined);
+    respond({
+      type: 'HOVER_RESOLVE_RESULT', ref: msg.ref,
+      name: parts[0] || undefined, objectType: parts[1] || undefined,
+      rid: parts[2] || undefined, businessId: parts[3] || undefined,
+      codePreview,
+    });
+  } catch {
+    respond({ type: 'HOVER_RESOLVE_RESULT', ref: msg.ref });
+  }
 });
 
 // ── Type-schema fetch ───────────────────────────────────────────
