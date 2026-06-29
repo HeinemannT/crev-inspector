@@ -8,11 +8,41 @@ import { getAllRidElements } from '../lib/dom-scanner';
 
 export interface Rect { left: number; top: number; width: number; height: number; }
 
+// ── viewport → document space ────────────────────────────────────────────────
+// The blueprint layer is position:absolute at the document origin, so it scrolls natively with the
+// page. Every element anchored to live BMP content is measured in VIEWPORT space (getBoundingClientRect)
+// and must be placed in DOCUMENT space (+ scroll offset). These three helpers are the ONE place that
+// conversion happens, so it can't drift across the box builders.
+
+/** Document-space X / Y for a viewport coordinate. */
+export const docX = (x: number): number => x + window.scrollX;
+export const docY = (y: number): number => y + window.scrollY;
+
+/** Place an absolutely-positioned overlay box from a VIEWPORT rect, converting to document space.
+ *  `inflate` grows the box on all sides (a container frame draws a few px outside its child union). */
+export function placeDoc(el: HTMLElement, r: Rect, inflate = 0): void {
+  Object.assign(el.style, {
+    left: `${docX(r.left - inflate)}px`,
+    top: `${docY(r.top - inflate)}px`,
+    width: `${r.width + inflate * 2}px`,
+    height: `${r.height + inflate * 2}px`,
+  });
+}
+
 /** rid → live DOM element, the same map the inspect overlay uses (widgets carry data-rid). */
 export function ridElementMap(): Map<string, Element> {
   const map = new Map<string, Element>();
   for (const { element, rid } of getAllRidElements(false)) if (!map.has(rid)) map.set(rid, element);
   return map;
+}
+
+/** Viewport rects of every laid-out widget (skips zero / degenerate boxes). The single source the
+ *  result canvas uses to find its anchor, content width, and backdrop extent — callers add their own
+ *  viewport/scroll filtering on top. */
+export function widgetRects(byRid: Map<string, Element>): DOMRect[] {
+  const out: DOMRect[] = [];
+  for (const el of byRid.values()) { const r = el.getBoundingClientRect(); if (r.width >= 8 && r.height >= 8) out.push(r); }
+  return out;
 }
 
 /** Bounding box of all of a node's live child widgets — the container's on-screen area. */
@@ -40,10 +70,18 @@ export function anchorRect(node: LNode, byRid: Map<string, Element>): Rect | nul
  *  innerHTML is safe). Crisper + correctly centred vs unicode glyphs. */
 export function setIcon(el: HTMLElement, svg: string): void { el.innerHTML = svg; }
 
+// Buttons fire on mousedown (to beat BMP's own handlers) and preventDefault — WITHOUT it, the button's
+// default mousedown action grabs focus, which STEALS it from an inline-rename field the handler just
+// opened + focused (the field blurs and closes → "click Rename, nothing happens"). preventDefault is
+// safe because we act on mousedown, not click, and these buttons never need keyboard focus.
+const wireBtn = (b: HTMLButtonElement, on: () => void): void => {
+  b.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); on(); });
+};
+
 /** A button wired to a click handler (mousedown so it beats BMP's own handlers; stops propagation). */
 export function mkBtn(text: string, on: () => void): HTMLButtonElement {
   const b = document.createElement('button'); b.className = 'btn'; b.textContent = text;
-  b.addEventListener('mousedown', (e) => { e.stopPropagation(); on(); });
+  wireBtn(b, on);
   return b;
 }
 
@@ -52,7 +90,7 @@ export function mkIconBtn(svg: string, on: () => void, label?: string): HTMLButt
   const b = document.createElement('button'); b.className = 'btn';
   const ic = document.createElement('span'); ic.className = 'bp-ic'; ic.innerHTML = svg; b.appendChild(ic);
   if (label) { const s = document.createElement('span'); s.textContent = label; b.appendChild(s); }
-  b.addEventListener('mousedown', (e) => { e.stopPropagation(); on(); });
+  wireBtn(b, on);
   return b;
 }
 export function delta(text: string): HTMLElement { const s = document.createElement('span'); s.className = 'delta'; s.textContent = text; return s; }

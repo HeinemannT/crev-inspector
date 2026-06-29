@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Flow hierarchy — narrow-space clarity experiments</title>
+<style>
+  :root {
+    --bg:#161616; --panel:#1c1c1c; --row:#222; --line:#333; --ink:#e8e8e8;
+    --dim:#9a9a9a; --faint:#6f6f6f; --accent:#8a3ffc; --rail:#3a3a3a; --code:#131313;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0e0e0e; color:var(--ink);
+    font:13px/1.5 'Inter',system-ui,sans-serif; padding:24px; }
+  h1 { font:600 15px/1.2 'Inter',sans-serif; margin:0 0 4px; }
+  .sub { color:var(--dim); font-size:12px; margin:0 0 20px; }
+  .lab { color:var(--dim); font-size:11px; font-weight:600; letter-spacing:.04em;
+    text-transform:uppercase; margin:0 0 8px; }
+  .note { color:var(--faint); font-size:11px; line-height:1.5; margin:8px 2px 0; }
+  .cols { display:flex; gap:26px; align-items:flex-start; flex-wrap:wrap; }
+  .col { width:330px; }                 /* ≈ a real narrow side panel */
+  /* the "sidebar" frame */
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding:10px 10px 12px; }
+  .head { display:flex; align-items:center; gap:6px; color:var(--dim); font-size:10.5px;
+    letter-spacing:.03em; text-transform:uppercase; padding-bottom:8px; margin-bottom:4px;
+    border-bottom:1px solid var(--line); }
+  .head .n { color:var(--ink); font-weight:600; } .head .ec { color:var(--accent); }
+
+  /* shared bits */
+  .pill { flex:none; font:700 9px/1 'Inter',sans-serif; letter-spacing:.03em; color:#fff;
+    background:var(--type-color,#707070); padding:3px 4px; border-radius:3px; min-width:27px; text-align:center; }
+  .name { color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .key { font:11px/1 ui-monospace,monospace; color:var(--dim); flex:none; }
+  .key b { color:#cdb4ff; font-weight:600; }
+  .ec-badge { flex:none; font:700 9px/1 'Inter',sans-serif; color:#cdb4ff;
+    background:color-mix(in srgb,var(--accent) 18%,transparent); padding:2px 5px; border-radius:3px; }
+  .edge { font:10px/1 'Inter',sans-serif; color:var(--accent); flex:none; }
+
+  /* ─────────── V1: tight tree ─────────── */
+  .v1 .node{position:relative;}
+  .v1 .kids{margin-left:13px;border-left:1.5px solid var(--rail);}
+  .v1 .row{display:flex;align-items:center;gap:6px;padding:4px 5px;border-radius:4px;min-height:26px;}
+  .v1 .row:hover{background:var(--row);}
+  .v1 .kids>.node>.row::before{content:"";position:absolute;left:-13px;top:13px;width:9px;height:1.5px;background:var(--rail);}
+  .v1 .meta{margin-left:auto;display:flex;gap:6px;align-items:center;flex:none;}
+  .v1 .code{margin:0 0 2px 19px;font:10px/1.3 ui-monospace,monospace;color:var(--faint);
+    background:var(--code);border-radius:3px;padding:2px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  /* ─────────── V2: spine-collapsed ─────────── */
+  .v2 .spine{margin-bottom:2px;}
+  .v2 .spine .row{display:flex;align-items:center;gap:6px;padding:3px 4px;}
+  .v2 .spine .row.sub{padding-left:14px;position:relative;}
+  .v2 .spine .row.sub::before{content:"";position:absolute;left:5px;top:0;bottom:13px;width:1.5px;background:var(--rail);}
+  .v2 .spine .row.sub::after{content:"";position:absolute;left:5px;top:13px;width:7px;height:1.5px;background:var(--rail);}
+  .v2 .leaf{display:flex;align-items:center;gap:6px;padding:4px 5px;border-radius:4px;margin-left:14px;min-height:26px;}
+  .v2 .leaf:hover{background:var(--row);}
+  .v2 .leaf .meta{margin-left:auto;display:flex;gap:6px;align-items:center;flex:none;}
+  .v2 .code{margin:0 0 3px 33px;font:10px/1.3 ui-monospace,monospace;color:var(--faint);
+    background:var(--code);border-radius:3px;padding:2px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  /* ─────────── V3: two-line rows ─────────── */
+  .v3 .node{position:relative;}
+  .v3 .kids{margin-left:11px;border-left:1.5px solid var(--rail);}
+  .v3 .kids>.node>.r2::before{content:"";position:absolute;left:-11px;top:14px;width:8px;height:1.5px;background:var(--rail);}
+  .v3 .r2{padding:4px 5px;border-radius:4px;}
+  .v3 .r2:hover{background:var(--row);}
+  .v3 .l1{display:flex;align-items:center;gap:6px;}
+  .v3 .l2{display:flex;align-items:center;gap:8px;margin:1px 0 0 33px;color:var(--faint);font-size:10.5px;}
+</style>
+</head>
+<body>
+  <h1>Flow hierarchy — narrow-space clarity experiments</h1>
+  <p class="sub">All three are at a real side-panel width (330px). Same data. Which reads clearest? Tweak and re-open.</p>
+
+  <div class="cols">
+    <div class="col"><div class="lab">V1 · Tight tree</div><div id="v1"></div>
+      <p class="note">Closest to today's structure, just tightened: 13px indent, small pills, code on its own line. Depth is unambiguous, but a 3-level chain still pushes leaves to the right.</p></div>
+    <div class="col"><div class="lab">V2 · Spine-collapsed</div><div id="v2"></div>
+      <p class="note">A linear single-child chain (InputView → its one InputSet) stacks as a 2-line header, then the fields list flat at one indent. Removes a whole indent level — the leaves get the width.</p></div>
+    <div class="col"><div class="lab">V3 · Two-line rows</div><div id="v3"></div>
+      <p class="note">Each entity is two lines: pill + name, then meta (key, EC) muted below. Names get the full column; meta never competes for width. Taller, but very scannable.</p></div>
+  </div>
+
+<script>
+  const ABBR={InputView:'INV',InputSet:'INS',Label:'LBL',NumberInput:'NIN',ChoiceInput:'CIN',ButtonInput:'BTN',ActionButton:'ACB',NotificationTransportGroup:'NTG',ExtendedTransport:'XTR'};
+  const COLOR={InputView:'#1f8bff',InputSet:'#4589ff',Label:'#bca37a',NumberInput:'#78a9ff',ChoiceInput:'#78a9ff',ButtonInput:'#0f62fe',ActionButton:'#0f62fe',NotificationTransportGroup:'#a56eff',ExtendedTransport:'#9b7bff'};
+  const PROP_ABBR={showExpression:'show',afterExpression:'after',expression:'expr',initExpression:'init',defaultExpression:'default'};
+
+  const inputView={summary:'5 · 2 EC',step:{identity:{type:'InputView',name:'Risk Assessment Input',businessId:'risk_input'},
+    children:[{identity:{type:'InputSet',name:'Assessment Fields',businessId:'in_assess'},edgeLabel:'inputSet',children:[
+      {identity:{type:'Label',name:'Section: Inherent Risk'}},
+      {identity:{type:'NumberInput',name:'Likelihood'},inputKey:'likelihood',codeFields:[{prop:'showExpression',lineCount:4,reads:['phase'],firstLine:'t.assessment.phase = "scoping"'}]},
+      {identity:{type:'NumberInput',name:'Impact'},inputKey:'impact'},
+      {identity:{type:'ChoiceInput',name:'Risk Category'},inputKey:'category'},
+      {identity:{type:'ButtonInput',name:'Save & Score'},inputKey:'save',codeFields:[{prop:'afterExpression',lineCount:12,reads:['likelihood','impact'],firstLine:'t.risk.score := likelihood * impact'}]},
+    ]}]}};
+  const actionBtn={summary:'3 · 3 EC',step:{identity:{type:'ActionButton',name:'Submit for Approval',businessId:'btn_submit'},
+    codeFields:[{prop:'expression',lineCount:3,firstLine:'t.case.workflow.start()'}],
+    children:[{identity:{type:'NotificationTransportGroup',name:'Approval Notifications'},edgeLabel:'actionObject',children:[
+      {identity:{type:'ExtendedTransport',name:'Email Risk Owner'},codeFields:[{prop:'expression',lineCount:8,reads:['case.owner.email'],firstLine:'recipient := t.case.owner.email'}]},
+      {identity:{type:'ExtendedTransport',name:'Update Workflow Status'},codeFields:[{prop:'expression',lineCount:4,firstLine:'t.case.status := "Pending"'}]},
+    ]}]}};
+
+  const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;};
+  const pill=s=>{const p=el('span','pill',ABBR[s.identity.type]||s.identity.type.slice(0,3).toUpperCase());p.style.setProperty('--type-color',COLOR[s.identity.type]||'#707070');return p;};
+  const ecBadge=cf=>el('span','ec-badge',(PROP_ABBR[cf.prop]||cf.prop)+' '+cf.lineCount);
+  const keyTag=s=>{const k=el('span','key');k.innerHTML='·<b>'+s.inputKey+'</b>';return k;};
+
+  function head(flow){const h=el('div','head');h.append(el('span',null,'Flow'),el('span','n',flow.summary.split(' · ')[0]+' steps'),el('span','ec','· '+flow.summary.split(' · ')[1]));return h;}
+  function panel(flow,cls,body){const p=el('div','panel '+cls);p.appendChild(head(flow));body(p);return p;}
+
+  // ── V1: tight tree ──
+  function v1step(s){const n=el('div','node');const r=el('div','row');r.append(pill(s),el('span','name',s.identity.name));
+    const m=el('div','meta');if(s.inputKey)m.appendChild(keyTag(s));if(s.children&&s.children[0]&&s.children[0].edgeLabel)m.appendChild(el('span','edge',s.children[0].edgeLabel));r.appendChild(m);n.appendChild(r);
+    (s.codeFields||[]).forEach(cf=>n.appendChild(el('div','code',(PROP_ABBR[cf.prop]||cf.prop)+' · '+cf.lineCount+'L'+(cf.reads?' · '+cf.reads.join(','):''))));
+    if(s.children){const k=el('div','kids');s.children.forEach(c=>k.appendChild(v1step(c)));n.appendChild(k);}return n;}
+
+  // ── V2: spine-collapse linear single-child chains ──
+  function v2render(s,p){
+    // walk down the single-child spine
+    const spine=el('div','spine');let cur=s,first=true;
+    while(true){const r=el('div','row'+(first?'':' sub'));r.append(pill(cur),el('span','name',cur.identity.name));
+      if(cur.children&&cur.children[0]&&cur.children[0].edgeLabel&&cur.children.length>1)r.appendChild(el('span','edge',cur.children[0].edgeLabel));
+      spine.appendChild(r);
+      (cur.codeFields||[]).forEach(cf=>{const c=el('div','code',(PROP_ABBR[cf.prop]||cf.prop)+' · '+cf.lineCount+'L');c.style.marginLeft='19px';spine.appendChild(c);});
+      first=false;
+      if(cur.children&&cur.children.length===1){cur=cur.children[0];}else break;}
+    p.appendChild(spine);
+    // the multi-child group renders as a flat leaf list
+    (cur.children||[]).forEach(leaf=>{
+      const r=el('div','leaf');r.append(pill(leaf),el('span','name',leaf.identity.name));
+      const m=el('div','meta');if(leaf.inputKey)m.appendChild(keyTag(leaf));(leaf.codeFields||[]).forEach(cf=>m.appendChild(ecBadge(cf)));r.appendChild(m);p.appendChild(r);
+      (leaf.codeFields||[]).forEach(cf=>{if(cf.reads)p.appendChild(el('div','code','reads: '+cf.reads.join(', ')));});
+    });
+  }
+
+  // ── V3: two-line rows ──
+  function v3step(s){const n=el('div','node');const r=el('div','r2');
+    const l1=el('div','l1');l1.append(pill(s),el('span','name',s.identity.name));r.appendChild(l1);
+    const bits=[];if(s.inputKey)bits.push('key='+s.inputKey);(s.codeFields||[]).forEach(cf=>bits.push((PROP_ABBR[cf.prop]||cf.prop)+' '+cf.lineCount+'L'+(cf.reads?' ('+cf.reads.join(',')+')':'')));
+    if(s.children&&s.children[0]&&s.children[0].edgeLabel)bits.push('→ '+s.children[0].edgeLabel);
+    if(bits.length){const l2=el('div','l2');bits.forEach((b,i)=>{const sp=el('span',null,b);if(i)sp.style.opacity='.85';l2.appendChild(sp);});r.appendChild(l2);}
+    n.appendChild(r);if(s.children){const k=el('div','kids');s.children.forEach(c=>k.appendChild(v3step(c)));n.appendChild(k);}return n;}
+
+  function mount(id,flow,cls,render){document.getElementById(id).appendChild(panel(flow,cls,p=>render(flow.step,p)));}
+  // V1
+  document.getElementById('v1').append(panel(inputView,'v1',p=>p.appendChild(v1step(inputView.step))),panel(actionBtn,'v1',p=>p.appendChild(v1step(actionBtn.step))));
+  // V2
+  document.getElementById('v2').append(panel(inputView,'v2',p=>v2render(inputView.step,p)),panel(actionBtn,'v2',p=>v2render(actionBtn.step,p)));
+  // V3
+  document.getElementById('v3').append(panel(inputView,'v3',p=>p.appendChild(v3step(inputView.step))),panel(actionBtn,'v3',p=>p.appendChild(v3step(actionBtn.step))));
+</script>
+</body>
+</html>

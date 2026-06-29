@@ -6,7 +6,7 @@
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import type { SwContext } from '../sw-context';
-import { loadPage, applyPage, loadBlastRadius } from '../layout-service';
+import { loadPage, createTabset, applyPage, loadBlastRadius } from '../layout-service';
 import { ensureContentScript } from '../tab-awareness';
 import { toggleInspect } from './inspect';
 import { errorMessage, log } from '../logger';
@@ -31,13 +31,20 @@ export async function setBlueprintActive(windowId: number, active: boolean): Pro
   } catch (e) { log.swallow('blueprint:toggleQuery', e); }
 }
 
-register('BLUEPRINT_TOGGLE', async (_msg, _respond, meta) => {
+/** Flip blueprint on/off for a window (defaulting to the last-focused one — used by both the
+ *  BLUEPRINT_TOGGLE message and the Ctrl+Shift+B keyboard command). Blueprint and inspect are mutually
+ *  exclusive, so turning blueprint on turns inspect off. */
+export async function toggleBlueprint(windowId?: number): Promise<void> {
   const ctx = getCtx();
-  const windowId = meta.panelWindowId ?? (await chrome.windows.getLastFocused().catch(() => null))?.id;
-  if (windowId == null) return;
-  const next = !ctx.blueprintActiveByWindow.get(windowId);
-  if (next && ctx.isInspectActive(windowId)) await toggleInspect(windowId); // blueprint on ⇒ inspect off
-  await setBlueprintActive(windowId, next);
+  const wid = windowId ?? (await chrome.windows.getLastFocused().catch(() => null))?.id;
+  if (wid == null) return;
+  const next = !ctx.blueprintActiveByWindow.get(wid);
+  if (next && ctx.isInspectActive(wid)) await toggleInspect(wid); // blueprint on ⇒ inspect off
+  await setBlueprintActive(wid, next);
+}
+
+register('BLUEPRINT_TOGGLE', async (_msg, _respond, meta) => {
+  await toggleBlueprint(meta.panelWindowId ?? undefined);
 });
 
 /** Environment fingerprint stamped at load and re-checked at apply. Combines the active profile id
@@ -59,6 +66,12 @@ register('LAYOUT_LOAD', async (msg, respond) => {
       ctx.logActivity('warn', `Blueprint load: ${msg.rid} is not an editable page`);
       return;
     }
+    if (res.kind === 'needsTabset') {
+      // Loadable once a tabset exists — hand the page back so the overlay can offer to create one.
+      respond({ type: 'LAYOUT_LOAD_RESULT', ok: true, env: envToken(ctx), needsTabset: res.page });
+      ctx.logActivity('info', `Blueprint: ${res.page.pageClass} ${res.page.pageId} has no tabset (offer to create one)`);
+      return;
+    }
     respond({
       type: 'LAYOUT_LOAD_RESULT', ok: true, env: envToken(ctx),
       ctx: res.ctx, model: res.load.model, baseline: res.load.baseline, orphans: res.load.orphans,
@@ -67,6 +80,28 @@ register('LAYOUT_LOAD', async (msg, respond) => {
   } catch (e) {
     respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: errorMessage(e) });
     ctx.logActivity('error', 'Blueprint load threw', e instanceof Error ? e.message : String(e));
+  }
+});
+
+register('LAYOUT_CREATE_TABSET', async (msg, respond) => {
+  const ctx = getCtx();
+  if (!ctx.client) { respond({ type: 'LAYOUT_CREATE_TABSET_RESULT', ok: false, error: 'Not connected' }); return; }
+  const t0 = Date.now();
+  try {
+    const res = await createTabset(ctx.client, msg.page, msg.name);
+    if (!res) {
+      respond({ type: 'LAYOUT_CREATE_TABSET_RESULT', ok: false, error: 'Could not create the tabset' });
+      ctx.logActivity('error', `Blueprint: create-tabset failed for ${msg.page.pageId}`);
+      return;
+    }
+    respond({
+      type: 'LAYOUT_CREATE_TABSET_RESULT', ok: true, env: envToken(ctx),
+      ctx: res.ctx, model: res.load.model, baseline: res.load.baseline, orphans: res.load.orphans,
+    });
+    ctx.logActivity('success', `Blueprint: created tabset ${res.ctx.tabsetId} for ${res.ctx.pageClass} ${res.ctx.pageId} (${Date.now() - t0}ms)`);
+  } catch (e) {
+    respond({ type: 'LAYOUT_CREATE_TABSET_RESULT', ok: false, error: errorMessage(e) });
+    ctx.logActivity('error', 'Blueprint create-tabset threw', e instanceof Error ? e.message : String(e));
   }
 });
 

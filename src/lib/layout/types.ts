@@ -87,7 +87,15 @@ export interface PlanNote {
 /** A constraint verdict for a candidate gesture. */
 export interface Guard {
   ok: boolean;
-  /** 'forbidden' = BMP can't serve it, block; 'warn' = serveable but has side effects. */
-  level: 'ok' | 'warn' | 'forbidden';
+  /** 'forbidden' = BMP can't serve it, block; 'warn' = serveable but has side effects;
+   *  'info' = serveable, no side effects, just a scope note worth surfacing (no warning weight). */
+  level: 'ok' | 'info' | 'warn' | 'forbidden';
   reason?: string;
+}
+
+/** A pre-commit lint message + its severity, so the Apply modal can render warnings (triangle) and
+ *  neutral scope notes (info) differently. */
+export interface LintMsg {
+  level: 'warn' | 'info';
+  text: string;
 }

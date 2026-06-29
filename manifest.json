@@ -75,6 +75,13 @@
         "mac": "Command+Shift+E"
       },
       "description": "Open Extended Code window"
+    },
+    "toggle-blueprint": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+B",
+        "mac": "Command+Shift+B"
+      },
+      "description": "Toggle blueprint layout editor"
     }
   },
   "web_accessible_resources": [

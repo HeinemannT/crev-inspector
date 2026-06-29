@@ -15,6 +15,7 @@ import { bp, model } from './state';
 import { render } from './view';
 
 type LoadResult = Extract<InspectorMessage, { type: 'LAYOUT_LOAD_RESULT' }>;
+type CreateTabsetResult = Extract<InspectorMessage, { type: 'LAYOUT_CREATE_TABSET_RESULT' }>;
 type ApplyResult = Extract<InspectorMessage, { type: 'LAYOUT_APPLY_RESULT' }>;
 type BlastResult = Extract<InspectorMessage, { type: 'LAYOUT_BLAST_RESULT' }>;
 
@@ -36,6 +37,13 @@ export async function loadPage(rid: string): Promise<boolean> {
   const g = bp.gen;
   const res = await sendRequest<LoadResult>({ type: 'LAYOUT_LOAD', rid });
   if (!sameSession(g)) return false; // toggled off (or off-then-on) before the reply arrived
+  // RESULT-only page with no tabset → keep the overlay up and show the create-tabset prompt.
+  if (res?.ok && res.needsTabset) {
+    bp.needsTabset = res.needsTabset;
+    bp.env = res.env ?? null;
+    render();
+    return true;
+  }
   if (!res?.ok || !res.model || !res.ctx) {
     showToast(`Blueprint: ${res?.error || 'could not load this page'}`, 'error');
     return false;
@@ -47,6 +55,29 @@ export async function loadPage(rid: string): Promise<boolean> {
   if (orphans) showToast(`Blueprint: ${orphans} widget(s) not placed on any tab`, 'info');
   render();
   return true;
+}
+
+/** Create a dedicated tabset for a RESULT-only page (the create-tabset prompt's confirm), then adopt
+ *  the freshly-loaded model. */
+export async function createTabset(name: string): Promise<void> {
+  const page = bp.needsTabset;
+  if (!page || bp.creatingTabset) return;
+  const g = bp.gen;
+  bp.creatingTabset = true; render();
+  const res = await sendRequest<CreateTabsetResult>({ type: 'LAYOUT_CREATE_TABSET', page, name });
+  if (!sameSession(g)) return;
+  bp.creatingTabset = false;
+  if (!res?.ok || !res.model || !res.ctx) {
+    showToast(`Blueprint: ${res?.error || 'could not create a tabset'}`, 'error');
+    render();
+    return;
+  }
+  bp.needsTabset = null;
+  rebase(res.model);
+  bp.ctx = res.ctx;
+  bp.env = res.env ?? null;
+  showToast('Blueprint: tabset created. You can now arrange this page.', 'success');
+  render();
 }
 
 /** Best-effort blast-radius probe for the open apply-preview. Stores the result on `bp.blast` and

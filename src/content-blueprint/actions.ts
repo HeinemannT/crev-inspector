@@ -9,7 +9,7 @@
  */
 import { findNode, isTempId } from '../lib/layout/model';
 import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, findTabOf } from '../lib/layout/edit';
-import { diff } from '../lib/layout/diff';
+import { diff, summarizeChanges } from '../lib/layout/diff';
 import { compile } from '../lib/layout/ec';
 import { History } from '../lib/layout/history';
 import type { LModel, PlanStep } from '../lib/layout/types';
@@ -17,20 +17,57 @@ import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { render } from './view';
-import { applyPage, fetchBlast } from './service';
+import { applyPage, fetchBlast, createTabset } from './service';
 
-/** Push a new model state onto history and re-render. The one write path for staged edits. */
-export function mutate(next: LModel): void { bp.history?.push(next); render(); }
+/** Push a new model state onto history and re-render. The one write path for staged edits. Flags the
+ *  next render to FLIP-animate cells from their old to new positions (so moves/reorders read as motion). */
+export function mutate(next: LModel): void { bp.history?.push(next); bp.flipNext = true; render(); }
 
 export function select(id: string | null): void { bp.selectedId = id; render(); }
+/** Begin renaming a node: select it and flag the next render to open its inline-rename field. The one
+ *  entry point — used by BOTH double-click on a cell name and the toolbar pencil. */
+export function beginRename(id: string): void { bp.selectedId = id; bp.renameId = id; render(); }
+/** Header tab-bar click = switch the REAL tab, same as BMP's own tab strip (not a separate "peek").
+ *  Click BMP's matching native tab so it navigates; our MutationObserver then follows it. Falls back to
+ *  a canvas-only view (viewTabId) when there's no live BMP tab to drive (e.g. an unmodeled page). */
+export function viewTab(id: string): void {
+  const m = model();
+  const tab = m?.tabs.find(t => t.id === id);
+  if (tab) {
+    // Match BMP's native tab by the BASELINE name — the DOM still shows the original text, so a STAGED
+    // rename (tab.name in the edited model) wouldn't match and we'd silently fall back to a canvas-only
+    // view (the live/canvas divergence liveModelTabId exists to avoid).
+    const domName = findNode(bp.baseline ?? m!, id)?.node.name ?? tab.name;
+    const native = [...document.querySelectorAll('.corpo-tabSet__tab')].find(t => t.textContent?.trim() === domName);
+    if (native) {
+      const el = (native.querySelector('a') as HTMLElement) ?? (native as HTMLElement);
+      for (const ev of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
+        el.dispatchEvent(ev.startsWith('pointer')
+          ? new PointerEvent(ev, { bubbles: true, cancelable: true, view: window, pointerId: 1 })
+          : new MouseEvent(ev, { bubbles: true, cancelable: true, view: window, button: 0 }));
+      }
+      bp.viewTabId = null; // follow the live tab the observer will pick up
+      return;
+    }
+  }
+  bp.viewTabId = id; bp.selectedId = id; render();
+}
 export function setWidth(id: string, n: number): void { const m = model(); if (m) mutate(resize(m, id, 'L', n)); }
 export function setH(id: string, px: number): void { const m = model(); if (m) mutate(setHeight(m, id, px)); }
-export function doRename(id: string, name: string): void { const m = model(); if (m) mutate(rename(m, id, name)); }
+export function doRename(id: string, name: string): void {
+  const m = model(); if (!m) return;
+  const cur = findNode(m, id)?.node;
+  const next = name.trim();
+  // Trim, reject an empty name, and skip a no-op (same name, or opened-then-closed) so neither commits
+  // a phantom edit / pushes a history entry you'd have to undo through — just re-render to close the field.
+  if (!cur || next === '' || next === cur.name) { render(); return; }
+  mutate(rename(m, id, next));
+}
 export function doDelete(id: string): void { const m = model(); if (m) { bp.selectedId = null; mutate(remove(m, id)); } }
 
 /** Open the add picker for a tab/container. `opts.afterId` inserts the new widget right after that
  *  sibling (else appends); `opts.cols` sizes it to a detected free-column gap (else full width). */
-export function openPicker(containerId: string, opts?: { afterId?: string; cols?: number }): void {
+export function openPicker(containerId: string, opts?: { afterId?: string; cols?: number; at?: { x: number; y: number } }): void {
   bp.picker = containerId; bp.pickerOpts = opts ?? null; bp.selectedId = null; render();
 }
 export function closePicker(): void { bp.picker = null; bp.pickerOpts = null; render(); }
@@ -50,13 +87,19 @@ export function addFromPicker(className: string): void {
 
 export function addTabAction(): void { const m = model(); if (m) { const r = addTab(m, m.tabs.length, 'New Tab'); bp.selectedId = r.id; mutate(r.model); } }
 
-/** Add an empty container to a tab/container (from the picker's "New container" option). */
+/** Add an empty container to a tab/container (from the picker's "New container" option). Honours the
+ *  picker's positional + sized intent the same way addFromPicker does: dropped into a free-column gap,
+ *  the new container inherits that gap's width and lands right after the row's last cell (so adding a
+ *  container beside a 3-wide widget makes a 3-wide container in the gap, not a full-width one at the end). */
 export function addContainerTo(parentId: string): void {
   const m = model(); if (!m) return;
   const f = findNode(m, parentId);
-  const idx = f ? f.node.children.length : 0;
-  const r = addContainer(m, parentId, idx);
-  bp.picker = null;
+  const kids = f ? f.node.children : m.tabs;
+  const afterId = bp.pickerOpts?.afterId;
+  const at = afterId ? kids.findIndex(c => c.id === afterId) : -1;
+  const idx = at >= 0 ? at + 1 : kids.length;
+  const r = addContainer(m, parentId, idx, bp.pickerOpts?.cols ?? 6);
+  bp.picker = null; bp.pickerOpts = null;
   bp.selectedId = r.id;
   mutate(r.model);
 }
@@ -70,7 +113,13 @@ export function moveTo(id: string, destId: string): void {
 }
 
 // ── direct-manipulation drops (gestures.ts stages these on drop) ──────────────
-export function doMoveInto(id: string, destId: string): void { const m = model(); if (m) { bp.selectedId = id; mutate(moveInto(m, id, destId)); } }
+export function doMoveInto(id: string, destId: string, fitCols?: number): void {
+  const m = model(); if (!m) return;
+  bp.selectedId = id;
+  let next = moveInto(m, id, destId);
+  if (fitCols != null) next = resize(next, id, 'L', fitCols); // dropped into a sized empty slot → fit it
+  mutate(next);
+}
 export function doSwap(a: string, b: string): void { const m = model(); if (m) { bp.selectedId = a; mutate(swap(m, a, b)); } }
 export function doInsert(id: string, targetId: string, before: boolean): void { const m = model(); if (m) { bp.selectedId = id; mutate(insertRelative(m, id, targetId, before)); } }
 
@@ -110,10 +159,17 @@ export function revertNode(id: string): void {
 
 export function setHint(text: string | null): void { if (bp.hint !== text) { bp.hint = text; render(); } }
 export function toggleTray(): void { bp.trayOpen = !bp.trayOpen; render(); }
+/** Sticky peek toggle — keep the overlay faded so the live widgets stay visible (hover gives a transient
+ *  peek; this click keeps it on). The faded state is a class on the layer; render() keeps it in sync. */
+export function togglePeek(): void { bp.peek = !bp.peek; bp.layer?.classList.toggle('bp-peek', bp.peek); render(); }
+
 
 /** A self-clearing hint-bar message for actions with no spatial gesture of their own (undo/redo).
  *  The timer only clears its OWN text, so a later gesture hint isn't clobbered. The caller renders. */
 let hintTimer: ReturnType<typeof setTimeout> | undefined;
+/** Cancel a pending flashHint timer — called on teardown so its deferred render() closure can't fire
+ *  after the session is gone. */
+export function clearHintTimer(): void { if (hintTimer) { clearTimeout(hintTimer); hintTimer = undefined; } }
 function flashHint(text: string): void {
   bp.hint = text;
   if (hintTimer) clearTimeout(hintTimer);
@@ -122,7 +178,7 @@ function flashHint(text: string): void {
 
 /** Count of staged changes vs baseline — so undo/redo can confirm where the model now stands. */
 function pendingLabel(m: LModel): string {
-  const n = bp.baseline ? diff(bp.baseline, m).length : 0;
+  const n = bp.baseline ? summarizeChanges(diff(bp.baseline, m), m).changes : 0;
   return n === 0 ? 'back to original' : `${n} pending change${n === 1 ? '' : 's'}`;
 }
 
@@ -183,6 +239,13 @@ export function confirmApply(): void {
 }
 
 export function exitBlueprint(): void { sendToSW({ type: 'BLUEPRINT_TOGGLE' }); }
+
+/** Confirm from the create-tabset prompt — names + creates a dedicated tabset for a RESULT-only page,
+ *  moves its widgets onto it, and loads the editor. No-ops on an empty name. */
+export function doCreateTabset(name: string): void {
+  const n = name.trim();
+  if (n) void createTabset(n);
+}
 
 /** Keyboard: Escape backs out (modal → picker → move-menu → selection); Delete removes the selected
  *  widget; Ctrl/Cmd+Z / +Shift+Z (or +Y) undo/redo. All no-ops while typing in a field. */

@@ -11,9 +11,9 @@
 import { extractUrlRids } from './lib/dom-scanner';
 import { showToast } from './lib/toast';
 import BLUEPRINT_CSS from './content-blueprint.css';
-import { bp, STYLE_ID, isBlueprintActive } from './content-blueprint/state';
+import { bp, STYLE_ID, isBlueprintActive, resetState } from './content-blueprint/state';
 import { render } from './content-blueprint/view';
-import { select, onKeydown } from './content-blueprint/actions';
+import { select, onKeydown, clearHintTimer } from './content-blueprint/actions';
 import { cancelGesture } from './content-blueprint/gestures';
 import { loadPage } from './content-blueprint/service';
 
@@ -54,10 +54,11 @@ export function enableBlueprint(): void {
   head.appendChild(c); layer.appendChild(head);
   document.body.appendChild(layer);
   bp.layer = layer;
-  // Scroll/resize re-renders are coalesced to one per animation frame (smooth on large pages).
-  bp.onScroll = () => { if (bp.baseline && !bp.raf && !bp.dragging && !bp.renaming) bp.raf = requestAnimationFrame(() => { bp.raf = 0; render(); }); };
-  window.addEventListener('scroll', bp.onScroll, true);
-  window.addEventListener('resize', bp.onScroll, true);
+  // The layer is document-absolute, so the canvas + cards scroll natively with the page — NO scroll
+  // re-render (that JS-follow was the lag + header-overshadow). Only a RESIZE needs a re-anchor (BMP
+  // reflows its widgets), coalesced to one animation frame.
+  bp.onResize = () => { if (bp.baseline && !bp.raf && !bp.dragging && !bp.renaming) bp.raf = requestAnimationFrame(() => { bp.raf = 0; render(); }); };
+  window.addEventListener('resize', bp.onResize, true);
   bp.onKey = onKeydown;
   window.addEventListener('keydown', bp.onKey, true);
   layer.addEventListener('mousedown', (e) => { if (e.target === layer) select(null); }); // empty space deselects
@@ -70,7 +71,7 @@ export function enableBlueprint(): void {
       bp.mutRaf = 0;
       if (!bp.active || !bp.baseline || bp.dragging || bp.renaming) return;
       const sig = ridSignature();
-      if (sig !== bp.ridSig) { bp.ridSig = sig; render(); }
+      if (sig !== bp.ridSig) { bp.ridSig = sig; bp.viewTabId = null; render(); } // BMP switched tab → canvas follows it
     });
   });
   bp.observer.observe(document.body, { childList: true, subtree: true });
@@ -86,17 +87,16 @@ function ridSignature(): string {
 export function disableBlueprint(): void {
   if (!bp.active) return;
   cancelGesture(); // rip out any in-flight drag/resize listeners + body-level ghost/line elements
-  if (bp.onScroll) {
-    window.removeEventListener('scroll', bp.onScroll, true);
-    window.removeEventListener('resize', bp.onScroll, true);
-  }
+  clearHintTimer(); // a pending flashHint render() must not fire after teardown
+  if (bp.onResize) window.removeEventListener('resize', bp.onResize, true);
   if (bp.onKey) window.removeEventListener('keydown', bp.onKey, true);
   if (bp.raf) cancelAnimationFrame(bp.raf);
   if (bp.mutRaf) cancelAnimationFrame(bp.mutRaf);
   bp.observer?.disconnect();
   bp.layer?.remove();
+  bp.scrollSpacer?.remove(); // drop the page-scroll-extension spacer (it lives on body, outside the layer)
   document.getElementById(STYLE_ID)?.remove(); // don't leak the injected stylesheet past teardown
-  Object.assign(bp, { active: false, baseline: null, ctx: null, env: null, history: null, layer: null, selectedId: null, applying: false, preview: null, picker: null, pickerOpts: null, movePicker: null, onScroll: null, onKey: null, raf: 0, hint: null, trayOpen: false, dragging: false, renaming: false, observer: null, ridSig: '', mutRaf: 0 });
+  resetState(); // every per-session field back to idle (one source of truth — see state.ts)
 }
 // Load/apply results are handled by content-blueprint/service.ts (the sendRequest promises), not by
 // a port-dispatched handler — see that module.

@@ -18,7 +18,9 @@ import { render } from './view';
 const isDescendant = (node: LNode, id: string): boolean => node.children.some(c => c.id === id || isDescendant(c, id));
 
 const clampL = (n: number): number => Math.max(1, Math.min(6, n));
-const DRAG_THRESHOLD = 6; // px of movement before a press becomes a drag rather than a click
+const DRAG_THRESHOLD = 6;      // px of movement before a press becomes a drag rather than a click
+const SWAP_ZONE = 0.26;        // centre fraction of a widget target that means "swap" (vs edge = insert)
+const CONTAINER_NEST_ZONE = 0.3; // centre fraction of a container target that means "nest into" (vs edge = reorder)
 
 // The document-level pointer listeners of the in-flight gesture, tracked so teardown (cancelGesture)
 // can rip them out even if it lands mid-drag — otherwise they'd outlive the overlay session.
@@ -99,7 +101,7 @@ function sizeGhost(g: HTMLElement, left: number, top: number, w: number, h: numb
 type DragAction =
   | { type: 'swap'; targetId: string }
   | { type: 'insert'; targetId: string; before: boolean }
-  | { type: 'into'; targetId: string };
+  | { type: 'into'; targetId: string; fitCols?: number }; // fitCols: resize to fill a sized empty slot
 
 let dragId: string | null = null;
 let ghost: HTMLElement | null = null;
@@ -148,7 +150,7 @@ function beginDrag(id: string): void {
   ghost.append(nm, act); document.body.appendChild(ghost);
   // setHint renders (showing the hint bar), so add the source highlight to the FRESH box afterwards —
   // adding it first would be wiped by that render.
-  setHint('Drop on a widget centre to SWAP · its edge to REORDER · a box / empty slot / tab to MOVE');
+  setHint('Drop on a widget centre to SWAP · its edge to PLACE before/after (moves between boxes too) · a box, empty slot, or tab to MOVE INTO');
   bp.layer?.querySelector(`[data-bpid="${cssEsc(id)}"]`)?.classList.add('bp-dragsrc');
 }
 
@@ -178,27 +180,65 @@ function markTarget(ev: MouseEvent): void {
     setAct(`move to tab "${nameOf(m, targetId)}"`); return;
   }
   if (kind === 'avail') {
-    hit.classList.add('bp-drop'); action = { type: 'into', targetId };
-    setAct(`place in empty slot`); return;
+    hit.classList.add('bp-drop');
+    // A trailing-gap slot carries its free-column width — dropping a WIDER node (widget OR container)
+    // here resizes it down to fit the slot.
+    const free = Number(hit.dataset.bpfree) || undefined;
+    const fit = free != null && src != null && src.node.cols.L > free ? free : undefined;
+    action = { type: 'into', targetId, fitCols: fit };
+    setAct(fit != null ? `place in empty slot (resize to ${fit} col)` : `place in empty slot`); return;
   }
   if (kind === 'container') {
+    // A container dropped on a container: its EDGES insert it before/after at the same level (reorder —
+    // "connect to the upper/lower edge"), the CENTRE (within CONTAINER_NEST_ZONE) nests it inside. A
+    // widget always drops INTO.
+    if (src && src.node.kind === 'container') {
+      const r = hit.getBoundingClientRect();
+      if (edgeness(r, ev) < CONTAINER_NEST_ZONE) {
+        hit.classList.add('bp-drop'); action = { type: 'into', targetId };
+        setAct(`nest inside "${nameOf(m, targetId)}"`);
+      } else {
+        const { side, before } = nearestEdge(r, ev);
+        showLine(r, side); action = { type: 'insert', targetId, before };
+        setAct(`place ${before ? 'before' : 'after'} "${nameOf(m, targetId)}"`);
+      }
+      return;
+    }
     hit.classList.add('bp-drop'); action = { type: 'into', targetId };
     setAct(`add into "${nameOf(m, targetId)}"`); return;
   }
-  // widget: centre = swap, edge = insert before/after
+  // widget target: centre (within SWAP_ZONE) = swap, edge = insert before/after — but ONLY widget-on-
+  // widget. A container dropped on a widget is cross-band (containers render before tab-bound widgets, so
+  // a swap there just reorders containers and an insert reparents oddly); ignore it.
+  if (src && src.node.kind !== 'widget') { setAct(''); return; }
   const r = hit.getBoundingClientRect();
-  const relX = (ev.clientX - r.left) / r.width, relY = (ev.clientY - r.top) / r.height;
-  const edge = Math.max(Math.abs(relX - 0.5), Math.abs(relY - 0.5));
-  if (edge < 0.26) {
+  if (edgeness(r, ev) < SWAP_ZONE) {
     hit.classList.add('bp-swap'); action = { type: 'swap', targetId };
     setAct(`swap with "${nameOf(m, targetId)}"`);
   } else {
-    const dl = relX, dr = 1 - relX, dt = relY, db = 1 - relY, min = Math.min(dl, dr, dt, db);
-    const side = min === dl ? 'left' : min === dr ? 'right' : min === dt ? 'top' : 'bottom';
-    const before = side === 'left' || side === 'top';
+    const { side, before } = nearestEdge(r, ev);
     showLine(r, side); action = { type: 'insert', targetId, before };
-    setAct(`${before ? 'insert before' : 'insert after'} "${nameOf(m, targetId)}"`);
+    // When the target sits in a different parent than the dragged node, this edge-drop also REPARENTS
+    // (places it there) — call that out so "place after X" doesn't read as a pure same-box reorder.
+    const tParent = findNode(m, targetId)?.parent;
+    const crossing = !!tParent && (src?.parent?.id ?? null) !== tParent.id;
+    setAct(`place ${before ? 'before' : 'after'} "${nameOf(m, targetId)}"${crossing ? ` (into ${tParent!.name})` : ''}`);
   }
+}
+
+/** How close to centre (0 = centre, ~0.5 = edge) the pointer is within a target box — distinguishes a
+ *  centre drop (swap / nest) from an edge drop (insert before/after). */
+function edgeness(r: DOMRect, ev: MouseEvent): number {
+  const relX = (ev.clientX - r.left) / r.width, relY = (ev.clientY - r.top) / r.height;
+  return Math.max(Math.abs(relX - 0.5), Math.abs(relY - 0.5));
+}
+
+/** The edge of `r` the pointer is nearest, and whether dropping there means "insert before" the target. */
+function nearestEdge(r: DOMRect, ev: MouseEvent): { side: 'left' | 'right' | 'top' | 'bottom'; before: boolean } {
+  const relX = (ev.clientX - r.left) / r.width, relY = (ev.clientY - r.top) / r.height;
+  const dl = relX, dr = 1 - relX, dt = relY, db = 1 - relY, min = Math.min(dl, dr, dt, db);
+  const side = min === dl ? 'left' : min === dr ? 'right' : min === dt ? 'top' : 'bottom';
+  return { side, before: side === 'left' || side === 'top' };
 }
 
 function showLine(r: DOMRect, side: 'left' | 'right' | 'top' | 'bottom'): void {
@@ -220,7 +260,7 @@ function endDrag(): void {
   if (A && id) {
     if (A.type === 'swap') doSwap(id, A.targetId);
     else if (A.type === 'insert') doInsert(id, A.targetId, A.before);
-    else doMoveInto(id, A.targetId);
+    else doMoveInto(id, A.targetId, A.fitCols);
   } else { render(); }
 }
 

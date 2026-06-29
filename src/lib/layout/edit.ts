@@ -60,13 +60,10 @@ export function moveInto(m: LModel, id: string, parentId: string): LModel {
   return move(m, id, parentId, f ? f.node.children.length : 0);
 }
 
-/** Move a node onto another tab (cross-tab relocation), appended to that tab. */
-export function moveToTab(m: LModel, id: string, tabId: string): LModel {
-  return moveInto(m, id, tabId);
-}
-
-function isAncestorOf(anc: LNode, id: string): boolean {
-  return anc.children.some(c => c.id === id || isAncestorOf(c, id));
+/** True when `id` is `anc` itself or anywhere in its subtree — the guard against moving a node into
+ *  its own descendant (which would orphan the subtree). Shared with the move-menu in the view. */
+export function isAncestorOf(anc: LNode, id: string): boolean {
+  return anc.id === id || anc.children.some(c => isAncestorOf(c, id));
 }
 
 /** Exchange two nodes' positions (keeps each node's own width). */

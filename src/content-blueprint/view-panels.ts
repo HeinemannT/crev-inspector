@@ -6,16 +6,17 @@
  * builders and the tab/picker/rename cluster (which is coupled to inline-rename + render) stay in
  * view.ts.
  */
-import type { LModel, PlanNote } from '../lib/layout/types';
+import type { LModel, LNode, PlanNote } from '../lib/layout/types';
 import type { BlueprintCtx } from '../lib/layout/sync';
-import { findNode } from '../lib/layout/model';
+import { findNode, isResultTab, eachInSubtree } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
-import { diff } from '../lib/layout/diff';
-import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_WARNING } from '../lib/icons';
+import { diff, summarizeChanges } from '../lib/layout/diff';
+import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_WARNING, ICON_EYE_SLASH } from '../lib/icons';
 import { bp, model } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
-import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, discard, openApplyPreview, exitBlueprint } from './actions';
+import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, discard, openApplyPreview, exitBlueprint, doCreateTabset } from './actions';
+import type { NeedsTabset } from '../lib/layout/sync';
 
 const VERB_ICON: Record<PlanNote['verb'], string> = { create: ICON_PLUS, update: ICON_PENCIL, move: ICON_ARROW_RIGHT, reorder: ICON_SWAP, delete: ICON_TRASH };
 
@@ -28,6 +29,37 @@ function warnRow(text: string): HTMLElement {
   return w;
 }
 
+/** A neutral scope-note row (muted, no warning weight) — for "this applies to the instance" and the
+ *  like, which a user should see but which isn't a hazard. */
+function infoRow(text: string): HTMLElement {
+  const w = document.createElement('div'); w.className = 'bp-modal-info';
+  const dot = document.createElement('span'); dot.className = 'bp-modal-info-dot';
+  w.append(dot, document.createTextNode(text));
+  return w;
+}
+
+/** Does the staged plan touch the shared Result tab, and does it touch CONTAINERS there? Built from the
+ *  union of the Result subtree in baseline + desired (so a move IN, a move OUT, and a staged add are all
+ *  caught), then matched against the plan's step ids. Container impact is called out louder. */
+function resultImpact(): { touched: boolean; containers: boolean } {
+  const base = bp.baseline, m = model();
+  if (!base || !m) return { touched: false, containers: false };
+  const subtree = (mm: LModel): Map<string, LNode['kind']> => {
+    const ids = new Map<string, LNode['kind']>();
+    const t = mm.tabs.find(isResultTab);
+    if (t) eachInSubtree(t, n => ids.set(n.id, n.kind));
+    return ids;
+  };
+  const ids = new Map([...subtree(base), ...subtree(m)]);
+  let touched = false, containers = false;
+  for (const s of diff(base, m)) {
+    const sid = s.kind === 'create' ? s.node.id : s.id; // a created node carries its id on `node`
+    const k = ids.get(sid);
+    if (k !== undefined) { touched = true; if (k === 'container') containers = true; }
+  }
+  return { touched, containers };
+}
+
 /** The apply-preview: the exact plan as human-readable steps + the blast-radius warning, behind a confirm. */
 export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement {
   const shared = ctx.target === 'template';
@@ -35,7 +67,13 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   back.addEventListener('mousedown', (e) => { if (e.target === back) closePreview(); });
   const card = document.createElement('div'); card.className = 'bp-modal' + (shared ? ' tmpl' : '');
   const h = document.createElement('div'); h.className = 'bp-modal-h';
-  h.textContent = `Apply ${notes.length} change${notes.length === 1 ? '' : 's'} to ${ctx.pageClass} ${ctx.pageId}`;
+  // Headline = logical changes; "(N actions)" exposes the raw EC step count when it differs (an insert
+  // can compile to a create + a moveAfter chain). The list below still enumerates every action.
+  const lm0 = model();
+  const sum = lm0 && bp.baseline ? summarizeChanges(diff(bp.baseline, lm0), lm0) : { changes: notes.length, actions: notes.length };
+  h.textContent = `Apply ${sum.changes} change${sum.changes === 1 ? '' : 's'}`
+    + (sum.actions !== sum.changes ? ` (${sum.actions} actions)` : '')
+    + ` to ${ctx.pageClass} ${ctx.pageId}`;
   card.appendChild(h);
   if (shared) {
     card.appendChild(warnRow('This is a shared template. These changes affect every instance that uses it.'));
@@ -54,6 +92,15 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
     warn(`Some containers here are shared with ${xfam.otherFamilies} page${xfam.otherFamilies === 1 ? '' : 's'} `
       + `outside this template${names ? ` (${names}${xfam.otherFamilies > 2 ? ', …' : ''})` : ''}. Your structural changes affect them too.`);
   }
+  // Shared Result-tab warning. The Result tab lives in the SHARED default_tabset, so structural edits
+  // there (above all a new/moved container) land on every scorecard that uses it — louder than a normal
+  // widget edit, which only touches this scorecard's own objects. Computed locally (no probe needed).
+  const ri = resultImpact();
+  if (ri.touched) {
+    card.appendChild(warnRow(ri.containers
+      ? 'You are changing containers on the shared Result tab. A container added or moved here appears on EVERY scorecard that uses the default tab set, not just this one.'
+      : "You are editing the shared Result tab. These widgets are this scorecard's own, but the tab is shared across scorecards — review before applying."));
+  }
   // Blast-radius warning. Deleting a tab cascades to every container/widget under it (a tab's contents
   // can't re-home the way a deleted container's widgets do), so one delete gesture can stage many. Make
   // that scope explicit at the confirm gate — the rows below enumerate it, but the count is the headline.
@@ -66,7 +113,7 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   const lm = model();
   if (lm && bp.baseline) {
     for (const msg of lint(lm, lm.target, diff(bp.baseline, lm))) {
-      card.appendChild(warnRow(msg));
+      card.appendChild(msg.level === 'info' ? infoRow(msg.text) : warnRow(msg.text));
     }
   }
   const list = document.createElement('div'); list.className = 'bp-modal-list';
@@ -89,8 +136,13 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
 /** Docked pending-changes tray — one row per changed node, each with a revert. Toggled from the chip. */
 export function trayPanel(base: LModel, m: LModel): HTMLElement {
   const plan = diff(base, m);
+  const { changes, actions } = summarizeChanges(plan, m);
   const wrap = document.createElement('div'); wrap.className = 'bp-tray';
-  const h = document.createElement('div'); h.className = 'bp-tray-h'; h.textContent = `Pending changes · ${plan.length}`;
+  // Headline = logical changes; the "· N actions" exposes the underlying EC steps without hiding them
+  // (one insert can compile to a create + a moveAfter chain). Singular-aware.
+  const h = document.createElement('div'); h.className = 'bp-tray-h';
+  h.textContent = `${changes} change${changes === 1 ? '' : 's'}`
+    + (actions !== changes ? ` · ${actions} action${actions === 1 ? '' : 's'}` : '');
   wrap.appendChild(h);
   if (!plan.length) { const e = document.createElement('div'); e.className = 'bp-tray-empty'; e.textContent = 'No staged changes'; wrap.appendChild(e); return wrap; }
   const seen = new Set<string>();
@@ -119,6 +171,40 @@ export function hintBar(text: string): HTMLElement {
   return h;
 }
 
+/** Create-tabset prompt — shown when a page's widgets sit on the phantom RESULT tab with no tabset.
+ *  The user names it; on confirm we create root.portal → Category → TabSet → Tab and move the widgets
+ *  onto it, then load the editor. Names default to the page id so the folder is recognisable. */
+export function createTabsetModal(page: NeedsTabset): HTMLElement {
+  const back = document.createElement('div'); back.className = 'bp-modal-back';
+  const card = document.createElement('div'); card.className = 'bp-modal bp-cts';
+  const h = document.createElement('div'); h.className = 'bp-modal-h';
+  h.textContent = 'This page has no tab layout yet';
+  card.appendChild(h);
+  const body = document.createElement('div'); body.className = 'bp-cts-body';
+  const p = document.createElement('p'); p.className = 'bp-cts-p';
+  p.textContent = `${page.pageClass} ${page.pageId} keeps its widgets on the default Result tab with no TabSet, `
+    + 'so there\'s nothing to arrange yet. Create one and its widgets move onto it. It lands in a new '
+    + 'folder under the portal root (you can relocate it later in Config Studio).';
+  body.appendChild(p);
+  const lbl = document.createElement('label'); lbl.className = 'bp-cts-lbl'; lbl.textContent = 'Tabset name';
+  const input = document.createElement('input'); input.className = 'bp-cts-input';
+  input.value = `${page.pageClass} ${page.pageId} layout`;
+  input.placeholder = 'e.g. Risk page layout';
+  lbl.appendChild(input);
+  body.appendChild(lbl);
+  card.appendChild(body);
+  const foot = document.createElement('div'); foot.className = 'bp-modal-foot';
+  const cancel = mkBtn('Cancel', exitBlueprint);
+  const create = mkBtn(bp.creatingTabset ? 'Creating…' : 'Create tabset', () => doCreateTabset(input.value));
+  create.className = 'apply'; create.disabled = bp.creatingTabset;
+  foot.append(cancel, create);
+  card.appendChild(foot);
+  back.appendChild(card);
+  input.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') { e.preventDefault(); doCreateTabset(input.value); } });
+  setTimeout(() => { input.focus(); input.select(); }, 0);
+  return back;
+}
+
 /** Command chip — page id, undo/redo, pending tray toggle, discard, apply, exit. */
 export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   const shared = ctx.target === 'template';
@@ -136,6 +222,12 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
     c.appendChild(w);
   }
   c.appendChild(sp());
+  // Peek: hover for a transient fade so the live widgets show through; CLICK to keep it on (sticky).
+  const peek = mkIconBtn(ICON_EYE_SLASH, togglePeek); peek.title = 'Peek at the live widgets — hover for a moment, click to keep it on';
+  if (bp.peek) peek.classList.add('on');
+  peek.addEventListener('mouseenter', () => bp.layer?.classList.add('bp-peek'));
+  peek.addEventListener('mouseleave', () => { if (!bp.peek) bp.layer?.classList.remove('bp-peek'); });
+  c.appendChild(peek);
   const undoB = mkIconBtn(ICON_ARROW_UNDO, undo); undoB.title = 'Undo'; undoB.disabled = !bp.history?.canUndo(); c.appendChild(undoB);
   const redoB = mkIconBtn(ICON_ARROW_REDO, redo); redoB.title = 'Redo'; redoB.disabled = !bp.history?.canRedo(); c.appendChild(redoB);
   const trayB = mkIconBtn(ICON_LIST, toggleTray, String(pending)); trayB.title = 'Pending changes'; trayB.disabled = pending === 0;

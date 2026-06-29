@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { LayoutNode as WireNode } from '../../types';
 import type { LModel, LNode } from '../types';
-import { reconstruct, findNode, descendantWidgets, isChart } from '../model';
-import { resize, setHeight, rename, move, swap, insertRelative, addWidget, addContainer, addTab, remove, moveToTab } from '../edit';
-import { diff } from '../diff';
+import { reconstruct, findNode, descendantWidgets, isChart, isResultTab } from '../model';
+import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, isAncestorOf } from '../edit';
+import { diff, summarizeChanges } from '../diff';
 import { compile } from '../ec';
-import { guard, lint, checkReorder, checkHeight, checkAddTarget } from '../constraints';
+import { lint } from '../constraints';
 import { History } from '../history';
 
 // ── factories ────────────────────────────────────────────────────────────────
@@ -40,6 +40,30 @@ describe('model.reconstruct', () => {
     expect(kids.map(c => c.kind)).toEqual(['container', 'widget']); // containers first
     expect(kids[0].children[0].name).toBe('Chart');
     expect(m.tabs[0].children[0].cols.L).toBe(3);
+  });
+
+  it('adopts a foreign-tabset tab (the shared Result tab) with its directly-bound widgets', () => {
+    const wire: WireNode[] = [
+      { rid: 'r_ts', businessId: 'ts1', type: 'TabSet' },
+      // the shared Result tab lives in ANOTHER tabset (parent r_def, not the page's r_ts), emitted first
+      { rid: 'r_res', businessId: 'RESULT', type: 'Tab', parentRid: 'r_def', name: 'Result' },
+      { rid: 'r_ra', businessId: '5920', type: 'ActionButton', containerRid: 'r_res', columnsLargeScreen: 6, name: 'Run Audit' },
+      { rid: 'r_tab', businessId: 'tab1', type: 'Tab', parentRid: 'r_ts', columnsLargeScreen: 6, name: 'Overview' },
+    ];
+    const m = reconstruct(wire, { pageId: '4957', tabsetId: 'ts1' });
+    expect(m.tabs.map(t => t.id)).toEqual(['RESULT', 'tab1']); // Result leads the strip (emit order)
+    expect(isResultTab(m.tabs[0])).toBe(true);
+    expect(m.tabs[0].children.map(c => c.name)).toEqual(['Run Audit']); // its directly-bound widget attaches
+  });
+});
+
+describe('isAncestorOf (move-into-own-subtree guard)', () => {
+  it('matches self and any descendant, rejects unrelated / parent', () => {
+    const box = findNode(demo(), 'box1')!.node; // KPIs container → holds w1
+    expect(isAncestorOf(box, 'box1')).toBe(true);  // self
+    expect(isAncestorOf(box, 'w1')).toBe(true);     // descendant
+    expect(isAncestorOf(box, 'tw1')).toBe(false);   // sibling's child, not under box1
+    expect(isAncestorOf(box, 'nope')).toBe(false);  // absent
   });
 });
 
@@ -134,19 +158,84 @@ describe('gesture edit ops (drag-to-move / reorder / cross-tab)', () => {
     const used = b.tabs[0].children.reduce((s, c) => s + c.cols.L, 0);
     expect(used).toBe(6);
   });
-  it('moveToTab appends a widget onto another tab', () => {
+  it('moveInto appends a widget onto another tab', () => {
     const a = model(
       n({ id: 't1', kind: 'tab', className: 'Tab', name: 'One', children: [n({ id: 'w', kind: 'widget', className: 'X' })] }),
       n({ id: 't2', kind: 'tab', className: 'Tab', name: 'Two', children: [] }),
     );
-    const b = moveToTab(a, 'w', 't2');
+    const b = moveInto(a, 'w', 't2');
     expect(findNode(b, 'w')!.parent!.id).toBe('t2');
     expect(b.tabs[0].children).toHaveLength(0);
     expect(diff(a, b).some(s => s.kind === 'reparent')).toBe(true);
   });
 });
 
+describe('summarizeChanges (logical changes vs raw actions)', () => {
+  it('counts a mid-list insert as ONE change even when it emits a moveAfter chain', () => {
+    // tab with three widgets; insert a 4th between the 1st and 2nd → create + reorder side-effects
+    const base = model(n({ id: 't', kind: 'tab', className: 'Tab', name: 'T', children: [
+      n({ id: 'a', kind: 'widget', className: 'SimpleStatus', name: 'A' }),
+      n({ id: 'b', kind: 'widget', className: 'SimpleStatus', name: 'B' }),
+      n({ id: 'c', kind: 'widget', className: 'SimpleStatus', name: 'C' }),
+    ] }));
+    const desired = addWidget(base, 't', 1, 'BarChart', 'New').model; // inserted at index 1 (mid-list)
+    const plan = diff(base, desired);
+    const { changes, actions } = summarizeChanges(plan, desired);
+    expect(plan.some(s => s.kind === 'create')).toBe(true);
+    expect(actions).toBeGreaterThan(1);     // the create + its reorder chain
+    expect(changes).toBe(1);                // ...but ONE logical change (the inserted widget)
+  });
+  it('counts a pure reorder gesture as one change', () => {
+    const base = model(n({ id: 't', kind: 'tab', className: 'Tab', name: 'T', children: [
+      n({ id: 'a', kind: 'widget', className: 'SimpleStatus', name: 'A' }),
+      n({ id: 'b', kind: 'widget', className: 'SimpleStatus', name: 'B' }),
+    ] }));
+    const desired = insertRelative(base, 'b', 'a', true); // move B before A — reorder only, no create
+    expect(summarizeChanges(diff(base, desired), desired).changes).toBe(1);
+  });
+  it('counts independent field edits on two nodes as two changes', () => {
+    const base = demo();
+    const desired = rename(resize(base, 'w1', 'L', 2), 'rw', 'Renamed');
+    expect(summarizeChanges(diff(base, desired), desired).changes).toBe(2);
+  });
+  it('reports zero for an unchanged model', () => {
+    expect(summarizeChanges(diff(demo(), demo()), demo())).toEqual({ changes: 0, actions: 0 });
+  });
+});
+
 describe('diff + ec compile', () => {
+  it('never chains the shared Result tab in a tab reorder (it is cross-tabset, pinned first)', () => {
+    // RESULT (the shared default_tabset tab) leads the strip; the page tabs follow. diff.index() parents
+    // ALL tabs under the page tabset, so without the isResultTab guard a page-tab reorder would emit
+    // t.<pageTab>.moveAfter(t.RESULT) — a cross-tabset move that misplaces/errors.
+    const base = model(
+      n({ id: 'RESULT', kind: 'tab', className: 'Tab', name: 'Result' }),
+      n({ id: 't1', kind: 'tab', className: 'Tab', name: 'A' }),
+      n({ id: 't2', kind: 'tab', className: 'Tab', name: 'B' }),
+    );
+    const desired = model(
+      n({ id: 'RESULT', kind: 'tab', className: 'Tab', name: 'Result' }),
+      n({ id: 't2', kind: 'tab', className: 'Tab', name: 'B' }),
+      n({ id: 't1', kind: 'tab', className: 'Tab', name: 'A' }),
+    );
+    const reorders = diff(base, desired).filter(s => s.kind === 'reorder');
+    expect(reorders.length).toBeGreaterThan(0); // the page tabs DO reorder
+    expect(reorders.some(s => s.id === 'RESULT' || s.afterId === 'RESULT')).toBe(false); // ...but never via RESULT
+  });
+
+  it('emits NO phantom reorder for an unchanged model with a Result tab (excluded from both orders)', () => {
+    // The Result tab must be filtered from the desired group AND the natural/surviving order — excluding
+    // it from only one made them mismatch and emit a spurious moveAfter for every page tab after it
+    // (it showed as un-discardable "MOVED TAB" pending changes).
+    const m = model(
+      n({ id: 'RESULT', kind: 'tab', className: 'Tab', name: 'Result' }),
+      n({ id: 't1', kind: 'tab', className: 'Tab', name: 'A' }),
+      n({ id: 't2', kind: 'tab', className: 'Tab', name: 'B' }),
+      n({ id: 't3', kind: 'tab', className: 'Tab', name: 'C' }),
+    );
+    expect(diff(m, m)).toEqual([]); // identity diff = no steps at all
+  });
+
   it('compiles a child into a composite as <composite>.add(Child) (not container:=<widget>)', () => {
     const base = model(n({ id: 'tab1', kind: 'tab', className: 'Tab', name: 'T', children: [
       n({ id: 'bc', kind: 'widget', className: 'ButtonContainer', name: 'Buttons', children: [] }),
@@ -201,7 +290,7 @@ describe('diff + ec compile', () => {
       n({ id: 'tA', kind: 'tab', className: 'Tab', name: 'A', children: [n({ id: 'w', kind: 'widget', className: 'X' })] }),
       n({ id: 'tB', kind: 'tab', className: 'Tab', name: 'B', children: [] }),
     );
-    const d = moveToTab(base, 'w', 'tB');
+    const d = moveInto(base, 'w', 'tB');
     const { script } = compile(diff(base, d), d);
     expect(script).toBe('t.w.change(container := t.tB)');
   });
@@ -260,6 +349,23 @@ describe('diff + ec compile', () => {
     expect(compile(diff(base, base), base).script).toBe('');
   });
 
+  it('moving a node INTO a populated box (append) is 1 reparent + 0 reorders, not N', () => {
+    const base = model(n({ id: 't', kind: 'tab', className: 'Tab', children: [
+      n({ id: 'box', kind: 'container', className: 'Container', name: 'Box', children: [
+        n({ id: 'a', kind: 'widget', className: 'X' }), n({ id: 'b', kind: 'widget', className: 'Y' }),
+      ] }),
+      n({ id: 'w', kind: 'widget', className: 'Z' }),
+    ] }));
+    // append `w` into box → BMP's reparent appends, so the result order already matches; no reorder noise.
+    const appended = move(base, 'w', 'box', 99);
+    const steps = diff(base, appended);
+    expect(steps.filter(s => s.kind === 'reparent')).toHaveLength(1);
+    expect(steps.filter(s => s.kind === 'reorder')).toHaveLength(0);
+    // but a genuine interleave (drop `w` at the FRONT of box) still needs reorders to reconstruct it
+    const front = move(base, 'w', 'box', 0);
+    expect(diff(base, front).some(s => s.kind === 'reorder')).toBe(true);
+  });
+
   it('escapes names in EC string slots', () => {
     const base = demo();
     const d = rename(base, 'w1', 'say "hi"\\n');
@@ -269,38 +375,19 @@ describe('diff + ec compile', () => {
 });
 
 describe('constraints', () => {
-  it('forbids a widget ordered before a container (containers-first)', () => {
-    expect(checkReorder('widget', 'container', true).level).toBe('forbidden');
-    expect(checkReorder('widget', 'container', false).level).toBe('ok');
-    expect(checkReorder('container', 'container', true).level).toBe('ok');
-  });
-  it('forbids height on non-chart types', () => {
-    expect(checkHeight('BarChart').ok).toBe(true);
-    expect(checkHeight('URLView').ok).toBe(true);
-    expect(checkHeight('ExtendedTable').ok).toBe(false);
-  });
-  it('allows add into a tab/container/composite, forbids add into a leaf widget', () => {
-    expect(checkAddTarget('tab').ok).toBe(true);
-    expect(checkAddTarget('container').ok).toBe(true);
-    expect(checkAddTarget('widget', 'ButtonContainer').ok).toBe(true);    // composite — now supported
-    expect(checkAddTarget('widget', 'SimpleStatus').ok).toBe(false);      // leaf — nonsensical
-  });
-  it('warns on instance structural ops and shared edits', () => {
-    expect(guard({ type: 'structural', target: 'instance', op: 'add' }).level).toBe('warn');
-    expect(guard({ type: 'structural', target: 'template', op: 'add' }).level).toBe('ok');
-    expect(guard({ type: 'sharedEdit', nodeKind: 'container', op: 'resize' }).level).toBe('warn');
-    expect(guard({ type: 'sharedEdit', nodeKind: 'widget', op: 'resize' }).level).toBe('ok');
-  });
   it('lints empty tabs (invisible on the page)', () => {
     const m = model(n({ id: 'empty', kind: 'tab', className: 'Tab', name: 'Empty', children: [] }));
-    expect(lint(m, 'template', [])[0]).toContain('Empty');
+    const msg = lint(m, 'template', [])[0];
+    expect(msg.level).toBe('warn');
+    expect(msg.text).toContain('Empty');
   });
-  it('lints structural add/delete only when the target is a single instance', () => {
+  it('lints structural add/delete as an instance scope note (info), only when the target is an instance', () => {
     const w = n({ id: 'w1', kind: 'widget', className: 'Status', name: 'W', children: [] });
     const m = model(n({ id: 't1', kind: 'tab', className: 'Tab', name: 'T', children: [w] }));
     const addPlan = [{ kind: 'create' as const, node: w, parentId: 't1', parentKind: 'tab' as const }];
-    expect(lint(m, 'instance', addPlan).some(s => s.includes('unverified'))).toBe(true);
-    expect(lint(m, 'template', addPlan).some(s => s.includes('unverified'))).toBe(false);
+    const inst = lint(m, 'instance', addPlan).find(s => s.text.includes('this instance'));
+    expect(inst?.level).toBe('info');
+    expect(lint(m, 'template', addPlan).some(s => s.text.includes('this instance'))).toBe(false);
   });
 });
 

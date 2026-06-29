@@ -480,6 +480,54 @@ function enqueue(task: () => Promise<void>): void {
   pump();
 }
 
+// ── Resolution rate limiter (guardrail) ──────────────────────────
+// Hard backstop so the editor can NEVER flood BMP with automatic resolution
+// queries — regardless of how large, complex, or pathological the script is, or
+// a future bug. This is INDEPENDENT of the per-key caches (which already make each
+// DISTINCT lookup fire at most once): it caps the RATE at which NEW distinct
+// lookups may be issued. Token bucket — a healthy burst (open a big script, warm
+// many schemas) drains it; sustained runaway is throttled to the refill rate.
+// Over budget → the gated ensure* call silently no-ops; the panel/completion
+// degrades to "no data" and a later keystroke (once tokens refill) succeeds.
+// Manual refresh (refreshSchema) BYPASSES this — it's a one-at-a-time explicit
+// user action. Concurrency is separately capped at MAX_INFLIGHT, so even a full
+// burst reaches BMP ≤3-at-a-time.
+export class TokenBucket {
+  private tokens: number;
+  private last: number;
+  constructor(private max: number, private refillPerSec: number, now: number) {
+    this.tokens = max;
+    this.last = now;
+  }
+  /** Consume one token at time `now`; true if available. */
+  take(now: number): boolean {
+    const dt = (now - this.last) / 1000;
+    if (dt > 0) {
+      this.tokens = Math.min(this.max, this.tokens + dt * this.refillPerSec);
+      this.last = now;
+    }
+    if (this.tokens >= 1) { this.tokens -= 1; return true; }
+    return false;
+  }
+  reset(now: number): void { this.tokens = this.max; this.last = now; }
+}
+
+const RESOLVE_BUCKET_MAX = 120;       // burst headroom (open-a-big-script warm)
+const RESOLVE_REFILL_PER_SEC = 6;     // sustained ceiling
+let resolveBucket = new TokenBucket(RESOLVE_BUCKET_MAX, RESOLVE_REFILL_PER_SEC, Date.now());
+let resolveThrottleLogged = false;
+
+/** Gate an automatic editor resolution. Returns false (→ caller silently skips)
+ *  when the rate budget is exhausted. Logs once per throttle episode, not per drop. */
+function allowResolve(): boolean {
+  if (resolveBucket.take(Date.now())) { resolveThrottleLogged = false; return true; }
+  if (!resolveThrottleLogged) {
+    resolveThrottleLogged = true;
+    console.warn('[crev] editor BMP resolution rate-limited — too many distinct lookups in a short window; degrading silently until it cools down');
+  }
+  return false;
+}
+
 /** Per-key debounced scheduler. New schedules for the same key reset
  *  that key's timer; `fire` is expected to dedupe in-flight work. */
 class DebouncedResolver {
@@ -535,6 +583,7 @@ export function ensureSchemaNow(className: string): void {
   if (state.schemas.has(lc(className))) return;
   if (state.inflight.has(lc(className))) return;
   if (hasCurrentSchemaError(className)) return;
+  if (!allowResolve()) return; // rate-limit guardrail (cache checks first — a hit never costs a token)
   state.inflight.add(lc(className));
   enqueue(async () => {
     try {
@@ -629,6 +678,7 @@ export function getOption(className: string, accessor: string): TypeOptionSet | 
 export function ensureOptionsNow(className: string): void {
   const key = lc(className);
   if (typeOptions.has(key) || optionsInflight.has(key)) return;
+  if (!allowResolve()) return; // rate-limit guardrail
   optionsInflight.add(key);
   enqueue(async () => {
     try {
@@ -641,6 +691,54 @@ export function ensureOptionsNow(className: string): void {
       // Swallow — value autocomplete degrades to no suggestions, never blocks.
     } finally {
       optionsInflight.delete(key);
+    }
+  });
+}
+
+// ── ns.bid reference → type resolution (dot-member property completion) ──────
+// `ceras.stmt_supplier_failure.<prop>` needs the CLASS of the referenced object
+// before its schema can be offered. BMP resolves a `namespace.businessId` ref to
+// an identity in ~1ms (live-verified) via the same HOVER_RESOLVE EC the hover
+// tooltip uses — we only read `objectType` here. Same shape as the root-category
+// resolver below: cache forever (an object's class doesn't drift while the editor
+// is open), dedup in-flight, `notify()` on arrival so a pending completion (which
+// rides `subscribe`) wakes. `null` = BMP resolved no class (bad ns/id); `undefined`
+// (absent) = never asked. NOT keyed by serverId — see the typeOptions note; a
+// profile switch without an editor reload could serve a stale class, acceptable
+// for the same reason.
+const refTypeCache = new Map<string, string | null>();
+const refTypeInflight = new Set<string>();
+
+/** Cached class for a `namespace.businessId` ref: a class name, `null` (resolved
+ *  to nothing), or `undefined` (not yet resolved). */
+export function getRefType(ref: string): string | null | undefined {
+  return refTypeCache.get(ref);
+}
+
+/** Eager resolve of a `namespace.businessId` ref to its object's class. Mirrors
+ *  ensureSchemaNow's guard/enqueue/notify; degrades silently on transport failure
+ *  (the ref stays unresolved and a later completion retries). */
+export function ensureRefType(ref: string): void {
+  if (refTypeCache.has(ref) || refTypeInflight.has(ref)) return;
+  if (!allowResolve()) return; // rate-limit guardrail
+  refTypeInflight.add(ref);
+  enqueue(async () => {
+    try {
+      const r = await sendRequest({ type: 'HOVER_RESOLVE', ref } as InspectorMessage);
+      if (r?.type === 'HOVER_RESOLVE_RESULT') {
+        // objectType is already BMP's canonical PascalCase; canonicalize is a
+        // harmless no-op that also records the casing for the Vars panel.
+        const cls = r.objectType ? canonicalizeTypeName(r.objectType) : null;
+        refTypeCache.set(ref, cls);
+        if (cls) rememberCanonical(cls, r.objectType);
+        notify();
+      }
+      // No response (SW handler missing / bridge down): leave uncached so the
+      // next completion retries rather than caching a permanent miss.
+    } catch {
+      // Transport error: same — leave uncached for retry.
+    } finally {
+      refTypeInflight.delete(ref);
     }
   });
 }
@@ -674,6 +772,7 @@ const rootResolver = new DebouncedResolver(
 async function resolveRootCategoryNow(category: string): Promise<void> {
   if (rootCategoryCache.has(category)) return;
   if (rootInFlight.has(category)) return;
+  if (!allowResolve()) return; // rate-limit guardrail
   rootInFlight.add(category);
   try {
     const r = await sendRequest({ type: 'RESOLVE_ROOT_CATEGORY', category } as InspectorMessage);
@@ -779,6 +878,10 @@ export function _resetForTests(): void {
   state.inflight.clear();
   typeOptions.clear();
   optionsInflight.clear();
+  refTypeCache.clear();
+  refTypeInflight.clear();
+  resolveBucket = new TokenBucket(RESOLVE_BUCKET_MAX, RESOLVE_REFILL_PER_SEC, Date.now());
+  resolveThrottleLogged = false;
   canonicalByLower.clear();
   rootCategoryCache.clear();
   rootInFlight.clear();

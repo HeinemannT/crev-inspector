@@ -13,8 +13,8 @@
  * supersedes the old regex.
  */
 import type { BmpClient } from './bmp-client';
-import type { LayoutIO, BlueprintCtx, LoadResult, ApplyResult } from './layout/sync';
-import { loadModel, applyModel, resolvePageContext } from './layout/sync';
+import type { LayoutIO, BlueprintCtx, NeedsTabset, LoadResult, ApplyResult } from './layout/sync';
+import { loadModel, applyModel, resolvePageContext, isNeedsTabset, createTabsetAndLoad } from './layout/sync';
 import type { LModel } from './layout/types';
 import { validateBusinessId, validateRid } from './ec-guards';
 import { log } from './logger';
@@ -34,14 +34,26 @@ export function makeLayoutIO(client: BmpClient): LayoutIO {
   };
 }
 
-/** Resolve context + load the page model for a viewed object rid. Returns null ctx when the object
- *  isn't an editable page (no tabset discoverable). */
-export async function loadPage(client: BmpClient, rid: string): Promise<{ ctx: BlueprintCtx; load: LoadResult } | null> {
+/** The outcome of resolving + loading a page: a loaded editor model, a "needs a tabset" page (the
+ *  caller offers to create one), or null (not an editable page). */
+export type LoadPageResult =
+  | { kind: 'page'; ctx: BlueprintCtx; load: LoadResult }
+  | { kind: 'needsTabset'; page: NeedsTabset }
+  | null;
+
+/** Resolve context + load the page model for a viewed object rid. */
+export async function loadPage(client: BmpClient, rid: string): Promise<LoadPageResult> {
   const io = makeLayoutIO(client);
-  const ctx = await resolvePageContext(io, rid);
-  if (!ctx) return null;
-  const load = await loadModel(io, ctx);
-  return { ctx, load };
+  const r = await resolvePageContext(io, rid);
+  if (!r) return null;
+  if (isNeedsTabset(r)) return { kind: 'needsTabset', page: r };
+  const load = await loadModel(io, r);
+  return { kind: 'page', ctx: r, load };
+}
+
+/** Create a dedicated tabset for a RESULT-only page (moving its widgets onto it), then load it. */
+export async function createTabset(client: BmpClient, page: NeedsTabset, name: string): Promise<{ ctx: BlueprintCtx; load: LoadResult } | null> {
+  return createTabsetAndLoad(makeLayoutIO(client), page, name);
 }
 
 /** Apply an edit: diff baseline→desired, compile, commit, re-fetch. The ctx must be the one

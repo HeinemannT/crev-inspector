@@ -12,7 +12,7 @@
  * Reparent-before-delete prevents the RESULT-orphan: widgets are re-pointed to the tab before
  * their old container is removed.
  */
-import { isTempId } from './model';
+import { isTempId, isResultTab } from './model';
 import type { Breakpoint, LModel, LNode, NodeKind, PlanStep } from './types';
 
 interface Entry {
@@ -89,15 +89,28 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
   const parents = new Set([...B.values()].map(e => e.parentId));
   for (const pid of parents) {
     for (const kind of ['tab', 'container', 'widget'] as NodeKind[]) {
-      const group = childIdsOf(B, pid).filter(id => kindOfId(id) === kind);
+      // `index()` parents EVERY tab under the page's tabsetId — including the shared Result tab, whose
+      // REAL parent is default_tabset. So it lands in this group with the page's own tabs. Exclude it
+      // from BOTH the desired order AND the natural/surviving order below (excluding it from only one
+      // would make them mismatch and emit a phantom reorder for every tab after it). It's pinned first
+      // and not user-reorderable, and a chained `t.<pageTab>.moveAfter(t.RESULT)` would be cross-tabset.
+      const excluded = (id: string): boolean => kind === 'tab' && !!B.get(id) && isResultTab(B.get(id)!.node);
+      const group = childIdsOf(B, pid).filter(id => kindOfId(id) === kind && !excluded(id));
       if (group.length < 2) continue;
-      // baseline children STILL under pid (a reparented-AWAY node must not inflate the order).
-      // A node created here, or reparented IN from elsewhere, is not in survivingBase and lands
-      // at the end naturally (add() appends, reparent appends) -> if its desired slot differs,
-      // the join mismatch fires the moveAfter chain. (New parents are handled too: survivingBase
-      // is empty, so an all-new in-order group matches `natural` and emits nothing.)
-      const survivingBase = childIdsOf(A, pid).filter(id => B.get(id)?.parentId === pid && kindOfId(id) === kind);
-      const natural = [...survivingBase, ...group.filter(id => !A.has(id))];
+      // `natural` = the order BMP produces from the create+reparent steps ALONE (before any reorder),
+      // so a reorder only emits when the desired order genuinely differs from it. That order is:
+      //   surviving base children (kept in base order)            -- untouched, stay put
+      //   + created nodes (desired order)                         -- creates run first, pre-order DFS
+      //   + reparented-IN nodes (desired order)                   -- reparents run next, B-map order
+      // both creates and reparents APPEND, and both phases iterate in desired order, so this mirrors
+      // the live result. Excluding reparented-in nodes (the old bug) made every move-INTO a populated
+      // box re-emit a moveAfter for each sibling -> "1 move = N changes". Including them at their
+      // appended slot means an append-move needs no reorder at all. When an interleave IS wanted the
+      // join still mismatches and the full chain (which reconstructs the exact order) fires.
+      const survivingBase = childIdsOf(A, pid).filter(id => B.get(id)?.parentId === pid && kindOfId(id) === kind && !excluded(id));
+      const createdIn = group.filter(id => !A.has(id));
+      const reparentedIn = group.filter(id => A.has(id) && !survivingBase.includes(id));
+      const natural = [...survivingBase, ...createdIn, ...reparentedIn];
       if (group.join(' ') !== natural.join(' ')) {
         for (let i = 1; i < group.length; i++) steps.push({ kind: 'reorder', id: group[i], afterId: group[i - 1] });
       }
@@ -109,4 +122,32 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
   deletes.forEach(e => steps.push({ kind: 'delete', id: e.node.id, nodeKind: e.node.kind, className: e.node.className, rid: e.node.rid }));
 
   return steps;
+}
+
+/**
+ * Headline change count vs raw action count. A single edit often compiles to several EC actions — e.g.
+ * inserting one widget mid-list emits a create PLUS a moveAfter chain to re-seat its siblings. Those
+ * reorders are a SIDE-EFFECT of the insert, not separate user changes, so the headline shouldn't inflate.
+ *
+ * `changes` = distinct nodes the user actually acted on: every create/update/reparent/delete subject,
+ * plus any sibling-group that has reorders WITHOUT a create/reparent to explain them (a genuine
+ * drag-to-reorder). `actions` = plan.length (every EC step), still surfaced so the work isn't hidden.
+ */
+export function summarizeChanges(plan: PlanStep[], desired: LModel): { changes: number; actions: number } {
+  const idx = index(desired);
+  const subjects = new Set<string>();        // create/update/reparent/delete — the acted-on nodes
+  const causeParents = new Set<string>();    // parents whose membership changed (create/reparent) — explains reorders
+  for (const s of plan) {
+    if (s.kind === 'create') { subjects.add(s.node.id); causeParents.add(s.parentId); }
+    else if (s.kind === 'update' || s.kind === 'delete') subjects.add(s.id);
+    else if (s.kind === 'reparent') { subjects.add(s.id); causeParents.add(s.toParentId); }
+  }
+  // reorder-only sibling groups not explained by an insert/move = a real reorder gesture; count once each
+  const reorderGroups = new Set<string>();
+  for (const s of plan) {
+    if (s.kind !== 'reorder') continue;
+    const p = idx.get(s.id)?.parentId;
+    if (p && !causeParents.has(p)) reorderGroups.add(p);
+  }
+  return { changes: subjects.size + reorderGroups.size, actions: plan.length };
 }

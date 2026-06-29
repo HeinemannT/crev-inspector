@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Flow hierarchy — compact, role-differentiated</title>
+<style>
+  :root{--ink:#efefef;--dim:#9a9a9a;--faint:#6b6b6b;--accent:#8a3ffc;--ecink:#c9a8ff;--bg:#161616;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:#0d0d0d;color:var(--ink);font:13px/1.5 'Inter',system-ui,sans-serif;padding:26px;}
+  h1{font:600 16px/1.2 'Inter';margin:0 0 4px;}
+  .sub{color:var(--dim);font-size:13px;margin:0 0 22px;max-width:760px;}
+  .cols{display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap;}
+  .col{width:344px;}
+  .lab{font:600 13px/1 'Inter';color:#fff;margin:0 0 4px;}
+  .labd{color:var(--faint);font-size:12px;line-height:1.5;margin:0 0 12px;}
+  .frame{background:var(--bg);border:1px solid #2a2a2a;border-radius:10px;padding:10px 12px;}
+  .frame+.frame{margin-top:13px;}
+  svg{display:block;}
+
+  /* the flow header: the widget itself — a title, not a pill */
+  .fh{display:flex;align-items:baseline;gap:8px;padding-bottom:2px;}
+  .fh .ty{font:700 9.5px/1 'Inter';letter-spacing:.07em;text-transform:uppercase;color:var(--ht,#7aa7ff);}
+  .fh .nm{font:600 14.5px/1.2 'Inter';color:#fff;}
+  .fh .ct{margin-left:auto;color:var(--faint);font-size:11px;}
+  /* the container: a faint context line, not a step */
+  .grp{color:var(--faint);font-size:11px;margin:5px 0 7px;display:flex;align-items:center;gap:6px;}
+  .grp .gt{color:var(--dim);}
+  .grp .gl{color:var(--accent);opacity:.85;}
+
+  /* a leaf row */
+  .row{display:flex;align-items:center;gap:9px;padding:5px 4px 5px 8px;border-radius:6px;position:relative;}
+  .row:hover{background:#1f1f23;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--tc,#777);flex:none;}
+  .nm{font:500 13px/1.3 'Inter';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .meta{margin-left:auto;display:flex;align-items:center;gap:11px;flex:none;}
+  /* key = a binding identifier: mono + key glyph, NEUTRAL grey so it reads as
+     plain metadata, clearly distinct from purple "code". NOT a tag. */
+  .keyb{display:flex;align-items:center;gap:3px;color:#8c8c8c;font:11.5px/1 ui-monospace,monospace;}
+  .keyb svg{stroke:#777;}
+  /* code = behavior: code glyph + prop + lines, in EC purple. The eye-catcher. */
+  .codeb{display:flex;align-items:center;gap:4px;color:var(--ecink);font:600 11px/1 'Inter';}
+  .codeb .ln{color:#9b7bce;font-weight:400;}
+  .codeb svg{stroke:var(--ecink);}
+
+  /* ── V2 extras: name-forward, meta on a quiet second line ── */
+  .v2 .row{flex-direction:column;align-items:stretch;gap:3px;padding:7px 4px 7px 8px;}
+  .v2 .l1{display:flex;align-items:center;gap:9px;}
+  .v2 .meta{margin-left:18px;gap:14px;}
+  .v2 .reads{color:var(--faint);font:10.5px/1 ui-monospace,monospace;}
+</style>
+</head>
+<body>
+  <h1>Flow hierarchy — compact &amp; role-differentiated</h1>
+  <p class="sub">Same data, but the different <b>kinds</b> of element now look different instead of all being 3-letter tags: the widget is a title, the container is a faint context line, the type is a small color dot, the <b>key</b> is a mono identifier with a key glyph, and <b>code</b> is a code glyph in purple (so "has logic" jumps out). No more <code>=</code>.</p>
+
+  <div class="cols">
+    <div class="col">
+      <div class="lab">V1 · One line per field</div>
+      <div class="labd">Tightest. Type = color dot, name, then key (mono + key glyph) and code (code glyph + lines) right-aligned. Differentiation is by glyph + color + font, not by boxing everything.</div>
+      <div id="v1"></div>
+    </div>
+    <div class="col">
+      <div class="lab">V2 · Name first, behavior below</div>
+      <div class="labd">Names get the full width on line one; the quiet second line carries key + code only when present, so fields with logic visibly stand out from plain ones. A touch taller, very scannable.</div>
+      <div id="v2"></div>
+    </div>
+  </div>
+
+<script>
+  const ABBR={InputView:'InputView',InputSet:'InputSet',Label:'Label',NumberInput:'Number',ChoiceInput:'Choice',ButtonInput:'Button',ActionButton:'ActionButton',NotificationTransportGroup:'Transport group',ExtendedTransport:'Transport'};
+  const COLOR={InputView:'#1f8bff',InputSet:'#4589ff',Label:'#bca37a',NumberInput:'#78a9ff',ChoiceInput:'#78a9ff',ButtonInput:'#0f62fe',ActionButton:'#0f62fe',NotificationTransportGroup:'#a56eff',ExtendedTransport:'#9b7bff'};
+  const PA={showExpression:'shows on',afterExpression:'after',expression:'runs',initExpression:'init'};
+  const KEY_SVG='<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.5 12.5 20 3m-3.5.5 3 3m-5.5-1 3 3"/></svg>';
+  const CODE_SVG='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg>';
+
+  const el=(t,c)=>{const e=document.createElement(t);if(c)e.className=c;return e;};
+  const txt=(t,c,s)=>{const e=el(t,c);e.textContent=s;return e;};
+
+  const inputView={summary:'5 fields · 2 with logic',step:{identity:{type:'InputView',name:'Risk Assessment Input'},
+    children:[{identity:{type:'InputSet',name:'Assessment Fields'},edgeLabel:'inputSet',children:[
+      {identity:{type:'Label',name:'Section: Inherent Risk'}},
+      {identity:{type:'NumberInput',name:'Likelihood'},inputKey:'likelihood',codeFields:[{prop:'showExpression',lineCount:4,reads:['phase']}]},
+      {identity:{type:'NumberInput',name:'Impact'},inputKey:'impact'},
+      {identity:{type:'ChoiceInput',name:'Risk Category'},inputKey:'category'},
+      {identity:{type:'ButtonInput',name:'Save & Score'},inputKey:'save',codeFields:[{prop:'afterExpression',lineCount:12,reads:['likelihood','impact']}]},
+    ]}]}};
+  const actionBtn={summary:'2 transports · 3 with logic',step:{identity:{type:'ActionButton',name:'Submit for Approval'},codeFields:[{prop:'expression',lineCount:3}],
+    children:[{identity:{type:'NotificationTransportGroup',name:'Approval Notifications'},edgeLabel:'actionObject',children:[
+      {identity:{type:'ExtendedTransport',name:'Email Risk Owner'},codeFields:[{prop:'expression',lineCount:8,reads:['case.owner.email']}]},
+      {identity:{type:'ExtendedTransport',name:'Update Workflow Status'},codeFields:[{prop:'expression',lineCount:4}]},
+    ]}]}};
+
+  function spine(step){const chain=[step];let c=step;while(c.children&&c.children.length===1){c=c.children[0];chain.push(c);}return {root:chain[0],container:chain.length>1?chain[chain.length-1]:null,leaves:c.children||[]};}
+  function keyEl(leaf){const k=el('span','keyb');k.innerHTML=KEY_SVG;k.append(txt('span',null,leaf.inputKey));return k;}
+  function codeEl(cf){const c=el('span','codeb');c.innerHTML=CODE_SVG;c.append(txt('span',null,PA[cf.prop]||cf.prop),txt('span','ln',cf.lineCount+'L'));return c;}
+
+  function header(flow){
+    const {root,container}=spine(flow.step);
+    const f=document.createDocumentFragment();
+    const fh=el('div','fh');fh.style.setProperty('--ht',COLOR[root.identity.type]);
+    fh.append(txt('span','ty',ABBR[root.identity.type]),txt('span','nm',root.identity.name),txt('span','ct',flow.summary));
+    f.appendChild(fh);
+    if(container){const g=el('div','grp');g.append(txt('span','gt',container.identity.name));if(container.edgeLabel)g.append(txt('span','gl','· '+container.edgeLabel));f.appendChild(g);}
+    return f;
+  }
+
+  // V1
+  function renderV1(flow){
+    const fr=el('div','frame v1');fr.appendChild(header(flow));
+    spine(flow.step).leaves.forEach(leaf=>{
+      const r=el('div','row');const d=el('span','dot');d.style.setProperty('--tc',COLOR[leaf.identity.type]);
+      r.append(d,txt('span','nm',leaf.identity.name));
+      const m=el('div','meta');if(leaf.inputKey)m.appendChild(keyEl(leaf));(leaf.codeFields||[]).forEach(cf=>m.appendChild(codeEl(cf)));r.appendChild(m);
+      fr.appendChild(r);
+    });
+    return fr;
+  }
+  // V2
+  function renderV2(flow){
+    const fr=el('div','frame v2');fr.appendChild(header(flow));
+    spine(flow.step).leaves.forEach(leaf=>{
+      const r=el('div','row');
+      const l1=el('div','l1');const d=el('span','dot');d.style.setProperty('--tc',COLOR[leaf.identity.type]);l1.append(d,txt('span','nm',leaf.identity.name));r.appendChild(l1);
+      const hasMeta=leaf.inputKey||(leaf.codeFields&&leaf.codeFields.length);
+      if(hasMeta){const m=el('div','meta');if(leaf.inputKey)m.appendChild(keyEl(leaf));(leaf.codeFields||[]).forEach(cf=>m.appendChild(codeEl(cf)));
+        const reads=(leaf.codeFields||[]).flatMap(cf=>cf.reads||[]);if(reads.length)m.appendChild(txt('span','reads','reads '+reads.join(', ')));r.appendChild(m);}
+      fr.appendChild(r);
+    });
+    return fr;
+  }
+
+  document.getElementById('v1').append(renderV1(inputView),renderV1(actionBtn));
+  document.getElementById('v2').append(renderV2(inputView),renderV2(actionBtn));
+</script>
+</body>
+</html>

@@ -4,7 +4,7 @@
  * means neither the view nor the controller owns it, and there's no import cycle through it.
  */
 import type { LModel, PlanNote } from '../lib/layout/types';
-import type { BlueprintCtx } from '../lib/layout/sync';
+import type { BlueprintCtx, NeedsTabset } from '../lib/layout/sync';
 import type { InstanceFanout, ContainerBlast } from '../lib/layout/blast-radius';
 import { History } from '../lib/layout/history';
 
@@ -24,11 +24,13 @@ export interface BpState {
   blast: { fanout: InstanceFanout | null; blast: ContainerBlast | null } | null; // preview blast radius (async, best-effort)
   blastSeq: number;             // bumped per openApplyPreview; a late blast reply for an older seq is dropped
   picker: string | null;        // containerId/compositeId/tabId the add picker is open for
-  pickerOpts: { afterId?: string; cols?: number } | null; // positional insert: place after a sibling, sized to a gap
+  pickerOpts: { afterId?: string; cols?: number; at?: { x: number; y: number } } | null; // positional insert (after a sibling, sized to a gap) + the click point to anchor the picker popup at
   movePicker: string | null;    // widgetId the move-destination menu is open for
-  onScroll: (() => void) | null;
+  renameId: string | null;      // node whose inline-rename should OPEN on the next render (dbl-click / toolbar pencil)
+  onResize: (() => void) | null; // window 'resize' handler (re-anchors the canvas; scroll is native)
   onKey: ((e: KeyboardEvent) => void) | null;
-  raf: number;                  // requestAnimationFrame id coalescing scroll re-renders (0 = none)
+  raf: number;                  // requestAnimationFrame id coalescing resize re-renders (0 = none)
+  resultMode: boolean;          // last render used the result canvas (vs the live-fallback) — read by chrome
   gen: number;                  // session generation, bumped on each enable; in-flight I/O captures it
                                 //   and bails if it changed (toggle-off-then-on starts a new session)
   hint: string | null;          // transient contextual hint shown in the bottom bar (gesture coaching)
@@ -38,14 +40,32 @@ export interface BpState {
   observer: MutationObserver | null; // watches BMP content for tab switches (visible rid set changes)
   ridSig: string;               // signature of the visible rids at last render — re-render when it changes
   mutRaf: number;               // rAF id coalescing mutation-driven re-renders (0 = none)
+  needsTabset: NeedsTabset | null; // page has RESULT widgets but no tabset → show the create-tabset prompt
+  creatingTabset: boolean;      // create-tabset request in flight (disables the prompt's Create button)
+  flipNext: boolean;            // animate result cells from old→new position on the next render (set by an edit)
+  viewTabId: string | null;     // tab shown in the canvas (header tab bar switches it); null → follow BMP's live tab
+  scrollSpacer: HTMLElement | null; // body-level spacer that extends page scroll height to cover a taller-than-content panel
+  peek: boolean;                // sticky peek toggle (overlay faded so the live widgets show); hover peeks transiently
 }
 
-export const bp: BpState = {
-  active: false, baseline: null, ctx: null, env: null, history: null,
-  layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null,
-  onScroll: null, onKey: null, raf: 0, gen: 0, hint: null, trayOpen: false, dragging: false, renaming: false,
-  observer: null, ridSig: '', mutRaf: 0,
-};
+/** Every per-session field at its idle/empty value. Defined ONCE so the initial `bp` and the teardown
+ *  reset can't drift (a field added to one but not the other used to leak across sessions). `gen` is the
+ *  sole field NOT reset here — it's the monotonic session counter. */
+function freshState(): Omit<BpState, 'gen'> {
+  return {
+    active: false, baseline: null, ctx: null, env: null, history: null,
+    layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, renameId: null,
+    onResize: null, onKey: null, raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
+    observer: null, ridSig: '', mutRaf: 0, needsTabset: null, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
+  };
+}
+
+export const bp: BpState = { gen: 0, ...freshState() };
+
+/** Reset every per-session field to idle (preserving the monotonic `gen`) — called on teardown so no
+ *  selection, blast probe, observer, peek, etc. leaks into the next session. Listeners/observers/DOM are
+ *  torn down by the caller BEFORE this nulls their references. */
+export function resetState(): void { Object.assign(bp, freshState()); }
 
 export function isBlueprintActive(): boolean { return bp.active; }
 
@@ -55,6 +75,18 @@ export const model = (): LModel | null => bp.history?.present() ?? null;
 /** Curated add palette — the common, verified-addable widget types grouped for the picker. Display
  *  names are friendly; the key is the BMP className. (A full per-host live-derived palette is a
  *  later refinement — these all add cleanly to a Scorecard/template container.) */
+/** Quick-access widgets shown in a "Most used" section at the top of the add picker. A fixed shortlist
+ *  (not customizable) — the full PALETTE below still lists every type, so this is a convenience, not the
+ *  only path. All verified addable via a bare `_sc.add(<className>)` (incl. CreateObjectView). */
+export const MOST_USED: { key: string; name: string }[] = [
+  { key: 'InputView', name: 'Input View' },
+  { key: 'ExtendedTable', name: 'Extended Table' },
+  { key: 'DescriptionView', name: 'Description View' },
+  { key: 'TextElement', name: 'Text Element' },
+  { key: 'ActionButton', name: 'Action Button' },
+  { key: 'CreateObjectView', name: 'Create Object View' },
+];
+
 export const PALETTE: { group: string; items: { key: string; name: string }[] }[] = [
   { group: 'Status', items: [
     { key: 'SimpleStatus', name: 'Simple Status' }, { key: 'Status', name: 'Status' },

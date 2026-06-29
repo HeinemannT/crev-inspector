@@ -8,7 +8,7 @@
  * @vitest-environment happy-dom
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { scanDocForInferences, getInference, clearInferences, ensureSchemaNow, getSchema, canonicalType } from '../ec/typeInference';
+import { scanDocForInferences, getInference, clearInferences, ensureSchemaNow, getSchema, canonicalType, TokenBucket } from '../ec/typeInference';
 
 // Mock chrome.runtime.sendMessage so ensureSchema doesn't blow up
 // (it fires off requests for every type it sees).
@@ -526,5 +526,37 @@ describe('case-insensitive schema + canonical type label', () => {
     expect(canonicalType('CECONTROLMEASURE')).toBe('CeControlMeasure');
     expect(canonicalType('cecontrolmeasure')).toBe('CeControlMeasure');
     expect(canonicalType('CeControlMeasure')).toBe('CeControlMeasure');
+  });
+});
+
+describe('TokenBucket (resolution rate-limit guardrail)', () => {
+  it('allows up to `max` immediate takes, then blocks until refill', () => {
+    const t0 = 1_000_000;
+    const b = new TokenBucket(3, 1 /* per sec */, t0);
+    // Three immediate takes succeed (full bucket); the fourth is throttled.
+    expect(b.take(t0)).toBe(true);
+    expect(b.take(t0)).toBe(true);
+    expect(b.take(t0)).toBe(true);
+    expect(b.take(t0)).toBe(false);
+  });
+
+  it('refills at the configured rate over elapsed time', () => {
+    const t0 = 2_000_000;
+    const b = new TokenBucket(3, 2 /* per sec */, t0);
+    b.take(t0); b.take(t0); b.take(t0);     // drained
+    expect(b.take(t0)).toBe(false);
+    // 1s later → +2 tokens available.
+    expect(b.take(t0 + 1000)).toBe(true);
+    expect(b.take(t0 + 1000)).toBe(true);
+    expect(b.take(t0 + 1000)).toBe(false);
+  });
+
+  it('never exceeds `max` no matter how long it idles', () => {
+    const t0 = 3_000_000;
+    const b = new TokenBucket(2, 100, t0);
+    // Idle an hour — refill is capped at `max`, so only 2 takes succeed.
+    expect(b.take(t0 + 3_600_000)).toBe(true);
+    expect(b.take(t0 + 3_600_000)).toBe(true);
+    expect(b.take(t0 + 3_600_000)).toBe(false);
   });
 });

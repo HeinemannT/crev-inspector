@@ -31,6 +31,11 @@ const demo = (): LModel => ({
  * 2026-06-26 and returned [OK] (creates, variable threading, re-home-before-delete, and
  * kind-segregated reorders all accepted). If the generator changes, re-validate live before
  * updating this string.
+ *
+ * Re-validated live 2026-06-28 after the reorder-emission fix: the two cont_14 moveAfters
+ * (4966→4965, 4964→4966) were dropped because moving 4964 INTO cont_14 appends it, which already
+ * yields the desired order — those moveAfters were redundant no-ops. The shortened script returned
+ * [OK] via ec_preview. (tab-4904's reorders stay: _n0 is genuinely interleaved before 4967.)
  */
 const GOLDEN = [
   '_sc := t.4957',
@@ -47,8 +52,6 @@ const GOLDEN = [
   't.4967.moveAfter(_n0)',
   't.4968.moveAfter(t.4967)',
   't.4969.moveAfter(t.4968)',
-  't.4966.moveAfter(t.4965)',
-  't.4964.moveAfter(t.4966)',
   't.cont_crev_demo_enterprise_19.delete()',
   't.cont_crev_demo_enterprise_18.delete()',
 ].join('\n');
