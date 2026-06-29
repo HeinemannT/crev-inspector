@@ -199,6 +199,15 @@ describe('sync.resolvePageContext', () => {
     expect(ctx.tabsetId).toBe('crev_demo_tabset');
     expect(ctx.tabScope).toBe('all');           // dedicated tabset → keep all tabs
     expect(ctx.resultOnly).toBeFalsy();
+    expect(ctx.templateRid).toBeUndefined();    // hasLink='n' → no template to toggle to
+  });
+  it('direct + linkedTo: surfaces the template rid + id for the instance/template toggle', async () => {
+    const probe = `${'<<<CREV_CTX>>>'}direct|451704949656267090|4957|Scorecard|crev_demo_tabset|y|9|6921053769472535971|crev_demo_complex`;
+    const r = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '451704949656267090');
+    expect(r).toMatchObject({
+      pageId: '4957', target: 'instance', hasTemplate: true,
+      templateRid: '6921053769472535971', templateId: 'crev_demo_complex',
+    });
   });
   it('no dedicated tabset but RESULT widgets → loadable resultOnly ctx (via default_tabset)', async () => {
     const probe = `${'<<<CREV_CTX>>>'}direct|999|888|Scorecard||n|4`; // empty tabsetId, 4 widgets

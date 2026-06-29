@@ -211,6 +211,18 @@
 #crev-blueprint-layer .bp-chip button.apply{background:var(--bp-cyan);color:var(--bp-ground);border-color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-chip button.apply:hover:not(:disabled){background:var(--bp-cyan-hi);color:var(--bp-ground)}
 #crev-blueprint-layer .bp-chip.tmpl button.apply{background:var(--bp-amber);border-color:var(--bp-amber)}
+/* F: template/instance target toggle. flex:none + the spacer (.sp) keeps the action buttons aligned no
+   matter the toggle/blast width (the old free-flowing warning text used to shove them — that's item E). */
+#crev-blueprint-layer .bp-target{display:inline-flex;flex:none;border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r);overflow:hidden}
+#crev-blueprint-layer .bp-chip .bp-target-b{height:22px;padding:0 9px;border:0;border-radius:0;background:transparent;color:var(--bp-muted);font:600 10.5px 'BPInter',sans-serif;letter-spacing:.01em}
+#crev-blueprint-layer .bp-chip .bp-target-b+.bp-target-b{border-left:var(--bp-hair) solid var(--bp-line-2)}
+#crev-blueprint-layer .bp-chip .bp-target-b:hover:not(.on){color:var(--bp-text)}
+#crev-blueprint-layer .bp-chip .bp-target-b.on{background:var(--bp-amber);color:var(--bp-ground)}        /* Template active = shared (amber) */
+#crev-blueprint-layer .bp-chip .bp-target-b:last-child.on{background:var(--bp-cyan);color:var(--bp-ground)} /* This instance active = local (cyan) */
+/* Compact, fixed-width blast cue (shown in template mode) — never grows, so it can't break alignment. */
+#crev-blueprint-layer .bp-chip .bp-blast{display:inline-flex;flex:none;align-items:center;gap:4px;color:var(--bp-amber);font:600 10px 'BPInter',sans-serif;white-space:nowrap}
+#crev-blueprint-layer .bp-chip .bp-blast .warn-ic{display:inline-flex;flex:none}
+#crev-blueprint-layer .bp-chip .bp-blast .warn-ic svg{width:11px;height:11px;display:block}
 
 #crev-blueprint-layer .bp-tabs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:7px 10px 7px 12px;border-top:var(--bp-hair) solid var(--bp-line-2)}
 #crev-blueprint-layer .bp-tabs-l{color:var(--bp-muted);font:700 9px/1 var(--bp-mono);letter-spacing:.12em;margin-right:2px}

@@ -31,11 +31,12 @@ function rebase(m: LModel): void {
  *  overlay was toggled off — or off-then-on (a new session, higher `gen`) — must not mutate state. */
 const sameSession = (g: number): boolean => bp.active && bp.gen === g;
 
-/** Request the page's layout model and load it into the editor. Resolves false when the page isn't
- *  loadable (the caller tears the overlay down). */
-export async function loadPage(rid: string): Promise<boolean> {
+/** Request the page's layout model and load it into the editor. `prefer` chooses, for a templated
+ *  instance, whether to open the shared TEMPLATE (default) or THIS instance. Resolves false when the
+ *  page isn't loadable (the caller tears the overlay down). */
+export async function loadPage(rid: string, prefer: 'template' | 'instance' = 'template'): Promise<boolean> {
   const g = bp.gen;
-  const res = await sendRequest<LoadResult>({ type: 'LAYOUT_LOAD', rid });
+  const res = await sendRequest<LoadResult>({ type: 'LAYOUT_LOAD', rid, prefer });
   if (!sameSession(g)) return false; // toggled off (or off-then-on) before the reply arrived
   if (!res?.ok || !res.model || !res.ctx) {
     showToast(`Blueprint: ${res?.error || 'could not load this page'}`, 'error');
@@ -43,6 +44,7 @@ export async function loadPage(rid: string): Promise<boolean> {
   }
   rebase(res.model);
   bp.ctx = res.ctx;
+  bp.editingTemplate = res.ctx.editingTemplate ?? false;
   bp.env = res.env ?? null;
   const orphans = res.orphans?.length ?? 0;
   if (orphans) showToast(`Blueprint: ${orphans} widget(s) not placed on any tab`, 'info');

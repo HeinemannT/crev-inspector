@@ -16,6 +16,7 @@ import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT
 import { bp, model } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
 import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, discard, openApplyPreview, exitBlueprint } from './actions';
+import { setEditTarget } from '../content-blueprint'; // runtime-only (click handler) — no init-time cycle
 
 const VERB_ICON: Record<PlanNote['verb'], string> = { create: ICON_PLUS, update: ICON_PENCIL, move: ICON_ARROW_RIGHT, reorder: ICON_SWAP, delete: ICON_TRASH };
 
@@ -181,10 +182,29 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   b.append(mark, wordmark);
   const id = document.createElement('span'); id.textContent = `${ctx.pageClass} ${ctx.pageId}`;
   c.append(b, id);
+  // F: template/instance target toggle — shown whenever this page reuses a template (you can edit the
+  // shared template OR just this instance). Default is the template. The active segment + the tmpl
+  // styling on the chip ARE the "what am I editing" indicator (E), so no free-flowing warning text that
+  // could shove the buttons out of alignment.
+  if (ctx.templateId) {
+    const seg = document.createElement('div'); seg.className = 'bp-target';
+    const tBtn = document.createElement('button');
+    tBtn.className = 'bp-target-b' + (bp.editingTemplate ? ' on' : '');
+    tBtn.textContent = 'Template';
+    tBtn.title = `Editing the shared template ${ctx.templateId} — changes affect every instance`;
+    tBtn.addEventListener('click', () => setEditTarget(true));
+    const iBtn = document.createElement('button');
+    iBtn.className = 'bp-target-b' + (!bp.editingTemplate ? ' on' : '');
+    iBtn.textContent = 'This instance';
+    iBtn.title = `Editing only ${ctx.instanceId ?? 'this instance'} — overrides the template here`;
+    iBtn.addEventListener('click', () => setEditTarget(false));
+    seg.append(tBtn, iBtn);
+    c.appendChild(seg);
+  }
   if (shared) {
-    const w = document.createElement('span'); w.className = 'warn';
+    const w = document.createElement('span'); w.className = 'bp-blast'; w.title = 'Edits here affect all instances of this template';
     const ic = document.createElement('span'); ic.className = 'warn-ic'; setIcon(ic, ICON_WARNING);
-    w.append(ic, document.createTextNode('Shared template. Affects all instances'));
+    w.append(ic, document.createTextNode('affects all instances'));
     c.appendChild(w);
   }
   c.appendChild(sp());

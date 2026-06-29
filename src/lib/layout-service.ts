@@ -41,13 +41,33 @@ export type LoadPageResult =
   | null;
 
 /** Resolve context + load the page model for a viewed object rid. A page with no dedicated tabset is
- *  loaded through default_tabset (its widgets on the shared Result tab) and flagged `resultOnly`. */
-export async function loadPage(client: BmpClient, rid: string): Promise<LoadPageResult> {
+ *  loaded through default_tabset (its widgets on the shared Result tab) and flagged `resultOnly`.
+ *
+ *  Template default: when the viewed object is an INSTANCE that reuses a linkedTo template
+ *  (SharedWebItems), `prefer='template'` (the default) loads the SHARED TEMPLATE's layout instead —
+ *  editing it propagates to all instances. The returned ctx carries the toggle state (editingTemplate +
+ *  instanceId/templateId) so the chrome can offer [Template | This instance] and reload with
+ *  `prefer='instance'` to edit just this page. */
+export async function loadPage(client: BmpClient, rid: string, prefer: 'template' | 'instance' = 'template'): Promise<LoadPageResult> {
   const io = makeLayoutIO(client);
   const ctx = await resolvePageContext(io, rid);
   if (!ctx) return null;
-  const load = await loadModel(io, ctx);
-  return { kind: 'page', ctx, load };
+  if (prefer === 'template' && ctx.templateRid && ctx.templateId) {
+    // Redirect to the shared template's own layout, remembering the instance for the toggle + labels.
+    const tctx = await resolvePageContext(io, ctx.templateRid);
+    if (tctx) {
+      const merged: BlueprintCtx = {
+        ...tctx, target: 'template', editingTemplate: true,
+        templateRid: ctx.templateRid, templateId: ctx.templateId, instanceId: ctx.pageId,
+      };
+      return { kind: 'page', ctx: merged, load: await loadModel(io, merged) };
+    }
+    // Template didn't resolve — fall through to editing the instance.
+  }
+  // Editing the instance directly (or no template). Keep the template info on the ctx so the chrome can
+  // still show the toggle and switch to the template.
+  const instCtx: BlueprintCtx = { ...ctx, editingTemplate: false, instanceId: ctx.pageId };
+  return { kind: 'page', ctx: instCtx, load: await loadModel(io, instCtx) };
 }
 
 /** Create a dedicated tabset for a RESULT-only page (moving its widgets onto it), then load it. */

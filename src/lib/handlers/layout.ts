@@ -60,7 +60,7 @@ register('LAYOUT_LOAD', async (msg, respond) => {
   if (!ctx.client) { respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: 'Not connected' }); return; }
   const t0 = Date.now();
   try {
-    const res = await loadPage(ctx.client, msg.rid);
+    const res = await loadPage(ctx.client, msg.rid, msg.prefer);
     if (!res) {
       respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: 'Not an editable page (no tabset resolved)' });
       ctx.logActivity('warn', `Blueprint load: ${msg.rid} is not an editable page`);

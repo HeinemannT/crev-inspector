@@ -65,6 +65,16 @@ export interface ReconstructCtx {
   tabsetId: string;
   target?: 'instance' | 'template';
   hasTemplate?: boolean;
+  /** When this page is an instance reusing a linkedTo template (SharedWebItems), the template's rid + id.
+   *  Lets the UI toggle to — and default to — editing the shared template. Absent for the template itself,
+   *  enterprise pages, and plain pages with no template. */
+  templateRid?: string;
+  templateId?: string;
+  /** Toggle runtime state (filled by layout-service.loadPage for a templated instance, so the chrome
+   *  can render the [Template | This instance] toggle + labels). `editingTemplate` = the loaded layout
+   *  is the shared template; `instanceId` = the instance's businessId (for the label). */
+  editingTemplate?: boolean;
+  instanceId?: string;
   /** True when the page has no dedicated tabset — its widgets sit on the shared Result tab. The page
    *  still loads (showing the Result tab + its widgets, via default_tabset + withContent); the UI then
    *  offers a "+ Create tabset" affordance in the tab bar instead of a blocking modal. */

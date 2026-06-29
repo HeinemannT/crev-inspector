@@ -122,16 +122,26 @@ function mountLoadingShell(): void {
   head.appendChild(c); layer.appendChild(head);
 }
 
-/** Reload the overlay onto a different page (back/forward changed the URL ?rid=). Drops the stale model
- *  + any staged edits, bumps the session gen so an in-flight load/apply from the old page can't land, and
- *  re-loads for the new rid — tearing down if it isn't an editable page. */
-function reloadForRid(rid: string): void {
+/** Reload the overlay for `rid` — drops the stale model + any staged edits, bumps the session gen so an
+ *  in-flight load/apply can't land, shows the loading shell, and re-loads — tearing down if it isn't an
+ *  editable page. Used by both the page-change handler (C) and the template/instance toggle (F, same rid,
+ *  different `prefer`). */
+function reloadForRid(rid: string, prefer: 'template' | 'instance' = 'template'): void {
   bp.loadedRid = rid;
   bp.gen += 1; // invalidate any in-flight load/apply for the old page
   bp.baseline = null; bp.ctx = null; bp.history = null; bp.selectedId = null; bp.viewTabId = null; bp.ridSig = '';
   bp.peek = false; bp.layer?.classList.remove('bp-peek');
   mountLoadingShell(); // clear the old page's canvas immediately (render() won't, with no baseline)
-  void loadPage(rid).then((ok) => { if (!ok) disableBlueprint(); });
+  void loadPage(rid, prefer).then((ok) => { if (!ok) disableBlueprint(); });
+}
+
+/** F: switch between editing the shared TEMPLATE and THIS instance. Reloads the same page with the
+ *  opposite `prefer`; staged edits are dropped (same as any reload — flagged with a toast when present).
+ *  No-op when already in the requested mode. Offered only when a templated instance is loaded. */
+export function setEditTarget(toTemplate: boolean): void {
+  if (!bp.active || bp.editingTemplate === toTemplate) return;
+  if (bp.history?.canUndo()) showToast('Blueprint: switched target — unsaved layout edits were discarded', 'info');
+  reloadForRid(bp.loadedRid, toTemplate ? 'template' : 'instance');
 }
 
 /** Sorted set of the live widget rids — changes exactly when BMP swaps tabs (or otherwise re-renders

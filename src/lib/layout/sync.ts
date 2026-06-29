@@ -225,9 +225,11 @@ export function buildContextEc(rid: string): string {
     `     _tsid := ""`,
     `     _a := _cell`,
     ...walk,
-    // hasLink: does this instance reuse a template (SharedWebItems)? Drives whether the UI can offer
-    // "edit at template level"; the default edit target stays the instance (it owns its widgets).
+    // linkedTo: this instance reuses a template (SharedWebItems). Surface the template's rid + id so the
+    // UI can toggle to (and default to) editing the shared template. hasLink drives whether the toggle
+    // shows at all.
     `     _link := _probe.linkedTo.rid.whenMissing("")`,
+    `     _ltid := _probe.linkedTo.id.whenMissing("")`,
     `     _hasLink := "n"`,
     `     IF _link <> "" THEN _hasLink := "y" ELSE _hasLink := _hasLink ENDIF`,
     // widget count: when no tabset was discovered, this separates an empty/non-page object (0 → not
@@ -237,7 +239,7 @@ export function buildContextEc(rid: string): string {
     `     _probe.children().forEach(_ch:`,
     `          _wn := _wn + 1`,
     `     )`,
-    `     _out := _out + "direct|" + _probe.rid + "|" + _probe.id.whenMissing("") + "|" + _probe.className.whenMissing("") + "|" + _tsid + "|" + _hasLink + "|" + output(_wn)`,
+    `     _out := _out + "direct|" + _probe.rid + "|" + _probe.id.whenMissing("") + "|" + _probe.className.whenMissing("") + "|" + _tsid + "|" + _hasLink + "|" + output(_wn) + "|" + _link + "|" + _ltid`,
     `ENDIF`,
     `_out`,
   ].join('\n');
@@ -263,8 +265,10 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
   if (!res.ok || !res.log) return null;
   const line = res.log.split(CTX)[1]?.split('\n', 1)[0]?.trim();
   if (!line) return null;
-  const [kind, pRid, pId, pClass, tabsetId, hasLink, wcount] = line.split('|');
+  const [kind, pRid, pId, pClass, tabsetId, hasLink, wcount, tplRid, tplId] = line.split('|');
   if (!pRid || !pId) return null;
+  // Linked template (SharedWebItems) — surfaced so the UI can toggle to / default to editing it.
+  const tpl = hasLink === 'y' && tplRid ? { templateRid: tplRid, templateId: tplId || '' } : {};
   if (kind === 'enterprise') {
     if (!tabsetId) return null;
     // The page root IS the shared template; every edit hits all linked instances → high blast radius.
@@ -292,7 +296,7 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
     // template-level edits later; the default target stays the instance.
     return {
       pageId: pId, pageRid: pRid, pageClass: (pClass || 'Scorecard') as BlueprintCtx['pageClass'],
-      tabsetId, target: 'instance', hasTemplate: hasLink === 'y', tabScope: 'all',
+      tabsetId, target: 'instance', hasTemplate: hasLink === 'y', tabScope: 'all', ...tpl,
     };
   }
   return null;

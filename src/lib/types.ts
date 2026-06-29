@@ -621,7 +621,7 @@ export type LayoutMessage =
   // (BLUEPRINT_STATE) drives the overlay on/off. Mirrors the inspect/paint toggle convention.
   | { type: 'BLUEPRINT_TOGGLE' }
   | { type: 'BLUEPRINT_STATE'; active: boolean }
-  | { type: 'LAYOUT_LOAD'; rid: string }
+  | { type: 'LAYOUT_LOAD'; rid: string; prefer?: 'template' | 'instance' }
   // `env` = the active profile id at load time; the panel echoes it back on apply so the SW can
   // reject a commit aimed at a different environment (the user switched profiles mid-edit).
   | { type: 'LAYOUT_LOAD_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }

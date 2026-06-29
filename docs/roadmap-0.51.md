@@ -87,25 +87,57 @@ fetch→model→render pipeline (`lib/layout/sync.ts`, `content-blueprint/result
 
 ## Phase 3 — Template / Instance targeting
 
-### F. Instance ↔ template toggle for blueprint edits
-- **Context:** the **editor** already has a working toggle
-  (`editor/editor.ts:397-430`, `515-530`) and `lib/template-link.ts`
-  (`genResolveTemplateEc`, linkedTo→.template fallback) exists. The **blueprint**
-  apply path hardcodes the target: `sync.ts:245-277` sets `target`, `ec.ts:62`
-  emits `t.<pageId>`. Enterprise pages already resolve to the template via
-  `.template` (`sync.ts:185-189`); model pages use `.linkedTo`.
-- **Work:** add a target toggle to the blueprint apply UI; thread an optional
-  template page id/rid through `BlueprintCtx` → `applyModel` → `compile` so EC
-  writes to the template (e.g. `t.crev_demo_complex`) when chosen. **Default =
-  template** (per your note). Keep EnterpriseTemplate vs model-object distinction
-  (`enterprise-template.test.ts`).
+### F. Instance ↔ template toggle (DECIDED — "Model A", template-default)
+
+**Architecture (live-verified on 4957 / crev_demo_complex):**
+- The **grid (tabs + containers) is SHARED** between instance and template — the
+  same objects (e.g. container `cont_crev_demo_enterprise_7` rid is referenced by
+  both the instance widget 4961 and the template widget 4901).
+- The **template defines base widgets**; an instance either OVERRIDES a widget
+  (its own object, `linkedTo` the template's, in the shared container — overrides
+  width/position/name) or ADDS local widgets (no `linkedTo`).
+- Rendering shows the instance's override where present, else the template's base.
+- Content (name/config) inherits via `linkedTo`; **layout (container/width) is
+  per-instance** (4961 = width 2, template 4901 = width 3).
+- No built-in `isInherited`/`isDefault` flag — override = `linkedTo` present AND
+  `widget.prop ≠ widget.linkedTo.prop`.
+
+**Why "edit instance, save to template" (Model B) was rejected:** it needs
+per-widget `linkedTo` redirection in compile (add/delete/move/resize each), can't
+handle local widgets, and suffers override-shadowing (saving to the template
+shows no change on the very instance you're looking at). Higher cost, worse UX.
+
+**Chosen — Model A, template-default (cheap: reuses load→edit→apply on a
+different rid; no compile changes):**
+- **Default = Template view:** opens editing the template's layout (base widgets
+  in the shared grid). Edits hit the template → propagate. `target='template'`.
+- **Toggle `[Template | This instance]`** in the hovering scorecard bar; reloads
+  the chosen rid, preserving the instance↔template pair. Reuses the C reload.
+- **Clean surfacing:** the bar clearly states what you're editing — "Template
+  (affects all instances)" vs "This instance (page-local)".
+- **Instance view:** shows this page's widgets (overrides + local), with the blue
+  reset arrows (see below).
+- Enterprise objects: always template, no toggle (unchanged).
+- **Work:** `buildContextEc` surfaces the linked template rid+id; bp tracks
+  `pageInstanceRid`/`pageTemplateRid`/`editingTemplate`; toggle UI in the chrome;
+  template-mode warning (E). Open-on-template = resolve instance probe → load
+  template.
+
+**Reset arrows (instance view only):** an overridden inherited property shows a
+blue Phosphor **ArrowUDownLeft** revert arrow — the arrow IS both the indicator
+and the control; clicking it stages a reset that compiles to `.reset(<prop>)`
+(verified live: `t.4961.reset(columnsLargeScreen)` reverts 2→3). Whole-widget
+`.reset()` also available. Local widgets (no `linkedTo`) get no arrow.
+- **Build order:** F1 = toggle + template-default + clean labels + E warning;
+  F2 = override detection in the fetch + reset arrows.
 
 ### E. Redesign the "shared template affects all instances" warning
 - **Symptom:** warning is badly done and can break alignment.
 - **Where:** `view-panels.ts:79` (text), `:25-29` (`warnRow` builder),
   `.bp-modal-warn` CSS.
-- **Work:** restyle/reposition so it can't disturb layout; fold into the F toggle
-  UX (the warning is the template-targeting cue).
+- **Work:** restyle/reposition so it can't disturb layout; fold into the F
+  template-mode UX (a persistent "editing the shared template" cue in the bar +
+  the redesigned apply-preview warning).
 
 ---
 
