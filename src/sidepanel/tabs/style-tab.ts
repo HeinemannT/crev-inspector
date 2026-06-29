@@ -78,6 +78,10 @@ export class StyleTab implements Tab {
   /** Pending unsaved edits — surfaced as the tab's dirty dot. */
   pendingCount(): number { return Object.keys(this.draft).length; }
 
+  /** Drop the cached colour sets (called on a profile switch) so the next fetch reloads the new
+   *  workspace's colours instead of serving the previous profile's swatches. */
+  resetColorSets(): void { this.sets = null; }
+
   /** Pick up a selection made elsewhere (Inspect badge, Browse, layout tree).
    *  Loads the new object; clears to empty when nothing is selected. */
   private syncRid(): void {

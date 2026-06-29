@@ -23,6 +23,7 @@ import { showTooltipForElement, hideTooltip, applyTechnicalOverlay, renderOverla
 import { startObserver } from './content-observer';
 import { mountFrameOverlay, teardownFrameOverlayModule } from './content-frame-overlay';
 import { enableBlueprint, disableBlueprint } from './content-blueprint';
+import { resetColorSets as resetBlueprintColors } from './content-blueprint/colors';
 import { sendFireForget } from './lib/messaging';
 
 declare global {
@@ -161,6 +162,7 @@ function handleConnectionState(state: ConnectionState) {
 function handleProfileSwitched(label: string) {
   showToast(`Switched to ${label}`, 'info');
   disableBlueprint(); // any blueprint overlay is bound to the previous env's page — tear it down
+  resetBlueprintColors(); // colours are per-workspace — drop the overlay's cached bid→rgb map
   s.overlayProps.clear();
   renderOverlayCards(s);
   if (s.technicalOverlay) applyTechnicalOverlay(s);

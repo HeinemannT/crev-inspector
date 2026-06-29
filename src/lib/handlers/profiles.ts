@@ -5,6 +5,7 @@
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import { clearAllContextRids } from '../context-rid';
+import { invalidateColorSets } from '../color-set-cache';
 import { saveSettings, rebuildClient, setManualOverride, snapshotSettings, evictPooledClient, fireProfileSwitch } from '../settings';
 import { pushConnectionState, runAuthTest } from '../connection';
 import { log } from '../logger';
@@ -79,6 +80,7 @@ register('SET_ACTIVE_PROFILE', async (msg, respond) => {
     // and would resolve to wrong/missing objects in the new one.
     clearAllContextRids();
     ctx.blueprintActiveByWindow.clear(); ctx.blueprintTabByWindow.clear(); // blueprint is bound to the old env's page — drop it
+    invalidateColorSets(); // colours are per-workspace — drop the SW cache so the new profile refetches
     await rebuildClient(true);
     respond({ type: 'SETTINGS_DATA', settings: ctx.settings });
     snapshotSettings();

@@ -14,7 +14,7 @@ import { log } from '../lib/logger';
 import { ICON_PAINT, ICON_REFRESH, ICON_LIGHTNING, ICON_TORNADO, ICON_SEARCH, ICON_CROSSHAIR, ICON_BLUEPRINT } from './utils';
 import { ICON_X } from '../lib/icons';
 import { DetailView } from './detail-view';
-import { onColorSetsData } from './color-picker';
+import { onColorSetsData, resetColorSets } from './color-picker';
 import { initReferenceView, showReferenceView, handleReferenceMessage, isReferenceActive } from './reference-view';
 import { S, sendMessage, getActivePanel, getTabPanel, tabPanelId, onPortMessage, onReconnect, connectPanel } from './state';
 import { dispatchBroadcast } from '../lib/handler-registry';
@@ -207,6 +207,10 @@ onPortMessage((msg: InspectorMessage) => {
       S.context = null;
       S.detailRid = null;
       (tabs.workshop as WorkshopTab).resetContext();
+      // Colours are per-workspace — drop the panel's cached swatches so profile B
+      // never shows profile A's colours (picker cache + the Style tab's copy).
+      resetColorSets();
+      styleTab.resetColorSets();
       updateContextPill();
       renderActiveTab();
       break;

@@ -8,22 +8,29 @@
  */
 import { h, render, svg } from '../lib/dom';
 import { ICON_REFRESH } from '../lib/icons';
+import { ColorSetIndex } from '../lib/color-index';
 import type { ColorSetData, InspectorMessage } from '../lib/types';
 
-let cache: ColorSetData[] | null = null;
+let cache: ColorSetData[] | null = null;   // raw sets — drives the popover's folder rendering
+const index = new ColorSetIndex();          // bid → {name, rgb} for swatch resolution
 let onData: (() => void) | null = null;
 
 /** Receive the fetched colour sets (routed from the SW by sidepanel.ts). */
 export function onColorSetsData(sets: ColorSetData[]): void {
   cache = sets;
+  index.load(sets);
   onData?.();
+}
+
+/** Drop the panel's cached colours — call on a profile switch so profile B never shows A's swatches. */
+export function resetColorSets(): void {
+  cache = null;
+  index.clear();
 }
 
 /** Resolve a colour bid → {name, rgb} from the cache (for the current swatch). */
 export function lookupColor(bid: string): { name: string; rgb: string } | null {
-  if (!cache || !bid) return null;
-  for (const s of cache) for (const c of s.colors) if (c.bid === bid) return { name: c.name, rgb: c.rgb };
-  return null;
+  return index.lookup(bid);
 }
 
 interface PickerOpts {
