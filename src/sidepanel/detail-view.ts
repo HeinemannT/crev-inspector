@@ -80,7 +80,7 @@ interface PaneChildren {
 }
 
 // Property schema lives in pane-schema.ts so the full-view popout can reuse it.
-import { findPropDef } from './pane-schema';
+import { buildChangesPayload } from './pane-edit';
 import { requestSchema, isPropAvailable, subscribePaneSchema } from './pane-schema-runtime';
 import { showToast } from '../lib/toast';
 
@@ -542,20 +542,9 @@ export class DetailView {
     if (!ok) return;
 
     // Build the changes payload. The handler validates against PANE_PROPS_SET
-    // and the client formats EC literals (string/number/bool aware).
-    const changes: Record<string, string | number | boolean> = {};
-    for (const p of props) {
-      const value = this.draft[p];
-      const def = findPropDef(p);
-      if (def?.kind === 'number' || def?.kind === 'slider') {
-        const n = parseFloat(value);
-        changes[p] = Number.isFinite(n) ? n : 0;
-      } else if (def?.kind === 'boolean') {
-        changes[p] = value === 'true' || value === 'TRUE';
-      } else {
-        changes[p] = value;
-      }
-    }
+    // and the client formats EC literals (string/number/bool aware). The
+    // schema-driven coercion is shared with the StyleTab via buildChangesPayload.
+    const changes = buildChangesPayload(this.draft);
 
     this.saving = true;
     this.state.error = null;

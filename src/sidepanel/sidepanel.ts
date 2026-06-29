@@ -25,6 +25,7 @@ import { ConnectTab } from './tabs/connect-tab';
 import { ObjectsTab } from './tabs/objects-tab';
 import { LogTab } from './tabs/log-tab';
 import { WorkshopTab } from './tabs/workshop-tab';
+import { StyleTab } from './tabs/style-tab';
 import { showToast } from '../lib/toast';
 
 // ── Tab instances ────────────────────────────────────────────────
@@ -52,6 +53,13 @@ function navigateToDetail(rid: string) {
   // the fetch lands.
   S.context = { rid, name: obj.name, type: obj.type, businessId: obj.businessId };
   updateContextPill();
+
+  // The Style tab styles whatever's selected — so a selection made while it's
+  // active should retarget it in place, not yank the user over to Inspect.
+  if (S.activeTab === 'style') {
+    renderActiveTab(); // StyleTab.render() picks up the new S.detailRid via syncRid
+    return;
+  }
 
   // Workshop hosts the detail view in its bottom half. If the user
   // is elsewhere, switch first; either way load the object. Drilling
@@ -91,8 +99,10 @@ const tabs: Record<string, Tab> = {
   connect: new ConnectTab(sendMessage),
   workshop: new WorkshopTab(sendMessage, navigateToDetail, detailView),
   objects: new ObjectsTab(sendMessage, navigateToDetail),
+  style: new StyleTab(sendMessage),
   log: new LogTab(sendMessage),
 };
+const styleTab = tabs.style as StyleTab;
 
 const logTab = tabs.log as LogTab;
 logTab.onActivityChange(() => updateStatusBar());
@@ -310,7 +320,7 @@ connectPanel();
 
 // ── Render ───────────────────────────────────────────────────────
 
-const TAB_NAMES = ['connect', 'workshop', 'objects', 'log'] as const;
+const TAB_NAMES = ['connect', 'workshop', 'objects', 'style', 'log'] as const;
 
 function buildApp(): void {
   const header = h('div', { class: 'header' },
@@ -365,6 +375,7 @@ function buildApp(): void {
         connect: 'Connect',
         workshop: 'Inspect',
         objects: 'Browse',
+        style: 'Style',
         log: 'Log',
       };
       const label = TAB_LABELS[t] ?? (t.charAt(0).toUpperCase() + t.slice(1));
@@ -387,11 +398,22 @@ function buildApp(): void {
           title: detailView.isDirty() ? 'You have unsaved changes on this object' : '',
         }));
       }
+      if (t === 'style') {
+        // Same dirty-dot affordance for staged styling edits.
+        const pending = styleTab.pendingCount();
+        badges.push(h('span', {
+          class: `inspect-dirty-dot${pending > 0 ? ' active' : ''}`,
+          id: 'style-dirty-dot',
+          'aria-hidden': 'true',
+          title: pending > 0 ? `${pending} unsaved styling change${pending === 1 ? '' : 's'}` : '',
+        }));
+      }
 
       const TAB_TITLES: Record<string, string> = {
         connect: 'Server profiles',
         workshop: 'Layout + selected object detail: the configurator workspace',
         objects: 'Browse cached objects: search by RID, BID, or name',
+        style: 'Colours, properties + visibility for the selected object',
         log: 'Activity feed',
       };
       return h('button', {

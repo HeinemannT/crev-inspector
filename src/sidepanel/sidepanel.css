@@ -4434,3 +4434,108 @@ body.crev-divider-dragging * { user-select: none; }
 }
 .atrace-disclosure:hover { color: var(--text-1); background: var(--surface-2); }
 .atrace-others { margin-top: 2px; }
+
+/* ── Style tab ──────────────────────────────────────────────────────
+ * A focused styling surface for the selected object. Properties +
+ * Visibility rows reuse the shared .prop-row styles; only the tab shell,
+ * the colour slots, and the swatch grid are styled here. */
+.style-tab { padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
+
+.style-empty { padding: var(--space-5) var(--space-3); text-align: center; color: var(--text-3); font-size: var(--text-sm); }
+.style-empty p { margin: 0 0 var(--space-2); }
+.style-empty-hint { color: var(--text-3); font-size: var(--text-xs); }
+
+.style-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  padding-bottom: var(--space-2); border-bottom: 1px solid var(--surface-3);
+}
+.style-head-title { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.style-type-chip {
+  flex-shrink: 0; font-size: var(--text-2xs); font-weight: var(--weight-semi);
+  padding: 2px 5px; border-radius: var(--radius-sm); letter-spacing: 0.04em;
+  color: #fff; background: var(--type-color, var(--accent));
+}
+.style-head-name { font-size: var(--text-sm); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.style-target { display: flex; flex-shrink: 0; border: 1px solid var(--surface-3); border-radius: var(--radius-md); overflow: hidden; }
+.style-target-btn {
+  font-size: var(--text-2xs); padding: 3px 8px; color: var(--text-3);
+  background: transparent; border: none; cursor: pointer; transition: background var(--duration-fast) var(--ease-default);
+}
+.style-target-btn:hover { color: var(--text-1); background: var(--surface-2); }
+.style-target-btn.active { color: var(--text-1); background: var(--accent-bg); }
+
+.style-section { display: flex; flex-direction: column; gap: var(--space-1); }
+.style-section-title {
+  font-size: var(--text-2xs); font-weight: var(--weight-semi); color: var(--text-3);
+  letter-spacing: 0.06em; text-transform: uppercase; margin-top: var(--space-2);
+}
+
+/* Colour slots — Header / Font targets; the active one receives swatch clicks. */
+.style-color-slots { display: flex; gap: var(--space-2); }
+.style-color-slot {
+  flex: 1; display: flex; align-items: center; gap: var(--space-1); min-width: 0;
+  padding: var(--space-1) var(--space-2); border: 1px solid var(--surface-3);
+  border-radius: var(--radius-md); background: var(--surface-1); cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-default), background var(--duration-fast) var(--ease-default);
+}
+.style-color-slot:hover { background: var(--surface-2); }
+.style-color-slot.active { border-color: var(--accent); background: var(--accent-bg); }
+.style-color-slot.dirty .style-color-slot-label::after { content: ' •'; color: var(--accent); }
+.style-color-slot-label { font-size: var(--text-2xs); color: var(--text-3); flex-shrink: 0; }
+.style-color-slot-dot {
+  width: 14px; height: 14px; border-radius: var(--radius-sm); flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.14);
+}
+.style-color-slot-dot.empty { background: repeating-conic-gradient(var(--surface-3) 0% 25%, transparent 0% 50%) 50% / 8px 8px; }
+.style-color-slot-name { font-size: var(--text-xs); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.style-color-head { display: flex; gap: var(--space-1); margin-top: var(--space-1); }
+.style-color-filter {
+  flex: 1; font-size: var(--text-sm); padding: 4px 8px; color: var(--text-1);
+  background: var(--surface-1); border: 1px solid var(--surface-3); border-radius: var(--radius-md);
+}
+.style-color-filter:focus { border-color: var(--accent); outline: none; }
+.style-color-refresh {
+  flex-shrink: 0; display: grid; place-items: center; width: 28px;
+  color: var(--text-3); background: var(--surface-1); border: 1px solid var(--surface-3);
+  border-radius: var(--radius-md); cursor: pointer;
+}
+.style-color-refresh:hover { color: var(--text-1); border-color: var(--accent); }
+.style-color-refresh svg { width: 13px; height: 13px; }
+
+/* Swatch grid — dense Photoshop-style squares, grouped by colour set. */
+.style-grid-host { max-height: 220px; overflow-y: auto; }
+.sw-loading, .sw-empty { padding: var(--space-3); text-align: center; color: var(--text-3); font-size: var(--text-sm); }
+.sw-group-label {
+  font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-3); margin: var(--space-2) 0 var(--space-1);
+}
+.sw-cells { display: grid; grid-template-columns: repeat(auto-fill, 22px); gap: 4px; }
+.sw-cell {
+  width: 22px; height: 22px; border-radius: var(--radius-sm); cursor: pointer;
+  background: var(--sw); border: 1px solid rgba(255,255,255,0.14);
+  transition: transform var(--duration-instant) var(--ease-default), box-shadow var(--duration-fast) var(--ease-default);
+}
+.sw-cell:hover { transform: scale(1.12); box-shadow: var(--shadow-2); }
+.sw-cell--sel { box-shadow: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--accent); }
+.sw-cell--disabled { cursor: not-allowed; opacity: 0.4; }
+.sw-cell--disabled:hover { transform: none; box-shadow: none; }
+
+/* Action bar — pending count + Discard / Save. */
+.style-action-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  margin-top: var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--surface-3);
+  font-size: var(--text-xs); color: var(--text-2);
+}
+.style-action-idle { color: var(--text-3); }
+.style-action-error { color: var(--danger); }
+.style-action-btns { display: flex; gap: var(--space-1); flex-shrink: 0; }
+.style-btn {
+  font-size: var(--text-xs); padding: 4px 12px; border-radius: var(--radius-md);
+  color: var(--text-1); background: var(--surface-2); border: 1px solid var(--surface-3); cursor: pointer;
+}
+.style-btn:hover { background: var(--surface-3); }
+.style-btn--save { color: #fff; background: var(--accent); border-color: var(--accent); }
+.style-btn--save:hover { background: var(--accent-bright); }
+.style-btn[disabled] { opacity: 0.5; cursor: default; }
