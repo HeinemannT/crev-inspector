@@ -8,11 +8,11 @@
  * functions (never at module-init), so ESM resolves the cycle cleanly.
  */
 import { findNode, isTempId } from '../lib/layout/model';
-import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, findTabOf, toggleReset } from '../lib/layout/edit';
+import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, findTabOf, toggleReset, setStyle } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { compile } from '../lib/layout/ec';
 import { History } from '../lib/layout/history';
-import type { LModel, PlanStep } from '../lib/layout/types';
+import type { LModel, PlanStep, NodeStyle } from '../lib/layout/types';
 import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
@@ -23,7 +23,7 @@ import { applyPage, fetchBlast, createTabset } from './service';
  *  next render to FLIP-animate cells from their old to new positions (so moves/reorders read as motion). */
 export function mutate(next: LModel): void { bp.history?.push(next); bp.flipNext = true; render(); }
 
-export function select(id: string | null): void { bp.selectedId = id; render(); }
+export function select(id: string | null): void { bp.selectedId = id; bp.swatch = null; render(); }
 /** Begin renaming a node: select it and flag the next render to open its inline-rename field. The one
  *  entry point — used by BOTH double-click on a cell name and the toolbar pencil. */
 export function beginRename(id: string): void { bp.selectedId = id; bp.renameId = id; render(); }
@@ -56,6 +56,21 @@ export function setWidth(id: string, n: number): void { const m = model(); if (m
 /** F2: stage/unstage a reset of one overridden property back to the template (the blue revert arrow). */
 export function toggleResetProp(id: string, prop: string): void { const m = model(); if (m) mutate(toggleReset(m, id, prop)); }
 export function setH(id: string, px: number): void { const m = model(); if (m) mutate(setHeight(m, id, px)); }
+/** G3: stage a style edit on a node (style mode). Patch values are concrete — a colour bid ('' clears
+ *  the link), a boolean/number/enum-string. Goes through history like any edit (undo/redo). */
+export function setNodeStyle(id: string, patch: Partial<NodeStyle>): void { const m = model(); if (m) mutate(setStyle(m, id, patch)); }
+/** Open the colour swatch popup for a node's headerColor/fontColor slot (style mode). */
+export function openSwatch(nodeId: string, prop: 'headerColor' | 'fontColor'): void { bp.swatch = { nodeId, prop }; render(); }
+export function closeSwatch(): void { if (bp.swatch) { bp.swatch = null; render(); } }
+/** Pick (or clear, bid='') the open swatch popup's colour: stage the style edit on its target slot and
+ *  close the popup in one render. */
+export function applySwatch(bid: string): void {
+  const s = bp.swatch, m = model();
+  if (!s || !m) return;
+  const field = s.prop === 'headerColor' ? 'headerColorBid' : 'fontColorBid';
+  bp.swatch = null;
+  mutate(setStyle(m, s.nodeId, { [field]: bid }));
+}
 export function doRename(id: string, name: string): void {
   const m = model(); if (!m) return;
   const cur = findNode(m, id)?.node;
@@ -258,6 +273,7 @@ export function onKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
     if (typing) return;
     if (bp.preview) closePreview();
+    else if (bp.swatch) closeSwatch();
     else if (bp.picker) closePicker();
     else if (bp.movePicker) closeMovePicker();
     else if (bp.selectedId) select(null);

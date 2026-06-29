@@ -14,11 +14,14 @@ import { COMPOSITE_TYPES, COMPOSITE_CHILDREN } from '../lib/layout/constraints';
 import { isAncestorOf } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_X, ICON_LAYOUT, ICON_LINK } from '../lib/icons';
+import { colorLinkBid } from '../lib/types';
+import { renderSwatchGrid } from '../sidepanel/swatch-grid';
 import { bp, model, PALETTE, MOST_USED } from './state';
+import { colorRgb, colorSets } from './colors';
 import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkBtn, mkIconBtn, delta, placeDoc, docX, docY } from './geometry';
 import {
   select, beginRename, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
-  openMovePicker, closeMovePicker, moveTo, doCreateTabset,
+  openMovePicker, closeMovePicker, moveTo, doCreateTabset, setNodeStyle, openSwatch, closeSwatch, applySwatch,
 } from './actions';
 import { armBox, armResize } from './gestures';
 import { renderChip, previewModal, trayPanel, hintBar } from './view-panels';
@@ -165,7 +168,10 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
     const selBox = bp.selectedId ? findNode(m, bp.selectedId) : null;
     // Tabs own their rename/add/delete on the pill itself — the generic toolbar's Rename targets
     // a `.bp-box .bp-nm` a pill doesn't have, and its W/Delete just duplicate the pill. Skip it.
-    if (selBox && selBox.node.kind !== 'tab') {
+    // Style mode only styles widgets (containers/tabs don't carry the appearance props) — skip the
+    // toolbar for a selected non-widget there; layout mode keeps the container toolbar.
+    const styleSkip = bp.mode === 'style' && !!selBox && selBox.node.kind !== 'widget';
+    if (selBox && selBox.node.kind !== 'tab' && !styleSkip) {
       // Prefer the RESULT CELL's box — that's the surface the user sees and edits. anchorRect (the live
       // widget's real-page position) is only the fallback for the no-result live view; using it first
       // anchored the toolbar to where the widget sits on the real page, not its result cell.
@@ -173,6 +179,7 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
       if (anchor) layer.appendChild(toolbar(selBox.node, anchor));
     }
   }
+  if (bp.swatch) layer.appendChild(swatchPopup(byRid));
 
   if (bp.movePicker) {
     const f = findNode(m, bp.movePicker);
@@ -444,6 +451,7 @@ function containerBox(baseNode: LNode, rect: Rect, m: LModel): HTMLElement {
 }
 
 function toolbar(node: LNode, r: Rect): HTMLElement {
+  if (bp.mode === 'style') return styleToolbar(node, r);
   const t = document.createElement('div'); t.className = 'bp-tools';
   // A container carries its own +/name handle (.bp-ctab) just above its box. Lift the toolbar above
   // THAT handle so the two strips stack instead of colliding (the toolbar used to land on the + label).
@@ -479,6 +487,141 @@ function toolbar(node: LNode, r: Rect): HTMLElement {
   const del = mkIconBtn(ICON_TRASH, () => doDelete(node.id), 'Delete'); del.classList.add('del');
   t.appendChild(del);
   return t;
+}
+
+// ── G3 style-mode toolbar (appearance: colours, shadow, header/border, transparency) ──────────────
+// Values match the parsed NodeStyle space (enumMember-normalised, uppercase) and the side panel's
+// pane-schema option values, so the toolbar, the fetch, and the apply all speak the same strings.
+const HEADER_STYLE_OPTS: { value: string; label: string }[] = [
+  { value: 'INSIDE', label: 'In' }, { value: 'OUTSIDE', label: 'Out' }, { value: 'NONE', label: 'Off' },
+];
+const BORDER_STYLE_OPTS: { value: string; label: string }[] = [
+  { value: 'LINE', label: 'Line' }, { value: 'NONE', label: 'Off' },
+];
+
+/** The style-mode selection toolbar: per-appearance controls in place of the layout W/H/move/rename
+ *  strip. Colours open the swatch popup; the rest stage immediately (live preview via applyStyle). */
+function styleToolbar(node: LNode, r: Rect): HTMLElement {
+  const t = document.createElement('div'); t.className = 'bp-tools bp-style-tools';
+  const lift = bp.resultMode ? 38 : 32;
+  t.style.left = `${docX(Math.max(4, r.left))}px`;
+  t.style.top = `${docY(Math.max(0, r.top - lift))}px`;
+  const s = node.style ?? {};
+
+  t.appendChild(colorChip('Hdr', node.id, 'headerColor', s.headerColorBid));
+  t.appendChild(colorChip('Font', node.id, 'fontColor', s.fontColorBid));
+
+  t.appendChild(styleLbl('Shadow'));
+  t.appendChild(toggleBtn(!!s.shadow, () => setNodeStyle(node.id, { shadow: !s.shadow })));
+
+  t.appendChild(styleLbl('Header'));
+  t.appendChild(segChoice(HEADER_STYLE_OPTS, s.headerStyle, (v) => setNodeStyle(node.id, { headerStyle: v })));
+
+  t.appendChild(styleLbl('Border'));
+  t.appendChild(segChoice(BORDER_STYLE_OPTS, s.borderStyle, (v) => setNodeStyle(node.id, { borderStyle: v })));
+
+  t.appendChild(styleLbl('Transp'));
+  t.appendChild(transpControl(node, s.transparency ?? 0));
+  return t;
+}
+
+function styleLbl(text: string): HTMLElement {
+  const l = document.createElement('span'); l.className = 'lbl'; l.textContent = text; return l;
+}
+
+/** A colour slot button: a swatch of the current linked colour (or a hatched "none") + a short label.
+ *  Click opens the swatch popup for that slot. Highlighted while its popup is open. */
+function colorChip(label: string, nodeId: string, prop: 'headerColor' | 'fontColor', bid: string | undefined): HTMLElement {
+  const b = document.createElement('button'); b.className = 'bp-swatch-btn';
+  if (bp.swatch?.nodeId === nodeId && bp.swatch.prop === prop) b.classList.add('open');
+  const sq = document.createElement('span'); sq.className = 'bp-swatch-sq';
+  const rgb = colorRgb(bid);
+  if (rgb) sq.style.background = rgb; else sq.classList.add('none');
+  const tx = document.createElement('span'); tx.className = 'bp-swatch-tx'; tx.textContent = label;
+  b.append(sq, tx);
+  b.title = `${label === 'Hdr' ? 'Header' : 'Font'} colour — pick or clear`;
+  b.addEventListener('mousedown', (e) => { e.stopPropagation(); openSwatch(nodeId, prop); });
+  return b;
+}
+
+/** A single on/off pill (shadow). */
+function toggleBtn(on: boolean, onToggle: () => void): HTMLElement {
+  const seg = document.createElement('div'); seg.className = 'bp-seg';
+  const b = document.createElement('button'); b.textContent = on ? 'On' : 'Off';
+  if (on) b.classList.add('on');
+  b.addEventListener('mousedown', (e) => { e.stopPropagation(); onToggle(); });
+  seg.appendChild(b);
+  return seg;
+}
+
+/** A segmented choice — the option whose value === current lights up (none when unset). */
+function segChoice(opts: { value: string; label: string }[], current: string | undefined, onPick: (v: string) => void): HTMLElement {
+  const seg = document.createElement('div'); seg.className = 'bp-seg';
+  for (const o of opts) {
+    const b = document.createElement('button'); b.textContent = o.label;
+    if (o.value === current) b.classList.add('on');
+    b.addEventListener('mousedown', (e) => { e.stopPropagation(); onPick(o.value); });
+    seg.appendChild(b);
+  }
+  return seg;
+}
+
+/** Transparency stepper: −/+ 10 around a 0–100 number input (BMP `transparency`, 0 = opaque). */
+function transpControl(node: LNode, val: number): HTMLElement {
+  const box = document.createElement('div'); box.className = 'bp-hbox';
+  const clamp = (n: number): number => Math.max(0, Math.min(100, n));
+  const minus = document.createElement('button'); minus.className = 'bp-hstep'; setIcon(minus, ICON_MINUS); minus.title = '−10';
+  minus.addEventListener('mousedown', (e) => { e.stopPropagation(); setNodeStyle(node.id, { transparency: clamp(val - 10) }); });
+  const inp = document.createElement('input'); inp.className = 'bp-hpx'; inp.type = 'number'; inp.min = '0'; inp.max = '100'; inp.value = String(val); inp.title = 'Transparency (0 = opaque, 100 = clear)';
+  inp.addEventListener('mousedown', (e) => e.stopPropagation());
+  const commit = (): void => { const v = parseInt(inp.value, 10); if (!isNaN(v)) setNodeStyle(node.id, { transparency: clamp(v) }); };
+  inp.addEventListener('change', commit);
+  inp.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') { e.preventDefault(); commit(); } e.stopPropagation(); });
+  const plus = document.createElement('button'); plus.className = 'bp-hstep'; setIcon(plus, ICON_PLUS); plus.title = '+10';
+  plus.addEventListener('mousedown', (e) => { e.stopPropagation(); setNodeStyle(node.id, { transparency: clamp(val + 10) }); });
+  box.append(minus, inp, plus);
+  return box;
+}
+
+/** The colour swatch popup (style mode) — searchable, folder-grouped CorpoColors over the shared
+ *  `renderSwatchGrid`, themed for the overlay. Picking links the colour to the open slot; "None" clears
+ *  it. Filter + folder state are popup-local (rebuilt in place to keep the search field focused). */
+const swatchExpanded = new Set<string>(['Basics']);
+function swatchPopup(byRid: Map<string, Element>): HTMLElement {
+  const sw = bp.swatch!;
+  const m = model();
+  const node = m ? findNode(m, sw.nodeId)?.node ?? null : null;
+  const back = document.createElement('div'); back.className = 'bp-pick-back';
+  back.addEventListener('mousedown', (e) => { if (e.target === back) closeSwatch(); });
+  const panel = document.createElement('div'); panel.className = 'bp-pick bp-swatch-pop';
+  const rect = resultAnchor(sw.nodeId) ?? (node ? anchorRect(node, byRid) : null);
+  if (rect) {
+    panel.style.left = `${Math.max(4, Math.min(rect.left, window.innerWidth - 320))}px`;
+    panel.style.top = `${Math.max(40, Math.min(rect.top + 24, window.innerHeight - 440))}px`;
+  } else { panel.style.left = '50%'; panel.style.top = '80px'; panel.style.transform = 'translateX(-50%)'; }
+  const head = document.createElement('div'); head.className = 'bp-pick-h';
+  head.textContent = `${sw.prop === 'headerColor' ? 'Header' : 'Font'} colour`;
+  const search = document.createElement('input'); search.className = 'bp-pick-s'; search.placeholder = 'Search colours…';
+  const host = document.createElement('div'); host.className = 'bp-swatch-host';
+  const curBid = (sw.prop === 'headerColor' ? node?.style?.headerColorBid : node?.style?.fontColorBid) || null;
+  let q = '';
+  const paint = (): void => {
+    host.textContent = '';
+    host.appendChild(renderSwatchGrid({
+      sets: colorSets(), q, currentBid: curBid, includeBasics: true,
+      expanded: swatchExpanded,
+      onToggle: (label) => { if (swatchExpanded.has(label)) swatchExpanded.delete(label); else swatchExpanded.add(label); paint(); },
+      onPick: (bidName) => applySwatch(colorLinkBid(bidName)),
+      onClear: () => applySwatch(''),
+    }));
+  };
+  search.addEventListener('mousedown', (e) => e.stopPropagation());
+  search.addEventListener('input', () => { q = search.value; paint(); });
+  paint();
+  panel.append(head, search, host);
+  back.appendChild(panel);
+  setTimeout(() => search.focus(), 0);
+  return back;
 }
 
 /** Height control: small −/+ steppers (10px each) flanking a number input for an EXACT pixel height.

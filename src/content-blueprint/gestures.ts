@@ -119,6 +119,8 @@ export function armBox(el: HTMLElement, id: string): void {
 }
 
 function dragOrSelect(e: MouseEvent, id: string): void {
+  // Style mode edits appearance, not layout — a drag here would silently stage a move/reorder. Select only.
+  if (bp.mode === 'style') { select(id); return; }
   const sx = e.clientX, sy = e.clientY;
   let started = false;
   const mv = (ev: MouseEvent): void => {

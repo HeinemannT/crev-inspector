@@ -47,6 +47,24 @@ export interface NodeStyle {
   transparency?: number;  // 0..100
 }
 
+/** G3 — maps each NodeStyle field to its BMP property name + the "unset/default" value the diff treats
+ *  as absence. The single bridge between the parsed style model and the apply EC: diff compares each
+ *  field (absent → `def`), and ec.ts hands the changed (prop, value) to `styleAssignRhs`. A colour `def`
+ *  of '' doubles as the CLEAR value (verified: `headerColor := ""` unsets the link); the enum/number/bool
+ *  defaults are the BMP "no styling" baseline. Add a field here and load + diff + apply pick it up. */
+export const STYLE_NODE_FIELDS: ReadonlyArray<{
+  key: keyof NodeStyle;
+  prop: string;
+  def: string | number | boolean;
+}> = [
+  { key: 'headerColorBid', prop: 'headerColor',  def: '' },
+  { key: 'fontColorBid',   prop: 'fontColor',    def: '' },
+  { key: 'shadow',         prop: 'shadow',       def: false },
+  { key: 'headerStyle',    prop: 'headerStyle',  def: '' },
+  { key: 'borderStyle',    prop: 'borderStyle',  def: '' },
+  { key: 'transparency',   prop: 'transparency', def: 0 },
+];
+
 /** A node in the editable layout tree.
  *  Tree parentage means different things by kind: a widget's parent is the cell it BINDS to
  *  (`container :=`); a container's/tab's parent is its STRUCTURAL parent. `kind` disambiguates. */
@@ -100,7 +118,10 @@ export type PlanStep =
   // emit it (BMP has no verified clear verb — `:= MISSING` is a no-op on these fields).
   // `resetProps` (F2) = BMP property names to revert to the linked template via `.reset(p)` — emitted
   // alongside (or instead of) value changes; the value itself is unchanged when only a reset is staged.
-  | { kind: 'update'; id: string; className: string; cols?: Partial<Record<Breakpoint, number | null>>; name?: string; height?: number | null; resetProps?: string[] }
+  // `styleAssign` (G3) = changed appearance props (headerColor/shadow/…) folded into the same `.change()`;
+  // colour links carry the bid as the value ('' = clear), scalars carry the typed value. ec.ts maps each
+  // via `styleAssignRhs`.
+  | { kind: 'update'; id: string; className: string; cols?: Partial<Record<Breakpoint, number | null>>; name?: string; height?: number | null; resetProps?: string[]; styleAssign?: { prop: string; value: string | number | boolean }[] }
   | { kind: 'reparent'; id: string; nodeKind: NodeKind; toParentId: string; toParentKind: NodeKind }
   // afterId is always a real same-kind sibling — diff anchors group[0] and reorders the rest after
   // their predecessor, so "move to first" never needs a null (it falls out of reordering the others).

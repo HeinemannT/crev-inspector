@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // armBox wires document-level listeners + the render cycle; the result view's geometry/state is what
 // we're testing, so stub it to a no-op.
@@ -113,5 +113,52 @@ describe('renderResult (CSS-grid mirror)', () => {
     const layer = document.createElement('div');
     expect(renderResult(m, m, new Map(), layer)).toBe(false);
     expect(layer.querySelector('.bp-result')).toBeNull();
+  });
+});
+
+describe('renderResult — G3 style mode', () => {
+  beforeEach(() => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(
+      { left: 100, top: 50, right: 700, bottom: 300, width: 600, height: 250, x: 100, y: 50, toJSON: () => ({}) } as DOMRect);
+    bp.selectedId = null; bp.viewTabId = null; bp.mode = 'style';
+  });
+  afterEach(() => { bp.mode = 'layout'; });
+
+  const byRid = new Map<string, Element>([['r_w1', document.createElement('div')]]);
+
+  it('paints a styled cell with the appearance classes (shadow / border / header-drop)', () => {
+    const styled = widget('w1', 6, { style: { shadow: true, borderStyle: 'NONE', headerStyle: 'NONE' } });
+    const base = mdl([tab('t1', [widget('w1', 6)])]);          // baseline: no style
+    const desired = mdl([tab('t1', [styled])]);
+    const layer = document.createElement('div');
+    renderResult(base, desired, byRid, layer);
+    const cell = layer.querySelector('.bp-rcell[data-bpid="w1"]') as HTMLElement;
+    expect(cell.classList.contains('bp-styled')).toBe(true);
+    expect(cell.classList.contains('bp-sh-on')).toBe(true);
+    expect(cell.classList.contains('bp-bd-none')).toBe(true);
+    expect(cell.classList.contains('bp-hdr-none')).toBe(true);
+    // its appearance differs from baseline → the edited ring
+    expect(cell.classList.contains('bp-style-dirty')).toBe(true);
+  });
+
+  it('does NOT ring a cell whose style equals the baseline', () => {
+    const same = widget('w1', 6, { style: { shadow: true } });
+    const m2 = mdl([tab('t1', [same])]);
+    const layer = document.createElement('div');
+    renderResult(m2, m2, byRid, layer);                        // base === desired
+    const cell = layer.querySelector('.bp-rcell[data-bpid="w1"]') as HTMLElement;
+    expect(cell.classList.contains('bp-styled')).toBe(true);   // still painted
+    expect(cell.classList.contains('bp-style-dirty')).toBe(false);
+  });
+
+  it('layout mode never paints style', () => {
+    bp.mode = 'layout';
+    const styled = widget('w1', 6, { style: { shadow: true } });
+    const m2 = mdl([tab('t1', [styled])]);
+    const layer = document.createElement('div');
+    renderResult(m2, m2, byRid, layer);
+    const cell = layer.querySelector('.bp-rcell[data-bpid="w1"]') as HTMLElement;
+    expect(cell.classList.contains('bp-styled')).toBe(false);
+    expect(cell.classList.contains('bp-sh-on')).toBe(false);
   });
 });

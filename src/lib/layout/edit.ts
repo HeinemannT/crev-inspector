@@ -9,7 +9,7 @@
  * findNode/findTabOf are shared tree helpers used throughout.
  */
 import { cloneModel, findNode, descendantWidgets, tempId, isChart, hasHeight } from './model';
-import type { Breakpoint, LModel, LNode } from './types';
+import type { Breakpoint, LModel, LNode, NodeStyle } from './types';
 
 const clampCol = (n: number): number => Math.max(0, Math.min(6, Math.round(n)));
 
@@ -38,6 +38,17 @@ export function toggleReset(m: LModel, id: string, prop: string): LModel {
 
 export function setHeight(m: LModel, id: string, px: number): LModel {
   return edit(m, c => { const f = findNode(c, id); if (f && hasHeight(f.node.className)) f.node.height = Math.max(20, Math.round(px)); });
+}
+
+/** G3: stage a style edit — merge `patch` into the node's appearance (creating `style` if absent). The
+ *  caller passes concrete values: a colour bid (or '' to clear the link), a boolean/number/enum-string.
+ *  diff compares the merged style against the baseline field-wise, so an unchanged field is a no-op. */
+export function setStyle(m: LModel, id: string, patch: Partial<NodeStyle>): LModel {
+  return edit(m, c => {
+    const f = findNode(c, id);
+    if (!f) return;
+    f.node.style = { ...(f.node.style ?? {}), ...patch };
+  });
 }
 
 export function rename(m: LModel, id: string, name: string): LModel {

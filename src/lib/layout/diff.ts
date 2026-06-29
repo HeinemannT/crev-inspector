@@ -13,6 +13,7 @@
  * their old container is removed.
  */
 import { isTempId, isResultTab } from './model';
+import { STYLE_NODE_FIELDS } from './types';
 import type { Breakpoint, LModel, LNode, NodeKind, PlanStep } from './types';
 
 interface Entry {
@@ -48,6 +49,20 @@ function changedCols(a: LNode, b: LNode): Partial<Record<Breakpoint, number | nu
   return Object.keys(out).length ? out : undefined;
 }
 
+/** G3: per-field appearance changes baseline→desired. Each field is compared with its absent value
+ *  folded to the BMP "no styling" default (`STYLE_NODE_FIELDS.def`), so toggling a prop on/off (or
+ *  clearing a colour back to '') emits exactly the props that moved — and an untouched widget emits
+ *  nothing. The value is the bid for a colour link ('' = clear), or the typed scalar otherwise. */
+function changedStyle(a: LNode, b: LNode): { prop: string; value: string | number | boolean }[] | undefined {
+  const out: { prop: string; value: string | number | boolean }[] = [];
+  for (const f of STYLE_NODE_FIELDS) {
+    const av = a.style?.[f.key] ?? f.def;
+    const bv = b.style?.[f.key] ?? f.def;
+    if (av !== bv) out.push({ prop: f.prop, value: bv });
+  }
+  return out.length ? out : undefined;
+}
+
 export function diff(baseline: LModel, desired: LModel): PlanStep[] {
   const A = index(baseline);
   const B = index(desired);
@@ -77,8 +92,9 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
     // doesn't change the VALUE (it's reverted on apply), so it carries here even with no cols/name/height.
     const baseResets = a.node.resets ?? [];
     const resetProps = (b.node.resets ?? []).filter(p => !baseResets.includes(p));
-    if (cols || name !== undefined || height !== undefined || resetProps.length) {
-      steps.push({ kind: 'update', id, className: b.node.className, cols, name, height, ...(resetProps.length ? { resetProps } : {}) });
+    const styleAssign = changedStyle(a.node, b.node); // G3 appearance edits
+    if (cols || name !== undefined || height !== undefined || resetProps.length || styleAssign) {
+      steps.push({ kind: 'update', id, className: b.node.className, cols, name, height, ...(resetProps.length ? { resetProps } : {}), ...(styleAssign ? { styleAssign } : {}) });
     }
     if (a.parentId !== b.parentId) {
       steps.push({ kind: 'reparent', id, nodeKind: b.node.kind, toParentId: b.parentId, toParentKind: b.parentKind });

@@ -423,3 +423,45 @@
 #crev-blueprint-layer .bp-rgap-ic{display:inline-flex;opacity:.7}#crev-blueprint-layer .bp-rgap-ic svg{width:13px;height:13px;display:block}
 #crev-blueprint-layer .bp-rgap:hover .bp-rgap-ic{opacity:1}
 #crev-blueprint-layer .bp-radd-ic{display:inline-flex}#crev-blueprint-layer .bp-radd-ic svg{width:13px;height:13px;display:block}
+
+/* ── G3 style mode — appearance toolbar, swatch popup, edited ring ─────────────────────────────── */
+/* a result cell with a staged appearance edit (vs baseline) gets an amber ring, like the layout 'changed' state */
+#crev-blueprint-layer .bp-rcell.bp-style-dirty{box-shadow:0 0 0 var(--bp-emph) var(--bp-amber)}
+
+/* style toolbar: wraps (it carries more controls than the layout strip); reuses .bp-tools/.bp-seg/.bp-hbox */
+#crev-blueprint-layer .bp-style-tools{flex-wrap:wrap;max-width:580px}
+#crev-blueprint-layer .bp-swatch-btn{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 7px;border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r);background:transparent;color:var(--bp-text);font:500 10.5px 'BPInter',sans-serif;cursor:pointer}
+#crev-blueprint-layer .bp-swatch-btn:hover{border-color:var(--bp-cyan)}
+#crev-blueprint-layer .bp-swatch-btn.open{border-color:var(--bp-cyan-hi);background:rgba(21,101,192,.1)}
+#crev-blueprint-layer .bp-swatch-sq{width:13px;height:13px;border-radius:2px;border:1px solid var(--bp-line-2);flex:none}
+#crev-blueprint-layer .bp-swatch-sq.none{background:repeating-conic-gradient(#cbd5e1 0 25%,transparent 0 50%) 50%/8px 8px}
+#crev-blueprint-layer .bp-swatch-tx{white-space:nowrap}
+
+/* swatch popup — reuses .bp-pick chrome; the grid host scrolls within the panel */
+#crev-blueprint-layer .bp-swatch-pop{width:300px}
+#crev-blueprint-layer .bp-swatch-host{overflow:auto;padding:0 12px 10px}
+
+/* shared swatch grid (renderSwatchGrid) — same classes as the side panel, themed for the light overlay */
+#crev-blueprint-layer .sw-loading,#crev-blueprint-layer .sw-empty{padding:10px;text-align:center;color:var(--bp-muted);font:12px 'BPInter',sans-serif}
+#crev-blueprint-layer .sw-folder{border-top:var(--bp-div) solid var(--bp-line-2)}
+#crev-blueprint-layer .sw-folder:first-child{border-top:none}
+#crev-blueprint-layer .sw-folder-head{display:flex;align-items:center;gap:6px;width:100%;padding:6px 0;background:transparent;border:0;cursor:pointer;color:var(--bp-muted);text-align:left}
+#crev-blueprint-layer .sw-folder-head:hover{color:var(--bp-text)}
+#crev-blueprint-layer .sw-folder-chevron{display:grid;place-items:center;flex:none;color:var(--bp-muted);transition:transform .12s}
+#crev-blueprint-layer .sw-folder-chevron svg{width:11px;height:11px}
+#crev-blueprint-layer .sw-folder-head.open .sw-folder-chevron{transform:rotate(90deg)}
+#crev-blueprint-layer .sw-folder-name{font:700 9px var(--bp-mono);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#crev-blueprint-layer .sw-folder-preview{display:flex;gap:2px;margin-left:6px;flex:1;overflow:hidden}
+#crev-blueprint-layer .sw-folder-dot{width:10px;height:10px;border-radius:2px;flex:none;border:1px solid rgba(0,33,71,.12)}
+#crev-blueprint-layer .sw-folder-count{margin-left:auto;flex:none;font:10px var(--bp-mono);color:var(--bp-muted);background:rgba(148,163,184,.18);border-radius:var(--bp-r);padding:0 5px}
+#crev-blueprint-layer .sw-cells{display:grid;grid-template-columns:repeat(auto-fill,22px);gap:4px;padding:2px 0 8px}
+#crev-blueprint-layer .sw-clear{display:flex;align-items:center;gap:6px;width:100%;padding:6px 0;margin-bottom:4px;background:transparent;border:0;cursor:pointer;color:var(--bp-muted);font:12px 'BPInter',sans-serif}
+#crev-blueprint-layer .sw-clear:hover{color:var(--bp-text)}
+#crev-blueprint-layer .sw-clear--sel{color:var(--bp-text)}
+#crev-blueprint-layer .sw-clear-chip{width:18px;height:18px;border-radius:var(--bp-r);flex:none;border:1px solid var(--bp-line-2);background:repeating-conic-gradient(#cbd5e1 0 25%,transparent 0 50%) 50%/9px 9px}
+#crev-blueprint-layer .sw-clear--sel .sw-clear-chip{box-shadow:0 0 0 2px var(--bp-ground),0 0 0 4px var(--bp-cyan-hi)}
+#crev-blueprint-layer .sw-cell{width:22px;height:22px;border-radius:var(--bp-r);cursor:pointer;background:var(--sw);border:1px solid rgba(0,33,71,.14);transition:transform .1s,box-shadow .12s}
+#crev-blueprint-layer .sw-cell:hover{transform:scale(1.12);box-shadow:var(--bp-shadow)}
+#crev-blueprint-layer .sw-cell--sel{box-shadow:0 0 0 2px var(--bp-ground),0 0 0 4px var(--bp-cyan-hi)}
+#crev-blueprint-layer .sw-cell--disabled{cursor:not-allowed;opacity:.4}
+#crev-blueprint-layer .sw-cell--disabled:hover{transform:none;box-shadow:none}

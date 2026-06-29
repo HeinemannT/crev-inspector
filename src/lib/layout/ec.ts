@@ -17,10 +17,16 @@ import { COMPOSITE_TYPES } from './constraints';
 // Shared EC sanitisation (escaping + identifier/id validation) — the same guards the other EC
 // generators use. ecClass/ecBid are thin aliases; ecStr wraps the shared escaper in quotes.
 import { formatEcLiteral, validateEcIdentifier as ecClass, validateBusinessId as ecBid, validateRid as ecRid } from '../ec-guards';
+import { styleAssignRhs, INVALID_COLOR_BID } from '../style-ec';
 import { OVERRIDABLE_PROPS } from './types';
 import type { Breakpoint, LModel, LNode, PlanNote, PlanStep } from './types';
 
 const ecStr = (s: string): string => `"${formatEcLiteral(s)}"`;
+/** Scalar EC literal — booleans → TRUE/FALSE, numbers as-is, strings quoted + escaped. Mirrors
+ *  BmpClient.formatEcLiteral so the blueprint apply and the side-panel apply format style values
+ *  identically (the shared `styleAssignRhs` delegates non-colour props here). */
+const ecScalar = (v: string | number | boolean): string =>
+  typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : typeof v === 'number' ? String(v) : ecStr(v);
 
 const COL_PROP: Record<Breakpoint, string> = { L: 'columnsLargeScreen', M: 'columnsMediumScreen', S: 'columnsSmallScreen' };
 
@@ -112,6 +118,14 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         if (s.cols) (['L', 'M', 'S'] as Breakpoint[]).forEach(bp => { if (s.cols![bp] != null) parts.push(`${COL_PROP[bp]} := ${s.cols![bp]}`); });
         if (s.name != null) parts.push(`name := ${ecStr(s.name)}`);
         if (s.height != null) parts.push(`chartHeight := ${s.height}`);
+        // G3 appearance: colour links → `prop := t.<bid>` (or `:= ""` to clear), scalars → ecScalar. The
+        // shared `styleAssignRhs` (also used by the side-panel apply) decides which, so the two paths
+        // can't diverge. A malformed colour bid aborts the whole compile rather than emit bad EC.
+        for (const a of s.styleAssign ?? []) {
+          const rhs = styleAssignRhs(a.prop, a.value, ecScalar);
+          if (rhs === INVALID_COLOR_BID) throw new Error(`invalid colour id for ${a.prop} on "${byId.get(s.id)?.name ?? s.id}"`);
+          parts.push(`${a.prop} := ${rhs}`);
+        }
         const resets = (s.resetProps ?? []).filter(p => RESETTABLE.has(p)); // F2 — revert override to template
         if (!parts.length && !resets.length) break;
         const label = byId.get(s.id)?.name ?? s.id;

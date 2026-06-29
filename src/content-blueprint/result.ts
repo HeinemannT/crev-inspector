@@ -18,7 +18,7 @@
  * falls back to all visible widgets). Cells are selectable + draggable (they carry data-bpid/data-bpkind,
  * so the gesture machinery treats them as honest, final-position drop targets).
  */
-import type { LModel, LNode, NodeStyle } from '../lib/layout/types';
+import { STYLE_NODE_FIELDS, type LModel, type LNode, type NodeStyle } from '../lib/layout/types';
 import { findNode, orderChildren, isTempId, isChart, walk, fieldsChanged } from '../lib/layout/model';
 import { COMPOSITE_TYPES } from '../lib/layout/constraints';
 import {
@@ -236,6 +236,15 @@ function applyStyle(el: HTMLElement, label: HTMLElement, s: NodeStyle): void {
   }
 }
 
+/** Does this node's appearance differ from the baseline? (Any STYLE_NODE_FIELDS field, absence folded to
+ *  its default — same rule as diff.changedStyle.) Drives the style-mode "edited" ring. A staged-add node
+ *  has no baseline counterpart and already reads as 'new', so it's not flagged here. */
+function styleDirty(base: LModel, node: LNode): boolean {
+  const b = findNode(base, node.id)?.node;
+  if (!b) return false;
+  return STYLE_NODE_FIELDS.some(f => (b.style?.[f.key] ?? f.def) !== (node.style?.[f.key] ?? f.def));
+}
+
 /** One widget/container cell. Containers recurse into a nested 6-col sub-grid. */
 function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<string, Element>, reordered: ReadonlySet<string>): HTMLElement {
   const el = document.createElement('div');
@@ -256,7 +265,10 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   const icon = typeIcon(node.className);
   const labelEl = buildLabel(node, state);
   el.appendChild(labelEl);
-  if (bp.mode === 'style' && node.style) applyStyle(el, labelEl, node.style);
+  if (bp.mode === 'style') {
+    if (node.style) applyStyle(el, labelEl, node.style);
+    if (styleDirty(base, node)) el.classList.add('bp-style-dirty'); // staged appearance edit → ring it
+  }
 
   if (node.kind === 'container') {
     const grid = document.createElement('div'); grid.className = 'bp-rgrid';

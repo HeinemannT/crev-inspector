@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { LayoutNode as WireNode } from '../../types';
 import type { LModel, LNode } from '../types';
 import { reconstruct, findNode, descendantWidgets, isChart, isResultTab } from '../model';
-import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, isAncestorOf, toggleReset } from '../edit';
+import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, isAncestorOf, toggleReset, setStyle } from '../edit';
 import { diff, summarizeChanges } from '../diff';
 import { compile } from '../ec';
 import { lint } from '../constraints';
@@ -141,6 +141,61 @@ describe('F2 reset overrides (instance → template)', () => {
     expect(script).toContain('t.w1.reset(columnsLargeScreen)');
     expect(script).toContain('t.w1.reset(name)');
     expect(script).not.toContain('.change(');   // a staged reset doesn't change the value
+  });
+});
+
+describe('G3 style edits (setStyle → diff → ec)', () => {
+  // One styled widget: header colour C_RED, no other appearance set.
+  const styleModel = (): LModel => reconstruct(
+    [
+      { rid: 'r_ts', businessId: 'ts1', type: 'TabSet' },
+      { rid: 'r_tab', businessId: 'tab1', type: 'Tab', parentRid: 'r_ts', columnsLargeScreen: 6, name: 'T' },
+      { rid: 'r_w', businessId: 'w1', type: 'BarChart', containerRid: 'r_tab', columnsLargeScreen: 6, name: 'W' },
+    ],
+    { pageId: '4957', tabsetId: 'ts1' },
+    undefined,
+    new Map([['w1', { headerColorBid: 'C_RED' }]]),
+  );
+
+  it('setStyle merges a patch without mutating the baseline', () => {
+    const base = styleModel();
+    const next = setStyle(base, 'w1', { shadow: true, headerStyle: 'NONE' });
+    expect(findNode(next, 'w1')!.node.style).toEqual({ headerColorBid: 'C_RED', shadow: true, headerStyle: 'NONE' });
+    expect(findNode(base, 'w1')!.node.style).toEqual({ headerColorBid: 'C_RED' }); // baseline untouched
+  });
+
+  it('diff emits only the changed appearance fields', () => {
+    const base = styleModel();
+    const desired = setStyle(base, 'w1', { fontColorBid: 'C_BLUE', shadow: true, transparency: 20 });
+    const upd = diff(base, desired).find(s => s.kind === 'update');
+    expect(upd).toMatchObject({ id: 'w1', styleAssign: [
+      { prop: 'fontColor', value: 'C_BLUE' }, { prop: 'shadow', value: true }, { prop: 'transparency', value: 20 },
+    ] });
+  });
+
+  it('compile emits colour links as t.<bid>, scalars typed, and "" to clear', () => {
+    const base = styleModel();
+    const desired = setStyle(base, 'w1', { headerColorBid: '', fontColorBid: 'C_BLUE', shadow: true, borderStyle: 'LINE', transparency: 15 });
+    const { script } = compile(diff(base, desired), desired);
+    expect(script).toContain('t.w1.change(');
+    expect(script).toContain('headerColor := ""');   // clearing the linked colour
+    expect(script).toContain('fontColor := t.C_BLUE');
+    expect(script).toContain('shadow := TRUE');
+    expect(script).toContain('borderStyle := "LINE"');
+    expect(script).toContain('transparency := 15');
+  });
+
+  it('an unchanged style is a no-op (no update step)', () => {
+    const base = styleModel();
+    expect(diff(base, setStyle(base, 'w1', { headerColorBid: 'C_RED' })).length).toBe(0);
+  });
+
+  it('toggling a prop back to its default emits the default value', () => {
+    const base = setStyle(styleModel(), 'w1', { shadow: true });
+    const off = setStyle(base, 'w1', { shadow: false });
+    const upd = diff(base, off).find(s => s.kind === 'update');
+    expect(upd).toMatchObject({ styleAssign: [{ prop: 'shadow', value: false }] });
+    expect(compile(diff(base, off), off).script).toContain('shadow := FALSE');
   });
 });
 
