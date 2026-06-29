@@ -29,10 +29,17 @@ export function placeDoc(el: HTMLElement, r: Rect, inflate = 0): void {
   });
 }
 
-/** rid → live DOM element, the same map the inspect overlay uses (widgets carry data-rid). */
+/** rid → live DOM WIDGET element. Built from the inspect scanner, but with the TAB ANCHORS filtered out:
+ *  getAllRidElements always includes the tab-strip anchors (so the inspect overlay can badge tabs), and
+ *  they carry the PAGE rid at the tab strip's y (above the content). Left in, they pollute the geometry —
+ *  widgetRects/unionAllVisible/bmpContentWidth would anchor the canvas + its full-width backdrop up at the
+ *  tab strip, painting over BMP's real tabs. The blueprint only ever anchors to widget boxes, so drop them. */
 export function ridElementMap(): Map<string, Element> {
   const map = new Map<string, Element>();
-  for (const { element, rid } of getAllRidElements(false)) if (!map.has(rid)) map.set(rid, element);
+  for (const { element, rid } of getAllRidElements(false)) {
+    if (element.closest('[class*="tabSet__tab"],[role="tab"]')) continue; // a tab pill / its anchor, not a widget
+    if (!map.has(rid)) map.set(rid, element);
+  }
   return map;
 }
 
