@@ -70,6 +70,15 @@ export const bp: BpState = { gen: 0, ...freshState() };
  *  torn down by the caller BEFORE this nulls their references. */
 export function resetState(): void { Object.assign(bp, freshState()); }
 
+/** Reset just the LOADED-MODEL fields (NOT the whole session) — for reloading onto a different page or
+ *  toggling the edit target. Keeps the layer/listeners/gen; clears the model + the view state tied to the
+ *  page being left. The single place that knows which fields "are the loaded model", so a new model field
+ *  can't be forgotten at a reload site. */
+export function resetModel(): void {
+  bp.baseline = null; bp.ctx = null; bp.history = null;
+  bp.selectedId = null; bp.viewTabId = null; bp.ridSig = ''; bp.peek = false;
+}
+
 export function isBlueprintActive(): boolean { return bp.active; }
 
 /** The edited model = history present (baseline + staged edits). Null until a page is loaded. */

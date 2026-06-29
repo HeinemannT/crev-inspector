@@ -17,6 +17,7 @@ import { COMPOSITE_TYPES } from './constraints';
 // Shared EC sanitisation (escaping + identifier/id validation) — the same guards the other EC
 // generators use. ecClass/ecBid are thin aliases; ecStr wraps the shared escaper in quotes.
 import { formatEcLiteral, validateEcIdentifier as ecClass, validateBusinessId as ecBid, validateRid as ecRid } from '../ec-guards';
+import { OVERRIDABLE_PROPS } from './types';
 import type { Breakpoint, LModel, LNode, PlanNote, PlanStep } from './types';
 
 const ecStr = (s: string): string => `"${formatEcLiteral(s)}"`;
@@ -24,8 +25,8 @@ const ecStr = (s: string): string => `"${formatEcLiteral(s)}"`;
 const COL_PROP: Record<Breakpoint, string> = { L: 'columnsLargeScreen', M: 'columnsMediumScreen', S: 'columnsSmallScreen' };
 
 /** F2: the only properties a reset may target — bare EC identifiers in `.reset(<prop>)`, so allowlisted
- *  to keep the emitted EC injection-proof (kept in sync with sync.ts OVERRIDE_PROPS). */
-const RESETTABLE = new Set(['columnsLargeScreen', 'columnsMediumScreen', 'columnsSmallScreen', 'name', 'chartHeight']);
+ *  to keep the emitted EC injection-proof. Single source of truth = OVERRIDABLE_PROPS. */
+const RESETTABLE = new Set<string>(OVERRIDABLE_PROPS);
 
 /** Responsive-width suffix for an add() — M/S are only emitted when authored (else BMP defaults). */
 const colsSuffix = (cols: { L: number; M?: number; S?: number }): string =>

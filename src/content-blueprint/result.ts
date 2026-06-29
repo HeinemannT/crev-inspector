@@ -186,6 +186,29 @@ function revertArrow(node: LNode, prop: string, label: string): HTMLElement {
   return b;
 }
 
+/** The cell's header row: type glyph, name (+ name revert arrow), type badge, width (+ width/height
+ *  revert arrows), the change-state tag, and — for a container — its "+ add" button. The F2 revert
+ *  arrows render only for props in node.overrides (instance view; empty in template view / local widgets). */
+function buildLabel(node: LNode, state: CellState): HTMLElement {
+  const lab = document.createElement('div'); lab.className = 'bp-rlab';
+  const icon = typeIcon(node.className);
+  if (icon) { const ic = document.createElement('span'); ic.className = 'bp-ric'; setIcon(ic, icon); lab.appendChild(ic); }
+  const over = node.overrides ?? [];
+  const nm = document.createElement('span'); nm.className = 'bp-rnm'; nm.textContent = node.name; lab.appendChild(nm);
+  if (over.includes('name')) lab.appendChild(revertArrow(node, 'name', 'name'));
+  const ty = document.createElement('span'); ty.className = 'bp-rty'; ty.textContent = node.className.toUpperCase(); lab.appendChild(ty);
+  const wd = document.createElement('span'); wd.className = 'bp-rwd'; wd.textContent = node.cols.L >= 6 ? 'full' : `${node.cols.L} col`; lab.appendChild(wd);
+  if (over.includes('columnsLargeScreen')) lab.appendChild(revertArrow(node, 'columnsLargeScreen', 'width'));
+  if (over.includes('chartHeight')) lab.appendChild(revertArrow(node, 'chartHeight', 'height'));
+  if (state !== 'same') {
+    const tag = document.createElement('span'); tag.className = `bp-rtag st-${state}`;
+    tag.textContent = state === 'moved' ? 'MOVED' : state === 'new' ? 'NEW' : 'CHANGED';
+    lab.appendChild(tag);
+  }
+  if (node.kind === 'container') lab.appendChild(addBtn(node.id, `Add a widget to ${node.name}`));
+  return lab;
+}
+
 /** One widget/container cell. Containers recurse into a nested 6-col sub-grid. */
 function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<string, Element>, reordered: ReadonlySet<string>): HTMLElement {
   const el = document.createElement('div');
@@ -203,25 +226,8 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
     + (isChart(node.className) ? ' bp-rchart' : '') + (short ? ' bp-rshort' : '')
     + (h && !composite ? (h.measured ? ' bp-rsized' : ' bp-rest') : '') + (bp.selectedId === node.id ? ' sel' : '');
 
-  const lab = document.createElement('div'); lab.className = 'bp-rlab';
   const icon = typeIcon(node.className);
-  if (icon) { const ic = document.createElement('span'); ic.className = 'bp-ric'; setIcon(ic, icon); lab.appendChild(ic); }
-  const over = node.overrides ?? []; // F2: props that override the template → blue revert arrows (instance view only)
-  const nm = document.createElement('span'); nm.className = 'bp-rnm'; nm.textContent = node.name;
-  const ty = document.createElement('span'); ty.className = 'bp-rty'; ty.textContent = node.className.toUpperCase();
-  lab.appendChild(nm);
-  if (over.includes('name')) lab.appendChild(revertArrow(node, 'name', 'name'));
-  lab.appendChild(ty);
-  const wd = document.createElement('span'); wd.className = 'bp-rwd'; wd.textContent = node.cols.L >= 6 ? 'full' : `${node.cols.L} col`; lab.appendChild(wd);
-  if (over.includes('columnsLargeScreen')) lab.appendChild(revertArrow(node, 'columnsLargeScreen', 'width'));
-  if (over.includes('chartHeight')) lab.appendChild(revertArrow(node, 'chartHeight', 'height'));
-  if (state !== 'same') {
-    const tag = document.createElement('span'); tag.className = `bp-rtag st-${state}`;
-    tag.textContent = state === 'moved' ? 'MOVED' : state === 'new' ? 'NEW' : 'CHANGED';
-    lab.appendChild(tag);
-  }
-  if (node.kind === 'container') lab.appendChild(addBtn(node.id, `Add a widget to ${node.name}`));
-  el.appendChild(lab);
+  el.appendChild(buildLabel(node, state));
 
   if (node.kind === 'container') {
     const grid = document.createElement('div'); grid.className = 'bp-rgrid';

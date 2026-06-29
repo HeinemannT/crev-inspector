@@ -29,6 +29,13 @@ export type PageClass =
   | 'Issue' | 'Incident' | 'ControlMeasure' | 'RiskAssessment'
   | (string & {});
 
+/** F2 — the single source of truth for the editable scalar properties an instance can override on its
+ *  linked template (and reset). Drives, in lockstep: the fetch's override-detection EC (sync.ts), the
+ *  reset allowlist in the EC compiler (ec.ts), and the revert-arrow labels (result.ts). Add a prop here
+ *  and the whole chain picks it up. BMP property names. */
+export const OVERRIDABLE_PROPS = ['columnsLargeScreen', 'name', 'chartHeight'] as const;
+export type OverridableProp = typeof OVERRIDABLE_PROPS[number];
+
 /** A node in the editable layout tree.
  *  Tree parentage means different things by kind: a widget's parent is the cell it BINDS to
  *  (`container :=`); a container's/tab's parent is its STRUCTURAL parent. `kind` disambiguates. */

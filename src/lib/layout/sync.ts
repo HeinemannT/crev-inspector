@@ -28,8 +28,9 @@ import type { ReconstructCtx } from './model';
 import { diff } from './diff';
 import { compile } from './ec';
 import { validateBusinessId, validateRid, formatEcLiteral } from '../ec-guards';
-import { LAYOUT_SEP, parseLayoutNodes } from '../layout-wire';
+import { LAYOUT_SEP, CTX_MARKER, OVER_MARKER, parseLayoutNodes } from '../layout-wire';
 import type { LayoutNode as WireNode } from '../types';
+import { OVERRIDABLE_PROPS } from './types';
 import type { LModel, PlanNote, PlanStep } from './types';
 
 /** The single I/O capability sync needs: run an EC program, get its log back. Injected so the
@@ -73,12 +74,9 @@ export interface ApplyResult {
   error?: string;
 }
 
-const SEP = LAYOUT_SEP;          // shared wire marker (see layout-wire.ts)
-const CTX = '<<<CREV_CTX>>>';
-const OVER = '<<<CREV_OVER>>>';  // F2: per-widget override channel — `<OVER>bid|prop1,prop2` lines, parsed separately from the layout wire
-/** BMP property names whose instance value can override the linked template (and be reset). Kept in
- *  sync with the editable scalar fields the blueprint shows: width, name, chart height. */
-const OVERRIDE_PROPS = ['columnsLargeScreen', 'name', 'chartHeight'] as const;
+const SEP = LAYOUT_SEP;   // layout wire marker
+const CTX = CTX_MARKER;   // page-context probe marker
+const OVER = OVER_MARKER; // F2 per-widget override channel marker
 // Shared EC id/rid sanitisation (the same guards the other EC generators use).
 const ecBid = validateBusinessId;
 const ecRid = validateRid;
@@ -116,7 +114,7 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `          _lt := _w.linkedTo`,
     `          IF _lt.rid.whenMissing("") <> "" THEN`,
     `               _ovr := ""`,
-    ...OVERRIDE_PROPS.map(p =>
+    ...OVERRIDABLE_PROPS.map(p =>
       `               IF _w.${p}.whenMissing("") <> _lt.${p}.whenMissing("") THEN _ovr := _ovr + "${p}," ELSE _ovr := _ovr ENDIF`),
     `               IF _ovr <> "" THEN _r := _r + "${OVER}" + _w.id.whenMissing("") + "|" + _ovr + "\\n" ELSE _r := _r ENDIF`,
     `          ELSE`,
@@ -215,19 +213,21 @@ function findOrphans(nodes: readonly WireNode[], model: LModel): WireNode[] {
  * Emits one line: `<CTX>enterprise|<rid>|<id>|<class>|default_tabset`  OR
  *                 `<CTX>direct|<rid>|<id>|<class>|<tabsetId>`.  (Validated live 2026-06-26.)
  */
-/** Depth of the cell→TabSet ancestor walk in the Direct branch. 6 covers a tab + up to ~5 levels
- *  of nested containers — generous vs. real pages (the demo's deepest is 3). */
-const TABSET_WALK_DEPTH = 6;
+/** EC that walks `_a` up its parent chain looking for the first TabSet (recording its id in `_tsid`).
+ *  Depth 6 covers a tab + ~5 levels of nested containers — generous vs. real pages (demo's deepest is 3). */
+function buildTabsetWalkEc(): string[] {
+  const lines: string[] = [];
+  for (let i = 0; i < 6; i++) {
+    lines.push(`     IF _a.className.whenMissing("") = "TabSet" THEN _tsid := _a.id ELSE _tsid := _tsid ENDIF`);
+    lines.push(`     _a := _a.parent`);
+  }
+  return lines;
+}
 
 export function buildContextEc(rid: string): string {
   // Direct branch: find the first child that is actually PLACED (a real, non-RESULT container),
   // then walk that cell up to the first TabSet ancestor. Both guard against the cheap failure
   // modes — an unplaced first child, or deep container nesting.
-  const walk: string[] = [];
-  for (let i = 0; i < TABSET_WALK_DEPTH; i++) {
-    walk.push(`     IF _a.className.whenMissing("") = "TabSet" THEN _tsid := _a.id ELSE _tsid := _tsid ENDIF`);
-    walk.push(`     _a := _a.parent`);
-  }
   return [
     `_probe := lookup(${ecRid(rid)})`,
     `_tmpl := _probe.template`,
@@ -257,7 +257,7 @@ export function buildContextEc(rid: string): string {
     `     )`,
     `     _tsid := ""`,
     `     _a := _cell`,
-    ...walk,
+    ...buildTabsetWalkEc(),
     // linkedTo: this instance reuses a template (SharedWebItems). Surface the template's rid + id so the
     // UI can toggle to (and default to) editing the shared template. hasLink drives whether the toggle
     // shows at all.
@@ -287,6 +287,27 @@ export interface NeedsTabset {
   pageClass: BlueprintCtx['pageClass'];
 }
 
+/** The decoded context-probe line. Keyed by NAME so the emit order in `buildContextEc` and the read here
+ *  can't silently drift (the old positional destructure broke whenever a field was inserted/appended). */
+interface ContextProbe {
+  kind: 'enterprise' | 'direct';
+  pageRid: string; pageId: string; pageClass: string; tabsetId: string;
+  hasLink: boolean; widgetCount: number;
+  templateRid?: string; templateId?: string; // linked template (SharedWebItems), direct branch only
+}
+
+/** Decode the single `<CTX>` probe line. Both branches share the leading fields; `direct` carries the
+ *  trailing link/template fields (absent → undefined). Returns null when the structural fields are blank. */
+function parseContextProbe(line: string): ContextProbe | null {
+  const [kind, pRid, pId, pClass, tabsetId, hasLink, wcount, tplRid, tplId] = line.split('|');
+  if ((kind !== 'enterprise' && kind !== 'direct') || !pRid || !pId) return null;
+  return {
+    kind, pageRid: pRid, pageId: pId, pageClass: pClass || '', tabsetId: tabsetId || '',
+    hasLink: hasLink === 'y', widgetCount: Number(wcount ?? '0'),
+    ...(tplRid ? { templateRid: tplRid } : {}), ...(tplId ? { templateId: tplId } : {}),
+  };
+}
+
 /** Resolve the blueprint context for a viewed object — see `buildContextEc`. Returns:
  *   - a BlueprintCtx with a discovered tabset (a normal page), or
  *   - a BlueprintCtx flagged `resultOnly` for a direct page that owns widgets but has no dedicated
@@ -297,42 +318,37 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
   const res = await io.exec(buildContextEc(rid));
   if (!res.ok || !res.log) return null;
   const line = res.log.split(CTX)[1]?.split('\n', 1)[0]?.trim();
-  if (!line) return null;
-  const [kind, pRid, pId, pClass, tabsetId, hasLink, wcount, tplRid, tplId] = line.split('|');
-  if (!pRid || !pId) return null;
-  // Linked template (SharedWebItems) — surfaced so the UI can toggle to / default to editing it.
-  const tpl = hasLink === 'y' && tplRid ? { templateRid: tplRid, templateId: tplId || '' } : {};
-  if (kind === 'enterprise') {
-    if (!tabsetId) return null;
+  const p = line ? parseContextProbe(line) : null;
+  if (!p) return null;
+  if (p.kind === 'enterprise') {
+    if (!p.tabsetId) return null;
     // The page root IS the shared template; every edit hits all linked instances → high blast radius.
     return {
-      pageId: pId, pageRid: pRid, pageClass: (pClass || 'EnterpriseTemplate') as BlueprintCtx['pageClass'],
-      tabsetId, target: 'template', hasTemplate: true, tabScope: 'withContent',
+      pageId: p.pageId, pageRid: p.pageRid, pageClass: (p.pageClass || 'EnterpriseTemplate') as BlueprintCtx['pageClass'],
+      tabsetId: p.tabsetId, target: 'template', hasTemplate: true, tabScope: 'withContent',
     };
   }
-  if (kind === 'direct') {
-    if (!tabsetId) {
-      // No dedicated tabset. If the object still owns widgets (they sit on the shared Result tab), load
-      // it through default_tabset — withContent keeps only the Result tab — and flag it `resultOnly` so
-      // the UI offers a "+ Create tabset" affordance in the tab bar. An object with no widgets isn't a
-      // page. (createTabsetAndLoad reads pageRid/pageId/pageClass straight off this ctx.)
-      return Number(wcount ?? '0') > 0
-        ? {
-            pageId: pId, pageRid: pRid, pageClass: (pClass || 'Scorecard') as BlueprintCtx['pageClass'],
-            tabsetId: DEFAULT_TABSET, target: 'instance', hasTemplate: hasLink === 'y',
-            tabScope: 'withContent', resultOnly: true,
-          }
-        : null;
-    }
-    // The object owns its widgets → editing is INSTANCE-scoped (low blast radius). hasTemplate just
-    // records that a linked template exists (the instance reuses it), so the UI can optionally offer
-    // template-level edits later; the default target stays the instance.
-    return {
-      pageId: pId, pageRid: pRid, pageClass: (pClass || 'Scorecard') as BlueprintCtx['pageClass'],
-      tabsetId, target: 'instance', hasTemplate: hasLink === 'y', tabScope: 'all', ...tpl,
-    };
+  // direct: an object that owns its own widgets. Linked template (if any) surfaced so the UI can toggle.
+  const tpl = p.hasLink && p.templateRid ? { templateRid: p.templateRid, templateId: p.templateId ?? '' } : {};
+  if (!p.tabsetId) {
+    // No dedicated tabset. If the object still owns widgets (they sit on the shared Result tab), load it
+    // through default_tabset — withContent keeps only the Result tab — and flag it `resultOnly` so the UI
+    // offers a "+ Create tabset" affordance. An object with no widgets isn't a page. (createTabsetAndLoad
+    // reads pageRid/pageId/pageClass straight off this ctx.)
+    return p.widgetCount > 0
+      ? {
+          pageId: p.pageId, pageRid: p.pageRid, pageClass: (p.pageClass || 'Scorecard') as BlueprintCtx['pageClass'],
+          tabsetId: DEFAULT_TABSET, target: 'instance', hasTemplate: p.hasLink,
+          tabScope: 'withContent', resultOnly: true,
+        }
+      : null;
   }
-  return null;
+  // Owns its widgets → editing is INSTANCE-scoped (low blast radius). hasTemplate records that a linked
+  // template exists (the instance reuses it); the default edit target is chosen by the caller's `prefer`.
+  return {
+    pageId: p.pageId, pageRid: p.pageRid, pageClass: (p.pageClass || 'Scorecard') as BlueprintCtx['pageClass'],
+    tabsetId: p.tabsetId, target: 'instance', hasTemplate: p.hasLink, tabScope: 'all', ...tpl,
+  };
 }
 
 /**

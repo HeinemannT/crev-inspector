@@ -11,7 +11,7 @@
 import { extractUrlRids } from './lib/dom-scanner';
 import { showToast } from './lib/toast';
 import BLUEPRINT_CSS from './content-blueprint.css';
-import { bp, STYLE_ID, isBlueprintActive, resetState } from './content-blueprint/state';
+import { bp, STYLE_ID, isBlueprintActive, resetState, resetModel } from './content-blueprint/state';
 import { render } from './content-blueprint/view';
 import { select, onKeydown, clearHintTimer } from './content-blueprint/actions';
 import { cancelGesture } from './content-blueprint/gestures';
@@ -74,18 +74,12 @@ export function enableBlueprint(): void {
   bp.onKey = onKeydown;
   window.addEventListener('keydown', bp.onKey, true);
   bp.loadedRid = rid;
-  // Browser back/forward (popstate) is a soft navigation in BMP's portal — the document stays, so our
-  // overlay survives but its loaded model is for the OLD page. Detect a PAGE change (the URL ?rid=
-  // changed) and reload the overlay onto the new page; a same-page back (only ?tabrid= changed) is left
-  // to the MutationObserver, which follows the tab. Off a BMP object entirely → tear down. (Graceful
-  // teardown only — staged edits on the old page are dropped, same as a manual reload.)
-  bp.onPop = () => {
-    if (!bp.active) return;
-    const next = extractUrlRids().rid;
-    if (!next) { disableBlueprint(); return; }
-    if (next === bp.loadedRid) return; // same page — the observer re-anchors to the new tab
-    reloadForRid(next);
-  };
+  // Navigation in BMP's portal is a soft (pushState/popstate) change — the document stays, so our overlay
+  // survives but its loaded model is for the OLD page. handlePageNav() detects a page change and reloads
+  // (or tears down off a BMP object); both the popstate handler (back/forward) and the MutationObserver
+  // (forward link-navs, which fire no popstate) route through it. Graceful teardown only — staged edits on
+  // the old page are dropped, same as a manual reload.
+  bp.onPop = () => { handlePageNav(); };
   window.addEventListener('popstate', bp.onPop);
   layer.addEventListener('mousedown', (e) => { if (e.target === layer) select(null); }); // empty space deselects
   // Watch BMP content for a tab switch (SPA — no reload): when the set of visible widget rids changes,
@@ -96,12 +90,7 @@ export function enableBlueprint(): void {
     bp.mutRaf = requestAnimationFrame(() => {
       bp.mutRaf = 0;
       if (!bp.active || bp.dragging || bp.renaming) return;
-      // A different PAGE is now showing — a link-nav (pushState, no popstate) or a back/forward to
-      // another object. The loaded model is for the old page, so reload onto the new one rather than
-      // painting a stale wireframe over it. (Back/forward also fires popstate, which clears it more
-      // immediately; this catches the forward link-navs popstate misses.)
-      const urlRid = extractUrlRids().rid;
-      if (urlRid && urlRid !== bp.loadedRid) { reloadForRid(urlRid); return; }
+      if (handlePageNav()) return; // a different PAGE is showing (link-nav/back-forward) → reloaded; stop
       if (!bp.baseline) return;
       const sig = ridSignature();
       if (sig !== bp.ridSig) { bp.ridSig = sig; bp.viewTabId = null; render(); } // same page → canvas follows the tab switch
@@ -122,17 +111,27 @@ function mountLoadingShell(): void {
   head.appendChild(c); layer.appendChild(head);
 }
 
-/** Reload the overlay for `rid` — drops the stale model + any staged edits, bumps the session gen so an
- *  in-flight load/apply can't land, shows the loading shell, and re-loads — tearing down if it isn't an
- *  editable page. Used by both the page-change handler (C) and the template/instance toggle (F, same rid,
- *  different `prefer`). */
+/** Reload the overlay for `rid` — used by the page-change handler (C) and the template/instance toggle
+ *  (F, same rid, different `prefer`). Drops the stale model + any staged edits. */
 function reloadForRid(rid: string, prefer: 'template' | 'instance' = 'template'): void {
   bp.loadedRid = rid;
-  bp.gen += 1; // invalidate any in-flight load/apply for the old page
-  bp.baseline = null; bp.ctx = null; bp.history = null; bp.selectedId = null; bp.viewTabId = null; bp.ridSig = '';
-  bp.peek = false; bp.layer?.classList.remove('bp-peek');
-  mountLoadingShell(); // clear the old page's canvas immediately (render() won't, with no baseline)
-  void loadPage(rid, prefer).then((ok) => { if (!ok) disableBlueprint(); });
+  bp.gen += 1;                            // 1. invalidate any in-flight load/apply for the old page
+  resetModel();                           // 2. clear the loaded model + page-specific view state
+  bp.layer?.classList.remove('bp-peek');
+  mountLoadingShell();                    // 3. clear the old canvas to a loading chip (render() won't, with no baseline)
+  void loadPage(rid, prefer).then((ok) => { if (!ok) disableBlueprint(); }); // 4. fetch the new page
+}
+
+/** Reload onto the page the URL now points at, or tear down if it left BMP entirely. Returns true when it
+ *  handled a page change (caller should stop) — false for a same-page tab switch. Routed to by both the
+ *  popstate handler (back/forward) and the MutationObserver (forward link-navs that fire no popstate). */
+function handlePageNav(): boolean {
+  if (!bp.active) return true;
+  const next = extractUrlRids().rid;
+  if (!next) { disableBlueprint(); return true; } // navigated off a BMP object → graceful teardown
+  if (next === bp.loadedRid) return false;        // same page — let the observer follow the tab
+  reloadForRid(next);
+  return true;
 }
 
 /** F: switch between editing the shared TEMPLATE and THIS instance. Reloads the same page with the
