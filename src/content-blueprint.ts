@@ -16,6 +16,7 @@ import { render } from './content-blueprint/view';
 import { select, onKeydown, clearHintTimer } from './content-blueprint/actions';
 import { cancelGesture } from './content-blueprint/gestures';
 import { loadPage } from './content-blueprint/service';
+import { ensureColorSets } from './content-blueprint/colors';
 
 export { isBlueprintActive };
 
@@ -141,6 +142,17 @@ export function setEditTarget(toTemplate: boolean): void {
   if (!bp.active || bp.editingTemplate === toTemplate) return;
   if (bp.history?.canUndo()) showToast('Blueprint: switched target — unsaved layout edits were discarded', 'info');
   reloadForRid(bp.loadedRid, toTemplate ? 'template' : 'instance');
+}
+
+/** G3: switch between LAYOUT editing (cols/move/rename) and STYLE editing (colours/shadow/border).
+ *  Unlike the template/instance target, this is a pure client-side render switch over the SAME loaded
+ *  model — no refetch (the load already carries each widget's styling) — so it's instant and keeps any
+ *  staged edits. Closes any transient per-cell UI (the toolbar/popup swap on the next render). */
+export function setMode(mode: 'layout' | 'style'): void {
+  if (!bp.active || bp.mode === mode) return;
+  bp.mode = mode;
+  if (mode === 'style') void ensureColorSets(); // lazy-load colours so cells can tint (re-renders on arrival)
+  render();
 }
 
 /** Sorted set of the live widget rids — changes exactly when BMP swaps tabs (or otherwise re-renders

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  buildFetchEc, parseFetchLog, parseOverrides, loadModel, applyModel,
+  buildFetchEc, parseFetchLog, parseOverrides, parseStyles, loadModel, applyModel,
   resolvePageContext, buildCreateTabsetEc, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
 } from '../sync';
 import { addContainer, rename } from '../edit';
@@ -85,6 +85,23 @@ describe('sync.buildFetchEc', () => {
     const map = parseOverrides(log);
     expect(map.get('w1')).toEqual(['columnsLargeScreen', 'name']);
     expect(parseFetchLog(log).map(n => n.businessId)).toEqual(['w1']); // layout parser unaffected by OVER lines
+  });
+  it('emits the G3 style channel + parseStyles normalises BMP enum strings', () => {
+    const ec = buildFetchEc(CTX);
+    expect(ec).toContain('<<<CREV_STY>>>');                 // the style channel is emitted
+    expect(ec).toContain('_w.headerColor.id.whenMissing("")'); // colour LINK as a bid, not a value
+    // BMP stringifies enums prefixed + lowercased — parseStyles must reduce to the bare uppercase member.
+    const log = `${SEP}${toWire('1|w1|W|BarChart|451|cell|2|6|6')}\n`
+      + `<<<CREV_STY>>>w1|C_BLUE|C_INK|true|HeaderStyle.inside|BorderStyle.line|40\n`
+      + `<<<CREV_STY>>>w2|||false||NONE|0\n`;
+    const map = parseStyles(log);
+    expect(map.get('w1')).toEqual({
+      headerColorBid: 'C_BLUE', fontColorBid: 'C_INK', shadow: true,
+      headerStyle: 'INSIDE', borderStyle: 'LINE', transparency: 40,
+    });
+    // w2: no colours/headerStyle, but explicit shadow=false + borderStyle NONE + transparency 0 are kept.
+    expect(map.get('w2')).toEqual({ shadow: false, borderStyle: 'NONE', transparency: 0 });
+    expect(parseFetchLog(log).map(n => n.businessId)).toEqual(['w1']); // layout parser ignores STY lines
   });
   it('resultOnly: emits the Result tab + org widgets only — NOT default_tabset\'s shared scaffold', () => {
     const ec = buildFetchEc({ ...CTX, resultOnly: true });

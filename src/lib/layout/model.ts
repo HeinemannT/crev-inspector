@@ -9,7 +9,7 @@
  * container bindings.
  */
 import type { LayoutNode as WireNode } from '../types';
-import type { LModel, LNode, NodeKind } from './types';
+import type { LModel, LNode, NodeKind, NodeStyle } from './types';
 import { COMPOSITE_TYPES } from './constraints';
 
 const CHART_CLASSES = /Chart$/;
@@ -88,7 +88,7 @@ export interface ReconstructCtx {
   tabScope?: 'all' | 'withContent';
 }
 
-export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx, overrides?: Map<string, string[]>): LModel {
+export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx, overrides?: Map<string, string[]>, styles?: Map<string, NodeStyle>): LModel {
   const byRid = new Map<string, WireNode>();
   for (const n of nodes) byRid.set(n.rid, n);
 
@@ -104,6 +104,7 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx, ove
     const kids = (childrenOf.get(wire.rid) ?? []).map(build);
     const id = wire.businessId ?? wire.rid;
     const ovr = overrides?.get(id);
+    const sty = styles?.get(id);
     return {
       id,
       rid: wire.rid,
@@ -117,6 +118,7 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx, ove
       },
       ...(wire.chartHeight != null ? { height: wire.chartHeight } : {}),
       ...(ovr && ovr.length ? { overrides: ovr } : {}),
+      ...(sty ? { style: sty } : {}),
       children: orderChildren(kids),
     };
   };
@@ -161,6 +163,7 @@ export function cloneNode(n: LNode): LNode {
     ...n, cols: { ...n.cols },
     ...(n.overrides ? { overrides: [...n.overrides] } : {}),
     ...(n.resets ? { resets: [...n.resets] } : {}),
+    ...(n.style ? { style: { ...n.style } } : {}), // fresh object so style edits don't mutate the baseline
     children: n.children.map(cloneNode),
   };
 }

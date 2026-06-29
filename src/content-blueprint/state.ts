@@ -32,6 +32,7 @@ export interface BpState {
   onPop: (() => void) | null;    // 'popstate' handler — reloads the overlay when back/forward changes the page rid
   loadedRid: string;             // the URL ?rid= the current model was loaded for (detects a page change on back/forward)
   editingTemplate: boolean;      // F: editing the shared template (vs this instance) — drives the [Template|This instance] toggle
+  mode: 'layout' | 'style';      // G3: layout editing (cols/move/rename) vs style editing (colours/shadow/border) — pure render switch, same loaded model
   raf: number;                  // requestAnimationFrame id coalescing resize re-renders (0 = none)
   resultMode: boolean;          // last render used the result canvas (vs the live-fallback) — read by chrome
   gen: number;                  // session generation, bumped on each enable; in-flight I/O captures it
@@ -58,7 +59,7 @@ function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
     layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, renameId: null,
-    onResize: null, onKey: null, onPop: null, loadedRid: '', editingTemplate: false, raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
+    onResize: null, onKey: null, onPop: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
     observer: null, resizeObs: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
   };
 }

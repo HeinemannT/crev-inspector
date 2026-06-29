@@ -18,7 +18,7 @@
  * falls back to all visible widgets). Cells are selectable + draggable (they carry data-bpid/data-bpkind,
  * so the gesture machinery treats them as honest, final-position drop targets).
  */
-import type { LModel, LNode } from '../lib/layout/types';
+import type { LModel, LNode, NodeStyle } from '../lib/layout/types';
 import { findNode, orderChildren, isTempId, isChart, walk, fieldsChanged } from '../lib/layout/model';
 import { COMPOSITE_TYPES } from '../lib/layout/constraints';
 import {
@@ -29,6 +29,7 @@ import { type Rect, unionRect, setIcon, docX, docY, widgetRects } from './geomet
 import { armBox } from './gestures';
 import { openPicker, toggleResetProp } from './actions';
 import { bp } from './state';
+import { colorRgb } from './colors';
 
 /** Widget-type → Phosphor glyph, so each result cell carries a scannable icon instead of only a mono
  *  type string (and the big empty chart/table cells aren't pure void). First match wins. */
@@ -209,6 +210,40 @@ function buildLabel(node: LNode, state: CellState): HTMLElement {
   return lab;
 }
 
+/** Pick a readable text colour (black/white) for a given "rgb(r,g,b)" background via luminance. */
+function contrastInk(rgb: string): string {
+  const m = rgb.match(/\d+/g);
+  if (!m || m.length < 3) return '#fff';
+  const [r, g, b] = m.map(Number);
+  // Rec. 601 luma — > ~150 reads as "light", so use dark ink.
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#1a1a1a' : '#fff';
+}
+
+/** G3 style mode: paint a cell with the widget's ACTUAL appearance — header tint (headerColor) with
+ *  contrast ink, font colour, shadow, border, header-drop, transparency. A schematic approximation of
+ *  the real widget, enough to read the styling at a glance. Layout mode never calls this. */
+function applyStyle(el: HTMLElement, label: HTMLElement, s: NodeStyle): void {
+  el.classList.add('bp-styled');
+  const hc = colorRgb(s.headerColorBid);
+  if (hc) {
+    label.classList.add('bp-styled-hdr');
+    label.style.background = hc;
+    label.style.color = contrastInk(hc);
+  }
+  const fc = colorRgb(s.fontColorBid);
+  if (fc) {
+    const nm = label.querySelector<HTMLElement>('.bp-rnm');
+    if (nm) nm.style.color = fc;
+  }
+  if (s.shadow) el.classList.add('bp-sh-on');
+  if (s.borderStyle === 'LINE') el.classList.add('bp-bd-line');
+  else if (s.borderStyle === 'NONE') el.classList.add('bp-bd-none');
+  if (s.headerStyle === 'NONE') el.classList.add('bp-hdr-none');
+  if (typeof s.transparency === 'number' && s.transparency > 0) {
+    el.style.opacity = String(Math.max(0.15, 1 - s.transparency / 100));
+  }
+}
+
 /** One widget/container cell. Containers recurse into a nested 6-col sub-grid. */
 function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<string, Element>, reordered: ReadonlySet<string>): HTMLElement {
   const el = document.createElement('div');
@@ -227,7 +262,9 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
     + (h && !composite ? (h.measured ? ' bp-rsized' : ' bp-rest') : '') + (bp.selectedId === node.id ? ' sel' : '');
 
   const icon = typeIcon(node.className);
-  el.appendChild(buildLabel(node, state));
+  const labelEl = buildLabel(node, state);
+  el.appendChild(labelEl);
+  if (bp.mode === 'style' && node.style) applyStyle(el, labelEl, node.style);
 
   if (node.kind === 'container') {
     const grid = document.createElement('div'); grid.className = 'bp-rgrid';

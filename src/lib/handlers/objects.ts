@@ -207,25 +207,30 @@ register('HOVER_RESOLVE', async (msg, respond) => {
 // serverId from settings.activeProfileId so two profiles never share
 // schema state.
 
-register('FETCH_COLOR_SETS', async (msg) => {
+register('FETCH_COLOR_SETS', async (msg, respond) => {
   const ctx = getCtx();
   const serverId = ctx.settings.activeProfileId || '';
   // Serve from the persistent cache unless a manual refresh forced a reload.
   // This is the speed win: a panel reopen or SW idle-reset no longer re-runs
   // the BMP round-trip — the colours come straight from storage.session.
+  let sets: import('../types').ColorSetData[] = [];
   if (!msg.force) {
     const cached = await getColorSets(serverId);
-    if (cached) { ctx.sendToPanel({ type: 'COLOR_SETS_DATA', sets: cached }); return; }
+    if (cached) sets = cached;
   }
-  if (!ctx.client) { ctx.sendToPanel({ type: 'COLOR_SETS_DATA', sets: [] }); return; }
-  try {
-    const sets = await ctx.client.fetchColorSets();
-    if (sets.length > 0) await setColorSets(serverId, sets);
-    ctx.sendToPanel({ type: 'COLOR_SETS_DATA', sets });
-  } catch (e) {
-    log.swallow('handler:fetchColorSets', e);
-    ctx.sendToPanel({ type: 'COLOR_SETS_DATA', sets: [] });
+  if (sets.length === 0 && ctx.client) {
+    try {
+      sets = await ctx.client.fetchColorSets();
+      if (sets.length > 0) await setColorSets(serverId, sets);
+    } catch (e) {
+      log.swallow('handler:fetchColorSets', e);
+      sets = [];
+    }
   }
+  // Broadcast to the panel (its colour picker listens for the broadcast) AND respond to the sender, so
+  // the blueprint overlay can `sendRequest` the same data over the one-shot channel (style-mode tinting).
+  ctx.sendToPanel({ type: 'COLOR_SETS_DATA', sets });
+  respond({ type: 'COLOR_SETS_DATA', sets });
 });
 
 /**

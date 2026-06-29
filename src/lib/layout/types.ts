@@ -36,6 +36,18 @@ export type PageClass =
 export const OVERRIDABLE_PROPS = ['columnsLargeScreen', 'name', 'chartHeight'] as const;
 export type OverridableProp = typeof OVERRIDABLE_PROPS[number];
 
+/** G3 — a widget's appearance, read from the fetch and (in style mode) staged for edit. Colours are
+ *  CorpoColor LINKS, stored as the colour's businessId (resolved to rgb client-side via the colour-set
+ *  cache); the rest are scalar BMP props. All optional — absent = BMP default / not set. */
+export interface NodeStyle {
+  headerColorBid?: string;
+  fontColorBid?: string;
+  shadow?: boolean;
+  headerStyle?: string;   // INSIDE | OUTSIDE | NONE
+  borderStyle?: string;   // LINE | NONE
+  transparency?: number;  // 0..100
+}
+
 /** A node in the editable layout tree.
  *  Tree parentage means different things by kind: a widget's parent is the cell it BINDS to
  *  (`container :=`); a container's/tab's parent is its STRUCTURAL parent. `kind` disambiguates. */
@@ -59,6 +71,8 @@ export interface LNode {
   /** F2 — staged resets: BMP property names the user has marked to revert to the template (`.reset(p)`).
    *  Subset of `overrides`. Staged like any edit (mutated in the model → undo/redo), applied on Apply. */
   resets?: string[];
+  /** G3 — the widget's current appearance (from the fetch); mutated in style mode to stage style edits. */
+  style?: NodeStyle;
 }
 
 /** The whole page being edited (a Scorecard, ModelPage, or Enterprise template). */

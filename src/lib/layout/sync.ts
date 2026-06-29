@@ -28,10 +28,10 @@ import type { ReconstructCtx } from './model';
 import { diff } from './diff';
 import { compile } from './ec';
 import { validateBusinessId, validateRid, formatEcLiteral } from '../ec-guards';
-import { LAYOUT_SEP, CTX_MARKER, OVER_MARKER, parseLayoutNodes } from '../layout-wire';
+import { LAYOUT_SEP, CTX_MARKER, OVER_MARKER, STYLE_MARKER, parseLayoutNodes } from '../layout-wire';
 import type { LayoutNode as WireNode } from '../types';
 import { OVERRIDABLE_PROPS } from './types';
-import type { LModel, PlanNote, PlanStep } from './types';
+import type { LModel, PlanNote, PlanStep, NodeStyle } from './types';
 
 /** The single I/O capability sync needs: run an EC program, get its log back. Injected so the
  *  service worker can wire it to `bmp-client.executeEc` while tests pass a fake. `commit` selects
@@ -77,6 +77,7 @@ export interface ApplyResult {
 const SEP = LAYOUT_SEP;   // layout wire marker
 const CTX = CTX_MARKER;   // page-context probe marker
 const OVER = OVER_MARKER; // F2 per-widget override channel marker
+const STYLE = STYLE_MARKER; // G3 per-widget style channel marker
 // Shared EC id/rid sanitisation (the same guards the other EC generators use).
 const ecBid = validateBusinessId;
 const ecRid = validateRid;
@@ -121,6 +122,13 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `               _r := _r`,
     `          ENDIF`,
   ];
+  // G3 style channel: per widget, emit its current appearance on a distinct marker (parsed by
+  // parseStyles, independent of the layout wire). Colours are CorpoColor LINKS, so we emit the colour's
+  // businessId (`.id`) — resolved to rgb client-side via the colour-set cache — not a value. `.id` on a
+  // MISSING colour chains to MISSING → whenMissing("") → "" (same safe pattern as the override channel).
+  const styleEmit = [
+    `          _r := _r + "${STYLE}" + _w.id.whenMissing("") + "|" + _w.headerColor.id.whenMissing("") + "|" + _w.fontColor.id.whenMissing("") + "|" + _w.shadow.whenMissing("") + "|" + _w.headerStyle.whenMissing("") + "|" + _w.borderStyle.whenMissing("") + "|" + _w.transparency.whenMissing("") + "\\n"`,
+  ];
   const orgLoop = [
     `_sc.descendants().forEach(_w:`,
     `     IF _w.className.whenMissing("") = "ActionButton" AND _w.displayOnActionMenu.whenMissing(false) = true THEN`,
@@ -128,6 +136,7 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `     ELSE`,
     `          _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
     ...overEmit,
+    ...styleEmit,
     `     ENDIF`,
     `)`,
   ];
@@ -185,6 +194,30 @@ export function parseOverrides(log: string): Map<string, string[]> {
     const [bid, props] = (block.split('\n', 1)[0] ?? '').trim().split('|');
     const list = (props ?? '').split(',').filter(Boolean);
     if (bid && list.length) map.set(bid, list);
+  }
+  return map;
+}
+
+/** Parse the G3 style channel (`<STYLE>bid|hcBid|fcBid|shadow|headerStyle|borderStyle|transparency`)
+ *  into a businessId → NodeStyle map. Rides the same log on its own marker (parseLayoutNodes/parseOverrides
+ *  ignore it). Only non-empty fields are kept, so a fully-unstyled widget produces no entry. */
+export function parseStyles(log: string): Map<string, NodeStyle> {
+  const map = new Map<string, NodeStyle>();
+  for (const block of (log || '').split(STYLE).slice(1)) {
+    const [bid, hc, fc, shadow, headerStyle, borderStyle, transp] = (block.split('\n', 1)[0] ?? '').trim().split('|');
+    if (!bid) continue;
+    const s: NodeStyle = {};
+    if (hc) s.headerColorBid = hc;
+    if (fc) s.fontColorBid = fc;
+    if (shadow === 'true' || shadow === 'TRUE') s.shadow = true;
+    else if (shadow === 'false' || shadow === 'FALSE') s.shadow = false;
+    // BMP stringifies enums prefixed + lowercased ("HeaderStyle.inside", "BorderStyle.line") — take the
+    // member after the last "." and uppercase it → "INSIDE" / "LINE" / "NONE" (a bare value passes through).
+    const enumMember = (v: string) => (v.split('.').pop() ?? v).toUpperCase();
+    if (headerStyle) s.headerStyle = enumMember(headerStyle);
+    if (borderStyle) s.borderStyle = enumMember(borderStyle);
+    if (transp && /^-?\d+$/.test(transp)) s.transparency = parseInt(transp, 10);
+    if (Object.keys(s).length) map.set(bid, s);
   }
   return map;
 }
@@ -403,8 +436,9 @@ export async function loadModel(io: LayoutIO, ctx: BlueprintCtx): Promise<LoadRe
   const log = res.log ?? '';
   const nodes = parseFetchLog(log);
   const overrides = parseOverrides(log); // F2: per-widget overridden props (instance view → reset arrows)
-  const model = reconstruct(nodes, ctx, overrides);
-  const baseline = reconstruct(nodes, ctx, overrides); // independent clone — diff target, never mutated
+  const styles = parseStyles(log);       // G3: per-widget current appearance (style mode rendering)
+  const model = reconstruct(nodes, ctx, overrides, styles);
+  const baseline = reconstruct(nodes, ctx, overrides, styles); // independent clone — diff target, never mutated
   return { model, baseline, orphans: findOrphans(nodes, model) };
 }
 

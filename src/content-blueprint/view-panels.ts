@@ -16,7 +16,7 @@ import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT
 import { bp, model } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
 import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, discard, openApplyPreview, exitBlueprint } from './actions';
-import { setEditTarget } from '../content-blueprint'; // runtime-only (click handler) — no init-time cycle
+import { setEditTarget, setMode } from '../content-blueprint'; // runtime-only (click handlers) — no init-time cycle
 
 const VERB_ICON: Record<PlanNote['verb'], string> = { create: ICON_PLUS, update: ICON_PENCIL, move: ICON_ARROW_RIGHT, reorder: ICON_SWAP, delete: ICON_TRASH };
 
@@ -182,6 +182,23 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   b.append(mark, wordmark);
   const id = document.createElement('span'); id.textContent = `${ctx.pageClass} ${ctx.pageId}`;
   c.append(b, id);
+  // G3: Layout / Style mode toggle — the primary "what am I editing" switch. A pure render switch over
+  // the same model (no refetch), so it stays put while you flip between moving widgets and styling them.
+  {
+    const seg = document.createElement('div'); seg.className = 'bp-mode';
+    const lBtn = document.createElement('button');
+    lBtn.className = 'bp-mode-b' + (bp.mode === 'layout' ? ' on' : '');
+    lBtn.textContent = 'Layout';
+    lBtn.title = 'Edit layout — columns, position, names';
+    lBtn.addEventListener('click', () => setMode('layout'));
+    const sBtn = document.createElement('button');
+    sBtn.className = 'bp-mode-b' + (bp.mode === 'style' ? ' on' : '');
+    sBtn.textContent = 'Style';
+    sBtn.title = 'Edit appearance — colours, shadow, border, header style';
+    sBtn.addEventListener('click', () => setMode('style'));
+    seg.append(lBtn, sBtn);
+    c.appendChild(seg);
+  }
   // F: template/instance target toggle — shown whenever this page reuses a template (you can edit the
   // shared template OR just this instance). Default is the template. The active segment + the tmpl
   // styling on the chip ARE the "what am I editing" indicator (E), so no free-flowing warning text that

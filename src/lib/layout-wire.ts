@@ -19,6 +19,7 @@ import type { LayoutNode } from './types';
 export const LAYOUT_SEP = '<<<CREV_LAYOUT>>>'; // layout tree — one node per marker (parseLayoutNodes)
 export const CTX_MARKER = '<<<CREV_CTX>>>';    // page-context probe line (resolvePageContext)
 export const OVER_MARKER = '<<<CREV_OVER>>>';  // F2 per-widget override flags `bid|prop,…` (parseOverrides)
+export const STYLE_MARKER = '<<<CREV_STY>>>';  // G3 per-widget styling `bid|hcBid|fcBid|shadow|headerStyle|borderStyle|transparency` (parseStyles)
 
 const numOrUndef = (v: string | undefined): number | undefined => (v && /^-?\d+$/.test(v) ? parseInt(v, 10) : undefined);
 
