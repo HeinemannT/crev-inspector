@@ -55,9 +55,10 @@ state.ts               the `bp` singleton + constants (STYLE_ID, PALETTE, MOST_U
 colors.ts              style mode's colour data: fetch the per-profile colour sets once (one-shot
                        channel), keep a bid→rgb ColorSetIndex; colorRgb()/colorSets() feed the cell
                        tints + the swatch popup.
-view.ts                render() — rebuilds the overlay from `bp` each call (chrome → result canvas OR
-                       renderLiveFallback → floating chrome); per-element builders, the header tab bar,
-                       the toolbar, add-picker, move-menu, inline-rename, ensureScrollRoom, pendingCount memo.
+view.ts                render() — rebuilds the overlay from `bp` each call (chrome → result canvas OR a
+                       small empty-state when nothing's on screen to anchor → floating chrome); the header
+                       tab bar, the toolbar (layout + style), add-picker, move-menu, inline-rename,
+                       ensureScrollRoom, pendingCount memo.
 view-panels.ts         the chrome panels: command chip (incl. the peek control), apply-preview modal,
                        pending tray, hint bar, create-tabset modal. Pure builders — they never call render().
 result.ts              renderResult() — THE canvas: the edited model as a CSS-grid mirror of BMP's
@@ -238,14 +239,13 @@ applied edits come back as the new baseline. This is intentional, not a bug.
 
 ## Follow-ups
 
-- **Integrate the live diff view into inspect mode** — the "real page with overlays" role belongs in
-  inspect, not as blueprint's no-anchor fallback. Killing it lets the frozen-DOM geometry inference
-  (`unionRect`/`anchorRect`/`addGapZones`/`stackY` in geometry.ts/view.ts) be deleted.
+- **Live-fallback renderer: RETIRED.** The result canvas is the sole editing surface; when it can't
+  anchor (nothing on screen) the overlay shows a small empty-state. This deleted the frozen-DOM box
+  builders + their `nodeState`/`packRows`/`addGapZones`/`stackY` cluster (~185 lines), and with them the
+  `cellState`↔`nodeState` and `packRows`↔`fillGrid` duplication. `unionRect`/`anchorRect` STAY — the
+  result canvas anchors with them. (The dead CSS the box builders used is interleaved with live shared
+  selectors — a surgical follow-up.)
 - A fully **live-derived** add palette per host (needs the server add-menu command) + **real display
   names**; the curated PALETTE / MOST_USED ship now.
 - Perf: the result canvas rebuilds the whole layer each render (a scroll-time translate-instead-of-
   rebuild path is the next optimisation after the diff memo).
-- **Deferred cleanup** (from the maintainability pass): unify `cellState` (result.ts) and `nodeState`
-  (view.ts) — they compare the same width/name/height fields; share the 6-col row packing between
-  `packRows` (view.ts) and `fillGrid` (result.ts); add an `eachInSubtree(node, fn)` helper for the
-  hand-written subtree walks scattered across view-panels/result/view.

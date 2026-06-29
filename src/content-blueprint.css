@@ -476,3 +476,9 @@
 #crev-blueprint-layer .sw-cell--sel{box-shadow:0 0 0 2px var(--bp-ground),0 0 0 4px var(--bp-cyan-hi)}
 #crev-blueprint-layer .sw-cell--disabled{cursor:not-allowed;opacity:.4}
 #crev-blueprint-layer .sw-cell--disabled:hover{transform:none;box-shadow:none}
+
+/* empty-state — shown when the result canvas has nothing on screen to anchor to (replaces the retired
+   live-fallback renderer). A centred note in the overlay. */
+#crev-blueprint-layer .bp-empty{position:fixed;top:130px;left:50%;transform:translateX(-50%);max-width:460px;padding:20px 24px;text-align:center;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r-ui);box-shadow:var(--bp-shadow);pointer-events:auto}
+#crev-blueprint-layer .bp-empty-t{font:600 13px 'BPInter',sans-serif;color:var(--bp-text);margin-bottom:6px}
+#crev-blueprint-layer .bp-empty-s{font:400 12px/1.5 'BPInter',sans-serif;color:var(--bp-muted)}

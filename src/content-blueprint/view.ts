@@ -9,7 +9,7 @@
  * have no DOM, so they draw as dashed placeholders in their host's area.
  */
 import type { LModel, LNode } from '../lib/layout/types';
-import { findNode, walk, hasHeight, isChart, orderChildren, isResultTab, fieldsChanged } from '../lib/layout/model';
+import { findNode, hasHeight, isResultTab } from '../lib/layout/model';
 import { COMPOSITE_TYPES, COMPOSITE_CHILDREN } from '../lib/layout/constraints';
 import { isAncestorOf } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
@@ -19,16 +19,13 @@ import { styleOptions } from '../lib/style-props';
 import { renderSwatchGrid } from '../sidepanel/swatch-grid';
 import { bp, model, PALETTE, MOST_USED } from './state';
 import { colorRgb, colorInfo, colorSets } from './colors';
-import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkBtn, mkIconBtn, delta, placeDoc, docX, docY } from './geometry';
+import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkBtn, mkIconBtn, docX, docY } from './geometry';
 import {
-  select, beginRename, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
+  beginRename, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
   openMovePicker, closeMovePicker, moveTo, doCreateTabset, setNodeStyle, openSwatch, closeSwatch, applySwatch,
 } from './actions';
-import { armBox, armResize } from './gestures';
 import { renderChip, modeSwitch, scopeClass, previewModal, trayPanel, hintBar } from './view-panels';
 import { renderResult, typeIcon } from './result';
-
-const STACKED_ADD_STEP = 42; // px each staged-add placeholder is offset below the previous, in the live fallback
 
 // The pending-change count is recomputed on every render, but a pure scroll/observer render leaves the
 // model unchanged — and diff() builds two index maps and is ~O(n²) in its reorder phase. Memoise the count
@@ -87,11 +84,10 @@ export function render(): void {
   header.append(modeSwitch(), main);
   layer.appendChild(header);
 
-  // The result canvas IS the editor: the edited model laid out as a CSS-grid wireframe (final
-  // positions, real heights, all tabs, honest drop targets). It's always the primary surface; the
-  // live diff-over-frozen-grid path below is only a fallback for a page the result view can't anchor
-  // to (no active tab with live widgets). (The live "real page" view is slated to move into inspect
-  // mode — see docs/blueprint.md.) Selection toolbar + pickers + tray + modal render at the foot.
+  // The result canvas IS the editor: the edited model laid out as a CSS-grid wireframe (final positions,
+  // real heights, all tabs, honest drop targets) — the sole editing surface. It anchors to the live
+  // content box; when nothing is on screen to anchor to (an all-empty page) it returns false and we show
+  // a small empty-state instead. Selection toolbar + pickers + tray + modal render at the foot.
   if (renderResult(base, m, byRid, layer, viewedId)) {
     bp.resultMode = true;
     renderFloatingChrome(byRid, m);
@@ -100,67 +96,21 @@ export function render(): void {
     return;
   }
   bp.resultMode = false;
-  renderLiveFallback(base, m, byRid, layer);
+  renderEmptyCanvas(layer);
   renderFloatingChrome(byRid, m);
 }
 
-/** The LIVE-fallback render path (for a page the result canvas can't anchor to): boxes anchored to
- *  BMP's frozen DOM with edits shown as badges, plus staged-add placeholders and empty-space add zones.
- *  Slated to move into inspect mode (see docs/blueprint.md) — kept out of render() so the primary path
- *  reads as "chrome → result-or-fallback → floating chrome". */
-function renderLiveFallback(base: LModel, m: LModel, byRid: Map<string, Element>, layer: HTMLElement): void {
-  neutralizeScrollRoom(); // live-fallback boxes anchor within the page's own scroll — no extra room needed
-
-  // container boxes first (behind), sized to the union of their live child-widget rects
-  walk(base, (node) => {
-    if (node.kind !== 'container') return;
-    const rect = unionRect(node, byRid);
-    if (!rect) return;
-    if (nodeState(node, m) === 'gone') return; // deleted container → its widgets re-home; skip the box
-    layer.appendChild(containerBox(node, rect, m));
-  });
-
-  // widget boxes, anchored to live DOM
-  walk(base, (node, parent) => {
-    if (node.kind !== 'widget' || !node.rid) return;
-    const el = byRid.get(node.rid);
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    if (!r.width && !r.height) return;
-    layer.appendChild(widgetBox(node, r, m, parent?.id ?? null));
-  });
-
-  // NEW widgets (staged adds) have no DOM — draw dashed placeholders stacked at the bottom of their
-  // host's live area, so you can see what will be created and where.
-  const stackY = new Map<string, number>();
-  walk(m, (node, parent) => {
-    if (node.kind !== 'widget' || !parent) return;
-    const isAdd = !node.rid; // rid-less ⇒ staged add
-    // A MOVED widget keeps its rid but now lives under a different parent — show a placeholder in the
-    // destination so the move is visible (the live original stays dimmed in place; the grid can't reflow).
-    const moved = !isAdd && (() => { const b = findNode(base, node.id); return !!b && (b.parent?.id ?? null) !== parent.id; })();
-    if (!isAdd && !moved) return;
-    const host = findNode(base, parent.id)?.node;
-    const rect = host ? anchorRect(host, byRid) : null; // union for a container, own box for a composite
-    if (!rect) return;
-    const offset = stackY.get(parent.id) ?? 0;
-    stackY.set(parent.id, offset + STACKED_ADD_STEP);
-    layer.appendChild(newWidgetBox(node, { left: rect.left, top: rect.top + rect.height + 4 + offset, width: rect.width, height: 38 }, moved ? 'moved' : 'new'));
-  });
-
-  // Empty-space "add widget" drop zones. The active tab is the one whose widgets are in the live DOM.
-  // Free columns are computed EXACTLY from the model (pack children by cols.L into 6-wide rows) and
-  // positioned from the live rects: a partially-filled row gets a hatched slot in its trailing gap,
-  // and the tab root gets a full-width "new row" zone below all content. Clicking a zone adds to that
-  // level (tab or container). Recurses into containers so nested gaps are fillable too.
-  const activeTab = base.tabs.find((t) => unionRect(t, byRid));
-  if (activeTab) {
-    addGapZones(activeTab, byRid, layer);      // horizontal: free columns in a partly-filled row
-    addColumnGaps(activeTab, byRid, layer);    // vertical: whitespace below a short container in a row
-    const lr = unionRect(activeTab, byRid)!;
-    const extra = stackY.size ? Math.max(...stackY.values()) : 0;
-    layer.appendChild(availZone(activeTab.id, activeTab.name, { left: lr.left, top: lr.top + lr.height + 8 + extra, width: lr.width, height: 40 }));
-  }
+/** Shown when the result canvas can't anchor — nothing is on screen to measure against (an all-empty
+ *  page, or BMP hasn't painted any widgets yet). A centred note; the result canvas is the sole editing
+ *  surface now (the old frozen-DOM fallback renderer was retired — see docs/blueprint.md). */
+function renderEmptyCanvas(layer: HTMLElement): void {
+  neutralizeScrollRoom(); // no tall panel here — collapse any spacer the previous result render left
+  const box = document.createElement('div'); box.className = 'bp-empty';
+  const t = document.createElement('div'); t.className = 'bp-empty-t'; t.textContent = 'Nothing to lay out here';
+  const s = document.createElement('div'); s.className = 'bp-empty-s';
+  s.textContent = 'No widgets are on screen to anchor the canvas. Switch to a tab that has content, or scroll the page so its widgets are visible.';
+  box.append(t, s);
+  layer.appendChild(box);
 }
 
 /** Selection toolbar + move-menu + add-picker + tray + hint + apply modal. These anchor to a node's
@@ -269,191 +219,6 @@ function resultAnchor(id: string): Rect | null {
 }
 
 // ── per-element builders ─────────────────────────────────────────────────────
-
-type NodeState = 'same' | 'changed' | 'gone';
-function nodeState(baseNode: LNode, m: LModel): NodeState {
-  const cur = findNode(m, baseNode.id);
-  if (!cur) return 'gone';
-  return fieldsChanged(baseNode, cur.node) ? 'changed' : 'same';
-}
-
-function widgetBox(baseNode: LNode, r: DOMRect, m: LModel, baseParentId: string | null): HTMLElement {
-  const found = findNode(m, baseNode.id);
-  const cur = found?.node;
-  const state = nodeState(baseNode, m);
-  const moved = state !== 'gone' && found != null && (found.parent?.id ?? null) !== baseParentId;
-  const sel = bp.selectedId === baseNode.id;
-  const box = document.createElement('div');
-  box.dataset.bpid = baseNode.id; box.dataset.bpkind = 'widget';
-  box.className = 'bp-box'
-    + (isChart(baseNode.className) ? ' bp-chart' : '')
-    + (state === 'changed' || moved ? ' changed' : '')
-    + (state === 'gone' ? ' del' : '')
-    + (moved ? ' moved' : '')
-    + (sel ? ' sel' : '');
-  placeDoc(box, r);
-  if (state !== 'gone') armBox(box, baseNode.id);
-  else box.addEventListener('mousedown', (e) => { e.stopPropagation(); select(baseNode.id); });
-
-  const lab = document.createElement('div'); lab.className = 'bp-lab';
-  const nm = document.createElement('span'); nm.className = 'bp-nm'; nm.textContent = cur?.name ?? baseNode.name;
-  const ty = document.createElement('span'); ty.className = 'ty'; ty.textContent = baseNode.className.toUpperCase();
-  lab.append(nm, ty);
-  if (cur && state !== 'gone') {
-    if (cur.cols.L !== baseNode.cols.L) lab.appendChild(delta(`${baseNode.cols.L}→${cur.cols.L}/6`));
-    else { const wd = document.createElement('span'); wd.className = 'wd'; wd.textContent = `${cur.cols.L}/6`; lab.appendChild(wd); }
-    if (cur.height !== baseNode.height && cur.height != null) lab.appendChild(delta(`h${cur.height}`));
-    if (moved) lab.appendChild(delta(`→ ${found?.parent?.name ?? 'tab'}`));
-  }
-  box.appendChild(lab);
-  if (sel && cur && state !== 'gone') addHandles(box, cur);
-  return box;
-}
-
-/** Dashed placeholder for a staged widget: a new add ('new', interactive + green) or the destination
- *  preview of a moved widget ('moved', non-interactive + blue, the live original stays dimmed). */
-function newWidgetBox(node: LNode, r: Rect, variant: 'new' | 'moved' = 'new'): HTMLElement {
-  const box = document.createElement('div');
-  box.className = 'bp-box bp-new' + (variant === 'moved' ? ' bp-moveghost' : '') + (isChart(node.className) ? ' bp-chart' : '');
-  placeDoc(box, r);
-  if (variant === 'new') {
-    box.dataset.bpid = node.id; box.dataset.bpkind = 'new';
-    if (bp.selectedId === node.id) box.classList.add('sel');
-    armBox(box, node.id);
-  }
-  const lab = document.createElement('div'); lab.className = 'bp-lab';
-  const tag = document.createElement('span'); tag.className = 'newtag'; tag.textContent = variant === 'moved' ? 'MOVED HERE' : 'NEW';
-  const nm = document.createElement('span'); nm.className = 'bp-nm'; nm.textContent = node.name;
-  const ty = document.createElement('span'); ty.className = 'ty'; ty.textContent = node.className.toUpperCase();
-  lab.append(tag, nm, ty);
-  box.appendChild(lab);
-  if (variant === 'new' && bp.selectedId === node.id) addHandles(box, node);
-  return box;
-}
-
-/** Edge resize handles on the selected box: right = width (always), bottom = height (charts/URLView
- *  only), plus a centred dimension readout. Drag stages resize/setHeight (see gestures.ts). */
-function addHandles(box: HTMLElement, node: LNode): void {
-  const hr = document.createElement('div'); hr.className = 'bp-h r'; armResize(hr, node.id, 'r'); box.appendChild(hr);
-  if (node.kind === 'widget' && hasHeight(node.className)) {
-    const hb = document.createElement('div'); hb.className = 'bp-h b'; armResize(hb, node.id, 'b'); box.appendChild(hb);
-  }
-  const dim = document.createElement('div'); dim.className = 'bp-dim'; dim.textContent = `${node.cols.L} / 6`; box.appendChild(dim);
-}
-
-/** Dashed "add widget" drop zone. A drop target for drags (data-bpid/kind) and a click target that
- *  opens the picker for that level (tab or container). `opts` threads a positional + sized insert
- *  (place after a sibling, sized to a detected free-column gap). */
-function availZone(parentId: string, parentName: string, r: Rect, opts?: { afterId?: string; cols?: number }): HTMLElement {
-  const z = document.createElement('div'); z.className = 'bp-avail';
-  z.dataset.bpid = parentId; z.dataset.bpkind = 'avail';
-  placeDoc(z, r);
-  z.title = `Add a widget to ${parentName}`;
-  const ic = document.createElement('span'); ic.className = 'ic'; setIcon(ic, ICON_PLUS);
-  const tx = document.createElement('span'); tx.textContent = 'Add widget';
-  z.append(ic, tx);
-  z.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(parentId, { ...opts, at: { x: e.clientX, y: e.clientY } }); });
-  return z;
-}
-
-/** Pack ordered children into 6-column rows by cols.L — the same left-to-right wrap BMP renders. */
-function packRows(children: LNode[]): { cells: LNode[]; used: number }[] {
-  const rows: { cells: LNode[]; used: number }[] = [];
-  let row: LNode[] = [], used = 0;
-  for (const c of children) {
-    const sp = Math.max(1, Math.min(6, c.cols.L));
-    if (used + sp > 6 && row.length) { rows.push({ cells: row, used }); row = []; used = 0; }
-    row.push(c); used += sp;
-  }
-  if (row.length) rows.push({ cells: row, used });
-  return rows;
-}
-
-/** Hatched "add" slot in the trailing free columns of EACH row. Gap detection is from the MODEL —
- *  pack children into 6-wide rows by cols.L, free = 6 − used (exact, no pixel inference). Rects + the
- *  column unit (a cell's width ÷ its cols) only POSITION/size the zone. Clicking inserts a widget
- *  after the row's last cell, sized to the gap, so BMP lands it in that free space. Recurses into
- *  containers (their own sub-grid). */
-function addGapZones(level: LNode, byRid: Map<string, Element>, layer: HTMLElement): void {
-  for (const row of packRows(orderChildren(level.children))) {
-    const free = 6 - row.used;
-    if (free < 1) continue;
-    const positioned = row.cells.map((c) => ({ c, r: anchorRect(c, byRid) })).filter((x): x is { c: LNode; r: Rect } => !!x.r);
-    if (!positioned.length) continue;
-    const unit = positioned[0].r.width / Math.max(1, positioned[0].c.cols.L); // px per column
-    const lastPos = positioned[positioned.length - 1];
-    const top = Math.min(...positioned.map((p) => p.r.top));
-    const height = Math.max(...positioned.map((p) => p.r.top + p.r.height)) - top;
-    const left = lastPos.r.left + lastPos.r.width + 8;
-    const width = free * unit - 8;
-    if (width > 24) layer.appendChild(availZone(level.id, level.name, { left, top, width, height }, { afterId: lastPos.c.id, cols: free }));
-  }
-  for (const c of level.children) if (c.kind === 'container') addGapZones(c, byRid, layer);
-}
-
-/** Vertical free space: when a row's columns have uneven height (a short container beside a tall one),
- *  the short CONTAINER has whitespace below it down to the row's bottom. Adding into that container
- *  extends it into exactly that space, so place an "add" slot there. (A short tab-level *widget* is
- *  skipped — appending to the tab wouldn't land in its gap, so a zone there would mislead.) */
-function addColumnGaps(level: LNode, byRid: Map<string, Element>, layer: HTMLElement): void {
-  const kids = orderChildren(level.children)
-    .map((node) => ({ node, rect: anchorRect(node, byRid) }))
-    .filter((k): k is { node: LNode; rect: Rect } => !!k.rect)
-    .sort((a, b) => a.rect.top - b.rect.top);
-  const rows: { top: number; bottom: number; items: { node: LNode; rect: Rect }[] }[] = [];
-  for (const k of kids) {
-    const row = rows.find((rr) => Math.abs(rr.top - k.rect.top) < 24);
-    if (row) { row.items.push(k); row.bottom = Math.max(row.bottom, k.rect.top + k.rect.height); }
-    else rows.push({ top: k.rect.top, bottom: k.rect.top + k.rect.height, items: [k] });
-  }
-  for (const row of rows) {
-    if (row.items.length < 2) continue; // no side-by-side neighbour ⇒ no ragged-column gap
-    for (const k of row.items) {
-      if (k.node.kind !== 'container') continue;
-      const gap = row.bottom - (k.rect.top + k.rect.height);
-      if (gap > 36) layer.appendChild(availZone(k.node.id, k.node.name, { left: k.rect.left, top: k.rect.top + k.rect.height + 6, width: k.rect.width, height: gap - 10 }));
-    }
-  }
-  for (const c of level.children) if (c.kind === 'container') addColumnGaps(c, byRid, layer);
-}
-
-function containerBox(baseNode: LNode, rect: Rect, m: LModel): HTMLElement {
-  const cur = findNode(m, baseNode.id)?.node;
-  const sel = bp.selectedId === baseNode.id;
-  const changed = !!cur && cur.cols.L !== baseNode.cols.L;
-  const box = document.createElement('div');
-  box.dataset.bpid = baseNode.id; box.dataset.bpkind = 'container';
-  box.className = 'bp-cont' + (sel ? ' sel' : '') + (changed ? ' changed' : '');
-  placeDoc(box, rect, 3); // a container frame draws 3px outside its child union
-  armBox(box, baseNode.id);
-  // A handle ABOVE the container's top-left, always visible: it marks where each container is (so they
-  // read clearly) and hosts the add "+". It sits above the row, so it never collides with the top-left
-  // widget label inside. On selection it expands with the name + width (+ handles on the box).
-  const tab = document.createElement('div'); tab.className = 'bp-ctab' + (sel ? ' sel' : '');
-  const add = document.createElement('button');
-  add.className = 'bp-cadd'; setIcon(add, ICON_PLUS); add.title = `Add a widget to ${baseNode.name}`;
-  add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(baseNode.id, { at: { x: e.clientX, y: e.clientY } }); });
-  tab.appendChild(add);
-  if (sel) {
-    const cn = document.createElement('span'); cn.className = 'cname'; cn.textContent = cur?.name ?? baseNode.name;
-    const cw = document.createElement('span'); cw.className = 'cw'; cw.textContent = `${cur?.cols.L ?? baseNode.cols.L}/6`;
-    tab.append(cn, cw);
-    if (changed && cur) tab.appendChild(delta(`${baseNode.cols.L}→${cur.cols.L}`));
-  }
-  // Selected-container overlay: a light scrim over the WHOLE container area with a centred
-  // "CONTAINER · name" tag, so it's unambiguous you've grabbed the box and not a widget inside it.
-  // pointer-events:none keeps it purely visual (drag/handles still work via the box + its controls).
-  if (sel) {
-    const ov = document.createElement('div'); ov.className = 'bp-cont-ov';
-    const tg = document.createElement('span'); tg.className = 'bp-cont-ov-tag'; tg.textContent = 'CONTAINER';
-    const nm2 = document.createElement('span'); nm2.className = 'bp-cont-ov-nm'; nm2.textContent = cur?.name ?? baseNode.name;
-    ov.append(tg, nm2);
-    box.appendChild(ov);
-  }
-  box.appendChild(tab);
-  if (sel && cur) addHandles(box, cur);
-  return box;
-}
 
 function toolbar(node: LNode, r: Rect): HTMLElement {
   if (bp.mode === 'style') return styleToolbar(node, r);
