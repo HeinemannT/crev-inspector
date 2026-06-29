@@ -56,6 +56,17 @@ describe('model.reconstruct', () => {
     expect(m.tabs[0].children.map(c => c.name)).toEqual(['Run Audit']); // its directly-bound widget attaches
   });
 
+  it('drops the Result tab when it holds none of this page\'s widgets', () => {
+    const wire: WireNode[] = [
+      { rid: 'r_ts', businessId: 'ts1', type: 'TabSet' },
+      { rid: 'r_res', businessId: 'RESULT', type: 'Tab', parentRid: 'r_def', name: 'Result' }, // empty
+      { rid: 'r_tab', businessId: 'tab1', type: 'Tab', parentRid: 'r_ts', columnsLargeScreen: 6, name: 'Overview' },
+      { rid: 'r_w', businessId: 'w1', type: 'BarChart', containerRid: 'r_tab', columnsLargeScreen: 6, name: 'Chart' },
+    ];
+    const m = reconstruct(wire, { pageId: '4957', tabsetId: 'ts1' });
+    expect(m.tabs.map(t => t.id)).toEqual(['tab1']); // empty Result tab is not shown
+  });
+
   it('nests a composite (ButtonContainer) child under its parent, not the Result tab it reports', () => {
     // Live shape (demo 4957): the buttons report container=RESULT (phantom) but belong to the
     // ButtonContainer, which is itself placed in a real cell. Buttons must NOT leak onto the Result tab.
@@ -69,8 +80,8 @@ describe('model.reconstruct', () => {
       { rid: 'r_b2', businessId: '5921', type: 'ActionButton', parentRid: 'r_bc', containerRid: 'r_res', columnsLargeScreen: 6, name: 'Reset' },
     ];
     const m = reconstruct(wire, { pageId: '4957', tabsetId: 'ts1' });
-    const result = m.tabs.find(t => t.id === 'RESULT')!;
-    expect(result.children.map(c => c.id)).not.toContain('5920'); // buttons do NOT leak onto Result
+    // buttons no longer leak onto the Result tab → it's empty → dropped (Part-1 behaviour)
+    expect(m.tabs.find(t => t.id === 'RESULT')).toBeUndefined();
     const cell = m.tabs.find(t => t.id === 'tab1')!.children.find(c => c.id === 'cell1')!;
     const bc = cell.children.find(c => c.id === '5919')!;
     expect(bc.children.map(c => c.id)).toEqual(['5920', '5921']); // nested under the ButtonContainer

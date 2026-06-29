@@ -110,6 +110,9 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx): LM
   let tabs = nodes.filter(n => kindOf(n.type) === 'tab').map(build);
   // shared-tabset pages keep only tabs that hold one of THIS page's widgets (see tabScope doc)
   if (ctx.tabScope === 'withContent') tabs = tabs.filter(t => descendantWidgets(t).length > 0);
+  // The Result tab is a system tab (where unplaced widgets land). Show it only when it actually holds
+  // one of this page's widgets — like any other tab — not as an empty placeholder on every page.
+  tabs = tabs.filter(t => !isResultTab(t) || descendantWidgets(t).length > 0);
 
   return {
     pageId: ctx.pageId,
