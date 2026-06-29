@@ -323,6 +323,20 @@
 #crev-blueprint-layer .bp-rcont>.bp-rlab .bp-rwd{position:absolute;right:24px;top:50%;transform:translateY(-50%);margin:0}
 #crev-blueprint-layer .bp-rcont>.bp-rlab .bp-radd{position:absolute;right:2px;top:50%;transform:translateY(-50%);margin:0}
 #crev-blueprint-layer .bp-rcont>.bp-rgrid{margin-top:7px}
+/* Composite widgets (ButtonContainer/ButtonGroup/InputSet) — show their nested children read-only so
+   the buttons/inputs are visible at their container-relative width. Looks like a container but with a
+   SOLID quiet border to signal it isn't an editable drop target, and its children aren't selectable. */
+#crev-blueprint-layer .bp-rcomp-host{background:rgba(255,255,255,.55);border-style:solid;border-color:var(--bp-line-2);padding:6px 8px 8px}
+#crev-blueprint-layer .bp-rcomp-host>.bp-rlab{position:relative;display:flex;align-items:center;justify-content:center;margin:-6px -8px 0;padding:2px 8px 0;background:none}
+#crev-blueprint-layer .bp-rcomp-host>.bp-rlab .bp-ric{display:none}
+#crev-blueprint-layer .bp-rcomp-host>.bp-rlab .bp-rnm{text-transform:none;letter-spacing:.01em;font-size:10.5px;font-weight:600;line-height:1.25;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-rcomp-host>.bp-rlab .bp-rty{position:absolute;right:6px;top:50%;transform:translateY(-50%);margin:0;font-size:8px;letter-spacing:.04em;color:var(--bp-line-2)}
+/* The composite footprint already conveys width; the type tag (BUTTONCONTAINER) is the useful label,
+   so drop the redundant "full"/"N col" chip to avoid the two colliding in the header. */
+#crev-blueprint-layer .bp-rcomp-host>.bp-rlab .bp-rwd{display:none}
+#crev-blueprint-layer .bp-rcomp{margin-top:7px}
+#crev-blueprint-layer .bp-rcomp-child{min-height:32px;cursor:default;background:rgba(255,255,255,.85)}
+#crev-blueprint-layer .bp-rcomp-child:hover{border-color:var(--bp-line-1);background:#fff}
 /* State colour runs through the cell — border + icon + name — so an added/changed/moved widget reads at
    a glance: added = green, changed = yellow, moved-only = lighter yellow. (Deleted cells aren't shown in
    the canvas; deletion is red in the pending tray.) */

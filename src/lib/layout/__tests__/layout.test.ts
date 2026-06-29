@@ -55,6 +55,44 @@ describe('model.reconstruct', () => {
     expect(isResultTab(m.tabs[0])).toBe(true);
     expect(m.tabs[0].children.map(c => c.name)).toEqual(['Run Audit']); // its directly-bound widget attaches
   });
+
+  it('nests a composite (ButtonContainer) child under its parent, not the Result tab it reports', () => {
+    // Live shape (demo 4957): the buttons report container=RESULT (phantom) but belong to the
+    // ButtonContainer, which is itself placed in a real cell. Buttons must NOT leak onto the Result tab.
+    const wire: WireNode[] = [
+      { rid: 'r_ts', businessId: 'ts1', type: 'TabSet' },
+      { rid: 'r_res', businessId: 'RESULT', type: 'Tab', parentRid: 'r_def', name: 'Result' },
+      { rid: 'r_tab', businessId: 'tab1', type: 'Tab', parentRid: 'r_ts', columnsLargeScreen: 6, name: 'Overview' },
+      { rid: 'r_cell', businessId: 'cell1', type: 'Container', parentRid: 'r_tab', columnsLargeScreen: 6, name: 'Cell' },
+      { rid: 'r_bc', businessId: '5919', type: 'ButtonContainer', parentRid: 'r_sc', containerRid: 'r_cell', columnsLargeScreen: 6, name: 'Test Buttons' },
+      { rid: 'r_b1', businessId: '5920', type: 'ActionButton', parentRid: 'r_bc', containerRid: 'r_res', columnsLargeScreen: 6, name: 'Run' },
+      { rid: 'r_b2', businessId: '5921', type: 'ActionButton', parentRid: 'r_bc', containerRid: 'r_res', columnsLargeScreen: 6, name: 'Reset' },
+    ];
+    const m = reconstruct(wire, { pageId: '4957', tabsetId: 'ts1' });
+    const result = m.tabs.find(t => t.id === 'RESULT')!;
+    expect(result.children.map(c => c.id)).not.toContain('5920'); // buttons do NOT leak onto Result
+    const cell = m.tabs.find(t => t.id === 'tab1')!.children.find(c => c.id === 'cell1')!;
+    const bc = cell.children.find(c => c.id === '5919')!;
+    expect(bc.children.map(c => c.id)).toEqual(['5920', '5921']); // nested under the ButtonContainer
+  });
+
+  it('nests a model Container\'s children under it (not the Result tab), keeping its width', () => {
+    // Live shape (demo 4957): Container 455 sits on the Result tab; its table + create-object report
+    // container=RESULT too but belong to 455. The 3-wide container keeps its width; children nest in it.
+    const wire: WireNode[] = [
+      { rid: 'r_ts', businessId: 'ts1', type: 'TabSet' },
+      { rid: 'r_res', businessId: 'RESULT', type: 'Tab', parentRid: 'r_def', name: 'Result' },
+      { rid: 'r_c', businessId: '455', type: 'Container', parentRid: 'r_sc', containerRid: 'r_res', columnsLargeScreen: 3, name: 'Box' },
+      { rid: 'r_t', businessId: '456', type: 'ExtendedTable', parentRid: 'r_c', containerRid: 'r_res', columnsLargeScreen: 6, name: 'Table' },
+      { rid: 'r_co', businessId: '457', type: 'CreateObjectView', parentRid: 'r_c', containerRid: 'r_res', columnsLargeScreen: 6, name: 'Create' },
+    ];
+    const m = reconstruct(wire, { pageId: '4957', tabsetId: 'ts1' });
+    const result = m.tabs.find(t => t.id === 'RESULT')!;
+    const box = result.children.find(c => c.id === '455')!;
+    expect(box.cols.L).toBe(3);
+    expect(box.children.map(c => c.id)).toEqual(['456', '457']); // nested under the container
+    expect(result.children.map(c => c.id)).not.toContain('456'); // not also siblings on Result
+  });
 });
 
 describe('isAncestorOf (move-into-own-subtree guard)', () => {

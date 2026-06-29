@@ -10,6 +10,7 @@
  */
 import type { LayoutNode as WireNode } from '../types';
 import type { LModel, LNode, NodeKind } from './types';
+import { COMPOSITE_TYPES } from './constraints';
 
 const CHART_CLASSES = /Chart$/;
 export const isChart = (className: string): boolean => CHART_CLASSES.test(className);
@@ -30,16 +31,30 @@ function kindOf(type: string): NodeKind {
 export const RESULT_TAB_ID = 'RESULT';
 export const isResultTab = (n: { kind: NodeKind; id: string }): boolean => n.kind === 'tab' && n.id === RESULT_TAB_ID;
 
-/** Layout owner of a node — uniform across kinds: a portal placement (`containerRid`) wins,
- *  else the structural parent (`parentRid`). This one rule covers every observed case:
+/** Is this wire node a layout container that OWNS its structural children — a portal `Container` or a
+ *  composite widget (ButtonContainer/ButtonGroup/InputSet/TagList/ListPropertySet)? Such a parent
+ *  claims its children even when BMP reports their portal `container` as the phantom RESULT placement. */
+function isStructuralParent(wire: WireNode | undefined): boolean {
+  return !!wire && (wire.type === 'Container' || COMPOSITE_TYPES.has(wire.type));
+}
+
+/** Layout owner of a node.
+ *
+ *  A node whose STRUCTURAL parent is itself a layout container/composite nests under that parent — even
+ *  though BMP reports the child's portal `container` as the phantom RESULT placement. This covers two
+ *  cases that otherwise leaked onto the Result tab (verified live on demo scorecard 4957):
+ *   - a composite child (an ActionButton under its ButtonContainer 5919, reported container=RESULT)
+ *   - a model `Container`'s children (table + create-object under Container 455, reported container=RESULT)
+ *  Both belong to their parent, not the Result tab.
+ *
+ *  Otherwise the universal rule holds: a portal placement (`containerRid`) wins, else the structural
+ *  parent (`parentRid`):
  *   - widget bound to a portal cell      → containerRid (the cell)
  *   - portal Tab/Container               → containerRid empty → parentRid (tabset / parent tab)
  *   - org Container placed in a tab       → containerRid (the tab it was assigned to)
- *   - composite child (button in a       → containerRid empty (RESULT) → parentRid (the
- *     ButtonContainer)                       ButtonContainer it nests under)
- *  The fetch maps the phantom RESULT placement to an empty containerRid, so unplaced widgets
- *  fall through to their org parent (the scorecard) and get pruned out as orphans. */
-function ownerOf(n: WireNode): string | undefined {
+ *   - top-level Result widget            → containerRid (the Result tab), parent is the page (not in set) */
+function ownerOf(n: WireNode, byRid: Map<string, WireNode>): string | undefined {
+  if (n.parentRid && isStructuralParent(byRid.get(n.parentRid))) return n.parentRid;
   return n.containerRid ?? n.parentRid;
 }
 
@@ -66,7 +81,7 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx): LM
   // children-by-owner, preserving input (sortIndex) order
   const childrenOf = new Map<string, WireNode[]>();
   for (const n of nodes) {
-    const owner = ownerOf(n);
+    const owner = ownerOf(n, byRid);
     if (!owner || !byRid.has(owner)) continue;
     (childrenOf.get(owner) ?? childrenOf.set(owner, []).get(owner)!).push(n);
   }

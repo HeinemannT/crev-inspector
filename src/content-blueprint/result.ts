@@ -20,6 +20,7 @@
  */
 import type { LModel, LNode } from '../lib/layout/types';
 import { findNode, orderChildren, isTempId, isChart, walk, fieldsChanged } from '../lib/layout/model';
+import { COMPOSITE_TYPES } from '../lib/layout/constraints';
 import {
   ICON_PLUS, ICON_CHART, ICON_TABLE, ICON_LIST, ICON_CHECK_CIRCLE, ICON_CODE,
   ICON_LINK, ICON_PLAY, ICON_PENCIL, ICON_BOOK, ICON_LAYOUT,
@@ -36,6 +37,12 @@ const TYPE_ICONS: [RegExp, string][] = [
   [/CustomVisualization/, ICON_CODE], [/URLView/, ICON_LINK], [/Button/, ICON_PLAY],
   [/(Input|Create|ObjectView)/, ICON_PENCIL], [/(Description|Text)/, ICON_BOOK], [/Container/, ICON_LAYOUT],
 ];
+/** A composite widget (ButtonContainer/ButtonGroup/InputSet/…) that holds nested children. We render
+ *  these READ-ONLY — show the children inside the box so a ButtonContainer's buttons are visible — but
+ *  with no add slot and no drag arming, since editing INTO a composite needs `<composite>.add(child)`
+ *  EC the compiler doesn't emit yet. */
+const isCompositeWithKids = (n: LNode): boolean => COMPOSITE_TYPES.has(n.className) && n.children.length > 0;
+
 export function typeIcon(className: string): string | null {
   for (const [re, ic] of TYPE_ICONS) if (re.test(className)) return ic;
   return null;
@@ -169,15 +176,16 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   el.dataset.bpid = node.id;
   el.dataset.bpkind = node.kind === 'container' ? 'container' : 'widget';
   el.style.gridColumn = `span ${Math.max(1, Math.min(6, node.cols.L))}`;
+  const composite = isCompositeWithKids(node);
   const h = widgetHeight(node, byRid);
-  if (h) el.style.height = `${h.px}px`;
+  if (h && !composite) el.style.height = `${h.px}px`; // composites size to their children, not an estimate
   const state = cellState(base, node, parentId, reordered);
   // Too short to fit the label + the centred type watermark + the caption without overlap → drop the
   // watermark (CSS hides .bp-rwm on .bp-rshort). Short content widgets (TextElement, InputView) hit this.
-  const short = node.kind === 'widget' && !!h && h.px < SHORT_CELL_HEIGHT;
-  el.className = `bp-rcell st-${state}` + (node.kind === 'container' ? ' bp-rcont' : '')
+  const short = node.kind === 'widget' && !composite && !!h && h.px < SHORT_CELL_HEIGHT;
+  el.className = `bp-rcell st-${state}` + (node.kind === 'container' ? ' bp-rcont' : '') + (composite ? ' bp-rcomp-host' : '')
     + (isChart(node.className) ? ' bp-rchart' : '') + (short ? ' bp-rshort' : '')
-    + (h ? (h.measured ? ' bp-rsized' : ' bp-rest') : '') + (bp.selectedId === node.id ? ' sel' : '');
+    + (h && !composite ? (h.measured ? ' bp-rsized' : ' bp-rest') : '') + (bp.selectedId === node.id ? ' sel' : '');
 
   const lab = document.createElement('div'); lab.className = 'bp-rlab';
   const icon = typeIcon(node.className);
@@ -199,6 +207,12 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
     if (node.children.length) fillGrid(grid, base, node.children, node.id, byRid, reordered);
     else grid.appendChild(gapCell(node.id, 6)); // empty container → a full add slot
     el.appendChild(grid);
+  } else if (composite) {
+    // Composite (ButtonContainer/ButtonGroup/InputSet/…): show its nested children read-only so a
+    // ButtonContainer's buttons are visible inside the box, at their container-relative width.
+    const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rcomp';
+    for (const c of orderChildren(node.children)) grid.appendChild(compositeChildCell(c));
+    el.appendChild(grid);
   } else {
     // Pure line-art: a faint type glyph fills the cell body with a small mono type caption beneath, so a
     // tall empty box reads as a typed placeholder (the dominant name + this glyph carry recognisability —
@@ -211,7 +225,27 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
     el.appendChild(cap);
   }
 
+  // Composites are not drop targets (their children bind via `.add`, not `container :=`), but the
+  // composite box itself is still selectable/draggable as a unit.
   armBox(el, node.id); // select on click, drag to move — drop targets are now final positions
+  return el;
+}
+
+/** A read-only cell for a child nested inside a composite (e.g. a button in a ButtonContainer). Not
+ *  armed for selection/drag — composite-child editing isn't supported yet — so it's purely visual. */
+function compositeChildCell(node: LNode): HTMLElement {
+  const el = document.createElement('div');
+  el.className = 'bp-rcell bp-rcomp-child st-same';
+  el.dataset.bpid = node.id;
+  el.dataset.bpkind = 'widget';
+  el.style.gridColumn = `span ${Math.max(1, Math.min(6, node.cols.L))}`;
+  const lab = document.createElement('div'); lab.className = 'bp-rlab';
+  const icon = typeIcon(node.className);
+  if (icon) { const ic = document.createElement('span'); ic.className = 'bp-ric'; setIcon(ic, icon); lab.appendChild(ic); }
+  const nm = document.createElement('span'); nm.className = 'bp-rnm'; nm.textContent = node.name;
+  const ty = document.createElement('span'); ty.className = 'bp-rty'; ty.textContent = node.className.toUpperCase();
+  lab.append(nm, ty);
+  el.appendChild(lab);
   return el;
 }
 
