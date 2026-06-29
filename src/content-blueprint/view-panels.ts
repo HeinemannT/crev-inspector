@@ -12,7 +12,7 @@ import { findNode, isResultTab, eachInSubtree } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
 import { diff, summarizeChanges } from '../lib/layout/diff';
-import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_WARNING, ICON_EYE_SLASH } from '../lib/icons';
+import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_EYE_SLASH } from '../lib/icons';
 import { bp, model } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
 import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, discard, openApplyPreview, exitBlueprint } from './actions';
@@ -172,33 +172,38 @@ export function hintBar(text: string): HTMLElement {
 }
 
 
+/** The vertical mode switch mounted at the LEFT of the header — top = Layout (blueprint), bottom =
+ *  Style (paint). A physical-feeling toggle that spans the header + tab rows; flipping it morphs the
+ *  whole editor (the chip wordmark + the per-widget toolbar) between structure and appearance. */
+export function modeSwitch(): HTMLElement {
+  const sw = document.createElement('div'); sw.className = 'bp-vswitch';
+  const seg = (mode: 'layout' | 'style', icon: string, title: string): HTMLElement => {
+    const b = document.createElement('button');
+    b.className = 'bp-vsw-b' + (mode === 'style' ? ' style' : '') + (bp.mode === mode ? ' on' : '');
+    setIcon(b, icon); b.title = title;
+    b.addEventListener('click', () => setMode(mode));
+    return b;
+  };
+  sw.append(
+    seg('layout', ICON_BLUEPRINT, 'Layout — structure, columns, position'),
+    seg('style', ICON_PAINT, 'Style — colours, shadow, border, header'),
+  );
+  return sw;
+}
+
 /** Command chip — page id, undo/redo, pending tray toggle, discard, apply, exit. */
 export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   const shared = ctx.target === 'template';
-  const c = document.createElement('div'); c.className = 'bp-chip' + (shared ? ' tmpl' : '');
+  const styling = bp.mode === 'style';
+  const c = document.createElement('div'); c.className = 'bp-chip' + (shared ? ' tmpl' : '') + (styling ? ' style' : '');
   const b = document.createElement('b');
-  const mark = document.createElement('span'); mark.className = 'bp-mark'; setIcon(mark, ICON_BLUEPRINT);
-  const wordmark = document.createElement('span'); wordmark.textContent = 'BLUEPRINT';
+  // The wordmark morphs with the mode — BLUEPRINT (cyan) in layout, STYLE (purple) in style — so the
+  // mode is legible without the old horizontal toggle (that role moved to the vertical switch at left).
+  const mark = document.createElement('span'); mark.className = 'bp-mark'; setIcon(mark, styling ? ICON_PAINT : ICON_BLUEPRINT);
+  const wordmark = document.createElement('span'); wordmark.textContent = styling ? 'STYLE' : 'BLUEPRINT';
   b.append(mark, wordmark);
   const id = document.createElement('span'); id.textContent = `${ctx.pageClass} ${ctx.pageId}`;
   c.append(b, id);
-  // G3: Layout / Style mode toggle — the primary "what am I editing" switch. A pure render switch over
-  // the same model (no refetch), so it stays put while you flip between moving widgets and styling them.
-  {
-    const seg = document.createElement('div'); seg.className = 'bp-mode';
-    const lBtn = document.createElement('button');
-    lBtn.className = 'bp-mode-b' + (bp.mode === 'layout' ? ' on' : '');
-    lBtn.textContent = 'Layout';
-    lBtn.title = 'Edit layout — columns, position, names';
-    lBtn.addEventListener('click', () => setMode('layout'));
-    const sBtn = document.createElement('button');
-    sBtn.className = 'bp-mode-b' + (bp.mode === 'style' ? ' on' : '');
-    sBtn.textContent = 'Style';
-    sBtn.title = 'Edit appearance — colours, shadow, border, header style';
-    sBtn.addEventListener('click', () => setMode('style'));
-    seg.append(lBtn, sBtn);
-    c.appendChild(seg);
-  }
   // F: template/instance target toggle — shown whenever this page reuses a template (you can edit the
   // shared template OR just this instance). Default is the template. The active segment + the tmpl
   // styling on the chip ARE the "what am I editing" indicator (E), so no free-flowing warning text that
@@ -218,21 +223,19 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
     seg.append(tBtn, iBtn);
     c.appendChild(seg);
   }
-  if (shared) {
-    const w = document.createElement('span'); w.className = 'bp-blast'; w.title = 'Edits here affect all instances of this template';
-    const ic = document.createElement('span'); ic.className = 'warn-ic'; setIcon(ic, ICON_WARNING);
-    w.append(ic, document.createTextNode('affects all instances'));
-    c.appendChild(w);
-  }
+  // (No "affects all instances" banner here — the template scope is shown by the Template/Instance
+  // toggle above, and the full blast-radius warning is spelled out in the apply-preview modal.)
   c.appendChild(sp());
-  // Peek: hover for a transient fade so the live widgets show through; CLICK to keep it on (sticky).
+  // Peek + undo/redo are borderless (.plain) — they're frequent, low-stakes nudges, so the outline just
+  // ate width and pushed Exit out of the chip. Peek: hover for a transient fade, CLICK to keep it on.
   const peek = mkIconBtn(ICON_EYE_SLASH, togglePeek); peek.title = 'Peek at the live widgets — hover for a moment, click to keep it on';
+  peek.classList.add('plain');
   if (bp.peek) peek.classList.add('on');
   peek.addEventListener('mouseenter', () => bp.layer?.classList.add('bp-peek'));
   peek.addEventListener('mouseleave', () => { if (!bp.peek) bp.layer?.classList.remove('bp-peek'); });
   c.appendChild(peek);
-  const undoB = mkIconBtn(ICON_ARROW_UNDO, undo); undoB.title = 'Undo'; undoB.disabled = !bp.history?.canUndo(); c.appendChild(undoB);
-  const redoB = mkIconBtn(ICON_ARROW_REDO, redo); redoB.title = 'Redo'; redoB.disabled = !bp.history?.canRedo(); c.appendChild(redoB);
+  const undoB = mkIconBtn(ICON_ARROW_UNDO, undo); undoB.title = 'Undo'; undoB.disabled = !bp.history?.canUndo(); undoB.classList.add('plain'); c.appendChild(undoB);
+  const redoB = mkIconBtn(ICON_ARROW_REDO, redo); redoB.title = 'Redo'; redoB.disabled = !bp.history?.canRedo(); redoB.classList.add('plain'); c.appendChild(redoB);
   const trayB = mkIconBtn(ICON_LIST, toggleTray, String(pending)); trayB.title = 'Pending changes'; trayB.disabled = pending === 0;
   if (bp.trayOpen) trayB.classList.add('on'); c.appendChild(trayB);
   const discardB = mkBtn('Discard', discard); discardB.disabled = pending === 0 || bp.applying; c.appendChild(discardB);

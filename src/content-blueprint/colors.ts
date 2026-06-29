@@ -22,6 +22,11 @@ export function colorRgb(bid: string | undefined | null): string | null {
   return index.rgb(bid);
 }
 
+/** Resolve a CorpoColor businessId → {name, rgb}, or null — for the style toolbar's colour-slot label. */
+export function colorInfo(bid: string | undefined | null): { name: string; rgb: string } | null {
+  return index.lookup(bid);
+}
+
 /** The loaded colour sets (folders of swatches) — null until first fetched. For the Stage B popup. */
 export function colorSets(): ColorSetData[] | null { return sets; }
 

@@ -17,14 +17,14 @@ import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_
 import { colorLinkBid } from '../lib/types';
 import { renderSwatchGrid } from '../sidepanel/swatch-grid';
 import { bp, model, PALETTE, MOST_USED } from './state';
-import { colorRgb, colorSets } from './colors';
+import { colorRgb, colorInfo, colorSets } from './colors';
 import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkBtn, mkIconBtn, delta, placeDoc, docX, docY } from './geometry';
 import {
   select, beginRename, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
   openMovePicker, closeMovePicker, moveTo, doCreateTabset, setNodeStyle, openSwatch, closeSwatch, applySwatch,
 } from './actions';
 import { armBox, armResize } from './gestures';
-import { renderChip, previewModal, trayPanel, hintBar } from './view-panels';
+import { renderChip, modeSwitch, previewModal, trayPanel, hintBar } from './view-panels';
 import { renderResult, typeIcon } from './result';
 
 const STACKED_ADD_STEP = 42; // px each staged-add placeholder is offset below the previous, in the live fallback
@@ -78,8 +78,12 @@ export function render(): void {
   // non-model Result tab). Without this the canvas showed the first tab while no pill was highlighted.
   const viewedId = bp.viewTabId ?? liveId ?? m.tabs[0]?.id ?? null;
   const header = document.createElement('div');
-  header.className = 'bp-header' + (ctx.target === 'template' ? ' tmpl' : '');
-  header.append(renderChip(ctx, pending), tabBar(base, m, liveId, viewedId));
+  header.className = 'bp-header' + (ctx.target === 'template' ? ' tmpl' : '') + (bp.mode === 'style' ? ' style' : '');
+  // The vertical mode switch sits at the left, spanning the chip + tab rows; the chip and tab bar stack
+  // in the main column to its right.
+  const main = document.createElement('div'); main.className = 'bp-header-main';
+  main.append(renderChip(ctx, pending), tabBar(base, m, liveId, viewedId));
+  header.append(modeSwitch(), main);
   layer.appendChild(header);
 
   // The result canvas IS the editor: the edited model laid out as a CSS-grid wireframe (final
@@ -493,70 +497,70 @@ function toolbar(node: LNode, r: Rect): HTMLElement {
 // Values match the parsed NodeStyle space (enumMember-normalised, uppercase) and the side panel's
 // pane-schema option values, so the toolbar, the fetch, and the apply all speak the same strings.
 const HEADER_STYLE_OPTS: { value: string; label: string }[] = [
-  { value: 'INSIDE', label: 'In' }, { value: 'OUTSIDE', label: 'Out' }, { value: 'NONE', label: 'Off' },
+  { value: 'INSIDE', label: 'In' }, { value: 'OUTSIDE', label: 'Out' }, { value: 'NONE', label: 'None' },
 ];
 const BORDER_STYLE_OPTS: { value: string; label: string }[] = [
-  { value: 'LINE', label: 'Line' }, { value: 'NONE', label: 'Off' },
+  { value: 'LINE', label: 'Line' }, { value: 'NONE', label: 'None' },
 ];
 
-/** The style-mode selection toolbar: per-appearance controls in place of the layout W/H/move/rename
- *  strip. Colours open the swatch popup; the rest stage immediately (live preview via applyStyle). */
+/** The style-mode selection toolbar — a compact 2-row appearance panel (Photoshop-style) in place of the
+ *  layout W/H/move/rename strip. Row 1 = the two colour slots; row 2 = shadow / border / header / fade.
+ *  Each control is a labelled group so nothing is cut off. Colours open the swatch popup; everything else
+ *  stages immediately (live preview via applyStyle). */
 function styleToolbar(node: LNode, r: Rect): HTMLElement {
   const t = document.createElement('div'); t.className = 'bp-tools bp-style-tools';
-  const lift = bp.resultMode ? 38 : 32;
+  const lift = bp.resultMode ? 56 : 50; // taller (2 rows) → lift further so it clears the cell
   t.style.left = `${docX(Math.max(4, r.left))}px`;
   t.style.top = `${docY(Math.max(0, r.top - lift))}px`;
   const s = node.style ?? {};
 
-  t.appendChild(colorChip('Hdr', node.id, 'headerColor', s.headerColorBid));
-  t.appendChild(colorChip('Font', node.id, 'fontColor', s.fontColorBid));
+  const row1 = document.createElement('div'); row1.className = 'bp-strow';
+  row1.append(
+    colorSlot('Header', node.id, 'headerColor', s.headerColorBid),
+    colorSlot('Font', node.id, 'fontColor', s.fontColorBid),
+  );
 
-  t.appendChild(styleLbl('Shadow'));
-  t.appendChild(toggleBtn(!!s.shadow, () => setNodeStyle(node.id, { shadow: !s.shadow })));
+  const row2 = document.createElement('div'); row2.className = 'bp-strow';
+  row2.append(
+    styleGroup('Shadow', segChoice([{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }], s.shadow ? 'on' : 'off', (v) => setNodeStyle(node.id, { shadow: v === 'on' }))),
+    styleGroup('Border', segChoice(BORDER_STYLE_OPTS, s.borderStyle, (v) => setNodeStyle(node.id, { borderStyle: v }))),
+    styleGroup('Header', segChoice(HEADER_STYLE_OPTS, s.headerStyle, (v) => setNodeStyle(node.id, { headerStyle: v }))),
+    styleGroup('Fade', transpControl(node, s.transparency ?? 0)),
+  );
 
-  t.appendChild(styleLbl('Header'));
-  t.appendChild(segChoice(HEADER_STYLE_OPTS, s.headerStyle, (v) => setNodeStyle(node.id, { headerStyle: v })));
-
-  t.appendChild(styleLbl('Border'));
-  t.appendChild(segChoice(BORDER_STYLE_OPTS, s.borderStyle, (v) => setNodeStyle(node.id, { borderStyle: v })));
-
-  t.appendChild(styleLbl('Transp'));
-  t.appendChild(transpControl(node, s.transparency ?? 0));
+  t.append(row1, row2);
   return t;
 }
 
-function styleLbl(text: string): HTMLElement {
-  const l = document.createElement('span'); l.className = 'lbl'; l.textContent = text; return l;
+/** A labelled control group: a tiny uppercase caption above its control (Photoshop panel idiom). */
+function styleGroup(label: string, control: HTMLElement): HTMLElement {
+  const g = document.createElement('div'); g.className = 'bp-sgrp';
+  const l = document.createElement('span'); l.className = 'bp-sgrp-l'; l.textContent = label;
+  g.append(l, control);
+  return g;
 }
 
-/** A colour slot button: a swatch of the current linked colour (or a hatched "none") + a short label.
- *  Click opens the swatch popup for that slot. Highlighted while its popup is open. */
-function colorChip(label: string, nodeId: string, prop: 'headerColor' | 'fontColor', bid: string | undefined): HTMLElement {
+/** A colour slot: caption + a wide swatch button showing the linked colour's chip + name (or "None").
+ *  Click opens the swatch popup for that slot; highlighted while its popup is open. */
+function colorSlot(label: string, nodeId: string, prop: 'headerColor' | 'fontColor', bid: string | undefined): HTMLElement {
   const b = document.createElement('button'); b.className = 'bp-swatch-btn';
   if (bp.swatch?.nodeId === nodeId && bp.swatch.prop === prop) b.classList.add('open');
   const sq = document.createElement('span'); sq.className = 'bp-swatch-sq';
+  const info = bid ? colorInfo(bid) : null;
   const rgb = colorRgb(bid);
   if (rgb) sq.style.background = rgb; else sq.classList.add('none');
-  const tx = document.createElement('span'); tx.className = 'bp-swatch-tx'; tx.textContent = label;
-  b.append(sq, tx);
-  b.title = `${label === 'Hdr' ? 'Header' : 'Font'} colour — pick or clear`;
+  const nm = document.createElement('span'); nm.className = 'bp-swatch-nm';
+  nm.textContent = info?.name ?? (bid ? bid : 'None');
+  b.append(sq, nm);
+  b.title = `${label} colour — pick or clear`;
   b.addEventListener('mousedown', (e) => { e.stopPropagation(); openSwatch(nodeId, prop); });
-  return b;
+  return styleGroup(label, b);
 }
 
-/** A single on/off pill (shadow). */
-function toggleBtn(on: boolean, onToggle: () => void): HTMLElement {
-  const seg = document.createElement('div'); seg.className = 'bp-seg';
-  const b = document.createElement('button'); b.textContent = on ? 'On' : 'Off';
-  if (on) b.classList.add('on');
-  b.addEventListener('mousedown', (e) => { e.stopPropagation(); onToggle(); });
-  seg.appendChild(b);
-  return seg;
-}
-
-/** A segmented choice — the option whose value === current lights up (none when unset). */
+/** A segmented choice — the option whose value === current lights up (none when unset). Auto-width
+ *  buttons (vs the layout strip's fixed 20px) so labels like "Out"/"None" aren't clipped. */
 function segChoice(opts: { value: string; label: string }[], current: string | undefined, onPick: (v: string) => void): HTMLElement {
-  const seg = document.createElement('div'); seg.className = 'bp-seg';
+  const seg = document.createElement('div'); seg.className = 'bp-seg bp-sseg';
   for (const o of opts) {
     const b = document.createElement('button'); b.textContent = o.label;
     if (o.value === current) b.classList.add('on');

@@ -192,22 +192,32 @@
 #crev-blueprint-layer .bp-hpx:focus{background:rgba(21,101,192,.12)}
 
 /* ── unified header: ONE fixed card; chip + tab strip are full-width inner rows ── */
-#crev-blueprint-layer .bp-header{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:50;display:flex;flex-direction:column;min-width:440px;max-width:94vw;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);pointer-events:auto}
+#crev-blueprint-layer .bp-header{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:50;display:flex;flex-direction:row;align-items:stretch;min-width:440px;max-width:94vw;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);overflow:hidden;pointer-events:auto}
 #crev-blueprint-layer .bp-header.tmpl{border-color:var(--bp-amber)}
+#crev-blueprint-layer .bp-header-main{display:flex;flex-direction:column;flex:1;min-width:0}
+/* vertical mode switch at the left — top = Layout (blueprint), bottom = Style (paint); spans both rows */
+#crev-blueprint-layer .bp-vswitch{display:flex;flex-direction:column;flex:none;border-right:var(--bp-hair) solid var(--bp-line-2)}
+#crev-blueprint-layer .bp-vsw-b{flex:1;width:46px;display:grid;place-items:center;border:0;background:transparent;color:var(--bp-muted);cursor:pointer;transition:background .12s,color .12s}
+#crev-blueprint-layer .bp-vsw-b+.bp-vsw-b{border-top:var(--bp-hair) solid var(--bp-line-2)}
+#crev-blueprint-layer .bp-vsw-b svg{width:18px;height:18px;display:block}
+#crev-blueprint-layer .bp-vsw-b:hover:not(.on){background:rgba(74,144,217,.12);color:var(--bp-text)}
+#crev-blueprint-layer .bp-vsw-b.style:hover:not(.on){background:rgba(138,63,252,.12)}
+#crev-blueprint-layer .bp-vsw-b.on{background:var(--bp-cyan);color:var(--bp-ground)}
+#crev-blueprint-layer .bp-vsw-b.style.on{background:var(--bp-accent,#8a3ffc);color:#fff}
 #crev-blueprint-layer .bp-chip{display:flex;gap:9px;align-items:center;padding:8px 10px 8px 12px}
-/* wordmark: the blueprint mark + a calm letterspaced label (one quiet accent, not a shout) */
+/* wordmark: the mode mark + a calm letterspaced label — blue in Layout, purple in Style (never yellow) */
 #crev-blueprint-layer .bp-chip b{display:inline-flex;align-items:center;gap:6px;font:600 10px/1 'BPInter',sans-serif;letter-spacing:.13em;color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-chip .bp-mark{display:inline-flex}
 #crev-blueprint-layer .bp-chip .bp-mark svg{display:block;width:13px;height:13px}
-#crev-blueprint-layer .bp-chip.tmpl b{color:var(--bp-amber)}
+#crev-blueprint-layer .bp-chip.style b{color:var(--bp-accent,#8a3ffc)}
 #crev-blueprint-layer .bp-chip>span{font:500 11px/1 var(--bp-mono);color:var(--bp-muted)}
-#crev-blueprint-layer .bp-chip .warn{display:inline-flex;align-items:center;gap:4px;color:var(--bp-amber);font:600 11px 'BPInter',sans-serif}
-#crev-blueprint-layer .bp-chip .warn .warn-ic{display:inline-flex;flex:none}
-#crev-blueprint-layer .bp-chip .warn .warn-ic svg{width:12px;height:12px;display:block}
 #crev-blueprint-layer .bp-chip .sp{flex:1;font-size:0}
 #crev-blueprint-layer .bp-chip button{height:26px;padding:0 11px;border-radius:var(--bp-r);border:var(--bp-hair) solid var(--bp-line-2);background:transparent;color:var(--bp-text);font:500 11px 'BPInter',sans-serif;cursor:pointer}
 #crev-blueprint-layer .bp-chip button:hover:not(:disabled){border-color:var(--bp-cyan);color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-chip button:disabled{opacity:.3;cursor:default}
+/* borderless icon nudges (peek / undo / redo) — no outline, tighter, so they don't crowd out Exit */
+#crev-blueprint-layer .bp-chip button.plain{border-color:transparent;padding:0 6px}
+#crev-blueprint-layer .bp-chip button.plain:hover:not(:disabled){background:rgba(74,144,217,.12)}
 #crev-blueprint-layer .bp-chip button.apply{background:var(--bp-cyan);color:var(--bp-ground);border-color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-chip button.apply:hover:not(:disabled){background:var(--bp-cyan-hi);color:var(--bp-ground)}
 #crev-blueprint-layer .bp-chip.tmpl button.apply{background:var(--bp-amber);border-color:var(--bp-amber)}
@@ -219,16 +229,6 @@
 #crev-blueprint-layer .bp-chip .bp-target-b:hover:not(.on){color:var(--bp-text)}
 #crev-blueprint-layer .bp-chip .bp-target-b.on{background:var(--bp-amber);color:var(--bp-ground)}        /* Template active = shared (amber) */
 #crev-blueprint-layer .bp-chip .bp-target-b:last-child.on{background:var(--bp-cyan);color:var(--bp-ground)} /* This instance active = local (cyan) */
-/* G3: Layout/Style mode toggle — same segmented style as the target toggle; active = accent (purple). */
-#crev-blueprint-layer .bp-mode{display:inline-flex;flex:none;border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r);overflow:hidden}
-#crev-blueprint-layer .bp-chip .bp-mode-b{height:22px;padding:0 9px;border:0;border-radius:0;background:transparent;color:var(--bp-muted);font:600 10.5px 'BPInter',sans-serif;letter-spacing:.01em;cursor:pointer}
-#crev-blueprint-layer .bp-chip .bp-mode-b+.bp-mode-b{border-left:var(--bp-hair) solid var(--bp-line-2)}
-#crev-blueprint-layer .bp-chip .bp-mode-b:hover:not(.on){color:var(--bp-text)}
-#crev-blueprint-layer .bp-chip .bp-mode-b.on{background:var(--bp-accent,#8a3ffc);color:#fff}
-/* Compact, fixed-width blast cue (shown in template mode) — never grows, so it can't break alignment. */
-#crev-blueprint-layer .bp-chip .bp-blast{display:inline-flex;flex:none;align-items:center;gap:4px;color:var(--bp-amber);font:600 10px 'BPInter',sans-serif;white-space:nowrap}
-#crev-blueprint-layer .bp-chip .bp-blast .warn-ic{display:inline-flex;flex:none}
-#crev-blueprint-layer .bp-chip .bp-blast .warn-ic svg{width:11px;height:11px;display:block}
 
 #crev-blueprint-layer .bp-tabs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:7px 10px 7px 12px;border-top:var(--bp-hair) solid var(--bp-line-2)}
 #crev-blueprint-layer .bp-tabs-l{color:var(--bp-muted);font:700 9px/1 var(--bp-mono);letter-spacing:.12em;margin-right:2px}
@@ -428,14 +428,22 @@
 /* a result cell with a staged appearance edit (vs baseline) gets an amber ring, like the layout 'changed' state */
 #crev-blueprint-layer .bp-rcell.bp-style-dirty{box-shadow:0 0 0 var(--bp-emph) var(--bp-amber)}
 
-/* style toolbar: wraps (it carries more controls than the layout strip); reuses .bp-tools/.bp-seg/.bp-hbox */
-#crev-blueprint-layer .bp-style-tools{flex-wrap:wrap;max-width:580px}
-#crev-blueprint-layer .bp-swatch-btn{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 7px;border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r);background:transparent;color:var(--bp-text);font:500 10.5px 'BPInter',sans-serif;cursor:pointer}
+/* style toolbar — a compact 2-row appearance panel (Photoshop idiom): row of colour slots, then a row
+   of labelled control groups. Column layout overrides the .bp-tools row default. */
+#crev-blueprint-layer .bp-style-tools{flex-direction:column;align-items:flex-start;gap:8px;padding:7px 9px}
+#crev-blueprint-layer .bp-strow{display:flex;align-items:flex-end;gap:12px}
+/* a labelled group: tiny uppercase caption above its control */
+#crev-blueprint-layer .bp-sgrp{display:flex;flex-direction:column;gap:3px}
+#crev-blueprint-layer .bp-sgrp-l{font:700 8px/1 var(--bp-mono);letter-spacing:.09em;text-transform:uppercase;color:var(--bp-muted)}
+/* auto-width segmented buttons (vs the layout strip's fixed 20px) so labels aren't clipped */
+#crev-blueprint-layer .bp-sseg button{width:auto;min-width:26px;height:24px;padding:0 9px;font:500 11px 'BPInter',sans-serif}
+/* colour slot button: chip + name, fills its group width */
+#crev-blueprint-layer .bp-swatch-btn{display:inline-flex;align-items:center;gap:6px;height:24px;min-width:120px;padding:0 8px;border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r);background:transparent;color:var(--bp-text);font:500 11px 'BPInter',sans-serif;cursor:pointer}
 #crev-blueprint-layer .bp-swatch-btn:hover{border-color:var(--bp-cyan)}
-#crev-blueprint-layer .bp-swatch-btn.open{border-color:var(--bp-cyan-hi);background:rgba(21,101,192,.1)}
-#crev-blueprint-layer .bp-swatch-sq{width:13px;height:13px;border-radius:2px;border:1px solid var(--bp-line-2);flex:none}
+#crev-blueprint-layer .bp-swatch-btn.open{border-color:var(--bp-accent,#8a3ffc);background:rgba(138,63,252,.08)}
+#crev-blueprint-layer .bp-swatch-sq{width:15px;height:15px;border-radius:2px;border:1px solid var(--bp-line-2);flex:none}
 #crev-blueprint-layer .bp-swatch-sq.none{background:repeating-conic-gradient(#cbd5e1 0 25%,transparent 0 50%) 50%/8px 8px}
-#crev-blueprint-layer .bp-swatch-tx{white-space:nowrap}
+#crev-blueprint-layer .bp-swatch-nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
 
 /* swatch popup — reuses .bp-pick chrome; the grid host scrolls within the panel */
 #crev-blueprint-layer .bp-swatch-pop{width:300px}
