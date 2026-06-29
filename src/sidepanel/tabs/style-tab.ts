@@ -342,6 +342,7 @@ export class StyleTab implements Tab {
         this.repaintGrid();
       },
       onPick: (bidName) => this.setDraft(this.activeColor, bidName),
+      onClear: () => this.setDraft(this.activeColor, ''), // BMP unsets a colour via `:= ""` (verified)
     }));
   }
 

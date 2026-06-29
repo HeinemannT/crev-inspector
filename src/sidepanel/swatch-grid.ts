@@ -95,6 +95,7 @@ export interface SwatchGridOpts {
   expanded: ReadonlySet<string>;      // labels of the open folders (ignored while searching)
   onToggle: (label: string) => void;  // folder header clicked
   onPick: (bidName: string) => void;  // receives "<bid> <name>"
+  onClear?: () => void;               // when set, a "None" cell clears the link (verified: `:= ""` unsets)
 }
 
 /** Collapsible, searchable swatch folders (one per colour set) for the Style
@@ -113,6 +114,15 @@ export function renderSwatchGrid(opts: SwatchGridOpts): HTMLElement {
   if (groups.length === 0) {
     wrap.appendChild(h('div', { class: 'sw-empty' }, q ? `No colours match “${q}”.` : 'No colours found.'));
     return wrap;
+  }
+  // A "None" cell clears the colour link (only when searching isn't filtering it out). BMP unsets a
+  // colour with `:= ""` (verified live) — so this is a real clear, not a no-op.
+  if (opts.onClear && !q) {
+    wrap.appendChild(h('button', {
+      class: `sw-clear${!opts.currentBid ? ' sw-clear--sel' : ''}`,
+      type: 'button', title: 'No colour — clear the link', 'aria-label': 'No colour',
+      onClick: opts.onClear,
+    }, h('span', { class: 'sw-clear-chip' }), h('span', null, 'None')));
   }
   const searching = q !== '';
   for (const g of groups) {

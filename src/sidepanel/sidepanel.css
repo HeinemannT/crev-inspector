@@ -4533,6 +4533,12 @@ body.crev-divider-dragging * { user-select: none; }
   background: var(--surface-2); border-radius: var(--radius-sm); padding: 0 5px;
 }
 .sw-cells { display: grid; grid-template-columns: repeat(auto-fill, 22px); gap: 4px; padding: 2px 0 var(--space-2); }
+/* "None" clear cell — unsets the colour link. */
+.sw-clear { display: flex; align-items: center; gap: var(--space-1); width: 100%; padding: var(--space-1) 0; margin-bottom: var(--space-1); background: transparent; border: none; cursor: pointer; color: var(--text-2); font-size: var(--text-xs); }
+.sw-clear:hover { color: var(--text-1); }
+.sw-clear--sel { color: var(--text-1); }
+.sw-clear-chip { width: 18px; height: 18px; border-radius: var(--radius-sm); flex-shrink: 0; border: 1px solid var(--surface-3); background: repeating-conic-gradient(var(--surface-3) 0% 25%, transparent 0% 50%) 50% / 9px 9px; }
+.sw-clear--sel .sw-clear-chip { box-shadow: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--accent); }
 .sw-cell {
   width: 22px; height: 22px; border-radius: var(--radius-sm); cursor: pointer;
   background: var(--sw); border: 1px solid rgba(255,255,255,0.14);

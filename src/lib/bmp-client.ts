@@ -13,7 +13,8 @@ import {
   parseTreeNodeInfo,
 } from './bmp-types';
 import { deserializeStream } from './java-serial';
-import { COLOR_LINK_PROPS, colorLinkBid } from './types';
+import { colorLinkBid } from './types';
+import { styleAssignRhs, INVALID_COLOR_BID } from './style-ec';
 import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessTraceAction, AccessTraceNode, AccessSubject, BmpObject, LayoutNode } from './types';
 import { LAYOUT_SEP, parseLayoutNodes } from './layout-wire';
 import { log } from './logger';
@@ -1359,19 +1360,11 @@ _r
     const ref = await this.resolveRef(rid);
     const assignments: string[] = [];
     for (const p of props) {
-      if (COLOR_LINK_PROPS.has(p)) {
-        // Color props are LINKS — emit `prop := t.<colorBid>` (a reference),
-        // never a quoted string (which errors against a CorpoColor property).
-        // The value is "<bid> <name>" (or "" to clear). Take the bid token.
-        const bid = colorLinkBid(changes[p]);
-        // Empty = nothing to link. Skip it — BMP doesn't unset a colour via
-        // `:= MISSING` (verified no-op), so we never emit a clear.
-        if (!bid) continue;
-        if (!/^[A-Za-z0-9_]+$/.test(bid)) return { ok: false, error: `Invalid colour id "${bid}"` };
-        assignments.push(`${p} := t.${bid}`);
-      } else {
-        assignments.push(`${p} := ${this.formatEcLiteral(changes[p])}`);
-      }
+      // Shared rule (style-ec): colour links → `prop := t.<bid>` (a reference, never a quoted string,
+      // which errors on a CorpoColor prop) or `:= ""` to CLEAR when empty; scalars → an EC literal.
+      const rhs = styleAssignRhs(p, changes[p], (v) => this.formatEcLiteral(v));
+      if (rhs === INVALID_COLOR_BID) return { ok: false, error: `Invalid colour id "${colorLinkBid(changes[p])}"` };
+      assignments.push(`${p} := ${rhs}`);
     }
     const lines: string[] = [
       `_o := ${ref}`,
