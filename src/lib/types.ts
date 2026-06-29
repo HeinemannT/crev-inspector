@@ -1,5 +1,9 @@
 import type { AuthMode, AuthVia } from './bmp-auth';
 export type { AuthMode, AuthVia };
+// Style-prop catalog is single-sourced in style-props.ts; imported for DEFAULT_SETTINGS below and
+// re-exported for back-compat with the many `from './types'` import sites.
+import { PAINT_STYLE_PROPS, COLOR_LINK_PROPS, PAINT_PROP_RESET, STYLE_PROPS, styleResetLiteral } from './style-props';
+export { PAINT_STYLE_PROPS, COLOR_LINK_PROPS, PAINT_PROP_RESET, STYLE_PROPS, styleResetLiteral };
 import type { LModel, PlanNote } from './layout/types';
 import type { BlueprintCtx, NeedsTabset } from './layout/sync';
 import type { InstanceFanout, ContainerBlast } from './layout/blast-radius';
@@ -688,9 +692,8 @@ export const DEFAULT_SETTINGS: InspectorSettings = {
   autoDetect: true,
   saveTarget: 'template',
   enrichMode: 'all',
-  // Default: copy every style prop (mirrors PAINT_STYLE_PROPS, inlined because
-  // that const is declared later in this file).
-  paintProps: ['headerColor', 'fontColor', 'transparency', 'shadow', 'headerStyle', 'borderStyle'],
+  // Default: copy every paintable style prop (single-sourced — see style-props.ts).
+  paintProps: [...PAINT_STYLE_PROPS],
 };
 
 /** Chart types — all share the same color. Charts are visualizations →
@@ -883,33 +886,6 @@ export type PaintPhase = 'off' | 'picking' | 'applying';
 export const SCRIPT_PROPS = [
   'expression', 'html', 'javascript',
 ] as const;
-
-/** Visual style properties to copy with Paint Format */
-export const PAINT_STYLE_PROPS = [
-  'headerColor', 'fontColor', 'transparency', 'shadow', 'headerStyle', 'borderStyle',
-] as const;
-
-/** Pane/paint props that are LINKS to CorpoColor objects (not hex/value props):
- *  written as references (`prop := t.<colorBid>`), picked from the colourset
- *  list, never typed. */
-export const COLOR_LINK_PROPS: ReadonlySet<string> = new Set(['headerColor', 'fontColor']);
-
-/** EC literal that RESETS each style prop to "no styling" — emitted by Paint
- *  Format when the source widget lacks the prop, so the target ends up matching
- *  the source. Each value is TYPE-CORRECT per BMP (live-verified 2026-06-02 on
- *  a Text element): colour refs clear with "", transparency with 0, shadow with
- *  FALSE, and the header/border-style enums with their "None" member.
- *  NOTE: `:= ""` ERRORS on number/enum props ("Could not convert value :  into
- *  Transparency/Header style/Border style"), and `:= MISSING` is a silent
- *  no-op — neither is a usable reset, which is why this explicit map exists. */
-export const PAINT_PROP_RESET: Record<string, string> = {
-  headerColor: '""',
-  fontColor: '""',
-  transparency: '0',
-  shadow: 'FALSE',
-  headerStyle: '"None"',
-  borderStyle: '"None"',
-};
 
 /** A colour-link draft value is stored as `"<bid> <name>"` (the picker writes
  *  both so the UI can show the name without a cache hit). Both the display

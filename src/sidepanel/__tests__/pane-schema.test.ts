@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { APPEARANCE_TYPES, PROP_GROUPS, findPropDef } from '../pane-schema';
 import { PANE_PROPS } from '../../lib/bmp-client';
-import { COLOR_LINK_PROPS, PAINT_STYLE_PROPS } from '../../lib/types';
+import { COLOR_LINK_PROPS, PAINT_STYLE_PROPS, PAINT_PROP_RESET } from '../../lib/types';
 
 describe('APPEARANCE_TYPES coverage', () => {
   it('includes the widget types the old WebChild set omitted', () => {
@@ -71,5 +71,24 @@ describe('bgColor is fully removed (phantom prop)', () => {
   it('keeps the two real HasWidgetColors accessors', () => {
     expect(COLOR_LINK_PROPS.has('headerColor')).toBe(true);
     expect(COLOR_LINK_PROPS.has('fontColor')).toBe(true);
+  });
+});
+
+describe('style-prop catalog is the single source (locks pane-schema ⇄ style-props)', () => {
+  it('COLOR_LINK_PROPS exactly matches the kind:"color" props in pane-schema', () => {
+    const colorKinds = PROP_GROUPS.flatMap(g => g.props).filter(p => p.kind === 'color').map(p => p.prop).sort();
+    expect(colorKinds).toEqual([...COLOR_LINK_PROPS].sort());
+  });
+  it('every paintable style prop has a pane-schema PropDef', () => {
+    for (const p of PAINT_STYLE_PROPS) {
+      expect(findPropDef(p), `${p} should have a PropDef`).toBeTruthy();
+    }
+  });
+  it('PAINT_PROP_RESET covers exactly the paintable props with type-correct literals', () => {
+    expect(Object.keys(PAINT_PROP_RESET).sort()).toEqual([...PAINT_STYLE_PROPS].sort());
+    expect(PAINT_PROP_RESET.headerColor).toBe('""');   // colour link clears with ""
+    expect(PAINT_PROP_RESET.transparency).toBe('0');     // number
+    expect(PAINT_PROP_RESET.shadow).toBe('FALSE');       // boolean
+    expect(PAINT_PROP_RESET.borderStyle).toBe('"None"'); // enum
   });
 });
