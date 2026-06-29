@@ -29,6 +29,7 @@ import { diff } from './diff';
 import { compile } from './ec';
 import { validateBusinessId, validateRid, formatEcLiteral } from '../ec-guards';
 import { LAYOUT_SEP, CTX_MARKER, OVER_MARKER, STYLE_MARKER, parseLayoutNodes } from '../layout-wire';
+import { enumMember } from '../color-util';
 import type { LayoutNode as WireNode } from '../types';
 import { OVERRIDABLE_PROPS } from './types';
 import type { LModel, PlanNote, PlanStep, NodeStyle } from './types';
@@ -211,9 +212,8 @@ export function parseStyles(log: string): Map<string, NodeStyle> {
     if (fc) s.fontColorBid = fc;
     if (shadow === 'true' || shadow === 'TRUE') s.shadow = true;
     else if (shadow === 'false' || shadow === 'FALSE') s.shadow = false;
-    // BMP stringifies enums prefixed + lowercased ("HeaderStyle.inside", "BorderStyle.line") — take the
-    // member after the last "." and uppercase it → "INSIDE" / "LINE" / "NONE" (a bare value passes through).
-    const enumMember = (v: string) => (v.split('.').pop() ?? v).toUpperCase();
+    // BMP stringifies enums prefixed + lowercased ("HeaderStyle.inside", "BorderStyle.line"); enumMember
+    // reduces to the bare uppercase member → "INSIDE" / "LINE" / "NONE" (a bare value passes through).
     if (headerStyle) s.headerStyle = enumMember(headerStyle);
     if (borderStyle) s.borderStyle = enumMember(borderStyle);
     if (transp && /^-?\d+$/.test(transp)) s.transparency = parseInt(transp, 10);

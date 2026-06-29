@@ -18,6 +18,7 @@
  */
 import { h, svg } from '../lib/dom';
 import { ICON_CHEVRON } from '../lib/icons';
+import { rgbKey } from '../lib/color-util';
 import type { ColorSetData } from '../lib/types';
 
 export interface Swatch {
@@ -41,13 +42,6 @@ export const BASIC_COLORS: ReadonlyArray<{ name: string; rgb: string }> = [
   { name: 'Dark grey',  rgb: 'rgb(64,64,64)' },
   { name: 'Black',      rgb: 'rgb(0,0,0)' },
 ];
-
-/** Normalise an RGB string to "r,g,b" so "rgb(255, 0,0)" and "rgb(255,0,0)"
- *  compare equal. Returns '' when no numbers are found. */
-function rgbKey(rgb: string): string {
-  const m = rgb.match(/\d+/g);
-  return m && m.length >= 3 ? `${m[0]},${m[1]},${m[2]}` : '';
-}
 
 function matches(q: string, name: string, bid: string): boolean {
   if (!q) return true;

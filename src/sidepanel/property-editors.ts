@@ -5,6 +5,7 @@
  */
 
 import { h } from '../lib/dom';
+import { enumMember } from '../lib/color-util';
 
 export type PropValue = string;
 
@@ -68,20 +69,11 @@ export function numberEditor(ctx: PropEditorContext, opts: { unit?: string; min?
 
 export interface EnumOption { value: string; label?: string }
 
-/** BMP returns enum values as the qualified form "EnumName.VALUE" (e.g.
- *  "HeaderStyle.INSIDE", "BorderStyle.LINE") while our schema lists them as
- *  bare tokens ("INSIDE", "LINE") because that's what `_o.change(headerStyle
- *  := "INSIDE")` accepts on save. Strip the prefix before matching so a
- *  qualified server value lights up the correct option instead of falling
- *  through to "(custom)". Case-folded only for the comparison key — the
- *  display value is preserved as-is to avoid silently uppercasing legacy
- *  data on save. */
-function enumCompareKey(raw: string): string {
-  const trimmed = raw.trim();
-  const dot = trimmed.lastIndexOf('.');
-  const tail = dot >= 0 ? trimmed.slice(dot + 1) : trimmed;
-  return tail.toUpperCase();
-}
+// BMP returns enum values qualified ("HeaderStyle.INSIDE") while the schema lists bare tokens ("INSIDE"),
+// which is what `_o.change(headerStyle := "INSIDE")` accepts on save. enumMember (shared, color-util)
+// strips the prefix + case-folds for the comparison key; the display value stays as-is so we never
+// silently uppercase legacy data on save.
+const enumCompareKey = enumMember;
 
 export function enumEditor(ctx: PropEditorContext, options: EnumOption[]): HTMLElement {
   const select = h('select', { class: 'prop-select' }) as HTMLSelectElement;

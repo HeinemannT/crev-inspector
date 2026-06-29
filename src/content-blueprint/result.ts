@@ -30,6 +30,7 @@ import { armBox } from './gestures';
 import { openPicker, toggleResetProp } from './actions';
 import { bp } from './state';
 import { colorRgb } from './colors';
+import { contrastInk } from '../lib/color-util';
 
 /** Widget-type → Phosphor glyph, so each result cell carries a scannable icon instead of only a mono
  *  type string (and the big empty chart/table cells aren't pure void). First match wins. */
@@ -208,15 +209,6 @@ function buildLabel(node: LNode, state: CellState): HTMLElement {
   }
   if (node.kind === 'container') lab.appendChild(addBtn(node.id, `Add a widget to ${node.name}`));
   return lab;
-}
-
-/** Pick a readable text colour (black/white) for a given "rgb(r,g,b)" background via luminance. */
-function contrastInk(rgb: string): string {
-  const m = rgb.match(/\d+/g);
-  if (!m || m.length < 3) return '#fff';
-  const [r, g, b] = m.map(Number);
-  // Rec. 601 luma — > ~150 reads as "light", so use dark ink.
-  return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#1a1a1a' : '#fff';
 }
 
 /** G3 style mode: paint a cell with the widget's ACTUAL appearance — header tint (headerColor) with
