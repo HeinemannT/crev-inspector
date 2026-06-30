@@ -29,11 +29,12 @@ export interface BpState {
   movePicker: string | null;    // widgetId the move-destination menu is open for
   swatch: { nodeId: string; prop: 'headerColor' | 'fontColor' } | null; // G3: the colour swatch popup target (style mode), null = closed
   swatchExpanded: Set<string>; // G3: which swatch-popup colour folders are open (per session; 'Basics' open by default)
-  // G4 — the paintbrush (style mode). `armed` = the tool intercepts canvas clicks; `held` = the captured
-  // appearance (null while sampling). brushMask = which props the brush copies. paintPanel = open popup.
-  brush: { armed: boolean; held: NodeStyle | null };
+  // G4 — the paintbrush (style mode). `mode`: off / pick (eyedropper, sampling a source) / paint (applying
+  // the held style). `held` = the captured appearance. brushMask = which props the brush copies.
+  // paintPanel = open popup (setup mask, or the save+library menu).
+  brush: { mode: 'off' | 'pick' | 'paint'; held: NodeStyle | null };
   brushMask: Set<string>;
-  paintPanel: 'setup' | 'save' | 'load' | null;
+  paintPanel: 'setup' | 'library' | null;
   presets: StylePreset[]; // saved-style library cache (loaded from the SW per profile)
   renameId: string | null;      // node whose inline-rename should OPEN on the next render (dbl-click / toolbar pencil)
   onResize: (() => void) | null; // window 'resize' handler (re-anchors the canvas; scroll is native)
@@ -68,7 +69,7 @@ function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
     layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, swatch: null, swatchExpanded: new Set(['Basics']),
-    brush: { armed: false, held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
+    brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
     onResize: null, onKey: null, onPop: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
     observer: null, resizeObs: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
   };

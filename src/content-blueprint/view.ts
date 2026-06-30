@@ -62,8 +62,8 @@ export function render(): void {
   const base = bp.baseline, m = model(), ctx = bp.ctx;
   if (!base || !m || !ctx) return;
   // Paintbrush cursor/affordance hooks (toggled each render so they track the brush state).
-  layer.classList.toggle('bp-brush', bp.brush.armed);
-  layer.classList.toggle('bp-brush-pick', bp.brush.armed && bp.brush.held === null);
+  layer.classList.toggle('bp-brush', bp.brush.mode !== 'off');
+  layer.classList.toggle('bp-brush-pick', bp.brush.mode === 'pick');
   // FLIP: record cell positions BEFORE the clear when this render follows an edit (bp.flipNext), so we
   // can animate them to their new spots after. Not on scroll/observer renders (cells would slide on
   // every scroll). Captured by bpid so a cell that re-parents (moved into another container) still flips.
@@ -125,7 +125,7 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
   const layer = bp.layer!, base = bp.baseline!, ctx = bp.ctx!;
   // selection toolbar (hidden while a modal/picker is up, or while the paintbrush is armed / a paint
   // popup is open — you're transferring styles in bulk, not editing one cell)
-  if (!bp.preview && !bp.picker && !bp.movePicker && !bp.brush.armed && !bp.paintPanel) {
+  if (!bp.preview && !bp.picker && !bp.movePicker && bp.brush.mode === 'off' && !bp.paintPanel) {
     const selBox = bp.selectedId ? findNode(m, bp.selectedId) : null;
     // Tabs own their rename/add/delete on the pill itself — the generic toolbar's Rename targets
     // a `.bp-box .bp-nm` a pill doesn't have, and its W/Delete just duplicate the pill. Skip it.

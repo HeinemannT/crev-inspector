@@ -10,12 +10,12 @@
 import type { NodeStyle } from '../lib/layout/types';
 import type { StylePreset } from '../lib/style-presets';
 import { STYLE_PROPS } from '../lib/style-props';
-import { ICON_PAINT, ICON_EYEDROPPER, ICON_SLIDERS, ICON_SAVE, ICON_BOOK, ICON_CHECK, ICON_TRASH } from '../lib/icons';
+import { ICON_PAINT, ICON_EYEDROPPER, ICON_SLIDERS, ICON_SAVE, ICON_CHECK, ICON_TRASH } from '../lib/icons';
 import { setIcon } from './geometry';
 import { colorRgb } from './colors';
 import { bp } from './state';
 import {
-  toggleBrush, repickBrush, openPaintPanel, closePaintPanel, setBrushMaskProp, setBrushMaskAll,
+  armPick, armPaint, openPaintPanel, closePaintPanel, setBrushMaskProp, setBrushMaskAll,
   doSavePreset, doLoadPreset, doDeletePreset,
 } from './actions';
 
@@ -62,29 +62,26 @@ export function styleChip(style: NodeStyle | null): HTMLElement {
 
 function iconSpan(svg: string): HTMLElement { const s = document.createElement('span'); s.className = 'bp-paint-ic'; setIcon(s, svg); return s; }
 
-/** The 2×2 paint station: Brush (hero, state-driven) · Setup · Save · Load. */
+/** The 2×2 paint station: Pick · Paint · Setup · Save-library. Pick and Paint are explicit, each lighting
+ *  up in its own mode; the held style preview lives on the Paint cell. */
 export function paintStation(): HTMLElement {
   const wrap = document.createElement('div'); wrap.className = 'bp-paint';
-  const held = bp.brush.held, armed = bp.brush.armed;
+  const held = bp.brush.held, mode = bp.brush.mode;
 
-  // Brush cell — the merged pick/paint.
-  const brush = document.createElement('button'); brush.className = 'bp-paint-c bp-paint-brush';
-  if (armed) brush.classList.add('armed');
-  if (held) {
-    brush.classList.add('loaded');
-    brush.append(styleChip(held), iconSpan(ICON_PAINT));
-    const rp = document.createElement('span'); rp.className = 'bp-paint-repick'; setIcon(rp, ICON_EYEDROPPER);
-    rp.title = 'Pick a different style';
-    rp.addEventListener('mousedown', (e) => { e.stopPropagation(); repickBrush(); });
-    brush.appendChild(rp);
-    brush.title = armed ? 'Painting — click widgets to apply · Esc to stop' : 'Click to resume painting';
-  } else {
-    if (armed) brush.classList.add('sampling');
-    brush.appendChild(iconSpan(ICON_EYEDROPPER));
-    brush.title = armed ? 'Sampling — click a widget to pick its style' : 'Paintbrush — click, then sample a widget';
-  }
-  brush.addEventListener('mousedown', (e) => { e.stopPropagation(); toggleBrush(); });
-  wrap.appendChild(brush);
+  // Pick (eyedropper) — sample a widget's style. Cyan when armed; doubles as "load a different style".
+  const pick = document.createElement('button'); pick.className = 'bp-paint-c bp-paint-pick' + (mode === 'pick' ? ' on' : '');
+  pick.append(iconSpan(ICON_EYEDROPPER));
+  pick.title = mode === 'pick' ? 'Sampling — click a widget to pick its style' : 'Pick — sample a widget’s style';
+  pick.addEventListener('mousedown', (e) => { e.stopPropagation(); armPick(); });
+  wrap.appendChild(pick);
+
+  // Paint (brush) — apply the held style. Shows the held chip; purple when armed; disabled with no held.
+  const paint = document.createElement('button'); paint.className = 'bp-paint-c bp-paint-brush' + (mode === 'paint' ? ' on' : '');
+  if (held) { paint.classList.add('loaded'); paint.append(styleChip(held), iconSpan(ICON_PAINT)); }
+  else { paint.classList.add('disabled'); paint.appendChild(iconSpan(ICON_PAINT)); }
+  paint.title = !held ? 'Paint — pick a style first' : mode === 'paint' ? 'Painting — click widgets to apply · Esc to stop' : 'Paint — apply the held style';
+  paint.addEventListener('mousedown', (e) => { e.stopPropagation(); armPaint(); });
+  wrap.appendChild(paint);
 
   // Setup — choose what the brush copies.
   const setup = stationCell(ICON_SLIDERS, 'Choose what the brush copies', () => openPaintPanel('setup'), bp.paintPanel === 'setup');
@@ -94,14 +91,8 @@ export function paintStation(): HTMLElement {
   }
   wrap.appendChild(setup);
 
-  // Save — store the held style (disabled with nothing held).
-  const save = stationCell(ICON_SAVE, held ? 'Save this style to your library' : 'Pick a style first, then save it',
-    () => { if (held) openPaintPanel('save'); }, bp.paintPanel === 'save');
-  if (!held) save.classList.add('disabled');
-  wrap.appendChild(save);
-
-  // Load — the saved-style library.
-  wrap.appendChild(stationCell(ICON_BOOK, 'Saved styles', () => openPaintPanel('load'), bp.paintPanel === 'load'));
+  // Save — opens the library menu (save the held style + load/delete saved ones).
+  wrap.appendChild(stationCell(ICON_SAVE, 'Saved styles — save the held style or load one', () => openPaintPanel('library'), bp.paintPanel === 'library'));
   return wrap;
 }
 
@@ -116,8 +107,7 @@ function stationCell(svg: string, title: string, on: () => void, active: boolean
 export function paintPopup(): HTMLElement | null {
   switch (bp.paintPanel) {
     case 'setup': return setupPopup();
-    case 'save': return savePopup();
-    case 'load': return loadPopup();
+    case 'library': return libraryPopup();
     default: return null;
   }
 }
@@ -156,35 +146,33 @@ function setupPopup(): HTMLElement {
   return back;
 }
 
-/** Save — a name field + a live preview of the held style. */
-function savePopup(): HTMLElement {
-  const { back, panel } = popupShell('Save style');
-  const held = bp.brush.held;
-  const row = document.createElement('div'); row.className = 'bp-paint-saverow';
-  row.appendChild(styleChip(held));
-  const input = document.createElement('input'); input.className = 'bp-pick-s bp-paint-name'; input.placeholder = 'Style name…'; input.maxLength = 40;
-  input.addEventListener('mousedown', (e) => e.stopPropagation());
-  input.addEventListener('keydown', (e) => {
-    const ke = e as KeyboardEvent; e.stopPropagation();
-    if (ke.key === 'Enter') { e.preventDefault(); doSavePreset(input.value); }
-  });
-  row.appendChild(input);
-  panel.appendChild(row);
-  const foot = document.createElement('div'); foot.className = 'bp-paint-foot';
-  const save = miniTextBtn('Save', () => doSavePreset(input.value)); save.classList.add('primary');
-  foot.append(miniTextBtn('Cancel', closePaintPanel), save);
-  panel.appendChild(foot);
-  setTimeout(() => input.focus(), 0);
-  return back;
-}
-
-/** Load — the saved-style library: each preset is a style chip + name; click loads it into the brush. */
-function loadPopup(): HTMLElement {
+/** The library menu (Save cell): a "+ save the held style" row on top, then the saved-style list to
+ *  load/delete. Saving keeps the menu open so the new preset appears below. */
+function libraryPopup(): HTMLElement {
   const { back, panel } = popupShell('Saved styles');
+  const held = bp.brush.held;
+
+  const saveRow = document.createElement('div'); saveRow.className = 'bp-paint-saverow';
+  if (held) {
+    saveRow.appendChild(styleChip(held));
+    const input = document.createElement('input'); input.className = 'bp-pick-s bp-paint-name'; input.placeholder = 'Name this style…'; input.maxLength = 40;
+    input.addEventListener('mousedown', (e) => e.stopPropagation());
+    input.addEventListener('keydown', (e) => {
+      const ke = e as KeyboardEvent; e.stopPropagation();
+      if (ke.key === 'Enter') { e.preventDefault(); doSavePreset(input.value); input.value = ''; }
+    });
+    const save = miniTextBtn('+ Save', () => { doSavePreset(input.value); input.value = ''; }); save.classList.add('primary');
+    saveRow.append(input, save);
+  } else {
+    const hint = document.createElement('div'); hint.className = 'bp-paint-savehint';
+    hint.textContent = 'Pick a widget’s style to save it.';
+    saveRow.appendChild(hint);
+  }
+  panel.appendChild(saveRow);
+
   const list = document.createElement('div'); list.className = 'bp-paint-lib';
   if (bp.presets.length === 0) {
-    const e = document.createElement('div'); e.className = 'bp-paint-empty';
-    e.textContent = 'No saved styles yet. Pick a widget, then Save.';
+    const e = document.createElement('div'); e.className = 'bp-paint-empty'; e.textContent = 'No saved styles yet.';
     list.appendChild(e);
   } else {
     for (const p of bp.presets) list.appendChild(presetRow(p));

@@ -121,7 +121,7 @@ export function armBox(el: HTMLElement, id: string): void {
 function dragOrSelect(e: MouseEvent, id: string): void {
   // Style mode edits appearance, not layout — a drag here would silently stage a move/reorder. Select only.
   if (bp.mode === 'style') {
-    if (bp.brush.armed) { brushOnCell(id); return; } // armed paintbrush: pick a source or paint a target
+    if (bp.brush.mode !== 'off') { brushOnCell(id); return; } // armed paintbrush: pick a source or paint a target
     select(id);
     return;
   }
