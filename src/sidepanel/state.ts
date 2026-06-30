@@ -18,6 +18,11 @@ export const S = {
   // Shared across tabs + header
   settings: { ...DEFAULT_SETTINGS } as InspectorSettings,
   connState: { display: 'checking', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, networkOffline: false, lastUpdate: 0 } as ConnectionState,
+  // Whether the ACTIVE tab is a BMP page (from per-tab detection). null = unknown/checking. The
+  // connState above is a PROFILE/auth indicator (do we hold a session to the configured server) and is
+  // orthogonal to "is the page I'm looking at BMP" — the header combines both so a non-BMP tab doesn't
+  // read as "connected to <workspace>".
+  bmpDetected: null as boolean | null,
   inspectActive: false,
   blueprintActive: false,
   paintPhase: 'off' as PaintPhase,
@@ -77,7 +82,7 @@ export function onReconnect(handler: () => void): void {
 const QUEUE_TYPES = new Set([
   'TOGGLE_INSPECT', 'TOGGLE_PAINT', 'CONNECTION_TEST',
   'GET_CONNECTION_STATE', 'GET_SETTINGS', 'GET_CACHE',
-  'GET_PAGE_INFO', 'GET_ACTIVITY', 'GET_CONTEXT_RID',
+  'GET_PAGE_INFO', 'GET_ACTIVITY', 'GET_CONTEXT_RID', 'GET_DETECTION',
 ]);
 
 export function connectPanel(): void {

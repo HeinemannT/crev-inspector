@@ -166,6 +166,17 @@ onPortMessage((msg: InspectorMessage) => {
       headerChanged = true;
       updateLatencyPill();
       break;
+    case 'DETECTION_STATE':
+      // Track whether the ACTIVE tab is BMP so the header reflects the page, not just the profile
+      // session. 'checking'/'unknown' leave it null (don't flip the header mid-navigation). Breaks
+      // through to the per-tab forwarding below, so the Workshop pane still gets it.
+      S.bmpDetected = msg.phase === 'detected' ? true : msg.phase === 'not-detected' ? false : null;
+      headerChanged = true;
+      break;
+    case 'PAGE_INFO':
+      // PAGE_INFO carries the same detection verdict; keep the header's page-state in sync on every refresh.
+      if (msg.detection) { S.bmpDetected = msg.detection.isBmp; headerChanged = true; }
+      break;
     case 'OBJECT_PANE_DATA':
       // The footer context chip tracks the object currently open in the
       // Workshop detail editor — so "footer context" and "object detail"
@@ -306,6 +317,7 @@ onPortMessage((msg: InspectorMessage) => {
 onReconnect(() => {
   sendMessage({ type: 'GET_CONNECTION_STATE' });
   sendMessage({ type: 'GET_SETTINGS' });
+  sendMessage({ type: 'GET_DETECTION' }); // header's page-state (BMP vs not) for the active tab
   tabs[S.activeTab]?.activate();
 });
 
@@ -542,7 +554,15 @@ function statusDotClass(): string {
   }
 }
 
+/** The active tab is confidently NOT a BMP page, yet the profile session is up. "Connected · Steadfast"
+ *  would misread as "this page is BMP", so the header leads with the page state instead. Only overrides
+ *  the positive (connected/online) displays; real errors (auth-failed, server-down) still surface. */
+function onNonBmpPage(): boolean {
+  return S.bmpDetected === false && (S.connState.display === 'connected' || S.connState.display === 'online');
+}
+
 function statusText(): string {
+  if (onNonBmpPage()) return 'Not a BMP page';
   switch (S.connState.display) {
     case 'not-configured': return 'No server';
     case 'checking': return 'Checking\u2026';
@@ -557,6 +577,7 @@ function statusText(): string {
 }
 
 function statusBarText(): string {
+  if (onNonBmpPage()) return 'Not BMP';
   const d = S.connState.display;
   if (d === 'connected') return 'Connected';
   if (d === 'server-down') return 'Down';
@@ -564,6 +585,7 @@ function statusBarText(): string {
 }
 
 function connectDotClass(): string {
+  if (onNonBmpPage()) return 'tab-dot--ok tab-dot--dim';
   switch (S.connState.display) {
     case 'connected': return 'tab-dot--ok';
     case 'online': return 'tab-dot--ok tab-dot--dim';
@@ -586,6 +608,7 @@ function updatePaintButton() {
 }
 
 function statusStripClass(): string {
+  if (onNonBmpPage()) return 'online';
   switch (S.connState.display) {
     case 'connected': return 'ok';
     case 'online': return 'online';
@@ -599,6 +622,11 @@ function statusStripClass(): string {
 
 function statusStripText(): string {
   const s = S.connState;
+  if (onNonBmpPage()) {
+    return s.workspace
+      ? `Not a BMP page. Still connected to ${s.workspace} for when you return.`
+      : 'Not a BMP page.';
+  }
   switch (s.display) {
     case 'not-configured': return 'No server configured';
     case 'checking': return 'Checking\u2026';
@@ -883,6 +911,7 @@ chrome.storage.session.get(['crev_active_tab', 'crev_settings_snapshot', 'crev_c
   buildApp();
   sendMessage({ type: 'GET_CONNECTION_STATE' });
   sendMessage({ type: 'GET_SETTINGS' });
+  sendMessage({ type: 'GET_DETECTION' }); // header's page-state (BMP vs not) for the active tab
   // Pull initial context so the status-bar context chip populates regardless
   // of which tab the user lands on. The Workshop layout pane also requests this on its
   // own activate(); the SW handler is idempotent.
