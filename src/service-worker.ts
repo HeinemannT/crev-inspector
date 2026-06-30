@@ -10,6 +10,7 @@ import { ObjectCache } from './lib/object-cache';
 import { HistoryManager } from './lib/history';
 import { FavoritesManager } from './lib/favorites';
 import { ScriptHistoryManager } from './lib/script-history';
+import { StylePresetStore } from './lib/style-presets';
 import type { SwContext } from './lib/sw-context';
 import { setSwContext } from './lib/sw-context';
 import { log } from './lib/logger';
@@ -34,6 +35,7 @@ const cache = new ObjectCache('_default');
 const history = new HistoryManager('_default');
 const favorites = new FavoritesManager('_default');
 const scriptHistory = new ScriptHistoryManager('_default');
+const stylePresets = new StylePresetStore('_default');
 /** Per-window inspect-mode flag. Persisted to chrome.storage.session so
  *  toggling survives SW idle-suspend within a single browser session.
  *  Window IDs aren't stable across browser restarts; cleanup happens on
@@ -118,6 +120,7 @@ const ctx: SwContext = {
   cache,
   history,
   favorites,
+  stylePresets,
   scriptHistory,
   get settings() { return settings; },
   set settings(v) { settings = v; },
@@ -188,6 +191,7 @@ Promise.all([
   history.load().catch(e => log.swallow('sw:history', e)),
   favorites.load().catch(e => log.swallow('sw:favorites', e)),
   scriptHistory.load().catch(e => log.swallow('sw:scriptHistory', e)),
+  stylePresets.load().catch(e => log.swallow('sw:stylePresets', e)),
   restoreActivity().catch(e => log.swallow('sw:activity', e)),
   loadTabDetection().catch(e => log.swallow('sw:tabDetection', e)),
   restoreInspectState().catch(e => log.swallow('sw:restoreInspect', e)),

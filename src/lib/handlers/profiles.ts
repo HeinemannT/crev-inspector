@@ -57,7 +57,7 @@ register('DELETE_PROFILE', async (msg, respond) => {
   // out a stale client for a now-deleted profile.
   evictPooledClient(msg.profileId);
   await rebuildClient(true);
-  const orphanKeys = ['cache', 'cache_date', 'history', 'favorites', 'script_history']
+  const orphanKeys = ['cache', 'cache_date', 'history', 'favorites', 'script_history', 'style_presets']
     .map(k => `crev_${msg.profileId}_${k}`);
   chrome.storage.local.remove(orphanKeys).catch(e => log.swallow('handler:cleanupProfile', e));
   respond({ type: 'SETTINGS_DATA', settings: ctx.settings });

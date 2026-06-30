@@ -264,6 +264,7 @@ async function rebuildClientInternal(clearCache: boolean) {
     ctx.history.switchProfile(newProfileId).catch(e => log.swallow('settings:switchHistory', e)),
     ctx.favorites.switchProfile(newProfileId).catch(e => log.swallow('settings:switchFavorites', e)),
     ctx.scriptHistory.switchProfile(newProfileId).catch(e => log.swallow('settings:switchScriptHistory', e)),
+    ctx.stylePresets.switchProfile(newProfileId).catch(e => log.swallow('settings:switchStylePresets', e)),
   ]);
   // NOW safe to open the gate for new enrichment
   incrementGeneration();

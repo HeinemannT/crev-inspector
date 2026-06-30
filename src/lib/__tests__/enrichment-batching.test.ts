@@ -85,6 +85,7 @@ function createMockContext(opts: MockOpts = {}) {
     history: { record: vi.fn(), getAll: vi.fn(() => []), clear: vi.fn(), load: vi.fn(), switchProfile: vi.fn() } as any,
     favorites: { toggle: vi.fn(), isFavorite: vi.fn(() => false), getAll: vi.fn(() => []), remove: vi.fn(), load: vi.fn(), switchProfile: vi.fn() } as any,
     scriptHistory: { record: vi.fn(), getAll: vi.fn(() => []), clear: vi.fn(), load: vi.fn(), switchProfile: vi.fn() } as any,
+    stylePresets: { getAll: vi.fn(() => []), save: vi.fn(), remove: vi.fn(), load: vi.fn(), switchProfile: vi.fn() } as any,
     settings: { schemaVersion: 1, profiles: [], activeProfileId: '', autoDetect: true, saveTarget: 'template' as const, enrichMode: 'widgets' as const },
     inspectActiveByWindow: new Map(),
     blueprintActiveByWindow: new Map(),

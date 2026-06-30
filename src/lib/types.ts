@@ -4,7 +4,8 @@ export type { AuthMode, AuthVia };
 // re-exported for back-compat with the many `from './types'` import sites.
 import { PAINT_STYLE_PROPS, COLOR_LINK_PROPS, PAINT_PROP_RESET, STYLE_PROPS, styleResetLiteral } from './style-props';
 export { PAINT_STYLE_PROPS, COLOR_LINK_PROPS, PAINT_PROP_RESET, STYLE_PROPS, styleResetLiteral };
-import type { LModel, PlanNote } from './layout/types';
+import type { LModel, PlanNote, NodeStyle } from './layout/types';
+import type { StylePreset } from './style-presets';
 import type { BlueprintCtx, NeedsTabset } from './layout/sync';
 import type { InstanceFanout, ContainerBlast } from './layout/blast-radius';
 
@@ -639,6 +640,15 @@ export type LayoutMessage =
   | { type: 'LAYOUT_BLAST'; pageId: string; containers: { id: string; rid?: string }[] }
   | { type: 'LAYOUT_BLAST_RESULT'; fanout: InstanceFanout | null; blast: ContainerBlast | null };
 
+// ── Saved style presets (blueprint paintbrush library) ───────────
+// Per-profile named widget appearance presets. The blueprint requests these one-shot (sendRequest);
+// SAVE/DELETE mutate then echo the fresh list back as STYLE_PRESETS_DATA.
+export type StylePresetMessage =
+  | { type: 'LIST_STYLE_PRESETS' }
+  | { type: 'SAVE_STYLE_PRESET'; name: string; style: NodeStyle }
+  | { type: 'DELETE_STYLE_PRESET'; id: string }
+  | { type: 'STYLE_PRESETS_DATA'; presets: StylePreset[] };
+
 export type InspectorMessage =
   | PageMessage | InspectMessage | CacheMessage | ServerLookupMessage
   | ConnectionMessage | ProfileMessage | EcMessage | StudioMessage | FrameOverlayMessage | EnrichMessage
@@ -646,7 +656,7 @@ export type InspectorMessage =
   | HistoryMessage | FavoritesMessage | ContextMenuMessage
   | OverlayModeMessage | ObjectViewMessage | ObjectPaneMessage
   | DiffMessage | CodeSearchMessage | ScriptHistoryMessage
-  | ColorMessage | NotificationMessage | LayoutMessage;
+  | ColorMessage | NotificationMessage | LayoutMessage | StylePresetMessage;
 
 export interface WidgetInfo {
   rid: string;

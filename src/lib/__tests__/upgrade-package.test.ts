@@ -367,6 +367,7 @@ function makeHandlerCtx(overrides: any = {}) {
     history: { record: vi.fn() },
     favorites: { toggle: vi.fn(), getAll: vi.fn(() => []) },
     scriptHistory: { record: vi.fn() },
+    stylePresets: { getAll: vi.fn(() => []), save: vi.fn(), remove: vi.fn(), load: vi.fn(), switchProfile: vi.fn() } as any,
     settings: { schemaVersion: 1, profiles: [], activeProfileId: null, autoDetect: true, saveTarget: 'template', enrichMode: 'widgets' },
     inspectActive: false,
     technicalOverlay: false,

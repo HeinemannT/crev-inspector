@@ -64,6 +64,7 @@ async function createHarness(profiles = makeProfiles(), activeId = 'sbx'): Promi
     history: { switchProfile: vi.fn(async () => {}), clear: vi.fn(), load: vi.fn() },
     favorites: { switchProfile: vi.fn(async () => {}), clear: vi.fn(), load: vi.fn() },
     scriptHistory: { switchProfile: vi.fn(async () => {}), clear: vi.fn(), load: vi.fn() },
+    stylePresets: { getAll: vi.fn(() => []), save: vi.fn(), remove: vi.fn(), load: vi.fn(), switchProfile: vi.fn() } as any,
     settings,
     inspectActive: false,
     technicalOverlay: false,

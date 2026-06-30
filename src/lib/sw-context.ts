@@ -3,6 +3,7 @@ import type { ObjectCache } from './object-cache';
 import type { HistoryManager } from './history';
 import type { FavoritesManager } from './favorites';
 import type { ScriptHistoryManager } from './script-history';
+import type { StylePresetStore } from './style-presets';
 import type { InspectorMessage, InspectorSettings, ActivityEntry } from './types';
 
 /** Shared mutable context passed to all service-worker modules. */
@@ -21,6 +22,7 @@ export interface SwContext {
   history: HistoryManager;
   favorites: FavoritesManager;
   scriptHistory: ScriptHistoryManager;
+  stylePresets: StylePresetStore;
   settings: InspectorSettings;
   /** Per-window inspect-mode state. Each browser window has its own
    *  toggle — a user inspecting in window A doesn't paint pills onto

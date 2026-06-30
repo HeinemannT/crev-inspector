@@ -34,6 +34,24 @@ register('GET_FAVORITES', (msg, respond) => {
   respond({ type: 'FAVORITES_DATA', entries: getCtx().favorites.getAll() });
 });
 
+// ── Saved style presets (blueprint paintbrush library) ───────────
+register('LIST_STYLE_PRESETS', (msg, respond) => {
+  respond({ type: 'STYLE_PRESETS_DATA', presets: getCtx().stylePresets.getAll() });
+});
+
+register('SAVE_STYLE_PRESET', (msg, respond) => {
+  const ctx = getCtx();
+  const saved = ctx.stylePresets.save(msg.name, msg.style);
+  respond({ type: 'STYLE_PRESETS_DATA', presets: ctx.stylePresets.getAll() });
+  if (saved) ctx.logActivity('info', `Saved style "${saved.name}"`);
+});
+
+register('DELETE_STYLE_PRESET', (msg, respond) => {
+  const ctx = getCtx();
+  ctx.stylePresets.remove(msg.id);
+  respond({ type: 'STYLE_PRESETS_DATA', presets: ctx.stylePresets.getAll() });
+});
+
 register('GET_ACTIVITY', (msg, respond) => {
   respond({ type: 'ACTIVITY_LOG', entries: getActivityLog() });
 });
