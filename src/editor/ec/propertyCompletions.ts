@@ -19,7 +19,7 @@
  */
 import type { CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import type { TypeSchemaProp, TypeOptionSet } from '../../lib/types';
-import { getInference, getSchema, intersectionSchema, ensureSchemaNow, getOption, getOptions, ensureOptionsNow, getRefType, ensureRefType, subscribe } from './typeInference';
+import { getInference, getSchema, intersectionSchema, ensureSchemaNow, getOption, getOptions, ensureOptionsNow, getRefType, ensureRefType, subscribe, isElementContext } from './typeInference';
 import { ID_SPACE_PREFIXES } from '../../lib/ec-grammar';
 
 /** BMP class names are PascalCase, and the SW schema/options guard requires it,
@@ -69,18 +69,6 @@ function propFilterFor(method: string): (configClass: string) => boolean {
   }
   return () => true;
 }
-
-/** Methods whose argument is evaluated per ELEMENT of the receiver list, so a
- *  `self` (or a named lambda param) inside them refers to that element
- *  (`list.table(… self.ref(x) …)`). Entries are LOWERCASE: EC method names are
- *  case-insensitive (real code uses `foreach`/`addrow`), so callers match
- *  `method.toLowerCase()` — see `isElementContext`. */
-const ELEMENT_CONTEXT_METHODS = new Set([
-  'table', 'addcolumn', 'addrow', 'map', 'foreach', 'filter', 'calculate',
-  'as', 'sort', 'sortreverse', 'groupby', 'distinct', 'sum', 'avg', 'min', 'max', 'count',
-]);
-/** Case-insensitive membership test for the element-context methods. */
-const isElementContext = (method: string): boolean => ELEMENT_CONTEXT_METHODS.has(method.toLowerCase());
 
 /** Chain methods that collapse a list to ONE element at a dot-member position,
  *  so `<list>.first().<prop>` offers the element's properties. Element type is

@@ -492,6 +492,30 @@ describe('Multiple-assignment scenarios', () => {
   });
 });
 
+// The Vars panel reads getAllInferences(); a loop var must land there (with a
+// loopVar marker) even though it's never `:=`-assigned — that was the gap.
+describe('lambda params recorded for the Vars panel', () => {
+  it('records a foreach loop var as a scalar element with loopVar:true', () => {
+    infer('_risks := SELECT CeRiskAssessment\n_risks.foreach(_risk:\n     _x := _risk.id\n)');
+    expect(getInference('_risk')).toMatchObject({ kind: 'scalar', type: 'CeRiskAssessment', loopVar: true });
+  });
+
+  it('follows a filtered receiver (element type preserved)', () => {
+    infer('_risks := SELECT CeRiskAssessment\n_count := _risks.filter(name = "x")\n_count.foreach(_risk:\n     _x := _risk\n)');
+    expect(getInference('_risk')).toMatchObject({ kind: 'scalar', type: 'CeRiskAssessment', loopVar: true });
+  });
+
+  it('does NOT clobber a real assignment of the same name (flat table; scope handled by completer)', () => {
+    infer('_risk := SELECT Organisation\n_risks := SELECT CeRiskAssessment\n_risks.foreach(_risk:\n     _x := 1\n)');
+    expect(getInference('_risk')).toMatchObject({ kind: 'list', types: ['Organisation'] });
+  });
+
+  it('ignores a binder whose receiver type is unknown (no bogus entry)', () => {
+    infer('t.foo.children().foreach(_cat:\n     _x := _cat\n)');
+    expect(getInference('_cat')).toBeUndefined();
+  });
+});
+
 describe('clearInferences', () => {
   it('drops every tracked var', () => {
     infer('_v := SELECT CeRiskAssessment');

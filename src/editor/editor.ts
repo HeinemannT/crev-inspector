@@ -1323,9 +1323,14 @@ function renderVarsList(
         },
         onMouseenter: () => { if (surface?.view) setHighlightedVar(surface.view, v.name) },
         onMouseleave: () => { if (surface?.view) setHighlightedVar(surface.view, null) },
-        title: `${v.name} := ${v.rhs} (line ${v.line}). Double-click to jump`,
+        title: inf?.kind === 'scalar' && inf.loopVar
+          ? `${v.name}: loop element of ${v.rhs} (line ${v.line}). Double-click to jump`
+          : `${v.name} := ${v.rhs} (line ${v.line}). Double-click to jump`,
       },
         h('span', { class: 'editor-vars-name' }, v.name),
+        inf?.kind === 'scalar' && inf.loopVar
+          ? h('span', { class: 'editor-vars-loopbadge', title: 'Loop variable (bound by forEach/map/…)' }, 'loop')
+          : null,
         typeChip,
       )
     }),

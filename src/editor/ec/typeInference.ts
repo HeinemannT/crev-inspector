@@ -31,7 +31,7 @@ import type { InspectorMessage, TypeSchemaProp, TypeOptionSet } from '../../lib/
 
 export type TypeInference =
   | { kind: 'list'; types: string[]; line: number }     // List<T> or List<T1|T2|...> for multi-type
-  | { kind: 'scalar'; type: string; line: number }       // single object of known class
+  | { kind: 'scalar'; type: string; line: number; loopVar?: boolean }  // single object; loopVar → bound by a lambda (foreach/map/…)
   | { kind: 'primitive'; primitive: 'string' | 'number' | 'date' | 'bool'; line: number }
   | { kind: 'unknown'; reason: string; line: number };
 
@@ -54,6 +54,23 @@ const PICK_ONE_CHAIN = new Set([ 'first', 'last' ]);
 // `.children(T)` / `.descendants(T)` or scalar `T` for `.ancestor(T)`.
 const TYPED_NAV_LIST = new Set([ 'children', 'descendants' ]);
 const TYPED_NAV_SCALAR = new Set([ 'ancestor' ]);
+
+/** Methods whose `(_x: …)` arg binds an ELEMENT of the receiver collection —
+ *  the lambda-param context (`coll.forEach(_x: …)`, `.map`, `.filter`, …).
+ *  EC method names are case-insensitive, so this is lowercase and matched via
+ *  `isElementContext`. Exported as the SINGLE source of "what is a loop binder",
+ *  shared by the completer (propertyCompletions) and the doc-scan below so the
+ *  Vars panel and autocomplete never disagree about loop variables. */
+export const ELEMENT_CONTEXT_METHODS = new Set([
+  'table', 'addcolumn', 'addrow', 'map', 'foreach', 'filter', 'calculate',
+  'as', 'sort', 'sortreverse', 'groupby', 'distinct', 'sum', 'avg', 'min', 'max', 'count',
+]);
+export const isElementContext = (method: string): boolean => ELEMENT_CONTEXT_METHODS.has(method.toLowerCase());
+
+// A lambda binding `<receiver>.<method>( _param :` — receiver is a chain root
+// var/ref plus zero+ dotted (optionally one-paren) segments; param is `_`-prefixed
+// (EC convention) so MAP/JSON `key:` literals don't false-match.
+export const LAMBDA_BIND_RE = /(\b[A-Za-z_]\w*(?:\.\w+(?:\([^()]*\))?)*)\.([A-Za-z]\w*)\s*\(\s*(_\w+)\s*:/g;
 
 interface InferenceState {
   /** name → inference. Map order = doc order; later assignments overwrite. */
@@ -815,6 +832,26 @@ export function scanDocForInferences(doc: { lines: number; line(n: number): { te
       // vars declared on prior lines of the SAME scan, not stale
       // state from the previous scan.
       next.set(name, parseRhs(m[2], i, next));
+    }
+  }
+  // Second pass — named lambda params (`coll.forEach(_x: …)`). These aren't
+  // assignments, so the loop above misses them, yet the Vars panel should list
+  // `_risk` like any other variable. The binder always sits BELOW its source,
+  // so the receiver's type is already in `next`; resolve it and record the param
+  // as that collection's element. Completion still resolves loop vars positionally
+  // (scope-correct); this flat record is for the panel and a consistent fallback.
+  for (let i = 1; i <= doc.lines; i++) {
+    const t = doc.line(i).text;
+    LAMBDA_BIND_RE.lastIndex = 0;
+    let lm: RegExpExecArray | null;
+    while ((lm = LAMBDA_BIND_RE.exec(t)) !== null) {
+      const [, receiver, method, param] = lm;
+      if (!isElementContext(method)) continue;
+      if (next.has(param) || RESERVED.has(param.toLowerCase())) continue;
+      const recv = parseRhs(receiver, i, next);
+      if (recv.kind === 'list' && recv.types.length > 0) {
+        next.set(param, { kind: 'scalar', type: recv.types[0], line: i, loopVar: true });
+      }
     }
   }
   state.vars = next;

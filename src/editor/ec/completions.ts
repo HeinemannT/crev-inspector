@@ -8,6 +8,7 @@ import { CompletionContext, CompletionResult, snippetCompletion } from '@codemir
 import type { ViewUpdate } from '@codemirror/view'
 import { EditorView } from '@codemirror/view'
 import { ID_SPACE_PREFIXES } from '../../lib/ec-grammar'
+import { LAMBDA_BIND_RE, isElementContext } from './typeInference'
 
 interface CompletionDef {
   label: string
@@ -181,6 +182,23 @@ export function scanVariables(doc: { lines: number; line(n: number): { text: str
       }
     }
   }
+  // Named lambda params (`coll.forEach(_x: …)`) are variables the user reads
+  // but never assigns, so VAR_RE misses them. List them too — same binder
+  // detection as the type-inference scan, so the panel and autocomplete agree
+  // on what counts as a loop variable.
+  for (let i = 1; i <= doc.lines; i++) {
+    const lineText = doc.line(i).text
+    LAMBDA_BIND_RE.lastIndex = 0
+    let lm: RegExpExecArray | null
+    while ((lm = LAMBDA_BIND_RE.exec(lineText)) !== null) {
+      const [bind, , method, param] = lm
+      if (!isElementContext(method)) continue
+      if (RESERVED_VAR_NAMES.has(param.toLowerCase()) || newVars.has(param)) continue
+      newVars.add(param)
+      details.push({ name: param, line: i, rhs: bind.trim().slice(0, 60) })
+    }
+  }
+  details.sort((a, b) => a.line - b.line)
   trackedVariables = newVars
   trackedVarDetails = details
 }
