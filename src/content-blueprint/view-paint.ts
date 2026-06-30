@@ -10,7 +10,7 @@
 import type { NodeStyle } from '../lib/layout/types';
 import type { StylePreset } from '../lib/style-presets';
 import { STYLE_PROPS } from '../lib/style-props';
-import { ICON_PAINT, ICON_EYEDROPPER, ICON_SLIDERS, ICON_SAVE, ICON_CHECK, ICON_TRASH } from '../lib/icons';
+import { ICON_PAINT, ICON_PAINT_FILL, ICON_EYEDROPPER, ICON_SLIDERS, ICON_SAVE, ICON_CHECK, ICON_TRASH } from '../lib/icons';
 import { setIcon } from './geometry';
 import { colorRgb } from './colors';
 import { bp } from './state';
@@ -77,7 +77,7 @@ export function paintStation(): HTMLElement {
 
   // Paint (brush) — apply the held style. Shows the held chip; purple when armed; disabled with no held.
   const paint = document.createElement('button'); paint.className = 'bp-paint-c bp-paint-brush' + (mode === 'paint' ? ' on' : '');
-  if (held) { paint.classList.add('loaded'); paint.append(styleChip(held), iconSpan(ICON_PAINT)); }
+  if (held) { paint.classList.add('loaded'); paint.append(styleChip(held), iconSpan(ICON_PAINT_FILL)); }
   else { paint.classList.add('disabled'); paint.appendChild(iconSpan(ICON_PAINT)); }
   paint.title = !held ? 'Paint — pick a style first' : mode === 'paint' ? 'Painting — click widgets to apply · Esc to stop' : 'Paint — apply the held style';
   paint.addEventListener('mousedown', (e) => { e.stopPropagation(); armPaint(); });

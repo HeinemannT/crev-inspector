@@ -430,8 +430,10 @@
 /* the 2×2 paint station, mounted right of the top bar (mirrors the vertical mode switch on the left) */
 #crev-blueprint-layer .bp-paint{display:grid;grid-template-columns:1fr 1fr;flex:none;border-left:var(--bp-hair) solid var(--bp-line-2)}
 #crev-blueprint-layer .bp-paint-c{position:relative;width:46px;display:grid;place-items:center;border:0;background:transparent;color:var(--bp-muted);cursor:pointer;transition:background .12s,color .12s}
-#crev-blueprint-layer .bp-paint-c+.bp-paint-c{border-left:var(--bp-hair) solid var(--bp-line-2)}
-#crev-blueprint-layer .bp-paint-c:nth-child(3),#crev-blueprint-layer .bp-paint-c:nth-child(4){border-top:var(--bp-hair) solid var(--bp-line-2)}
+/* clean 2×2 dividers: a single vertical line between columns (right-column cells) + a horizontal between
+   rows (bottom-row cells) — NOT border-left on every cell, which doubled the station's own left border */
+#crev-blueprint-layer .bp-paint-c:nth-child(2n){border-left:var(--bp-hair) solid var(--bp-line-2)}
+#crev-blueprint-layer .bp-paint-c:nth-child(n+3){border-top:var(--bp-hair) solid var(--bp-line-2)}
 #crev-blueprint-layer .bp-paint-c:hover:not(.disabled){background:rgba(138,63,252,.1);color:var(--bp-text)}
 #crev-blueprint-layer .bp-paint-c.on{background:rgba(138,63,252,.14);color:var(--bp-accent,#8a3ffc)}
 #crev-blueprint-layer .bp-paint-c.disabled{opacity:.35;cursor:default}
@@ -443,8 +445,10 @@
 /* Paint: holds the style chip; armed = purple */
 #crev-blueprint-layer .bp-paint-brush.loaded{color:var(--bp-accent,#8a3ffc)}
 #crev-blueprint-layer .bp-paint-brush.on{background:rgba(138,63,252,.16);box-shadow:inset 0 0 0 var(--bp-emph) var(--bp-accent,#8a3ffc)}
-#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic{position:absolute;right:5px;bottom:4px}
-#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic svg{width:11px;height:11px}
+/* the held-style chip sits centre; a filled brush badge sits on its lower-right with a white halo so it
+   reads against any chip colour */
+#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic{position:absolute;right:3px;bottom:2px;color:var(--bp-accent,#8a3ffc);filter:drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1.5px #fff)}
+#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic svg{width:14px;height:14px}
 #crev-blueprint-layer .bp-paint-badge{position:absolute;right:4px;top:3px;min-width:13px;height:13px;padding:0 2px;border-radius:7px;background:var(--bp-accent,#8a3ffc);color:#fff;font:700 8px/13px var(--bp-mono);text-align:center}
 
 /* the shared style chip — a tiny widget preview */
