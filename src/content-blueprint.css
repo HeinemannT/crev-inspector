@@ -515,10 +515,10 @@
 #crev-blueprint-layer .bp-schip-body{flex:1;display:grid;place-items:center}
 #crev-blueprint-layer .bp-schip-a{font:700 9px 'BPInter',sans-serif;color:var(--bp-muted);line-height:1}
 
-/* armed brush: canvas cells read as paintable */
-#crev-blueprint-layer.bp-brush .bp-rcell{cursor:crosshair}
-#crev-blueprint-layer.bp-brush .bp-rcell:hover{box-shadow:0 0 0 var(--bp-emph) var(--bp-accent,#8a3ffc)}
-#crev-blueprint-layer.bp-brush-pick .bp-rcell:hover{box-shadow:0 0 0 var(--bp-emph) var(--bp-cyan-hi)}
+/* armed brush: WIDGET cells read as paintable (containers/tabs carry no style, so no paint hover) */
+#crev-blueprint-layer.bp-brush .bp-rcell:not(.bp-rcont){cursor:crosshair}
+#crev-blueprint-layer.bp-brush .bp-rcell:not(.bp-rcont):hover{box-shadow:0 0 0 var(--bp-emph) var(--bp-accent,#8a3ffc)}
+#crev-blueprint-layer.bp-brush-pick .bp-rcell:not(.bp-rcont):hover{box-shadow:0 0 0 var(--bp-emph) var(--bp-cyan-hi)}
 
 /* paint popups — reuse the .bp-pick chrome, pinned top-right under the station */
 #crev-blueprint-layer .bp-paint-pop{position:fixed;top:78px;right:14px;left:auto;width:268px}

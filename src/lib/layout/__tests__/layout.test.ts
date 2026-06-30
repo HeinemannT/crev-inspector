@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { LayoutNode as WireNode } from '../../types';
-import type { LModel, LNode } from '../types';
+import { maskStyle, type LModel, type LNode, type NodeStyle } from '../types';
 import { reconstruct, findNode, descendantWidgets, isChart, isResultTab } from '../model';
 import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, isAncestorOf, toggleReset, setStyle } from '../edit';
 import { diff, summarizeChanges } from '../diff';
@@ -218,6 +218,34 @@ describe('G3 style edits (setStyle → diff → ec)', () => {
     const { script } = compile(diff(base, added.model), added.model);
     expect(script).toMatch(/_n0 := _sc\.add\(SimpleStatus/);
     expect(script).not.toContain('_n0.change(');
+  });
+});
+
+describe('G4 paintbrush — maskStyle (the painted patch)', () => {
+  const src: NodeStyle = { headerColorBid: 'C_RED', shadow: true, borderStyle: 'LINE', transparency: 30 };
+  const all = new Set(['headerColor', 'fontColor', 'shadow', 'headerStyle', 'borderStyle', 'transparency']);
+
+  it('copies the held value for masked props', () => {
+    const patch = maskStyle(src, new Set(['headerColor', 'shadow']));
+    expect(patch).toEqual({ headerColorBid: 'C_RED', shadow: true });
+  });
+
+  it('an ABSENT source value folds to the prop default (so painting clears it on the target)', () => {
+    // src has no fontColor / headerStyle → masked, they come through as the clear defaults
+    const patch = maskStyle(src, all);
+    expect(patch).toMatchObject({
+      headerColorBid: 'C_RED', fontColorBid: '', shadow: true,
+      headerStyle: '', borderStyle: 'LINE', transparency: 30,
+    });
+  });
+
+  it('an empty mask paints nothing', () => {
+    expect(maskStyle(src, new Set())).toEqual({});
+  });
+
+  it('preserves falsy real values (shadow:false, transparency:0) — not mis-read as absent', () => {
+    const patch = maskStyle({ shadow: false, transparency: 0 }, new Set(['shadow', 'transparency']));
+    expect(patch).toEqual({ shadow: false, transparency: 0 });
   });
 });
 

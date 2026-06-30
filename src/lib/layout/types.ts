@@ -77,6 +77,17 @@ export function styleAssignments(
   return out;
 }
 
+/** G4 — the appearance patch the paintbrush applies to a target: for each BMP prop in `mask`, the held
+ *  source value, folding an ABSENT source value to that prop's default — so painting an unstyled source
+ *  CLEARS the masked props on the target (the verified "reset where the source has none" rule). */
+export function maskStyle(held: NodeStyle, mask: ReadonlySet<string>): Partial<NodeStyle> {
+  const out: Record<string, string | number | boolean> = {};
+  for (const f of STYLE_PROPS) {
+    if (mask.has(f.prop)) out[f.nodeKey] = (held as Record<string, string | number | boolean | undefined>)[f.nodeKey] ?? f.def;
+  }
+  return out as Partial<NodeStyle>;
+}
+
 /** A node in the editable layout tree.
  *  Tree parentage means different things by kind: a widget's parent is the cell it BINDS to
  *  (`container :=`); a container's/tab's parent is its STRUCTURAL parent. `kind` disambiguates. */

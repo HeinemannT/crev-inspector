@@ -12,7 +12,7 @@ import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, s
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { compile } from '../lib/layout/ec';
 import { History } from '../lib/layout/history';
-import type { LModel, PlanStep, NodeStyle } from '../lib/layout/types';
+import { maskStyle, type LModel, type PlanStep, type NodeStyle } from '../lib/layout/types';
 import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
@@ -88,17 +88,6 @@ export function applySwatch(bid: string): void {
 }
 
 // ── G4 paintbrush ─────────────────────────────────────────────────────────────
-/** The masked appearance patch to paint onto a target: for each prop the brush carries (brushMask),
- *  copy the held value, folding an absent source value to its default — so painting an unstyled source
- *  CLEARS that prop on the target (the verified "reset where source has none" rule). */
-function maskedPatch(held: NodeStyle): Partial<NodeStyle> {
-  const patch: Record<string, string | number | boolean> = {};
-  for (const sp of STYLE_PROPS) {
-    if (bp.brushMask.has(sp.prop)) patch[sp.nodeKey] = (held as Record<string, string | number | boolean>)[sp.nodeKey] ?? sp.def;
-  }
-  return patch as Partial<NodeStyle>;
-}
-
 /** Toggle the brush tool on/off. While armed it intercepts canvas clicks (pick a source, then paint
  *  targets); disarming returns clicks to normal select. Keeps the held style so re-arming resumes. */
 export function toggleBrush(): void { bp.brush.armed = !bp.brush.armed; bp.paintPanel = null; render(); }
@@ -107,16 +96,18 @@ export function disarmBrush(): void { if (bp.brush.armed) { bp.brush.armed = fal
 export function repickBrush(): void { bp.brush.held = null; bp.brush.armed = true; bp.paintPanel = null; render(); }
 
 /** A canvas cell was clicked while the brush is armed: capture its style if none held (→ paint mode),
- *  else paint the held style onto it (stays armed for the next target). */
+ *  else paint the held style onto it (stays armed for the next target). Widgets only — containers/tabs
+ *  don't carry the appearance props (same gate as the style toolbar), so a click on one is ignored. */
 export function brushOnCell(id: string): void {
   const m = model(); if (!m) return;
-  const node = findNode(m, id)?.node; if (!node) return;
+  const node = findNode(m, id)?.node;
+  if (!node || node.kind !== 'widget') return;
   if (bp.brush.held === null) {
     bp.brush.held = node.style ? { ...node.style } : {}; // {} = an unstyled source (paints = reset to default)
     render();
     return;
   }
-  mutate(setStyle(m, id, maskedPatch(bp.brush.held))); // mutate re-renders; brush stays armed
+  mutate(setStyle(m, id, maskStyle(bp.brush.held, bp.brushMask))); // mutate re-renders; brush stays armed
 }
 
 /** Toggle one prop in the brush's copy-set (the Setup popup). */
