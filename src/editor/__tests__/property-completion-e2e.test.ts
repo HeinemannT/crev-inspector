@@ -135,3 +135,38 @@ describe('property autocomplete at a dot-member — end to end', () => {
     expect(await propsAt('_o.owning_org.')).toBeNull();
   });
 });
+
+describe('property autocomplete at a NAMED loop variable (forEach/lambda param)', () => {
+  const scan = (lines: string[]) => ti.scanDocForInferences({ lines: lines.length, line: (n: number) => ({ text: lines[n - 1] }) });
+
+  it('completes a loop var over a SELECT, across lines (_risks.forEach(_risk: … _risk.))', async () => {
+    mockSw({}, { ceriskassessment: RISK_PROPS });
+    const lines = ['_risks := SELECT CeRiskAssessment', '_risks.forEach(_risk:', '     _x := _risk.'];
+    scan(lines);
+    await seedSchema('CeRiskAssessment', RISK_PROPS); await flushAsync();
+    expect(await propsAt(lines.join('\n'))).toEqual(['id', 'name', 'subtype', 'owning_org']);
+  });
+
+  it('follows a filter-preserved element type (_count := _risks.filter(…); _count.forEach(_risk: _risk.))', async () => {
+    mockSw({}, { ceriskassessment: RISK_PROPS });
+    const lines = ['_risks := SELECT CeRiskAssessment', '_count := _risks.filter(name = "x")', '_count.forEach(_risk:', '     _x := _risk.'];
+    scan(lines);
+    await seedSchema('CeRiskAssessment', RISK_PROPS); await flushAsync();
+    expect(await propsAt(lines.join('\n'))).toEqual(['id', 'name', 'subtype', 'owning_org']);
+  });
+
+  it('the loop binding wins over a same-named outer assignment (no shadow leak inside the body)', async () => {
+    mockSw({}, { ceriskassessment: RISK_PROPS, organisation: ORG_PROPS });
+    // _risk is ALSO bound to an Organisation list at top level, but inside the forEach it is the element.
+    const lines = ['_risk := SELECT Organisation', '_risks := SELECT CeRiskAssessment', '_risks.forEach(_risk:', '     _x := _risk.'];
+    scan(lines);
+    await seedSchema('CeRiskAssessment', RISK_PROPS); await seedSchema('Organisation', ORG_PROPS); await flushAsync();
+    expect(await propsAt(lines.join('\n'))).toEqual(['id', 'name', 'subtype', 'owning_org']); // the element type, not Organisation
+  });
+
+  it('stays silent for a non-bound identifier inside the body (fail-silent)', async () => {
+    const lines = ['_risks := SELECT CeRiskAssessment', '_risks.forEach(_risk:', '     _x := _other.'];
+    scan(lines);
+    expect(await propsAt(lines.join('\n'))).toBeNull();
+  });
+});

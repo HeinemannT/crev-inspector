@@ -217,6 +217,37 @@ export function resolveSelfType(text: string, selfAt: number): string[] | null {
   return root ? inferredTypes(root) : null;
 }
 
+/** The colon-bound lambda parameter of a call: `coll.forEach(_p: …)` → `_p`. Null when the first token
+ *  after `(` isn't an `<ident>:` (so a plain method-arg call like `.filter(x = 1)` returns null). */
+function lambdaParam(text: string, openParen: number): string | null {
+  let i = openParen + 1;
+  while (i < text.length && /\s/.test(text[i])) i++;
+  const start = i;
+  while (i < text.length && /\w/.test(text[i])) i++;
+  if (i === start) return null;
+  const name = text.slice(start, i);
+  while (i < text.length && /\s/.test(text[i])) i++;
+  return text[i] === ':' ? name : null;
+}
+
+/** Resolve a NAMED loop/lambda variable (`_count.forEach(_risk: … _risk.<prop>)`) to its element type —
+ *  the same element type `self` resolves to, just bound to a name. Walks OUTWARD through enclosing calls
+ *  so a variable bound by an outer lambda (`…children().forEach(_cat: … forEach(_risk: … _cat …))`) still
+ *  resolves. Fail-silent (returns null) when `ident` isn't a bound param or its receiver isn't tracked. */
+export function resolveLambdaParamType(text: string, identAt: number, ident: string): string[] | null {
+  let pos = identAt;
+  for (let depth = 0; depth < 8; depth++) { // bound nesting depth
+    const call = enclosingCall(text, pos);
+    if (!call) return null;
+    if (ELEMENT_CONTEXT_METHODS.has(call.method) && lambdaParam(text, call.openParen) === ident) {
+      const root = chainRoot(text, call.dotIndex - 1);
+      return root ? inferredTypes(root) : null;
+    }
+    pos = call.openParen; // step out to the next enclosing call
+  }
+  return null;
+}
+
 /** Detect a `SELECT <Class> … WHERE <prop>` property-name position. `window` is
  *  the source text up to the start of the word being typed. Returns the SELECT
  *  class, or null if not in a WHERE property-name slot. */
@@ -308,13 +339,19 @@ export function resolveDotMember(text: string, wordStart: number): { types?: str
     return { ref: pathMatch[0] };
   }
 
-  // Standalone single identifier: `self` (enclosing list element) or a var.
+  // Standalone single identifier: `self`, a named loop var, or a tracked var.
   if (segs.length === 1) {
     const ident = segs[0];
+    const identAt = i - ident.length + 1;
     if (ident === 'self') {
-      const types = resolveSelfType(text, i - ident.length + 1);
+      const types = resolveSelfType(text, identAt);
       return types ? { types } : null;
     }
+    // A colon-bound lambda parameter (`coll.forEach(_p: … _p.<prop>)`) resolves like `self` — to the
+    // iterated collection's element type. Checked BEFORE the var table so a same-named outer assignment
+    // can't shadow the loop binding inside its body.
+    const lam = resolveLambdaParamType(text, identAt, ident);
+    if (lam) return { types: lam };
     const inf = getInference(ident);
     // Only a SCALAR var is one object whose props we offer. A list var at a bare
     // dot wants methods (.first/.filter/…), owned by extendedCompletions.
@@ -355,9 +392,15 @@ function resolveContext(state: CompletionContext['state'], pos: number): { types
 
   // (D) General `<object>.<prop>` dot-member — the unified resolver. Covers
   // `self.title`, a scalar var's `_obj.title`, a pick-one chain
-  // `_list.first().title`, and a `ns.bid` reference `ceras.foo.title` (async).
-  // Composes with extendedCompletions, which adds the method list after the dot.
-  const member = resolveDotMember(line.text, wordStart);
+  // `_list.first().title`, a named loop var `_risk.title` inside a multi-line
+  // `forEach`, and a `ns.bid` reference `ceras.foo.title` (async). The dot-parse
+  // itself is line-bounded (a newline terminates the receiver path), but the
+  // self/lambda resolver walks LEFT to the enclosing call — which can be lines
+  // above — so it's fed a window back from the cursor (bounded for perf; a
+  // forEach more than ~4k chars back falls back to no completion). Composes with
+  // extendedCompletions, which adds the method list after the dot.
+  const dotWin = Math.max(0, from - 4000);
+  const member = resolveDotMember(state.doc.sliceString(dotWin, pos), from - dotWin);
   if (member) return { ...member, from, member: true };
 
   // (B) WHERE property-name position. Scan a bounded window back from the word
