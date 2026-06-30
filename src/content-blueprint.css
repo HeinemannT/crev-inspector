@@ -445,10 +445,10 @@
 /* Paint: holds the style chip; armed = purple */
 #crev-blueprint-layer .bp-paint-brush.loaded{color:var(--bp-accent,#8a3ffc)}
 #crev-blueprint-layer .bp-paint-brush.on{background:rgba(138,63,252,.16);box-shadow:inset 0 0 0 var(--bp-emph) var(--bp-accent,#8a3ffc)}
-/* the held-style chip sits centre; a filled brush badge sits on its lower-right with a white halo so it
-   reads against any chip colour */
-#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic{position:absolute;right:3px;bottom:2px;color:var(--bp-accent,#8a3ffc);filter:drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1.5px #fff)}
-#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic svg{width:14px;height:14px}
+/* the held-style chip sits centre; a BIG filled brush badge overlaps its lower-right (intentionally
+   cropping the chip a touch), with a white halo so it reads against any chip colour */
+#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic{position:absolute;right:0;bottom:-1px;color:var(--bp-accent,#8a3ffc);filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 2px #fff)}
+#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic svg{width:22px;height:22px}
 #crev-blueprint-layer .bp-paint-badge{position:absolute;right:4px;top:3px;min-width:13px;height:13px;padding:0 2px;border-radius:7px;background:var(--bp-accent,#8a3ffc);color:#fff;font:700 8px/13px var(--bp-mono);text-align:center}
 
 /* the shared style chip — a tiny widget preview */
