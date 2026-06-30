@@ -169,4 +169,26 @@ describe('property autocomplete at a NAMED loop variable (forEach/lambda param)'
     scan(lines);
     expect(await propsAt(lines.join('\n'))).toBeNull();
   });
+
+  it('matches the method name case-insensitively — lowercase `foreach` (real EC), not just camelCase', async () => {
+    mockSw({}, { ceriskassessment: RISK_PROPS });
+    const lines = ['_risks := SELECT CeRiskAssessment', '_risks.foreach(_risk:', '     _x := _risk.'];
+    scan(lines);
+    await seedSchema('CeRiskAssessment', RISK_PROPS); await flushAsync();
+    expect(await propsAt(lines.join('\n'))).toEqual(['id', 'name', 'subtype', 'owning_org']);
+  });
+
+  it('resolves the INNER loop var of a nested lowercase foreach (…children().foreach(_cat: …_count.foreach(_risk: _risk.)))', async () => {
+    mockSw({}, { ceriskassessment: RISK_PROPS });
+    const lines = [
+      '_risks := SELECT CeRiskAssessment',
+      't.risk_categories.children().foreach(_cat:',
+      '     _count := _risks.filter(mainCats = _cat)',
+      '     _count.foreach(_risk:',
+      '          _x := _risk.',
+    ];
+    scan(lines);
+    await seedSchema('CeRiskAssessment', RISK_PROPS); await flushAsync();
+    expect(await propsAt(lines.join('\n'))).toEqual(['id', 'name', 'subtype', 'owning_org']);
+  });
 });

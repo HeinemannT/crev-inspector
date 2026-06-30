@@ -71,17 +71,24 @@ function propFilterFor(method: string): (configClass: string) => boolean {
 }
 
 /** Methods whose argument is evaluated per ELEMENT of the receiver list, so a
- *  `self` inside them refers to that element (`list.table(… self.ref(x) …)`). */
+ *  `self` (or a named lambda param) inside them refers to that element
+ *  (`list.table(… self.ref(x) …)`). Entries are LOWERCASE: EC method names are
+ *  case-insensitive (real code uses `foreach`/`addrow`), so callers match
+ *  `method.toLowerCase()` — see `isElementContext`. */
 const ELEMENT_CONTEXT_METHODS = new Set([
-  'table', 'addColumn', 'addRow', 'map', 'forEach', 'filter', 'calculate',
-  'as', 'sort', 'sortReverse', 'groupBy', 'distinct', 'sum', 'avg', 'min', 'max', 'count',
+  'table', 'addcolumn', 'addrow', 'map', 'foreach', 'filter', 'calculate',
+  'as', 'sort', 'sortreverse', 'groupby', 'distinct', 'sum', 'avg', 'min', 'max', 'count',
 ]);
+/** Case-insensitive membership test for the element-context methods. */
+const isElementContext = (method: string): boolean => ELEMENT_CONTEXT_METHODS.has(method.toLowerCase());
 
 /** Chain methods that collapse a list to ONE element at a dot-member position,
  *  so `<list>.first().<prop>` offers the element's properties. Element type is
  *  the receiver list's element type (same as inferredTypes(root)). `ancestor` is
- *  handled separately — its type comes from the call argument, not the receiver. */
+ *  handled separately — its type comes from the call argument, not the receiver.
+ *  Matched case-insensitively (see `isPickOne`). */
 const PICK_ONE_DOT = new Set(['first', 'last', 'item']);
+const isPickOne = (method: string): boolean => PICK_ONE_DOT.has(method.toLowerCase());
 
 /** Max accessor hops past the `prefix.bid` of a concrete reference path that the
  *  nested-hop resolver will navigate (`ceras.foo.parent` = 1, `…parent.owner` = 2).
@@ -212,7 +219,7 @@ export function chainRoot(text: string, from: number): string | null {
  *  when there's no element-context call or its receiver isn't a tracked var. */
 export function resolveSelfType(text: string, selfAt: number): string[] | null {
   const call = enclosingCall(text, selfAt);
-  if (!call || !ELEMENT_CONTEXT_METHODS.has(call.method)) return null;
+  if (!call || !isElementContext(call.method)) return null;
   const root = chainRoot(text, call.dotIndex - 1);
   return root ? inferredTypes(root) : null;
 }
@@ -239,7 +246,7 @@ export function resolveLambdaParamType(text: string, identAt: number, ident: str
   for (let depth = 0; depth < 8; depth++) { // bound nesting depth
     const call = enclosingCall(text, pos);
     if (!call) return null;
-    if (ELEMENT_CONTEXT_METHODS.has(call.method) && lambdaParam(text, call.openParen) === ident) {
+    if (isElementContext(call.method) && lambdaParam(text, call.openParen) === ident) {
       const root = chainRoot(text, call.dotIndex - 1);
       return root ? inferredTypes(root) : null;
     }
@@ -309,7 +316,7 @@ export function resolveDotMember(text: string, wordStart: number): { types?: str
       return arg ? { types: [pascal(arg[1])] } : null;
     }
     // Pick-one collapse: element type = the root list var's element type.
-    if (PICK_ONE_DOT.has(method)) {
+    if (isPickOne(method)) {
       const root = chainRoot(text, m - 1);
       const types = root ? inferredTypes(root) : null;
       return types ? { types } : null;
