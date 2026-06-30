@@ -53,6 +53,7 @@ describe('renderResult (CSS-grid mirror)', () => {
       { left: 100, top: 50, right: 700, bottom: 300, width: 600, height: 250, x: 100, y: 50, toJSON: () => ({}) } as DOMRect);
     bp.selectedId = null;
     bp.viewTabId = null;
+    bp.resultAnchor = null; // the frozen canvas anchor is a session singleton — isolate it per test
   });
 
   const m = mdl([tab('t1', [container('A', 4, [widget('w1', 6), widget('w2', 3)]), widget('w2top', 2)])]);
@@ -114,13 +115,26 @@ describe('renderResult (CSS-grid mirror)', () => {
     expect(renderResult(m, m, new Map(), layer)).toBe(false);
     expect(layer.querySelector('.bp-result')).toBeNull();
   });
+
+  it('a trailing-gap cell carries data-bpafter = the row’s last cell, so a DROP inserts in order (not at the end)', () => {
+    // Row sums to 5 of 6 → a 1-col trailing gap whose ordinal anchor is the row's last widget (w2).
+    const part = mdl([tab('t1', [widget('w1', 3), widget('w2', 2)])]);
+    const rids = new Map<string, Element>(['r_w1', 'r_w2'].map(r => [r, document.createElement('div')]));
+    const layer = document.createElement('div');
+    expect(renderResult(part, part, rids, layer)).toBe(true);
+    const gap = layer.querySelector('.bp-rgap') as HTMLElement;
+    expect(gap).not.toBeNull();
+    expect(gap.dataset.bpkind).toBe('avail');
+    expect(gap.dataset.bpfree).toBe('1');
+    expect(gap.dataset.bpafter).toBe('w2'); // the drop path inserts after w2, keeping reading order
+  });
 });
 
 describe('renderResult — G3 style mode', () => {
   beforeEach(() => {
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(
       { left: 100, top: 50, right: 700, bottom: 300, width: 600, height: 250, x: 100, y: 50, toJSON: () => ({}) } as DOMRect);
-    bp.selectedId = null; bp.viewTabId = null; bp.mode = 'style';
+    bp.selectedId = null; bp.viewTabId = null; bp.mode = 'style'; bp.resultAnchor = null;
   });
   afterEach(() => { bp.mode = 'layout'; });
 

@@ -100,7 +100,7 @@ function sizeGhost(g: HTMLElement, left: number, top: number, w: number, h: numb
 
 type DragAction =
   | { type: 'swap'; targetId: string }
-  | { type: 'insert'; targetId: string; before: boolean }
+  | { type: 'insert'; targetId: string; before: boolean; fitCols?: number } // fitCols: resize to fill a sized empty slot
   | { type: 'into'; targetId: string; fitCols?: number }; // fitCols: resize to fill a sized empty slot
 
 let dragId: string | null = null;
@@ -191,7 +191,13 @@ function markTarget(ev: MouseEvent): void {
     // here resizes it down to fit the slot.
     const free = Number(hit.dataset.bpfree) || undefined;
     const fit = free != null && src != null && src.node.cols.L > free ? free : undefined;
-    action = { type: 'into', targetId, fitCols: fit };
+    // A trailing gap also carries `bpafter` — the row's last cell. Insert right AFTER it (ordinal),
+    // structurally the same path as "place after a widget", so the dropped node keeps the row's reading
+    // order instead of being appended at the parent's end. A gap with no anchor (full-width empty
+    // container) still appends via `into`.
+    const after = hit.dataset.bpafter;
+    if (after && after !== dragId) action = { type: 'insert', targetId: after, before: false, fitCols: fit };
+    else action = { type: 'into', targetId, fitCols: fit };
     setAct(fit != null ? `place in empty slot (resize to ${fit} col)` : `place in empty slot`); return;
   }
   if (kind === 'container') {
@@ -265,7 +271,7 @@ function endDrag(): void {
   dragId = null; action = null;
   if (A && id) {
     if (A.type === 'swap') doSwap(id, A.targetId);
-    else if (A.type === 'insert') doInsert(id, A.targetId, A.before);
+    else if (A.type === 'insert') doInsert(id, A.targetId, A.before, A.fitCols);
     else doMoveInto(id, A.targetId, A.fitCols);
   } else { render(); }
 }

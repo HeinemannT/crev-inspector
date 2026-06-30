@@ -60,6 +60,13 @@ export interface BpState {
   viewTabId: string | null;     // tab shown in the canvas (header tab bar switches it); null → follow BMP's live tab
   scrollSpacer: HTMLElement | null; // body-level spacer that extends page scroll height to cover a taller-than-content panel
   peek: boolean;                // sticky peek toggle (overlay faded so the live widgets show); hover peeks transiently
+  // Frozen document-space anchor of the result canvas for the CURRENT tab. The canvas top doesn't move
+  // when you scroll or when content grows BELOW it, but a re-render triggered mid-scroll (the body-height
+  // ResizeObserver firing on lazy table rows) would otherwise recompute the anchor from whatever widgets
+  // are on-screen at that scroll — shifting the canvas off the real widgets. Caching it keeps the canvas
+  // pinned; it's recomputed only on a genuine viewport resize (onResize clears it) or a tab/page change
+  // (keyed by tabId; cleared in resetModel).
+  resultAnchor: { tabId: string; docTop: number; left: number; width: number } | null;
 }
 
 /** Every per-session field at its idle/empty value. Defined ONCE so the initial `bp` and the teardown
@@ -72,6 +79,7 @@ function freshState(): Omit<BpState, 'gen'> {
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
     onResize: null, onKey: null, onPop: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
     observer: null, resizeObs: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
+    resultAnchor: null,
   };
 }
 
@@ -89,6 +97,7 @@ export function resetState(): void { Object.assign(bp, freshState()); }
 export function resetModel(): void {
   bp.baseline = null; bp.ctx = null; bp.history = null;
   bp.selectedId = null; bp.viewTabId = null; bp.ridSig = ''; bp.peek = false;
+  bp.resultAnchor = null;
 }
 
 export function isBlueprintActive(): boolean { return bp.active; }

@@ -149,6 +149,10 @@ function widgetHeight(node: LNode, byRid: Map<string, Element>): { px: number; m
 function gapCell(parentId: string, free: number, afterId?: string): HTMLElement {
   const z = document.createElement('div'); z.className = 'bp-rgap'; z.style.gridColumn = `span ${free}`;
   z.dataset.bpid = parentId; z.dataset.bpkind = 'avail'; z.dataset.bpfree = String(free); // a widget dropped here resizes to fit the slot
+  // The gap's ordinal anchor: the row's last real cell. A DROP here inserts right after it (same as the
+  // click/add path), not appended at the parent's end — so a widget dropped in a trailing slot keeps the
+  // row's reading order instead of landing far below. Absent on a full-width empty-container gap → append.
+  if (afterId) z.dataset.bpafter = afterId;
   const ic = document.createElement('span'); ic.className = 'bp-rgap-ic'; setIcon(ic, ICON_PLUS); z.appendChild(ic);
   // Insert the new widget AT the clicked gap (right after the row's last cell), not appended at the end
   // of the parent — otherwise adding to an empty right-side slot drops the widget far below, off-screen.
@@ -337,6 +341,11 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   const baseTab = base.tabs.find(t => t.id === tab.id);
   const frame = (baseTab ? unionRect(baseTab, byRid) : null) ?? unionAllVisible(byRid);
   if (!frame) return false;
+  // Reuse the frozen anchor for THIS tab if we have one: the canvas top/left/width don't change when the
+  // page scrolls or grows below, so a mid-scroll re-render must NOT recompute them from whatever widgets
+  // happen to be on-screen (that's what shifted the canvas off the real widgets). We still require a live
+  // frame above (no phantom canvas), but its position is taken from the cache when present.
+  const cached = bp.resultAnchor?.tabId === tab.id ? bp.resultAnchor : null;
 
   // Position in DOCUMENT space (frame is viewport-relative; add the scroll offset). The layer is
   // document-absolute, so the panel then scrolls natively with the page — no strip clamp needed (BMP's
@@ -345,15 +354,22 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   // Span the FULL 6-column content area, not just the occupied columns: when no top-level row fills all
   // six (e.g. Risk Register), the widget union is narrower than BMP's grid, which squished the panel and
   // left the empty right columns as bare page. Anchor the width to BMP's real content grid instead.
-  const contentW = bmpContentWidth(byRid, frame.left);
-  const width = contentW > frame.width ? contentW : frame.width;
-  const docTop = docY(frame.top);
+  let docTop: number, left: number, width: number;
+  if (cached) {
+    ({ docTop, left, width } = cached);
+  } else {
+    const contentW = bmpContentWidth(byRid, frame.left);
+    width = contentW > frame.width ? contentW : frame.width;
+    docTop = docY(frame.top);
+    left = docX(frame.left);
+    bp.resultAnchor = { tabId: tab.id, docTop, left, width };
+  }
   // Full-bleed grid backdrop BEHIND the panel — fills the whole editor width edge-to-edge (the panel
   // itself stays at content width so the cards keep BMP's column alignment). Height set after layout.
   const bg = document.createElement('div'); bg.className = 'bp-canvas-bg'; bg.style.top = `${docTop}px`;
   layer.appendChild(bg);
   const wrap = document.createElement('div'); wrap.className = 'bp-result';
-  Object.assign(wrap.style, { left: `${docX(frame.left)}px`, top: `${docTop}px`, width: `${width}px`, minHeight: `${minH}px` });
+  Object.assign(wrap.style, { left: `${left}px`, top: `${docTop}px`, width: `${width}px`, minHeight: `${minH}px` });
 
   const reordered = reorderedIds(base, m);
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';

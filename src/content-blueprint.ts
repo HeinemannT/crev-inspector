@@ -55,7 +55,10 @@ export function enableBlueprint(): void {
   // re-render (that JS-follow was the lag + header-overshadow). Only a RESIZE needs a re-anchor (BMP
   // reflows its widgets), coalesced to one animation frame.
   const coalescedRender = () => { if (bp.baseline && !bp.raf && !bp.dragging && !bp.renaming) bp.raf = requestAnimationFrame(() => { bp.raf = 0; render(); }); };
-  bp.onResize = coalescedRender;
+  // A genuine viewport resize reflows BMP's widgets, so the frozen canvas anchor must be recomputed; the
+  // ResizeObserver path below (lazy table rows growing the page) deliberately does NOT clear it — the
+  // canvas TOP is unchanged by content growing beneath it, and re-anchoring there is what shifted it.
+  bp.onResize = () => { bp.resultAnchor = null; coalescedRender(); };
   window.addEventListener('resize', bp.onResize, true);
   // BMP renders a tall widget's content asynchronously (an ExtendedTable fetches its rows AFTER the tab
   // switches), so a re-render fired on the tab switch alone measures the table before it's grown and the

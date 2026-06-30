@@ -112,10 +112,19 @@ export function paintPopup(): HTMLElement | null {
   }
 }
 
+const POPUP_W = 268;
 function popupShell(title: string): { back: HTMLElement; panel: HTMLElement } {
   const back = document.createElement('div'); back.className = 'bp-pick-back';
   back.addEventListener('mousedown', (e) => { if (e.target === back) closePaintPanel(); });
   const panel = document.createElement('div'); panel.className = 'bp-pick bp-paint-pop';
+  // Anchor directly under the paint station (already in the DOM this render) rather than the far corner,
+  // so the popup reads as belonging to the button that opened it. Clamp into the viewport; fall back to
+  // the CSS top-right default if the station isn't measurable.
+  const st = bp.layer?.querySelector('.bp-paint')?.getBoundingClientRect();
+  if (st && st.width > 0) {
+    const left = Math.max(8, Math.min(st.left, window.innerWidth - POPUP_W - 8));
+    Object.assign(panel.style, { top: `${st.bottom + 6}px`, left: `${left}px`, right: 'auto' });
+  }
   const h = document.createElement('div'); h.className = 'bp-pick-h'; h.textContent = title;
   panel.appendChild(h);
   back.appendChild(panel);

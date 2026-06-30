@@ -333,7 +333,9 @@
 #crev-blueprint-layer .bp-styled-hdr{border-bottom-color:transparent}
 #crev-blueprint-layer .bp-styled-hdr .bp-rty,#crev-blueprint-layer .bp-styled-hdr .bp-rwd{color:inherit;opacity:.7}
 #crev-blueprint-layer .bp-rcell.bp-sh-on{box-shadow:0 4px 14px rgba(0,0,0,.5)}
-#crev-blueprint-layer .bp-rcell.bp-bd-line{border-color:rgba(255,255,255,.55)}
+/* A LINE border (BMP's default) must read as a real, visible border on the white style cell — the old
+   faint-white was invisible (white on white), so default-bordered widgets looked borderless in Style. */
+#crev-blueprint-layer .bp-rcell.bp-bd-line{border-color:rgba(0,33,71,.45)}
 #crev-blueprint-layer .bp-rcell.bp-bd-none{border-color:transparent}
 #crev-blueprint-layer .bp-rcell.bp-hdr-none .bp-rlab{border-bottom-style:dashed;opacity:.6}
 /* F2 revert arrow — blue. Indicates a property overrides the template AND resets it on click; the
@@ -445,10 +447,11 @@
 /* Paint: holds the style chip; armed = purple */
 #crev-blueprint-layer .bp-paint-brush.loaded{color:var(--bp-accent,#8a3ffc)}
 #crev-blueprint-layer .bp-paint-brush.on{background:rgba(138,63,252,.16);box-shadow:inset 0 0 0 var(--bp-emph) var(--bp-accent,#8a3ffc)}
-/* the held-style chip sits centre; a BIG filled brush badge overlaps its lower-right (intentionally
-   cropping the chip a touch), with a white halo so it reads against any chip colour */
-#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic{position:absolute;right:0;bottom:-1px;color:var(--bp-accent,#8a3ffc);filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 2px #fff)}
-#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic svg{width:22px;height:22px}
+/* the held-style chip sits centre; a BIG filled purple brush badge overlaps its lower-right (intentionally
+   cropping the chip a touch). A crisp white OUTLINE (paint-order:stroke, no blur) reads it against any
+   chip colour — no glow. */
+#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic{position:absolute;right:0;bottom:-1px;color:var(--bp-accent,#8a3ffc)}
+#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic svg{width:22px;height:22px;paint-order:stroke;stroke:#fff;stroke-width:16px;stroke-linejoin:round}
 #crev-blueprint-layer .bp-paint-badge{position:absolute;right:4px;top:3px;min-width:13px;height:13px;padding:0 2px;border-radius:7px;background:var(--bp-accent,#8a3ffc);color:#fff;font:700 8px/13px var(--bp-mono);text-align:center}
 
 /* the shared style chip — a tiny widget preview */

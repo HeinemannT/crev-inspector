@@ -215,7 +215,13 @@ export function doMoveInto(id: string, destId: string, fitCols?: number): void {
   mutate(next);
 }
 export function doSwap(a: string, b: string): void { const m = model(); if (m) { bp.selectedId = a; mutate(swap(m, a, b)); } }
-export function doInsert(id: string, targetId: string, before: boolean): void { const m = model(); if (m) { bp.selectedId = id; mutate(insertRelative(m, id, targetId, before)); } }
+export function doInsert(id: string, targetId: string, before: boolean, fitCols?: number): void {
+  const m = model(); if (!m) return;
+  bp.selectedId = id;
+  let next = insertRelative(m, id, targetId, before);
+  if (fitCols != null) next = resize(next, id, 'L', fitCols); // dropped into a sized empty slot → fit it
+  mutate(next);
+}
 
 /** The parent id that owns `id` in `mm` — its container/tab, or the enclosing tab for a tab-level node. */
 function parentIdOf(mm: LModel, id: string): string | null {
