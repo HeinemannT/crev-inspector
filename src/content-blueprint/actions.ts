@@ -19,6 +19,9 @@ import { bp, model } from './state';
 import { render } from './view';
 import { applyPage, fetchBlast, createTabset } from './service';
 import { ensureColorSets } from './colors';
+import { loadPresets, savePreset, deletePreset } from './presets';
+import { STYLE_PROPS } from '../lib/style-props';
+import type { StylePreset } from '../lib/style-presets';
 
 /** Push a new model state onto history and re-render. The one write path for staged edits. Flags the
  *  next render to FLIP-animate cells from their old to new positions (so moves/reorders read as motion). */
@@ -68,6 +71,7 @@ export function setMode(mode: 'layout' | 'style'): void {
   if (!bp.active || bp.mode === mode) return;
   bp.mode = mode;
   bp.swatch = null; bp.picker = null; bp.pickerOpts = null; bp.movePicker = null; // don't leave a popup hanging across modes
+  bp.brush.armed = false; bp.paintPanel = null; // disarm the paintbrush when leaving/entering style mode
   if (mode === 'style') void ensureColorSets(); // lazy-load colours so cells can tint (re-renders on arrival)
   render();
 }
@@ -82,6 +86,72 @@ export function applySwatch(bid: string): void {
   bp.swatch = null;
   mutate(setStyle(m, s.nodeId, { [field]: bid }));
 }
+
+// ── G4 paintbrush ─────────────────────────────────────────────────────────────
+/** The masked appearance patch to paint onto a target: for each prop the brush carries (brushMask),
+ *  copy the held value, folding an absent source value to its default — so painting an unstyled source
+ *  CLEARS that prop on the target (the verified "reset where source has none" rule). */
+function maskedPatch(held: NodeStyle): Partial<NodeStyle> {
+  const patch: Record<string, string | number | boolean> = {};
+  for (const sp of STYLE_PROPS) {
+    if (bp.brushMask.has(sp.prop)) patch[sp.nodeKey] = (held as Record<string, string | number | boolean>)[sp.nodeKey] ?? sp.def;
+  }
+  return patch as Partial<NodeStyle>;
+}
+
+/** Toggle the brush tool on/off. While armed it intercepts canvas clicks (pick a source, then paint
+ *  targets); disarming returns clicks to normal select. Keeps the held style so re-arming resumes. */
+export function toggleBrush(): void { bp.brush.armed = !bp.brush.armed; bp.paintPanel = null; render(); }
+export function disarmBrush(): void { if (bp.brush.armed) { bp.brush.armed = false; render(); } }
+/** Re-pick: drop the held style but stay armed → back to sampling (eyedropper). */
+export function repickBrush(): void { bp.brush.held = null; bp.brush.armed = true; bp.paintPanel = null; render(); }
+
+/** A canvas cell was clicked while the brush is armed: capture its style if none held (→ paint mode),
+ *  else paint the held style onto it (stays armed for the next target). */
+export function brushOnCell(id: string): void {
+  const m = model(); if (!m) return;
+  const node = findNode(m, id)?.node; if (!node) return;
+  if (bp.brush.held === null) {
+    bp.brush.held = node.style ? { ...node.style } : {}; // {} = an unstyled source (paints = reset to default)
+    render();
+    return;
+  }
+  mutate(setStyle(m, id, maskedPatch(bp.brush.held))); // mutate re-renders; brush stays armed
+}
+
+/** Toggle one prop in the brush's copy-set (the Setup popup). */
+export function setBrushMaskProp(prop: string, on: boolean): void {
+  if (on) bp.brushMask.add(prop); else bp.brushMask.delete(prop);
+  render();
+}
+export function setBrushMaskAll(on: boolean): void {
+  bp.brushMask = new Set(on ? STYLE_PROPS.map(s => s.prop) : []);
+  render();
+}
+
+/** Open a paint-station popup (setup / save / load). `load` fetches the library first. */
+export function openPaintPanel(which: 'setup' | 'save' | 'load'): void {
+  bp.paintPanel = which;
+  render();
+  if (which === 'load') void loadPresets();
+}
+export function closePaintPanel(): void { if (bp.paintPanel) { bp.paintPanel = null; render(); } }
+
+/** Save the held style as a named preset, then close the Save popup. No-op without a held style/name. */
+export function doSavePreset(name: string): void {
+  const held = bp.brush.held;
+  if (!held || !name.trim()) return;
+  bp.paintPanel = null; render();
+  void savePreset(name.trim(), held);
+}
+/** Load a preset into the brush → armed paint mode; close the Load popup. */
+export function doLoadPreset(preset: StylePreset): void {
+  bp.brush.held = { ...preset.style };
+  bp.brush.armed = true;
+  bp.paintPanel = null;
+  render();
+}
+export function doDeletePreset(id: string): void { void deletePreset(id); }
 export function doRename(id: string, name: string): void {
   const m = model(); if (!m) return;
   const cur = findNode(m, id)?.node;
@@ -284,9 +354,11 @@ export function onKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
     if (typing) return;
     if (bp.preview) closePreview();
+    else if (bp.paintPanel) closePaintPanel();
     else if (bp.swatch) closeSwatch();
     else if (bp.picker) closePicker();
     else if (bp.movePicker) closeMovePicker();
+    else if (bp.brush.armed) disarmBrush();
     else if (bp.selectedId) select(null);
     else return;
     e.preventDefault();

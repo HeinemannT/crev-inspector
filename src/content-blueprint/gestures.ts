@@ -11,7 +11,7 @@ import { findNode } from '../lib/layout/model';
 import type { LNode } from '../lib/layout/types';
 import { ICON_ARROW_RIGHT } from '../lib/icons';
 import { bp, model } from './state';
-import { mutate, select, setHint, doSwap, doInsert, doMoveInto } from './actions';
+import { mutate, select, setHint, doSwap, doInsert, doMoveInto, brushOnCell } from './actions';
 import { resize, setHeight } from '../lib/layout/edit';
 import { render } from './view';
 
@@ -120,7 +120,11 @@ export function armBox(el: HTMLElement, id: string): void {
 
 function dragOrSelect(e: MouseEvent, id: string): void {
   // Style mode edits appearance, not layout — a drag here would silently stage a move/reorder. Select only.
-  if (bp.mode === 'style') { select(id); return; }
+  if (bp.mode === 'style') {
+    if (bp.brush.armed) { brushOnCell(id); return; } // armed paintbrush: pick a source or paint a target
+    select(id);
+    return;
+  }
   const sx = e.clientX, sy = e.clientY;
   let started = false;
   const mv = (ev: MouseEvent): void => {

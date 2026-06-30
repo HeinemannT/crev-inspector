@@ -3,7 +3,9 @@
  * Actions mutate `bp` and call view.render(); view reads `bp`. Keeping the state here (data only)
  * means neither the view nor the controller owns it, and there's no import cycle through it.
  */
-import type { LModel, PlanNote } from '../lib/layout/types';
+import type { LModel, PlanNote, NodeStyle } from '../lib/layout/types';
+import type { StylePreset } from '../lib/style-presets';
+import { PAINT_STYLE_PROPS } from '../lib/style-props';
 import type { BlueprintCtx } from '../lib/layout/sync';
 import type { InstanceFanout, ContainerBlast } from '../lib/layout/blast-radius';
 import { History } from '../lib/layout/history';
@@ -27,6 +29,12 @@ export interface BpState {
   movePicker: string | null;    // widgetId the move-destination menu is open for
   swatch: { nodeId: string; prop: 'headerColor' | 'fontColor' } | null; // G3: the colour swatch popup target (style mode), null = closed
   swatchExpanded: Set<string>; // G3: which swatch-popup colour folders are open (per session; 'Basics' open by default)
+  // G4 — the paintbrush (style mode). `armed` = the tool intercepts canvas clicks; `held` = the captured
+  // appearance (null while sampling). brushMask = which props the brush copies. paintPanel = open popup.
+  brush: { armed: boolean; held: NodeStyle | null };
+  brushMask: Set<string>;
+  paintPanel: 'setup' | 'save' | 'load' | null;
+  presets: StylePreset[]; // saved-style library cache (loaded from the SW per profile)
   renameId: string | null;      // node whose inline-rename should OPEN on the next render (dbl-click / toolbar pencil)
   onResize: (() => void) | null; // window 'resize' handler (re-anchors the canvas; scroll is native)
   onKey: ((e: KeyboardEvent) => void) | null;
@@ -59,7 +67,8 @@ export interface BpState {
 function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
-    layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, swatch: null, swatchExpanded: new Set(['Basics']), renameId: null,
+    layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, swatch: null, swatchExpanded: new Set(['Basics']),
+    brush: { armed: false, held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
     onResize: null, onKey: null, onPop: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
     observer: null, resizeObs: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
   };

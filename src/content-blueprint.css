@@ -482,3 +482,70 @@
 #crev-blueprint-layer .bp-empty{position:fixed;top:130px;left:50%;transform:translateX(-50%);max-width:460px;padding:20px 24px;text-align:center;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r-ui);box-shadow:var(--bp-shadow);pointer-events:auto}
 #crev-blueprint-layer .bp-empty-t{font:600 13px 'BPInter',sans-serif;color:var(--bp-text);margin-bottom:6px}
 #crev-blueprint-layer .bp-empty-s{font:400 12px/1.5 'BPInter',sans-serif;color:var(--bp-muted)}
+
+/* ── G4 paintbrush ─────────────────────────────────────────────────────────────────────────────── */
+/* the 2×2 paint station, mounted right of the top bar (mirrors the vertical mode switch on the left) */
+#crev-blueprint-layer .bp-paint{display:grid;grid-template-columns:1fr 1fr;flex:none;border-left:var(--bp-hair) solid var(--bp-line-2)}
+#crev-blueprint-layer .bp-paint-c{position:relative;width:46px;display:grid;place-items:center;border:0;background:transparent;color:var(--bp-muted);cursor:pointer;transition:background .12s,color .12s}
+#crev-blueprint-layer .bp-paint-c+.bp-paint-c{border-left:var(--bp-hair) solid var(--bp-line-2)}
+#crev-blueprint-layer .bp-paint-c:nth-child(3),#crev-blueprint-layer .bp-paint-c:nth-child(4){border-top:var(--bp-hair) solid var(--bp-line-2)}
+#crev-blueprint-layer .bp-paint-c:hover:not(.disabled){background:rgba(138,63,252,.1);color:var(--bp-text)}
+#crev-blueprint-layer .bp-paint-c.on{background:rgba(138,63,252,.14);color:var(--bp-accent,#8a3ffc)}
+#crev-blueprint-layer .bp-paint-c.disabled{opacity:.35;cursor:default}
+#crev-blueprint-layer .bp-paint-ic{display:inline-flex}
+#crev-blueprint-layer .bp-paint-ic svg{display:block;width:16px;height:16px}
+/* brush cell states: sampling = cyan, loaded/armed = accent purple */
+#crev-blueprint-layer .bp-paint-brush.sampling{background:rgba(74,144,217,.16);color:var(--bp-cyan-hi);box-shadow:inset 0 0 0 var(--bp-emph) var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-paint-brush.loaded{color:var(--bp-accent,#8a3ffc)}
+#crev-blueprint-layer .bp-paint-brush.loaded.armed{background:rgba(138,63,252,.16);box-shadow:inset 0 0 0 var(--bp-emph) var(--bp-accent,#8a3ffc)}
+#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic{position:absolute;right:5px;bottom:4px}
+#crev-blueprint-layer .bp-paint-brush.loaded .bp-paint-ic svg{width:11px;height:11px}
+#crev-blueprint-layer .bp-paint-repick{position:absolute;left:4px;top:3px;display:inline-flex;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-paint-repick:hover{color:var(--bp-text)}
+#crev-blueprint-layer .bp-paint-repick svg{width:11px;height:11px;display:block}
+#crev-blueprint-layer .bp-paint-badge{position:absolute;right:4px;top:3px;min-width:13px;height:13px;padding:0 2px;border-radius:7px;background:var(--bp-accent,#8a3ffc);color:#fff;font:700 8px/13px var(--bp-mono);text-align:center}
+
+/* the shared style chip — a tiny widget preview */
+#crev-blueprint-layer .bp-schip{width:26px;height:20px;border-radius:2px;overflow:hidden;background:#fff;border:1px solid var(--bp-line-2);display:flex;flex-direction:column;flex:none}
+#crev-blueprint-layer .bp-schip.bd{border-color:var(--bp-line-1)}
+#crev-blueprint-layer .bp-schip.sh{box-shadow:0 1px 3px rgba(0,33,71,.4)}
+#crev-blueprint-layer .bp-schip.empty{background:repeating-conic-gradient(#e2e8f0 0 25%,transparent 0 50%) 50%/8px 8px;border-style:dashed}
+#crev-blueprint-layer .bp-schip-hdr{height:7px;flex:none;background:var(--bp-line-2)}
+#crev-blueprint-layer .bp-schip-hdr.none{background:repeating-linear-gradient(45deg,transparent 0 2px,#cbd5e1 2px 4px)}
+#crev-blueprint-layer .bp-schip-body{flex:1;display:grid;place-items:center}
+#crev-blueprint-layer .bp-schip-a{font:700 9px 'BPInter',sans-serif;color:var(--bp-muted);line-height:1}
+
+/* armed brush: canvas cells read as paintable */
+#crev-blueprint-layer.bp-brush .bp-rcell{cursor:crosshair}
+#crev-blueprint-layer.bp-brush .bp-rcell:hover{box-shadow:0 0 0 var(--bp-emph) var(--bp-accent,#8a3ffc)}
+#crev-blueprint-layer.bp-brush-pick .bp-rcell:hover{box-shadow:0 0 0 var(--bp-emph) var(--bp-cyan-hi)}
+
+/* paint popups — reuse the .bp-pick chrome, pinned top-right under the station */
+#crev-blueprint-layer .bp-paint-pop{position:fixed;top:78px;right:14px;left:auto;width:268px}
+#crev-blueprint-layer .bp-paint-mask{display:flex;flex-direction:column;padding:4px 6px 6px}
+#crev-blueprint-layer .bp-paint-mrow{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:var(--bp-r);background:transparent;color:var(--bp-muted);font:500 12px 'BPInter',sans-serif;cursor:pointer;text-align:left}
+#crev-blueprint-layer .bp-paint-mrow:hover{background:rgba(138,63,252,.07)}
+#crev-blueprint-layer .bp-paint-mrow.on{color:var(--bp-text)}
+#crev-blueprint-layer .bp-paint-tick{width:15px;height:15px;flex:none;border:var(--bp-hair) solid var(--bp-line-2);border-radius:3px;display:grid;place-items:center;color:#fff}
+#crev-blueprint-layer .bp-paint-mrow.on .bp-paint-tick{background:var(--bp-accent,#8a3ffc);border-color:var(--bp-accent,#8a3ffc)}
+#crev-blueprint-layer .bp-paint-tick svg{width:10px;height:10px;display:block}
+#crev-blueprint-layer .bp-paint-mname{flex:1}
+#crev-blueprint-layer .bp-paint-mval{font:500 10px var(--bp-mono);color:var(--bp-muted)}
+#crev-blueprint-layer .bp-paint-foot{display:flex;gap:6px;align-items:center;padding:8px 10px;border-top:var(--bp-hair) solid var(--bp-line-2)}
+#crev-blueprint-layer .bp-paint-foot .bp-paint-btn.primary{margin-left:auto}
+#crev-blueprint-layer .bp-paint-btn{height:24px;padding:0 11px;border-radius:var(--bp-r);border:var(--bp-hair) solid var(--bp-line-2);background:transparent;color:var(--bp-text);font:500 11px 'BPInter',sans-serif;cursor:pointer}
+#crev-blueprint-layer .bp-paint-btn:hover{border-color:var(--bp-cyan)}
+#crev-blueprint-layer .bp-paint-btn.primary{background:var(--bp-accent,#8a3ffc);border-color:var(--bp-accent,#8a3ffc);color:#fff}
+/* save */
+#crev-blueprint-layer .bp-paint-saverow{display:flex;align-items:center;gap:9px;padding:10px}
+#crev-blueprint-layer .bp-paint-name{flex:1;margin:0}
+/* load library */
+#crev-blueprint-layer .bp-paint-lib{max-height:320px;overflow:auto;padding:6px}
+#crev-blueprint-layer .bp-paint-empty{padding:18px 12px;text-align:center;color:var(--bp-muted);font:400 12px/1.5 'BPInter',sans-serif}
+#crev-blueprint-layer .bp-paint-lrow{display:flex;align-items:center;gap:4px}
+#crev-blueprint-layer .bp-paint-lpick{flex:1;display:flex;align-items:center;gap:9px;padding:6px 8px;border:0;border-radius:var(--bp-r);background:transparent;color:var(--bp-text);font:500 12px 'BPInter',sans-serif;cursor:pointer;text-align:left}
+#crev-blueprint-layer .bp-paint-lpick:hover{background:rgba(138,63,252,.08)}
+#crev-blueprint-layer .bp-paint-lname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#crev-blueprint-layer .bp-paint-ldel{flex:none;width:24px;height:24px;display:grid;place-items:center;border:0;background:transparent;color:var(--bp-muted);border-radius:var(--bp-r);cursor:pointer}
+#crev-blueprint-layer .bp-paint-ldel:hover{color:var(--bp-red);background:rgba(225,29,72,.1)}
+#crev-blueprint-layer .bp-paint-ldel svg{width:13px;height:13px;display:block}

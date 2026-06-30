@@ -53,7 +53,7 @@ function makeCtx(overrides: Partial<SwContext> = {}): SwContext & {
     history: { record: vi.fn(), getAll: vi.fn(() => []), clear: vi.fn(), load: vi.fn(), switchProfile: vi.fn().mockResolvedValue(undefined) } as any,
     favorites: { toggle: vi.fn(), isFavorite: vi.fn(() => false), getAll: vi.fn(() => []), remove: vi.fn(), load: vi.fn(), switchProfile: vi.fn().mockResolvedValue(undefined) } as any,
     scriptHistory: { record: vi.fn(), getAll: vi.fn(() => []), clear: vi.fn(), load: vi.fn(), switchProfile: vi.fn().mockResolvedValue(undefined) } as any,
-    stylePresets: { getAll: vi.fn(() => []), save: vi.fn(), remove: vi.fn(), load: vi.fn(), switchProfile: vi.fn() } as any,
+    stylePresets: { getAll: vi.fn(() => []), save: vi.fn(), remove: vi.fn(), load: vi.fn(), switchProfile: vi.fn(async () => {}) } as any,
     settings: makeSettings(),
     inspectActive: false,
     technicalOverlay: false,
