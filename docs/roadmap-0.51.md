@@ -172,6 +172,12 @@ headerColor/fontColor), `APPLY_OBJECT_CHANGES` handler
     blueprint apply and any side-panel apply can't diverge). EC verified live.
   - **Stage C** — retire the G1 sidebar Style tab now that styling lives on the
     canvas.
+- **G4 — Blueprint paintbrush ☑ (beyond the original plan, shipped in 0.51):** a
+  2×2 "paint station" right of the top bar — one state-driven Pick/Paint brush,
+  a Setup prop-mask, and a per-profile saved-style library (Save/Load) that
+  paints across scorecards. The proper, staged in-canvas successor to the live
+  sidebar paintbrush (G2). Built on the single-sourced style catalog + the
+  verified enum-clear fix.
 
 ---
 

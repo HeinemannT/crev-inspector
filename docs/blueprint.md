@@ -136,6 +136,26 @@ style props + their reset literals lives in `lib/style-props.ts`; the NodeStyle�
 (Styling once had a dedicated side-panel tab; it was retired once Style mode landed. The colour fetch
 + `ColorSetIndex` + `swatch-grid.ts` it introduced are shared and live on.)
 
+## Paintbrush (G4)
+
+The style-transfer tool: a **2×2 "paint station"** mounted right of the top bar (mirroring the mode
+switch on the left), style mode only. `view-paint.ts` builds it; `bp.brush` holds the state.
+
+- **Brush** (hero) is ONE state-driven cell — Pick and Paint merged: empty → eyedropper; armed-sampling
+  → eyedropper + cyan ring; loaded → the held style's mini "chip" + brush glyph + purple armed-fill, with
+  a re-pick eyedropper. Armed, `gestures.dragOrSelect` routes a WIDGET click to `brushOnCell` — first
+  click captures `node.style`, the rest paint `setStyle(target, maskStyle(held, mask))` (staged · live
+  preview · undo · one Apply). Containers/tabs are ignored (no appearance props). The per-cell style
+  toolbar is suppressed while armed.
+- **Setup** (sliders) edits `bp.brushMask` — the BMP props the brush copies; painting an unstyled source
+  clears the masked props (via the verified enum-clear path). `maskStyle` (`lib/layout/types`) is the
+  pure patch builder.
+- **Save/Load** — the saved-style library: a per-profile `StylePresetStore` in the SW
+  (`crev_<profile>_style_presets`, FavoritesManager pattern), reached over LIST/SAVE/DELETE_STYLE_PRESET
+  one-shot messages (`content-blueprint/presets.ts`). Colours are workspace-global businessIds, so a
+  preset paints onto any scorecard in the workspace. All popups + the shared `styleChip` motif use the
+  overlay's `.bp-pick` chrome.
+
 ## Two-model split & context resolution
 
 BMP layout spans two models: the **portal** TabSet → Tab → Container grid, and the **org** model that

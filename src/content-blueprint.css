@@ -43,49 +43,15 @@
 #crev-blueprint-layer *{box-sizing:border-box}
 
 /* lifted-paper shadow on every floating chrome panel (matches the cards) */
-#crev-blueprint-layer .bp-header,#crev-blueprint-layer .bp-tools,#crev-blueprint-layer .bp-tray,#crev-blueprint-layer .bp-pick,#crev-blueprint-layer .bp-modal,#crev-blueprint-layer .bp-hint,#crev-blueprint-layer .bp-ctab,#crev-blueprint-layer .bp-h,#crev-blueprint-layer .bp-dim{box-shadow:var(--bp-shadow)}
+#crev-blueprint-layer .bp-header,#crev-blueprint-layer .bp-tools,#crev-blueprint-layer .bp-tray,#crev-blueprint-layer .bp-pick,#crev-blueprint-layer .bp-modal,#crev-blueprint-layer .bp-hint{box-shadow:var(--bp-shadow)}
 
 #crev-blueprint-layer .bp-modal{ background:var(--bp-ground); }
 
-/* ── containers (live reference view) ────────────────── */
-/* Transparent dashed frame + drafting corner brackets so each container reads as a grouping outline. */
-#crev-blueprint-layer .bp-cont{position:absolute;border:var(--bp-hair) dashed var(--bp-line-2);pointer-events:auto;cursor:grab;background:rgba(255,255,255,.6)}
-#crev-blueprint-layer .bp-cont.sel{border-style:solid;border-color:var(--bp-cyan-hi)}
-#crev-blueprint-layer .bp-cont.changed{border-color:var(--bp-amber)}
-/* Selected-container scrim: a faint wash + a centred CONTAINER · name tag, so container vs widget
-   selection is unmistakable. Above the child widget boxes, pointer-events:none so it never eats a drag. */
-#crev-blueprint-layer .bp-cont-ov{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:rgba(21,101,192,.08);border-radius:var(--bp-r);pointer-events:none}
-#crev-blueprint-layer .bp-cont-ov-tag{font:700 11px var(--bp-mono);letter-spacing:.14em;color:var(--bp-text);background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-2);padding:3px 10px;border-radius:var(--bp-r)}
-#crev-blueprint-layer .bp-cont-ov-nm{max-width:90%;font:500 11px 'BPInter',sans-serif;color:var(--bp-text);background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-2);padding:2px 8px;border-radius:var(--bp-r);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* container handle — always-visible tab ABOVE the box top-left: the add "+" (and name/width on select) */
-#crev-blueprint-layer .bp-ctab{position:absolute;bottom:100%;left:-1px;margin-bottom:2px;z-index:8;display:inline-flex;align-items:center;gap:5px;max-width:calc(100% + 2px);padding:1px 4px;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r);pointer-events:auto;white-space:nowrap;overflow:hidden}
-#crev-blueprint-layer .bp-ctab.sel{border-color:var(--bp-cyan-hi)}
-#crev-blueprint-layer .bp-ctab .cname{font:500 10px 'BPInter',sans-serif;color:var(--bp-text);text-transform:uppercase;letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis}
-#crev-blueprint-layer .bp-ctab .cw{font:500 9px/1 var(--bp-mono);color:var(--bp-muted)}
-#crev-blueprint-layer .bp-cadd{width:16px;height:16px;border-radius:var(--bp-r);border:0;background:transparent;color:var(--bp-cyan);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
-#crev-blueprint-layer .bp-cadd:hover{background:var(--bp-cyan);color:var(--bp-ground)}
-/* inline icon glyphs (Phosphor SVG) sit dead-centre and inherit colour */
-#crev-blueprint-layer .bp-cadd svg,#crev-blueprint-layer .bp-tedit svg,#crev-blueprint-layer .bp-tdel svg,#crev-blueprint-layer .bp-avail .ic svg{display:block;width:11px;height:11px}
-
-/* empty-space add zone — section-hatch, clearly an add target (live reference view) */
-#crev-blueprint-layer .bp-avail{position:absolute;display:flex;align-items:center;justify-content:center;gap:7px;border:var(--bp-emph) dashed var(--bp-cyan);border-radius:var(--bp-r);background:repeating-linear-gradient(45deg,transparent 0 6px,rgba(21,101,192,.26) 6px 10px);color:#000;font:600 12px 'BPInter',sans-serif;cursor:pointer;pointer-events:auto}
-#crev-blueprint-layer .bp-avail:hover{border-color:var(--bp-cyan-hi);background:repeating-linear-gradient(45deg,transparent 0 6px,rgba(21,101,192,.42) 6px 10px)}
-#crev-blueprint-layer .bp-avail.bp-drop{border-style:solid;border-color:var(--bp-cyan-hi);background:rgba(21,101,192,.22)}
-#crev-blueprint-layer .bp-avail .ic{display:flex}
-
-/* draggable boxes */
-#crev-blueprint-layer .bp-box{cursor:grab}
+/* tab-pill edit/delete button icon glyphs (Phosphor SVG) */
+#crev-blueprint-layer .bp-tedit svg,#crev-blueprint-layer .bp-tdel svg{display:block;width:11px;height:11px}
+/* drag affordances shared by the result-cell gestures: source highlight + cross-tab drop target */
 #crev-blueprint-layer .bp-dragsrc{outline:var(--bp-emph) dashed var(--bp-cyan);outline-offset:1px;opacity:.5}
-#crev-blueprint-layer .bp-box.bp-drop,#crev-blueprint-layer .bp-cont.bp-drop{outline:var(--bp-emph) solid var(--bp-cyan-hi)!important;outline-offset:2px;background:rgba(21,101,192,.14)!important}
-#crev-blueprint-layer .bp-box.bp-swap{outline:var(--bp-emph) solid var(--bp-cyan-hi)!important;outline-offset:2px;background:rgba(21,101,192,.1)!important}
-#crev-blueprint-layer .bp-box.bp-swap::after{content:"SWAP";position:absolute;top:3px;right:5px;font:700 9px var(--bp-mono);letter-spacing:.06em;color:var(--bp-ground);background:var(--bp-cyan-hi);padding:1px 5px;border-radius:var(--bp-r)}
 #crev-blueprint-layer .bp-tab.bp-tabdrop{outline:var(--bp-emph) solid var(--bp-cyan-hi);background:rgba(21,101,192,.2)}
-
-/* edge resize handles + dimension readout */
-#crev-blueprint-layer .bp-h{position:absolute;z-index:7;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-cyan-hi);border-radius:var(--bp-r);pointer-events:auto}
-#crev-blueprint-layer .bp-h.r{right:-5px;top:calc(50% - 12px);width:9px;height:24px;cursor:ew-resize}
-#crev-blueprint-layer .bp-h.b{bottom:-5px;left:calc(50% - 12px);height:9px;width:24px;cursor:ns-resize}
-#crev-blueprint-layer .bp-dim{position:absolute;top:-9px;left:50%;transform:translateX(-50%);z-index:6;padding:0 6px;background:var(--bp-ground);color:var(--bp-cyan);font:500 9.5px/16px var(--bp-mono);border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r);pointer-events:none;white-space:nowrap}
 
 /* drag ghost + insertion line (body-level, above the layer — outside #crev-blueprint-layer, so no tokens) */
 .bp-ghost{position:fixed;z-index:2147483640;pointer-events:none;background:#fff;border:1.5px solid #002147;border-radius:2px;padding:5px 10px;box-shadow:0 1px 2px 0 rgba(0,33,71,.12)}
@@ -142,31 +108,8 @@
 /* gesture hint bar */
 #crev-blueprint-layer .bp-hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:42;padding:6px 14px;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);color:var(--bp-muted);font:500 11px 'BPInter',sans-serif;pointer-events:none;white-space:nowrap}
 
-/* ── widget boxes (live reference view) ──────────────── */
-/* Resting = near-white hairline (no cyan); cyan is earned by hover/selection. */
-#crev-blueprint-layer .bp-box{position:absolute;border:var(--bp-hair) solid var(--bp-line-1);background:#fff;box-shadow:var(--bp-shadow);pointer-events:auto;cursor:pointer;transition:background .12s,border-color .12s}
-#crev-blueprint-layer .bp-box:hover{border-color:var(--bp-cyan);background:rgba(21,101,192,.06)}
-#crev-blueprint-layer .bp-box.sel{border:var(--bp-emph) solid var(--bp-cyan-hi)}
-#crev-blueprint-layer .bp-box.changed{border-color:var(--bp-amber);border-style:solid}
-#crev-blueprint-layer .bp-box.del{border-color:var(--bp-red);background:rgba(225,29,72,.08)}
-#crev-blueprint-layer .bp-box.del .bp-nm{text-decoration:line-through;opacity:.6}
-#crev-blueprint-layer .bp-box.bp-new{border-style:dashed;border-color:var(--bp-green);background:rgba(22,163,74,.07)}
-/* moved-widget destination preview: blueprint blue (vs green for a brand-new add) */
-#crev-blueprint-layer .bp-box.bp-moveghost{border-color:var(--bp-cyan);background:rgba(21,101,192,.09)}
-#crev-blueprint-layer .bp-moveghost .newtag{background:var(--bp-cyan);color:var(--bp-ground)}
-/* The dimmed live original of a moved widget is a GHOST ORIGIN: faint, dashed, hatched, and visually
-   subordinate to its solid "MOVED HERE" destination preview — so the pair reads as one node in transit. */
-#crev-blueprint-layer .bp-box.moved{opacity:.4;border-style:dashed;border-color:var(--bp-cyan);background:repeating-linear-gradient(45deg,transparent 0 5px,rgba(21,101,192,.08) 5px 10px)}
-
-/* ── widget label chip (live reference view — sits over the real page, needs an opaque strip) ── */
-#crev-blueprint-layer .bp-lab{position:absolute;top:0;left:0;display:flex;gap:6px;align-items:baseline;max-width:100%;padding:2px 7px;color:var(--bp-text);background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-2);border-top:0;border-left:0;border-radius:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#crev-blueprint-layer .bp-lab .ty{font:500 9.5px/1 var(--bp-mono);letter-spacing:.05em;color:var(--bp-muted);text-transform:uppercase}
-#crev-blueprint-layer .bp-lab .wd{font:500 9.5px/1 var(--bp-mono);color:var(--bp-muted)}
-#crev-blueprint-layer .bp-lab .delta{font:700 9.5px/1 var(--bp-mono);color:var(--bp-amber)}
-#crev-blueprint-layer .bp-lab .newtag{color:var(--bp-green);border:var(--bp-hair) solid var(--bp-green);font:700 9px/1 'BPInter',sans-serif;padding:1px 4px;border-radius:var(--bp-r);letter-spacing:.06em}
-/* an open inline-rename field — clearly editable: blue ring + light fill, so it never looks like
-   plain text (the result-cell .bp-rnm had no rule at all, so renaming there looked like nothing happened) */
-#crev-blueprint-layer .bp-nm[contenteditable],#crev-blueprint-layer .bp-tnm[contenteditable],#crev-blueprint-layer .bp-rnm[contenteditable]{outline:2px solid var(--bp-cyan-hi);outline-offset:1px;background:rgba(21,101,192,.1);border-radius:var(--bp-r);padding:0 3px;cursor:text;overflow:visible;text-overflow:clip;max-width:none}
+/* an open inline-rename field (tab pill or result cell) — clearly editable: blue ring + light fill */
+#crev-blueprint-layer .bp-tnm[contenteditable],#crev-blueprint-layer .bp-rnm[contenteditable]{outline:2px solid var(--bp-cyan-hi);outline-offset:1px;background:rgba(21,101,192,.1);border-radius:var(--bp-r);padding:0 3px;cursor:text;overflow:visible;text-overflow:clip;max-width:none}
 
 /* ── floating widget toolbar ─────────────────────────── */
 /* Selection toolbar sits ABOVE the canvas (z 30 > result z 6) and below the header (z 50) — it
@@ -317,7 +260,7 @@
    to span the panel's height; left:0 + full width covers the side margins the panel leaves bare. */
 #crev-blueprint-layer .bp-canvas-bg{position:absolute;z-index:5;left:0;width:100%;background:var(--bp-ground);background-image:linear-gradient(var(--bp-grid-2) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid-2) 1px,transparent 1px),linear-gradient(var(--bp-grid) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid) 1px,transparent 1px);background-size:40px 40px,40px 40px,10px 10px,10px 10px;pointer-events:none;transition:opacity .12s}
 /* Peek: while hovering (or toggling) the slashed-eye control, fully hide the overlay so the real widgets show. */
-#crev-blueprint-layer.bp-peek .bp-result,#crev-blueprint-layer.bp-peek .bp-canvas-bg,#crev-blueprint-layer.bp-peek .bp-box,#crev-blueprint-layer.bp-peek .bp-cont,#crev-blueprint-layer.bp-peek .bp-tools{opacity:0}
+#crev-blueprint-layer.bp-peek .bp-result,#crev-blueprint-layer.bp-peek .bp-canvas-bg,#crev-blueprint-layer.bp-peek .bp-tools{opacity:0}
 /* align-items:start so each cell keeps its OWN (measured/authored) height instead of stretching to
    the row's tallest — the wireframe then reflects real widget heights, not a uniform grid. */
 #crev-blueprint-layer .bp-rgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-content:start;align-items:start}
