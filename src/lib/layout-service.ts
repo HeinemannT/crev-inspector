@@ -13,6 +13,7 @@
  * supersedes the old regex.
  */
 import type { BmpClient } from './bmp-client';
+import { LAYOUT_EC_TIMEOUT } from './constants';
 import type { LayoutIO, BlueprintCtx, NeedsTabset, LoadResult, ApplyResult } from './layout/sync';
 import { loadModel, applyModel, resolvePageContext, createTabsetAndLoad } from './layout/sync';
 import type { LModel } from './layout/types';
@@ -24,11 +25,13 @@ import {
   type InstanceFanout, type ContainerBlast,
 } from './layout/blast-radius';
 
-/** Wrap a BmpClient as a LayoutIO. `commit` → transactional executeEc. */
+/** Wrap a BmpClient as a LayoutIO. `commit` → transactional executeEc. Layout runs get the wide
+ *  LAYOUT_EC_TIMEOUT: the fetch walks every widget of the page (plus override + style channels),
+ *  which on a heavy live scorecard legitimately outlives the general 30s EC window. */
 export function makeLayoutIO(client: BmpClient): LayoutIO {
   return {
     async exec(code: string, commit = false) {
-      const r = await client.executeEc(code, undefined, commit);
+      const r = await client.executeEc(code, undefined, commit, undefined, LAYOUT_EC_TIMEOUT);
       return { ok: r.ok, log: r.log, error: r.error };
     },
   };

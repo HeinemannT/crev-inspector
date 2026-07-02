@@ -108,6 +108,12 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
   // (portal placement). A widget bound to the Result tab keeps that binding so it attaches to the Result
   // tab node. Skip ActionButtons flagged displayOnActionMenu — BMP renders those in the page's action
   // MENU, not the grid, so they're not part of the editable layout. Shared by both fetch shapes.
+  // PERFORMANCE INVARIANT (live-measured 2026-07-02): every `+` whose operand chain includes the big
+  // accumulator `_r` re-copies AND HTML-sniffs (DetectHtml regex) the whole string — so a multi-term
+  // `_r := _r + a + b + …` costs one full-accumulator pass PER TERM, and the fetch goes quadratic with
+  // a huge constant (a ~2000-line build measured 52s; the same lines built small-first, ~8s). Rule:
+  // build each node's lines in the SMALL local `_l`, then touch `_r` exactly once per node.
+  //
   // F2 override channel: for an inherited widget (linkedTo a template counterpart), emit a separate
   // `<OVER>bid|prop,...` line listing the props whose value differs from the template — the parser picks
   // these up independently of the layout wire (they sit on a different marker, so parseLayoutNodes skips
@@ -118,9 +124,9 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `               _ovr := ""`,
     ...OVERRIDABLE_PROPS.map(p =>
       `               IF _w.${p}.whenMissing("") <> _lt.${p}.whenMissing("") THEN _ovr := _ovr + "${p}," ELSE _ovr := _ovr ENDIF`),
-    `               IF _ovr <> "" THEN _r := _r + "${OVER}" + _w.id.whenMissing("") + "|" + _ovr + "\\n" ELSE _r := _r ENDIF`,
+    `               IF _ovr <> "" THEN _l := _l + "${OVER}" + _w.id.whenMissing("") + "|" + _ovr + "\\n" ELSE _l := _l ENDIF`,
     `          ELSE`,
-    `               _r := _r`,
+    `               _l := _l`,
     `          ENDIF`,
   ];
   // G3 style channel: per widget, emit its current appearance on a distinct marker (parsed by
@@ -128,16 +134,21 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
   // businessId (`.id`) — resolved to rgb client-side via the colour-set cache — not a value. `.id` on a
   // MISSING colour chains to MISSING → whenMissing("") → "" (same safe pattern as the override channel).
   const styleEmit = [
-    `          _r := _r + "${STYLE}" + _w.id.whenMissing("") + "|" + _w.headerColor.id.whenMissing("") + "|" + _w.fontColor.id.whenMissing("") + "|" + _w.shadow.whenMissing("") + "|" + _w.headerStyle.whenMissing("") + "|" + _w.borderStyle.whenMissing("") + "|" + _w.transparency.whenMissing("") + "\\n"`,
+    `          _l := _l + "${STYLE}" + _w.id.whenMissing("") + "|" + _w.headerColor.id.whenMissing("") + "|" + _w.fontColor.id.whenMissing("") + "|" + _w.shadow.whenMissing("") + "|" + _w.headerStyle.whenMissing("") + "|" + _w.borderStyle.whenMissing("") + "|" + _w.transparency.whenMissing("") + "\\n"`,
   ];
   const orgLoop = [
     `_sc.descendants().forEach(_w:`,
     `     IF _w.className.whenMissing("") = "ActionButton" AND _w.displayOnActionMenu.whenMissing(false) = true THEN`,
     `          _r := _r`,
     `     ELSE`,
-    `          _r := _r + "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
-    ...overEmit,
+    `          _l := "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
+    // The override channel only means anything for INSTANCE loads (a template's widgets have no
+    // linkedTo, so every check would compare a widget against MISSING and emit nothing). Skipping it
+    // for template-target loads drops ~2·|OVERRIDABLE_PROPS| property reads per widget — a real win
+    // on heavy pages, where the fetch EC is the slow half of opening the blueprint.
+    ...(ctx.target === 'template' ? [] : overEmit),
     ...styleEmit,
+    `          _r := _r + _l`,
     `     ENDIF`,
     `)`,
   ];
@@ -175,8 +186,10 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `     _r := _r`,
     `ENDIF`,
     // grid: tabs + containers — parentRid set, containerRid always empty, no chartHeight.
+    // Same small-first rule as the org loop: line into `_l`, ONE `_r` touch per node.
     `_ts.descendants().forEach(_n:`,
-    `     _r := _r + "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + _n.name.whenMissing("") + "\\n"`,
+    `     _l := "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + _n.name.whenMissing("") + "\\n"`,
+    `     _r := _r + _l`,
     `)`,
     ...orgLoop,
     `_r`,

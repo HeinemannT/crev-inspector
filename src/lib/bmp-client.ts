@@ -18,7 +18,7 @@ import { styleAssignRhs, INVALID_COLOR_BID } from './style-ec';
 import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessTraceAction, AccessTraceNode, AccessSubject, BmpObject, LayoutNode } from './types';
 import { LAYOUT_SEP, parseLayoutNodes } from './layout-wire';
 import { log } from './logger';
-import { HEALTH_TIMEOUT, BATCH_CHUNK_SIZE, MAX_PARALLEL } from './constants';
+import { HEALTH_TIMEOUT, EC_TIMEOUT, BATCH_CHUNK_SIZE, MAX_PARALLEL } from './constants';
 import { BmpAuth, AuthError } from './bmp-auth';
 import type { AuthMode, AuthErrorCode, AuthVia } from './bmp-auth';
 import { BmpTransport } from './bmp-transport';
@@ -657,18 +657,20 @@ export class BmpClient {
 
   // ── EC operations ────────────────────────────────────────────
 
-  /** Execute Extended Code */
-  async executeEc(code: string, objectRid?: string, transactional = false, signal?: AbortSignal): Promise<EcResult> {
+  /** Execute Extended Code. `timeoutMs` widens the network window for known-long runs
+   *  (blueprint layout fetch/apply on heavy pages) — defaults to EC_TIMEOUT in the transport. */
+  async executeEc(code: string, objectRid?: string, transactional = false, signal?: AbortSignal, timeoutMs?: number): Promise<EcResult> {
     try {
       const cmd = makeExtendedExecuteCommand(code, {
         objectRid: objectRid ? BigInt(objectRid) : undefined,
         transactional,
       });
-      const objects = await this.transport.sendStreamingCommand(cmd, signal);
+      const objects = await this.transport.sendStreamingCommand(cmd, signal, timeoutMs);
       return parseEcResults(objects);
     } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') {
-        return { ok: false, error: 'EC execution timed out (30s)' };
+      // AbortSignal.timeout → TimeoutError; a caller-passed abort → AbortError.
+      if (e instanceof DOMException && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
+        return { ok: false, error: `EC execution timed out (${Math.round((timeoutMs ?? EC_TIMEOUT) / 1000)}s)` };
       }
       return { ok: false, error: this.transport.formatError(e) };
     }

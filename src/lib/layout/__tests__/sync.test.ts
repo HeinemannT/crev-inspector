@@ -76,8 +76,11 @@ describe('sync.buildFetchEc', () => {
     expect(() => buildFetchEc({ ...CTX, pageRid: '1); delete()' })).toThrow(/Invalid RID/);
     expect(() => buildFetchEc({ ...CTX, tabsetId: 't"; x' })).toThrow(/Invalid business id/);
   });
-  it('emits the F2 override channel for an inherited widget + parseOverrides reads it', () => {
-    const ec = buildFetchEc(CTX);
+  it('emits the F2 override channel for INSTANCE loads only + parseOverrides reads it', () => {
+    // Template-target loads skip the channel entirely — a template's widgets have no linkedTo, so
+    // every per-widget comparison would be dead weight (the heavy-page fetch-timeout fix).
+    expect(buildFetchEc(CTX)).not.toContain('<<<CREV_OVER>>>');
+    const ec = buildFetchEc({ ...CTX, target: 'instance' });
     expect(ec).toContain('<<<CREV_OVER>>>');                // the channel is emitted
     expect(ec).toContain('_w.columnsLargeScreen.whenMissing("") <> _lt.columnsLargeScreen'); // compares vs linkedTo
     // parser: only OVER lines are read, layout (SEP) lines are ignored; props split on comma.

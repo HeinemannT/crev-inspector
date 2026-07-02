@@ -58,6 +58,7 @@ export interface BpState {
   creatingTabset: boolean;      // create-tabset request in flight (disables the tab-bar "+ Create tabset" button)
   flipNext: boolean;            // animate result cells from old→new position on the next render (set by an edit)
   viewTabId: string | null;     // tab shown in the canvas (header tab bar switches it); null → follow BMP's live tab
+  unusedTabsOpen: boolean;      // tab bar: the "+N empty" fold is expanded (shared-tabset tabs with no widgets on this page)
   scrollSpacer: HTMLElement | null; // body-level spacer that extends page scroll height to cover a taller-than-content panel
   peek: boolean;                // sticky peek toggle (overlay faded so the live widgets show); hover peeks transiently
   // Frozen document-space anchor of the result canvas for the CURRENT tab. The canvas top doesn't move
@@ -78,7 +79,7 @@ function freshState(): Omit<BpState, 'gen'> {
     layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
     onResize: null, onKey: null, onPop: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
-    observer: null, resizeObs: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, scrollSpacer: null, peek: false,
+    observer: null, resizeObs: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, unusedTabsOpen: false, scrollSpacer: null, peek: false,
     resultAnchor: null,
   };
 }
@@ -96,7 +97,7 @@ export function resetState(): void { Object.assign(bp, freshState()); }
  *  can't be forgotten at a reload site. */
 export function resetModel(): void {
   bp.baseline = null; bp.ctx = null; bp.history = null;
-  bp.selectedId = null; bp.viewTabId = null; bp.ridSig = ''; bp.peek = false;
+  bp.selectedId = null; bp.viewTabId = null; bp.unusedTabsOpen = false; bp.ridSig = ''; bp.peek = false;
   bp.resultAnchor = null;
 }
 

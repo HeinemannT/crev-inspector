@@ -195,6 +195,10 @@
 #crev-blueprint-layer .bp-tab.st-new .newtag{font:700 9px var(--bp-mono);letter-spacing:.04em;text-transform:uppercase;color:#fff;background:var(--bp-green);border:0;padding:1px 5px;border-radius:var(--bp-r)}
 #crev-blueprint-layer .bp-tab.st-gone{opacity:.5}
 #crev-blueprint-layer .bp-tab.st-gone .bp-tnm{text-decoration:line-through}
+/* EMPTY tab (no widgets on this page — BMP hides it): ghosted + dashed so it can't be mistaken
+   for a tab the portal actually shows. Solidifies on hover (it's still clickable/droppable). */
+#crev-blueprint-layer .bp-tab.unused{opacity:.55;border-style:dashed;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-tab.unused:hover{opacity:1;border-color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-tedit,#crev-blueprint-layer .bp-tdel{width:17px;height:17px;border-radius:var(--bp-r);border:1px solid transparent;background:transparent;color:var(--bp-muted);font:500 11px/1 var(--bp-mono);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 #crev-blueprint-layer .bp-tshared{flex:none;display:flex;align-items:center;color:var(--bp-muted);margin-left:1px}
 #crev-blueprint-layer .bp-tshared svg{display:block;width:11px;height:11px}
@@ -204,6 +208,9 @@
 #crev-blueprint-layer .bp-tdel:hover{background:var(--bp-red);color:var(--bp-ground)}
 #crev-blueprint-layer .bp-tabs>button{height:26px;padding:0 11px;border-radius:var(--bp-r);border:var(--bp-hair) dashed var(--bp-cyan);background:transparent;color:var(--bp-cyan);font:500 11px 'BPInter',sans-serif;cursor:pointer}
 #crev-blueprint-layer .bp-tabs>button:hover{background:var(--bp-cyan);color:var(--bp-ground)}
+/* the "+N empty" fold toggle — muted (it's a disclosure, not an action like "+ Tab") */
+#crev-blueprint-layer .bp-tabs>button.bp-tabs-fold{border-color:var(--bp-line-2);color:var(--bp-muted)}
+#crev-blueprint-layer .bp-tabs>button.bp-tabs-fold:hover{background:transparent;border-color:var(--bp-muted);color:var(--bp-text)}
 
 /* ── add / move picker ───────────────────────────────── */
 #crev-blueprint-layer .bp-pick-back{position:fixed;inset:0;z-index:55;pointer-events:auto}
@@ -468,8 +475,11 @@
 #crev-blueprint-layer .bp-schip-body{flex:1;display:grid;place-items:center}
 #crev-blueprint-layer .bp-schip-a{font:700 9px 'BPInter',sans-serif;color:var(--bp-muted);line-height:1}
 
-/* armed brush: WIDGET cells read as paintable (containers/tabs carry no style, so no paint hover) */
-#crev-blueprint-layer.bp-brush .bp-rcell:not(.bp-rcont){cursor:crosshair}
+/* armed brush: WIDGET cells read as paintable (containers/tabs carry no style, so no paint hover).
+   Tool cursors are per-DPI image-sets built in JS (lib/cursors.ts) and handed in as CSS vars on the
+   layer — a paintbrush while applying, an eyedropper while picking. crosshair = data-URI fallback. */
+#crev-blueprint-layer.bp-brush .bp-rcell:not(.bp-rcont){cursor:var(--bp-cur-paint,crosshair)}
+#crev-blueprint-layer.bp-brush-pick .bp-rcell:not(.bp-rcont){cursor:var(--bp-cur-pick,crosshair)}
 #crev-blueprint-layer.bp-brush .bp-rcell:not(.bp-rcont):hover{box-shadow:0 0 0 var(--bp-emph) var(--bp-accent,#8a3ffc)}
 #crev-blueprint-layer.bp-brush-pick .bp-rcell:not(.bp-rcont):hover{box-shadow:0 0 0 var(--bp-emph) var(--bp-cyan-hi)}
 

@@ -22,7 +22,7 @@ import { updatePaintCursors, flashApplyResult } from './content-paint';
 import { showTooltipForElement, hideTooltip, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
 import { mountFrameOverlay, teardownFrameOverlayModule } from './content-frame-overlay';
-import { enableBlueprint, disableBlueprint } from './content-blueprint';
+import { enableBlueprint, disableBlueprint, setBlueprintRidResolver } from './content-blueprint';
 import { resetColorSets as resetBlueprintColors } from './content-blueprint/colors';
 import { sendFireForget } from './lib/messaging';
 
@@ -45,6 +45,21 @@ declare global {
 // ── Single state instance ────────────────────────────────────────
 
 const s = new ContentState();
+
+// Blueprint resolves "what page is this" through the same URL ⊕ fiber rule as the Page tab —
+// custom-routed pages (a group's landing page) have no `?rid=`, only the fiber knows the bound
+// object. The fiber cache is filled synchronously on demand: EXTRACT_FIBERS is a CustomEvent the
+// MAIN-world interceptor answers in the same dispatch (its PAGE_CONTEXT reply lands in
+// handleFiberPageContext before dispatchEvent returns). Cached until a URL change clears it
+// (content-observer), so this doesn't re-walk fibers on every blueprint mutation tick.
+setBlueprintRidResolver(() => {
+  const url = extractUrlRids();
+  if (url.rid) return url.rid;
+  if (!s.fiberPageContext?.rid) {
+    document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'EXTRACT_FIBERS' } }));
+  }
+  return resolvePageContext(url, s.fiberPageContext).rid;
+});
 
 // ── Inspect mode ─────────────────────────────────────────────────
 

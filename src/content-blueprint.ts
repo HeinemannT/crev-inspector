@@ -9,6 +9,7 @@
  * as a "6→3" badge. Apply commits + re-fetches, and the real grid reflows for keeps.
  */
 import { extractUrlRids } from './lib/dom-scanner';
+import { PICK_CURSOR, APPLY_CURSOR } from './lib/cursors';
 import { showToast } from './lib/toast';
 import BLUEPRINT_CSS from './content-blueprint.css';
 import { bp, STYLE_ID, isBlueprintActive, resetState, resetModel } from './content-blueprint/state';
@@ -18,6 +19,15 @@ import { cancelGesture } from './content-blueprint/gestures';
 import { loadPage } from './content-blueprint/service';
 
 export { isBlueprintActive };
+
+/** Resolver for "what object is this page showing" — registered by content.ts so the overlay uses the
+ *  SAME URL ⊕ fiber rule as the Page tab / editor (resolvePageContext). BMP's custom-routed pages
+ *  (e.g. a group's landing page) carry no `?rid=` in the URL; only the React fiber knows the bound
+ *  object, and the fiber cache lives in content.ts's ContentState. Falls back to the bare URL when
+ *  content.ts hasn't registered (unit tests, partial builds). */
+let ridResolver: () => string | undefined = () => extractUrlRids().rid;
+export function setBlueprintRidResolver(fn: () => string | undefined): void { ridResolver = fn; }
+const currentPageRid = (): string | undefined => ridResolver();
 
 /** The overlay self-hosts its fonts: Inter (latin, bundled in the extension) isn't loaded in BMP's
  *  host page, so a bare `font: … Inter` with no generic fallback dropped <button>s to the UA serif.
@@ -41,13 +51,17 @@ function ensureStyle(): void {
 
 export function enableBlueprint(): void {
   if (bp.active) return;
-  const { rid } = extractUrlRids();
+  const rid = currentPageRid();
   if (!rid) { showToast('Blueprint: no BMP object on this page', 'error'); return; }
   bp.active = true;
   bp.gen += 1; // new session — invalidates any in-flight load/apply from a prior toggle
   ensureStyle();
   const layer = document.createElement('div');
   layer.id = 'crev-blueprint-layer';
+  // The paintbrush cursors are data-URI image-sets built in JS (they carry per-DPI rasters); CSS vars
+  // are how the static stylesheet reaches them. Fallback (crosshair) lives in the CSS rules.
+  layer.style.setProperty('--bp-cur-pick', PICK_CURSOR);
+  layer.style.setProperty('--bp-cur-paint', APPLY_CURSOR);
   document.body.appendChild(layer);
   bp.layer = layer;
   mountLoadingShell();
@@ -130,8 +144,14 @@ function reloadForRid(rid: string, prefer: 'template' | 'instance' = 'template')
  *  popstate handler (back/forward) and the MutationObserver (forward link-navs that fire no popstate). */
 function handlePageNav(): boolean {
   if (!bp.active) return true;
-  const next = extractUrlRids().rid;
-  if (!next) { disableBlueprint(); return true; } // navigated off a BMP object → graceful teardown
+  const next = currentPageRid();
+  if (!next) {
+    // Unresolvable. On a landing page mid-render the fiber can be transiently blank — a later
+    // mutation re-runs this and resolves — so only tear down when the page has genuinely left BMP
+    // content behind (no rid-bearing elements at all). Keeps the overlay from dying on re-renders.
+    if (document.querySelector('[data-rid]')) return false;
+    disableBlueprint(); return true;
+  }
   if (next === bp.loadedRid) return false;        // same page — let the observer follow the tab
   reloadForRid(next);
   return true;

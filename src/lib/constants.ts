@@ -5,6 +5,10 @@ export const HEALTH_POLL_INTERVAL = 30_000;
 export const HEALTH_TIMEOUT = 5_000;
 export const AUTH_TIMEOUT = 10_000;
 export const EC_TIMEOUT = 30_000;
+/** Blueprint layout fetch/apply EC — walks every widget of a page (plus override + style channels),
+ *  which on a heavy live scorecard legitimately outlives the general EC_TIMEOUT. In-flight fetches
+ *  keep the MV3 service worker alive, so the longer window is safe. */
+export const LAYOUT_EC_TIMEOUT = 120_000;
 
 // ── Enrichment ───────────────────────────────────────────────────
 export const BATCH_CHUNK_SIZE = 25;

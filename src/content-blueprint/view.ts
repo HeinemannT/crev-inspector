@@ -9,7 +9,7 @@
  * have no DOM, so they draw as dashed placeholders in their host's area.
  */
 import type { LModel, LNode } from '../lib/layout/types';
-import { findNode, hasHeight, isResultTab } from '../lib/layout/model';
+import { findNode, hasHeight, isResultTab, descendantWidgets } from '../lib/layout/model';
 import { COMPOSITE_TYPES, COMPOSITE_CHILDREN } from '../lib/layout/constraints';
 import { isAncestorOf } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
@@ -535,13 +535,42 @@ function pickRow(label: string, tag: string, on: () => void, icon?: string | nul
 function tabBar(base: LModel, m: LModel, liveId: string | null, viewedId: string | null): HTMLElement {
   const bar = document.createElement('div'); bar.className = 'bp-tabs';
   const lbl = document.createElement('span'); lbl.className = 'bp-tabs-l'; lbl.textContent = 'TABS'; bar.appendChild(lbl);
+  // A tab is USED when it holds a widget on THIS page — in the baseline or after staged edits
+  // (moving a widget onto an empty tab makes it used immediately). BMP's portal shows only used
+  // tabs, so a big shared tabset (Risk Register's has ~25 tabs, 2 used) would otherwise drown the
+  // strip: lead with the used pills and fold the empty rest behind a "+N empty" expander. A changed
+  // (renamed/deleted), viewed, or live tab always stays visible — folding it would hide an edit.
+  const used = new Set<string>();
+  for (const t of [...base.tabs, ...m.tabs]) if (descendantWidgets(t).length) used.add(t.id);
+  const folded: HTMLElement[] = [];
   for (const bt of base.tabs) {
     const cur = findNode(m, bt.id)?.node;
     const state = !cur ? 'gone' : (cur.name !== bt.name ? 'renamed' : 'same');
-    bar.appendChild(tabPill(bt.id, cur?.name ?? bt.name, state, bt.id === viewedId, bt.id === liveId));
+    const pill = tabPill(bt.id, cur?.name ?? bt.name, state, bt.id === viewedId, bt.id === liveId);
+    if (!used.has(bt.id) && state === 'same' && bt.id !== viewedId && bt.id !== liveId) {
+      pill.classList.add('unused');
+      pill.title = 'Empty on this page — BMP hides it. Click to view; add or move a widget here to use it.';
+      folded.push(pill);
+    } else {
+      bar.appendChild(pill);
+    }
   }
   for (const mt of m.tabs) {
     if (!base.tabs.some(b => b.id === mt.id)) bar.appendChild(tabPill(mt.id, mt.name, 'new', mt.id === viewedId, mt.id === liveId));
+  }
+  if (folded.length) {
+    if (bp.unusedTabsOpen) {
+      for (const p of folded) bar.appendChild(p);
+      const less = mkBtn('− hide empty', () => { bp.unusedTabsOpen = false; render(); });
+      less.className = 'bp-tabs-fold';
+      less.title = 'Collapse the empty tabs again';
+      bar.appendChild(less);
+    } else {
+      const more = mkBtn(`+${folded.length} empty`, () => { bp.unusedTabsOpen = true; render(); });
+      more.className = 'bp-tabs-fold';
+      more.title = `${folded.length} tab(s) of this tabset hold no widgets on this page — BMP hides them. Expand to view or move widgets onto them.`;
+      bar.appendChild(more);
+    }
   }
   if (m.resultOnly) {
     // No dedicated tabset: adding a plain tab would hit the shared default_tabset. Offer to create a

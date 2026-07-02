@@ -104,6 +104,12 @@ which, and clicking a tab pill drives BMP's *real* tab (clicks the native `.corp
 MutationObserver follows). Fidelity is exact for columns (verified live, ~6/6 within gap rounding);
 height is the only approximation (live-measured on the active tab, per-type estimate off it).
 
+The tab bar folds **empty tabs** away: a tab with no widgets on this page (in the baseline or the
+edited model) is what BMP's portal hides, so a big shared tabset (Risk Register renders through a
+~25-tab set with 2 used) would drown the strip. Used/changed/viewed/live tabs render as pills; the
+empty rest collapses behind a muted `+N empty` toggle (`bp.unusedTabsOpen`), and expanded empty
+pills are ghosted + dashed. Moving or adding a widget onto one makes it "used" immediately.
+
 Visual language is an **architect sketch on white** (the tokens live at the top of
 content-blueprint.css): a white canvas with a faint two-tier gray grid (a full-bleed `.bp-canvas-bg`
 backdrop behind the cards), tech-navy hairline cards, gray dashed grouping containers, a light
@@ -176,6 +182,15 @@ owns widgets (a widget binds to its cell via `container`). `sync.resolvePageCont
 Page root is referenced `t.<id>` (resolves a Scorecard AND a template). Widgets are fetched with
 `lookup(<rid>).descendants()` so composites (ButtonContainer → buttons) come along.
 
+**Which rid to load** comes from the same URL ⊕ fiber rule as the Page tab: content.ts registers a
+resolver (`setBlueprintRidResolver`) that prefers the address bar's `?rid=` and falls back to the
+React-fiber page context (`s.fiberPageContext`, refreshed synchronously via an `EXTRACT_FIBERS`
+CustomEvent when the cache is empty). BMP's custom-routed pages — a group's landing page — carry no
+`?rid=` at all, so the fiber is the only source there; the old URL-only read made the toggle fail
+with "no BMP object on this page". `handlePageNav` uses the same resolver, and only tears down when
+the page has genuinely left BMP content behind (no `[data-rid]` elements at all — the fiber can be
+transiently blank mid-render).
+
 ### The shared Result tab
 
 A scorecard's intrinsic **Result** tab (`t.RESULT`) lives in the SHARED `default_tabset`, not the
@@ -239,6 +254,13 @@ applied edits come back as the new baseline. This is intentional, not a bug.
 - **Blueprint ↔ inspect are mutually exclusive** — `toggleBlueprint` turns inspect off first; each
   owns a document-wide overlay + observer and only one should paint at a time. z-orders are disjoint
   (blueprint 2147483600 / inspect 2147483636-647) but never run together anyway.
+- **EC string accumulation is quadratic with a huge constant** — every `+` whose operand chain
+  includes the big accumulator re-copies AND HTML-sniffs the whole string (BMP's `DetectHtml` runs
+  per concat). The fetch EC builds each node's lines in a small local `_l` and touches `_r` once per
+  node; the multi-term `_r := _r + a + b + …` original measured 3.8 s on the ~60-node demo page and
+  minutes on heavy pages — which is what "blueprint loads forever then fails" was. Layout EC also
+  runs with `LAYOUT_EC_TIMEOUT` (120 s) instead of the general 30 s window; when the client aborts,
+  BMP logs the run as `Cancelled by user`.
 
 ## Running it (e2e rig — chrome-devtools-mcp)
 

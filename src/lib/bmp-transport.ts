@@ -89,9 +89,10 @@ export class BmpTransport {
     return this.sendRequest(serializeCommands(commands), AUTH_TIMEOUT, signal);
   }
 
-  /** Send a streaming command (e.g. ExtendedExecuteCommand) */
-  async sendStreamingCommand(command: any, signal?: AbortSignal): Promise<any[]> {
-    const buffer = await this.sendRequest(serializeCommands([command]), EC_TIMEOUT, signal);
+  /** Send a streaming command (e.g. ExtendedExecuteCommand). `timeoutMs` overrides the general
+   *  EC window for known-long runs (the blueprint layout fetch on a heavy page). */
+  async sendStreamingCommand(command: any, signal?: AbortSignal, timeoutMs?: number): Promise<any[]> {
+    const buffer = await this.sendRequest(serializeCommands([command]), timeoutMs ?? EC_TIMEOUT, signal);
     return deserializeStream(buffer);
   }
 
@@ -105,7 +106,8 @@ export class BmpTransport {
     if (e instanceof TypeError && (e.message.includes('fetch') || e.message.includes('network'))) {
       return `Cannot reach BMP at ${this.bmpUrl}`;
     }
-    if (e instanceof DOMException && e.name === 'AbortError') {
+    // AbortSignal.timeout rejects with TimeoutError; a caller-passed signal aborts with AbortError.
+    if (e instanceof DOMException && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
       return `BMP at ${this.bmpUrl} timed out`;
     }
     const msg = e instanceof Error ? e.message : String(e);
