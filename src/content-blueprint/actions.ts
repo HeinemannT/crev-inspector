@@ -321,7 +321,9 @@ export function openApplyPreview(): void {
   if (!bp.ctx || !bp.baseline || !m || bp.applying) return;
   const plan = diff(bp.baseline, m);
   if (plan.length === 0) { showToast('Blueprint: nothing to apply', 'info'); return; }
-  bp.preview = compile(plan, m).notes;
+  const { script, notes } = compile(plan, m);
+  bp.preview = notes;
+  bp.previewScript = script; // the modal's "Copy EC" copies the whole program, not per-row fragments
   bp.blast = null;
   const seq = ++bp.blastSeq; // invalidates any in-flight probe from an earlier preview
   render();
@@ -329,12 +331,13 @@ export function openApplyPreview(): void {
   // appear when (if) the rref walk returns. Never blocks the confirm path.
   void fetchBlast(seq, bp.ctx.pageId, touchedContainers(plan, m));
 }
-export function closePreview(): void { bp.preview = null; bp.blast = null; render(); }
+export function closePreview(): void { bp.preview = null; bp.previewScript = ''; bp.blast = null; render(); }
 
 /** Confirmed from the preview modal — fire the guarded SW apply (service owns the round-trip). */
 export function confirmApply(): void {
   if (!bp.ctx || !bp.baseline || !bp.env || !model() || bp.applying) return;
   bp.preview = null;
+  bp.previewScript = '';
   bp.blast = null;
   void applyPage();
 }

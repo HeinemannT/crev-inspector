@@ -29,6 +29,11 @@ let ridResolver: () => string | undefined = () => extractUrlRids().rid;
 export function setBlueprintRidResolver(fn: () => string | undefined): void { ridResolver = fn; }
 const currentPageRid = (): string | undefined => ridResolver();
 
+/** One-shot edit-target override for the NEXT enable — the post-apply resume restores the session
+ *  with the target the user was editing (applying to "This instance" must not reopen the template). */
+let resumePrefer: 'template' | 'instance' | null = null;
+export function setBlueprintResumePrefer(p: 'template' | 'instance'): void { resumePrefer = p; }
+
 /** The overlay self-hosts its fonts: Inter (latin, bundled in the extension) isn't loaded in BMP's
  *  host page, so a bare `font: … Inter` with no generic fallback dropped <button>s to the UA serif.
  *  We register the bundled woff2s under private family names and the CSS references those (with
@@ -114,7 +119,9 @@ export function enableBlueprint(): void {
     });
   });
   bp.observer.observe(document.body, { childList: true, subtree: true });
-  void loadPage(rid).then((ok) => { if (!ok) disableBlueprint(); });
+  const prefer = resumePrefer ?? 'template';
+  resumePrefer = null; // one-shot: only the resume-triggered enable inherits the saved target
+  void loadPage(rid, prefer).then((ok) => { if (!ok) disableBlueprint(); });
 }
 
 /** Reset the layer to the "loading…" chip — the initial shell, and what a page-change reload shows

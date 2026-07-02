@@ -22,7 +22,8 @@ import { updatePaintCursors, flashApplyResult } from './content-paint';
 import { showTooltipForElement, hideTooltip, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
 import { mountFrameOverlay, teardownFrameOverlayModule } from './content-frame-overlay';
-import { enableBlueprint, disableBlueprint, setBlueprintRidResolver } from './content-blueprint';
+import { enableBlueprint, disableBlueprint, setBlueprintRidResolver, setBlueprintResumePrefer } from './content-blueprint';
+import { RESUME_KEY as BP_RESUME_KEY } from './content-blueprint/service';
 import { resetColorSets as resetBlueprintColors } from './content-blueprint/colors';
 import { sendFireForget } from './lib/messaging';
 
@@ -595,3 +596,24 @@ if (wasInspecting()) {
   try { setInspectMode(true); } catch (e) { log.swallow('content:init:restoreInspect', e); }
 }
 try { startObserver(s, runDetection); } catch (e) { log.swallow('content:init:observer', e); }
+
+// Post-apply blueprint resume. applyPage turns blueprint off + reloads the page (the live grid only
+// reflows on a real load) and leaves a short-lived sessionStorage flag; consume it and ask the SW to
+// re-enable blueprint for this tab, restoring the edit target (template vs instance). We wait for the
+// first [data-rid] element before asking — enabling against a not-yet-rendered page would resolve no
+// rid (landing pages) and anchor nothing. Bounded poll: BMP's first paint is normally < 2 s.
+try {
+  const raw = sessionStorage.getItem(BP_RESUME_KEY);
+  if (raw) {
+    sessionStorage.removeItem(BP_RESUME_KEY); // one-shot — a later manual reload must not re-trigger
+    const r = JSON.parse(raw) as { prefer?: string; t?: number };
+    if (typeof r?.t === 'number' && Date.now() - r.t < 30_000) {
+      setBlueprintResumePrefer(r.prefer === 'instance' ? 'instance' : 'template');
+      const askResume = (tries: number): void => {
+        if (document.querySelector('[data-rid]')) { sendFireForget({ type: 'BLUEPRINT_RESUME' }); return; }
+        if (tries > 0) setTimeout(() => askResume(tries - 1), 500);
+      };
+      askResume(24); // give BMP up to ~12 s to paint before giving up on the resume
+    }
+  }
+} catch (e) { log.swallow('content:init:bpResume', e); }

@@ -152,13 +152,25 @@ export type PlanStep =
   // their predecessor, so "move to first" never needs a null (it falls out of reordering the others).
   | { kind: 'reorder'; id: string; afterId: string }
   // `rid` is threaded so the EC generator can address a businessId-less node by rid (its node lives
-  // only in the baseline, so ec.ts can't recover the rid from the desired model).
-  | { kind: 'delete'; id: string; nodeKind: NodeKind; className: string; rid?: string; rehomeTo?: string };
+  // only in the baseline, so ec.ts can't recover the rid from the desired model). `name` is the
+  // baseline display name, threaded for the same reason — the apply log labels the deletion.
+  | { kind: 'delete'; id: string; nodeKind: NodeKind; className: string; rid?: string; name?: string; rehomeTo?: string };
 
 export interface PlanNote {
   verb: 'create' | 'update' | 'move' | 'reorder' | 'delete';
   text: string;
   ec?: string;
+  /** Structured columns for the apply-log table (view-panels.previewModal). `text` stays the
+   *  single-sentence fallback; these split it into uniform, scannable fields. */
+  action?: 'Add' | 'Style' | 'Change' | 'Reset' | 'Move' | 'Reorder' | 'Delete';
+  /** The affected object's display name. */
+  object?: string;
+  /** Its BMP className (Tab / Container / DescriptionView / …) — drives the type chip. */
+  objectType?: string;
+  /** Destination / context name, already human (the container or tab it lands in / moves to). */
+  where?: string;
+  /** Compact qualifier: "6/6", "headerColor, shadow", "→ \"New name\"", "420px". */
+  detail?: string;
 }
 
 /** A constraint verdict for a candidate gesture. */

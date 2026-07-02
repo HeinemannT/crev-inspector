@@ -110,10 +110,14 @@ describe('renderResult (CSS-grid mirror)', () => {
     expect(zone.dataset.bpkind).toBe('avail');
   });
 
-  it('returns false when no active tab has live widgets (nothing to anchor to)', () => {
+  it('renders on a synthetic frame when no live widget anchors (post-apply reload / rid mismatch)', () => {
+    // The model is loaded and editable, so the canvas must render even with an empty rid map —
+    // the old dead-end ("no widgets are on screen") stranded a valid session. The synthetic frame
+    // is NOT cached, so the next render with real widgets re-anchors to pixel alignment.
     const layer = document.createElement('div');
-    expect(renderResult(m, m, new Map(), layer)).toBe(false);
-    expect(layer.querySelector('.bp-result')).toBeNull();
+    expect(renderResult(m, m, new Map(), layer)).toBe(true);
+    expect(layer.querySelector('.bp-result')).not.toBeNull();
+    expect(bp.resultAnchor).toBeNull(); // a guessed frame must never be frozen
   });
 
   it('a trailing-gap cell carries data-bpafter = the row’s last cell, so a DROP inserts in order (not at the end)', () => {

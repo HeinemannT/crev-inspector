@@ -22,6 +22,7 @@ export interface BpState {
   selectedId: string | null;
   applying: boolean;
   preview: PlanNote[] | null;   // non-null → the apply-preview modal is open
+  previewScript: string;        // the FULL compiled EC behind the open preview (the modal's "Copy EC")
   blast: { fanout: InstanceFanout | null; blast: ContainerBlast | null } | null; // preview blast radius (async, best-effort)
   blastSeq: number;             // bumped per openApplyPreview; a late blast reply for an older seq is dropped
   picker: string | null;        // containerId/compositeId/tabId the add picker is open for
@@ -76,7 +77,7 @@ export interface BpState {
 function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
-    layer: null, selectedId: null, applying: false, preview: null, blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, swatch: null, swatchExpanded: new Set(['Basics']),
+    layer: null, selectedId: null, applying: false, preview: null, previewScript: '', blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
     onResize: null, onKey: null, onPop: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
     observer: null, resizeObs: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, unusedTabsOpen: false, scrollSpacer: null, peek: false,

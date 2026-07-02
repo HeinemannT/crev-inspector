@@ -11,10 +11,12 @@ import { ensureContentScript } from '../tab-awareness';
 import { toggleInspect } from './inspect';
 import { errorMessage, log } from '../logger';
 
-/** Set blueprint mode for a window + broadcast to its panel and active content tab. Shared by the
+/** Set blueprint mode for a window + broadcast to its panel and content tab. Shared by the
  *  toggle handler and the inspect handler — blueprint and inspect are mutually exclusive (each runs
- *  its own document-wide overlay + observer, so only one should paint at a time). */
-export async function setBlueprintActive(windowId: number, active: boolean): Promise<void> {
+ *  its own document-wide overlay + observer, so only one should paint at a time). `tabId` pins the
+ *  content tab explicitly (the post-apply resume targets the tab that reloaded, which may no longer
+ *  be the window's active tab); default is the window's active tab. */
+export async function setBlueprintActive(windowId: number, active: boolean, tabId?: number): Promise<void> {
   const ctx = getCtx();
   if (ctx.blueprintActiveByWindow.get(windowId) === active) return;
   ctx.blueprintActiveByWindow.set(windowId, active);
@@ -22,11 +24,11 @@ export async function setBlueprintActive(windowId: number, active: boolean): Pro
   const state = { type: 'BLUEPRINT_STATE' as const, active };
   ctx.sendToPanelByWindow(windowId, state);
   try {
-    const [tab] = await chrome.tabs.query({ active: true, windowId });
-    if (tab?.id != null) {
-      if (active) ctx.blueprintTabByWindow.set(windowId, tab.id); else ctx.blueprintTabByWindow.delete(windowId);
-      await ensureContentScript(tab.id);
-      chrome.tabs.sendMessage(tab.id, state).catch(e => log.swallow('blueprint:toggleTab', e));
+    const target = tabId ?? (await chrome.tabs.query({ active: true, windowId }))[0]?.id;
+    if (target != null) {
+      if (active) ctx.blueprintTabByWindow.set(windowId, target); else ctx.blueprintTabByWindow.delete(windowId);
+      await ensureContentScript(target);
+      chrome.tabs.sendMessage(target, state).catch(e => log.swallow('blueprint:toggleTab', e));
     } else if (!active) { ctx.blueprintTabByWindow.delete(windowId); }
   } catch (e) { log.swallow('blueprint:toggleQuery', e); }
 }
@@ -45,6 +47,19 @@ export async function toggleBlueprint(windowId?: number): Promise<void> {
 
 register('BLUEPRINT_TOGGLE', async (_msg, _respond, meta) => {
   await toggleBlueprint(meta.panelWindowId ?? undefined);
+});
+
+// Post-apply resume: apply toggles blueprint OFF and reloads the page (the live grid only reflows on
+// a real load); the fresh content script then asks to turn it back ON so the editing session
+// continues on the fresh model. Deterministic set (not a toggle) — an already-on window is a no-op.
+register('BLUEPRINT_RESUME', async (_msg, _respond, meta) => {
+  if (meta.senderTabId == null) return;
+  try {
+    const tab = await chrome.tabs.get(meta.senderTabId);
+    if (tab?.windowId == null) return;
+    if (getCtx().isInspectActive(tab.windowId)) await toggleInspect(tab.windowId); // same exclusivity as toggle
+    await setBlueprintActive(tab.windowId, true, meta.senderTabId);
+  } catch (e) { log.swallow('blueprint:resume', e); }
 });
 
 /** Environment fingerprint stamped at load and re-checked at apply. Combines the active profile id

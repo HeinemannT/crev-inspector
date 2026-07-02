@@ -626,6 +626,9 @@ export type LayoutMessage =
   // (BLUEPRINT_STATE) drives the overlay on/off. Mirrors the inspect/paint toggle convention.
   | { type: 'BLUEPRINT_TOGGLE' }
   | { type: 'BLUEPRINT_STATE'; active: boolean }
+  // Content → SW after the post-apply reload: turn blueprint back ON for the sender tab's window so
+  // the editing session survives the refresh (apply toggles it off before reloading — see applyPage).
+  | { type: 'BLUEPRINT_RESUME' }
   | { type: 'LAYOUT_LOAD'; rid: string; prefer?: 'template' | 'instance' }
   // `env` = the active profile id at load time; the panel echoes it back on apply so the SW can
   // reject a commit aimed at a different environment (the user switched profiles mid-edit).

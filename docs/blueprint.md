@@ -219,10 +219,22 @@ content ─LAYOUT_BLAST {pageId, containers}→ SW (best-effort blast-radius for
 The content script holds `baseline` + an edited model (`History`); Apply sends both, the SW is
 stateless per request.
 
-**Apply = commit then page reload.** On success `applyPage` (service.ts) toasts, sends
-`BLUEPRINT_TOGGLE` (off), and `location.reload()`s — the live BMP grid can only reflow on a real page
-load, and we don't want to reopen onto a stale model. Re-activating after reload re-fetches; the
-applied edits come back as the new baseline. This is intentional, not a bug.
+**Apply = commit, page reload, auto-resume.** On success `applyPage` (service.ts) toasts, persists a
+short-lived resume flag in sessionStorage (`{prefer, t}` — the current template/instance target),
+sends `BLUEPRINT_TOGGLE` (off), and `location.reload()`s — the live BMP grid can only reflow on a
+real page load, and we don't want to reopen onto a stale model. The fresh content script consumes the
+flag on boot, waits for the first `[data-rid]` to paint, and sends `BLUEPRINT_RESUME`; the SW
+re-enables blueprint for THAT tab (`setBlueprintActive(windowId, true, tabId)`), and the next
+`enableBlueprint` loads with the saved `prefer` — so applying to "This instance" resumes editing the
+instance, not the template. While BMP is still mounting, the canvas renders on a **synthetic
+content-box frame** (renderResult falls back when no live widget anchors; the guessed frame is never
+cached) instead of dead-ending on "no widgets are on screen".
+
+**The apply-preview modal** shows warnings as a full-bleed strip under the header (amber left-accent
+rows, hairline-separated — not floating boxes) and the plan as a uniform-height log table:
+icon | ACTION | type chip + object | → where | detail | ec, from the structured `PlanNote` fields the
+compiler emits (`action/object/objectType/where/detail`; `text` is the fallback). The footer's
+**Copy EC** copies the full compiled program (`bp.previewScript`).
 
 ## Safety guards (all enforced server-side in the SW)
 

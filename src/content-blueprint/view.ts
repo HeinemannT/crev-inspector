@@ -105,15 +105,15 @@ export function render(): void {
   renderFloatingChrome(byRid, m);
 }
 
-/** Shown when the result canvas can't anchor — nothing is on screen to measure against (an all-empty
- *  page, or BMP hasn't painted any widgets yet). A centred note; the result canvas is the sole editing
- *  surface now (the old frozen-DOM fallback renderer was retired — see docs/blueprint.md). */
+/** Shown when the result canvas has nothing to render — the loaded model has NO TABS at all (a page
+ *  whose layout lives elsewhere). Anchor failures no longer land here: renderResult falls back to a
+ *  synthetic content-box frame when no live widget anchors, so a loaded model always renders. */
 function renderEmptyCanvas(layer: HTMLElement): void {
   neutralizeScrollRoom(); // no tall panel here — collapse any spacer the previous result render left
   const box = document.createElement('div'); box.className = 'bp-empty';
   const t = document.createElement('div'); t.className = 'bp-empty-t'; t.textContent = 'Nothing to lay out here';
   const s = document.createElement('div'); s.className = 'bp-empty-s';
-  s.textContent = 'No widgets are on screen to anchor the canvas. Switch to a tab that has content, or scroll the page so its widgets are visible.';
+  s.textContent = 'This page’s layout model has no tabs. If this is a templated instance that owns no layout of its own, switch the target back to Template to edit the shared layout.';
   box.append(t, s);
   layer.appendChild(box);
 }

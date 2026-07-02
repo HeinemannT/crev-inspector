@@ -12,7 +12,8 @@ import { findNode, isResultTab, eachInSubtree } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
 import { diff, summarizeChanges } from '../lib/layout/diff';
-import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_EYE_SLASH } from '../lib/icons';
+import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_EYE_SLASH, ICON_COPY } from '../lib/icons';
+import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
 import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, discard, openApplyPreview, exitBlueprint, setMode } from './actions';
@@ -68,7 +69,48 @@ function resultImpact(): { touched: boolean; containers: boolean } {
   return { touched, containers };
 }
 
-/** The apply-preview: the exact plan as human-readable steps + the blast-radius warning, behind a confirm. */
+/** One log row of the apply plan. Structured notes (action/object/where/detail from the compiler)
+ *  render as fixed columns — icon | ACTION | type chip + object | → where | detail | ec — every row one
+ *  line tall, so the log scans like a table. A note without the structured fields (defensive) falls
+ *  back to its `text` sentence in the object column. */
+function planRow(note: PlanNote): HTMLElement {
+  const row = document.createElement('div'); row.className = `bp-prow v-${note.verb}`;
+  const ic = document.createElement('span'); ic.className = 'ic'; setIcon(ic, VERB_ICON[note.verb]);
+  const act = document.createElement('span'); act.className = 'act'; act.textContent = note.action ?? note.verb;
+  row.append(ic, act);
+  const obj = document.createElement('span'); obj.className = 'obj';
+  if (note.object || note.objectType) {
+    if (note.objectType) {
+      const typ = document.createElement('span'); typ.className = 'typ';
+      typ.textContent = getTypeAbbr(note.objectType);
+      typ.style.setProperty('--type-color', getTypeColor(note.objectType));
+      typ.title = note.objectType;
+      obj.appendChild(typ);
+    }
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = note.object ?? '';
+    nm.title = note.object ?? '';
+    obj.appendChild(nm);
+  } else {
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = note.text;
+    obj.appendChild(nm);
+  }
+  row.appendChild(obj);
+  const whr = document.createElement('span'); whr.className = 'whr';
+  if (note.where) { whr.textContent = `→ ${note.where}`; whr.title = note.where; }
+  row.appendChild(whr);
+  const det = document.createElement('span'); det.className = 'det'; det.textContent = note.detail ?? '';
+  if (note.detail) det.title = note.detail;
+  row.appendChild(det);
+  if (note.ec) {
+    const ec = document.createElement('code');
+    const clean = note.ec.replace(/ \/\/ BMP assigns id$/, '');
+    ec.textContent = clean; ec.title = clean;
+    row.appendChild(ec);
+  }
+  return row;
+}
+
+/** The apply-preview: the exact plan as a scannable log + the blast-radius warnings, behind a confirm. */
 export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement {
   const shared = ctx.target === 'template';
   const back = document.createElement('div'); back.className = 'bp-modal-back';
@@ -83,8 +125,10 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
     + (sum.actions !== sum.changes ? ` (${sum.actions} actions)` : '')
     + ` to ${ctx.pageClass} ${ctx.pageId}`;
   card.appendChild(h);
-  // Blast radius (async, best-effort — appears once the rref probe returns; see actions.openApplyPreview).
-  const warn = (text: string) => { card.appendChild(warnRow(text)); };
+  // Warnings render as ONE full-bleed strip under the header (edge-to-edge rows, hairline-separated) —
+  // not stacked boxes floating in the card. Order: blast radius, Result-tab impact, deletes, lint.
+  const strip = document.createElement('div'); strip.className = 'bp-modal-strip';
+  const warn = (text: string) => { strip.appendChild(warnRow(text)); };
   // ONE shared-template warning: the fanout version (with the live instance count) supersedes the static
   // one when the probe has returned — they otherwise both say "this is a template" and read as redundant.
   const fanout = bp.blast?.fanout;
@@ -106,36 +150,41 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   // widget edit, which only touches this scorecard's own objects. Computed locally (no probe needed).
   const ri = resultImpact();
   if (ri.touched) {
-    card.appendChild(warnRow(ri.containers
+    warn(ri.containers
       ? 'You are changing containers on the shared Result tab. A container added or moved here appears on EVERY scorecard that uses the default tab set, not just this one.'
-      : "You are editing the shared Result tab. These widgets are this scorecard's own, but the tab is shared across scorecards — review before applying."));
+      : "You are editing the shared Result tab. These widgets are this scorecard's own, but the tab is shared across scorecards — review before applying.");
   }
   // Blast-radius warning. Deleting a tab cascades to every container/widget under it (a tab's contents
   // can't re-home the way a deleted container's widgets do), so one delete gesture can stage many. Make
   // that scope explicit at the confirm gate — the rows below enumerate it, but the count is the headline.
   const deletes = notes.filter(n => n.verb === 'delete').length;
   if (deletes > 0) {
-    card.appendChild(warnRow(`${deletes} object${deletes === 1 ? '' : 's'} will be permanently deleted. This can't be undone after Apply.`));
+    warn(`${deletes} object${deletes === 1 ? '' : 's'} will be permanently deleted. This can't be undone after Apply.`);
   }
   // Pre-commit lint: empty-tab and structural-on-instance warnings (undo is frozen while this modal
   // is open, so the model behind these matches exactly what Confirm will apply).
   const lm = model();
   if (lm && bp.baseline) {
     for (const msg of lint(lm, lm.target, diff(bp.baseline, lm))) {
-      card.appendChild(msg.level === 'info' ? infoRow(msg.text) : warnRow(msg.text));
+      strip.appendChild(msg.level === 'info' ? infoRow(msg.text) : warnRow(msg.text));
     }
   }
+  if (strip.children.length) card.appendChild(strip);
   const list = document.createElement('div'); list.className = 'bp-modal-list';
-  for (const note of notes) {
-    const row = document.createElement('div'); row.className = `bp-prow v-${note.verb}`;
-    const ic = document.createElement('span'); ic.className = 'ic'; setIcon(ic, VERB_ICON[note.verb]);
-    const tx = document.createElement('span'); tx.textContent = note.text;
-    row.append(ic, tx);
-    if (note.ec) { const ec = document.createElement('code'); ec.textContent = note.ec.replace(/ \/\/ BMP assigns id$/, ''); row.appendChild(ec); }
-    list.appendChild(row);
-  }
+  for (const note of notes) list.appendChild(planRow(note));
   card.appendChild(list);
   const foot = document.createElement('div'); foot.className = 'bp-modal-foot';
+  // Copy EC (left) — the WHOLE compiled program, ready to paste into the EC console / a transport script.
+  if (bp.previewScript) {
+    const copy = mkIconBtn(ICON_COPY, () => {
+      navigator.clipboard.writeText(bp.previewScript)
+        .then(() => showToast('EC copied to clipboard', 'success'))
+        .catch(() => showToast('Could not copy to clipboard', 'error'));
+    }, 'Copy EC');
+    copy.classList.add('bp-copy-ec');
+    copy.title = 'Copy the full Extended Code program these changes compile to';
+    foot.appendChild(copy);
+  }
   foot.append(mkBtn('Cancel', closePreview), (() => { const b = mkBtn('Confirm & apply', confirmApply); b.className = 'apply'; return b; })());
   card.appendChild(foot);
   back.appendChild(card);

@@ -339,8 +339,14 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   // would anchor the canvas to those (bottom of the page) regardless of which tab you're editing. When
   // the viewed tab has no live widgets on screen (peeking an off-screen tab), fall back to all visible.
   const baseTab = base.tabs.find(t => t.id === tab.id);
-  const frame = (baseTab ? unionRect(baseTab, byRid) : null) ?? unionAllVisible(byRid);
-  if (!frame) return false;
+  let frame = (baseTab ? unionRect(baseTab, byRid) : null) ?? unionAllVisible(byRid);
+  // No live widget anchors — BMP hasn't painted yet (the post-apply reload re-enables blueprint before
+  // React mounts), or the model's rids don't exist in this page's DOM (editing the template/instance
+  // counterpart of what's rendered). The model is loaded and perfectly editable, so render it anyway on
+  // a synthetic content-box frame instead of dead-ending on "no widgets are on screen". Not cached: the
+  // next render with real widgets recomputes and snaps the canvas into pixel alignment.
+  const synthetic = !frame;
+  if (!frame) frame = contentAreaFrame();
   // Reuse the frozen anchor for THIS tab if we have one: the canvas top/left/width don't change when the
   // page scrolls or grows below, so a mid-scroll re-render must NOT recompute them from whatever widgets
   // happen to be on-screen (that's what shifted the canvas off the real widgets). We still require a live
@@ -362,7 +368,7 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
     width = contentW > frame.width ? contentW : frame.width;
     docTop = docY(frame.top);
     left = docX(frame.left);
-    bp.resultAnchor = { tabId: tab.id, docTop, left, width };
+    if (!synthetic) bp.resultAnchor = { tabId: tab.id, docTop, left, width }; // never freeze a guessed frame
   }
   // Full-bleed grid backdrop BEHIND the panel — fills the whole editor width edge-to-edge (the panel
   // itself stays at content width so the cards keep BMP's column alignment). Height set after layout.
@@ -391,6 +397,17 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   // unionAllVisible here (it drops off-screen widgets) since the canvas no longer re-renders on scroll.
   bg.style.height = `${Math.max(docTop + wrap.offsetHeight, allWidgetsBottomDoc(byRid)) - docTop}px`;
   return true;
+}
+
+/** Fallback frame when no live widget anchors the canvas: BMP's app container inset a little, else a
+ *  viewport-derived band. Only used for the synthetic (uncached) render — see renderResult. */
+function contentAreaFrame(): Rect {
+  const el = document.querySelector('#epmapp, #corpo-app, main, #root');
+  const r = el?.getBoundingClientRect();
+  if (r && r.width >= 320) {
+    return { left: r.left + 16, top: Math.max(r.top + 16, 96), width: Math.min(r.width - 32, 1400), height: 240 };
+  }
+  return { left: 24, top: 96, width: Math.max(320, Math.min(innerWidth - 48, 1400)), height: 240 };
 }
 
 /** Document-space bottom (px) of every laid-out widget on the page, viewport-visible or not — used to

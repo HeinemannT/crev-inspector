@@ -100,9 +100,11 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         const where = par ? (par.kind === 'tab' ? `tab "${par.name}"` : `container "${par.name}"`) : 'the page';
         if (n.kind === 'tab') {
           emit({ verb: 'create', text: `Create tab "${n.name}"`,
+            action: 'Add', object: n.name, objectType: 'Tab', detail: `${n.cols.L}/6`,
             ec: `${v} := _ts.add(Tab, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}) // BMP assigns id` });
         } else if (n.kind === 'container') {
           emit({ verb: 'create', text: `Create new container "${n.name}" (${n.cols.L}/6) in ${where}`,
+            action: 'Add', object: n.name, objectType: 'Container', where: par?.name, detail: `${n.cols.L}/6`,
             ec: `${v} := ${ref(s.parentId)}.add(Container, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}) // BMP assigns id` });
         } else if (s.parentKind === 'widget') {
           // Composite child (e.g. a button in a ButtonContainer): the child is added to the COMPOSITE
@@ -113,10 +115,12 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
             throw new Error(`cannot add ${n.className} into a ${parentClass ?? 'widget'}; it is not a composite container`);
           }
           emit({ verb: 'create', text: `Create ${n.className} "${n.name}" in ${parentClass}`,
+            action: 'Add', object: n.name, objectType: n.className, where: par?.name,
             ec: `${v} := ${ref(s.parentId)}.add(${ecClass(n.className)}, name := ${ecStr(n.name)}) // BMP assigns id` });
         } else {
           const h = n.height != null ? `, chartHeight := ${n.height}` : '';
           emit({ verb: 'create', text: `Add ${n.className} "${n.name}" (${n.cols.L}/6) to ${where}`,
+            action: 'Add', object: n.name, objectType: n.className, where: par?.name, detail: `${n.cols.L}/6`,
             ec: `${v} := _sc.add(${ecClass(n.className)}, name := ${ecStr(n.name)}, container := ${ref(s.parentId)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}${h}) // BMP assigns id` });
         }
         // G3: a widget created AND styled in the same batch carries its appearance on `n.style`. The create
@@ -125,44 +129,62 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         // never carry style, so styleAssignments returns [].)
         {
           const sa = styleAssignments(undefined, n.style);
-          if (sa.length) emit({ verb: 'update', text: `Style "${n.name}"`, ec: `${v}.change(${styleEcParts(sa, n.name).join(', ')})` });
+          if (sa.length) emit({ verb: 'update', text: `Style "${n.name}"`,
+            action: 'Style', object: n.name, objectType: n.className, detail: sa.map(a => a.prop).join(', '),
+            ec: `${v}.change(${styleEcParts(sa, n.name).join(', ')})` });
         }
         break;
       }
       case 'update': {
         const parts: string[] = [];
+        const what: string[] = []; // friendly qualifiers for the log's detail column, parallel to parts
         // null col/height = CLEARED. BMP has no verified clear verb for these (`:= MISSING` is a
         // no-op), so we skip serving it — the null exists only so the stale-guard sees a concurrent
         // clear as drift. If a step is ONLY clears, parts is empty; omit it rather than emit `change()`.
-        if (s.cols) (['L', 'M', 'S'] as Breakpoint[]).forEach(bp => { if (s.cols![bp] != null) parts.push(`${COL_PROP[bp]} := ${s.cols![bp]}`); });
-        if (s.name != null) parts.push(`name := ${ecStr(s.name)}`);
-        if (s.height != null) parts.push(`chartHeight := ${s.height}`);
+        if (s.cols) (['L', 'M', 'S'] as Breakpoint[]).forEach(bp => {
+          if (s.cols![bp] != null) { parts.push(`${COL_PROP[bp]} := ${s.cols![bp]}`); what.push(bp === 'L' ? `${s.cols![bp]}/6` : `${s.cols![bp]}/6·${bp}`); }
+        });
+        if (s.name != null) { parts.push(`name := ${ecStr(s.name)}`); what.push(`→ "${s.name}"`); }
+        if (s.height != null) { parts.push(`chartHeight := ${s.height}`); what.push(`${s.height}px`); }
         // G3 appearance edits — same shared compiler as the create path (styleEcParts).
-        if (s.styleAssign?.length) parts.push(...styleEcParts(s.styleAssign, byId.get(s.id)?.name ?? s.id));
+        const styleCount = s.styleAssign?.length ?? 0;
+        if (s.styleAssign?.length) {
+          parts.push(...styleEcParts(s.styleAssign, byId.get(s.id)?.name ?? s.id));
+          what.push(...s.styleAssign.map(a => a.prop));
+        }
         const resets = (s.resetProps ?? []).filter(p => RESETTABLE.has(p)); // F2 — revert override to template
         if (!parts.length && !resets.length) break;
         const label = byId.get(s.id)?.name ?? s.id;
+        const cls = byId.get(s.id)?.className;
         if (parts.length) emit({ verb: 'update', text: `Update "${label}" (${parts.length} change${parts.length > 1 ? 's' : ''})`,
+          action: styleCount === parts.length ? 'Style' : 'Change', object: label, objectType: cls, detail: what.join(', '),
           ec: `${ref(s.id)}.change(${parts.join(', ')})` });
         // `.reset(<prop>)` drops the instance override so the property re-inherits the template's value.
-        for (const p of resets) emit({ verb: 'update', text: `Reset "${label}" ${p} to template`, ec: `${ref(s.id)}.reset(${p})` });
+        for (const p of resets) emit({ verb: 'update', text: `Reset "${label}" ${p} to template`,
+          action: 'Reset', object: label, objectType: cls, detail: `${p} → template`,
+          ec: `${ref(s.id)}.reset(${p})` });
         break;
       }
       case 'reparent': {
         const field = s.nodeKind === 'widget' ? 'container' : 'parent';
         const label = byId.get(s.id)?.name ?? s.id;
-        emit({ verb: 'move', text: `Move "${label}" into ${byId.get(s.toParentId)?.name ?? s.toParentId}`,
+        const dest = byId.get(s.toParentId)?.name ?? s.toParentId;
+        emit({ verb: 'move', text: `Move "${label}" into ${dest}`,
+          action: 'Move', object: label, objectType: byId.get(s.id)?.className, where: dest,
           ec: `${ref(s.id)}.change(${field} := ${ref(s.toParentId)})` });
         break;
       }
       case 'reorder': {
         const label = byId.get(s.id)?.name ?? s.id;
         emit({ verb: 'reorder', text: `Reorder "${label}"`,
+          action: 'Reorder', object: label, objectType: byId.get(s.id)?.className,
+          detail: `after "${byId.get(s.afterId)?.name ?? s.afterId}"`,
           ec: `${ref(s.id)}.moveAfter(${ref(s.afterId)})` });
         break;
       }
       case 'delete': {
         emit({ verb: 'delete', text: `Delete ${s.nodeKind} (${s.className})`,
+          action: 'Delete', object: s.name ?? s.id, objectType: s.className,
           ec: `${refDeleted(s.id, s.rid)}.delete()` });
         break;
       }

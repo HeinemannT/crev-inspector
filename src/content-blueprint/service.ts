@@ -108,7 +108,19 @@ export async function applyPage(): Promise<void> {
   if (res.noop) { if (res.model) rebase(res.model); showToast('Blueprint: nothing to apply', 'info'); render(); return; }
   // Committed. The live grid can only reflow on a real page load — so refresh to show the new layout,
   // and turn blueprint OFF (SW state + sidebar toggle + overlay) so we don't reopen onto a stale model.
+  // The session RESUMES after the reload: a sessionStorage flag (page-scoped, survives the refresh)
+  // tells the fresh content script to ask the SW to re-enable blueprint — with the SAME edit target,
+  // so applying to "This instance" doesn't dump the user back into template mode (or, before this,
+  // into nothing at all: the off-toggle used to end the session and the user had to re-enter by hand).
+  try {
+    sessionStorage.setItem(RESUME_KEY, JSON.stringify({
+      prefer: bp.editingTemplate ? 'template' : 'instance', t: Date.now(),
+    }));
+  } catch { /* sandboxed / storage disabled — resume is best-effort */ }
   showToast('Blueprint: changes applied. Refreshing…', 'success');
   sendToSW({ type: 'BLUEPRINT_TOGGLE' }); // flips per-window state off; updates the sidebar toggle
   setTimeout(() => location.reload(), 500);
 }
+
+/** sessionStorage key for the post-apply resume flag — written here, consumed by content.ts on boot. */
+export const RESUME_KEY = 'crev_bp_resume';
