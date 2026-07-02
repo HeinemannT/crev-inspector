@@ -35,21 +35,27 @@ const demo = (): LModel => ({
  * Re-validated live 2026-06-28 after the reorder-emission fix: the two cont_14 moveAfters
  * (4966→4965, 4964→4966) were dropped because moving 4964 INTO cont_14 appends it, which already
  * yields the desired order — those moveAfters were redundant no-ops. The shortened script returned
- * [OK] via ec_preview. (tab-4904's reorders stay: _n0 is genuinely interleaved before 4967.)
+ * [OK] via ec_preview.
+ *
+ * Re-validated live 2026-07-02 after the band-invariant normalization: edits now keep the model in
+ * canonical order (containers first), so the desired tree — and with it the pre-order create
+ * numbering (_n0 = the box, _n2 = the TextElement) and the reorder anchors — follows BMP's real
+ * render order instead of the raw splice positions. Same operations, band-legal order; ec_preview
+ * accepted every move ([OK]).
  */
 const GOLDEN = [
   '_sc := t.4957',
-  '_n0 := _sc.add(TextElement, name := "New TextElement", container := t.4904, columnsLargeScreen := 6) // BMP assigns id',
-  '_n1 := t.4904.add(Container, name := "New Box", columnsLargeScreen := 2) // BMP assigns id',
-  '_n2 := _sc.add(PieChart, name := "New PieChart", container := _n1, columnsLargeScreen := 6, chartHeight := 200) // BMP assigns id',
+  '_n0 := t.4904.add(Container, name := "New Box", columnsLargeScreen := 2) // BMP assigns id',
+  '_n1 := _sc.add(PieChart, name := "New PieChart", container := _n0, columnsLargeScreen := 6, chartHeight := 200) // BMP assigns id',
+  '_n2 := _sc.add(TextElement, name := "New TextElement", container := t.4904, columnsLargeScreen := 6) // BMP assigns id',
   't.4964.change(columnsLargeScreen := 6)',
   't.4964.change(container := t.cont_crev_demo_enterprise_14)',
   't.4968.change(chartHeight := 300)',
   't.4968.change(container := t.4904)',
   't.4969.change(name := "Analyst Notes")',
   't.4969.change(container := t.4904)',
-  't.cont_crev_demo_enterprise_14.moveAfter(_n1)',
-  't.4967.moveAfter(_n0)',
+  't.cont_crev_demo_enterprise_14.moveAfter(_n0)',
+  't.4967.moveAfter(_n2)',
   't.4968.moveAfter(t.4967)',
   't.4969.moveAfter(t.4968)',
   't.cont_crev_demo_enterprise_19.delete()',

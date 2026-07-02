@@ -111,3 +111,29 @@ describe('list/tag value autocomplete — end to end', () => {
     expect(await valuesAt('output(1)\n_l.filter(subtype = ')).toEqual(['t.master', 't.instance']);
   });
 });
+
+describe('dot-member value positions (the branch that was missing — values only worked in WHERE/filter)', () => {
+  it('resolves a pick-one chain: IF _l.first().subtype = ', async () => {
+    await seedOptions('CeRiskAssessment', OPTIONS);
+    ti.scanDocForInferences({ lines: 1, line: () => ({ text: '_l := SELECT ceRiskAssessment' }) });
+    expect(await valuesAt('IF _l.first().subtype = ')).toEqual(['t.master', 't.instance']);
+  });
+
+  it('resolves a foreach loop variable: _l.forEach(_risk: IF _risk.subtype = ', async () => {
+    await seedOptions('CeRiskAssessment', OPTIONS);
+    ti.scanDocForInferences({ lines: 1, line: () => ({ text: '_l := SELECT ceRiskAssessment' }) });
+    expect(await valuesAt('_l.forEach(_risk:\n     IF _risk.subtype = ')).toEqual(['t.master', 't.instance']);
+  });
+
+  it('resolves a scalar variable receiver: _r.subtype = ', async () => {
+    await seedOptions('CeRiskAssessment', OPTIONS);
+    ti.scanDocForInferences({ lines: 2, line: (i: number) => ({ text: i === 1 ? '_l := SELECT ceRiskAssessment' : '_r := _l.first()' }) });
+    expect(await valuesAt('IF _r.subtype = ')).toEqual(['t.master', 't.instance']);
+  });
+
+  it('declines a dot-member accessor that is not a list/tag property', async () => {
+    await seedOptions('CeRiskAssessment', OPTIONS);
+    ti.scanDocForInferences({ lines: 1, line: () => ({ text: '_l := SELECT ceRiskAssessment' }) });
+    expect(await valuesAt('IF _l.first().code = ')).toBeNull();
+  });
+});

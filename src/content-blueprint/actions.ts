@@ -8,6 +8,7 @@
  * functions (never at module-init), so ESM resolves the cycle cleanly.
  */
 import { findNode, isTempId } from '../lib/layout/model';
+import { bandInsertIndex } from '../lib/layout/placement';
 import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, findTabOf, toggleReset, setStyle } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { compile } from '../lib/layout/ec';
@@ -170,10 +171,11 @@ export function addFromPicker(className: string): void {
   if (!m || !cid) return;
   const f = findNode(m, cid);
   const kids = f ? f.node.children : m.tabs;
-  const afterId = bp.pickerOpts?.afterId;
-  const at = afterId ? kids.findIndex(c => c.id === afterId) : -1;
-  const idx = at >= 0 ? at + 1 : kids.length;
-  const added = addWidget(m, cid, idx, className, undefined, bp.pickerOpts?.cols ?? 6);
+  // Band-correct insertion: after the gap's anchor when that slot is band-legal, else the nearest
+  // position BMP can actually render it at (widgets always flow after all containers).
+  const { index, remapped } = bandInsertIndex(kids, bp.pickerOpts?.afterId, 'widget');
+  if (remapped) showToast('Widgets render after all containers — added at the start of the widget flow', 'info');
+  const added = addWidget(m, cid, index, className, undefined, bp.pickerOpts?.cols ?? 6);
   bp.picker = null; bp.pickerOpts = null;
   bp.selectedId = added.id;
   mutate(added.model);
@@ -189,10 +191,9 @@ export function addContainerTo(parentId: string): void {
   const m = model(); if (!m) return;
   const f = findNode(m, parentId);
   const kids = f ? f.node.children : m.tabs;
-  const afterId = bp.pickerOpts?.afterId;
-  const at = afterId ? kids.findIndex(c => c.id === afterId) : -1;
-  const idx = at >= 0 ? at + 1 : kids.length;
-  const r = addContainer(m, parentId, idx, bp.pickerOpts?.cols ?? 6);
+  const { index, remapped } = bandInsertIndex(kids, bp.pickerOpts?.afterId, 'container');
+  if (remapped) showToast('Containers render before widgets — added at the end of the container flow', 'info');
+  const r = addContainer(m, parentId, index, bp.pickerOpts?.cols ?? 6);
   bp.picker = null; bp.pickerOpts = null;
   bp.selectedId = r.id;
   mutate(r.model);

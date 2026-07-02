@@ -543,8 +543,10 @@ function enclosingFilterReceiver(text: string, at: number): string | null {
 }
 
 /** Resolve the option set + replace-range when the cursor is at a list/tag
- *  comparison value position (WHERE or filter), or null. */
-function resolveValueContext(state: CompletionContext['state'], pos: number): { types: string[]; accessor: string; from: number } | null {
+ *  comparison value position (filter, dot-member, or WHERE), or null. Mirrors the
+ *  property-NAME resolver's branches: `types` is synchronous, `ref` (a ns.bid
+ *  receiver) resolves async via getRefType — same two-stage shape as resolveContext. */
+function resolveValueContext(state: CompletionContext['state'], pos: number): { types?: string[]; ref?: string; accessor: string; from: number } | null {
   const line = state.doc.lineAt(pos);
   const offset = pos - line.from;
   // List/tag values are `t.<id>` refs, never string literals — skip inside quotes.
@@ -553,6 +555,7 @@ function resolveValueContext(state: CompletionContext['state'], pos: number): { 
   const cmp = parseComparison(line.text, offset);
   if (!cmp) return null;
   const from = line.from + cmp.valueStart;
+  const accAbs = line.from + cmp.accessorStart;
 
   // (A) inside a .filter(...) predicate — class from the receiver var.
   // accessorStart is line-local (parseComparison ran on line.text), so pass it
@@ -563,9 +566,19 @@ function resolveValueContext(state: CompletionContext['state'], pos: number): { 
     return types ? { types, accessor: cmp.accessor, from } : null;
   }
 
+  // (C) dot-member accessor — `_risk.first().riskclass = `, `self.x = `, `_obj.x = `,
+  // `ceras.foo.x = `. The SAME resolver the property-NAME path uses identifies the
+  // receiver's class (loop vars, pick-one chains, self, ns.bid refs). The receiver
+  // parse is line-bounded, but self/lambda resolution walks LEFT to the enclosing
+  // call — often lines above — so feed it a bounded window ending at the accessor.
+  if (cmp.accessorStart > 0 && line.text[cmp.accessorStart - 1] === '.') {
+    const dotWin = Math.max(0, accAbs - 4000);
+    const member = resolveDotMember(state.doc.sliceString(dotWin, accAbs), accAbs - dotWin);
+    if (member) return { ...member, accessor: cmp.accessor, from };
+  }
+
   // (B) SELECT … WHERE — the accessor position is a property-name slot, so
   // findWhereClass resolves the SELECT class when fed the window up to it.
-  const accAbs = line.from + cmp.accessorStart;
   const winStart = Math.max(0, accAbs - 400);
   const cls = findWhereClass(state.doc.sliceString(winStart, accAbs));
   if (cls) return { types: [pascal(cls)], accessor: cmp.accessor, from };
@@ -602,10 +615,21 @@ export function valueCompletions(context: CompletionContext): CompletionResult |
   if (!ctx) return null;
   return awaitCompletion(
     context,
-    () => { const o = lookupOption(ctx.types, ctx.accessor); return o ? buildValueResult(o, ctx.from) : null; },
-    () => ctx.types.forEach(ensureOptionsNow),
-    // Options loaded for every type but no set for this accessor → not a
-    // list/tag property; give up rather than wait out the timeout.
-    () => ctx.types.every(t => getOptions(t) !== undefined),
+    () => { const ts = ctxTypes(ctx); if (!ts) return null; const o = lookupOption(ts, ctx.accessor); return o ? buildValueResult(o, ctx.from) : null; },
+    () => {
+      // Stage 1 (ref receiver only): resolve ns.bid → class. Stage 2: fetch that
+      // class's option sets once known. ensure() re-runs per notify, so both progress.
+      if (ctx.ref) ensureRefType(ctx.ref);
+      const ts = ctxTypes(ctx);
+      if (ts) ts.forEach(ensureOptionsNow);
+    },
+    // Give up early when we can prove no match: the ref resolved to no class, or
+    // options are loaded for every type and none carries a set for this accessor
+    // (→ not a list/tag property; don't wait out the timeout).
+    () => {
+      if (ctx.ref !== undefined && getRefType(ctx.ref) === null) return true;
+      const ts = ctxTypes(ctx);
+      return !!ts && ts.every(t => getOptions(t) !== undefined);
+    },
   );
 }

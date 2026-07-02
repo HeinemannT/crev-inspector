@@ -100,7 +100,9 @@ export interface LNode {
   /** BMP className: Tab | Container | CustomVisualization | ExtendedTable | … */
   className: string;
   name: string;
-  /** Column span per breakpoint (1..6, 0 = hidden). L is always set; M/S optional. */
+  /** Column span per breakpoint (1..6). 0 is class-dependent (live-verified 2026-07-02): a widget
+   *  renders full width (= 6); a container renders as a ~1-track auto cell — see rows.trackSpan.
+   *  L is always set; M/S optional. */
   cols: { L: number; M?: number; S?: number };
   /** Authored height in px — charts (`chartHeight`) and URLView only. Undefined = content-driven. */
   height?: number;

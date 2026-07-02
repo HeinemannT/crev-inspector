@@ -7,11 +7,13 @@
  * position. It touches none of BMP's DOM — it's an overlay wireframe — so there's no iframe reload,
  * no chart breakage, no fight with BMP's renderer, and it works for staged adds (which have no DOM).
  *
- * Fidelity: BMP wraps children left-to-right into 6 columns by `cols.L`, containers before tab-bound
- * widgets (encoded in `orderChildren`). `grid-template-columns: repeat(6, 1fr)` + `grid-column: span
- * cols.L` reproduces exactly that wrap via the browser's own auto-placement — a too-wide item leaves
- * the trailing gap and wraps, same as BMP. The grid is anchored to the live content box (origin +
- * width measured from the page's widget rects) so columns line up pixel-wise with the real page.
+ * Fidelity: BMP's real grid is 12 tracks (span = cols.L × 2) — children flow left-to-right in
+ * canonical order (containers before tab-bound widgets, with NO row break at the band boundary) and
+ * wrap by fits-in-remainder. All of that lives in ONE engine (`lib/layout/rows.computeRows`,
+ * live-verified 2026-07-02); this view renders its rows with `grid-template-columns: repeat(12, 1fr)`
+ * + `grid-column: span trackSpan(node)`, so the browser's auto-placement agrees with the computed
+ * rows by construction. The grid is anchored to the live content box (origin + width measured from
+ * the page's widget rects) so columns line up pixel-wise with the real page.
  *
  * Tab selection: the caller (view.render) resolves ONE `viewedId` and passes it in; this view renders
  * that tab. It anchors to that tab's own live widgets when they're on screen (peeking an off-screen tab
@@ -20,6 +22,7 @@
  */
 import { STYLE_NODE_FIELDS, type LModel, type LNode, type NodeStyle } from '../lib/layout/types';
 import { findNode, orderChildren, isTempId, isChart, walk, fieldsChanged } from '../lib/layout/model';
+import { computeRows, trackSpan, TRACKS } from '../lib/layout/rows';
 import { COMPOSITE_TYPES } from '../lib/layout/constraints';
 import {
   ICON_PLUS, ICON_CHART, ICON_TABLE, ICON_LIST, ICON_CHECK_CIRCLE, ICON_CODE,
@@ -143,12 +146,15 @@ function widgetHeight(node: LNode, byRid: Map<string, Element>): { px: number; m
   return { px: estimateHeight(node.className), measured: false };
 }
 
-/** A small "+" zone filling the trailing FREE columns of a row, so the empty right side of a
- *  partly-filled row (e.g. Risk Register) is a real add target. Sized to the gap so the new widget
- *  lands in it; also a move drop-target. */
-function gapCell(parentId: string, free: number, afterId?: string): HTMLElement {
-  const z = document.createElement('div'); z.className = 'bp-rgap'; z.style.gridColumn = `span ${free}`;
-  z.dataset.bpid = parentId; z.dataset.bpkind = 'avail'; z.dataset.bpfree = String(free); // a widget dropped here resizes to fit the slot
+/** A small "+" zone filling the trailing FREE tracks of a row, so the empty right side of a
+ *  partly-filled row (e.g. Risk Register) is a real add target. `freeTracks` sizes the visual span;
+ *  `fitL` (whole L columns that fit, = ⌊freeTracks/2⌋) sizes what lands in it. A slot too narrow for
+ *  any widget (fitL 0 — the odd track beside a 0-width container) renders as inert filler. */
+function gapCell(parentId: string, freeTracks: number, afterId?: string): HTMLElement {
+  const z = document.createElement('div'); z.className = 'bp-rgap'; z.style.gridColumn = `span ${freeTracks}`;
+  const fitL = Math.floor(freeTracks / 2);
+  if (fitL < 1) { z.classList.add('bp-rgap-dead'); return z; }
+  z.dataset.bpid = parentId; z.dataset.bpkind = 'avail'; z.dataset.bpfree = String(fitL); // a widget dropped here resizes to fit the slot
   // The gap's ordinal anchor: the row's last real cell. A DROP here inserts right after it (same as the
   // click/add path), not appended at the parent's end — so a widget dropped in a trailing slot keeps the
   // row's reading order instead of landing far below. Absent on a full-width empty-container gap → append.
@@ -156,24 +162,18 @@ function gapCell(parentId: string, free: number, afterId?: string): HTMLElement 
   const ic = document.createElement('span'); ic.className = 'bp-rgap-ic'; setIcon(ic, ICON_PLUS); z.appendChild(ic);
   // Insert the new widget AT the clicked gap (right after the row's last cell), not appended at the end
   // of the parent — otherwise adding to an empty right-side slot drops the widget far below, off-screen.
-  z.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(parentId, { cols: free, at: { x: e.clientX, y: e.clientY }, ...(afterId ? { afterId } : {}) }); });
+  z.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(parentId, { cols: fitL, at: { x: e.clientX, y: e.clientY }, ...(afterId ? { afterId } : {}) }); });
   return z;
 }
 
-/** Append a parent's children to `grid`, packed into 6-col rows, dropping a gapCell in each row's
- *  trailing free columns. Mirrors BMP's left-to-right wrap, and makes every empty slot fillable. */
+/** Append a parent's children to `grid` as computeRows lays them out, dropping a gapCell in each
+ *  row's trailing free tracks — the render side of the ONE row engine, so every empty slot the
+ *  wireframe shows is a slot the engine agrees exists. */
 function fillGrid(grid: HTMLElement, base: LModel, children: LNode[], parentId: string, byRid: Map<string, Element>, reordered: ReadonlySet<string>): void {
-  let used = 0;
-  let lastId: string | undefined; // the cell a trailing gap sits right after — its add inserts there
-  for (const c of orderChildren(children)) {
-    const sp = Math.max(1, Math.min(6, c.cols.L));
-    if (used + sp > 6 && used > 0) { grid.appendChild(gapCell(parentId, 6 - used, lastId)); used = 0; }
-    grid.appendChild(cell(base, c, parentId, byRid, reordered));
-    lastId = c.id;
-    used += sp;
-    if (used >= 6) used = 0;
+  for (const row of computeRows(children)) {
+    for (const c of row.items) grid.appendChild(cell(base, c, parentId, byRid, reordered));
+    if (row.free > 0) grid.appendChild(gapCell(parentId, row.free, row.items[row.items.length - 1]?.id));
   }
-  if (used > 0) grid.appendChild(gapCell(parentId, 6 - used, lastId));
 }
 
 /** F2: the blue revert arrow shown next to an overridden property in instance view — it IS the
@@ -254,7 +254,7 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   const el = document.createElement('div');
   el.dataset.bpid = node.id;
   el.dataset.bpkind = node.kind === 'container' ? 'container' : 'widget';
-  el.style.gridColumn = `span ${Math.max(1, Math.min(6, node.cols.L))}`;
+  el.style.gridColumn = `span ${trackSpan(node)}`;
   const composite = isCompositeWithKids(node);
   const h = widgetHeight(node, byRid);
   if (h && !composite) el.style.height = `${h.px}px`; // composites size to their children, not an estimate
@@ -277,7 +277,7 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   if (node.kind === 'container') {
     const grid = document.createElement('div'); grid.className = 'bp-rgrid';
     if (node.children.length) fillGrid(grid, base, node.children, node.id, byRid, reordered);
-    else grid.appendChild(gapCell(node.id, 6)); // empty container → a full add slot
+    else grid.appendChild(gapCell(node.id, TRACKS)); // empty container → a full add slot
     el.appendChild(grid);
   } else if (composite) {
     // Composite (ButtonContainer/ButtonGroup/InputSet/…): show its nested children read-only so a
@@ -310,7 +310,7 @@ function compositeChildCell(node: LNode): HTMLElement {
   el.className = 'bp-rcell bp-rcomp-child st-same';
   el.dataset.bpid = node.id;
   el.dataset.bpkind = 'widget';
-  el.style.gridColumn = `span ${Math.max(1, Math.min(6, node.cols.L))}`;
+  el.style.gridColumn = `span ${trackSpan(node)}`;
   const lab = document.createElement('div'); lab.className = 'bp-rlab';
   const icon = typeIcon(node.className);
   if (icon) { const ic = document.createElement('span'); ic.className = 'bp-ric'; setIcon(ic, icon); lab.appendChild(ic); }
@@ -375,7 +375,7 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
   if (tab.children.length) fillGrid(grid, base, tab.children, tab.id, byRid, reordered);
   // Full-width add zone — a NEW ROW below all content (the per-row gaps cover partial rows).
-  const add = document.createElement('div'); add.className = 'bp-radd-zone'; add.style.gridColumn = 'span 6';
+  const add = document.createElement('div'); add.className = 'bp-radd-zone'; add.style.gridColumn = 'span 12';
   add.dataset.bpid = tab.id; add.dataset.bpkind = 'avail';
   const ai = document.createElement('span'); ai.className = 'bp-radd-ic'; setIcon(ai, ICON_PLUS);
   const at = document.createElement('span'); at.textContent = tab.children.length ? `Add a row to "${tab.name}"` : `Tab "${tab.name}" is empty — add a widget`;

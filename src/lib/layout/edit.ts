@@ -8,15 +8,18 @@
  * doMoveInto/doSwap/doInsert controllers). `move` is the shared reparent+position primitive.
  * findNode/findTabOf are shared tree helpers used throughout.
  */
-import { cloneModel, findNode, descendantWidgets, tempId, isChart, hasHeight } from './model';
+import { cloneModel, findNode, descendantWidgets, tempId, isChart, hasHeight, normalizeModel } from './model';
 import type { Breakpoint, LModel, LNode, NodeStyle } from './types';
 
 const clampCol = (n: number): number => Math.max(0, Math.min(6, Math.round(n)));
 
+/** Every mutation flows through here: clone, apply, then normalize to canonical band order — the
+ *  single choke point that keeps raw children order identical to BMP's rendered order (see
+ *  normalizeModel). A future primitive added to this file inherits the invariant for free. */
 function edit(m: LModel, fn: (c: LModel) => void): LModel {
   const c = cloneModel(m);
   fn(c);
-  return c;
+  return normalizeModel(c);
 }
 
 export function resize(m: LModel, id: string, bp: Breakpoint, n: number): LModel {

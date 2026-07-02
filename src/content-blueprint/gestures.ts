@@ -8,6 +8,7 @@
  * menu-driven edits. `bp.dragging` suppresses the scroll re-render for the duration of a gesture.
  */
 import { findNode } from '../lib/layout/model';
+import { resolveGapPlacement } from '../lib/layout/placement';
 import type { LNode } from '../lib/layout/types';
 import { ICON_ARROW_RIGHT } from '../lib/icons';
 import { bp, model } from './state';
@@ -163,7 +164,7 @@ function beginDrag(id: string): void {
 function setAct(text: string): void { const a = ghost?.querySelector('.act'); if (a) a.textContent = text; }
 
 function clearTargets(): void {
-  bp.layer?.querySelectorAll('.bp-drop,.bp-swap,.bp-tabdrop').forEach(el => el.classList.remove('bp-drop', 'bp-swap', 'bp-tabdrop'));
+  bp.layer?.querySelectorAll('.bp-drop,.bp-swap,.bp-tabdrop,.bp-drop-no').forEach(el => el.classList.remove('bp-drop', 'bp-swap', 'bp-tabdrop', 'bp-drop-no'));
   if (dropline) dropline.style.display = 'none';
 }
 
@@ -186,18 +187,22 @@ function markTarget(ev: MouseEvent): void {
     setAct(`move to tab "${nameOf(m, targetId)}"`); return;
   }
   if (kind === 'avail') {
+    // A trailing gap carries `bpafter` (the row's last cell) and `bpfree` (whole columns that fit).
+    // resolveGapPlacement — the same band engine the renderer's rows come from — decides whether the
+    // dragged node can actually RENDER in this slot: same band inserts after the anchor; a widget on
+    // the LAST container's gap leads the widget band (the flow continues on that row); anything else
+    // is a slot BMP can't produce — refuse it visibly instead of silently landing elsewhere.
+    const after = hit.dataset.bpafter;
+    const kids = findNode(m, targetId)?.node.children ?? [];
+    const place = src ? resolveGapPlacement(kids, after && after !== dragId ? after : undefined, src.node.kind) : null;
+    if (!place) { setAct(''); return; }
+    if (!place.ok) { hit.classList.add('bp-drop-no'); setAct(`✕ ${place.reason}`); return; } // action stays null → drop is a no-op
     hit.classList.add('bp-drop');
-    // A trailing-gap slot carries its free-column width — dropping a WIDER node (widget OR container)
-    // here resizes it down to fit the slot.
     const free = Number(hit.dataset.bpfree) || undefined;
     const fit = free != null && src != null && src.node.cols.L > free ? free : undefined;
-    // A trailing gap also carries `bpafter` — the row's last cell. Insert right AFTER it (ordinal),
-    // structurally the same path as "place after a widget", so the dropped node keeps the row's reading
-    // order instead of being appended at the parent's end. A gap with no anchor (full-width empty
-    // container) still appends via `into`.
-    const after = hit.dataset.bpafter;
-    if (after && after !== dragId) action = { type: 'insert', targetId: after, before: false, fitCols: fit };
-    else action = { type: 'into', targetId, fitCols: fit };
+    action = place.mode === 'after'
+      ? { type: 'insert', targetId: place.targetId, before: false, fitCols: fit }
+      : { type: 'into', targetId, fitCols: fit };
     setAct(fit != null ? `place in empty slot (resize to ${fit} col)` : `place in empty slot`); return;
   }
   if (kind === 'container') {

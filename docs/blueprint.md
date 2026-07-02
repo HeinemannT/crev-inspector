@@ -61,13 +61,20 @@ view.ts                render() — rebuilds the overlay from `bp` each call (ch
                        ensureScrollRoom, pendingCount memo.
 view-panels.ts         the chrome panels: command chip (incl. the peek control), apply-preview modal,
                        pending tray, hint bar, create-tabset modal. Pure builders — they never call render().
-result.ts              renderResult() — THE canvas: the edited model as a CSS-grid mirror of BMP's
-                       6-col model, ONE tab (the caller-resolved `viewedId`). cellState() colours cells;
-                       a full-bleed .bp-canvas-bg backdrop sized to cover every widget on the page.
+result.ts              renderResult() — THE canvas: the edited model as a CSS-grid mirror of BMP's real
+                       12-track grid (span = cols.L × 2; rows from lib/layout/rows.computeRows — the ONE
+                       row engine, live-verified 2026-07-02), ONE tab (the caller-resolved `viewedId`).
+                       cellState() colours cells; a full-bleed .bp-canvas-bg backdrop sized to cover
+                       every widget on the page.
 actions.ts             the controller: each gesture → a pure edit op → bp.history.push → render().
                        mutate() is the one write path. viewTab() drives BMP's real tab. togglePeek().
+                       Add flows place via lib/layout/placement.bandInsertIndex (band-legal, toast on remap).
 gestures.ts            pointer-driven drag-to-move/swap/reorder + edge-resize; arms cells via armBox().
                        edgeness()/nearestEdge() classify a drop; SWAP_ZONE/CONTAINER_NEST_ZONE name the bands.
+                       Gap ('avail') drops resolve through lib/layout/placement.resolveGapPlacement — a slot
+                       BMP can't render (cross-band) is REFUSED with a visible ✕ + reason, never silently
+                       relocated. Edit ops themselves re-normalize to canonical order (containers first)
+                       via edit.ts's single choke point, so raw model order always equals render order.
 geometry.ts            DOM measurement + placement: ridElementMap, unionRect, anchorRect, widgetRects,
                        the button factories, and placeDoc()/docX/docY (the ONE viewport→document convert).
 service.ts             SW I/O (sendRequest): loadPage / applyPage / createTabset; sameSession guard.

@@ -60,7 +60,7 @@ describe('renderResult (CSS-grid mirror)', () => {
   const byRid = new Map<string, Element>(
     ['r_w1', 'r_w2', 'r_w2top'].map(rid => [rid, document.createElement('div')]));
 
-  it('renders a 6-col grid anchored to the content box, with per-node spans + nesting', () => {
+  it('renders a 12-track grid anchored to the content box, with per-node spans (2× cols.L) + nesting', () => {
     const layer = document.createElement('div');
     const ok = renderResult(m, m, byRid, layer);
     expect(ok).toBe(true);
@@ -71,10 +71,10 @@ describe('renderResult (CSS-grid mirror)', () => {
 
     const cellA = layer.querySelector('.bp-rcell[data-bpid="A"]') as HTMLElement;
     expect(cellA.dataset.bpkind).toBe('container');
-    expect(cellA.style.gridColumn).toBe('span 4');
+    expect(cellA.style.gridColumn).toBe('span 8'); // cols.L 4 → 8 of 12 tracks
     // container nests its own sub-grid with the children
     expect(cellA.querySelectorAll('.bp-rgrid .bp-rcell').length).toBe(2);
-    expect((layer.querySelector('.bp-rcell[data-bpid="w1"]') as HTMLElement).style.gridColumn).toBe('span 6');
+    expect((layer.querySelector('.bp-rcell[data-bpid="w1"]') as HTMLElement).style.gridColumn).toBe('span 12');
   });
 
   it('renders ONE tab at a time — the first tab by default, the passed viewedId when given', () => {

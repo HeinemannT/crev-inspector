@@ -263,7 +263,7 @@
 #crev-blueprint-layer.bp-peek .bp-result,#crev-blueprint-layer.bp-peek .bp-canvas-bg,#crev-blueprint-layer.bp-peek .bp-tools{opacity:0}
 /* align-items:start so each cell keeps its OWN (measured/authored) height instead of stretching to
    the row's tallest — the wireframe then reflects real widget heights, not a uniform grid. */
-#crev-blueprint-layer .bp-rgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-content:start;align-items:start}
+#crev-blueprint-layer .bp-rgrid{display:grid;grid-template-columns:repeat(12,1fr);gap:8px;align-content:start;align-items:start}
 #crev-blueprint-layer .bp-rroot{padding:0}
 #crev-blueprint-layer .bp-rcell{position:relative;min-height:50px;display:flex;flex-direction:column;gap:4px;padding:7px 9px;border:var(--bp-hair) solid var(--bp-line-1);background:#fff;box-shadow:var(--bp-shadow);pointer-events:auto;cursor:grab;overflow:hidden;transition:background .12s,border-color .12s}
 /* hover tint: an OPAQUE light-blue (a translucent one would replace the white fill and show the grid
@@ -368,6 +368,10 @@
 #crev-blueprint-layer .bp-rgap{display:flex;align-items:center;justify-content:center;min-height:48px;border:var(--bp-hair) dashed var(--bp-cyan);border-radius:var(--bp-r);color:#000;cursor:pointer;pointer-events:auto;background:repeating-linear-gradient(45deg,transparent 0 6px,rgba(21,101,192,.16) 6px 10px);transition:border-color .12s,background .12s,color .12s}
 #crev-blueprint-layer .bp-rgap:hover{border-color:var(--bp-cyan-hi);color:#000;background:repeating-linear-gradient(45deg,transparent 0 6px,rgba(21,101,192,.34) 6px 10px)}
 #crev-blueprint-layer .bp-rgap.bp-drop{border-style:solid;border-color:var(--bp-cyan-hi);background:rgba(21,101,192,.3)}
+/* a slot too narrow for any widget (the odd track beside a 0-width container) — visible filler, no affordance */
+#crev-blueprint-layer .bp-rgap.bp-rgap-dead{cursor:default;pointer-events:none;border-color:var(--bp-line-2);background:repeating-linear-gradient(45deg,transparent 0 6px,rgba(0,0,0,.05) 6px 10px)}
+/* a drop the band model refuses (container into a widget slot / widget between containers) */
+#crev-blueprint-layer .bp-rgap.bp-drop-no{cursor:not-allowed;border-color:var(--bp-red,#c62828);background:repeating-linear-gradient(45deg,transparent 0 6px,rgba(198,40,40,.18) 6px 10px)}
 #crev-blueprint-layer .bp-rgap-ic{display:inline-flex;opacity:.7}#crev-blueprint-layer .bp-rgap-ic svg{width:13px;height:13px;display:block}
 #crev-blueprint-layer .bp-rgap:hover .bp-rgap-ic{opacity:1}
 #crev-blueprint-layer .bp-radd-ic{display:inline-flex}#crev-blueprint-layer .bp-radd-ic svg{width:13px;height:13px;display:block}

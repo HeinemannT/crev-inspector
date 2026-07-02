@@ -153,6 +153,21 @@ export function orderChildren(children: LNode[]): LNode[] {
   ];
 }
 
+/** Enforce canonical band order (orderChildren) on every children array, in place. The edit
+ *  engine runs this after every mutation so the model's raw array order can never drift from
+ *  BMP's rendered order — the drift is what made "insert after X" land somewhere else once the
+ *  renderer re-banded. Stable: a band-legal splice is untouched; a cross-band splice snaps to
+ *  its band (the resolver should have prevented it — this is the safety net, not the fix). */
+export function normalizeModel(m: LModel): LModel {
+  const rec = (list: LNode[]): void => {
+    const sorted = orderChildren(list);
+    for (let i = 0; i < list.length; i++) list[i] = sorted[i];
+    for (const n of list) rec(n.children);
+  };
+  for (const t of m.tabs) rec(t.children);
+  return m;
+}
+
 // ── tree helpers ───────────────────────────────────────────────────────────
 
 export function cloneModel(m: LModel): LModel {
