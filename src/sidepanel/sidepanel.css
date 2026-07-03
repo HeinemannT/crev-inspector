@@ -414,6 +414,39 @@ body {
   transform: scale(1);
 }
 
+/* ── Per-site access strip ────────────────────── */
+/* shown when the active tab / profile server origin isn't granted yet */
+
+.site-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface-1));
+  border-left: 3px solid var(--warning);
+  border-bottom: 1px solid var(--surface-4);
+  font-size: var(--text-xs);
+  color: var(--text-1);
+  flex-shrink: 0;
+}
+.site-strip.hidden { display: none; }
+.site-strip-ic { display: inline-flex; flex: none; color: var(--warning); }
+.site-strip-ic svg { width: 13px; height: 13px; display: block; }
+.site-strip-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.site-strip-btn {
+  flex: none;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid var(--warning);
+  border-radius: 2px;
+  background: var(--warning);
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+.site-strip-btn:hover { filter: brightness(1.08); }
+
 /* ── Status strip ─────────────────────────────── */
 
 .status-strip {

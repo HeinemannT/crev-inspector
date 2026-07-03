@@ -8,6 +8,7 @@ import type { InspectorMessage, DetectionPhase } from './types';
 import { getCtx } from './sw-context';
 import { getTabDetection, setTabDetection } from './detection';
 import { handleContentMessage } from './message-router';
+import { originPatternFor } from './site-access';
 import { log } from './logger';
 
 /** Tabs currently mid-injection. Without this map, two parallel callers
@@ -18,13 +19,19 @@ import { log } from './logger';
  *  callers share one injection per tab. */
 const inFlightInjections = new Map<number, Promise<void>>();
 
-/** Inject content.js into the given tab if not already present. */
+/** Inject content.js into the given tab if not already present. Per-site access model: tabs whose
+ *  origin the user hasn't granted are skipped up-front \u2014 no injection attempt, no activity-log spam,
+ *  no failed-executeScript churn on sites the extension has no business touching (Google Maps et al.
+ *  suffered under the old always-inject model). */
 export function ensureContentScript(tabId: number): Promise<void> {
   if (getCtx().contentPorts.has(tabId)) return Promise.resolve();
   const existing = inFlightInjections.get(tabId);
   if (existing) return existing;
   const p = (async () => {
     try {
+      const tab = await chrome.tabs.get(tabId);
+      const pattern = originPatternFor(tab?.url);
+      if (!pattern || !(await chrome.permissions.contains({ origins: [pattern] }))) return; // not granted \u2014 hands off
       getCtx().logActivity('info', 'Injecting content script\u2026');
       await chrome.scripting.executeScript({
         target: { tabId },

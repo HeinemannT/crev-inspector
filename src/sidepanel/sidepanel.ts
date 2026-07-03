@@ -20,6 +20,7 @@ import { S, sendMessage, getActivePanel, getTabPanel, tabPanelId, onPortMessage,
 import { dispatchBroadcast } from '../lib/handler-registry';
 import { routeAccessMessage, initAccessTrace } from './access-trace';
 import { showProfileSwitcher } from './profile-switcher';
+import { renderSiteAccessStrip, refreshSiteAccessStrip } from './site-access-strip';
 import type { Tab } from './tabs/tab-types';
 import { ConnectTab } from './tabs/connect-tab';
 import { ObjectsTab } from './tabs/objects-tab';
@@ -160,6 +161,7 @@ onPortMessage((msg: InspectorMessage) => {
     case 'SETTINGS_DATA':
       S.settings = msg.settings;
       headerChanged = true;
+      void refreshSiteAccessStrip(); // profile (server origin) may have changed
       break;
     case 'CONNECTION_STATE':
       S.connState = msg.state;
@@ -172,10 +174,12 @@ onPortMessage((msg: InspectorMessage) => {
       // through to the per-tab forwarding below, so the Workshop pane still gets it.
       S.bmpDetected = msg.phase === 'detected' ? true : msg.phase === 'not-detected' ? false : null;
       headerChanged = true;
+      void refreshSiteAccessStrip(); // fires on tab switches — tracks the active tab's origin
       break;
     case 'PAGE_INFO':
       // PAGE_INFO carries the same detection verdict; keep the header's page-state in sync on every refresh.
       if (msg.detection) { S.bmpDetected = msg.detection.isBmp; headerChanged = true; }
+      void refreshSiteAccessStrip();
       break;
     case 'OBJECT_PANE_DATA':
       // The footer context chip tracks the object currently open in the
@@ -463,7 +467,8 @@ function buildApp(): void {
     cacheCountEl,
   );
 
-  render(app, header, tabBar, statusStrip, tabContent, statusBar);
+  render(app, header, tabBar, renderSiteAccessStrip(), statusStrip, tabContent, statusBar);
+  void refreshSiteAccessStrip();
 
   delegate(app, {
     tab: (el) => {

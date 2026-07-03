@@ -19,7 +19,18 @@ A Chrome side-panel extension for working with **Corporater BMP** the way develo
 
 ## Install
 
-Download `crev-inspector-x.y.z.zip` from [Releases](https://github.com/HeinemannT/crev-inspector/releases) and unzip it. Open `chrome://extensions/`, turn on **Developer mode**, choose **Load unpacked**, and pick the unzipped folder. Pin it to the toolbar. The Connect tab shows a banner when a new version is available.
+Download `crev-inspector-x.y.z.zip` from [Releases](https://github.com/HeinemannT/crev-inspector/releases) and unzip it. Open `chrome://extensions/` (Edge: `edge://extensions/`), turn on **Developer mode**, choose **Load unpacked**, and pick the unzipped folder. Pin it to the toolbar. The Connect tab shows a banner when a new version is available. Works on Chrome and Edge (any current Chromium ≥ 114).
+
+## Site access (per-site opt-in)
+
+The extension ships with **no host permissions** and injects nothing anywhere by default — other
+sites (Google Maps, your bank, …) are never touched. To use CREV on a BMP portal, open the side
+panel on that site and click **Enable** in the access strip: the browser shows its **standard
+permission prompt** for that origin, and only after you approve does the extension register its
+content scripts there (persisted across restarts). The strip also asks for the configured BMP
+*server* origin when it differs from the page (the service worker calls the server directly).
+Revoke any site at any time via the extension's **Site access** settings in
+`chrome://extensions` / `edge://extensions` — the scripts are unregistered automatically.
 
 ## Shortcuts
 

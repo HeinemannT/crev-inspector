@@ -26,6 +26,7 @@ import { setContextRid, getContextRid, deleteContextRid } from './lib/context-ri
 import { pushPaintState, paintStateMessage, cancelPaint } from './lib/paint';
 import { openEditorWindow, openExtendedWindow } from './lib/editor';
 import { openCodeSearchWindow } from './lib/codesearch-launcher';
+import { initSiteAccess } from './lib/site-access';
 import { openDiffWindow } from './lib/diff-launcher';
 
 // ── State ───────────────────────────────────────────────────────
@@ -214,6 +215,10 @@ function persistInspectState() {
 }
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(e => log.swallow('sw:sidePanel', e));
+
+// Per-site access: reconcile the dynamic content-script registrations with the granted origins at
+// boot and on every grant/revoke. Nothing is injected anywhere until the user approves a site.
+initSiteAccess();
 
 chrome.windows.onRemoved.addListener((id) => {
   // Drop the closed window's inspect-mode entry; otherwise a future

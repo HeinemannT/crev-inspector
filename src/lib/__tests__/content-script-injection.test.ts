@@ -34,7 +34,11 @@ function setupChrome(): { executeScript: ReturnType<typeof vi.fn>; sendMessage: 
   (globalThis as any).chrome.tabs = {
     sendMessage,
     query: vi.fn((_q: any, cb: any) => cb([{ id: 42 }])),
+    // Per-site access gate: ensureContentScript resolves the tab URL and checks the
+    // origin is granted before injecting. Default mock = a granted http tab.
+    get: vi.fn(async (_id: number) => ({ id: 42, url: 'https://bmp.test/portal' })),
   };
+  (globalThis as any).chrome.permissions = { contains: vi.fn(async () => true) };
   (globalThis as any).chrome.runtime = { lastError: null };
   return { executeScript, sendMessage };
 }
@@ -129,6 +133,9 @@ describe('ensureContentScript', () => {
       ensureContentScript(42),
     ];
 
+    // The injection now sits behind the async per-site gate (tabs.get + permissions.contains),
+    // so wait for executeScript to actually start before releasing it.
+    await vi.waitFor(() => { expect(h.executeScript).toHaveBeenCalledTimes(1); });
     resolveScript!();
     await Promise.all([p1, p2, p3]);
 
@@ -136,6 +143,29 @@ describe('ensureContentScript', () => {
     const injectingCalls = h.ctx.logActivity.mock.calls
       .filter((c: any[]) => typeof c[1] === 'string' && c[1].includes('Injecting'));
     expect(injectingCalls).toHaveLength(1);
+  });
+
+  it('skips injection entirely when the tab origin is not granted (per-site access)', async () => {
+    // The Google-Maps fix: without a user grant the SW must not touch the tab at all —
+    // no executeScript attempt, no "Injecting…" activity spam.
+    const h = await createInjectHarness();
+    ((globalThis as any).chrome.permissions.contains as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+
+    const { ensureContentScript } = await import('../content-script-injection');
+    await expect(ensureContentScript(43)).resolves.toBeUndefined();
+
+    expect(h.executeScript).not.toHaveBeenCalled();
+    expect(h.ctx.logActivity).not.toHaveBeenCalled();
+  });
+
+  it('skips injection for non-http(s) tabs (chrome://, about:)', async () => {
+    const h = await createInjectHarness();
+    ((globalThis as any).chrome.tabs.get as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 44, url: 'chrome://extensions' });
+
+    const { ensureContentScript } = await import('../content-script-injection');
+    await expect(ensureContentScript(44)).resolves.toBeUndefined();
+
+    expect(h.executeScript).not.toHaveBeenCalled();
   });
 
   it('re-injects on the next call after the previous in-flight promise settles', async () => {
