@@ -20,7 +20,7 @@ import { S, sendMessage } from './state';
 const hostOf = (pattern: string): string => pattern.replace(/^[a-z]+:\/\//, '').replace(/\/\*$/, '');
 
 /** Origin patterns of configured profiles that are NOT currently granted. */
-export async function missingProfileOrigins(): Promise<string[]> {
+async function missingProfileOrigins(): Promise<string[]> {
   const patterns = [...new Set(S.settings.profiles.map(p => originPatternFor(p.bmpUrl)).filter((p): p is string => !!p))];
   const missing: string[] = [];
   for (const origin of patterns) {
