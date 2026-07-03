@@ -1392,11 +1392,19 @@ _r
    *  bid (for linking via `t.<bid>`), name, and rgb (parsed from java.awt.Color). */
   async fetchColorSets(): Promise<ColorSetData[]> {
     const sep = '<<<CREV_COL>>>';
+    // SELECT finds every CorpoColorSet ANYWHERE in the portal tree — workspaces routinely keep
+    // custom sets in their own Categories (Steadfast: swi_default_colors, cat_q_portal), which the
+    // old `t.ColorRoot.children()` walk never saw (it also missed nesting; ColorRoot itself is a
+    // portal Category, so the stock sets come through this same query — no second source needed).
+    // Live-compared 2026-07-03 on Steadfast: SELECT = 25 sets in 6ms vs 12 sets for ColorRoot and
+    // 171ms for a filtered portal-descendants walk. The set's parent Category id rides on the S
+    // line so custom sets can lead the pickers. Per-node lines build in the small local `_l`
+    // (one `_r` touch per set — the EC accumulator rule).
     const ec = [
-      '_root := t.ColorRoot',
+      '_c := SELECT CorpoColorSet FROM root.portal',
       '_r := ""',
-      '_root.children().forEach(_set:',
-      `  _r := _r + "${sep}S${sep}" + _set.id.whenMissing("") + "${sep}" + _set.name.whenMissing("") + "\\n"`,
+      '_c.forEach(_set:',
+      `  _l := "${sep}S${sep}" + _set.id.whenMissing("") + "${sep}" + _set.name.whenMissing("") + "${sep}" + _set.parent.id.whenMissing("") + "\\n"`,
       '  _set.children().forEach(_col:',
       // Concatenate _col.color (java.awt.Color → toString) — NOT output(),
       // which is for expression *text* and is ~600× slower here (8.8s vs ~50ms
@@ -1404,9 +1412,10 @@ _r
       // and the accumulator stays a text value.
       '    _cv := _col.color',
       '    IF _cv != MISSING THEN',
-      `      _r := _r + "${sep}C${sep}" + _col.id.whenMissing("") + "${sep}" + _col.name.whenMissing("") + "${sep}" + _cv + "\\n"`,
+      `      _l := _l + "${sep}C${sep}" + _col.id.whenMissing("") + "${sep}" + _col.name.whenMissing("") + "${sep}" + _cv + "\\n"`,
       '    ENDIF',
       '  )',
+      '  _r := _r + _l',
       ')',
       '_r',
     ].join('\n');
@@ -1418,6 +1427,8 @@ _r
       const parts = line.split(sep);
       if (parts[1] === 'S') {
         cur = { id: (parts[2] ?? '').trim(), name: (parts[3] ?? '').trim(), colors: [] };
+        const folder = (parts[4] ?? '').trim();
+        if (folder) cur.folder = folder;
         sets.push(cur);
       } else if (parts[1] === 'C' && cur) {
         const bid = (parts[2] ?? '').trim();
@@ -1425,7 +1436,11 @@ _r
         if (bid && rgb) cur.colors.push({ bid, name: (parts[3] ?? '').trim(), rgb });
       }
     }
-    return sets.filter(s => s.colors.length > 0);
+    // Workspace-custom sets first (any Category other than the stock ColorRoot), stock palette
+    // after — in the pickers you almost always want the workspace's own colours. Stable within
+    // each group (server order).
+    const custom = (s: ColorSetData): number => (s.folder && s.folder !== 'ColorRoot' ? 0 : 1);
+    return sets.filter(s => s.colors.length > 0).sort((a, b) => custom(a) - custom(b));
   }
 
   /** Format a JS value as an EC literal: strings double-quoted with escapes,

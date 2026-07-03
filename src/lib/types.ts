@@ -596,7 +596,9 @@ export type ScriptHistoryMessage =
 // CorpoColor objects in CorpoColorSets, not hex strings — so they're picked
 // from a list, not typed. The picker fetches the workspace's colorsets once.
 export interface ColorOption { bid: string; name: string; rgb: string }
-export interface ColorSetData { id: string; name: string; colors: ColorOption[] }
+/** `folder` = businessId of the Category the set lives in ('ColorRoot' for the system sets) —
+ *  used to order workspace-custom sets ahead of the stock palette in the pickers. */
+export interface ColorSetData { id: string; name: string; colors: ColorOption[]; folder?: string }
 export type ColorMessage =
   // `force` bypasses the persistent colour cache (manual refresh in the picker).
   | { type: 'FETCH_COLOR_SETS'; force?: boolean }
