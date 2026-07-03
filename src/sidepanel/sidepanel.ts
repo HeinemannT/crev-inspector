@@ -174,12 +174,10 @@ onPortMessage((msg: InspectorMessage) => {
       // through to the per-tab forwarding below, so the Workshop pane still gets it.
       S.bmpDetected = msg.phase === 'detected' ? true : msg.phase === 'not-detected' ? false : null;
       headerChanged = true;
-      void refreshSiteAccessStrip(); // fires on tab switches — tracks the active tab's origin
       break;
     case 'PAGE_INFO':
       // PAGE_INFO carries the same detection verdict; keep the header's page-state in sync on every refresh.
       if (msg.detection) { S.bmpDetected = msg.detection.isBmp; headerChanged = true; }
-      void refreshSiteAccessStrip();
       break;
     case 'OBJECT_PANE_DATA':
       // The footer context chip tracks the object currently open in the

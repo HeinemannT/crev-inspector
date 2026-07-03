@@ -21,16 +21,21 @@ A Chrome side-panel extension for working with **Corporater BMP** the way develo
 
 Download `crev-inspector-x.y.z.zip` from [Releases](https://github.com/HeinemannT/crev-inspector/releases) and unzip it. Open `chrome://extensions/` (Edge: `edge://extensions/`), turn on **Developer mode**, choose **Load unpacked**, and pick the unzipped folder. Pin it to the toolbar. The Connect tab shows a banner when a new version is available. Works on Chrome and Edge (any current Chromium ≥ 114).
 
-## Site access (per-site opt-in)
+## Site access (driven by your server profiles)
 
 The extension ships with **no host permissions** and injects nothing anywhere by default — other
-sites (Google Maps, your bank, …) are never touched. To use CREV on a BMP portal, open the side
-panel on that site and click **Enable** in the access strip: the browser shows its **standard
-permission prompt** for that origin, and only after you approve does the extension register its
-content scripts there (persisted across restarts). The strip also asks for the configured BMP
-*server* origin when it differs from the page (the service worker calls the server directly).
-Revoke any site at any time via the extension's **Site access** settings in
-`chrome://extensions` / `edge://extensions` — the scripts are unregistered automatically.
+sites (Google Maps, your bank, …) are never touched. Access follows the servers you configure,
+with nothing to manage twice:
+
+- **Saving a server profile** (Connect tab) triggers the browser's **standard permission prompt**
+  for that server's site. Approve once and CREV runs there — on that origin only — including
+  after browser restarts.
+- **Deleting a profile revokes** its site access and unregisters the content scripts.
+- If a grant is missing (declined prompt, or revoked via the browser's Site access settings), the
+  profile shows a **"no access" chip** — click it to re-request — and a strip at the top offers
+  to fix all configured servers in one prompt.
+- On update, any leftover broad access from older versions is revoked automatically; only
+  configured profile origins remain granted.
 
 ## Shortcuts
 

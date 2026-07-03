@@ -75,3 +75,26 @@ export function initSiteAccess(): void {
   } catch (e) { log.swallow('siteAccess:listeners', e); }
   void syncRegisteredScripts();
 }
+
+/** Make the granted origins EXACTLY the configured profiles' origins (drop everything else), then
+ *  re-sync the script registrations. The single invariant of the access model: a grant exists iff a
+ *  server profile needs it. Runs at SW boot (settings loaded) and after every profile save/delete —
+ *  boot-time runs double as the migration that revokes the legacy `<all_urls>` carry-over from
+ *  pre-0.5.3 installs (it's not a profile origin, so it's dropped). Granting itself stays in the
+ *  panel (permissions.request needs the user gesture); removal needs none. */
+export async function reconcileProfileOrigins(profileUrls: Array<string | undefined>): Promise<void> {
+  const keep = new Set(profileUrls.map(originPatternFor).filter((p): p is string => !!p));
+  const granted = await grantedOrigins();
+  const drop = granted.filter(o => !keep.has(o));
+  if (drop.length) {
+    try {
+      await chrome.permissions.remove({ origins: drop });
+    } catch {
+      // Some patterns can refuse batch removal (e.g. a legacy <all_urls>) — retry one by one.
+      for (const o of drop) {
+        try { await chrome.permissions.remove({ origins: [o] }); } catch (e) { log.swallow('siteAccess:remove', e); }
+      }
+    }
+  }
+  await syncRegisteredScripts();
+}

@@ -26,7 +26,7 @@ import { setContextRid, getContextRid, deleteContextRid } from './lib/context-ri
 import { pushPaintState, paintStateMessage, cancelPaint } from './lib/paint';
 import { openEditorWindow, openExtendedWindow } from './lib/editor';
 import { openCodeSearchWindow } from './lib/codesearch-launcher';
-import { initSiteAccess } from './lib/site-access';
+import { initSiteAccess, reconcileProfileOrigins } from './lib/site-access';
 import { openDiffWindow } from './lib/diff-launcher';
 
 // ── State ───────────────────────────────────────────────────────
@@ -219,6 +219,10 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(e => l
 // Per-site access: reconcile the dynamic content-script registrations with the granted origins at
 // boot and on every grant/revoke. Nothing is injected anywhere until the user approves a site.
 initSiteAccess();
+// Access invariant: grants ≡ configured profile origins. The boot reconcile also serves as the
+// one-time migration off the legacy `<all_urls>` grant that pre-0.5.3 installs carried over
+// (it isn't a profile origin, so it gets revoked here).
+settingsReady.then(() => reconcileProfileOrigins(ctx.settings.profiles.map(p => p.bmpUrl)));
 
 chrome.windows.onRemoved.addListener((id) => {
   // Drop the closed window's inspect-mode entry; otherwise a future

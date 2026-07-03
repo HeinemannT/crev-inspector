@@ -8,7 +8,14 @@ import { clearAllContextRids } from '../context-rid';
 import { invalidateColorSets } from '../color-set-cache';
 import { saveSettings, rebuildClient, setManualOverride, snapshotSettings, evictPooledClient, fireProfileSwitch } from '../settings';
 import { pushConnectionState, runAuthTest } from '../connection';
+import { reconcileProfileOrigins } from '../site-access';
 import { log } from '../logger';
+
+/** Keep granted host permissions ≡ profile origins after any profile change (revokes orphans from
+ *  deletes/URL edits + re-syncs the content-script registrations). Fire-and-forget. */
+const reconcileAccess = (): void => {
+  void reconcileProfileOrigins(getCtx().settings.profiles.map(p => p.bmpUrl));
+};
 
 register('GET_SETTINGS', (msg, respond) => {
   respond({ type: 'SETTINGS_DATA', settings: getCtx().settings });
@@ -41,6 +48,7 @@ register('SAVE_PROFILE', async (msg, respond) => {
   if (!activeId || profiles.length === 1) activeId = msg.profile.id;
   ctx.settings = { ...ctx.settings, profiles, activeProfileId: activeId };
   saveSettings();
+  reconcileAccess(); // an edited URL orphans its old origin; the new one was requested in the panel
   await rebuildClient(true);
   respond({ type: 'SETTINGS_DATA', settings: ctx.settings });
   snapshotSettings();
@@ -60,6 +68,7 @@ register('DELETE_PROFILE', async (msg, respond) => {
   const orphanKeys = ['cache', 'cache_date', 'history', 'favorites', 'script_history', 'style_presets']
     .map(k => `crev_${msg.profileId}_${k}`);
   chrome.storage.local.remove(orphanKeys).catch(e => log.swallow('handler:cleanupProfile', e));
+  reconcileAccess(); // revoke the deleted profile's origin (unless another profile shares it)
   respond({ type: 'SETTINGS_DATA', settings: ctx.settings });
   snapshotSettings();
 });

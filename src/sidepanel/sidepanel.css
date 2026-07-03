@@ -440,9 +440,10 @@ body {
   border: 1px solid var(--warning);
   border-radius: 2px;
   background: var(--warning);
-  color: #fff;
+  /* dark ink on the amber fill — white on yellow was unreadable */
+  color: #1a1a1a;
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
 }
 .site-strip-btn:hover { filter: brightness(1.08); }
@@ -1328,6 +1329,23 @@ body {
 }
 
 .profile-edit-btn { flex-shrink: 0; }
+
+/* "no access" chip — this profile's origin lacks its host permission; click re-requests it */
+.profile-access-chip {
+  flex-shrink: 0;
+  height: 18px;
+  padding: 0 7px;
+  border: 1px solid var(--warning);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.profile-access-chip:hover { background: var(--warning); color: #1a1a1a; }
 
 .profile-form { width: 100%; }
 .profile-form .field-group { margin-bottom: 6px; }

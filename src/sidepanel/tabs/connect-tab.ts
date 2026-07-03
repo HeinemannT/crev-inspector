@@ -12,6 +12,8 @@ import { S as shared, getTabPanel } from '../state';
 import { FLASH_INVALID_DURATION } from '../../lib/constants';
 import { confirmModal } from '../../lib/modal';
 import { getUpdateStatus, refresh as refreshUpdate, type UpdateStatus } from '../../lib/version-check';
+import { originPatternFor } from '../../lib/site-access';
+import { requestOriginsInGesture } from '../site-access-strip';
 import type { Tab, SendFn } from './tab-types';
 
 type EditingProfile = { id: string | null; label: string; bmpUrl: string; bmpUser: string; bmpPass: string; authMode?: AuthMode };
@@ -32,6 +34,9 @@ export class ConnectTab implements Tab {
   private cacheBytes: number | null = null;
   /** Set true when the SW reports a CACHE_QUOTA_WARNING; renders a banner. */
   private cacheQuotaWarning = false;
+  /** Per-profile host-permission state (origin pattern → granted). Refreshed on activate/save;
+   *  drives the "no site access" chip on profile cards. Unknown origins simply render no chip. */
+  private accessByOrigin = new Map<string, boolean>();
 
   constructor(send: SendFn) {
     this.send = send;
@@ -40,6 +45,7 @@ export class ConnectTab implements Tab {
   activate() {
     this.send({ type: 'GET_SETTINGS' });
     this.send({ type: 'GET_CACHE_BYTES' });
+    void this.refreshAccess();
     // Update check is fire-and-forget; the banner shows whatever we have
     // cached immediately, then re-renders when the response lands. Read once
     // here on activate so opening the panel always gets fresh-ish data.
@@ -70,6 +76,25 @@ export class ConnectTab implements Tab {
     } catch (e) {
       // chrome.commands unavailable (rare) — fall back to manifest defaults.
       this.shortcutsLoaded = true;
+    }
+  }
+
+  /** Re-check host-permission state for every configured profile origin. Follows the same
+   *  re-render etiquette as loadCommandShortcuts: repaint only when active and not mid-edit. */
+  private async refreshAccess(): Promise<void> {
+    const next = new Map<string, boolean>();
+    for (const p of shared.settings.profiles) {
+      const origin = originPatternFor(p.bmpUrl);
+      if (!origin) continue;
+      try { next.set(origin, await chrome.permissions.contains({ origins: [origin] })); }
+      catch { /* permissions API unavailable — no chips */ }
+    }
+    const changed = next.size !== this.accessByOrigin.size
+      || [...next].some(([k, v]) => this.accessByOrigin.get(k) !== v);
+    this.accessByOrigin = next;
+    if (changed && shared.activeTab === 'connect' && !this.editing) {
+      const panel = getTabPanel('connect');
+      if (panel) this.render(panel);
     }
   }
 
@@ -132,6 +157,8 @@ export class ConnectTab implements Tab {
         // A credential-less profile borrows the browser session — say so
         // instead of the old "(no user)" which read like a misconfiguration.
         const whoDisplay = profile.bmpUser || 'browser session';
+        const origin = originPatternFor(profile.bmpUrl);
+        const noAccess = !!origin && this.accessByOrigin.get(origin) === false;
         children.push(
           h('div', {
             class: `profile-card${isActive ? ' active' : ''}`,
@@ -145,6 +172,15 @@ export class ConnectTab implements Tab {
               h('div', { class: 'profile-label' }, profile.label),
               h('div', { class: 'profile-detail' }, `${urlDisplay} \u00b7 ${whoDisplay}`),
             ),
+            // "No access" chip: this profile's origin lacks its host permission (declined prompt,
+            // or revoked via the browser's Site access settings). Clicking re-requests it — the
+            // click IS the user gesture the standard prompt needs.
+            noAccess && h('button', {
+              class: 'profile-access-chip',
+              'data-action': 'grant-access',
+              'data-grant-origin': origin,
+              title: 'CREV has no permission for this server\u2019s site. Click to grant it (standard browser prompt).',
+            }, 'no access'),
             h('button', { class: 'btn btn-small profile-edit-btn', 'data-action': 'edit-profile', 'data-edit-profile': profile.id }, 'Edit'),
           ),
         );
@@ -270,6 +306,14 @@ export class ConnectTab implements Tab {
         const profile = shared.settings.profiles.find(p => p.id === id);
         if (profile) { this.editing = { ...profile }; rerender(); }
       },
+      'grant-access': (el, e) => {
+        // Re-request a profile origin whose grant was declined/revoked. Runs INSIDE this click —
+        // the standard browser prompt requires the user gesture.
+        e.stopPropagation();
+        const origin = el.dataset.grantOrigin;
+        if (!origin) return;
+        void requestOriginsInGesture([origin]).then(() => this.refreshAccess());
+      },
       'pf-save': () => {
         if (!this.editing) return;
         const urlInput = container.querySelector('#pf-url') as HTMLInputElement | null;
@@ -291,6 +335,11 @@ export class ConnectTab implements Tab {
           id: this.editing.id ?? crypto.randomUUID(),
           label, bmpUrl, bmpUser, bmpPass, authMode: resolveAuthMode({ bmpPass }),
         };
+        // Ask for the server origin's host permission INSIDE this click — saving a server IS the
+        // moment the extension needs its site, and the standard browser prompt requires the user
+        // gesture. An already-granted origin resolves silently (no prompt), so re-saves are free.
+        const origin = originPatternFor(bmpUrl);
+        if (origin) void requestOriginsInGesture([origin]).then(() => this.refreshAccess());
         const profiles = [...shared.settings.profiles];
         const idx = profiles.findIndex(p => p.id === profile.id);
         if (idx >= 0) profiles[idx] = profile; else profiles.push(profile);
@@ -309,6 +358,8 @@ export class ConnectTab implements Tab {
         this.send({ type: 'DELETE_PROFILE', profileId: deletedId });
         this.editing = null;
         rerender();
+        // The SW revokes the orphaned origin asynchronously — refresh the chips after it lands.
+        setTimeout(() => { void this.refreshAccess(); }, 500);
       },
       'clear-cache': () => {
         this.send({ type: 'CLEAR_CACHE' });
