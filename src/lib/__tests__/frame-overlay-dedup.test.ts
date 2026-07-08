@@ -68,6 +68,18 @@ describe('content-frame-overlay dedup + teardown', () => {
     expect(document.getElementById('crev-inspector-styles')).not.toBeNull();
   });
 
+  it('the host carries position:fixed INLINE, so it floats even if the stylesheet is missing', async () => {
+    const m = await freshModule();
+    const p = m.mountFrameOverlay(OPTS);
+    resolveGet!();
+    await p;
+    const host = hosts()[0] as HTMLElement;
+    // The floor against the bottom-left leak: positioning must not depend on the injectable/removable
+    // stylesheet. Even with no <style> present, inline position:fixed keeps the host floating.
+    expect(host.style.position).toBe('fixed');
+    expect(host.style.zIndex).not.toBe('');
+  });
+
   it('appends exactly one host for two concurrent same-kind mounts', async () => {
     const m = await freshModule();
     const p1 = m.mountFrameOverlay(OPTS);
