@@ -63,7 +63,7 @@ describe('content-frame-overlay dedup + teardown', () => {
     resolveGet!();
     await p;
     expect(hosts()).toHaveLength(1);
-    // `.crev-eo-host` is position:absolute in this sheet — its presence is what keeps the host out of
+    // `.crev-eo-host` is position:fixed in this sheet — its presence is what keeps the host out of
     // normal page flow. Before the fix it was injected only by Inspect, so a landing-page editor leaked.
     expect(document.getElementById('crev-inspector-styles')).not.toBeNull();
   });

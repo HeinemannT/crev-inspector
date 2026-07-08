@@ -473,7 +473,7 @@ body.crev-task-open #crev-paint-banner.crev-overlay-blocked {
   overflow: hidden;
   /* Just below toasts: a "saved" notification must remain visible
    * while a task surface is open, but everything else (tooltip,
-   * inspector card, env tag, paint banner) sits beneath. See
+   * inspector card, paint banner) sits beneath. See
    * #crev-tooltip in this file for the full layer table. */
   z-index: 2147483646;
   contain: layout style;

@@ -2,7 +2,7 @@
  * Shared injection of the single overlay stylesheet.
  *
  * The sheet carries BOTH the inspect-mode rules (badges, hover card) AND the frame-overlay host
- * positioning — `.crev-eo-host` is `position: absolute` in `content-overlay.css`. So every surface that
+ * positioning — `.crev-eo-host` is `position: fixed` in `content-overlay.css`. So every surface that
  * appends `crev-eo-host` to the page (the EC editor, diff, object view, code search) depends on it just
  * as much as Inspect does.
  *

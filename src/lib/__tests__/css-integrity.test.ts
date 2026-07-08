@@ -22,7 +22,7 @@ const FILES = ['src/content-overlay.css', 'src/content-blueprint.css'];
 const LOAD_BEARING: Array<{ file: string; selector: string; must: string[] }> = [
   // content-overlay.css — every element injected into the host page and positioned
   // by this sheet: outline context, badges, paint banner, hover card, editor host,
-  // drag snap-ghost, env tag, toast container. Losing any one's position drops it
+  // drag snap-ghost, toast container. Losing any one's position drops it
   // into document flow (the lower-left leak).
   { file: 'src/content-overlay.css',   selector: '.crev-outline',         must: ['position: relative'] },
   { file: 'src/content-overlay.css',   selector: '.crev-label',           must: ['position: absolute', 'z-index'] },

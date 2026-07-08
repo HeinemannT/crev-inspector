@@ -188,7 +188,7 @@ export async function mountFrameOverlay(opts: MountFrameOptions): Promise<void> 
     // drop this mount so we don't append a host to a dead module.
     if (moduleTorn) return;
     // Guarantee the overlay stylesheet exists before the host enters the DOM: `.crev-eo-host` is
-    // position:absolute in that sheet, and a frame surface (EC editor / diff / object view / code
+    // position:fixed in that sheet, and a frame surface (EC editor / diff / object view / code
     // search) can be opened WITHOUT Inspect — which is what used to inject it. Without this the host
     // drops into normal page flow at the bottom-left. Idempotent (DOM-guarded).
     ensureOverlayStyle();

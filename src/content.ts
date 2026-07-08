@@ -154,7 +154,7 @@ function injectStyles() {
   s.styleInjected = true;
 }
 
-// ── Connection state + env tag + toasts ──────────────────────────
+// ── Connection state + toasts ────────────────────────────────────
 
 function handleConnectionState(state: ConnectionState) {
   const prev = s.prevConnDisplay;
@@ -289,7 +289,6 @@ onPortMessage((msg: InspectorMessage) => {
       break;
     case 'PROFILE_SWITCHED':
       handleProfileSwitched(msg.label);
-      if (!s.fromSync) broadcast('crev_sync_profile', { label: msg.label });
       break;
     case 'TECHNICAL_OVERLAY_STATE':
       s.technicalOverlay = msg.active;
