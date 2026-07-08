@@ -30,7 +30,6 @@ const LOAD_BEARING: Array<{ file: string; selector: string; must: string[] }> = 
   { file: 'src/content-overlay.css',   selector: '#crev-tooltip',         must: ['position: fixed', 'z-index', '2147483644'] },
   { file: 'src/content-overlay.css',   selector: '.crev-eo-host',         must: ['position: fixed', 'z-index'] },
   { file: 'src/content-overlay.css',   selector: '.crev-eo-snap-ghost',   must: ['position: fixed', 'z-index'] },
-  { file: 'src/content-overlay.css',   selector: '#crev-env-tag',         must: ['position: fixed', 'z-index'] },
   { file: 'src/content-overlay.css',   selector: '#crev-toast-container',  must: ['position: fixed', 'z-index'] },
   // content-blueprint.css — the full-page editing layer
   { file: 'src/content-blueprint.css', selector: '#crev-blueprint-layer', must: ['position:absolute', 'z-index'] },

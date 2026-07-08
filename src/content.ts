@@ -10,10 +10,9 @@ import { h } from './lib/dom';
 import { log } from './lib/logger';
 import { connectPort, disconnectPort, sendToSW, onPortMessage, onReconnect } from './lib/content-port';
 import { dispatchBroadcast } from './lib/handler-registry';
-import { initEnvTag, updateEnvTag, destroyEnvTag } from './lib/env-tag';
 import { showToast } from './lib/toast';
 import { broadcast, onSync, teardownCrossTab } from './lib/cross-tab';
-import OVERLAY_CSS from './content-overlay.css';
+import { ensureOverlayStyle, OVERLAY_STYLE_ID } from './content-overlay-style';
 
 import { ContentState } from './content-state';
 import { syncOverlays, removeOverlays, updateLabels } from './content-overlays';
@@ -99,10 +98,10 @@ function setInspectMode(active: boolean) {
 
 function injectStyles() {
   if (s.styleInjected) return;
-  const style = document.createElement('style');
-  style.id = 'crev-inspector-styles';
-  style.textContent = OVERLAY_CSS;
-  document.head.appendChild(style);
+  // The stylesheet itself is injected via the shared helper (also called on a frame-overlay mount, so
+  // the EC editor is positioned even when Inspect was never pressed). The tooltip + listeners + banner
+  // below are inspect-mode setup and stay guarded by styleInjected.
+  ensureOverlayStyle();
 
   const tooltip = document.createElement('div');
   tooltip.id = 'crev-tooltip';
@@ -161,14 +160,6 @@ function handleConnectionState(state: ConnectionState) {
   const prev = s.prevConnDisplay;
   s.prevConnDisplay = state.display;
 
-  const envState = state.display === 'connected' ? 'connected'
-    : (state.display === 'not-configured' ? 'not-configured' : 'disconnected');
-  const envLabel = state.profileLabel ?? 'CREV';
-
-  if (s.lastDetection?.isBmp) {
-    initEnvTag(envLabel, envState);
-  }
-
   if (prev !== null && prev !== state.display) {
     if (state.display === 'connected' && prev !== 'connected') {
       showToast(`Connected to ${state.profileLabel ?? 'server'}`, 'success');
@@ -189,9 +180,6 @@ function handleProfileSwitched(label: string) {
   s.overlayProps.clear();
   renderOverlayCards(s);
   if (s.technicalOverlay) applyTechnicalOverlay(s);
-  if (s.lastDetection?.isBmp) {
-    updateEnvTag(label, 'connected');
-  }
 }
 
 // ── BMP Detection ────────────────────────────────────────────────
@@ -359,15 +347,6 @@ onSync('crev_sync_overlay', (data) => {
       applyTechnicalOverlay(s);
     } finally { s.fromSync = false; }
   }
-});
-
-onSync('crev_sync_profile', (data) => {
-  const d = data as { label: string; connected?: boolean };
-  s.fromSync = true;
-  if (s.lastDetection?.isBmp) {
-    updateEnvTag(d.label, d.connected !== false ? 'connected' : 'disconnected');
-  }
-  s.fromSync = false;
 });
 
 // ── Context menu RID tracking ────────────────────────────────────
@@ -538,10 +517,9 @@ function flashContext(el: HTMLElement): void {
 
 function resetContentState() {
   removeOverlays(s);
-  destroyEnvTag();
   teardownFrameOverlayModule();
   disableBlueprint();
-  document.getElementById('crev-inspector-styles')?.remove();
+  document.getElementById(OVERLAY_STYLE_ID)?.remove();
   document.getElementById('crev-tooltip')?.remove();
   document.getElementById('crev-paint-banner')?.remove();
   document.getElementById('crev-toast-container')?.remove();

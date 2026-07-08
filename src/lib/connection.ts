@@ -119,7 +119,7 @@ export function pushConnectionState() {
   // Snapshot for instant panel boot (read before SW round-trip)
   chrome.storage.session.set({ crev_conn_snapshot: state }).catch(e => log.swallow('conn:snapshot', e));
   // Only broadcast to content scripts when display actually changes
-  // (content only uses it for env tag state + transition toasts)
+  // (content only uses it for the connect/disconnect transition toasts)
   if (state.display !== lastBroadcastDisplay) {
     lastBroadcastDisplay = state.display;
     ctx.broadcastToContent({ type: 'CONNECTION_STATE', state });

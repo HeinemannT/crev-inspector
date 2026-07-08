@@ -229,7 +229,7 @@
    *   2147483647  crev-toast-container (must stay visible always)
    *   2147483646  crev-eo-host (editor / diff / objectview / codesearch surfaces)
    *   2147483644  crev-tooltip (hover card — above outlines/badges, below task surfaces)
-   *   2147483636  crev-paint-banner / crev-env-tag
+   *   2147483636  crev-paint-banner
    * NOTE: keep this closing marker — an unclosed table here once swallowed the
    * z-index/background/shadow below and the card rendered under the badges. */
   z-index: 2147483644;
@@ -313,71 +313,6 @@
   white-space: pre-wrap; word-break: break-word;
 }
 
-/* ── Environment Indicator Tag ─────────────────────────── */
-
-#crev-env-tag {
-  position: fixed;
-  bottom: 12px;
-  right: 12px;
-  /* Bottom-corner badge — below task surfaces so an opened editor
-   * frame can cover it if positioned at the bottom-right. */
-  z-index: 2147483636;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: rgba(17, 17, 17, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  font: 500 10px/1.3 'Inter', system-ui, sans-serif;
-  letter-spacing: -0.005em;
-  color: #b0b0b0;
-  cursor: move;
-  user-select: none;
-  opacity: 0.25;
-  transition: opacity 180ms cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.04);
-  backdrop-filter: blur(8px) saturate(140%);
-  -webkit-backdrop-filter: blur(8px) saturate(140%);
-}
-#crev-env-tag:hover {
-  opacity: 1;
-}
-.crev-env-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.crev-env-dot--connected { background: #7dd392; }
-.crev-env-dot--disconnected { background: #f2b8b5; }
-.crev-env-dot--not-configured { background: #938f99; }
-.crev-env-label {
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.crev-env-tag--edge-left {
-  writing-mode: vertical-lr;
-  left: 0 !important;
-  right: auto !important;
-  border-radius: 0 6px 6px 0;
-}
-.crev-env-tag--edge-right {
-  writing-mode: vertical-rl;
-  right: 0 !important;
-  left: auto !important;
-  border-radius: 6px 0 0 6px;
-}
-.crev-env-tag--edge-left,
-.crev-env-tag--edge-right {
-  padding: 10px 4px;
-}
-.crev-env-tag--edge-left .crev-env-label,
-.crev-env-tag--edge-right .crev-env-label {
-  white-space: nowrap;
-}
 
 /* ── Connection Toasts ─────────────────────────────────── */
 
@@ -511,13 +446,11 @@
  *   .crev-label                  pills → click-through (overlay catches the click)
  *   #crev-tooltip                hover info → hide (visual collision; pointer-events
  *                                already none so click isn't an issue)
- *   #crev-env-tag                env tag → hide
  *   #crev-paint-banner           paint banner → click-through */
 body.crev-task-open .crev-label.crev-overlay-blocked {
   pointer-events: none;
 }
-body.crev-task-open #crev-tooltip.crev-overlay-blocked,
-body.crev-task-open #crev-env-tag.crev-overlay-blocked {
+body.crev-task-open #crev-tooltip.crev-overlay-blocked {
   opacity: 0;
   pointer-events: none;
 }

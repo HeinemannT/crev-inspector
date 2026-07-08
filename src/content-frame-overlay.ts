@@ -11,6 +11,7 @@
 import { h, svg } from './lib/dom';
 import { log } from './lib/logger';
 import { ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_X } from './lib/icons';
+import { ensureOverlayStyle } from './content-overlay-style';
 import type { FrameKind } from './lib/types';
 
 const MIN_W = 360;
@@ -65,7 +66,6 @@ let moduleTorn = false;
 //
 //   .crev-label          pills (one per inspected widget, BMP's DOM)
 //   #crev-tooltip        hover info popup
-//   #crev-env-tag        bottom-right env/connection status badge
 //   #crev-paint-banner   top banner while paint-format is armed
 //
 // Earlier releases used a blanket rule: when ANY frame overlay was
@@ -81,7 +81,7 @@ let moduleTorn = false;
 // against each open frame's host rect, and we toggle
 // `crev-overlay-blocked` accordingly. CSS scopes the response per
 // element (pill → click-through; tooltip / quick inspector → hide;
-// env tag / paint banner → click-through).
+// paint banner → click-through).
 //
 // We re-run on every overlay mount / unmount / drag tick / resize tick /
 // snap / viewport resize, AND on body subtree mutations (BMP re-paints
@@ -98,7 +98,6 @@ interface GateTarget {
 const GATE_TARGETS: ReadonlyArray<GateTarget> = [
   { selector: '.crev-label' },
   { selector: '#crev-tooltip' },
-  { selector: '#crev-env-tag' },
   { selector: '#crev-paint-banner' },
 ];
 
@@ -188,6 +187,11 @@ export async function mountFrameOverlay(opts: MountFrameOptions): Promise<void> 
     // Re-injection tore the module down while we were resolving bounds —
     // drop this mount so we don't append a host to a dead module.
     if (moduleTorn) return;
+    // Guarantee the overlay stylesheet exists before the host enters the DOM: `.crev-eo-host` is
+    // position:absolute in that sheet, and a frame surface (EC editor / diff / object view / code
+    // search) can be opened WITHOUT Inspect — which is what used to inject it. Without this the host
+    // drops into normal page flow at the bottom-left. Idempotent (DOM-guarded).
+    ensureOverlayStyle();
     const state = createFrame(opts, bounds);
     frames.set(opts.kind, state);
     document.documentElement.appendChild(state.host);

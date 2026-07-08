@@ -51,8 +51,21 @@ describe('content-frame-overlay dedup + teardown', () => {
 
   afterEach(() => {
     document.documentElement.querySelectorAll('.crev-eo-host').forEach(h => h.remove());
+    document.getElementById('crev-inspector-styles')?.remove();
     document.body.classList.remove('crev-task-open');
     delete (globalThis as any).chrome;
+  });
+
+  it('injects the overlay stylesheet on mount even when Inspect never ran (no bottom-left leak)', async () => {
+    expect(document.getElementById('crev-inspector-styles')).toBeNull(); // no Inspect, no sheet yet
+    const m = await freshModule();
+    const p = m.mountFrameOverlay(OPTS);
+    resolveGet!();
+    await p;
+    expect(hosts()).toHaveLength(1);
+    // `.crev-eo-host` is position:absolute in this sheet — its presence is what keeps the host out of
+    // normal page flow. Before the fix it was injected only by Inspect, so a landing-page editor leaked.
+    expect(document.getElementById('crev-inspector-styles')).not.toBeNull();
   });
 
   it('appends exactly one host for two concurrent same-kind mounts', async () => {
