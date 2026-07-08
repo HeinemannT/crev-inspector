@@ -82,7 +82,7 @@ interface LinkedObjectDef {
   ecProperty: string;
 }
 
-const LINKED_OBJECTS: Record<string, LinkedObjectDef[]> = {
+export const LINKED_OBJECTS: Record<string, LinkedObjectDef[]> = {
   InputView: [
     { key: 'inputset', label: 'InputSet', ecProperty: 'inputset' },
   ],
@@ -93,6 +93,33 @@ const LINKED_OBJECTS: Record<string, LinkedObjectDef[]> = {
 
 export function getLinkedDefs(objectType: string): LinkedObjectDef[] {
   return LINKED_OBJECTS[objectType] ?? [];
+}
+
+/** Build the EC that reads a linked object off `ref.<ecProperty>`, emitting
+ *  `id|||name|||rid` (or "" when the link is MISSING). The mandatory ELSE is an
+ *  EC requirement. Exported so a regression test asserts against the shipped
+ *  builder — kept next to the sibling builders (`buildSchemaEc`, `buildOptionsEc`). */
+export function buildLinkedEc(ref: string, ecProperty: string): string {
+  return [
+    `_p := ${ref}`,
+    `_l := _p.${ecProperty}`,
+    'IF _l != MISSING THEN',
+    '  _l.id.whenMissing("") + "|||" + _l.name.whenMissing("") + "|||" + _l.rid.whenMissing("")',
+    'ELSE',
+    '  ""',
+    'ENDIF',
+  ].join('\n');
+}
+
+/** Parse the pipe-delimited log emitted by `buildLinkedEc` into linked
+ *  id/name/rid. Empty fields collapse to undefined; a log without `|||`
+ *  (the ELSE "" branch, or noise) yields `{}`. */
+export function parseLinkedLog(log: string | undefined): { linkedId?: string; linkedName?: string; linkedRid?: string } {
+  if (!log?.includes('|||')) return {};
+  const line = log.trim().split('\n').find(l => l.includes('|||'));
+  if (!line) return {};
+  const [lId, lName, lRid] = line.split('|||').map(s => s.trim());
+  return { linkedId: lId || undefined, linkedName: lName || undefined, linkedRid: lRid || undefined };
 }
 
 // ── Handlers ─────────────────────────────────────────────────────
@@ -656,30 +683,13 @@ register('LINKED_LOOKUP', async (msg) => {
 
   for (const def of defs) {
     try {
-      const code = [
-        `_p := ${ref}`,
-        `_l := _p.${def.ecProperty}`,
-        'IF _l != MISSING THEN',
-        '  _l.id.whenMissing("") + "|||" + _l.name.whenMissing("") + "|||" + _l.rid.whenMissing("")',
-        'ELSE',
-        '  ""',
-        'ENDIF',
-      ].join('\n');
-      const result = await ctx.client.executeEc(code, undefined, false);
-      if (!result.ok || !result.log?.includes('|||')) {
+      const result = await ctx.client.executeEc(buildLinkedEc(ref, def.ecProperty), undefined, false);
+      if (!result.ok) {
         ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label });
         continue;
       }
-      const line = result.log.trim().split('\n').find(l => l.includes('|||'));
-      if (!line) {
-        ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label });
-        continue;
-      }
-      const [lId, lName, lRid] = line.split('|||').map(s => s.trim());
-      ctx.sendToPanel({
-        type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label,
-        linkedId: lId || undefined, linkedName: lName || undefined, linkedRid: lRid || undefined,
-      });
+      const parsed = parseLinkedLog(result.log);
+      ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label, ...parsed });
     } catch (e) {
       ctx.sendToPanel({ type: 'LINKED_LOOKUP_RESULT', rid: msg.rid, key: def.key, label: def.label, error: errorMessage(e) });
     }
