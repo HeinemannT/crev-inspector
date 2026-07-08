@@ -83,6 +83,10 @@ export async function applyPage(): Promise<void> {
   if (res.noop) { if (res.model) rebase(res.model); showToast('Blueprint: nothing to apply', 'info'); render(); return; }
   // Committed. The live grid can only reflow on a real page load — so refresh to show the new layout,
   // and turn blueprint OFF (SW state + sidebar toggle + overlay) so we don't reopen onto a stale model.
+  // IMPORTANT: do NOT rebase `res.model` on the success path — reload instead. After a virtual-tabset
+  // apply (a "+ Create tabset" that just created the page's first real tabset), the SW's post-apply
+  // re-fetch ran against the PRE-apply result-only ctx, so the new tabset isn't discoverable through it
+  // and that model is degenerate (empty). Only the fresh loadPage below re-discovers the real tabset.
   // The session RESUMES after the reload: a sessionStorage flag (page-scoped, survives the refresh)
   // tells the fresh content script to ask the SW to re-enable blueprint — with the SAME edit target,
   // so applying to "This instance" doesn't dump the user back into template mode (or, before this,

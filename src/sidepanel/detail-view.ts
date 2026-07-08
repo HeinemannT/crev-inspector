@@ -1019,7 +1019,7 @@ export class DetailView {
     });
     if (ctxSection) wrap.appendChild(ctxSection);
 
-    // Action rows — the mock's Info list (Open in BMP / Test access / Pin).
+    // Action rows — the mock's Info list (Open in web / Test access / Pin).
     const isPinned = S.favoriteEntries.some(f => f.rid === this.state!.rid);
     const irow = (icon: string, label: string, hint: string | null, onClick: () => void) =>
       h('button', { class: 'dv-irow', onClick },
