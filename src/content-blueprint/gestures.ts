@@ -27,14 +27,23 @@ const CONTAINER_NEST_ZONE = 0.3; // centre fraction of a container target that m
 // can rip them out even if it lands mid-drag — otherwise they'd outlive the overlay session.
 let activeMove: ((e: MouseEvent) => void) | null = null;
 let activeUp: (() => void) | null = null;
+let prevBodyUserSelect: string | null = null;
 function bindGesture(mv: (e: MouseEvent) => void, up: () => void): void {
   activeMove = mv; activeUp = up;
+  // Suppress native text selection for the gesture's lifetime: without this, a drag/resize sweep across
+  // the BMP page selects whatever text it passes over (the mid-drag preventDefault only kicks in AFTER
+  // the 6px threshold, so the press + first pixels still select). Set on <body> — covers the whole page —
+  // and restore the prior inline value on release so a page-set user-select isn't clobbered. Every
+  // gesture (box drag, resize handle) funnels through here, so it's the single choke point.
+  prevBodyUserSelect = document.body.style.userSelect;
+  document.body.style.userSelect = 'none';
   document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
 }
 function unbindGesture(): void {
   if (activeMove) document.removeEventListener('mousemove', activeMove);
   if (activeUp) document.removeEventListener('mouseup', activeUp);
   activeMove = null; activeUp = null;
+  if (prevBodyUserSelect !== null) { document.body.style.userSelect = prevBodyUserSelect; prevBodyUserSelect = null; }
 }
 
 /** Abort any in-flight gesture and remove its body-level artefacts. Called by disableBlueprint so a
