@@ -637,6 +637,9 @@ export class JavaReader {
 
   private readLongString(): string {
     const len = Number(this.readRawLong());
+    if (len < 0 || this.pos + len > this.bytes.length) {
+      throw new Error(`Java-serial: bad long-string length ${len} at pos ${this.pos} (truncated stream)`);
+    }
     const s = decodeModifiedUTF8(this.bytes, this.pos, len);
     this.pos += len;
     this.addHandle(s);
@@ -694,6 +697,9 @@ export class JavaReader {
   /** Skip annotation content until TC_ENDBLOCKDATA */
   private skipAnnotation() {
     while (true) {
+      if (this.pos >= this.bytes.length) {
+        throw new Error(`Java-serial: unterminated class annotation at pos ${this.pos} (truncated stream)`);
+      }
       const tc = this.peekByte();
       if (tc === TC_ENDBLOCKDATA) {
         this.pos++; // consume it
@@ -717,7 +723,7 @@ export class JavaReader {
     if (desc.flags & SC_EXTERNALIZABLE) {
       // Read external content
       if (reg?.extReader) {
-        const obj = reg.extReader(this);
+        const obj = reg.extReader(this) ?? result;
         obj.$class = desc.name;
         this.handles[handle - BASE_HANDLE] = obj;
         // Consume TC_ENDBLOCKDATA
