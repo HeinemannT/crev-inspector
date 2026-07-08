@@ -29,6 +29,15 @@ let ridResolver: () => string | undefined = () => extractUrlRids().rid;
 export function setBlueprintRidResolver(fn: () => string | undefined): void { ridResolver = fn; }
 const currentPageRid = (): string | undefined => ridResolver();
 
+// Blueprint can be toggled the instant a page loads, before BMP has rendered its React tree — on a
+// landing page (no ?rid=) the page rid comes from the fiber, which isn't populated yet. Rather than
+// failing on the first miss, retry a few times (the resolver re-reads the fiber each call) before giving
+// up. A pending retry is cancelled if the user toggles Blueprint off while we're still waiting.
+const ENABLE_RETRY_MAX = 8;
+const ENABLE_RETRY_MS = 180;
+let enableRetries = 0;
+let enableRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
 /** One-shot edit-target override for the NEXT enable — the post-apply resume restores the session
  *  with the target the user was editing (applying to "This instance" must not reopen the template). */
 let resumePrefer: 'template' | 'instance' | null = null;
@@ -61,7 +70,19 @@ function ensureStyle(): void {
 export function enableBlueprint(): void {
   if (bp.active) return;
   const rid = currentPageRid();
-  if (!rid) { showToast('Blueprint: no BMP object on this page', 'error'); return; }
+  if (!rid) {
+    // Page context not resolvable yet — likely a landing page whose fiber hasn't rendered. Retry a few
+    // times before giving up (see the ENABLE_RETRY_* note above).
+    if (enableRetries < ENABLE_RETRY_MAX) {
+      enableRetries++;
+      enableRetryTimer = setTimeout(() => { enableRetryTimer = null; enableBlueprint(); }, ENABLE_RETRY_MS);
+      return;
+    }
+    enableRetries = 0;
+    showToast('Blueprint: no BMP object on this page', 'error');
+    return;
+  }
+  enableRetries = 0;
   bp.active = true;
   bp.gen += 1; // new session — invalidates any in-flight load/apply from a prior toggle
   ensureStyle();
@@ -184,6 +205,9 @@ function ridSignature(): string {
 }
 
 export function disableBlueprint(): void {
+  // Cancel a pending enable-retry even when we never went active (user toggled off mid-wait).
+  if (enableRetryTimer) { clearTimeout(enableRetryTimer); enableRetryTimer = null; }
+  enableRetries = 0;
   if (!bp.active) return;
   cancelGesture(); // rip out any in-flight drag/resize listeners + body-level ghost/line elements
   clearHintTimer(); // a pending flashHint render() must not fire after teardown

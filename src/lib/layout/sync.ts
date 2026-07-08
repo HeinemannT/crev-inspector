@@ -311,6 +311,33 @@ export function buildContextEc(rid: string): string {
   // modes — an unplaced first child, or deep container nesting.
   return [
     `_probe := lookup(${ecRid(rid)})`,
+    // Org redirect: on an Organisation rid, BMP renders its linked enterprise template (caught by the
+    // `.template` line below, via the enterprise branch) or, failing that, its first Scorecard/ModelPage
+    // child. Resolve that landing page here so Blueprint targets what's actually on screen, not the org
+    // container (loading which would walk the whole subtree). First-match pattern mirrors `_cellFound`.
+    `IF _probe.className.whenMissing("") = "Organisation" THEN`,
+    `     IF _probe.template.rid.whenMissing("") = "" THEN`,
+    `          _found := "no"`,
+    `          _probe.children().forEach(_c:`,
+    `               IF _found = "no" THEN`,
+    `                    _cn := _c.className.whenMissing("")`,
+    `                    _isPage := "no"`,
+    `                    IF _cn = "Scorecard" THEN _isPage := "yes" ELSE _isPage := _isPage ENDIF`,
+    `                    IF _cn = "ModelPage" THEN _isPage := "yes" ELSE _isPage := _isPage ENDIF`,
+    `                    IF _isPage = "yes" THEN`,
+    `                         _probe := _c`,
+    `                         _found := "yes"`,
+    `                    ELSE`,
+    `                         _found := _found`,
+    `                    ENDIF`,
+    `               ELSE`,
+    `                    _found := _found`,
+    `               ENDIF`,
+    `          )`,
+    `     ELSE`,
+    `          _probe := _probe`,
+    `     ENDIF`,
+    `ENDIF`,
     `_tmpl := _probe.template`,
     `_tr := _tmpl.rid.whenMissing("")`,
     `_out := "${CTX}"`,
@@ -392,10 +419,10 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
   const line = res.log.split(CTX)[1]?.split('\n', 1)[0]?.trim();
   const p = line ? parseContextProbe(line) : null;
   if (!p) return null;
-  // An Organisation is a container of pages, never a page host itself — so it can't be a Blueprint
-  // target. It only reaches here transiently (the page-rid resolver's majority vote can momentarily
-  // return the org mid-navigation, before the scorecard's widgets have mounted); loading it would walk
-  // the whole org subtree. Refuse it so a stale resolve is a harmless no-op, not an org-wide read/edit.
+  // An Organisation only reaches here when it has NO landing page: buildContextEc redirects an org rid
+  // to its linked template or first Scorecard/ModelPage child (what BMP actually renders), but an org
+  // with neither stays an Organisation. It's not a Blueprint target (loading it would walk the whole
+  // subtree), so refuse it — a harmless no-op rather than an org-wide read/edit.
   if (p.pageClass === 'Organisation') return null;
   if (p.kind === 'enterprise') {
     if (!p.tabsetId) return null;

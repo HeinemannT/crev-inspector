@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   buildFetchEc, parseFetchLog, parseOverrides, parseStyles, loadModel, applyModel,
-  resolvePageContext, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
+  resolvePageContext, buildContextEc, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
 } from '../sync';
 import { addContainer, rename } from '../edit';
 import { findNode } from '../model';
@@ -274,6 +274,16 @@ describe('sync.resolvePageContext', () => {
   it('returns null when the probe EC fails', async () => {
     const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: false })) }, '999');
     expect(ctx).toBeNull();
+  });
+});
+
+describe('sync.buildContextEc (org redirect)', () => {
+  it('redirects an Organisation rid to its first Scorecard/ModelPage child', () => {
+    const ec = buildContextEc('645827105214156857');
+    expect(ec).toContain('= "Organisation"'); // detects an org rid
+    expect(ec).toContain('"Scorecard"');       // and hunts for a page child
+    expect(ec).toContain('"ModelPage"');
+    expect(ec).toContain('_probe := _c');       // reassigning the probe to that landing page
   });
 });
 
