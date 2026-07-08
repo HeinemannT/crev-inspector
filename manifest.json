@@ -88,7 +88,7 @@
     ]
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'",
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-ancestors 'self'",
     "sandbox": "sandbox allow-scripts allow-forms; script-src 'self' 'unsafe-inline' 'unsafe-eval';"
   }
 }
