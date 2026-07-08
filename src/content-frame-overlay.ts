@@ -251,11 +251,12 @@ function createFrame(opts: MountFrameOptions, bounds: Bounds): FrameState {
     'aria-modal': 'false', // multiple overlays can be open; not modal
     'aria-label': opts.label,
     tabindex: '-1',
-    // position + z-index are set INLINE (not left to `.crev-eo-host` in the stylesheet) so the host can
-    // NEVER fall into normal page flow if that stylesheet is missing, injected late, wiped by the SPA's
-    // <head> management, or removed by a re-injection teardown — the "bottom-left leak". The stylesheet
-    // still supplies all the visual chrome (border, shadow, radius, animation); these two are the floor.
-    style: `position:fixed;z-index:2147483646;left:${bounds.left}px;top:${bounds.top}px;width:${bounds.width}px;height:${bounds.height}px`,
+    // `position` is set INLINE (not left to `.crev-eo-host` in the stylesheet) so the host can NEVER fall
+    // into normal page flow if that stylesheet is missing, injected late, wiped by the SPA's <head>
+    // management, or removed by a re-injection teardown — the "bottom-left leak". z-index uses MAX_Z (the
+    // exact value focus() assigns the front frame, called on mount) as a floor until focus() runs. The
+    // stylesheet still supplies all the visual chrome (border, shadow, radius, animation).
+    style: `position:fixed;z-index:${MAX_Z};left:${bounds.left}px;top:${bounds.top}px;width:${bounds.width}px;height:${bounds.height}px`,
   });
 
   // Titlebar has `cursor: grab` (set in content-overlay.css), which is

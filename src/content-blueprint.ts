@@ -90,8 +90,13 @@ export function enableBlueprint(): void {
   layer.id = 'crev-blueprint-layer';
   // Critical positioning inline (mirrors #crev-blueprint-layer in BLUEPRINT_CSS) so the layer can never
   // fall into normal page flow if that stylesheet is missing, late, or removed — the "bottom-left leak".
-  // The stylesheet still supplies every visual token; this is just the floor.
-  layer.style.cssText = 'position:absolute;top:0;left:0;width:100%;z-index:2147483600';
+  // The stylesheet still supplies every visual token; this is just the floor. Set per-property (not
+  // cssText) so it composes with the cursor CSS vars set below and survives future edits.
+  layer.style.position = 'absolute';
+  layer.style.top = '0';
+  layer.style.left = '0';
+  layer.style.width = '100%';
+  layer.style.zIndex = '2147483600'; // mirrors #crev-blueprint-layer z-index in BLUEPRINT_CSS
   // The paintbrush cursors are data-URI image-sets built in JS (they carry per-DPI rasters); CSS vars
   // are how the static stylesheet reaches them. Fallback (crosshair) lives in the CSS rules.
   layer.style.setProperty('--bp-cur-pick', PICK_CURSOR);
