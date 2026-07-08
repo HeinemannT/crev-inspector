@@ -13,6 +13,7 @@
 import type { InspectorMessage } from './types';
 import { getCtx } from './sw-context';
 import { getHandler } from './handler-registry';
+import { log, errorMessage } from './logger';
 
 // Import handler modules — registration happens at import time
 import './handlers/inspect';
@@ -73,7 +74,8 @@ export async function handleContentMessage(msg: InspectorMessage, senderTabId?: 
   await ctx.settingsReady;
   const handler = getHandler(msg.type);
   if (handler) {
-    handler(msg, r => ctx.sendToPanel(r), { senderTabId, isOneShot: false });
+    Promise.resolve(handler(msg, r => ctx.sendToPanel(r), { senderTabId, isOneShot: false }))
+      .catch(e => log.swallow(`router:content:${msg.type}`, e));
   }
 }
 
@@ -88,9 +90,19 @@ export function handleOneShotMessage(
   // Gate on settingsReady — handler calls sendResponse async after settings load.
   // We always return true to keep the message port open until then.
   const ctx = getCtx();
-  ctx.settingsReady.then(() => {
-    handler(msg, sendResponse, { senderTabId: sender.tab?.id, isOneShot: true });
-  });
+  ctx.settingsReady
+    .then(() => handler(msg, sendResponse, { senderTabId: sender.tab?.id, isOneShot: true }))
+    .catch(e => {
+      log.swallow(`router:oneshot:${msg.type}`, e);
+      // Guarantee a response so the caller's chrome.runtime.sendMessage promise
+      // resolves instead of hanging forever (the channel stays open until we
+      // reply). TOAST is an existing message type — reused, not invented —
+      // and callers that narrow on `response?.type === 'THEIR_EXPECTED_TYPE'`
+      // simply won't match it, same safe no-op as an undefined response.
+      try {
+        sendResponse({ type: 'TOAST', kind: 'error', text: errorMessage(e) });
+      } catch { /* channel already closed */ }
+    });
   return true;
 }
 
