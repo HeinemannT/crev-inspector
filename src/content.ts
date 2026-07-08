@@ -105,6 +105,7 @@ function injectStyles() {
 
   const tooltip = document.createElement('div');
   tooltip.id = 'crev-tooltip';
+  tooltip.style.position = 'fixed'; // leak floor — never fall into page flow if the stylesheet is absent
   // documentElement, NOT body — BMP puts transforms on body-level wrappers,
   // and a transformed ancestor traps position:fixed in its stacking context,
   // which painted the card UNDER outlines/badges. Same escape hatch the
@@ -149,6 +150,7 @@ function injectStyles() {
       onClick: () => sendToSW({ type: 'TOGGLE_PAINT' } as InspectorMessage),
     }, '\u2715'),
   );
+  banner.style.position = 'fixed'; // leak floor \u2014 never fall into page flow if the stylesheet is absent
   document.body.appendChild(banner);
 
   s.styleInjected = true;

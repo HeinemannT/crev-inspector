@@ -467,6 +467,7 @@ function wireDrag(state: FrameState, handle: HTMLElement): () => void {
     if (snapGhost) return snapGhost;
     const g = document.createElement('div');
     g.className = 'crev-eo-snap-ghost';
+    g.style.position = 'fixed'; // leak floor — never fall into page flow if the stylesheet is absent
     document.documentElement.appendChild(g);
     snapGhost = g;
     return g;

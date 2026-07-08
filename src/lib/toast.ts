@@ -12,6 +12,11 @@ function ensureContainer(): HTMLDivElement {
   if (!container) {
     container = document.createElement('div');
     container.id = CONTAINER_ID;
+    // Leak floor: without inline position, a toast that fires before its stylesheet is present (a
+    // connection toast in the content script, pre-Inspect) drops into normal page flow at the bottom.
+    // Only `position` is inlined — the top/right coords differ between the content overlay (12px) and the
+    // side panel (8px), so those stay in each context's stylesheet, which is always present in the panel.
+    container.style.position = 'fixed';
     document.body.appendChild(container);
   }
   return container;
