@@ -13,6 +13,7 @@ export function updateBadge(display: ConnectionState['display']): void {
     case 'unreachable':
     case 'needs-login':
     case 'no-config-access':
+    case 'needs-access':
       chrome.action.setBadgeText({ text: '!' });
       chrome.action.setBadgeBackgroundColor({ color: '#f2b8b5' });
       break;

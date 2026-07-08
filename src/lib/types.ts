@@ -11,7 +11,7 @@ import type { InstanceFanout, ContainerBlast } from './layout/blast-radius';
 
 /** Unified connection state — single source of truth for health + auth */
 export interface ConnectionState {
-  display: 'not-configured' | 'checking' | 'connected' | 'online' | 'auth-failed' | 'server-down' | 'unreachable' | 'needs-login' | 'no-config-access';
+  display: 'not-configured' | 'checking' | 'connected' | 'online' | 'auth-failed' | 'server-down' | 'unreachable' | 'needs-login' | 'no-config-access' | 'needs-access';
   /** How the live connection was established (only meaningful when connected). */
   authVia: AuthVia | null;
   version: string | null;

@@ -345,6 +345,7 @@ export class ConnectTab implements Tab {
       case 'auth-failed': return { text: 'Auth failed', cls: 'err', title: 'Check the profile username and password' };
       case 'server-down': return { text: 'Server down', cls: 'err', title: '' };
       case 'unreachable': return { text: s.networkOffline ? 'No network' : 'Unreachable', cls: 'err', title: '' };
+      case 'needs-access': return { text: 'Grant access', cls: 'err', title: 'The extension needs site access to this BMP server. Grant it in the browser to connect.' };
       default: return { text: 'Idle', cls: 'idle', title: '' };
     }
   }

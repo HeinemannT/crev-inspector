@@ -1,6 +1,7 @@
 import type { ConnectionState } from './types';
 import { resolveAuthMode, type AuthErrorCode, type AuthVia } from './bmp-auth';
 import { getCtx } from './sw-context';
+import { originPatternFor } from './site-access';
 import { BmpClient } from './bmp-client';
 import { log, errorMessage } from './logger';
 import { HEALTH_POLL_INTERVAL } from './constants';
@@ -19,8 +20,30 @@ let authErrorCode: AuthErrorCode | null = null;
 let authVia: AuthVia | null = null;
 let healthTimer: ReturnType<typeof setInterval> | null = null;
 let networkOffline = false;
+let needsAccess = false;
 let lastPollTime = 0;
 let lastBroadcastDisplay: string | null = null;
+
+/** True when the extension holds host permission for this BMP origin. Direct SW fetches to an
+ *  un-granted host are CORS-blocked (BMP sends no Access-Control-Allow-Origin), so we gate the health +
+ *  auth probes on this and surface a 'needs-access' state instead of the misleading 'unreachable'.
+ *  Degrades to true when the permissions API is unavailable (tests / older runtimes) — unchanged there. */
+async function hasHostAccess(bmpUrl: string): Promise<boolean> {
+  const origin = originPatternFor(bmpUrl);
+  if (!origin || typeof chrome === 'undefined' || !chrome.permissions?.contains) return true;
+  try { return await chrome.permissions.contains({ origins: [origin] }); }
+  catch { return true; }
+}
+
+// Granting host access (site-access strip or Chrome's site settings) fires this — clear the gate and
+// re-probe at once so a 'needs-access' connection flips to connected without waiting for the next poll.
+if (typeof chrome !== 'undefined' && chrome.permissions?.onAdded) {
+  chrome.permissions.onAdded.addListener(() => {
+    needsAccess = false;
+    lastPollTime = 0; // bypass the poll throttle
+    void runAuthTest().finally(() => { void pollHealth(); });
+  });
+}
 
 /** Apply BMP version flags to client (auth mode, lookup support).
  *  When version is null, assume old BMP — binary mode with ticket auth
@@ -54,6 +77,7 @@ export function resetConnectionState() {
   authError = null;
   authErrorCode = null;
   authVia = null;
+  needsAccess = false;
   lastBroadcastDisplay = null;
   lastPollTime = 0;
   // Reset version flags — will be re-evaluated when version is detected
@@ -72,7 +96,8 @@ export function computeConnectionState(): ConnectionState {
   }
 
   let display: ConnectionState['display'];
-  if (authResult === 'ok') display = 'connected';
+  if (needsAccess) display = 'needs-access';
+  else if (authResult === 'ok') display = 'connected';
   else if (authResult === 'failed') {
     // Health can only downgrade to unreachable; otherwise the auth-error code
     // picks the precise state (open-BMP-and-login vs no-access vs bad-creds).
@@ -138,6 +163,13 @@ export async function runAuthTest() {
   }
 
   const bmpUrl = normalizeUrl(profile.bmpUrl);
+  if (!(await hasHostAccess(bmpUrl))) {
+    needsAccess = true; // no host permission → the graphql/token fetches would CORS-fail; don't try
+    authResult = 'pending';
+    pushConnectionState();
+    return;
+  }
+  needsAccess = false;
   const clientAtStart = ctx.client;
 
   // Session JWT recovery: when the client pool minted a fresh BmpClient
@@ -245,6 +277,14 @@ export async function pollHealth() {
   networkOffline = false;
 
   const bmpUrl = normalizeUrl(profile.bmpUrl);
+  if (!(await hasHostAccess(bmpUrl))) {
+    needsAccess = true; // no host permission → the fetch would CORS-fail; don't even try
+    healthUp = 'unknown';
+    healthResponseMs = null;
+    pushConnectionState();
+    return;
+  }
+  needsAccess = false;
   try {
     const result = await BmpClient.checkHealth(bmpUrl);
     if (result.up) {

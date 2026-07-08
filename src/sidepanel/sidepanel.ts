@@ -432,7 +432,7 @@ function buildApp(): void {
 
   // 'needs-login' is recoverable in place (log into BMP, then retry), so it
   // gets the prominent Reconnect button alongside the hard-error states.
-  const isError = ['unreachable', 'server-down', 'auth-failed', 'needs-login', 'no-config-access'].includes(S.connState.display);
+  const isError = ['unreachable', 'server-down', 'auth-failed', 'needs-login', 'no-config-access', 'needs-access'].includes(S.connState.display);
   // The connection strip lives ONLY on the Connect tab, and only when NOT cleanly connected — once
   // connected, each server row carries its own inline status, so the strip would just repeat it. It
   // stays for error/checking states because that's where the Reconnect/Test actions matter. (switchTab
@@ -575,6 +575,7 @@ function statusDotClass(): string {
     case 'needs-login': return 'warn';
     case 'unreachable': return S.connState.networkOffline ? 'warn' : 'fail';
     case 'server-down': case 'auth-failed': case 'no-config-access': return 'fail';
+    case 'needs-access': return 'warn';
     case 'not-configured': case 'checking': return '';
     default: { const _e: never = S.connState.display; void _e; return ''; }
   }
@@ -599,6 +600,7 @@ function statusText(): string {
     case 'auth-failed': return 'Auth failed';
     case 'server-down': return 'Server down';
     case 'unreachable': return S.connState.networkOffline ? 'No network' : 'Unreachable';
+    case 'needs-access': return 'Grant access';
   }
 }
 
@@ -630,6 +632,7 @@ function statusStripClass(): string {
     case 'needs-login': return 'offline';
     case 'unreachable': return S.connState.networkOffline ? 'offline' : 'fail';
     case 'server-down': case 'auth-failed': case 'no-config-access': return 'fail';
+    case 'needs-access': return 'warn';
     case 'not-configured': case 'checking': return '';
     default: { const _e: never = S.connState.display; void _e; return ''; }
   }
@@ -659,6 +662,7 @@ function statusStripText(): string {
     case 'auth-failed': return 'Sign-in failed. Check the profile username and password.';
     case 'server-down': return 'Server down';
     case 'unreachable': return s.networkOffline ? 'No network' : 'Unreachable';
+    case 'needs-access': return 'The extension needs site access to this BMP server. Grant it in the browser to connect.';
   }
 }
 

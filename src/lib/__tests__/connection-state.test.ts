@@ -325,3 +325,20 @@ describe('normalizeUrl', () => {
     expect(h.conn.normalizeUrl('  https://x.test/y/  ')).toBe('https://x.test/y/');
   });
 });
+
+describe('computeConnectionState — host-permission gate', () => {
+  it('no host permission → needs-access (probes skipped, not "unreachable")', async () => {
+    const h = await createHarness();
+    (globalThis as any).chrome.permissions = { contains: vi.fn(async () => false) };
+    await h.conn.pollHealth();
+    expect(h.conn.computeConnectionState().display).toBe('needs-access');
+  });
+
+  it('host permission granted → probes run (health up → not needs-access)', async () => {
+    const h = await createHarness();
+    (globalThis as any).chrome.permissions = { contains: vi.fn(async () => true) };
+    h.setHealthResult({ up: true, reachable: true });
+    await h.conn.pollHealth();
+    expect(h.conn.computeConnectionState().display).not.toBe('needs-access');
+  });
+});
