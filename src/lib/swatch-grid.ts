@@ -16,10 +16,10 @@
  * shows a dense Photoshop-style square grid) — only the data model is shared, so
  * neither surface constrains the other's layout.
  */
-import { h, svg } from '../lib/dom';
-import { ICON_CHEVRON } from '../lib/icons';
-import { rgbKey } from '../lib/color-util';
-import type { ColorSetData } from '../lib/types';
+import { h, svg } from './dom';
+import { ICON_CHEVRON } from './icons';
+import { rgbKey } from './color-util';
+import type { ColorSetData } from './types';
 
 export interface Swatch {
   bid: string;       // CorpoColor business id ('' when display-only)
