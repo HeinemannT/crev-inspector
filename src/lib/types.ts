@@ -807,6 +807,35 @@ const TYPE_COLORS: Record<string, string> = {
   // ── Status ────────────────────────────────────────────────────
   StatusType: '#8d8d8d', // grey
 
+  // ── Expanded coverage — bands chosen to sit apart from the ones above ──
+  // Scorecard-tree lists + objects (gold/orange, like the GRC objects)
+  StrategicObjective: '#f5cd47', Kpi:      '#f5cd47', TaskList: '#f5cd47',
+  CheckList:          '#f5cd47', Function: '#f5cd47',
+  RiskList:           '#e8890c', IndicatorList: '#b28600',
+  // Tables (coral, like FilterTable)
+  ActionPlanTable: '#ff8389', RiskAssessmentTable: '#ff8389', ReportsList: '#ff8389',
+  ProcessStatisticsTable: '#ff8389', UserTaskInstanceTable: '#ff8389', BPMNModelTable: '#ff8389',
+  ProcessIncidentTable: '#ff8389', ProcessInstanceTable: '#ff8389', ProcessTable: '#ff8389',
+  // Forms (cyan — a distinct data-entry band)
+  ContinuousForm: '#1192e8', EPMForm: '#1192e8', PeriodicFormPage: '#1192e8',
+  ScheduledForm: '#1192e8', ScheduledFormPage: '#1192e8',
+  ScheduledFormDistributionList: '#1192e8', FormSchedule: '#1192e8',
+  // Process / BPMN / flow (deep purple, distinct from the light code purples)
+  BPMNView: '#6929c4', HappyPathViewForProcessReference: '#6929c4', RelationshipDiagram: '#6929c4',
+  FlowProject: '#6929c4', FlowProjectGroup: '#6929c4', TransformerSchedule: '#6929c4', LogFolder: '#6929c4',
+  // Status (grey, like StatusType)
+  Status: '#8d8d8d', SimpleStatus: '#8d8d8d', FunctionStatus: '#8d8d8d',
+  // Views / media (brown, like TextElement)
+  DescriptionView: '#d2a373', ImageView: '#d2a373', PdfView: '#d2a373', Spacer: '#d2a373',
+  // Templates / misc
+  EnterpriseTemplate: '#6fdc8c',            // page-green — a template shell
+  CustomVisualizationExpression: '#be95ff', // code purple, like ExtendedCode
+  // Enterprise (Ce*) — shared teal family
+  CeAsset: '#08bdba', CeIncident: '#08bdba', CeRiskAssessment: '#08bdba', CeControlMeasure: '#08bdba',
+  CeIssue: '#08bdba', CeProcedure: '#08bdba', CeComplianceRequirement: '#08bdba', CeRegulation: '#08bdba',
+  CeTIA: '#08bdba', CePreScreening: '#08bdba', CeWorkflow: '#08bdba', CeService: '#08bdba',
+  CeQuestionnaire: '#08bdba', CeTask: '#08bdba', CeIndicator: '#08bdba', CeAssuranceActivity: '#08bdba',
+
   ...Object.fromEntries(CHART_TYPES.map(t => [t, CHART_COLOR])),
   // Risk charts override the generic chart coral with a deeper red so they
   // stand apart from the other charts at a glance.
@@ -860,6 +889,23 @@ const TYPE_ABBREVIATIONS: Record<string, string> = {
   ExtendedCode:        'XCO',
   ExtendedExpression:  'XPR',
   ExtendedTransport:   'XTR',
+  // ── Expanded coverage (SOB/STS avoid the existing OBJ/STA codes) ──
+  StrategicObjective: 'SOB', Kpi: 'KPI', TaskList: 'TSK', CheckList: 'CHK',
+  RiskList: 'RKL', IndicatorList: 'INL', Function: 'FUN',
+  ActionPlanTable: 'APT', RiskAssessmentTable: 'RAT', ReportsList: 'RPL',
+  ProcessStatisticsTable: 'PST', UserTaskInstanceTable: 'UTI', BPMNModelTable: 'BMT',
+  ProcessIncidentTable: 'PIT', ProcessInstanceTable: 'PIN', ProcessTable: 'PRC',
+  ContinuousForm: 'CFM', EPMForm: 'FRM', PeriodicFormPage: 'PFP', ScheduledForm: 'SFM',
+  ScheduledFormPage: 'SFP', ScheduledFormDistributionList: 'SFD', FormSchedule: 'FSC',
+  BPMNView: 'BPM', HappyPathViewForProcessReference: 'HPP', RelationshipDiagram: 'RLD',
+  FlowProject: 'FLP', FlowProjectGroup: 'FPG', TransformerSchedule: 'TRS', LogFolder: 'LOG',
+  Status: 'STS', SimpleStatus: 'SST', FunctionStatus: 'FST',
+  DescriptionView: 'DSV', ImageView: 'IMG', PdfView: 'PDF', Spacer: 'SPC',
+  EnterpriseTemplate: 'ETP', CustomVisualizationExpression: 'CVE',
+  CeAsset: 'AST', CeIncident: 'INC', CeRiskAssessment: 'RAS', CeControlMeasure: 'CTM',
+  CeIssue: 'ISU', CeProcedure: 'PCD', CeComplianceRequirement: 'CMP', CeRegulation: 'REG',
+  CeTIA: 'TIA', CePreScreening: 'PRS', CeWorkflow: 'WKF', CeService: 'SVC',
+  CeQuestionnaire: 'QNR', CeTask: 'CTK', CeIndicator: 'CID', CeAssuranceActivity: 'ASA',
   ...CHART_ABBREVIATIONS,
 };
 

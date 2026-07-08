@@ -21,6 +21,9 @@ import {
   ICON_CLOCK, ICON_LIST, ICON_CHECK, ICON_PLAY, ICON_BOOK, ICON_CONTAINER,
   ICON_TABS, ICON_FOLDER, ICON_TABLE, ICON_FILE_JS, ICON_FILE_HTML,
   ICON_CHART, ICON_CODE, ICON_SWAP, ICON_CUBE, ICON_LINK,
+  ICON_FLOW_ARROW, ICON_LAYOUT, ICON_DOTS_THREE_V, ICON_TREE_STRUCTURE,
+  ICON_NOTE_PENCIL, ICON_CIRCLE, ICON_ARTICLE, ICON_IMAGE, ICON_FILE_PDF,
+  ICON_BOULES,
 } from './icons';
 import { getTypeAbbr, getTypeColor, CHART_TYPES } from './types';
 
@@ -80,6 +83,72 @@ const TYPE_ICON: Record<string, string> = {
   // Content + status
   TextElement: ICON_BOOK,
   StatusType: ICON_CHECK,
+
+  // ── Expanded coverage — colours come from getTypeColor (the domain band);
+  //    one glyph per group (Views + EnterpriseTemplate get individual ones). ──
+  // Scorecard-tree nodes (lists + StrategicObjective/Kpi/Function) → tree glyph
+  StrategicObjective: ICON_TREE_STRUCTURE,
+  Kpi:                ICON_TREE_STRUCTURE,
+  TaskList:           ICON_TREE_STRUCTURE,
+  CheckList:          ICON_TREE_STRUCTURE,
+  RiskList:           ICON_TREE_STRUCTURE,
+  IndicatorList:      ICON_TREE_STRUCTURE,
+  Function:           ICON_TREE_STRUCTURE,
+  // Tables
+  ActionPlanTable:        ICON_TABLE,
+  RiskAssessmentTable:    ICON_TABLE,
+  ReportsList:            ICON_TABLE,
+  ProcessStatisticsTable: ICON_TABLE,
+  UserTaskInstanceTable:  ICON_TABLE,
+  BPMNModelTable:         ICON_TABLE,
+  ProcessIncidentTable:   ICON_TABLE,
+  ProcessInstanceTable:   ICON_TABLE,
+  ProcessTable:           ICON_TABLE,
+  // Forms → note-pencil
+  ContinuousForm:                ICON_NOTE_PENCIL,
+  EPMForm:                       ICON_NOTE_PENCIL,
+  PeriodicFormPage:              ICON_NOTE_PENCIL,
+  ScheduledForm:                 ICON_NOTE_PENCIL,
+  ScheduledFormPage:             ICON_NOTE_PENCIL,
+  ScheduledFormDistributionList: ICON_NOTE_PENCIL,
+  FormSchedule:                  ICON_NOTE_PENCIL,
+  // Process / BPMN / flow → flow-arrow
+  BPMNView:                         ICON_FLOW_ARROW,
+  HappyPathViewForProcessReference: ICON_FLOW_ARROW,
+  RelationshipDiagram:              ICON_FLOW_ARROW,
+  FlowProject:                      ICON_FLOW_ARROW,
+  FlowProjectGroup:                 ICON_FLOW_ARROW,
+  TransformerSchedule:              ICON_FLOW_ARROW,
+  LogFolder:                        ICON_FLOW_ARROW,
+  // Status → circle
+  Status:         ICON_CIRCLE,
+  SimpleStatus:   ICON_CIRCLE,
+  FunctionStatus: ICON_CIRCLE,
+  // Views / media — individual glyphs; Spacer is a layout filler → dots
+  DescriptionView: ICON_ARTICLE,
+  ImageView:       ICON_IMAGE,
+  PdfView:         ICON_FILE_PDF,
+  Spacer:          ICON_DOTS_THREE_V,
+  // Templates / misc
+  EnterpriseTemplate:            ICON_LAYOUT,
+  CustomVisualizationExpression: ICON_CODE,
+  // Enterprise (Ce*) → boules
+  CeAsset:                 ICON_BOULES,
+  CeIncident:              ICON_BOULES,
+  CeRiskAssessment:        ICON_BOULES,
+  CeControlMeasure:        ICON_BOULES,
+  CeIssue:                 ICON_BOULES,
+  CeProcedure:             ICON_BOULES,
+  CeComplianceRequirement: ICON_BOULES,
+  CeRegulation:            ICON_BOULES,
+  CeTIA:                   ICON_BOULES,
+  CePreScreening:          ICON_BOULES,
+  CeWorkflow:              ICON_BOULES,
+  CeService:               ICON_BOULES,
+  CeQuestionnaire:         ICON_BOULES,
+  CeTask:                  ICON_BOULES,
+  CeIndicator:             ICON_BOULES,
+  CeAssuranceActivity:     ICON_BOULES,
 };
 
 const CHART_SET = new Set<string>(CHART_TYPES);
