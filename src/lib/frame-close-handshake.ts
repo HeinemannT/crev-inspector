@@ -21,8 +21,10 @@
 
 export function installCloseHandshake(canClose: () => boolean | Promise<boolean> = () => true): void {
   window.addEventListener('message', async (e: MessageEvent) => {
-    // Only the parent frame (the content-script overlay host) may request close.
-    // Defense in depth on top of manifest CSP frame-ancestors 'self'.
+    // Only the parent frame (the content-script overlay host, same extension
+    // origin) may request close. Defense in depth on top of the manifest
+    // extension_pages CSP `frame-ancestors 'self'`, which blocks any
+    // cross-origin page from framing this view in the first place.
     if (e.source !== window.parent) return;
     const msg = e.data as { type?: string } | undefined;
     if (msg?.type !== 'CREV_OVERLAY_CLOSE_REQUEST') return;
