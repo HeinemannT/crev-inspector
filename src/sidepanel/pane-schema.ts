@@ -87,9 +87,20 @@ export const HAS_TOOLS_MENU_TYPES: ReadonlySet<string> = new Set([
   ...LIST_WIDGET_TYPES,
   ...CHART_WIDGET_TYPES,
 ]);
-// disableSearch is HasDisableSearch — same coverage as HasToolsMenu
-// (Container + Input children don't carry it; every list-widget does).
-export const HAS_DISABLE_SEARCH_TYPES: ReadonlySet<string> = HAS_TOOLS_MENU_TYPES;
+// disableSearch (HasDisableSearch) is a STRICT SUBSET of HasToolsMenu — verified against the
+// decompiled 5.6.10 traits (2026-07-06): 33 classes carry the tools menu but NOT disable-search,
+// including the chart family (RiskChart/RiskRadarChart), several list widgets, CreateObjectView
+// and DescriptionView. Derived as a difference so a type added to the tools set stays honest here.
+const TOOLS_ONLY_TYPES: ReadonlySet<string> = new Set([
+  'ActionPlanTable', 'AssessmentPlan', 'Attachment', 'AttachmentList', 'BowtieDiagram',
+  'BPMNModel', 'BPMNModelTable', 'BPMNView', 'CreateObjectView', 'DescriptionView',
+  'EnterpriseObject', 'EPMForm', 'FlowProject', 'Function', 'Incident', 'Issue', 'Kpi',
+  'Milestone', 'Organisation', 'PolicyAssetList', 'RiskAssessmentTable', 'RiskChart',
+  'RiskEventList', 'RiskFactor', 'RiskList', 'RiskRadarChart', 'Scenario', 'ScenarioTable',
+  'StrategicObjective', 'Task', 'TopBarComponent', 'TreatmentList', 'TreeTable',
+]);
+export const HAS_DISABLE_SEARCH_TYPES: ReadonlySet<string> =
+  new Set([...HAS_TOOLS_MENU_TYPES].filter(t => !TOOLS_ONLY_TYPES.has(t)));
 // Appearance family — every type carrying the WebChild styling props
 // (shadow / headerStyle / borderStyle / transparency) AND the
 // HasWidgetColors colour links (headerColor / fontColor). The two mixins

@@ -61,12 +61,10 @@ export class ContentState {
   // Timers
   tooltipHideTimer: ReturnType<typeof setTimeout> | null = null;
   debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  labelClickTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Transient DOM state — the badge pill the cursor is currently over
   // (hover-tooltip dedup guard).
   hoveredLabelEl: Element | null = null;
-  labelClickRid: string | null = null;
 
   /** AbortController whose signal is passed to every page-lifetime
    *  event listener (document.body mouseover, paint banner clicks, etc.).
@@ -79,8 +77,6 @@ export class ContentState {
     this.badgedElements = new WeakSet();
     this.requestedRids.clear();
     this.overlayProps.clear();
-    if (this.labelClickTimer) { clearTimeout(this.labelClickTimer); this.labelClickTimer = null; }
-    this.labelClickRid = null;
     this.hoveredLabelEl = null;
   }
 

@@ -18,6 +18,9 @@ import { hoverTooltip, ViewPlugin, Decoration, MatchDecorator, EditorView } from
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { isValidNamespace } from '../../lib/namespace'
 import { sendFireForget, sendRequest } from '../../lib/messaging'
+import { hasStudio } from '../../studio/studio-mode'
+import { buildObjectCard } from '../../lib/object-card'
+import { getTypeColor } from '../../lib/types'
 
 interface HoverInfo { name?: string; type?: string; rid?: string; businessId?: string; codePreview?: string }
 
@@ -74,10 +77,11 @@ const PATTERNS: Array<{ re: RegExp; extract: (m: RegExpExecArray) => { key: stri
     // stored on t.expr_wb_heartbeat). The namespace is always the
     // Template space, so we resolve `t.{bid}` and the tooltip previews the
     // referenced object's expression — the value this call evaluates to.
-    // `[A-Za-z_]\w+` requires a 2+ char identifier, so `{}` / `{ x+y }` /
-    // single-letter braces don't match. Unresolvable ids fall through to
+    // `\w{2,}` requires a 2+ char run of word chars, so `{}` / `{ x+y }` /
+    // single-char braces don't match, but NUMERIC ids like `{5663}` DO
+    // (business ids are commonly numeric). Unresolvable ids fall through to
     // the "couldn't resolve" tooltip just like a bad ns.bid ref.
-    re: /\{([A-Za-z_]\w+)\}/g,
+    re: /\{(\w{2,})\}/g,
     extract: (m) => ({ key: `t.${m[1]}`, lookup: 'ref' }),
   },
 ];
@@ -151,63 +155,29 @@ async function resolveRef(ref: string): Promise<LookupResult> {
 }
 
 function buildTooltipDom(info: HoverInfo): HTMLElement {
-  const el = document.createElement('div');
-  el.className = 'hover-tooltip';
-
-  if (info.type) {
-    const badge = document.createElement('span');
-    badge.className = 'hover-badge';
-    badge.textContent = info.type;
-    el.appendChild(badge);
-  }
-
-  if (info.name) {
-    const nameEl = document.createElement('span');
-    nameEl.className = 'hover-name';
-    nameEl.textContent = info.name;
-    el.appendChild(nameEl);
-  }
-
-  if (info.businessId) {
-    const bidEl = document.createElement('div');
-    bidEl.className = 'hover-meta';
-    bidEl.textContent = `ID: ${info.businessId}`;
-    el.appendChild(bidEl);
-  }
-
-  if (info.rid) {
-    const ridEl = document.createElement('div');
-    ridEl.className = 'hover-meta hover-meta--dim';
-    ridEl.textContent = `RID: ${info.rid}`;
-    el.appendChild(ridEl);
-  }
-
-  if (info.codePreview) {
-    const sep = document.createElement('div');
-    sep.className = 'hover-sep';
-    el.appendChild(sep);
-
-    const codeEl = document.createElement('pre');
-    codeEl.className = 'hover-code';
-    codeEl.textContent = info.codePreview;
-    el.appendChild(codeEl);
-
-    if (info.rid) {
-      const openBtn = document.createElement('div');
-      openBtn.className = 'hover-action';
-      const link = document.createElement('span');
-      link.className = 'hover-action-link';
-      link.textContent = 'Open EC \u25B8';
-      link.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (info.rid) sendFireForget({ type: 'OPEN_EDITOR', rid: info.rid });
-      });
-      openBtn.appendChild(link);
-      el.appendChild(openBtn);
-    }
-  }
-
-  return el;
+  // Reuse the shared object card so the editor's BID hover looks and behaves
+  // exactly like the badge-hover card on the BMP page. Open EC is offered
+  // whenever we have a rid to open (code-bearing refs carry a codePreview).
+  return buildObjectCard(
+    {
+      name: info.name,
+      type: info.type,
+      businessId: info.businessId,
+      rid: info.rid,
+      color: getTypeColor(info.type),
+      codePreview: info.codePreview,
+    },
+    {
+      // Route a type with a dedicated studio (CVO, TextElement) to that studio,
+      // matching the badge/tooltip paths (content-tooltip.ts, content-overlays.ts);
+      // everything else opens the EC editor.
+      onOpenEc: info.rid
+        ? () => sendFireForget(hasStudio(info.type)
+          ? { type: 'OPEN_STUDIO', rid: info.rid! }
+          : { type: 'OPEN_EDITOR', rid: info.rid! })
+        : undefined,
+    },
+  )
 }
 
 // ── BID underline decorator ─────────────────────────────────────
@@ -224,7 +194,7 @@ function buildTooltipDom(info: HoverInfo): HTMLElement {
 const bidMatcher = new MatchDecorator({
   // Two hoverable token shapes: `ns.bid` (validated namespace) and the
   // `{bid}` brace-call. Both get the dotted-underline "I am hoverable" cue.
-  regexp: /\b([a-z]{1,5})\.(\w{2,})\b|\{([A-Za-z_]\w+)\}/g,
+  regexp: /\b([a-z]{1,5})\.(\w{2,})\b|\{(\w{2,})\}/g,
   decoration: (m) => {
     if (m[1] !== undefined) {
       // ns.bid form — only decorate known namespaces.

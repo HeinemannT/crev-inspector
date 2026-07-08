@@ -4,7 +4,7 @@
  * A reference like "k.pMyProp" resolves to the property object with businessId "pMyProp"
  * under root.PROPERTY in any BMP workspace.
  *
- * Ported from cortex/src/tools/transport-tool/lib/namespace.ts.
+ * Ported from crev/src/tools/transport-tool/lib/namespace.ts.
  * Used by: BMP object hover (pattern validation), future transport features.
  */
 

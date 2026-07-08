@@ -65,7 +65,6 @@ let moduleTorn = false;
 //
 //   .crev-label          pills (one per inspected widget, BMP's DOM)
 //   #crev-tooltip        hover info popup
-//   #crev-quick-inspector pinned info card with action buttons
 //   #crev-env-tag        bottom-right env/connection status badge
 //   #crev-paint-banner   top banner while paint-format is armed
 //
@@ -99,7 +98,6 @@ interface GateTarget {
 const GATE_TARGETS: ReadonlyArray<GateTarget> = [
   { selector: '.crev-label' },
   { selector: '#crev-tooltip' },
-  { selector: '#crev-quick-inspector' },
   { selector: '#crev-env-tag' },
   { selector: '#crev-paint-banner' },
 ];

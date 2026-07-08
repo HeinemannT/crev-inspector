@@ -21,6 +21,8 @@ export class LogTab implements Tab {
    *  configured this keeps the log readable; otherwise an EC executed on dev
    *  would scroll past entries from sbx. */
   private filter: LogFilter = 'this';
+  /** Entries whose detail (e.g. the applied EC) is expanded inline, keyed by entry time. */
+  private expanded = new Set<number>();
 
   /** Latest activity message (read by status bar in sidepanel) */
   get latestActivityMsg() { return this.latestMsg; }
@@ -112,18 +114,27 @@ export class LogTab implements Tab {
           )
         // Newest-first: collapse runs in chronological order (so adjacent
         // dupes merge), then reverse for display so the latest entry is on top.
-        : collapsed.slice().reverse().map(({ entry, count }) =>
-            h('div', {
-              class: `activity-entry activity-entry--${entry.level}`,
-              title: entry.detail ? `${entry.message}\n\n${entry.detail}` : entry.message,
+        : collapsed.slice().reverse().map(({ entry, count }) => {
+            // Entries with a detail (the applied EC, the timing breakdown) expand inline on
+            // click — the EC that ran is worth reading and copying, not just a hover title.
+            const hasDetail = !!entry.detail;
+            const isOpen = hasDetail && this.expanded.has(entry.time);
+            return h('div', {
+              class: `activity-entry activity-entry--${entry.level}${hasDetail ? ' activity-entry--expandable' : ''}`,
+              ...(hasDetail
+                ? { 'data-detail-key': String(entry.time), role: 'button', tabindex: '0', 'aria-expanded': String(isOpen) }
+                : { title: entry.message }),
             },
               // Level stripe gives a quick scan of severity without reading.
               h('span', { class: 'activity-stripe', 'aria-hidden': 'true' }),
-              h('span', { class: 'activity-msg' }, entry.message),
+              h('span', { class: 'activity-msg' },
+                hasDetail ? h('span', { class: 'activity-caret', 'aria-hidden': 'true' }, isOpen ? '▾ ' : '▸ ') : null,
+                entry.message),
               count > 1 ? h('span', { class: 'activity-count', title: `Repeated ${count} times` }, `×${count}`) : null,
               h('span', { class: 'activity-time' }, relativeTime(entry.time)),
-            )
-          ),
+              isOpen ? h('pre', { class: 'activity-detail' }, entry.detail) : null,
+            );
+          }),
     );
 
     const root = h('div', { class: 'log-tab' }, filterRow, feed);
@@ -141,6 +152,26 @@ export class LogTab implements Tab {
         this.render(container);
       });
     }
+
+    // Expand/collapse an entry's detail (click or Enter/Space on the row).
+    const toggleDetail = (el: HTMLElement | null) => {
+      const key = el && Number(el.getAttribute('data-detail-key'));
+      if (!key) return;
+      if (this.expanded.has(key)) this.expanded.delete(key); else this.expanded.add(key);
+      this.render(container);
+    };
+    feed.addEventListener('click', (ev) => {
+      const t = ev.target as HTMLElement;
+      if (t.closest('.activity-detail')) return; // let text selection / copy work inside the detail
+      toggleDetail(t.closest('[data-detail-key]') as HTMLElement | null);
+    });
+    feed.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      const el = (ev.target as HTMLElement).closest('[data-detail-key]') as HTMLElement | null;
+      if (!el) return;
+      ev.preventDefault();
+      toggleDetail(el);
+    });
     // Newest is on top now, so park the scroll there.
     feed.scrollTop = 0;
   }

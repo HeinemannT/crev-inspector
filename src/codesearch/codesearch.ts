@@ -12,12 +12,13 @@
  */
 
 import type { InspectorMessage, CodeSearchResult } from '../lib/types';
-import { getTypeColor, getTypeAbbr, CHART_TYPES } from '../lib/types';
+import { CHART_TYPES } from '../lib/types';
+import { typeBadge } from '../lib/type-badge';
 import { h, render, svg } from '../lib/dom';
-import { ICON_X, ICON_WARNING, ICON_CHEVRON, ICON_CHECK, ICON_SEARCH, ICON_COPY } from '../lib/icons';
+import { ICON_X, ICON_WARNING, ICON_CHECK, ICON_SEARCH, ICON_COPY, ICON_ARROWS_OUT_SIMPLE } from '../lib/icons';
 import { emptyState } from '../lib/empty-state';
 import { installCloseHandshake } from '../lib/frame-close-handshake';
-import { sendFireForget } from '../lib/messaging';
+import { sendFireForget, sendRequest } from '../lib/messaging';
 import { tokenizeEcLine, renderTokens } from '../lib/ec-format';
 import { captureTypingFocus } from '../lib/focus-keep';
 
@@ -41,12 +42,15 @@ let searched = 0;
 let total = 0;
 let results: CodeSearchResult[] = [];
 let lastError: string | null = null;
-const expandedGroups = new Set<string>();
-/** When a type name is here, that section is COLLAPSED. Default empty
- *  means all sections expanded — this is the friendlier default for
- *  small result sets while still letting the toolbar's "Collapse all"
- *  do its job for large ones. */
-const collapsedSections = new Set<string>();
+/** Split-browser selection: the rail row whose code shows in the preview. */
+let selectedRid: string | null = null;
+/** Index into the selected object's flattened match list (see matchesFor). */
+let navIdx = 0;
+/** Full code per rid (codeFields from FETCH_OBJECT_PANE) — fetched lazily on
+ *  selection so the preview can show real surrounding context, cached for the
+ *  session. */
+const paneCache = new Map<string, Record<string, string>>();
+const paneLoading = new Set<string>();
 /** Substring narrow-down applied AFTER the BMP query lands. Filters by
  *  name / businessId / matched line text — no extra round-trip. */
 let resultFilter = '';
@@ -160,6 +164,7 @@ chrome.runtime.onMessage.addListener((msg: InspectorMessage) => {
     results = msg.results;
     searched = msg.searched;
     total = msg.total;
+    if (!selectedRid && results.length > 0) selectObject(results[0].rid, 0, false);
     renderUI();
   }
   if (msg.type === 'CODE_SEARCH_DONE') {
@@ -179,7 +184,7 @@ renderUI();
 
 // ── Render ───────────────────────────────────────────────────────
 function renderUI() {
-  const elements: (HTMLElement | null | false)[] = [renderHeader(), renderToolbar()];
+  const elements: (HTMLElement | null | false)[] = [renderToolbar()];
   if (lastError) elements.push(renderErrorBanner(lastError));
   if (searching || searched > 0) elements.push(renderProgress());
 
@@ -210,15 +215,6 @@ function renderUI() {
   }
 }
 
-function renderHeader(): HTMLElement {
-  return h('header', { class: 'cs-header' },
-    h('h1', { class: 'cs-title' }, 'Code Search'),
-    h('span', { class: 'cs-subtitle' },
-      'Find a text pattern across every BMP code property in the workspace.',
-    ),
-  );
-}
-
 function renderToolbar(): HTMLElement {
   // Search shell (hero input) — mirrors Browse's .browse-search-shell.
   // Uses the persistent input + button nodes (never recreated on keystroke);
@@ -242,7 +238,18 @@ function renderToolbar(): HTMLElement {
     onClick: () => { caseSensitive = !caseSensitive; fireSearch(); },
   }, 'Aa Match case'));
 
+  // Live counts per group from the current result set — the pills double as
+  // a result breakdown (C1's facet idea folded into the existing filters).
+  const groupCounts = new Map<string, number>();
+  for (const r of results) {
+    for (const g of TYPE_GROUPS) {
+      if (r.type && (g.types as readonly string[]).includes(r.type)) {
+        groupCounts.set(g.key, (groupCounts.get(g.key) ?? 0) + r.matchingLines.length);
+      }
+    }
+  }
   for (const g of TYPE_GROUPS) {
+    const n = groupCounts.get(g.key) ?? 0;
     pills.push(h('button', {
       class: `cs-pill cs-pill--type${activeGroups.has(g.key) ? ' active' : ''}`,
       title: g.types.length === 1 ? g.types[0] : `${g.types.length} types`,
@@ -251,7 +258,7 @@ function renderToolbar(): HTMLElement {
         else activeGroups.add(g.key);
         fireSearch();
       },
-    }, g.label));
+    }, g.label, n > 0 ? h('span', { class: 'cs-pill-count' }, String(n)) : null));
   }
 
   // Subtree scope on its own row (not crammed into the wrapping pill row) —
@@ -301,25 +308,6 @@ function renderToolbar(): HTMLElement {
               }, svg(ICON_X))
             : null,
         ),
-        h('button', {
-          class: 'cs-bulk-btn',
-          title: 'Expand every section + every object',
-          onClick: () => {
-            collapsedSections.clear();
-            for (const r of results) expandedGroups.add(r.rid);
-            renderUI();
-          },
-        }, h('span', { class: 'cs-bulk-chev cs-bulk-chev--down' }, svg(ICON_CHEVRON)), ' Expand all'),
-        h('button', {
-          class: 'cs-bulk-btn',
-          title: 'Collapse every section',
-          onClick: () => {
-            const types = new Set(results.map(r => r.type ?? ''));
-            for (const t of types) collapsedSections.add(t);
-            expandedGroups.clear();
-            renderUI();
-          },
-        }, h('span', { class: 'cs-bulk-chev' }, svg(ICON_CHEVRON)), ' Collapse all'),
         h('button', {
           class: 'cs-bulk-btn cs-copy-btn',
           title: 'Copy the matched objects (class, id, name) as a tab-separated table',
@@ -418,16 +406,66 @@ function passesResultFilter(r: CodeSearchResult): boolean {
   return r.matchingLines.some(l => l.text.toLowerCase().includes(q));
 }
 
+/** Select a rail object; optionally jump its match nav to `idx`. Kicks the
+ *  lazy full-code fetch so the preview can show real context. */
+function selectObject(rid: string, idx = 0, rerender = true): void {
+  selectedRid = rid;
+  navIdx = idx;
+  ensurePane(rid);
+  if (rerender) renderUI();
+}
+
+/** Fetch (once) the object's full code fields for the preview. */
+function ensurePane(rid: string): void {
+  if (paneCache.has(rid) || paneLoading.has(rid)) return;
+  paneLoading.add(rid);
+  void sendRequest({ type: 'FETCH_OBJECT_PANE', rid }).then((msg) => {
+    paneLoading.delete(rid);
+    if (msg && msg.type === 'OBJECT_PANE_DATA' && msg.rid === rid) {
+      paneCache.set(rid, msg.codeFields ?? {});
+    } else {
+      paneCache.set(rid, {});
+    }
+    renderUI();
+  });
+}
+
+/** The selected object's matches flattened across its property results. */
+function matchesFor(rid: string): Array<{ property: string; lineNum: number; text: string }> {
+  const out: Array<{ property: string; lineNum: number; text: string }> = [];
+  for (const r of results.filter(passesResultFilter)) {
+    if (r.rid !== rid) continue;
+    for (const l of r.matchingLines) out.push({ property: r.property, lineNum: l.lineNum, text: l.text });
+  }
+  return out;
+}
+
+/** Rail order: unique rids of the (filtered) result set, stream order. */
+function railRids(): string[] {
+  const seen = new Set<string>();
+  const rids: string[] = [];
+  for (const r of results.filter(passesResultFilter)) {
+    if (!seen.has(r.rid)) { seen.add(r.rid); rids.push(r.rid); }
+  }
+  return rids;
+}
+
+/** Step the match cursor; wraps across rail objects at either end. */
+function stepMatch(dir: 1 | -1): void {
+  if (!selectedRid) return;
+  const matches = matchesFor(selectedRid);
+  const next = navIdx + dir;
+  if (next >= 0 && next < matches.length) { navIdx = next; renderUI(); return; }
+  const rids = railRids();
+  const at = rids.indexOf(selectedRid);
+  const nextRid = rids[(at + dir + rids.length) % rids.length];
+  const nextMatches = matchesFor(nextRid);
+  selectObject(nextRid, dir === 1 ? 0 : Math.max(0, nextMatches.length - 1));
+}
+
 function renderResults(): HTMLElement {
-  // Two-level grouping: TYPE → RID. Type sections collapse to clean
-  // up the scan UX when there are many type families in the result
-  // set; RID groups inside each section keep the existing per-object
-  // expand-to-see-context behaviour.
   const filtered = results.filter(passesResultFilter);
   if (filtered.length === 0) {
-    // Distinguish "no results" (handled at the renderUI level) from
-    // "filter excluded everything" — show the second only when there
-    // ARE underlying results.
     return h('div', { class: 'cs-results' },
       h('div', { class: 'cs-no-filter-matches' },
         `No results match the filter "${resultFilter}". `,
@@ -439,147 +477,106 @@ function renderResults(): HTMLElement {
     );
   }
 
-  const byType = new Map<string, Map<string, CodeSearchResult[]>>();
+  const rids = railRids();
+  // Keep the selection valid under the result filter.
+  const rid = selectedRid && rids.includes(selectedRid) ? selectedRid : rids[0];
+  if (rid !== selectedRid) { selectedRid = rid; navIdx = 0; ensurePane(rid); }
+
+  // ── Left rail: one row per hit object ──
+  const byRid = new Map<string, CodeSearchResult[]>();
   for (const r of filtered) {
-    // Engine always populates `type` but the message type marks it
-    // optional; coalesce defensively so the bucket key is well-defined.
-    const typeKey = r.type ?? '';
-    if (!byType.has(typeKey)) byType.set(typeKey, new Map());
-    const ridMap = byType.get(typeKey)!;
-    if (!ridMap.has(r.rid)) ridMap.set(r.rid, []);
-    ridMap.get(r.rid)!.push(r);
+    if (!byRid.has(r.rid)) byRid.set(r.rid, []);
+    byRid.get(r.rid)!.push(r);
   }
-
-  const sectionEls: HTMLElement[] = [];
-  // Stable, alphabetical type order; types unknown to the abbreviation
-  // map (rare) fall through to their raw name and still sort.
-  const sortedTypes = [...byType.keys()].sort((a, b) => a.localeCompare(b));
-  for (const typeName of sortedTypes) {
-    const ridMap = byType.get(typeName)!;
-    const sectionExpanded = !collapsedSections.has(typeName);
-    const objectCount = ridMap.size;
-    const matchCount = [...ridMap.values()].reduce(
-      (n, group) => n + group.reduce((m, r) => m + r.matchingLines.length, 0),
-      0,
-    );
-
-    const sectionHeader = h('button', {
-      class: `cs-section-header${sectionExpanded ? ' expanded' : ''}`,
-      'data-type': typeName,
-      'data-action': 'toggle-section',
-      title: sectionExpanded ? `Collapse ${typeName} results` : `Expand ${typeName} results`,
+  const railRows = rids.map((rrid) => {
+    const group = byRid.get(rrid)!;
+    const first = group[0];
+    const count = group.reduce((n, g) => n + g.matchingLines.length, 0);
+    return h('div', {
+      class: `csx-rrow${rrid === rid ? ' on' : ''}`,
+      role: 'button',
+      tabindex: '0',
+      title: `${first.type ?? ''} \u00b7 ${first.name || first.businessId || rrid}`,
+      onClick: () => selectObject(rrid),
+      onKeyDown: (e: KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectObject(rrid); }
+      },
     },
-      h('span', { class: `cs-section-chev${sectionExpanded ? ' is-open' : ''}` }, svg(ICON_CHEVRON)),
-      h('span', { class: 'cs-type-chip', style: `--type-color:${getTypeColor(typeName)}` }, getTypeAbbr(typeName)),
-      h('span', { class: 'cs-section-type' }, typeName),
-      h('span', { class: 'cs-section-counts' },
-        `${objectCount} object${objectCount !== 1 ? 's' : ''} · ${matchCount} match${matchCount !== 1 ? 'es' : ''}`,
-      ),
+      typeBadge(first.type, { size: 'xs' }),
+      h('span', { class: 'csx-rid' }, first.businessId || first.name || rrid),
+      h('span', { class: 'csx-rcount' }, String(count)),
     );
+  });
+  const rail = h('div', { class: 'csx-rail' },
+    ...railRows,
+    h('div', { class: 'csx-rail-note' }, `${rids.length} object${rids.length !== 1 ? 's' : ''} \u00b7 ${filtered.reduce((n, r) => n + r.matchingLines.length, 0)} matches`),
+  );
 
-    const sectionBody: HTMLElement[] = [];
-    if (sectionExpanded) {
-      for (const [rid, group] of ridMap) {
-        const first = group[0];
-        const expanded = expandedGroups.has(rid);
-        const totalMatches = group.reduce((n, r) => n + r.matchingLines.length, 0);
+  // ── Right preview: full code of the current match's property ──
+  const group = byRid.get(rid)!;
+  const first = group[0];
+  const matches = matchesFor(rid);
+  if (navIdx >= matches.length) navIdx = Math.max(0, matches.length - 1);
+  const cur = matches[navIdx];
+  const prop = cur?.property ?? first.property;
 
-        // A div (not a button) so the id / name text stays selectable —
-        // drag-select doesn't fire a click, so a plain click still toggles
-        // (delegated via data-action). Name + id are two equal columns.
-        const header = h('div', {
-          class: `cs-result-header${expanded ? ' expanded' : ''}`,
-          role: 'button',
-          tabindex: '0',
-          'data-rid': rid,
-          'data-action': 'toggle',
-          title: expanded ? 'Collapse' : 'Expand to see matched lines',
-          onKeyDown: (e: KeyboardEvent) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              if (expandedGroups.has(rid)) expandedGroups.delete(rid); else expandedGroups.add(rid);
-              renderUI();
-            }
-          },
-        },
-          h('span', { class: `cs-result-chev${expanded ? ' is-open' : ''}` }, svg(ICON_CHEVRON)),
-          h('span', { class: 'cs-result-name', title: first.name || '(unnamed)' }, first.name || '(unnamed)'),
-          h('span', { class: 'cs-result-id' },
-            h('span', { class: 'cs-result-id-label' }, 'id:'),
-            h('span', { class: 'cs-result-id-val' }, first.businessId || rid),
-          ),
-          h('span', { class: 'cs-result-count' }, `${totalMatches} match${totalMatches !== 1 ? 'es' : ''}`),
-          h('button', {
-            class: 'cs-result-open',
-            title: 'Open this object in the popout',
-            'data-action': 'open-in-popout',
-            'data-rid': rid,
-            onClick: (e: Event) => { e.stopPropagation(); sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid }); },
-          }, '↗'),
-        );
+  const header = h('div', { class: 'csx-phead' },
+    typeBadge(first.type, { size: 'xs' }),
+    h('span', { class: 'csx-pname', title: first.name || '(unnamed)' }, first.name || '(unnamed)'),
+    h('span', { class: 'csx-pprop' }, `.${prop}`),
+    h('span', { class: 'csx-psp' }),
+    h('button', { class: 'csx-nav', title: 'Previous match', onClick: () => stepMatch(-1) }, '\u2039'),
+    h('button', { class: 'csx-nav', title: 'Next match', onClick: () => stepMatch(1) }, '\u203a'),
+    h('span', { class: 'csx-navpos' }, matches.length > 0 ? `${navIdx + 1}/${matches.length}` : '0/0'),
+    h('button', {
+      class: 'csx-act',
+      title: `Open .${prop} in the floating editor`,
+      onClick: () => sendFireForget({ type: 'OPEN_EDITOR', rid, property: prop, scrollToLine: cur?.lineNum, scrollToText: cur?.text }),
+    }, 'Edit \u2197'),
+    h('button', {
+      class: 'csx-act csx-act--ov',
+      title: 'Open this object in the full Object View',
+      'aria-label': 'Open full object view',
+      onClick: () => sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid }),
+    }, svg(ICON_ARROWS_OUT_SIMPLE)),
+  );
 
-        const groupEl = h('div', { class: 'cs-result-group' }, header);
-
-        if (expanded) {
-          for (const r of group) {
-            groupEl.appendChild(h('div', { class: 'cs-result-prop' }, `.${r.property}`));
-            for (const line of r.matchingLines) {
-              // Click → open the EDITOR on this property AND scroll
-              // to the matched line. The ↗ button in the header still
-              // opens ObjectView for users who want the broader
-              // context (parent, siblings, props).
-              groupEl.appendChild(h('div', {
-                class: 'cs-match-line',
-                title: `Open .${r.property} at line ${line.lineNum} in the floating editor`,
-                onClick: () => sendFireForget({
-                  type: 'OPEN_EDITOR',
-                  rid,
-                  property: r.property,
-                  scrollToLine: line.lineNum,
-                  scrollToText: line.text,
-                }),
-              },
-                h('span', { class: 'cs-line-num' }, String(line.lineNum)),
-                highlightMatch(line.text),
-              ));
-            }
-          }
-        }
-
-        sectionBody.push(groupEl);
-      }
+  // Full code when the pane fetch has landed; matched-lines-only fallback
+  // while loading (or when the prop wasn't in codeFields, e.g. indirect EC).
+  const fields = paneCache.get(rid);
+  const fullBody = fields?.[prop];
+  const hitLines = new Set(matches.filter(m => m.property === prop).map(m => m.lineNum));
+  const curLine = cur?.property === prop ? cur.lineNum : -1;
+  const codeChildren: HTMLElement[] = [];
+  if (fullBody != null) {
+    const lines = fullBody.split('\n');
+    lines.forEach((text, i) => {
+      const n = i + 1;
+      codeChildren.push(h('div', { class: `csx-cl${hitLines.has(n) ? ' hit' : ''}${n === curLine ? ' cur' : ''}`,
+        title: `Open .${prop} at line ${n} in the floating editor`,
+        onClick: () => sendFireForget({ type: 'OPEN_EDITOR', rid, property: prop, scrollToLine: n, scrollToText: text }),
+      },
+        h('span', { class: 'csx-ln' }, String(n)),
+        highlightMatch(text),
+      ));
+    });
+  } else {
+    if (paneLoading.has(rid)) codeChildren.push(h('div', { class: 'csx-loading' }, 'Loading full code\u2026'));
+    for (const m of matches.filter(mm => mm.property === prop)) {
+      codeChildren.push(h('div', { class: `csx-cl hit${m.lineNum === curLine ? ' cur' : ''}` },
+        h('span', { class: 'csx-ln' }, String(m.lineNum)),
+        highlightMatch(m.text),
+      ));
     }
-
-    sectionEls.push(h('div', { class: 'cs-section' },
-      sectionHeader,
-      sectionExpanded ? h('div', { class: 'cs-section-body' }, ...sectionBody) : null,
-    ));
   }
 
-  const resultsEl = h('div', { class: 'cs-results' }, ...sectionEls);
-  resultsEl.addEventListener('click', (e) => {
-    const target = e.target as HTMLElement;
-    const sectionToggle = target.closest<HTMLElement>('[data-action="toggle-section"]');
-    if (sectionToggle) {
-      const t = sectionToggle.dataset.type;
-      if (t) {
-        if (collapsedSections.has(t)) collapsedSections.delete(t);
-        else collapsedSections.add(t);
-        renderUI();
-        return;
-      }
-    }
-    const toggleEl = target.closest<HTMLElement>('[data-action="toggle"]');
-    if (toggleEl) {
-      const rid = toggleEl.dataset.rid;
-      if (rid) {
-        if (expandedGroups.has(rid)) expandedGroups.delete(rid);
-        else expandedGroups.add(rid);
-        renderUI();
-      }
-    }
+  const preview = h('div', { class: 'csx-prev' }, header, h('div', { class: 'csx-code', id: 'csx-code' }, ...codeChildren));
+  const el = h('div', { class: 'csx-split' }, rail, preview);
+  // Bring the current match into view after the (re)render lands.
+  requestAnimationFrame(() => {
+    document.querySelector('#csx-code .csx-cl.cur')?.scrollIntoView({ block: 'center' });
   });
-  return resultsEl;
+  return el;
 }
 
 /** Render a matched code line with EC syntax colouring AND the query-match
@@ -689,8 +686,8 @@ function fireSearch(): void {
   searched = 0;
   total = 0;
   lastError = null;
-  expandedGroups.clear();
-  collapsedSections.clear();
+  selectedRid = null;
+  navIdx = 0;
   resultFilter = '';
   filterInputEl.value = ''; // persistent node — clear it too, or it shows stale filter text
 

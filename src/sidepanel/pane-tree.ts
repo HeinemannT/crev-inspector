@@ -6,10 +6,11 @@
  * Callbacks fire on row click → caller swaps the pane to that RID.
  */
 
-import { h, svg } from '../lib/dom';
-import { ICON_CHEVRON, ICON_ARROW_LINE_UP } from '../lib/icons';
-import { getTypeColor, getTypeAbbr } from '../lib/types';
+import { h, svg, statusFlash } from '../lib/dom';
+import { ICON_CHEVRON, ICON_ARROW_ELBOW_UP, ICON_FLOW_ARROW } from '../lib/icons';
+import { typeBadge } from '../lib/type-badge';
 import type { ObjectPaneIdentity, ObjectPaneSiblingMsg } from '../lib/types';
+import { hasFlow } from '../lib/widget-metadata';
 
 export interface PaneTreeData {
   parent: ObjectPaneIdentity | null;
@@ -32,6 +33,26 @@ export interface PaneTreeHandlers {
   onToggleChildren: () => void;
 }
 
+
+/** Stub badge with the panel-wide copy gesture: click copies the business id
+ *  (green ✓ flash) without triggering the row's navigate. */
+function copyBadge(identity: { rid: string; businessId?: string; type?: string }): HTMLElement {
+  const b = typeBadge(identity.type, { size: 'xs' });
+  const id = identity.businessId || identity.rid;
+  b.title = `Copy ${id}`;
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(id).catch(() => { /* blocked — silent */ });
+    statusFlash(`Copied ${id} \u2713`);
+    const lbl = b.querySelector<HTMLElement>('.lbl');
+    const original = lbl?.textContent ?? '';
+    if (lbl) lbl.textContent = '\u2713';
+    b.classList.add('bdg-copied');
+    setTimeout(() => { if (lbl) lbl.textContent = original; b.classList.remove('bdg-copied'); }, 700);
+  });
+  return b;
+}
+
 export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): HTMLElement {
   const root = h('div', { class: 'pane-tree' });
 
@@ -40,11 +61,8 @@ export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): 
     root.appendChild(
       h('div', { class: 'pane-tree-crumb', 'data-rid': data.parent.rid, role: 'button', tabindex: '0',
         title: `Open parent: ${data.parent.name || data.parent.businessId}` },
-        h('span', { class: 'pane-tree-crumb-arrow' }, svg(ICON_ARROW_LINE_UP)),
-        h('span', {
-          class: 'pane-tree-chip',
-          style: `--type-color:${getTypeColor(data.parent.type)}`,
-        }, getTypeAbbr(data.parent.type)),
+        h('span', { class: 'pane-tree-crumb-arrow' }, svg(ICON_ARROW_ELBOW_UP)),
+        copyBadge(data.parent),
         h('span', { class: 'pane-tree-name' }, data.parent.name || '(unnamed)'),
         data.parent.businessId ? h('span', { class: 'pane-tree-bid' }, data.parent.businessId) : null,
       ),
@@ -52,7 +70,7 @@ export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): 
   } else {
     root.appendChild(
       h('div', { class: 'pane-tree-crumb pane-tree-crumb--root' },
-        h('span', { class: 'pane-tree-crumb-arrow' }, svg(ICON_ARROW_LINE_UP)),
+        h('span', { class: 'pane-tree-crumb-arrow' }, svg(ICON_ARROW_ELBOW_UP)),
         h('span', { class: 'pane-tree-meta' }, '(top level)'),
       ),
     );
@@ -73,17 +91,19 @@ export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): 
       tabindex: '0',
       title: `${s.type} · ${s.businessId || s.rid}`,
     },
-      h('span', {
-        class: 'pane-tree-chip',
-        style: `--type-color:${getTypeColor(s.type)}`,
-      }, getTypeAbbr(s.type)),
+      copyBadge(s),
       h('span', { class: 'pane-tree-name' }, s.name || '(unnamed)'),
       s.businessId ? h('span', { class: 'pane-tree-bid' }, s.businessId) : null,
     );
     siblingList.appendChild(row);
 
-    // Children appear right under the current row when expanded
-    if (isCurrent) {
+    // Children appear right under the current row when expanded.
+    // Flow-bearing types (InputView, ActionButton, CreateObjectView, …) have
+    // a FLOW, not children — their chain lives in the Flow segment, so the
+    // expander is replaced by a quiet pointer there.
+    if (isCurrent && hasFlow(data.current.type)) {
+      siblingList.appendChild(h('div', { class: 'pane-tree-flownote' }, svg(ICON_FLOW_ARROW), ' flow: see the Flow tab'));
+    } else if (isCurrent) {
       const expander = h('button', {
         class: `pane-tree-expander${data.childrenExpanded ? ' pane-tree-expander--open' : ''}`,
         'aria-expanded': data.childrenExpanded ? 'true' : 'false',
@@ -106,10 +126,7 @@ export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): 
               tabindex: '0',
               title: `${c.type ?? ''} · ${c.businessId ?? c.rid}`,
             },
-              h('span', {
-                class: 'pane-tree-chip',
-                style: `--type-color:${getTypeColor(c.type)}`,
-              }, getTypeAbbr(c.type)),
+              copyBadge(c),
               h('span', { class: 'pane-tree-name' }, c.name || '(unnamed)'),
               c.businessId ? h('span', { class: 'pane-tree-bid' }, c.businessId) : null,
             );

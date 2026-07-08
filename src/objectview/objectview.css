@@ -56,64 +56,6 @@ body {
    + .pane-header-id), like the side panel — just with more breathing room. */
 .ov-header { padding: 12px 16px; }
 
-.ov-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-3) var(--space-3) var(--space-4);
-  animation: crev-fade-in var(--duration-normal) var(--ease-decelerate);
-}
-
-.ov-type-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semi);
-  color: #fff;
-  background: var(--type-color, var(--surface-3));
-  letter-spacing: 0.4px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-
-/* .btn base + variants defined in components.css */
-
-/* ── Identity fields ───────────────────────────── */
-
-.ov-identity {
-  display: grid;
-  grid-template-columns: 64px 1fr;
-  gap: var(--space-1) var(--space-2);
-  margin-bottom: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface-1);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-1);
-}
-
-.ov-id-label {
-  font-size: var(--text-xs);
-  color: var(--text-3);
-  font-weight: var(--weight-medium);
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-}
-
-.ov-id-value {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--text-1);
-  cursor: pointer;
-  word-break: break-all;
-  transition: color var(--duration-fast) var(--ease-default);
-}
-
-.ov-id-value:hover { color: var(--accent); }
-.ov-id-value.copied { color: var(--success); }
-
 /* ── Sections ───────────────────────────────────── */
 
 .ov-section {
@@ -122,49 +64,14 @@ body {
 }
 
 .ov-section-title {
-  font-size: var(--text-xs);
+  /* The panel's References-head grammar: 12px/600 uppercase, no rule line. */
+  font-size: var(--text-sm);
   font-weight: var(--weight-semi);
   color: var(--text-3);
-  letter-spacing: 0.6px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   margin-bottom: var(--space-2);
   padding-bottom: var(--space-1);
-  box-shadow: inset 0 -1px 0 var(--surface-2);
-}
-
-/* ── Property table ────────────────────────────── */
-
-.ov-prop-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--surface-1);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  box-shadow: var(--shadow-1);
-}
-
-.ov-prop-table tr:nth-child(even) td { background: rgba(255, 255, 255, 0.025); }
-
-.ov-prop-table td {
-  padding: var(--space-1) var(--space-2);
-  vertical-align: top;
-  font-size: var(--text-sm);
-}
-
-.ov-prop-key {
-  color: var(--text-3);
-  font-size: var(--text-xs);
-  white-space: nowrap;
-  width: 100px;
-  font-weight: var(--weight-medium);
-  letter-spacing: 0.3px;
-}
-
-.ov-prop-value {
-  color: var(--text-1);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  word-break: break-all;
 }
 
 /* ── Code blocks (popout v0.22.0 richer layout) ───────────────
@@ -340,8 +247,6 @@ body {
   font-size: var(--text-sm);
   animation: crev-fade-in var(--duration-normal) var(--ease-decelerate);
 }
-
-.ov-loading { color: var(--text-2); }
 .ov-error { color: var(--danger); }
 
 /* Scrollbars defined in base.css */

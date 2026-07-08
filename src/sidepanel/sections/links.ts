@@ -22,16 +22,16 @@
  * Three directions, after Atlas: → outgoing (forward), ↰ a DECLARED reverse
  * relationship (part of the model), ← a scanned referrer (something that just
  * happens to point here — discovered via rref, not declared). A junction's far
- * side is an indented ↳ sub-row. Unset *discovered* links are simply omitted
- * (an empty optional field isn't a relationship); unset *curated* bindings stay
- * visible as a dim "(none)" because that's a real config signal.
+ * side is an indented ↳ sub-row. Unset links (discovered OR curated) are
+ * omitted — an empty optional field isn't a relationship; the Flow/Code lens
+ * is where an unbound widget shows its gap.
  *
  * Pure render given the resolved `LinksModel` — see links.test.ts.
  */
 
 import { h, svg } from '../../lib/dom';
-import { ICON_WARNING } from '../../lib/icons';
-import { getTypeColor, getTypeAbbr } from '../../lib/types';
+import { typeBadge } from '../../lib/type-badge';
+import { ICON_WARNING, ICON_REFRESH, ICON_ARROW_RIGHT, ICON_ARROW_BEND_UP_LEFT, ICON_ARROW_LEFT_PH } from '../../lib/icons';
 import type { ObjectPaneIdentity } from '../../lib/types';
 import type { ConnTarget, ConnGroup } from '../../lib/connections';
 import { INBOUND_CAP } from '../../lib/connections';
@@ -49,7 +49,7 @@ export interface LinkTarget {
   via?: ConnTarget;
   /** Reference resolves to a rid with no identity — a dangling pointer. */
   broken?: boolean;
-  /** Curated binding that is currently unset — kept visible as a dim "(none)". */
+  /** Curated binding that is currently unset — filtered out before render. */
   empty?: boolean;
 }
 
@@ -110,10 +110,17 @@ type LinkDir = 'out' | 'in' | 'from';
 
 /** Direction glyphs. Direction is carried per-row by this glyph, so the out/in
  *  split needs no sub-headers — just a divider for hierarchy. */
-const DIR_GLYPH: Record<LinkDir, string> = { out: '→', in: '↰', from: '←' };
+const DIR_ICON: Record<LinkDir, string> = {
+  out: ICON_ARROW_RIGHT,
+  in: ICON_ARROW_BEND_UP_LEFT,
+  from: ICON_ARROW_LEFT_PH,
+};
 
 export function renderLinks(input: LinksInput): HTMLElement | null {
-  const { outgoing, incoming, inbound } = input.links;
+  const { incoming, inbound } = input.links;
+  // Unset curated bindings are config noise here — the Flow/Code lens is where
+  // an unbound widget shows its gap. Only real links render.
+  const outgoing = input.links.outgoing.filter(t => !t.empty);
   const nav = input.onNavigate;
 
   // Declared reverse relationships (↰) and scanned referrers (←) are disjoint —
@@ -124,14 +131,29 @@ export function renderLinks(input: LinksInput): HTMLElement | null {
   const inCount = incoming.length + referrers.length;
   const hasIn = inCount > 0;
 
-  if (outgoing.length === 0 && !hasIn && !showScan) return null;
+  // A completed (or running) scan must keep the section visible even with
+  // zero rows — vanishing after "Re-scan found nothing" read as a bug. The
+  // scanFoot note ("no referrers found") is the honest empty state.
+  const scanActive = !!inbound && (inbound.scanning || inbound.loaded);
+  if (outgoing.length === 0 && !hasIn && !showScan && !scanActive) return null;
 
-  const setOut = outgoing.filter(t => !t.empty).length;
-
+  // Section head in the panel's uppercase grammar, with the inbound scan as
+  // an icon action on the right (replaces the old bottom "Scan all referrers"
+  // button and the cryptic "0/1 set" meta).
+  const scanIcon = inbound && input.onScanInbound
+    ? h('button', {
+        class: `lk-scan-ic${inbound.scanning ? ' lk-scan-ic--busy' : ''}`,
+        title: inbound.loaded ? 'Re-scan referrers (rref)' : 'Scan for referrers (rref)',
+        'aria-label': 'Scan for referrers',
+        onClick: () => { if (!inbound.scanning) input.onScanInbound!(); },
+      }, svg(ICON_REFRESH))
+    : null;
   const children: (HTMLElement | string | null)[] = [
-    h('div', { class: 'prop-group-title' },
-      h('span', { class: 'prop-group-title-text' }, 'Links'),
-      h('span', { class: 'prop-group-title-meta' }, metaLabel(outgoing.length, setOut, inCount)),
+    h('div', { class: 'lk-head' },
+      h('span', { class: 'lk-head-label' }, 'References'),
+      h('span', { class: 'lk-head-meta' }, metaLabel(outgoing.length, inCount)),
+      h('span', { class: 'lk-sp' }),
+      scanIcon,
     ),
   ];
 
@@ -149,11 +171,10 @@ export function renderLinks(input: LinksInput): HTMLElement | null {
   return h('div', { class: 'prop-group lk-section' }, ...children.filter(Boolean) as (HTMLElement | string)[]);
 }
 
-function metaLabel(outTotal: number, outSet: number, inCount: number): string {
-  if (inCount > 0) return `${outSet} out · ${inCount} in`;
-  const unset = outTotal - outSet;
-  if (unset > 0) return `${outSet}/${outTotal} set`;
-  return `${outSet} ${outSet === 1 ? 'link' : 'links'}`;
+function metaLabel(outCount: number, inCount: number): string {
+  if (inCount > 0) return `${outCount} out · ${inCount} in`;
+  if (outCount === 0) return '';
+  return `${outCount} ${outCount === 1 ? 'link' : 'links'}`;
 }
 
 /** A link row plus, if present, its junction far-side sub-row. */
@@ -164,17 +185,10 @@ function linkRow(dir: LinkDir, t: LinkTarget, nav: (rid: string) => void): HTMLE
 }
 
 function dirGlyph(dir: LinkDir): HTMLElement {
-  return h('span', { class: `lk-dir lk-dir--${dir}` }, DIR_GLYPH[dir]);
+  return h('span', { class: `lk-dir lk-dir--${dir}` }, svg(DIR_ICON[dir]));
 }
 
 function mainRow(dir: LinkDir, t: LinkTarget, nav: (rid: string) => void): HTMLElement {
-  if (t.empty) {
-    return h('div', { class: 'lk-row lk-row--empty' },
-      dirGlyph(dir),
-      h('span', { class: 'lk-field lk-field--lead' }, t.field),
-      h('span', { class: 'lk-none', title: 'No object is currently bound to this property' }, '(none)'),
-    );
-  }
   if (t.broken) {
     return h('div', { class: 'lk-row lk-row--broken', title: `Reference points to a missing object (${t.rid})` },
       dirGlyph(dir),
@@ -191,7 +205,7 @@ function mainRow(dir: LinkDir, t: LinkTarget, nav: (rid: string) => void): HTMLE
     onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nav(t.rid); } },
   },
     dirGlyph(dir),
-    h('span', { class: 'lk-chip', style: `--type-color:${getTypeColor(t.type)}` }, getTypeAbbr(t.type)),
+    typeBadge(t.type, { size: 'xs' }),
     h('span', { class: 'lk-name' }, t.name || '(unnamed)'),
     t.field ? h('span', { class: 'lk-field', title: t.field }, t.field) : null,
   );
@@ -209,20 +223,18 @@ function viaRow(via: ConnTarget, nav: (rid: string) => void): HTMLElement {
     onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nav(via.rid); } },
   },
     h('span', { class: 'lk-via-arrow' }, '↳'),
-    h('span', { class: 'lk-chip lk-chip--via', style: `--type-color:${getTypeColor(via.type)}` }, getTypeAbbr(via.type)),
+    typeBadge(via.type, { size: 'xs' }),
     h('span', { class: 'lk-name' }, via.name || '(unnamed)'),
     h('span', { class: 'lk-field' }, 'via'),
   );
 }
 
-/** Bottom-of-section inbound affordance: button → scanning… → cap/empty note. */
-function scanFoot(inbound: LinkInbound | undefined, onScan?: () => void): HTMLElement | null {
+/** Inbound state notes under the rows (the TRIGGER is the header icon). */
+function scanFoot(inbound: LinkInbound | undefined, _onScan?: () => void): HTMLElement | null {
   if (!inbound) return null;
   if (inbound.scanning) return h('div', { class: 'lk-note' }, 'scanning…');
-  if (!inbound.loaded) {
-    return onScan ? h('button', { class: 'lk-scan-btn', onClick: () => onScan() }, 'Scan all referrers') : null;
-  }
-  if (inbound.capped) return h('div', { class: 'lk-note' }, `first ${INBOUND_CAP} referrers shown`);
-  if (inbound.targets.length === 0) return h('div', { class: 'lk-note' }, 'no other objects reference this');
+  if (!inbound.loaded) return null;
+  if (inbound.capped) return h('div', { class: 'lk-note' }, `showing first ${INBOUND_CAP} referrers`);
+  if (inbound.targets.length === 0) return h('div', { class: 'lk-note' }, 'no referrers found');
   return null;
 }

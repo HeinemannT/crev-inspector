@@ -11,42 +11,117 @@
   outline-offset: -1.5px;
   border-radius: 2px;
 }
+/* Corner label — the approved "STUB + SQUARES": a full-bleed type stub on top
+   (colour tile with the role glyph, welded to a light identity chip), and a
+   right-aligned meta row of squares UNDERNEATH — violet `</>` opens the
+   editor / CVO studio, teal link marks references, and the cascade jump chip
+   opens the chain target. Literal colours: this file is injected into the BMP
+   page and can't see the extension tokens. */
 .crev-label {
-  position: absolute;
+  /* position + z-index are !important so a host-page rule can never drop the badge
+     into document flow (the lower-left leak) or bury it. css-integrity.test.ts also
+     locks these against a stray comment swallowing the rule. */
+  position: absolute !important;
   top: 2px; right: 2px;
-  z-index: 10000;
+  z-index: 10000 !important;
   display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
-  border-radius: 2px;
-  font: 600 11px/1.3 'Inter', system-ui, sans-serif;
-  color: #fff;
-  background: var(--crev-color, #707070);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font: 600 11.5px/1 'Inter', system-ui, sans-serif;
   pointer-events: auto;
   user-select: none;
   white-space: nowrap;
 }
-.crev-label:hover {
-  filter: brightness(1.18);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+.crev-stub {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 3px;
+  overflow: hidden;
+  color: #161616;
+  background: #ffffff;
+  border: 1px solid rgba(0,0,0,0.22);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.28);
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
 }
-.crev-label { transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease; }
-/* Short / inline targets (breadcrumbs, nav links): lift the pill to overhang
+.crev-stub:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.38);
+}
+.crev-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  flex: none;
+  background: var(--crev-color, #707070);
+  color: #fff;
+}
+.crev-tile svg { width: 13px; height: 13px; display: block; }
+/* Meta row — the squares under the stub. */
+.crev-meta {
+  display: inline-flex;
+  gap: 2px;
+}
+.crev-sub {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+}
+.crev-sub svg { width: 10px; height: 10px; display: block; }
+.crev-sub--flow { background: #0f62fe; }
+.crev-sub--code { background: #7b5cff; cursor: pointer; }
+.crev-sub--code:hover { background: #6a48f0; }
+.crev-cascade {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 2px;
+  font: 600 9.5px/1 'Inter', system-ui, sans-serif;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  opacity: 0.92;
+}
+.crev-cascade::before { content: '↓'; opacity: 0.75; margin-right: 3px; font-weight: 700; }
+.crev-cascade:hover { opacity: 1; }
+/* Compact form — tiny hosts (tab links, breadcrumb chips) get the tile only;
+   the identity text + meta row would overlap neighbours or clip. Applied by
+   applyCompactMode() when the stub outgrows its host. */
+.crev-label--compact .crev-label-text,
+.crev-label--compact .crev-meta { display: none; }
+.crev-label--compact .crev-tile { padding: 0 4px; }
+.crev-label--compact .crev-tile svg { width: 12px; height: 12px; }
+/* Short / inline targets (breadcrumbs, nav links): lift the stub to overhang
    the top edge so it badges the element instead of sitting on its text. */
 .crev-label--edge { top: -9px; right: 0; }
-.crev-label--edge:hover { transform: translateY(-2px); }
 /* Fallback when an upward overhang would be clipped (host flush against a
    clipping ancestor / viewport top — tabs, header, breadcrumb): tuck the
-   pill just inside the top-right corner so it stays fully visible. */
+   stub just inside the top-right corner so it stays fully visible. */
 .crev-label--edge-inside { top: 1px; right: 1px; }
-.crev-label--edge-inside:hover { transform: translateY(-1px); }
-.crev-label-flash-pick { background: #ff832b !important; }
-.crev-label-flash-ok { background: #42be65 !important; }
+/* Flash states repaint the stub for a moment (pick / saved / rolled back);
+   tile + squares go translucent-white so the flash colour reads through. */
+.crev-label-flash-pick .crev-stub,
+.crev-label-flash-ok .crev-stub,
+.crev-label-flash-error .crev-stub { color: #fff !important; }
+.crev-label-flash-pick .crev-stub  { background: #ff832b !important; border-color: #ff832b !important; }
+.crev-label-flash-ok .crev-stub    { background: #42be65 !important; border-color: #42be65 !important; }
+.crev-label-flash-error .crev-stub { background: #fa4d56 !important; border-color: #fa4d56 !important; }
+.crev-label-flash-pick .crev-tile,  .crev-label-flash-pick .crev-sub,
+.crev-label-flash-ok .crev-tile,    .crev-label-flash-ok .crev-sub,
+.crev-label-flash-error .crev-tile, .crev-label-flash-error .crev-sub {
+  background: rgba(255,255,255,0.28) !important;
+}
 .crev-label-flash-ok .crev-label-text svg { width: 11px; height: 11px; vertical-align: -1px; }
-.crev-label-flash-error { background: #fa4d56 !important; }
 
 /* Brief ring on the element a right-click promotes to context. Box-shadow only
  * (no outline / layout reflow) and self-fading, so it confirms WHERE the pick
@@ -57,8 +132,11 @@
   100% { box-shadow: 0 0 0 2px rgba(139, 92, 246, 0), 0 0 0 14px rgba(139, 92, 246, 0); }
 }
 .crev-label-text {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
   cursor: pointer;
-  max-width: 140px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -69,102 +147,27 @@
 .crev-label-loading {
   animation: crev-shimmer 1.5s ease-in-out infinite;
 }
-/* Flow-graph indicator — small chevron mark for widgets that have a chain
-   (InputView, ActionButton, Label). Drawn on the main pill via ::after so it
-   doesn't need its own element. Visible at a glance: "this widget has more
-   structure than just itself." */
-.crev-label--flow::after {
-  content: '⇢';
-  display: inline-block;
-  font-weight: 700;
-  font-size: 10px;
-  line-height: 1;
-  margin-left: 1px;
-  padding: 1px 3px;
-  background: rgba(255,255,255,0.22);
-  border-radius: 2px;
-  opacity: 0.95;
-}
-
-/* Cascade pill — sits directly under the main pill on flow-bearing widgets.
-   For InputView, this is the InputSet; for ActionButton (actionType=ACTION),
-   the NotificationTransportGroup. Clicking it skips the main pill and opens
-   the cascade target in the sidebar — so the user can reach the form fields /
-   transports in one click. */
-.crev-label--cascade {
-  top: 22px;
-  font-size: 10px;
-  padding: 1px 6px;
-  background: var(--crev-color, #707070);
-  opacity: 0.88;
-  /* Tiny ↓ before the text so the cascade relationship is unmistakable. */
-}
-.crev-label--cascade::before {
-  content: '↓ ';
-  opacity: 0.7;
-  margin-right: 2px;
-  font-weight: 700;
-}
-.crev-label--cascade:hover {
-  opacity: 1;
-}
-/* When the cascade pill is present, shift the action strip down so it doesn't
-   overlap. */
-.crev-has-cascade .crev-actions { top: 40px; }
-/* Action strip below badge */
-.crev-actions {
-  position: absolute;
-  top: 22px; right: 2px;
-  z-index: 10000;
-  display: inline-flex;
-  gap: 2px;
-  opacity: 0.8;
-}
-.crev-actions:hover { opacity: 1; }
-.crev-ec-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px 4px;
-  border: 1px solid rgba(255,255,255,0.15);
-  background: rgba(0,0,0,0.6);
-  color: rgba(255,255,255,0.9);
-  font: 600 9px/1.2 'Inter', system-ui, sans-serif;
-  border-radius: 2px;
-  cursor: pointer;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-.crev-ec-btn svg {
-  width: 10px;
-  height: 10px;
-}
-.crev-ec-btn:hover {
-  background: rgba(0,0,0,0.7);
-  color: #fff;
-  border-color: rgba(255,255,255,0.5);
-}
 #crev-paint-banner {
   position: fixed;
-  /* Compact floating card, top-centre — not a full-width bar. Matches the
-   * extension's dark surface + purple accent (content scripts can't read the
-   * token CSS vars, so the design values are inlined here). Below crev-eo-host
-   * so a task surface can cover it. */
+  /* Compact floating card, top-centre — not a full-width bar. Light card
+   * like the hover card / frame chrome, purple keyline = armed mode
+   * (content scripts can't read the token CSS vars, so the design values
+   * are inlined here). Below crev-eo-host so a task surface can cover it. */
   top: 14px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 2147483636;
   max-width: min(560px, calc(100vw - 24px));
   padding: 9px 14px;
-  background: #1a1a1a;
-  color: #e4e4e4;
+  background: #ffffff;
+  color: #161616;
   font: 500 12px/1.45 'Inter', system-ui, sans-serif;
   letter-spacing: 0.1px;
   text-align: left;
   display: none;
-  border: 1px solid rgba(139, 92, 246, 0.55);
+  border: 1px solid rgba(138, 63, 252, 0.45);
+  box-shadow: 0 1px 2px rgba(13, 15, 20, 0.05), 0 4px 12px rgba(13, 15, 20, 0.10), 0 14px 36px rgba(13, 15, 20, 0.16), 0 0 0 1px rgba(138, 63, 252, 0.10);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(139, 92, 246, 0.18);
 }
 #crev-paint-banner.crev-visible {
   display: block;
@@ -181,7 +184,7 @@
   top: 3px;
   background: none;
   border: none;
-  color: #fff;
+  color: #525252;
   font-size: 14px;
   cursor: pointer;
   opacity: 0.7;
@@ -202,6 +205,17 @@
   50%      { box-shadow: 0 0 0 12px rgba(139, 92, 246, 0.05); }
 }
 
+/* Invisible bridge above the card: the pointer leaves the badge, crosses the
+ * 4px gap, and lands on the card without ever being "outside" long enough for
+ * the hide timer to win. */
+#crev-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -14px;
+  left: 0;
+  right: 0;
+  height: 14px;
+}
 #crev-tooltip {
   position: fixed;
   /* Layer ordering across CREV overlays (BMP's own tooltips top out
@@ -209,28 +223,20 @@
    *
    *   2147483647  crev-toast-container (must stay visible always)
    *   2147483646  crev-eo-host (editor / diff / objectview / codesearch surfaces)
-   *   2147483644  crev-quick-inspector (clickable info card with actions)
-   *   2147483640  crev-tooltip (lightweight hover info — this one)
-   *   2147483636  paint-banner / env-tag (corner badges)
-   *
-   * Task surfaces MUST win against hover tooltips — otherwise the
-   * tooltip bleeds over the editor frame whenever the cursor passes
-   * a widget. The tooltip used to be at max (2147483647) but task
-   * surfaces were at 2147482000, so the tooltip won. */
-  z-index: 2147483640;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font: 11px/1.4 'Inter', system-ui, sans-serif;
-  letter-spacing: -0.005em;
-  color: #e4e4e4;
-  background: rgba(20, 20, 20, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.03);
-  backdrop-filter: blur(10px) saturate(140%);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
-  pointer-events: none;
+   *   2147483644  crev-tooltip (hover card — above outlines/badges, below task surfaces)
+   *   2147483636  crev-paint-banner / crev-env-tag
+   * NOTE: keep this closing marker — an unclosed table here once swallowed the
+   * z-index/background/shadow below and the card rendered under the badges. */
+  z-index: 2147483644;
+  width: 264px;
+  color: #161616;
+  font: 12px/1.4 'Inter', system-ui, sans-serif;
+  /* Interactive card: copy rows + the open button need real pointer events.
+   * Kept alive on hover via the enter/leave wiring in content-tooltip.ts.
+   * The visual shell (bg/border/shadow) lives on `.crev-tt-card` so the card
+   * is self-contained and identical in the editor iframe (object-card.ts). */
+  pointer-events: auto;
   display: none;
-  max-width: 300px;
 }
 #crev-tooltip.crev-visible {
   display: block;
@@ -240,37 +246,66 @@
   from { opacity: 0; transform: translateY(2px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-#crev-tooltip .crev-tt-type {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: 2px;
-  font-size: 10px;
+/* Self-contained card shell — the same in the content page and the editor
+   iframe (styled identically in editor.css). */
+.crev-tt-card {
+  background: #ffffff;
+  border: 1px solid #e4e4e9;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(13,15,20,.05), 0 4px 12px rgba(13,15,20,.10), 0 16px 40px rgba(13,15,20,.16);
+  overflow: hidden;
+}
+/* Header band — 8% type tint, name + type line, open-full-view top right. */
+.crev-tt-band {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px 9px;
+  background: color-mix(in srgb, var(--tt-color, #8d8d8d) 8%, #fff);
+  border-bottom: 1px solid color-mix(in srgb, var(--tt-color, #8d8d8d) 20%, #fff);
+}
+.crev-tt-hd { flex: 1; min-width: 0; }
+.crev-tt-nm {
+  font-size: 13px;
   font-weight: 600;
-  color: #fff;
-  background: var(--type-color, #707070);
-  margin-bottom: 3px;
+  letter-spacing: -0.01em;
+  color: #0d0f14;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-#crev-tooltip .crev-tt-typename {
-  color: #707070;
-  font-size: 10px;
+.crev-tt-ty { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 10.5px; color: #3f4450; }
+.crev-tt-tydot { width: 8px; height: 8px; border-radius: 2px; background: var(--tt-color, #8d8d8d); flex: none; }
+.crev-tt-open {
+  width: 24px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 4px; background: none;
+  color: #6e7481; cursor: pointer; flex: none;
 }
-#crev-tooltip .crev-tt-name {
-  font-weight: 600;
-  margin-bottom: 2px;
+.crev-tt-open:hover { background: rgba(13,15,20,.06); color: #8a3ffc; }
+.crev-tt-open svg { width: 12px; height: 12px; }
+/* Body — copy-on-click fact rows. */
+.crev-tt-body { padding: 7px 8px 8px; }
+.crev-tt-cprow {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 3px 4px; border-radius: 4px; cursor: pointer; min-width: 0;
 }
-#crev-tooltip .crev-tt-row {
-  color: #b0b0b0;
-  font-size: 10px;
-  font-family: 'SF Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
-  word-break: break-all;
+.crev-tt-cprow:hover { background: #f4f4f6; }
+.crev-tt-k { width: 56px; flex: none; font-size: 10px; color: #6e7481; }
+.crev-tt-v {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px; color: #161616;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-
-#crev-tooltip .crev-tt-hint {
-  margin-top: 5px;
-  padding-top: 5px;
-  border-top: 1px solid #333;
-  color: #808080;
-  font-size: 9px;
+.crev-tt-v--dim { color: #6e7481; }
+.crev-tt-v--ok { color: #24a148 !important; font-weight: 600; }
+/* Optional source excerpt under the facts (EC / html / js). */
+.crev-tt-code {
+  margin: 0; padding: 7px 10px;
+  border-top: 1px solid #ececf0; background: #fafafb;
+  font: 10.5px/1.5 'JetBrains Mono', ui-monospace, monospace;
+  color: #3f4450; max-height: 96px; overflow: hidden;
+  white-space: pre-wrap; word-break: break-word;
 }
 
 /* ── Environment Indicator Tag ─────────────────────────── */
@@ -440,128 +475,13 @@
   font-family: 'SF Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
 }
 
-/* ── Quick Inspector Star ─────────────────────────────── */
 
-.crev-qi-star {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  background: none;
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-  color: #707070;
-  padding: 0;
-  line-height: 1;
-}
-.crev-qi-star:hover { color: #f1c21b; }
-.crev-qi-star.active { color: #f1c21b; }
 
-/* ── Quick Inspector Popup ─────────────────────────────── */
 
-#crev-quick-inspector {
-  position: fixed;
-  /* Below crev-eo-host (task surfaces) but above hover tooltips —
-   * inspector card carries actions so it outranks the lightweight
-   * tooltip, but should not occlude an opened editor frame. */
-  z-index: 2147483644;
-  padding: 12px 16px;
-  border-radius: 8px;
-  background: #1a1a1a;
-  border: 1px solid #333333;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
-  font: 12px/1.5 'Inter', system-ui, sans-serif;
-  color: #e4e4e4;
-  min-width: 220px;
-  max-width: 340px;
-}
-.crev-qi-badge {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: 2px;
-  font-size: 10px;
-  font-weight: 600;
-  color: #fff;
-  background: #2a1a3e;
-  color: #8b5cf6;
-  margin-bottom: 4px;
-}
-.crev-qi-name {
-  font-weight: 600;
-  font-size: 13px;
-  margin-bottom: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.crev-qi-row {
-  font-size: 10px;
-  color: #b0b0b0;
-}
-.crev-qi-template {
-  color: #707070;
-}
-.crev-qi-rid {
-  font-family: 'SF Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
-  word-break: break-all;
-  margin-bottom: 8px;
-  color: #707070;
-}
-.crev-qi-code {
-  font-family: 'SF Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
-  font-size: 9px;
-  line-height: 1.3;
-  color: #707070;
-  max-height: 28px;
-  overflow: hidden;
-  white-space: pre;
-  margin-top: 4px;
-  padding: 4px 6px;
-  background: rgba(255,255,255,0.03);
-  border-radius: 2px;
-  -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent);
-  mask-image: linear-gradient(to bottom, black 50%, transparent);
-}
-.crev-qi-actions {
-  display: flex;
-  gap: 4px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid #333333;
-}
-.crev-qi-btn {
-  padding: 4px 12px;
-  border: 1px solid #444444;
-  border-radius: 4px;
-  background: #252525;
-  color: #e4e4e4;
-  font: 500 10px/1.2 'Inter', system-ui, sans-serif;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 100ms, border-color 100ms;
-}
-.crev-qi-btn:hover {
-  background: #333333;
-  border-color: #444444;
-}
-.crev-qi-btn--accent {
-  border-color: #8b5cf6;
-  color: #8b5cf6;
-}
-.crev-qi-btn--accent:hover {
-  background: #8b5cf6;
-  color: #fff;
-}
 
 /* ── Focus States (content overlay can't use base.css) ── */
 
-.crev-ec-btn:focus-visible,
-.crev-qi-btn:focus-visible,
-.crev-qi-star:focus-visible,
-#crev-paint-banner .crev-paint-close:focus-visible {
-  outline: 2px solid #8b5cf6;
-  outline-offset: 2px;
-}
+.crev-sub--code:focus-visible,
 
 .crev-label-text:focus-visible {
   outline: 2px solid #8b5cf6;
@@ -586,28 +506,12 @@
  *   .crev-label                  pills → click-through (overlay catches the click)
  *   #crev-tooltip                hover info → hide (visual collision; pointer-events
  *                                already none so click isn't an issue)
- *   #crev-quick-inspector        pinned card → hide (interactive, would visually
- *                                cover the overlay)
- *   #crev-env-tag                status badge → fade + click-through
- *   #crev-paint-banner           top banner → click-through (banner stays visible
- *                                but stops swallowing clicks)
- *
- * BMP sometimes builds a stacking context around widget containers
- * (transform / sticky / opacity), letting a CREV element at a lower
- * z-index render visually above the overlay. The geometric gate is
- * how we keep the overlay clickable in that corner case WITHOUT
- * disabling CREV elements that aren't anywhere near the overlay.
- *
- * Scoped to `body.crev-task-open` so the rules only fire when at
- * least one overlay is open. Outside that scope the class can stay
- * harmlessly attached. */
+ *   #crev-env-tag                env tag → hide
+ *   #crev-paint-banner           paint banner → click-through */
 body.crev-task-open .crev-label.crev-overlay-blocked {
   pointer-events: none;
 }
 body.crev-task-open #crev-tooltip.crev-overlay-blocked,
-body.crev-task-open #crev-quick-inspector.crev-overlay-blocked {
-  display: none !important;
-}
 body.crev-task-open #crev-env-tag.crev-overlay-blocked {
   opacity: 0;
   pointer-events: none;
@@ -621,8 +525,8 @@ body.crev-task-open #crev-paint-banner.crev-overlay-blocked {
   position: fixed;
   display: flex;
   flex-direction: column;
-  background: #111111;
-  border: 1px solid #2a2a2a;
+  background: #ffffff;
+  border: 1px solid #d0d0d5;
   border-radius: 8px;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.04),
@@ -659,8 +563,8 @@ body.crev-task-open #crev-paint-banner.crev-overlay-blocked {
   align-items: center;
   height: 28px;
   padding: 0 6px;
-  background: linear-gradient(180deg, #1c1c1c, #161616);
-  border-bottom: 1px solid #2a2a2a;
+  background: #f4f4f4;
+  border-bottom: 1px solid #e0e0e0;
   cursor: grab;
   flex-shrink: 0;
   user-select: none;
@@ -676,7 +580,7 @@ body.crev-task-open #crev-paint-banner.crev-overlay-blocked {
   width: 24px;
   height: 4px;
   border-radius: 999px;
-  background: #2a2a2a;
+  background: #d0d0d5;
   margin: 0 4px 0 6px;
   flex-shrink: 0;
 }
@@ -685,7 +589,7 @@ body.crev-task-open #crev-paint-banner.crev-overlay-blocked {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   font-size: 11px;
   font-weight: 500;
-  color: #b0b0b0;
+  color: #525252;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -705,7 +609,7 @@ body.crev-task-open #crev-paint-banner.crev-overlay-blocked {
   background: none;
   border: none;
   border-radius: 4px;
-  color: #707070;
+  color: #6f6f6f;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 11px;
   line-height: 1;
@@ -729,10 +633,11 @@ body.crev-task-open #crev-paint-banner.crev-overlay-blocked {
   flex: 1;
   width: 100%;
   border: 0;
-  background: #111111;
+  /* Neutral while loading — the surface inside decides its own scheme
+   * (Object View / diff are light; the EC editor stays Mocha dark). */
+  background: #f4f4f4;
   display: block;
   min-height: 0;
-  color-scheme: dark;
 }
 
 /* Eight-way resize handles. Edges are thin strips along each side;
@@ -756,7 +661,7 @@ body.crev-task-open #crev-paint-banner.crev-overlay-blocked {
   /* Keep the visible grip texture on the canonical bottom-right
    * corner so the resize affordance is still obvious. */
   background:
-    linear-gradient(135deg, transparent 50%, #444444 50%, #444444 55%, transparent 55%, transparent 65%, #444444 65%, #444444 70%, transparent 70%);
+    linear-gradient(135deg, transparent 50%, #c6c6c6 50%, #c6c6c6 55%, transparent 55%, transparent 65%, #c6c6c6 65%, #c6c6c6 70%, transparent 70%);
   background-size: 100% 100%;
   opacity: 0.6;
   transition: opacity 100ms ease;

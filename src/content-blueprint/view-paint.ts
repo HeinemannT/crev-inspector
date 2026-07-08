@@ -9,8 +9,8 @@
  */
 import type { NodeStyle } from '../lib/layout/types';
 import type { StylePreset } from '../lib/style-presets';
-import { STYLE_PROPS } from '../lib/style-props';
-import { ICON_PAINT, ICON_PAINT_FILL, ICON_EYEDROPPER, ICON_SLIDERS, ICON_SAVE, ICON_CHECK, ICON_TRASH } from '../lib/icons';
+import { STYLE_PROPS, PAINT_STYLE_PROPS } from '../lib/style-props';
+import { ICON_PAINTBRUSH_DUO, ICON_EYEDROPPER, ICON_SLIDERS, ICON_SAVE, ICON_CHECK, ICON_TRASH } from '../lib/icons';
 import { setIcon } from './geometry';
 import { colorRgb } from './colors';
 import { bp } from './state';
@@ -71,28 +71,28 @@ export function paintStation(): HTMLElement {
   // Pick (eyedropper) — sample a widget's style. Cyan when armed; doubles as "load a different style".
   const pick = document.createElement('button'); pick.className = 'bp-paint-c bp-paint-pick' + (mode === 'pick' ? ' on' : '');
   pick.append(iconSpan(ICON_EYEDROPPER));
-  pick.title = mode === 'pick' ? 'Sampling — click a widget to pick its style' : 'Pick — sample a widget’s style';
+  pick.title = mode === 'pick' ? 'Sampling. Click a widget to pick its style.' : 'Pick a widget’s style to load the brush.';
   pick.addEventListener('mousedown', (e) => { e.stopPropagation(); armPick(); });
   wrap.appendChild(pick);
 
   // Paint (brush) — apply the held style. Shows the held chip; purple when armed; disabled with no held.
   const paint = document.createElement('button'); paint.className = 'bp-paint-c bp-paint-brush' + (mode === 'paint' ? ' on' : '');
-  if (held) { paint.classList.add('loaded'); paint.append(styleChip(held), iconSpan(ICON_PAINT_FILL)); }
-  else { paint.classList.add('disabled'); paint.appendChild(iconSpan(ICON_PAINT)); }
-  paint.title = !held ? 'Paint — pick a style first' : mode === 'paint' ? 'Painting — click widgets to apply · Esc to stop' : 'Paint — apply the held style';
+  if (held) { paint.classList.add('loaded'); paint.append(styleChip(held), iconSpan(ICON_PAINTBRUSH_DUO)); }
+  else { paint.classList.add('disabled'); paint.appendChild(iconSpan(ICON_PAINTBRUSH_DUO)); }
+  paint.title = !held ? 'Paint. Pick a style first.' : mode === 'paint' ? 'Painting. Click widgets to apply the held style. Esc stops.' : 'Paint widgets with the held style.';
   paint.addEventListener('mousedown', (e) => { e.stopPropagation(); armPaint(); });
   wrap.appendChild(paint);
 
   // Setup — choose what the brush copies.
   const setup = stationCell(ICON_SLIDERS, 'Choose what the brush copies', () => openPaintPanel('setup'), bp.paintPanel === 'setup');
-  if (bp.brushMask.size < STYLE_PROPS.length) {
+  if (bp.brushMask.size < PAINT_STYLE_PROPS.length) {
     const b = document.createElement('span'); b.className = 'bp-paint-badge'; b.textContent = String(bp.brushMask.size);
     setup.appendChild(b);
   }
   wrap.appendChild(setup);
 
   // Save — opens the library menu (save the held style + load/delete saved ones).
-  wrap.appendChild(stationCell(ICON_SAVE, 'Saved styles — save the held style or load one', () => openPaintPanel('library'), bp.paintPanel === 'library'));
+  wrap.appendChild(stationCell(ICON_SAVE, 'Saved styles: save the held style or load one', () => openPaintPanel('library'), bp.paintPanel === 'library'));
   return wrap;
 }
 
@@ -136,7 +136,7 @@ function setupPopup(): HTMLElement {
   const { back, panel } = popupShell('What the brush copies');
   const held = bp.brush.held;
   const list = document.createElement('div'); list.className = 'bp-paint-mask';
-  for (const sp of STYLE_PROPS) {
+  for (const sp of STYLE_PROPS.filter(d => PAINT_STYLE_PROPS.includes(d.prop))) {
     const on = bp.brushMask.has(sp.prop);
     const row = document.createElement('button'); row.className = 'bp-paint-mrow' + (on ? ' on' : '');
     const tick = document.createElement('span'); tick.className = 'bp-paint-tick'; if (on) setIcon(tick, ICON_CHECK);

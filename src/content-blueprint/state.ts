@@ -28,6 +28,7 @@ export interface BpState {
   picker: string | null;        // containerId/compositeId/tabId the add picker is open for
   pickerOpts: { afterId?: string; cols?: number; at?: { x: number; y: number } } | null; // positional insert (after a sibling, sized to a gap) + the click point to anchor the picker popup at
   movePicker: string | null;    // widgetId the move-destination menu is open for
+  tabMenu: { id: string; x: number; y: number } | null; // tab-strip right-click reorder menu (tab id + viewport anchor)
   swatch: { nodeId: string; prop: 'headerColor' | 'fontColor' } | null; // G3: the colour swatch popup target (style mode), null = closed
   swatchExpanded: Set<string>; // G3: which swatch-popup colour folders are open (per session; 'Basics' open by default)
   // G4 — the paintbrush (style mode). `mode`: off / pick (eyedropper, sampling a source) / paint (applying
@@ -60,6 +61,7 @@ export interface BpState {
   flipNext: boolean;            // animate result cells from old→new position on the next render (set by an edit)
   viewTabId: string | null;     // tab shown in the canvas (header tab bar switches it); null → follow BMP's live tab
   unusedTabsOpen: boolean;      // tab bar: the "+N empty" fold is expanded (shared-tabset tabs with no widgets on this page)
+  ghostTrayOpen: boolean;       // canvas: the per-tab "N hidden widgets" tray below the add-zone is expanded
   scrollSpacer: HTMLElement | null; // body-level spacer that extends page scroll height to cover a taller-than-content panel
   peek: boolean;                // sticky peek toggle (overlay faded so the live widgets show); hover peeks transiently
   // Frozen document-space anchor of the result canvas for the CURRENT tab. The canvas top doesn't move
@@ -77,10 +79,11 @@ export interface BpState {
 function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
-    layer: null, selectedId: null, applying: false, preview: null, previewScript: '', blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, swatch: null, swatchExpanded: new Set(['Basics']),
+    layer: null, selectedId: null, applying: false, preview: null, previewScript: '', blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, tabMenu: null, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
     onResize: null, onKey: null, onPop: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
-    observer: null, resizeObs: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, unusedTabsOpen: false, scrollSpacer: null, peek: false,
+    observer: null, resizeObs: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, unusedTabsOpen: false,
+    ghostTrayOpen: false, scrollSpacer: null, peek: false,
     resultAnchor: null,
   };
 }

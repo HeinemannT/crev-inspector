@@ -10,6 +10,7 @@ import { log } from './logger'
 import { launchFrame } from './frame-launcher'
 import { resolveTabPageContext } from './page-context-resolver'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from '../studio/studio-types'
+import { modeForType, ALL_STUDIO_PROPS } from '../studio/studio-mode'
 
 /** The object the BMP page is currently rendering — the default render context
  *  for the live-`_data` fetch (the data servlet is gated on it being org-rooted).
@@ -33,9 +34,7 @@ async function getRenderContextRid(target?: { tabId?: number; windowId?: number 
   }
 }
 
-const CVO_CODE_PROPS: readonly StudioCodeProp[] = ['html', 'javascript']
-
-export async function openCvoStudioWindow(
+export async function openStudioWindow(
   rid: string,
   preferredProperty?: string,
   target?: { tabId?: number; windowId?: number },
@@ -43,11 +42,13 @@ export async function openCvoStudioWindow(
   const swCtx = getCtx()
   await swCtx.settingsReady
 
-  // One EC round-trip: identity + template + the html/javascript code maps.
+  // One EC round-trip: identity + template + the code maps. The object's type
+  // (and so its mode/file list) isn't known yet, so fetch the union of every
+  // mode's props — absent ones come back empty and are trimmed below.
   let data: import('./bmp-client').EditorContextData | null = null
   if (swCtx.client) {
     try {
-      data = await swCtx.client.fetchEditorContext(rid, [...CVO_CODE_PROPS])
+      data = await swCtx.client.fetchEditorContext(rid, [...ALL_STUDIO_PROPS])
     } catch (e) {
       log.swallow('cvo-studio:fetchContext', e)
     }
@@ -64,14 +65,21 @@ export async function openCvoStudioWindow(
   }
 
   const { instance, template, instanceCode, templateCode } = data
-  const property: StudioCodeProp = preferredProperty === 'javascript' ? 'javascript' : 'html'
-  const renderContextRid = await getRenderContextRid(target)
+  const mode = modeForType(instance.type)
+  const modeProps = mode.files.map(f => f.prop)
+  const trim = (code: Record<string, string>): Record<string, string> =>
+    Object.fromEntries(modeProps.map(p => [p, code[p] ?? '']))
+  const property: StudioCodeProp = preferredProperty && modeProps.includes(preferredProperty)
+    ? preferredProperty
+    : modeProps[0]
+  const renderContextRid = mode.hasSandbox ? await getRenderContextRid(target) : undefined
 
   const ctx: StudioContext = {
+    mode: mode.key,
     instance,
     template,
-    instanceCode,
-    templateCode,
+    instanceCode: trim(instanceCode),
+    templateCode: trim(templateCode),
     saveTarget: swCtx.settings.saveTarget,
     property,
     renderContextRid,
@@ -89,12 +97,12 @@ export async function openCvoStudioWindow(
     await chrome.storage.local.set({ [`${STUDIO_CTX_PREFIX}${rid}`]: ctx })
   } catch (e) {
     log.swallow('cvo-studio:stashContext', e)
-    throw new Error('Could not open the CVO studio: browser storage is full. Clear some space and try again.')
+    throw new Error('Could not open the studio: browser storage is full. Clear some space and try again.')
   }
 
   const label = instance.name
-    ? `CVO · ${instance.name}`
-    : `CVO Studio · ${instance.businessId || rid}`
+    ? `${mode.title} · ${instance.name}`
+    : `${mode.title} · ${instance.businessId || rid}`
   await launchFrame({
     kind: 'cvo-studio',
     path: `studio/studio.html#${rid}`,

@@ -7,7 +7,7 @@
  * actions onto button handlers, and these call render() at click time. All cross-calls happen inside
  * functions (never at module-init), so ESM resolves the cycle cleanly.
  */
-import { findNode, isTempId } from '../lib/layout/model';
+import { findNode, isTempId, isResultTab } from '../lib/layout/model';
 import { bandInsertIndex } from '../lib/layout/placement';
 import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, findTabOf, toggleReset, setStyle } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
@@ -21,7 +21,7 @@ import { render } from './view';
 import { applyPage, fetchBlast, createTabset } from './service';
 import { ensureColorSets } from './colors';
 import { loadPresets, savePreset, deletePreset } from './presets';
-import { STYLE_PROPS } from '../lib/style-props';
+import { PAINT_STYLE_PROPS } from '../lib/style-props';
 import type { StylePreset } from '../lib/style-presets';
 
 /** Push a new model state onto history and re-render. The one write path for staged edits. Flags the
@@ -71,7 +71,7 @@ export function setNodeStyle(id: string, patch: Partial<NodeStyle>): void { cons
 export function setMode(mode: 'layout' | 'style'): void {
   if (!bp.active || bp.mode === mode) return;
   bp.mode = mode;
-  bp.swatch = null; bp.picker = null; bp.pickerOpts = null; bp.movePicker = null; // don't leave a popup hanging across modes
+  bp.swatch = null; bp.picker = null; bp.pickerOpts = null; bp.movePicker = null; bp.tabMenu = null; // don't leave a popup hanging across modes
   bp.brush.mode = 'off'; bp.paintPanel = null; // disarm the paintbrush when leaving/entering style mode
   if (mode === 'style') void ensureColorSets(); // lazy-load colours so cells can tint (re-renders on arrival)
   render();
@@ -122,7 +122,7 @@ export function setBrushMaskProp(prop: string, on: boolean): void {
   render();
 }
 export function setBrushMaskAll(on: boolean): void {
-  bp.brushMask = new Set(on ? STYLE_PROPS.map(s => s.prop) : []);
+  bp.brushMask = new Set(on ? PAINT_STYLE_PROPS : []);
   render();
 }
 
@@ -174,7 +174,7 @@ export function addFromPicker(className: string): void {
   // Band-correct insertion: after the gap's anchor when that slot is band-legal, else the nearest
   // position BMP can actually render it at (widgets always flow after all containers).
   const { index, remapped } = bandInsertIndex(kids, bp.pickerOpts?.afterId, 'widget');
-  if (remapped) showToast('Widgets render after all containers — added at the start of the widget flow', 'info');
+  if (remapped) showToast('Widgets render after all containers, so it was added at the start of the widget flow', 'info');
   const added = addWidget(m, cid, index, className, undefined, bp.pickerOpts?.cols ?? 6);
   bp.picker = null; bp.pickerOpts = null;
   bp.selectedId = added.id;
@@ -182,6 +182,30 @@ export function addFromPicker(className: string): void {
 }
 
 export function addTabAction(): void { const m = model(); if (m) { const r = addTab(m, m.tabs.length, 'New Tab'); bp.selectedId = r.id; mutate(r.model); } }
+
+/** Open the tab-strip right-click reorder menu, anchored at the cursor. */
+export function openTabMenu(id: string, x: number, y: number): void { bp.tabMenu = { id, x, y }; render(); }
+export function closeTabMenu(): void { if (bp.tabMenu) { bp.tabMenu = null; render(); } }
+
+/** Reorder a tab in the strip. Tab order IS the tabs' sibling order under the tabset, so a move
+ *  compiles to a `moveAfter`/`moveBefore` (the diff emits it; see diff.ts). Operates on the
+ *  reorderable tabs only — the shared Result tab is pinned first and excluded (moving relative to it
+ *  would be a cross-tabset edit). No-ops (already at the edge) just close the menu. */
+export function reorderTab(id: string, dir: 'left' | 'right' | 'start' | 'end'): void {
+  bp.tabMenu = null;
+  const m = model();
+  if (!m) { render(); return; }
+  const order = m.tabs.filter(t => !isResultTab(t));
+  const i = order.findIndex(t => t.id === id);
+  if (i < 0) { render(); return; } // the shared Result tab isn't reorderable
+  const last = order.length - 1;
+  let targetId: string; let before: boolean;
+  if (dir === 'left') { if (i === 0) { render(); return; } targetId = order[i - 1].id; before = true; }
+  else if (dir === 'right') { if (i === last) { render(); return; } targetId = order[i + 1].id; before = false; }
+  else if (dir === 'start') { if (i === 0) { render(); return; } targetId = order[0].id; before = true; }
+  else { if (i === last) { render(); return; } targetId = order[last].id; before = false; }
+  mutate(insertRelative(m, id, targetId, before));
+}
 
 /** Add an empty container to a tab/container (from the picker's "New container" option). Honours the
  *  picker's positional + sized intent the same way addFromPicker does: dropped into a free-column gap,
@@ -192,7 +216,7 @@ export function addContainerTo(parentId: string): void {
   const f = findNode(m, parentId);
   const kids = f ? f.node.children : m.tabs;
   const { index, remapped } = bandInsertIndex(kids, bp.pickerOpts?.afterId, 'container');
-  if (remapped) showToast('Containers render before widgets — added at the end of the container flow', 'info');
+  if (remapped) showToast('Containers render before widgets, so it was added at the end of the container flow', 'info');
   const r = addContainer(m, parentId, index, bp.pickerOpts?.cols ?? 6);
   bp.picker = null; bp.pickerOpts = null;
   bp.selectedId = r.id;
@@ -344,11 +368,11 @@ export function confirmApply(): void {
 
 export function exitBlueprint(): void { sendToSW({ type: 'BLUEPRINT_TOGGLE' }); }
 
-/** Confirm from the create-tabset prompt — names + creates a dedicated tabset for a RESULT-only page,
- *  moves its widgets onto it, and loads the editor. No-ops on an empty name. */
-export function doCreateTabset(name: string): void {
-  const n = name.trim();
-  if (n) void createTabset(n);
+/** Create a dedicated tabset for a RESULT-only page and move its widgets onto it, then load the
+ *  editor. The name is derived in-EC from the scorecard ("» New <Scorecard> TabSet"), so there's
+ *  nothing to prompt for. */
+export function doCreateTabset(): void {
+  void createTabset();
 }
 
 /** Keyboard: Escape backs out (modal → picker → move-menu → selection); Delete removes the selected
@@ -364,6 +388,7 @@ export function onKeydown(e: KeyboardEvent): void {
     else if (bp.swatch) closeSwatch();
     else if (bp.picker) closePicker();
     else if (bp.movePicker) closeMovePicker();
+    else if (bp.tabMenu) closeTabMenu();
     else if (bp.brush.mode !== 'off') disarmBrush();
     else if (bp.selectedId) select(null);
     else return;

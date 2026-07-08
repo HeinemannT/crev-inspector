@@ -11,8 +11,8 @@ import { PAINT_STYLE_PROPS } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
 import { log } from '../lib/logger';
-import { ICON_PAINT, ICON_REFRESH, ICON_LIGHTNING, ICON_TORNADO, ICON_SEARCH, ICON_CROSSHAIR, ICON_BLUEPRINT } from './utils';
-import { ICON_X } from '../lib/icons';
+import { ICON_REFRESH, ICON_APERTURE, ICON_SEARCH, ICON_CROSSHAIR, ICON_BLUEPRINT } from './utils';
+import { ICON_TERMINAL_WINDOW, ICON_PAINT_BROAD, ICON_PULSE } from '../lib/icons';
 import { DetailView } from './detail-view';
 import { onColorSetsData, resetColorSets } from './color-picker';
 import { initReferenceView, showReferenceView, handleReferenceMessage, isReferenceActive } from './reference-view';
@@ -334,11 +334,11 @@ function buildApp(): void {
     h('button', {
       class: 'header-brand',
       id: 'header-brand',
-      title: 'CREV: click for related links',
+      title: 'CREV related links',
+      'aria-label': 'CREV menu',
       'aria-haspopup': 'menu',
     },
-      h('span', { class: 'header-brand-mark', 'aria-hidden': 'true' }, svg(ICON_TORNADO)),
-      'CREV',
+      svg(ICON_APERTURE),
     ),
     h('div', { class: 'header-status', id: 'header-status', 'aria-live': 'polite' },
       h('span', { class: `status-dot ${statusDotClass()}` }),
@@ -353,25 +353,35 @@ function buildApp(): void {
       class: 'header-icon-btn',
       id: 'open-extended',
       'aria-label': 'Open Extended Code',
-    }, svg(ICON_LIGHTNING)),
-    h('button', {
-      class: `paint-btn ${S.paintPhase !== 'off' ? 'active' : ''}`,
-      id: 'toggle-paint',
-      'aria-label': 'Paint Format',
-      title: 'Right-click to choose which styles get painted',
-    }, svg(ICON_PAINT)),
-    h('button', {
-      class: `header-icon-btn inspect-toggle ${S.inspectActive ? 'active' : ''}`,
-      id: 'toggle-inspect',
-      'aria-label': 'Toggle inspect overlays',
-      title: 'Toggle inspect overlays (Ctrl+Shift+X: rebind at chrome://extensions/shortcuts)',
-    }, svg(ICON_CROSSHAIR)),
-    h('button', {
-      class: `header-icon-btn blueprint-toggle ${S.blueprintActive ? 'active' : ''}`,
-      id: 'toggle-blueprint',
-      'aria-label': 'Toggle blueprint layout overlay',
-      title: 'Toggle the blueprint layout editor overlay on the live BMP page',
-    }, svg(ICON_BLUEPRINT)),
+      title: 'Open the Extended Code editor',
+    }, svg(ICON_TERMINAL_WINDOW)),
+    h('span', { class: 'hdr-vsep', 'aria-hidden': 'true' }),
+    // Page MODES — inspect / blueprint / paint are mutually toggleable states
+    // on the live page, so they read as one segmented control, not three
+    // scattered icons (T2 sign-off).
+    h('div', { class: 'hdr-modes', role: 'group', 'aria-label': 'Page modes' },
+      h('button', {
+        class: `hdr-mode inspect-toggle ${S.inspectActive ? 'active' : ''}`,
+        id: 'toggle-inspect',
+        'aria-label': 'Toggle inspect overlays',
+        'aria-pressed': S.inspectActive ? 'true' : 'false',
+        title: 'Toggle inspect overlays (Ctrl+Shift+X: rebind at chrome://extensions/shortcuts)',
+      }, svg(ICON_CROSSHAIR)),
+      h('button', {
+        class: `hdr-mode blueprint-toggle ${S.blueprintActive ? 'active' : ''}`,
+        id: 'toggle-blueprint',
+        'aria-label': 'Toggle blueprint layout overlay',
+        'aria-pressed': S.blueprintActive ? 'true' : 'false',
+        title: 'Toggle the blueprint layout editor overlay on the live BMP page',
+      }, svg(ICON_BLUEPRINT)),
+      h('button', {
+        class: `hdr-mode paint-btn ${S.paintPhase !== 'off' ? 'active' : ''}`,
+        id: 'toggle-paint',
+        'aria-label': 'Paint Format',
+        'aria-pressed': S.paintPhase !== 'off' ? 'true' : 'false',
+        title: 'Right-click to choose which styles get painted',
+      }, svg(ICON_PAINT_BROAD)),
+    ),
   );
 
   const tabBar = h('div', { class: 'tab-bar', role: 'tablist' },
@@ -389,9 +399,6 @@ function buildApp(): void {
 
       if (t === 'objects') {
         badges.push(h('span', { class: 'badge', id: 'objects-badge' }, String(S.cacheCount)));
-      }
-      if (t === 'connect') {
-        badges.push(h('span', { class: `tab-dot ${connectDotClass()}`, id: 'connect-tab-dot' }));
       }
       if (t === 'workshop') {
         // Dirty-dot — surfaces unsaved property edits on Workshop's
@@ -426,10 +433,12 @@ function buildApp(): void {
   // 'needs-login' is recoverable in place (log into BMP, then retry), so it
   // gets the prominent Reconnect button alongside the hard-error states.
   const isError = ['unreachable', 'server-down', 'auth-failed', 'needs-login', 'no-config-access'].includes(S.connState.display);
-  // The connection strip lives ONLY on the Connect tab — on the other tabs it's redundant with the header
-  // status + bottom bar. (switchTab toggles this `hidden` class; the strip stays mounted so its by-id
-  // refresh keeps working.)
-  const statusStrip = h('div', { class: `status-strip ${statusStripClass()}${S.activeTab === 'connect' ? '' : ' hidden'}`, id: 'status-strip' },
+  // The connection strip lives ONLY on the Connect tab, and only when NOT cleanly connected — once
+  // connected, each server row carries its own inline status, so the strip would just repeat it. It
+  // stays for error/checking states because that's where the Reconnect/Test actions matter. (switchTab
+  // toggles this `hidden` class; the strip stays mounted so its by-id refresh keeps working.)
+  const showStrip = S.activeTab === 'connect' && S.connState.display !== 'connected';
+  const statusStrip = h('div', { class: `status-strip ${statusStripClass()}${showStrip ? '' : ' hidden'}`, id: 'status-strip' },
     h('span', { class: `status-dot ${statusDotClass()}`, id: 'strip-dot' }),
     h('span', { class: 'status-strip-text', id: 'strip-text' }, statusStripText()),
     h('button', {
@@ -464,6 +473,20 @@ function buildApp(): void {
     renderLatencyPill(),
     cacheCountEl,
   );
+
+  // Feedback line — short confirmations (badge copies, saves) overlay the
+  // status bar's right side for ~1.8s, then the quiet line returns.
+  let flashTimer: ReturnType<typeof setTimeout> | null = null;
+  document.addEventListener('crev:status-flash', (e) => {
+    const bar = document.getElementById('status-bar');
+    if (!bar) return;
+    let el = bar.querySelector<HTMLElement>('.status-bar-flash');
+    if (!el) { el = h('span', { class: 'status-bar-flash' }); bar.appendChild(el); }
+    el.textContent = String((e as CustomEvent).detail ?? '');
+    bar.classList.add('status-bar--flash');
+    if (flashTimer) clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { bar.classList.remove('status-bar--flash'); }, 1800);
+  });
 
   render(app, header, tabBar, renderSiteAccessStrip(), statusStrip, tabContent, statusBar);
   void refreshSiteAccessStrip();
@@ -535,9 +558,9 @@ function renderActiveTab() {
 
 function updateToggle() {
   const btn = document.getElementById('toggle-inspect');
-  if (btn) btn.className = `header-icon-btn inspect-toggle ${S.inspectActive ? 'active' : ''}`;
+  if (btn) btn.className = `hdr-mode inspect-toggle ${S.inspectActive ? 'active' : ''}`;
   const bp = document.getElementById('toggle-blueprint');
-  if (bp) bp.className = `header-icon-btn blueprint-toggle ${S.blueprintActive ? 'active' : ''}`;
+  if (bp) bp.className = `hdr-mode blueprint-toggle ${S.blueprintActive ? 'active' : ''}`;
 }
 
 function updateObjectsBadge() {
@@ -582,22 +605,11 @@ function statusText(): string {
 function statusBarText(): string {
   if (onNonBmpPage()) return 'Not BMP';
   const d = S.connState.display;
-  if (d === 'connected') return 'Connected';
+  // Quiet-line rule: the green dot says "connected", so the text says WHICH
+  // server — one fact, once.
+  if (d === 'connected') return S.connState.profileLabel ?? 'Connected';
   if (d === 'server-down') return 'Down';
   return statusText();
-}
-
-function connectDotClass(): string {
-  if (onNonBmpPage()) return 'tab-dot--ok tab-dot--dim';
-  switch (S.connState.display) {
-    case 'connected': return 'tab-dot--ok';
-    case 'online': return 'tab-dot--ok tab-dot--dim';
-    case 'needs-login': return 'tab-dot--warn';
-    case 'unreachable': return S.connState.networkOffline ? 'tab-dot--warn' : 'tab-dot--fail';
-    case 'server-down': case 'auth-failed': case 'no-config-access': return 'tab-dot--fail';
-    case 'not-configured': case 'checking': return 'tab-dot--gray';
-    default: { const _e: never = S.connState.display; void _e; return 'tab-dot--gray'; }
-  }
 }
 
 function showPaintError(error: string) {
@@ -607,7 +619,7 @@ function showPaintError(error: string) {
 
 function updatePaintButton() {
   const btn = document.getElementById('toggle-paint');
-  if (btn) btn.className = `paint-btn ${S.paintPhase !== 'off' ? 'active' : ''}`;
+  if (btn) btn.className = `hdr-mode paint-btn ${S.paintPhase !== 'off' ? 'active' : ''}`;
 }
 
 function statusStripClass(): string {
@@ -653,8 +665,9 @@ function statusStripText(): string {
 function refreshStatusStrip() {
   const strip = document.getElementById('status-strip');
   if (!strip) return;
-  // Keep the Connect-only gate: a live status update must not un-hide the strip on another tab.
-  strip.className = `status-strip ${statusStripClass()}${S.activeTab === 'connect' ? '' : ' hidden'}`;
+  // Keep the Connect-only + not-connected gate: a live status update must not un-hide the strip on
+  // another tab, nor while cleanly connected (the rows carry status there).
+  strip.className = `status-strip ${statusStripClass()}${S.activeTab === 'connect' && S.connState.display !== 'connected' ? '' : ' hidden'}`;
   const dot = document.getElementById('strip-dot');
   if (dot) dot.className = `status-dot ${statusDotClass()}`;
   const text = document.getElementById('strip-text');
@@ -779,7 +792,7 @@ function renderLatencyPill(): HTMLElement {
     ? (connected ? 'No latency sample yet. Run any query to see it' : 'Not connected to BMP')
     : `BMP latency: ${label} (${ms} ms via ${source}). Thresholds: <80 / <160 / <320 / <600 / <1200 / ≥1200 ms.`;
   return h('div', { class: `status-bar-latency status-bar-latency--t${tier}`, id: 'status-bar-latency', title },
-    h('span', { class: 'status-bar-latency-dot' }, tier === -1 ? svg(ICON_X) : null),
+    h('span', { class: 'status-bar-latency-ic' }, svg(ICON_PULSE)),
     h('span', { class: 'status-bar-latency-value' }, text),
   );
 }

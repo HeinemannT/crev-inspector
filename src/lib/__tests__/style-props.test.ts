@@ -5,7 +5,10 @@ import type { NodeStyle } from '../layout/types';
 
 describe('style catalog — single source, no drift', () => {
   it('STYLE_NODE_FIELDS is derived from STYLE_PROPS (same props, same order)', () => {
-    expect(STYLE_NODE_FIELDS.map(f => f.prop)).toEqual([...PAINT_STYLE_PROPS]);
+    // STYLE_NODE_FIELDS carries EVERY catalog prop (flags included);
+    // PAINT_STYLE_PROPS is the paintable subset (paint !== false).
+    expect(STYLE_NODE_FIELDS.map(f => f.prop)).toEqual(STYLE_PROPS.map(p => p.prop));
+    expect([...PAINT_STYLE_PROPS]).toEqual(STYLE_PROPS.filter(p => p.paint !== false).map(p => p.prop));
   });
 
   it('every catalog nodeKey is a real NodeStyle field, and they cover the whole interface', () => {
@@ -13,6 +16,8 @@ describe('style catalog — single source, no drift', () => {
     // or renamed, so the runtime key-set check below is locked to the interface.
     const sample: Required<NodeStyle> = {
       headerColorBid: '', fontColorBid: '', shadow: false, headerStyle: '', borderStyle: '', transparency: 0,
+      showToolMenu: true, disableSearch: false,
+      visibility: 'VISIBLE', shownOnLargeDisplay: true, shownOnMediumDisplay: true, shownOnSmallDisplay: true,
     };
     const interfaceKeys = new Set(Object.keys(sample));
     const catalogKeys = new Set(STYLE_PROPS.map(p => p.nodeKey));

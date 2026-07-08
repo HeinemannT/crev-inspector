@@ -4,17 +4,18 @@
  */
 
 import type { BmpObject, InspectorMessage } from './lib/types';
-import { getTypeColor, getTypeAbbr, TYPES_WITH_CODE } from './lib/types';
-import { FLOW_TYPES } from './lib/widget-metadata';
+import { getTypeColor, getTypeAbbr } from './lib/types';
+import { typeAffordances } from './lib/widget-metadata';
+import { hasStudio, modeForType } from './studio/studio-mode';
+import { typeIcon } from './lib/type-badge';
 import { getAllRidElements } from './lib/dom-scanner';
 import { log } from './lib/logger';
-import { ICON_CODE, ICON_FILE_JS, ICON_CHECK } from './lib/icons';
+import { ICON_CODE, ICON_CHECK, ICON_ARROW_FAT_LINE } from './lib/icons';
 import { svg } from './lib/dom';
-import { DISCOVERED_RIDS_CAP, LABEL_DBLCLICK_WINDOW } from './lib/constants';
+import { DISCOVERED_RIDS_CAP } from './lib/constants';
 import { resolveCopyText, getModifier } from './lib/namespace';
 import { sendToSW } from './lib/content-port';
-import { sendFireForget, sendRequest } from './lib/messaging';
-import { showQuickInspector } from './lib/quick-inspector';
+import { sendFireForget } from './lib/messaging';
 import type { ContentState } from './content-state';
 
 /** Is there room above `el` for an upward-overhanging edge pill (~11px), or
@@ -39,60 +40,126 @@ function hasRoomAbove(el: Element, needed = 11): boolean {
   return true;
 }
 
-/** Create the action strip below a badge (EC button for code-bearing types). Returns null if no actions. */
-function createActionStrip(rid: string, enrichment: { businessId?: string; type?: string; name?: string }): HTMLSpanElement | null {
-  if (!enrichment.type || !TYPES_WITH_CODE.has(enrichment.type)) return null;
-
-  const actions = document.createElement('span');
-  actions.className = 'crev-actions';
-
-  // A CustomVisualization opens the CVO studio (html/js + preview), not the EC
-  // editor — and shows the JS-file icon to say so.
-  const isCvo = enrichment.type === 'CustomVisualization';
-  const ecBtn = document.createElement('button');
-  ecBtn.className = 'crev-ec-btn';
-  ecBtn.innerHTML = isCvo ? ICON_FILE_JS : ICON_CODE;
-  // No native `title` — it painted a browser tooltip over the hover info card.
-  // `aria-label` keeps the action discoverable to screen readers.
-  ecBtn.setAttribute('aria-label', isCvo ? 'Open in the CVO studio' : 'Open in the editor');
-  ecBtn.addEventListener('click', (e) => {
-    e.preventDefault(); e.stopPropagation();
-    sendFireForget(isCvo ? { type: 'OPEN_CVO_STUDIO', rid } : { type: 'OPEN_EDITOR', rid });
-  });
-  actions.appendChild(ecBtn);
-
-  return actions;
-}
-
-/** Create the cascade pill that sits below a flow-bearing badge. Shows the
- *  next link in the chain (InputView → inputSet, ActionButton → actionObject)
- *  as a smaller secondary pill. Clicking it opens THAT object in the sidebar,
- *  so the user can jump straight to the form fields / transports without
- *  drilling through the main pill first. */
-function createCascadePill(cascade: { rid: string; businessId?: string; type?: string; name?: string }): HTMLSpanElement {
-  const pill = document.createElement('span');
-  pill.className = 'crev-label crev-label--cascade';
-  pill.setAttribute('data-crev-cascade-rid', cascade.rid);
-  const color = getTypeColor(cascade.type);
-  pill.style.setProperty('--crev-color', color);
-
-  const text = document.createElement('span');
-  text.className = 'crev-label-text';
-  text.textContent = cascade.businessId ?? cascade.name ?? getTypeAbbr(cascade.type);
-  // Unlike the main badge, the cascade pill carries no `data-crev-label`, so the
-  // hover info card never fires for it — a native `title` is safe here and is
-  // the only thing that explains this small secondary pill is a clickable link.
+/** The cascade jump chip — lives in the label's meta row. Shows the next link
+ *  in the chain (InputView → inputSet, ActionButton → actionObject); clicking
+ *  it opens THAT object in the sidebar, skipping the main-stub drill-through. */
+function createCascadeChip(cascade: { rid: string; businessId?: string; type?: string; name?: string }): HTMLSpanElement {
+  const chip = document.createElement('span');
+  chip.className = 'crev-cascade';
+  chip.setAttribute('data-crev-cascade-rid', cascade.rid);
+  chip.style.background = getTypeColor(cascade.type);
+  chip.textContent = cascade.businessId ?? cascade.name ?? getTypeAbbr(cascade.type);
+  // The chip carries no `data-crev-label`, so the hover info card never fires
+  // for it — a native `title` is safe here and is the only thing explaining
+  // that this small secondary chip is a clickable link.
   const cascadeId = cascade.name ?? cascade.businessId ?? cascade.type ?? 'object';
-  pill.title = `Linked ${cascade.type ?? 'object'}: ${cascadeId} (click to open)`;
-  pill.appendChild(text);
-
-  text.addEventListener('click', (e) => {
+  chip.title = `Linked ${cascade.type ?? 'object'}: ${cascadeId} (click to open)`;
+  chip.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
     sendToSW({ type: 'SELECT_OBJECT', rid: cascade.rid } as InspectorMessage);
   });
+  return chip;
+}
 
-  return pill;
+/**
+ * Fill an inspect corner label with the approved "stub + squares" layout:
+ *
+ *   .crev-stub  — full-bleed type stub: colour tile (role glyph) welded to a
+ *                 light identity chip (businessId / name)
+ *   .crev-meta  — a row of squares UNDERNEATH, right-aligned: violet `</>`
+ *                 (opens the editor / CVO studio — folds the old dark action
+ *                 strip into the design), teal link (references indicator),
+ *                 and the cascade jump chip when the widget has a chain.
+ *
+ * Idempotent: the create path and the late-enrichment path in updateLabels()
+ * share this ONE implementation. The text element persists across re-renders
+ * so the click handler bound in syncOverlays survives. Square presence comes
+ * from the single `typeAffordances` seam, not ad-hoc type checks.
+ */
+function renderLabelContent(
+  label: HTMLElement,
+  rid: string,
+  enrichment?: { type?: string; businessId?: string; name?: string; cascade?: { rid: string; businessId?: string; type?: string; name?: string } },
+): void {
+  const type = enrichment?.type;
+
+  let stub = label.querySelector<HTMLElement>('.crev-stub');
+  if (!stub) {
+    stub = document.createElement('span');
+    stub.className = 'crev-stub';
+    const existingText = label.querySelector<HTMLElement>('.crev-label-text');
+    label.prepend(stub);
+    if (existingText) stub.appendChild(existingText);
+  }
+  let tile = stub.querySelector<HTMLElement>('.crev-tile');
+  if (!tile) {
+    tile = document.createElement('span');
+    tile.className = 'crev-tile';
+    stub.prepend(tile);
+  }
+  tile.replaceChildren(svg(typeIcon(type)));
+
+  const text = stub.querySelector<HTMLElement>('.crev-label-text');
+  if (text) text.textContent = enrichment?.businessId ?? enrichment?.name ?? getTypeAbbr(type);
+
+  // Meta row — rebuilt every call so late enrichment can only ever add the
+  // correct squares (never stale ones from a previous unknown-type render).
+  label.querySelector('.crev-meta')?.remove();
+  const aff = typeAffordances(type);
+  const cascade = enrichment?.cascade;
+  if (!aff.code && !aff.flow && !cascade) return;
+
+  const meta = document.createElement('span');
+  meta.className = 'crev-meta';
+
+  if (aff.flow) {
+    // Teal fat-arrow square: "this widget has a chain to walk" (replaces the
+    // ⇢ that was welded onto the stub). Clicking selects the object like the
+    // main pill AND surfaces the side panel when it's closed — the chain
+    // lives in the panel's Flow segment, so the arrow must take you there.
+    const sub = document.createElement('button');
+    sub.className = 'crev-sub crev-sub--flow';
+    sub.setAttribute('aria-label', 'Open the flow chain in the side panel');
+    sub.appendChild(svg(ICON_ARROW_FAT_LINE));
+    sub.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      sendFireForget({ type: 'SELECT_OBJECT', rid, openPanel: true });
+    });
+    meta.appendChild(sub);
+  }
+
+  if (aff.code) {
+    // The violet code square IS the open-in-editor affordance. No native
+    // `title` — it would paint a browser tooltip over the hover info card;
+    // `aria-label` keeps it discoverable to screen readers.
+    // (No reference square: it carried no action, and the flow ⇢ + the panel
+    // sections already say "this links elsewhere" — user cut it as noise.)
+    const studio = hasStudio(type);
+    const btn = document.createElement('button');
+    btn.className = 'crev-sub crev-sub--code';
+    btn.setAttribute('aria-label', studio ? `Open in the ${modeForType(type).title}` : 'Open in the editor');
+    btn.appendChild(svg(ICON_CODE));
+    btn.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      sendFireForget(studio ? { type: 'OPEN_STUDIO', rid } : { type: 'OPEN_EDITOR', rid });
+    });
+    meta.appendChild(btn);
+  }
+  if (cascade) meta.appendChild(createCascadeChip(cascade));
+
+  label.appendChild(meta);
+}
+
+/** Tiny hosts (tab links, breadcrumb chips) can't fit the full stub — it
+ *  overlaps neighbours or clips against the host's overflow. Degrade to the
+ *  tile-only compact form when the stub outgrows its host. */
+function applyCompactMode(label: HTMLElement, host: HTMLElement): void {
+  label.classList.remove('crev-label--compact');
+  const hostW = host.clientWidth;
+  if (hostW > 0 && label.offsetWidth > hostW - 4) {
+    label.classList.add('crev-label--compact');
+  }
 }
 
 /** Incremental overlay sync: clean stale, add new badges, request enrichment. */
@@ -129,17 +196,14 @@ export function syncOverlays(s: ContentState) {
 
     const labelText = document.createElement('span');
     labelText.className = 'crev-label-text';
-    labelText.textContent = enrichment?.businessId ?? enrichment?.name ?? getTypeAbbr(enrichment?.type);
     // The click-modifier hints moved into the hover info card (content-tooltip)
     // \u2014 a native `title` here painted a browser tooltip over that very card.
     label.appendChild(labelText);
 
-    // Flow-graph indicator \u2014 for widgets that have a chain to walk
-    // (InputView, ActionButton, Label). Pure CSS via class; the ::after pseudo
-    // draws the arrow. Tells the user at a glance "this widget has a graph."
-    if (enrichment?.type && FLOW_TYPES.has(enrichment.type)) {
-      label.classList.add('crev-label--flow');
-    }
+    // Stub (colour tile + identity text) + meta squares underneath. One helper
+    // shared with updateLabels() so late enrichment fills them identically.
+    renderLabelContent(label, rid, enrichment);
+    const stubEl = label.querySelector<HTMLElement>('.crev-stub')!;
 
     // Short, inline targets (breadcrumbs, nav links) are mostly text, so the
     // top-right corner pill lands on top of that text. Tag those to overhang
@@ -156,10 +220,12 @@ export function syncOverlays(s: ContentState) {
       label.classList.add(hasRoomAbove(element) ? 'crev-label--edge' : 'crev-label--edge-inside');
     }
 
-    // Pill is the affordance for "open this in the sidebar". Modifiers keep
-    // the copy paths (Alt = ID, Shift = template, Ctrl = ref); double-click
-    // opens the quick-inspector popup. Paint mode still owns clicks first.
-    labelText.addEventListener('click', (e) => {
+    // The stub is the affordance for "open this in the sidebar" (bound on the
+    // stub, not the text, so the compact tile-only form stays clickable).
+    // Modifiers keep the copy paths (Alt = ID, Shift = template, Ctrl = ref).
+    // Paint mode owns clicks first. (The old double-click quick-inspector is
+    // gone — the hover card carries that job — so clicks fire instantly.)
+    stubEl.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
 
@@ -175,15 +241,6 @@ export function syncOverlays(s: ContentState) {
         return;
       }
 
-      // Double-click detection: 250ms window
-      if (s.labelClickRid === rid && s.labelClickTimer) {
-        clearTimeout(s.labelClickTimer);
-        s.labelClickTimer = null;
-        s.labelClickRid = null;
-        openQuickInspector(s, label, rid);
-        return;
-      }
-
       const me = e as MouseEvent;
       const mod = getModifier(me);
 
@@ -193,36 +250,31 @@ export function syncOverlays(s: ContentState) {
       // copy modifier path. Falls back gracefully when the BID isn't
       // enriched yet (still opens the sidebar, just no clipboard write).
       if (mod === 'plain') {
-        s.labelClickRid = rid;
-        s.labelClickTimer = setTimeout(() => {
-          s.labelClickTimer = null;
-          s.labelClickRid = null;
-          const enriched = s.enrichments.get(rid);
-          const bid = enriched?.businessId;
-          if (bid) {
-            navigator.clipboard.writeText(bid).then(() => {
-              const originalText = labelText.textContent;
-              labelText.textContent = '';
-              labelText.append(svg(ICON_CHECK), ` ${bid}`);
-              label.classList.add('crev-label-flash-ok');
-              setTimeout(() => {
-                labelText.textContent = originalText;
-                label.classList.remove('crev-label-flash-ok');
-              }, 600);
-            }).catch(e => log.swallow('content:clipboard', e));
-          }
-          sendToSW({ type: 'SELECT_OBJECT', rid } as InspectorMessage);
-        }, LABEL_DBLCLICK_WINDOW);
+        const enriched = s.enrichments.get(rid);
+        const bid = enriched?.businessId;
+        // Re-entrancy guard: a second click during the 600ms flash would read
+        // the flashed "✓ bid" as the original text and restore THAT, leaving the
+        // badge permanently mangled. While flashing, just select and bail.
+        if (bid && !label.classList.contains('crev-label-flash-ok')) {
+          navigator.clipboard.writeText(bid).then(() => {
+            const originalText = labelText.textContent;
+            labelText.textContent = '';
+            labelText.append(svg(ICON_CHECK), ` ${bid}`);
+            label.classList.add('crev-label-flash-ok');
+            setTimeout(() => {
+              labelText.textContent = originalText;
+              label.classList.remove('crev-label-flash-ok');
+            }, 600);
+          }).catch(e => log.swallow('content:clipboard', e));
+        }
+        sendToSW({ type: 'SELECT_OBJECT', rid } as InspectorMessage);
         return;
       }
 
       // Modifier-click → copy. Alt = RID, Shift = template, Ctrl = ref.
       // Plain Click (no modifier) opens the sidebar. The modifier set lives
       // in src/lib/namespace.ts (resolveCopyText + getModifier).
-      s.labelClickRid = rid;
-      s.labelClickTimer = setTimeout(() => {
-        s.labelClickTimer = null;
-        s.labelClickRid = null;
+      {
         const enriched = s.enrichments.get(rid);
         const { text, label: copyLabel } = resolveCopyText({ rid, ...enriched }, mod);
         if (!text) {
@@ -251,24 +303,24 @@ export function syncOverlays(s: ContentState) {
             label.classList.remove('crev-label-flash-error');
           }, 800);
         });
-      }, LABEL_DBLCLICK_WINDOW);
+      }
     });
 
+    // Double-click on the pill opens the FULL object view (popup surface).
+    // Deliberately NOT gated on a dblclick-detection delay: the single-click
+    // behaviour (copy + select in the panel) is cheap and idempotent, so it
+    // simply fires first and the second click upgrades to the full view.
+    label.addEventListener('dblclick', (e) => {
+      // Only the pill body opens the full view. A dblclick that lands on a
+      // sub-badge (flow ⇢, code, cascade) bubbles here too, and those run their
+      // own action per click — without this guard, double-clicking a sub-badge
+      // would fire its action twice AND open the object view.
+      if ((e.target as HTMLElement).closest('.crev-meta')) return;
+      e.preventDefault(); e.stopPropagation();
+      sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid });
+    });
     element.appendChild(label);
-
-    // Cascade pill below main pill (flow widgets only — InputView, ActionButton).
-    // Shows the next link in the chain. Clicking it opens THAT object in the
-    // sidebar, skipping the main-pill drill-through.
-    if (enrichment?.cascade) {
-      element.appendChild(createCascadePill(enrichment.cascade));
-      element.classList.add('crev-has-cascade');
-    }
-
-    // Action strip below badge (EC button for code-bearing types)
-    if (enrichment) {
-      const strip = createActionStrip(rid, enrichment);
-      if (strip) element.appendChild(strip);
-    }
+    applyCompactMode(label, element as HTMLElement);
     s.badgedElements.add(element);
 
     // Track RIDs that need enrichment (with dedup)
@@ -336,84 +388,17 @@ export function updateLabels(s: ContentState) {
     if (!rid) continue;
     const enrichment = s.enrichments.get(rid);
     if (enrichment) {
-      const textSpan = label.querySelector('.crev-label-text');
-      if (textSpan) {
-        textSpan.textContent = enrichment.businessId ?? enrichment.name ?? getTypeAbbr(enrichment.type);
-      }
+      // Rebuild stub + identity + meta squares from the (now-known) type.
+      renderLabelContent(label, rid, enrichment);
       label.classList.remove('crev-label-loading');
-      // Flow-graph indicator (see syncOverlays — retroactive enrichment path).
-      if (enrichment.type && FLOW_TYPES.has(enrichment.type)) {
-        label.classList.add('crev-label--flow');
-      }
       const parent = label.parentElement;
       if (parent) {
         const color = getTypeColor(enrichment.type);
         parent.style.setProperty('--crev-color', color);
-      }
-      // Add cascade pill if enrichment arrived with one and we haven't rendered
-      // it yet (retroactive path mirroring syncOverlays).
-      if (parent && enrichment.cascade && !parent.querySelector('.crev-label--cascade')) {
-        parent.appendChild(createCascadePill(enrichment.cascade));
-        parent.classList.add('crev-has-cascade');
-      }
-      // Add action strip if not already present (enrichment arrived after initial badge render)
-      if (parent && !parent.querySelector('.crev-actions')) {
-        const strip = createActionStrip(rid, enrichment);
-        if (strip) parent.appendChild(strip);
+        // The identity text just changed width — re-check the tiny-host fit.
+        applyCompactMode(label, parent);
       }
     }
   }
 }
 
-/** Open quick inspector popup for a badge */
-function openQuickInspector(s: ContentState, labelEl: HTMLElement, rid: string) {
-  const enrichment = s.enrichments.get(rid);
-  // Fire both requests in parallel — favorites + code preview from cache
-  let favDone = false, hoverDone = false;
-  let codePreview: string | undefined;
-
-  const tryShow = () => {
-    if (!favDone || !hoverDone) return;
-    showQuickInspector(labelEl, {
-      rid,
-      businessId: enrichment?.businessId,
-      templateBusinessId: enrichment?.templateBusinessId,
-      type: enrichment?.type,
-      name: enrichment?.name,
-      isFavorite: s.favoriteRids.has(rid),
-      codePreview,
-    }, (editorRid) => {
-      sendFireForget(enrichment?.type === 'CustomVisualization'
-        ? { type: 'OPEN_CVO_STUDIO', rid: editorRid }
-        : { type: 'OPEN_EDITOR', rid: editorRid });
-    }, (favRid) => {
-      sendFireForget({ type: 'TOGGLE_FAVORITE', rid: favRid, name: enrichment?.name, objectType: enrichment?.type, businessId: enrichment?.businessId });
-      if (s.favoriteRids.has(favRid)) s.favoriteRids.delete(favRid);
-      else s.favoriteRids.add(favRid);
-    }, (viewRid) => {
-      sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid: viewRid });
-    });
-  };
-
-  sendRequest({ type: 'GET_FAVORITES' }).then(response => {
-    if (response && 'entries' in response && Array.isArray(response.entries)) {
-      // GET_FAVORITES always returns FavoriteEntry[] in practice, but
-      // the `entries` field on the response is typed as the union of
-      // every entry shape (ActivityEntry has no `rid`). Filter
-      // defensively rather than asserting.
-      s.favoriteRids = new Set(
-        response.entries.flatMap(e => ('rid' in e && typeof e.rid === 'string' ? [e.rid] : [])),
-      );
-    }
-    favDone = true;
-    tryShow();
-  });
-
-  sendRequest({ type: 'HOVER_LOOKUP', rid }).then(response => {
-    if (response && 'codePreview' in response && typeof response.codePreview === 'string') {
-      codePreview = response.codePreview.split('\n').slice(0, 2).join('\n');
-    }
-    hoverDone = true;
-    tryShow();
-  });
-}

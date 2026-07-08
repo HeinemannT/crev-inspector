@@ -13,6 +13,21 @@ import type { Breakpoint, LModel, LNode, NodeStyle } from './types';
 
 const clampCol = (n: number): number => Math.max(0, Math.min(6, Math.round(n)));
 
+/** "Col <cols>" (or "Col auto" for a 0/auto-width container — cols 0 is not "6 columns"), de-duped
+ *  against sibling names with a (2),(3)… suffix so two same-width boxes in one parent stay
+ *  distinguishable. `selfId` is excluded so a resize-rename never collides with itself. Whether a
+ *  container is auto-named is tracked by the `autoName` flag on the node (set on create, cleared on an
+ *  explicit rename) — NOT by matching this string, so a container a human named "Col 3" is never
+ *  hijacked by a later resize. */
+function colName(siblings: LNode[], colsL: number, selfId: string): string {
+  const base = colsL > 0 ? `Col ${colsL}` : 'Col auto';
+  const taken = new Set(siblings.filter(s => s.id !== selfId).map(s => s.name));
+  if (!taken.has(base)) return base;
+  let k = 2;
+  while (taken.has(`${base} (${k})`)) k++;
+  return `${base} (${k})`;
+}
+
 /** Every mutation flows through here: clone, apply, then normalize to canonical band order — the
  *  single choke point that keeps raw children order identical to BMP's rendered order (see
  *  normalizeModel). A future primitive added to this file inherits the invariant for free. */
@@ -23,7 +38,17 @@ function edit(m: LModel, fn: (c: LModel) => void): LModel {
 }
 
 export function resize(m: LModel, id: string, bp: Breakpoint, n: number): LModel {
-  return edit(m, c => { const f = findNode(c, id); if (f) f.node.cols[bp] = clampCol(n); });
+  return edit(m, c => {
+    const f = findNode(c, id);
+    if (!f) return;
+    f.node.cols[bp] = clampCol(n);
+    // Keep a tool-named ("Col N") container's name in step with its large-screen width, until the user
+    // renames it (which clears `autoName`). Flag-driven, not name-pattern matched, so a container a
+    // human deliberately named "Col 3" is never renamed out from under them.
+    if (bp === 'L' && f.node.kind === 'container' && f.node.autoName) {
+      f.node.name = colName(f.siblings, f.node.cols.L ?? 6, f.node.id);
+    }
+  });
 }
 
 /** F2: toggle a staged reset of `prop` (a BMP property name) on node `id`. Only a prop that actually
@@ -55,7 +80,14 @@ export function setStyle(m: LModel, id: string, patch: Partial<NodeStyle>): LMod
 }
 
 export function rename(m: LModel, id: string, name: string): LModel {
-  return edit(m, c => { const f = findNode(c, id); if (f) f.node.name = name.trim() || f.node.name; });
+  return edit(m, c => {
+    const f = findNode(c, id);
+    if (!f) return;
+    const nm = name.trim();
+    if (!nm) return; // empty → keep the current name (and, for a container, its auto-name tracking)
+    f.node.name = nm;
+    f.node.autoName = undefined; // an explicit rename hands name ownership to the user
+  });
 }
 
 /** Detach a node from its current siblings (mutates the working clone). */
@@ -130,10 +162,21 @@ export function addWidget(m: LModel, parentId: string, index: number, className:
   return { model: insertNode(m, parentId, index, node), id };
 }
 
-export function addContainer(m: LModel, parentId: string, index: number, colsL = 6, name = 'New Box'): { model: LModel; id: string } {
+/** Add a Container. When no name is given it's auto-named for its width ("Col N", de-duped per parent)
+ *  — computed from the destination's own children so the (2),(3)… counter is scoped to that parent. */
+export function addContainer(m: LModel, parentId: string, index: number, colsL = 6, name?: string): { model: LModel; id: string } {
   const id = tempId('box');
-  const node: LNode = { id, kind: 'container', className: 'Container', name, cols: { L: colsL }, children: [] };
-  return { model: insertNode(m, parentId, index, node), id };
+  return {
+    model: edit(m, c => {
+      const f = findNode(c, parentId);
+      const list = f ? f.node.children : c.tabs;
+      const auto = name === undefined;
+      const nm = auto ? colName(list, colsL, id) : name;
+      const node: LNode = { id, kind: 'container', className: 'Container', name: nm, cols: { L: colsL }, children: [], ...(auto ? { autoName: true } : {}) };
+      list.splice(Math.max(0, Math.min(index, list.length)), 0, node);
+    }),
+    id,
+  };
 }
 
 export function addTab(m: LModel, index: number, name = 'New Tab'): { model: LModel; id: string } {

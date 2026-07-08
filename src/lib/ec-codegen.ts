@@ -434,7 +434,10 @@ export function buildObjectPaneEc(ref: string, paneProps: readonly string[]): st
   const lines: string[] = [
     `_sep := "${FLOW_SEP}"`,
     `_o := ${ref}`,
-    '_p := _o.webParent',
+    // Widgets have a webParent; top-level portal objects (a Scorecard under an
+    // Organisation) do not — fall back to the tree parent so Structure always
+    // shows what is above (verified live: whenMissing works on object values).
+    '_p := _o.webParent.whenMissing(_o.parent)',
     ...ecResolveTemplate('_o', '_t'),
     '_r := ""',
     scalarBlock('instRid', '_o.rid.whenMissing("MISSING")'),

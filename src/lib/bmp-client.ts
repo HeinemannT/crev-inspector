@@ -659,10 +659,38 @@ export class BmpClient {
 
   /** Execute Extended Code. `timeoutMs` widens the network window for known-long runs
    *  (blueprint layout fetch/apply on heavy pages) — defaults to EC_TIMEOUT in the transport. */
+  /** objectRid → organisation rid, resolved once per session. `this.org` in EC
+   *  reads the calculation context's orgRid. BMP's web context binds that to the
+   *  object's owning organisation for a standard page; we sent 0, so `this.org`
+   *  resolved to nothing (`this.object.organisation` still worked because it
+   *  walks the object's own tree, not the context — see extended-code
+   *  reference, "this.org vs this.object.organisation"). We bind the same
+   *  owning org. Cache: the org binding of an object never changes mid-session. */
+  private orgRidCache = new Map<string, bigint | undefined>();
+
+  private async resolveOrgRid(objectRid: string): Promise<bigint | undefined> {
+    if (this.orgRidCache.has(objectRid)) return this.orgRidCache.get(objectRid);
+    try {
+      // Tag the value with a marker: parseEcResults strips BMP's "Result : "
+      // prefix, so a bare number would be indistinguishable from the status/
+      // duration log lines. `whenMissing(0)` yields "ORG=0" for no owning org.
+      const cmd = makeExtendedExecuteCommand(`"ORG=" + str(lookup(${objectRid}).organisation.rid.whenMissing(0))`, {});
+      const r = parseEcResults(await this.transport.sendStreamingCommand(cmd));
+      if (!r.ok) return undefined; // transient failure: don't cache, retry next run
+      const m = r.log?.match(/ORG=(-?\d+)/);
+      const org = m && m[1] !== '0' ? BigInt(m[1]) : undefined;
+      this.orgRidCache.set(objectRid, org); // cache only a definitive answer
+      return org;
+    } catch {
+      return undefined; // network/unsupported: don't cache, so a recovery retries
+    }
+  }
+
   async executeEc(code: string, objectRid?: string, transactional = false, signal?: AbortSignal, timeoutMs?: number): Promise<EcResult> {
     try {
       const cmd = makeExtendedExecuteCommand(code, {
         objectRid: objectRid ? BigInt(objectRid) : undefined,
+        orgRid: objectRid ? await this.resolveOrgRid(objectRid) : undefined,
         transactional,
       });
       const objects = await this.transport.sendStreamingCommand(cmd, signal, timeoutMs);

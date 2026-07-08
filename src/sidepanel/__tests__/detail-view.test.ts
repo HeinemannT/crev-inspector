@@ -1,6 +1,8 @@
 /**
- * Tests for the new object-pane DetailView.
- * Covers: FETCH_OBJECT_PANE flow, draft accumulation, save round-trip,
+ * Tests for the object-pane DetailView (Path-Spine layout).
+ * Covers: FETCH_OBJECT_PANE flow, the path bar / identity row / sub-row
+ * header, the segmented body (Flow|Structure|Info), the draft save pipeline
+ * (property editors moved to Blueprint; the pipeline is seeded directly),
  * target toggle, tree navigation, watchdog.
  *
  * @vitest-environment happy-dom
@@ -94,6 +96,22 @@ function paneData(rid: string, over: Partial<{
   };
 }
 
+/** Seed the (editor-less) draft pipeline directly — property editors moved to
+ *  Blueprint, but the draft → action bar → APPLY_OBJECT_CHANGES pipeline stays
+ *  for future editors, so it's driven through internal state here. */
+function seedDraft(dv: DetailView, panel: HTMLElement, draft: Record<string, string>) {
+  (dv as unknown as { draft: Record<string, string> }).draft = { ...draft };
+  dv.refresh(panel);
+}
+
+/** Click the body segment button by its label (Flow/Code · Structure · Info). */
+function clickSegment(panel: HTMLElement, label: string) {
+  const seg = [...panel.querySelectorAll<HTMLButtonElement>('.dv-seg')]
+    .find(b => b.textContent!.startsWith(label));
+  expect(seg, `segment "${label}" should exist`).toBeTruthy();
+  seg!.click();
+}
+
 beforeEach(() => { document.body.innerHTML = ''; });
 afterEach(() => { vi.useRealTimers(); });
 
@@ -103,11 +121,11 @@ describe('DetailView — fetch flow', () => {
     dv.show(makeObj('100'), panel);
     expect(dv.isActive()).toBe(true);
     expect(sent.find(m => m.type === 'FETCH_OBJECT_PANE' && (m as { rid: string }).rid === '100')).toBeTruthy();
-    expect(panel.querySelector('.pane-id-name')?.textContent).toContain('Obj-100');
+    expect(panel.querySelector('.dv-idname')?.textContent).toContain('Obj-100');
     expect(panel.querySelector('.pane-loading')).toBeTruthy();
   });
 
-  it('OBJECT_PANE_DATA renders the property editors', () => {
+  it('OBJECT_PANE_DATA renders the segmented body — property groups moved to Blueprint', () => {
     const { dv, panel } = makeDetailView();
     dv.show(makeObj('100'), panel);
     const consumed = dv.handleMessage(paneData('100', {
@@ -115,8 +133,15 @@ describe('DetailView — fetch flow', () => {
     }), panel);
     expect(consumed).toBe(true);
     expect(panel.querySelector('.pane-loading')).toBeFalsy();
-    const width = panel.querySelector<HTMLInputElement>('.prop-number-input');
-    expect(width?.value).toBe('260');
+    // Segment bar: Code (ExtendedTable is not a flow type) · Structure · Info.
+    const segs = [...panel.querySelectorAll('.dv-segs .dv-seg')].map(b => b.textContent);
+    expect(segs.length).toBe(3);
+    expect(segs[0]).toContain('Code');
+    expect(segs[1]).toContain('Structure');
+    expect(segs[2]).toContain('Info');
+    // Property editors no longer render in this view (Blueprint's job now).
+    expect(panel.querySelector('.prop-number-input')).toBeFalsy();
+    expect(panel.querySelector('.prop-group-title-text')).toBeFalsy();
   });
 
   it('ignores OBJECT_PANE_DATA for the wrong RID', () => {
@@ -125,10 +150,13 @@ describe('DetailView — fetch flow', () => {
     expect(dv.handleMessage(paneData('999'), panel)).toBe(false);
   });
 
-  it('renders the card crumb and opens the card object in the inspector on click', () => {
+  it('renders the card crumb in the Info pane and opens the card object on click', () => {
     const { dv, panel, sent } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100', { cardRid: '777', cardViaTemplate: true }), panel);
+    // The card is a related object, not an ancestor — it lives in Info now.
+    expect(panel.querySelector('.pane-card-crumb')).toBeFalsy();
+    clickSegment(panel, 'Info');
     const crumb = panel.querySelector<HTMLElement>('.pane-card-crumb');
     expect(crumb).toBeTruthy();
     expect(crumb!.textContent).toContain('Detail card');
@@ -138,20 +166,42 @@ describe('DetailView — fetch flow', () => {
     expect(sent.find(m => m.type === 'FETCH_OBJECT_PANE' && (m as { rid?: string }).rid === '777')).toBeTruthy();
   });
 
-  it('the header pill+name opens THIS object in the BMP portal', () => {
+  it('the sub-row open-in-BMP icon button opens THIS object in the BMP portal', () => {
     const { dv, panel, sent } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100'), panel);
-    const open = panel.querySelector<HTMLElement>('.pane-id-open');
+    const open = panel.querySelector<HTMLElement>('.dv-subrow .dv-act[aria-label="Open in BMP"]');
     expect(open).toBeTruthy();
     open!.click();
     expect(sent.find(m => m.type === 'BMP_OPEN_OBJECT' && (m as { rid?: string }).rid === '100')).toBeTruthy();
   });
 
-  it('shows no card crumb when the object has no card', () => {
+  it('the identity-row name is inert; the badge is the click-to-copy affordance', () => {
+    const writes: string[] = [];
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      value: { writeText: (t: string) => { writes.push(t); return Promise.resolve(); } },
+      configurable: true,
+    });
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('100'), panel);
+    dv.handleMessage(paneData('100'), panel);
+    // Name is a plain span now — no open-in-BMP gesture on it.
+    const name = panel.querySelector<HTMLElement>('.dv-idrow .dv-idname')!;
+    expect(name.tagName).toBe('SPAN');
+    name.click();
+    expect(sent.find(m => m.type === 'BMP_OPEN_OBJECT')).toBeFalsy();
+    // The badge copies the business id.
+    const badge = panel.querySelector<HTMLElement>('.dv-idrow .pane-id-bdg')!;
+    expect(badge).toBeTruthy();
+    badge.click();
+    expect(writes).toContain('bid-100');
+  });
+
+  it('shows no card crumb in Info when the object has no card', () => {
     const { dv, panel } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100'), panel); // no cardRid
+    clickSegment(panel, 'Info');
     expect(panel.querySelector('.pane-card-crumb')).toBeFalsy();
   });
 
@@ -224,36 +274,38 @@ describe('DetailView — fetch flow', () => {
   });
 });
 
-describe('DetailView — edit + save', () => {
-  it('editing a property accumulates a draft and shows the action bar', () => {
+describe('DetailView — draft save pipeline (editors live in Blueprint now)', () => {
+  it('a pending draft shows the floating action bar with the pending count', () => {
     const { dv, panel } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100'), panel);
 
     expect(panel.querySelector('.pane-actionbar')).toBeFalsy();
-    const widthInput = panel.querySelector<HTMLInputElement>('.prop-number-input')!;
-    widthInput.value = '320';
-    widthInput.dispatchEvent(new Event('input', { bubbles: true }));
+    seedDraft(dv, panel, { width: '320' });
 
     const bar = panel.querySelector('.pane-actionbar');
     expect(bar).toBeTruthy();
+    expect(bar!.classList.contains('pane-action-bar--floating')).toBe(true);
     expect(bar?.textContent).toMatch(/1.*pending/);
+    expect(dv.isDirty()).toBe(true);
   });
 
-  it('typing back the original value clears the draft', () => {
+  it('Discard + modal confirm clears the draft and hides the action bar', async () => {
     const { dv, panel } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100'), panel);
 
-    const input1 = panel.querySelector<HTMLInputElement>('.prop-number-input')!;
-    input1.value = '500';
-    input1.dispatchEvent(new Event('input', { bubbles: true }));
+    seedDraft(dv, panel, { width: '500' });
     expect(panel.querySelector('.pane-actionbar')).toBeTruthy();
 
-    const input2 = panel.querySelector<HTMLInputElement>('.prop-number-input')!;
-    input2.value = '200';
-    input2.dispatchEvent(new Event('input', { bubbles: true }));
+    panel.querySelector<HTMLButtonElement>('.pane-actionbar .btn:not(.btn-success)')!.click();
+    await new Promise(r => setTimeout(r, 0));
+    document.querySelector<HTMLButtonElement>('.crev-modal .btn-danger')!.click();
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
     expect(panel.querySelector('.pane-actionbar')).toBeFalsy();
+    expect(dv.isDirty()).toBe(false);
   });
 
   it('Save click + modal confirm emits APPLY_OBJECT_CHANGES with typed values', async () => {
@@ -261,9 +313,7 @@ describe('DetailView — edit + save', () => {
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100'), panel);
 
-    const widthInput = panel.querySelector<HTMLInputElement>('.prop-number-input')!;
-    widthInput.value = '320';
-    widthInput.dispatchEvent(new Event('input', { bubbles: true }));
+    seedDraft(dv, panel, { width: '320' });
 
     const saveBtn = panel.querySelector<HTMLButtonElement>('.pane-actionbar .btn-success')!;
     saveBtn.click();
@@ -290,14 +340,13 @@ describe('DetailView — edit + save', () => {
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100'), panel);
 
-    const w = panel.querySelector<HTMLInputElement>('.prop-number-input')!;
-    w.value = '320';
-    w.dispatchEvent(new Event('input', { bubbles: true }));
+    seedDraft(dv, panel, { width: '320' });
 
     sent.length = 0;
     dv.handleMessage({ type: 'APPLY_CHANGES_RESULT', rid: '100', ok: true }, panel);
 
     expect(sent.find(m => m.type === 'FETCH_OBJECT_PANE' && (m as { rid: string }).rid === '100')).toBeTruthy();
+    expect(dv.isDirty()).toBe(false); // draft cleared on success
   });
 
   it('APPLY_CHANGES_RESULT ok=true shows a Reload toast that sends RELOAD_BMP_TAB', () => {
@@ -305,9 +354,7 @@ describe('DetailView — edit + save', () => {
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100'), panel);
 
-    const w = panel.querySelector<HTMLInputElement>('.prop-number-input')!;
-    w.value = '320';
-    w.dispatchEvent(new Event('input', { bubbles: true }));
+    seedDraft(dv, panel, { width: '320' });
 
     sent.length = 0;
     dv.handleMessage({ type: 'APPLY_CHANGES_RESULT', rid: '100', ok: true }, panel);
@@ -328,16 +375,13 @@ describe('DetailView — edit + save', () => {
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100'), panel);
 
-    const w = panel.querySelector<HTMLInputElement>('.prop-number-input')!;
-    w.value = '320';
-    w.dispatchEvent(new Event('input', { bubbles: true }));
+    seedDraft(dv, panel, { width: '320' });
 
     dv.handleMessage({ type: 'APPLY_CHANGES_RESULT', rid: '100', ok: false, error: 'BMP is grumpy' }, panel);
 
     const bar = panel.querySelector('.pane-actionbar');
     expect(bar?.textContent).toContain('BMP is grumpy');
-    const after = panel.querySelector<HTMLInputElement>('.prop-number-input')!;
-    expect(after.value).toBe('320');
+    expect(dv.isDirty()).toBe(true); // draft survives a failed save
   });
 });
 
@@ -351,8 +395,8 @@ describe('DetailView — target toggle', () => {
     expect(tmpl.disabled).toBe(true);
   });
 
-  it('switching to template renders template values', () => {
-    const { dv, panel } = makeDetailView();
+  it('switching to template activates it and saves target the template', async () => {
+    const { dv, panel, sent } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100', {
       templateRid: '99',
@@ -364,13 +408,25 @@ describe('DetailView — target toggle', () => {
     expect(tmplBtn.disabled).toBe(false);
     tmplBtn.click();
 
-    const widthInput = panel.querySelector<HTMLInputElement>('.prop-number-input')!;
-    expect(widthInput.value).toBe('180');
+    // Values no longer render here (editors moved to Blueprint) — the toggle
+    // shows as active and steers the save target instead.
+    const active = panel.querySelector<HTMLButtonElement>('.pane-target-btn.active')!;
+    expect(active.textContent).toBe('template');
+
+    seedDraft(dv, panel, { width: '320' });
+    panel.querySelector<HTMLButtonElement>('.pane-actionbar .btn-success')!.click();
+    await new Promise(r => setTimeout(r, 0));
+    document.querySelector<HTMLButtonElement>('.crev-modal .btn-success')!.click();
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    const applied = sent.find(m => m.type === 'APPLY_OBJECT_CHANGES') as { target?: string } | undefined;
+    expect(applied?.target).toBe('template');
   });
 });
 
 describe('DetailView — tree navigation', () => {
-  it('renders siblings and emits FETCH_OBJECT_PANE on click', () => {
+  it('the Structure segment renders siblings and emits FETCH_OBJECT_PANE on click', () => {
     const { dv, panel, sent } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100', {
@@ -378,21 +434,25 @@ describe('DetailView — tree navigation', () => {
       siblings: [{ rid: '100', isCurrent: true }, { rid: '101', isCurrent: false }],
     }), panel);
 
+    // The local tree lives in the Structure segment now.
+    clickSegment(panel, 'Structure');
     sent.length = 0;
-    const sibling = panel.querySelector<HTMLElement>('[data-rid="101"]')!;
+    const sibling = panel.querySelector<HTMLElement>('.pane-tree-row[data-rid="101"]')!;
     expect(sibling).toBeTruthy();
     sibling.click();
 
     expect(sent.find(m => m.type === 'FETCH_OBJECT_PANE' && (m as { rid: string }).rid === '101')).toBeTruthy();
   });
 
-  it('clicking the parent breadcrumb navigates to the parent', () => {
+  it('clicking the parent crumb in the path bar navigates to the parent', () => {
     const { dv, panel, sent } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100', { parentRid: '50' }), panel);
 
     sent.length = 0;
-    const crumb = panel.querySelector<HTMLElement>('.pane-tree-crumb[data-rid="50"]')!;
+    const crumb = panel.querySelector<HTMLElement>('.dv-path .dv-crumb')!;
+    expect(crumb).toBeTruthy();
+    expect(crumb.textContent).toBe('Parent');
     crumb.click();
 
     expect(sent.find(m => m.type === 'FETCH_OBJECT_PANE' && (m as { rid: string }).rid === '50')).toBeTruthy();
@@ -434,7 +494,7 @@ describe('DetailView — Connections (relationships)', () => {
     expect(conn!.textContent).toContain('WAF control'); // junction far side inlined
   });
 
-  it('renders the lazy inbound scan button and fires FETCH_INBOUND on click', () => {
+  it('renders the lazy inbound scan icon in the head and fires FETCH_INBOUND on click', () => {
     const { dv, panel, sent } = makeDetailView();
     dv.show(makeObj('100', { type: 'CeRiskAssessment' }), panel);
     dv.handleMessage(domainPane('100'), panel);
@@ -444,7 +504,7 @@ describe('DetailView — Connections (relationships)', () => {
         { rid: '5', name: 'Alice', type: 'User', businessId: 'u_alice' },
       ] }],
     } as InspectorMessage, panel);
-    const scan = panel.querySelector<HTMLElement>('.lk-scan-btn');
+    const scan = panel.querySelector<HTMLElement>('.lk-head .lk-scan-ic');
     expect(scan).toBeTruthy();
     scan!.click();
     expect(sent.find(m => m.type === 'FETCH_INBOUND' && (m as { rid: string }).rid === '100')).toBeTruthy();

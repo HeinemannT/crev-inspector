@@ -45,7 +45,7 @@ const demo = (): LModel => ({
  */
 const GOLDEN = [
   '_sc := t.4957',
-  '_n0 := t.4904.add(Container, name := "New Box", columnsLargeScreen := 2) // BMP assigns id',
+  '_n0 := t.4904.add(Container, name := "Col 2", columnsLargeScreen := 2) // BMP assigns id',
   '_n1 := _sc.add(PieChart, name := "New PieChart", container := _n0, columnsLargeScreen := 6, chartHeight := 200) // BMP assigns id',
   '_n2 := _sc.add(TextElement, name := "New TextElement", container := t.4904, columnsLargeScreen := 6) // BMP assigns id',
   't.4964.change(columnsLargeScreen := 6)',

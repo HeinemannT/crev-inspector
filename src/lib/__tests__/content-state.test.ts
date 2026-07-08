@@ -30,32 +30,20 @@ describe('ContentState', () => {
     expect(s.observer).toBeNull();
     expect(s.tooltipHideTimer).toBeNull();
     expect(s.debounceTimer).toBeNull();
-    expect(s.labelClickTimer).toBeNull();
     expect(s.hoveredLabelEl).toBeNull();
-    expect(s.labelClickRid).toBeNull();
   });
 
   describe('resetOverlays', () => {
     it('clears overlay-related state', () => {
       s.requestedRids.add('rid1');
       s.overlayProps.set('rid1', { foo: 'bar' });
-      s.labelClickRid = 'rid1';
       s.hoveredLabelEl = {} as Element;
 
       s.resetOverlays();
 
       expect(s.requestedRids.size).toBe(0);
       expect(s.overlayProps.size).toBe(0);
-      expect(s.labelClickRid).toBeNull();
       expect(s.hoveredLabelEl).toBeNull();
-    });
-
-    it('clears labelClickTimer if active', () => {
-      vi.useFakeTimers();
-      s.labelClickTimer = setTimeout(() => {}, 1000);
-      s.resetOverlays();
-      expect(s.labelClickTimer).toBeNull();
-      vi.useRealTimers();
     });
 
     it('does not clear enrichments or discoveredRids', () => {
@@ -114,14 +102,12 @@ describe('ContentState', () => {
       vi.useFakeTimers();
       s.debounceTimer = setTimeout(() => {}, 1000);
       s.tooltipHideTimer = setTimeout(() => {}, 1000);
-      s.labelClickTimer = setTimeout(() => {}, 1000);
 
       s.resetAll();
 
       expect(s.debounceTimer).toBeNull();
       expect(s.tooltipHideTimer).toBeNull();
-      expect(s.labelClickTimer).toBeNull();
-      vi.useRealTimers();
+        vi.useRealTimers();
     });
 
     it('disconnects observer', () => {

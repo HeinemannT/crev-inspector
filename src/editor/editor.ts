@@ -14,7 +14,8 @@ import { KBD_MOD } from '../editor-core/platform'
 import { closeOverlayKeyBinding, installDirtyGuards } from '../editor-core/overlay'
 
 // Shared types + context helpers
-import { type SaveTarget, type ScriptHistoryEntry, getTypeAbbr, getTypeColor } from '../lib/types'
+import { type SaveTarget, type ScriptHistoryEntry, getTypeColor } from '../lib/types'
+import { typeBadge, wireBadgeCopy } from '../lib/type-badge'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { captureTypingFocus } from '../lib/focus-keep'
 import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_CODE, ICON_CHEVRON, ICON_WARNING } from '../lib/icons'
@@ -139,6 +140,8 @@ const activeKey = (): string => ctx?.extended ? 'extended' : slotKey(ctx?.saveTa
 function langFor(prop: string, extended: boolean): SlotLang {
   if (extended || prop === 'expression') return 'ec'
   if (prop === 'html' || prop === 'javascript' || prop === 'css') return prop
+  // TextElement's html-bearing bodies (BMP sanitizes them server-side on save)
+  if (prop === 'text' || prop === 'longText') return 'html'
   return 'plain'
 }
 /** Dirty state of the active slot (drives Save/Discard); anyDirty spans all
@@ -355,7 +358,6 @@ function renderShell() {
   const activeCode = getActiveCode(ctx)
   const propKeys = Object.keys(activeCode)
   const identity = isExtended ? ctx.instance : getActiveIdentity(ctx)
-  const typeAbbr = getTypeAbbr(identity.type)
   const typeColor = getTypeColor(identity.type)
   const bid = identity.businessId || identity.rid
 
@@ -363,7 +365,9 @@ function renderShell() {
   const headerChildren: (HTMLElement | string | false)[] = []
   if (isExtended) {
     headerChildren.push(
-      h('span', { class: 'editor-id-chip', style: `--type-color:${typeColor}` }, 'EC'),
+      identity.type
+        ? wireBadgeCopy(typeBadge(identity.type, { size: 'xs' }), () => bid)
+        : h('span', { class: 'editor-id-chip', style: `--type-color:${typeColor}` }, 'EC'),
       h('span', { class: 'editor-id-name' }, identity.name || 'Extended Code'),
       identity.businessId && h('span', { class: 'editor-id-bid' }, identity.businessId),
     )
@@ -374,7 +378,7 @@ function renderShell() {
     // chip in the identity row; tooltip is just "context".
     const exec = ctx.executionContext
     headerChildren.push(
-      h('span', { class: 'editor-id-chip', style: `--type-color:${typeColor}`, title: identity.type || '' }, typeAbbr),
+      wireBadgeCopy(typeBadge(identity.type, { size: 'xs' }), () => bid),
       // Identity name doubles as a "show me in BMP" link: clicking
       // posts BMP_GOTO via the SW so the user's BMP tab navigates to
       // this object without an alt-tab + click chase.

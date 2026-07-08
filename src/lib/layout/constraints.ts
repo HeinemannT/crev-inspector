@@ -25,6 +25,7 @@
  *   ✓ delete                                  delete()  (re-home first)
  */
 import type { Guard, LintMsg, LModel, LNode, PlanStep, SaveTarget } from './types';
+import { descendantWidgets, descendantVisibleWidgets } from './model';
 
 /** Composite widgets that hold children via `<composite>.add(child)` — NOT the `container :=` binding
  *  a normal widget uses. (Verified live: a child binds to its ButtonContainer parent, not a cell.)
@@ -47,11 +48,13 @@ const ok: Guard = { ok: true, level: 'ok' };
 const warn = (reason: string): Guard => ({ ok: true, level: 'warn', reason });
 const info = (reason: string): Guard => ({ ok: true, level: 'info', reason });
 
-/** A tab only appears in the page's tab strip once a widget resolves to it; an empty tab is
- *  invisible on the page even though the Tab object exists. */
+/** A tab only appears on the page once a VISIBLE widget resolves to it. Two ways it can be
+ *  invisible even though the Tab object exists: no widgets at all, or every widget hidden
+ *  (noVisible / hidden on all sizes) — BMP hides the tab in both cases (verified live). */
 export function checkTabVisibility(tab: LNode): Guard {
-  const hasWidget = (n: LNode): boolean => n.children.some(c => c.kind === 'widget' || hasWidget(c));
-  return hasWidget(tab) ? ok : warn('this tab has no widgets, so it will not appear on the page until you add one');
+  if (descendantWidgets(tab).length === 0) return warn('this tab has no widgets, so it will not appear on the page until you add one');
+  if (descendantVisibleWidgets(tab).length === 0) return warn('every widget on this tab is hidden, so BMP hides the tab until one is shown');
+  return ok;
 }
 
 /** Structural add/delete on a single instance is verified to work (live add+delete on demo scorecard
@@ -71,9 +74,28 @@ export function checkStructuralTarget(target: SaveTarget, op: 'add' | 'delete'):
  *  separately by the modal. */
 export function lint(m: LModel, target: SaveTarget, plan: PlanStep[]): LintMsg[] {
   const out: LintMsg[] = [];
-  for (const tab of m.tabs) {
-    const v = checkTabVisibility(tab);
-    if (v.level === 'warn' && v.reason) out.push({ level: 'warn', text: `Tab "${tab.name}": ${v.reason}` });
+  // Tabs BMP hides on the page — normal on shared tabsets, so a neutral scope note, not a
+  // warning. Two distinct causes, two distinct fixes (add a widget vs un-hide one), so they
+  // get separate lines. ONE line per group with the count, not one per tab.
+  const names = (tabs: LNode[]) => tabs.slice(0, 3).map(t => `"${t.name}"`).join(', ')
+    + (tabs.length > 3 ? `, +${tabs.length - 3} more` : '');
+  const emptyTabs = m.tabs.filter(t => descendantWidgets(t).length === 0);
+  const allHiddenTabs = m.tabs.filter(t => descendantWidgets(t).length > 0 && descendantVisibleWidgets(t).length === 0);
+  if (emptyTabs.length > 0) {
+    out.push({
+      level: 'info',
+      text: emptyTabs.length === 1
+        ? `1 tab (${names(emptyTabs)}) holds no widgets on this page, so BMP hides it until a widget is added.`
+        : `${emptyTabs.length} tabs (${names(emptyTabs)}) hold no widgets on this page, so BMP hides them until a widget is added.`,
+    });
+  }
+  if (allHiddenTabs.length > 0) {
+    out.push({
+      level: 'info',
+      text: allHiddenTabs.length === 1
+        ? `1 tab (${names(allHiddenTabs)}) has only hidden widgets, so BMP hides it until a widget is shown.`
+        : `${allHiddenTabs.length} tabs (${names(allHiddenTabs)}) have only hidden widgets, so BMP hides them until a widget is shown.`,
+    });
   }
   // A structural add or delete on an instance carries the same scope note once (not per-step).
   const structuralOp = plan.some(s => s.kind === 'create') ? 'add' : plan.some(s => s.kind === 'delete') ? 'delete' : null;

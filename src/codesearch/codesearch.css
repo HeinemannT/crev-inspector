@@ -24,27 +24,6 @@ body {
   overflow: hidden;
 }
 
-/* ── Header ──────────────────────────────────────────────────── */
-
-.cs-header {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex-shrink: 0;
-}
-.cs-title {
-  font-family: var(--font-display, var(--font-body));
-  font-size: 16px;
-  font-weight: var(--weight-semi);
-  letter-spacing: -0.01em;
-  color: var(--text-1);
-  margin: 0;
-}
-.cs-subtitle {
-  font-size: var(--text-xs);
-  color: var(--text-3);
-}
-
 /* ── Toolbar (search shell + pills) ──────────────────────────── */
 
 .cs-toolbar {
@@ -84,7 +63,7 @@ body {
 }
 .cs-search-icon {
   color: var(--text-3);
-  font-size: 16px;
+  font-size: var(--text-lg);
   line-height: 1;
   flex-shrink: 0;
   display: inline-flex;
@@ -121,7 +100,7 @@ body {
 .cs-search-stop {
   padding: 4px 12px;
   background: var(--danger);
-  color: #fff;
+  color: var(--text-on-color, #fff);
   border: none;
   border-radius: var(--radius-sm);
   font-family: var(--font-body);
@@ -135,7 +114,7 @@ body {
 .cs-search-go {
   padding: 4px 14px;
   background: var(--accent);
-  color: #fff;
+  color: var(--text-on-color, #fff);
   border: none;
   border-radius: var(--radius-sm);
   font-family: var(--font-body);
@@ -353,7 +332,7 @@ body {
 }
 .cs-error-icon {
   color: var(--danger);
-  font-size: 14px;
+  font-size: var(--text-lg);
   flex-shrink: 0;
 }
 .cs-error-text { flex: 1; min-width: 0; }
@@ -455,201 +434,6 @@ body {
   gap: 4px;
   padding-right: 4px;
 }
-/* ── Type sections ───────────────────────────────────────────── */
-/* Top level grouping in the results list — one section per BMP type.
- * Sections live directly inside `.cs-results`; per-object groups
- * nest inside `.cs-section-body`. */
-
-.cs-section {
-  /* Locked to natural height so the scrolling parent (`.cs-results`)
-   * doesn't compress sections when the list overflows. */
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 4px;
-}
-.cs-section-header {
-  all: unset;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  cursor: pointer;
-  background: var(--surface-2);
-  border: 1px solid var(--surface-3);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  color: var(--text-1);
-  font-weight: var(--weight-semi);
-  transition: background 100ms ease, border-color 100ms ease;
-}
-.cs-section-header:hover { background: var(--surface-3); }
-.cs-section-header.expanded {
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
-  border-bottom-color: transparent;
-}
-.cs-section-chev {
-  width: 12px;
-  color: var(--text-3);
-  font-size: var(--text-sm);
-  flex-shrink: 0;
-}
-.cs-section-type {
-  font-family: var(--font-body);
-  font-weight: var(--weight-semi);
-  letter-spacing: -0.005em;
-}
-.cs-section-counts {
-  margin-left: auto;
-  font-size: var(--text-xs);
-  color: var(--text-2);
-  font-weight: var(--weight-medium);
-}
-.cs-section-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 6px 6px;
-  background: var(--surface-1);
-  border: 1px solid var(--surface-3);
-  border-top: none;
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
-}
-
-.cs-result-group {
-  /* Locked to natural height inside the section body — same reasoning
-   * as `.cs-section`. */
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface-0);
-  border: 1px solid var(--surface-3);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-}
-.cs-result-header {
-  all: unset;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-  color: var(--text-1);
-  transition: background 100ms ease;
-  /* Allow drag-selecting the name/id even if an ancestor disables selection. */
-  user-select: text;
-}
-.cs-result-header:hover { background: var(--surface-2); }
-.cs-result-header.expanded { background: var(--surface-2); border-bottom: 1px solid var(--surface-3); }
-.cs-result-chev {
-  width: 12px;
-  color: var(--text-3);
-  font-size: var(--text-sm);
-  flex-shrink: 0;
-}
-.cs-type-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: 9px;
-  background: var(--type-color, var(--text-2));
-  color: #fff;
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  font-weight: var(--weight-bold);
-  flex-shrink: 0;
-}
-/* Name + id are two equal columns at the same hierarchy; both selectable
- * (the header is a div, not a button, so drag-select works — a plain click
- * still toggles). */
-.cs-result-name {
-  flex: 1 1 0;
-  min-width: 0;
-  font-weight: var(--weight-semi);
-  font-size: var(--text-sm);
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  user-select: text;
-}
-.cs-result-id {
-  flex: 1 1 0;
-  min-width: 0;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  font-size: var(--text-sm);
-  overflow: hidden;
-  white-space: nowrap;
-  user-select: text;
-}
-.cs-result-id-label {
-  flex-shrink: 0;
-  font-size: var(--text-xs);
-  color: var(--text-3);
-  user-select: none;
-}
-.cs-result-id-val {
-  font-family: var(--font-mono);
-  color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  user-select: text;
-}
-.cs-result-count {
-  font-size: var(--text-xs);
-  color: var(--text-2);
-  background: var(--surface-3);
-  padding: 2px 8px;
-  border-radius: 10px;
-  flex-shrink: 0;
-}
-.cs-result-open {
-  all: unset;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-3);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  flex-shrink: 0;
-  transition: background 100ms ease, color 100ms ease;
-}
-.cs-result-open:hover { background: var(--surface-3); color: var(--accent); }
-
-.cs-result-prop {
-  padding: 6px 12px 2px 32px;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-2);
-  font-weight: var(--weight-semi);
-}
-.cs-match-line {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 2px 12px 2px 32px;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-1);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: background 100ms ease;
-}
-.cs-match-line:hover { background: var(--surface-3); }
-.cs-line-num {
-  flex-shrink: 0;
-  width: 36px;
-  text-align: right;
-  color: var(--text-3);
-  font-size: var(--text-2xs);
-  user-select: none;
-}
 .cs-line-text {
   flex: 1;
   white-space: pre-wrap;
@@ -704,12 +488,143 @@ body {
 .cs-scope-feedback > svg { width: 12px; height: 12px; flex-shrink: 0; }
 .cs-bulk-btn { display: inline-flex; align-items: center; gap: 4px; }
 .cs-bulk-btn svg { width: 12px; height: 12px; }
-.cs-bulk-chev { display: inline-flex; align-items: center; }
-.cs-bulk-chev svg { width: 11px; height: 11px; }
-.cs-bulk-chev--down svg { transform: rotate(90deg); }
-.cs-section-chev,
-.cs-result-chev { display: inline-flex; align-items: center; justify-content: center; }
-.cs-section-chev svg,
-.cs-result-chev svg { width: 11px; height: 11px; transition: transform 0.12s ease; }
-.cs-section-chev.is-open svg,
-.cs-result-chev.is-open svg { transform: rotate(90deg); }
+
+/* ── Split browser (C2 sign-off): rail of hit objects + full-code preview ── */
+.csx-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  border-top: 1px solid var(--surface-3);
+}
+.csx-rail {
+  width: 232px;
+  flex: none;
+  overflow-y: auto;
+  border-right: 1px solid var(--surface-3);
+}
+.csx-rrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--surface-2);
+  cursor: pointer;
+}
+.csx-rrow:hover { background: var(--surface-2); }
+.csx-rrow.on { background: var(--accent-bg); box-shadow: inset 2px 0 0 var(--accent); }
+.csx-rrow:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.csx-rid {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.csx-rcount { flex: none; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-3); }
+.csx-rail-note { padding: 8px 10px; font-size: var(--text-2xs); color: var(--text-3); }
+
+.csx-prev { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.csx-phead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--surface-3);
+}
+.csx-pname { font-size: var(--text-sm); font-weight: var(--weight-semi); color: var(--text-1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.csx-pprop { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-3); flex: none; }
+.csx-psp { flex: 1; }
+.csx-nav {
+  width: 24px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--surface-3); background: var(--surface-1);
+  color: var(--text-2); font-size: var(--text-lg); line-height: 1; cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.csx-nav:hover { color: var(--accent); border-color: var(--accent); }
+.csx-navpos { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-3); flex: none; }
+.csx-act {
+  border: none; background: none; padding: 2px 6px;
+  font-size: var(--text-xs); font-weight: var(--weight-semi);
+  color: var(--accent); cursor: pointer; flex: none;
+}
+.csx-act:hover { text-decoration: underline; }
+
+.csx-code {
+  flex: 1;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.75;
+  padding: 6px 0 12px;
+}
+.csx-cl { display: flex; min-width: 0; cursor: pointer; }
+.csx-cl:hover { background: var(--surface-1); }
+.csx-ln {
+  width: 46px; flex: none;
+  text-align: right; padding-right: 12px;
+  color: var(--text-3); font-size: var(--text-2xs);
+  user-select: none;
+}
+.csx-cl .cs-line-text { flex: 1; white-space: pre; }
+.csx-cl.hit { background: color-mix(in srgb, var(--warning) 10%, transparent); }
+.csx-cl.hit .csx-ln { color: var(--warning); }
+.csx-cl.cur { background: color-mix(in srgb, var(--warning) 22%, transparent); }
+.csx-loading { padding: 10px 14px; font-size: var(--text-xs); color: var(--text-3); }
+
+/* Pill counts — live match breakdown per type group. */
+.cs-pill-count { margin-left: 5px; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-3); font-weight: var(--weight-normal); }
+.cs-pill.active .cs-pill-count { color: inherit; opacity: .8; }
+
+/* ── Stub type badge (shared signature element; token-driven so it adapts
+   to this window's dark theme). Mirrors sidepanel.css .bdg. ── */
+.bdg {
+  display: inline-flex;
+  align-items: stretch;
+  flex: none;
+  height: 20px;
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  line-height: 1;
+  color: var(--text-1);
+}
+.bdg .tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  background: var(--c, var(--surface-4));
+  color: var(--text-on-color, #fff);
+}
+.bdg .tile svg { width: 12px; height: 12px; display: block; }
+.bdg .lbl {
+  display: flex;
+  align-items: center;
+  padding: 0 7px;
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+.bdg.xs { height: 18px; }
+.bdg.xs .tile { padding: 0 4px; }
+.bdg.xs .tile svg { width: 11px; height: 11px; }
+.bdg.xs .lbl { padding: 0 6px; }
+
+/* Object-view button: icon form of .csx-act. */
+.csx-act--ov { display: inline-flex; align-items: center; padding: 2px 5px; }
+.csx-act--ov svg { width: 13px; height: 13px; }
+.csx-act--ov:hover { text-decoration: none; background: var(--surface-1); }
+
+.bdg-copy { cursor: pointer; }
+.bdg.bdg-copied .tile { background: var(--success) !important; }
+.bdg.bdg-copied .lbl {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
+}

@@ -106,6 +106,20 @@ describe('sync.buildFetchEc', () => {
     expect(map.get('w2')).toEqual({ shadow: false, borderStyle: 'NONE', transparency: 0 });
     expect(parseFetchLog(log).map(n => n.businessId)).toEqual(['w1']); // layout parser ignores STY lines
   });
+  it('parses the widget flags: visibility enum (normalised) + tools/search + shownOn trio', () => {
+    // Empty fields = the type lacks the trait (the UI gate); BMP stringifies the
+    // enum as "Visibillity.novisible" → enumMember → NOVISIBLE.
+    const log = `<<<CREV_STY>>>w1|||||NONE|0|Visibillity.novisible|true|false|false|true|false\n`
+      + `<<<CREV_STY>>>w2|||||NONE|0||||||\n`;
+    const map = parseStyles(log);
+    expect(map.get('w1')).toEqual({
+      borderStyle: 'NONE', transparency: 0,
+      visibility: 'NOVISIBLE', showToolMenu: true, disableSearch: false,
+      shownOnLargeDisplay: false, shownOnMediumDisplay: true, shownOnSmallDisplay: false,
+    });
+    // w2 carries none of the flags → none of the fields exist (trait absent).
+    expect(map.get('w2')).toEqual({ borderStyle: 'NONE', transparency: 0 });
+  });
   it('resultOnly: emits the Result tab + org widgets only — NOT default_tabset\'s shared scaffold', () => {
     const ec = buildFetchEc({ ...CTX, resultOnly: true });
     expect(ec).toContain('_res := t.RESULT');          // the Result tab node...
@@ -372,11 +386,13 @@ describe('sync.resolvePageContext (blast radius)', () => {
 });
 
 describe('sync.buildCreateTabsetEc', () => {
-  it('creates portal → Category → TabSet → Tab and rebinds only RESULT widgets', () => {
-    const ec = buildCreateTabsetEc('451704949656267090', 'Risk page layout');
+  it('creates a BARE portal TabSet → Tab (no Category) and rebinds only RESULT widgets', () => {
+    const ec = buildCreateTabsetEc('451704949656267090');
     expect(ec).toContain('_sc := lookup(451704949656267090)');
-    expect(ec).toContain('root.portal.add(Category, name := "Risk page layout")');
-    expect(ec).toContain('_cat.add(TabSet, name := "Risk page layout")');
+    // TabSet lives bare under portal root — no wrapper Category (a page's strip is the union of tabs
+    // its widgets bind into, so it renders without one; verified live 2026-07-07).
+    expect(ec).toContain('root.portal.add(TabSet, name := "» New " + _sc.name.whenMissing("Page") + " TabSet")');
+    expect(ec).not.toContain('root.portal.add(Category');
     expect(ec).toContain('_ts.add(Tab, name := "Main"');
     // only widgets currently on RESULT are moved
     expect(ec).toContain('IF _wc = "RESULT" THEN');
@@ -384,11 +400,10 @@ describe('sync.buildCreateTabsetEc', () => {
     // emits tsId|tabId|movedCount for the caller
     expect(ec).toContain('_ts.id + "|" + _tab.id + "|" + output(_n)');
   });
-  it('escapes a hostile name into the EC string slot (no breakout)', () => {
-    const ec = buildCreateTabsetEc('1', 'evil") + lookup(1).delete() + ("');
-    // every " in the name is escaped to \", so the injection stays inert inside the string literal —
-    // the un-escaped breakout form never appears.
-    expect(ec).not.toContain('"evil") +');
-    expect(ec).toContain('evil\\")');
+  it('derives the name from the scorecard in-EC, so there is no name-injection surface', () => {
+    const ec = buildCreateTabsetEc('1');
+    // the ONLY source of the name is the live object's own `.name` value — nothing is interpolated
+    // from caller input, so the old string-breakout attack surface is gone entirely.
+    expect(ec).toContain('name := "» New " + _sc.name.whenMissing("Page") + " TabSet"');
   });
 });

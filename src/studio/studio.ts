@@ -1,7 +1,9 @@
 /**
- * CVO Studio — privileged page (mounted as an in-page overlay iframe, same
- * path as the EC editor). Owns the editor + panels and relays between the
- * sandbox (which runs the CVO) and the service worker (which talks to BMP).
+ * Studio — privileged page (mounted as an in-page overlay iframe, same
+ * path as the EC editor). A mode-driven shell (see studio-mode.ts): the CVO
+ * mode owns the sandbox relay + `_data` machinery; the TextElement mode edits
+ * the two HTML bodies with a static preview. Everything below branches on the
+ * mode's capabilities, never on the object type directly.
  *
  * Keystone scope (Phase 1): open a CustomVisualization's html + javascript as
  * files, edit with real syntax, and see it render live in the sandbox against a
@@ -25,11 +27,13 @@ import { KBD_MOD } from '../editor-core/platform'
 import { closeOverlayKeyBinding, installDirtyGuards } from '../editor-core/overlay'
 import { detectFileResourceRids, detectCdnUrls } from './dep-detect'
 import { h, svg, render as renderDom } from '../lib/dom'
+import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
 import { sendRequest } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
-import { getTypeAbbr, getTypeColor, type StudioChild, type StudioChildType } from '../lib/types'
-import { ICON_PLAY, ICON_REFRESH, ICON_FILE_HTML, ICON_FILE_JS, ICON_CHECK, ICON_X, ICON_WARNING, ICON_WRAP, ICON_BRACKETS } from '../lib/icons'
+import { type StudioChild, type StudioChildType } from '../lib/types'
+import { ICON_PLAY, ICON_REFRESH, ICON_CHECK, ICON_X, ICON_WARNING, ICON_WRAP, ICON_BRACKETS } from '../lib/icons'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
+import { STUDIO_MODES, type StudioMode, type StudioFile } from './studio-mode'
 import { isCvoSandboxOutbound, type CvoRenderRequest, type CvoConsoleLevel, type CvoLib } from './cvo-protocol'
 import { StudioConsole } from './studio-console'
 import { syntaxErrorLinter, makeCvoApiSource } from './studio-editor-ext'
@@ -38,15 +42,20 @@ import { showStudioHelp } from './studio-help'
 import { reconcileSavedSlots } from './studio-save'
 import { makeDataHover } from './data-hover'
 
-const CODE_PROPS: readonly StudioCodeProp[] = ['html', 'javascript']
 const PREVIEW_DEBOUNCE_MS = 400
 
 // ── State ────────────────────────────────────────────────────────
 let ctx: StudioContext | null = null
+/** The active mode — set once in init() from ctx.mode; every capability
+ *  branch below reads this, never the object type. */
+let mode: StudioMode = STUDIO_MODES.cvo
+const codeProps = (): readonly StudioCodeProp[] => mode.files.map(f => f.prop)
+const fileFor = (prop: StudioCodeProp): StudioFile =>
+  mode.files.find(f => f.prop === prop) ?? mode.files[0]
 /** Shared multi-slot editing engine (html + javascript slots). Owns the view,
  *  per-slot dirty, stash/restore, and save/discard baselines. */
 let surface: CodeSurface | null = null
-let activeProp: StudioCodeProp = 'html'
+let activeProp: StudioCodeProp = 'html' // re-seeded in init() from the mode
 // Pane layout: editor only / both / preview only — one control, one enum
 // (replaces the old show-preview + maximize booleans). 'code' has no preview
 // pane (so toggling to/from it rebuilds the shell + remounts the iframe);
@@ -156,23 +165,24 @@ async function init() {
     const result = await chrome.storage.local.get([key])
     ctx = (result[key] as StudioContext | null) ?? null
   } catch {
-    renderDom(root, h('div', { class: 'studio-loading' }, 'Failed to load CVO context'))
+    renderDom(root, h('div', { class: 'studio-loading' }, 'Failed to load studio context'))
     return
   }
   if (!ctx) {
-    renderDom(root, h('div', { class: 'studio-loading' }, 'No CVO context found'))
+    renderDom(root, h('div', { class: 'studio-loading' }, 'No studio context found'))
     return
   }
 
-  activeProp = ctx.property ?? 'html'
+  mode = STUDIO_MODES[ctx.mode] ?? STUDIO_MODES.cvo
+  activeProp = ctx.property && codeProps().includes(ctx.property) ? ctx.property : codeProps()[0]
   renderContextRid = ctx.renderContextRid ?? ''
   renderContextRef = renderContextRid
-  document.title = ctx.instance.name ? `CVO · ${ctx.instance.name}` : 'CVO Studio'
+  document.title = ctx.instance.name ? `${mode.title} · ${ctx.instance.name}` : mode.title
 
   renderShell()
   ensureSurface()
   schedulePreview()
-  fetchChildren()
+  if (mode.hasSandbox) fetchChildren()
 }
 
 /** Create the editing surface (once) with the html + javascript slots, or
@@ -210,7 +220,7 @@ function ensureSurface() {
     onDirtyChange: () => { refreshActions(); updateFileSwitch() },
   })
   const code = activeCode()
-  surface.setSlots(CODE_PROPS.map(p => ({ key: p, lang: p, code: code[p] ?? '' })))
+  surface.setSlots(mode.files.map(f => ({ key: f.prop, lang: f.lang, code: code[f.prop] ?? '' })))
   surface.activate(activeProp)
 }
 
@@ -236,8 +246,8 @@ function renderShell() {
   renderDom(root,
     h('div', { class: 'studio-header' },
       h('div', { class: 'studio-id' },
-        h('span', { class: 'studio-id-icon', title: 'CVO studio: HTML + JavaScript' }, svg(ICON_FILE_JS)),
-        h('span', { class: 'studio-id-chip', style: `--type-color:${getTypeColor(id.type)}`, title: id.type || '' }, getTypeAbbr(id.type)),
+        h('span', { class: 'studio-id-icon', title: `${mode.title}: ${mode.files.map(f => f.label).join(' + ')}` }, svg(mode.files[mode.files.length - 1].icon)),
+        wireBadgeCopy(typeBadge(id.type, { size: 'xs' }), () => id.businessId || id.rid),
         h('span', { class: 'studio-id-name' }, id.name || '(unnamed)'),
         h('span', { class: 'studio-id-bid' }, id.businessId || id.rid),
       ),
@@ -328,7 +338,12 @@ function startDrag(e: PointerEvent, handle: HTMLElement, axis: 'col' | 'row', on
 
 function ensureSandboxFrame(): HTMLIFrameElement {
   if (!sandboxFrame) {
-    sandboxFrame = h('iframe', { id: 'studio-sandbox', class: 'studio-sandbox', src: 'sandbox.html', title: 'CVO preview' }) as HTMLIFrameElement
+    // CVO mode loads the sandbox runner (JS execution + console relay);
+    // static modes reuse the same persistent-iframe plumbing but drive it
+    // purely via srcdoc — no runner, no handshake.
+    sandboxFrame = mode.hasSandbox
+      ? h('iframe', { id: 'studio-sandbox', class: 'studio-sandbox', src: 'sandbox.html', title: 'Preview' }) as HTMLIFrameElement
+      : h('iframe', { id: 'studio-sandbox', class: 'studio-sandbox', title: 'Preview' }) as HTMLIFrameElement
   }
   return sandboxFrame
 }
@@ -347,12 +362,12 @@ function refreshActions() {
   renderDom(el,
     h('button', { class: 'btn btn-accent', id: 'studio-run', title: 'Re-render preview (retries failed dependencies)', onClick: () => void runPreview({ retryDeps: true }) },
       svg(ICON_PLAY), ' Re-render', h('kbd', null, `${KBD_MOD}↵`)),
-    h('button', { class: saveClass, id: 'studio-save', disabled: saving || !isDirty, title: `Save every changed field (html + javascript) · ${KBD_MOD}+S`, onClick: doSave },
+    h('button', { class: saveClass, id: 'studio-save', disabled: saving || !isDirty, title: `Save every changed field (${mode.files.map(f => f.prop).join(' + ')}) · ${KBD_MOD}+S`, onClick: doSave },
       saving ? 'Saving…' : justSaved ? svg(ICON_CHECK) : null,
       saving ? null : justSaved ? ' Saved' : n > 1 ? `Save ${n}` : 'Save',
       isDirty ? h('kbd', null, `${KBD_MOD}S`) : null),
     h('button', { class: 'btn btn-ghost', id: 'studio-discard', disabled: !surface?.isDirty(activeProp), title: 'Revert this field to the saved BMP value', onClick: doDiscard }, 'Discard'),
-    h('button', { class: 'btn btn-ghost', id: 'studio-download', title: 'Download the CVO source (html + javascript) as a .cvo.json bundle', onClick: doDownload }, 'Download'),
+    h('button', { class: 'btn btn-ghost', id: 'studio-download', title: `Download the source (${mode.files.map(f => f.prop).join(' + ')}) as a .${mode.key}.json bundle`, onClick: doDownload }, 'Download'),
     h('div', { class: 'studio-actions-spacer' }),
     h('div', { class: 'seg', role: 'group', 'aria-label': 'Layout' },
       h('button', { class: `seg-btn${layout === 'code' ? ' active' : ''}`, title: 'Editor only', onClick: () => setLayout('code') }, 'Code'),
@@ -363,30 +378,25 @@ function refreshActions() {
   )
 }
 
-const FILE_META: Record<StudioCodeProp, { label: string; icon: string }> = {
-  html: { label: 'HTML', icon: ICON_FILE_HTML },
-  javascript: { label: 'JavaScript', icon: ICON_FILE_JS },
-}
-
-/** The HTML / JavaScript file switch — the editor pane's header. The studio's
- *  signature control: which of the CVO's two source files you're editing, with
- *  a language icon and a per-file unsaved dot. */
+/** The file switch — the editor pane's header. The studio's signature
+ *  control: which of the mode's source files you're editing, with a language
+ *  icon and a per-file unsaved dot. */
 function updateFileSwitch() {
   const el = document.getElementById('studio-file-switch')
   if (!el) return
   renderDom(el,
-    ...CODE_PROPS.map(p => h('button', {
-      class: `studio-file-tab${p === activeProp ? ' active' : ''}`,
+    ...mode.files.map(f => h('button', {
+      class: `studio-file-tab${f.prop === activeProp ? ' active' : ''}`,
       role: 'tab',
-      'data-prop': p,
-      'aria-selected': p === activeProp ? 'true' : 'false',
-      title: `Edit the ${FILE_META[p].label}`,
-      onClick: () => switchProp(p),
-    }, svg(FILE_META[p].icon), h('span', null, FILE_META[p].label),
-      surface?.isDirty(p) ? h('span', { class: 'studio-file-dot', 'aria-label': 'unsaved changes' }) : null)),
+      'data-prop': f.prop,
+      'aria-selected': f.prop === activeProp ? 'true' : 'false',
+      title: `Edit the ${f.label}`,
+      onClick: () => switchProp(f.prop),
+    }, svg(f.icon), h('span', null, f.label),
+      surface?.isDirty(f.prop) ? h('span', { class: 'studio-file-dot', 'aria-label': 'unsaved changes' }) : null)),
     // Editor tools live with the editor: reflow and soft-wrap.
     h('div', { class: 'studio-file-spacer' }),
-    h('button', { class: 'studio-file-tool', title: `Format the ${FILE_META[activeProp].label} · ${KBD_MOD}+Shift+F`, 'aria-label': 'Format', onClick: () => void doFormat() }, svg(ICON_BRACKETS)),
+    h('button', { class: 'studio-file-tool', title: `Format the ${fileFor(activeProp).label} · ${KBD_MOD}+Shift+F`, 'aria-label': 'Format', onClick: () => void doFormat() }, svg(ICON_BRACKETS)),
     h('button', { class: `studio-file-tool${wrapLines ? ' active' : ''}`, title: 'Wrap long lines', 'aria-label': 'Wrap long lines', 'aria-pressed': wrapLines ? 'true' : 'false', onClick: toggleWrap }, svg(ICON_WRAP)),
   )
 }
@@ -402,7 +412,7 @@ async function doFormat() {
   if (!surface) return
   const prop = activeProp
   try {
-    const formatted = await formatCode(prop, surface.textFor(prop))
+    const formatted = await formatCode(fileFor(prop).lang, surface.textFor(prop))
     if (prop !== activeProp) return // user switched files during the async import
     surface.replaceActive(formatted)
   } catch (e) {
@@ -411,7 +421,7 @@ async function doFormat() {
 }
 
 const anyDirty = () => !!surface?.isDirty()
-const dirtyCount = () => CODE_PROPS.filter(p => surface?.isDirty(p)).length
+const dirtyCount = () => codeProps().filter(p => surface?.isDirty(p)).length
 
 let previewTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -440,6 +450,9 @@ function schedulePreview() {
 async function runPreview(opts: { retryDeps?: boolean } = {}) {
   if (previewTimer) { clearTimeout(previewTimer); previewTimer = null }
   if (!previewPresent()) return
+  // Static modes: no sandbox handshake, no libs, no console lifecycle — the
+  // preview document is rebuilt wholesale from the current slot texts.
+  if (!mode.hasSandbox) { renderStaticPreview(); return }
   const gen = ++renderGen
   clearConsole()
   // An explicit Re-render retries deps that previously failed to load (e.g. the
@@ -474,6 +487,16 @@ async function ensureLibs(): Promise<CvoLib[]> {
   return rids
     .map(rid => ({ rid, content: libCache.get(rid) }))
     .filter((l): l is CvoLib => typeof l.content === 'string')
+}
+
+/** Static-mode preview: build the document from the mode's template and swap
+ *  the persistent iframe's srcdoc (a full reload of an inert local doc). */
+function renderStaticPreview(): void {
+  const frame = sandboxFrame
+  if (!frame || !mode.buildPreviewDoc) return
+  const code: Record<string, string> = {}
+  for (const p of codeProps()) code[p] = surface?.textFor(p) ?? ''
+  frame.srcdoc = mode.buildPreviewDoc(code)
 }
 
 function postRender() {
@@ -512,19 +535,23 @@ function updateStrip(): void {
   }) as HTMLInputElement
   ctxInput.addEventListener('change', () => { renderContextRef = ctxInput.value.trim(); void resolveRenderContext() })
   const live = dataMode === 'live'
+  const sandbox = mode.hasSandbox
   renderDom(el,
-    h('div', { class: 'seg', role: 'group', 'aria-label': 'Preview data' },
+    sandbox ? h('div', { class: 'seg', role: 'group', 'aria-label': 'Preview data' },
       h('button', { class: `seg-btn${!live ? ' active' : ''}`, title: 'Render against local mock _data', onClick: () => setDataMode('mock') }, 'Mock'),
       h('button', { class: `seg-btn${live ? ' active' : ''}`, title: 'Render against real BMP _data for the render context', onClick: () => setDataMode('live') }, 'Live'),
-    ),
-    live ? h('span', { class: 'studio-strip-label' }, 'Context') : null,
-    live ? ctxInput : null,
-    live ? h('button', { class: 'icon-btn', title: 'Re-fetch live data', onClick: () => fetchLiveData() }, svg(ICON_REFRESH)) : null,
-    live && !renderContextRef ? h('span', { class: 'studio-strip-hint' }, 'paste a scorecard id or rid to load real data') : null,
-    live && renderContextRef && !renderContextRid ? h('span', { class: 'studio-strip-err', title: liveError ?? 'not found' }, h('span', { class: 'studio-status-dot studio-status-dot--err' }), liveError ?? 'not found') : null,
-    live && renderCtxLabel ? h('span', { class: 'studio-strip-ref', title: 'rid ' + renderContextRid }, renderCtxLabel) : null,
-    live && renderContextRid && liveError ? h('span', { class: 'studio-strip-err', title: liveError }, h('span', { class: 'studio-status-dot studio-status-dot--err' }), 'Live failed') : null,
-    live && renderContextRid && !liveError && liveData ? h('span', { class: 'studio-strip-ok', title: 'Rendering against live BMP data' }, h('span', { class: 'studio-status-dot studio-status-dot--ok' }), 'Live') : null,
+    ) : null,
+    sandbox && live ? h('span', { class: 'studio-strip-label' }, 'Context') : null,
+    sandbox && live ? ctxInput : null,
+    sandbox && live ? h('button', { class: 'icon-btn', title: 'Re-fetch live data', onClick: () => fetchLiveData() }, svg(ICON_REFRESH)) : null,
+    sandbox && live && !renderContextRef ? h('span', { class: 'studio-strip-hint' }, 'paste a scorecard id or rid to load real data') : null,
+    sandbox && live && renderContextRef && !renderContextRid ? h('span', { class: 'studio-strip-err', title: liveError ?? 'not found' }, h('span', { class: 'studio-status-dot studio-status-dot--err' }), liveError ?? 'not found') : null,
+    sandbox && live && renderCtxLabel ? h('span', { class: 'studio-strip-ref', title: 'rid ' + renderContextRid }, renderCtxLabel) : null,
+    sandbox && live && renderContextRid && liveError ? h('span', { class: 'studio-strip-err', title: liveError }, h('span', { class: 'studio-status-dot studio-status-dot--err' }), 'Live failed') : null,
+    sandbox && live && renderContextRid && !liveError && liveData ? h('span', { class: 'studio-strip-ok', title: 'Rendering against live BMP data' }, h('span', { class: 'studio-status-dot studio-status-dot--ok' }), 'Live') : null,
+    mode.rewriteSemantics === 'sanitizer'
+      ? h('span', { class: 'studio-strip-hint', title: 'The preview shows your raw draft. On save, BMP\'s sanitizer strips non-whitelisted HTML/CSS (radius, gradients, shadows, transforms) and the editor reloads the stored result.' }, 'preview is raw · BMP sanitizes on save')
+      : null,
     h('div', { class: 'studio-strip-spacer' }),
     h('div', { class: 'seg', role: 'group', 'aria-label': 'Auto-render' },
       h('button', {
@@ -649,15 +676,21 @@ function updatePanelTabs(): void {
   const el = document.getElementById('studio-ptabs')
   if (!el) return
   const errCount = studioConsole.errorCount
-  const html = surface?.textFor('html') ?? ''
-  const js = surface?.textFor('javascript') ?? ''
-  const depCount = detectFileResourceRids(html, js).length + detectCdnUrls(html, js).length
   const tab = (id: PanelTab, label: string, count: number, err = false) =>
     h('button', { class: `studio-ptab${panelTab === id ? ' active' : ''}`, role: 'tab', onClick: () => togglePanel(id) },
       label,
       count ? h('span', { class: 'studio-ptab-n' }, String(count)) : null,
       err ? h('span', { class: 'studio-ptab-err', 'aria-label': 'errors' }) : null,
     )
+  if (!mode.hasSandbox) {
+    // Static modes have no JS run and no `_data` children — the console still
+    // carries save/format feedback, so it stays.
+    renderDom(el, tab('console', 'Console', studioConsole.count, errCount > 0))
+    return
+  }
+  const html = surface?.textFor('html') ?? ''
+  const js = surface?.textFor('javascript') ?? ''
+  const depCount = detectFileResourceRids(html, js).length + detectCdnUrls(html, js).length
   renderDom(el,
     tab('console', 'Console', studioConsole.count, errCount > 0),
     tab('inputs', 'Inputs', children.length),
@@ -878,6 +911,7 @@ function doHostResource(): void {
 }
 
 window.addEventListener('message', ev => {
+  if (!mode.hasSandbox) return
   if (!sandboxFrame || ev.source !== sandboxFrame.contentWindow) return
   const msg = ev.data
   if (!isCvoSandboxOutbound(msg)) return
@@ -898,7 +932,7 @@ async function doSave() {
   // A CVO is html + javascript as ONE object. Commit every dirty code field in
   // one gesture — saving only the active field silently stranded the other,
   // an easy way to lose edits when switching tabs before saving.
-  const dirty = CODE_PROPS.filter(p => surface!.isDirty(p))
+  const dirty = codeProps().filter(p => surface!.isDirty(p))
   if (!dirty.length) return
   const target = ctx.saveTarget === 'template' && ctx.template ? ctx.template : ctx.instance
   // Lock before the confirm so a second Cmd+S can't stack a dialog or a save.
@@ -928,7 +962,7 @@ async function doSaveInner(target: StudioContext['instance'], dirty: StudioCodeP
     const resp = await sendRequest({
       type: 'SAVE_PROPERTY',
       rid: target.rid,
-      objectType: target.type || 'CustomVisualization',
+      objectType: target.type || (mode.key === 'text' ? 'TextElement' : 'CustomVisualization'),
       property: p,
       value,
     })
@@ -952,37 +986,45 @@ async function doSaveInner(target: StudioContext['instance'], dirty: StudioCodeP
   // only if the user hasn't re-edited them during the (awaited) round-trips —
   // re-seeding every slot would silently overwrite an edit typed into the other
   // field while the save was in flight.
-  const verify = await sendRequest({ type: 'STUDIO_FETCH_CODE', rid: target.rid })
+  const verify = await sendRequest({ type: 'STUDIO_FETCH_CODE', rid: target.rid, props: [...codeProps()] })
   if (verify?.type === 'STUDIO_CODE_DATA' && verify.ok && verify.code) {
     const { reload, rollbacks } = reconcileSavedSlots(savedValues, verify.code, p => !!surface!.isDirty(p))
     for (const p of rollbacks) {
-      logConsole('error', `Warning: BMP's ${p} differs from what was saved. Possible silent rollback; the editor now shows BMP's value.`)
+      // What a server-side rewrite MEANS is mode-specific: a CVO save that
+      // comes back different is a silent in-script rollback (error); a
+      // TextElement save that comes back different is the sanitizer doing its
+      // documented job (info) — the editor adopts the stored version either way.
+      if (mode.rewriteSemantics === 'sanitizer') {
+        logConsole('info', `BMP sanitized ${p} on save (whitelist: no radius / gradients / shadows / transforms). The editor now shows the stored version.`)
+      } else {
+        logConsole('error', `Warning: BMP's ${p} differs from what was saved. Possible silent rollback; the editor now shows BMP's value.`)
+      }
     }
     for (const { key, code } of reload) {
-      surface.reloadSlots([{ key, lang: key, code }])
+      surface.reloadSlots([{ key, lang: fileFor(key).lang, code }])
       activeCode()[key] = code
     }
+    if (reload.length) void runPreview() // show the server-canonical result
   }
 }
 
-/** Export the CVO's source (both fields) as a single round-trippable bundle —
- *  one download (no multi-file browser prompt), good for backup/sharing. */
+/** Export the object's source (every mode file) as a single round-trippable
+ *  bundle — one download (no multi-file browser prompt), for backup/sharing. */
 function doDownload() {
   if (!ctx || !surface) return
-  const base = ctx.instance.businessId || ctx.instance.rid || 'cvo'
-  const bundle = {
-    schema: 'crev-cvo-source/1',
+  const base = ctx.instance.businessId || ctx.instance.rid || mode.key
+  const bundle: Record<string, unknown> = {
+    schema: `crev-${mode.key}-source/1`,
     id: ctx.instance.businessId || null,
     rid: ctx.instance.rid,
     name: ctx.instance.name || null,
-    html: surface.textFor('html'),
-    javascript: surface.textFor('javascript'),
   }
+  for (const f of mode.files) bundle[f.prop] = surface.textFor(f.prop)
   const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `${base}.cvo.json`
+  a.download = `${base}.${mode.key}.json`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -1005,6 +1047,6 @@ async function doDiscard() {
 }
 
 // Guard the overlay close when there are unsaved edits.
-installDirtyGuards({ isDirty: anyDirty, bodyText: 'This CVO studio has unsaved changes. Close anyway?' })
+installDirtyGuards({ isDirty: anyDirty, bodyText: 'This studio has unsaved changes. Close anyway?' })
 
 init()

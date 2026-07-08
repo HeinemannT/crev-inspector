@@ -1161,7 +1161,7 @@ describe('Tooltip Content — What The Hover Shows', () => {
     const abbr = getTypeAbbr(enrichment.type);
     const typeName = enrichment.type;
 
-    expect(color).toBe('#42be65');   // Scorecard color (green family per new pill taxonomy)
+    expect(color).toBe('#6fdc8c');   // Scorecard color (page-green family per pill taxonomy)
     expect(abbr).toBe('SCD');
     expect(typeName).toBe('Scorecard');
     // name row: "Main Scorecard"

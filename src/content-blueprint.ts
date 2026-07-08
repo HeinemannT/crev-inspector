@@ -50,7 +50,11 @@ function fontFaceCss(): string {
 function ensureStyle(): void {
   if (document.getElementById(STYLE_ID)) return;
   const s = document.createElement('style');
-  s.id = STYLE_ID; s.textContent = fontFaceCss() + BLUEPRINT_CSS;
+  // BLUEPRINT_CSS first, fonts last: the layout rules are parse-order-protected so a
+  // malformed @font-face block (which the file-based css-integrity test can't see —
+  // fontFaceCss is generated here) can never swallow the overlay's positioning rules.
+  // @font-face works regardless of declaration position, so ordering is otherwise moot.
+  s.id = STYLE_ID; s.textContent = BLUEPRINT_CSS + fontFaceCss();
   document.head.appendChild(s);
 }
 
@@ -169,7 +173,7 @@ function handlePageNav(): boolean {
  *  No-op when already in the requested mode. Offered only when a templated instance is loaded. */
 export function setEditTarget(toTemplate: boolean): void {
   if (!bp.active || bp.editingTemplate === toTemplate) return;
-  if (bp.history?.canUndo()) showToast('Blueprint: switched target — unsaved layout edits were discarded', 'info');
+  if (bp.history?.canUndo()) showToast('Blueprint: switched target. Unsaved layout edits were discarded.', 'info');
   reloadForRid(bp.loadedRid, toTemplate ? 'template' : 'instance');
 }
 

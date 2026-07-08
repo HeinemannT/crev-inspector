@@ -21,13 +21,16 @@
  * so the gesture machinery treats them as honest, final-position drop targets).
  */
 import { STYLE_NODE_FIELDS, type LModel, type LNode, type NodeStyle } from '../lib/layout/types';
-import { findNode, orderChildren, isTempId, isChart, walk, fieldsChanged } from '../lib/layout/model';
+import { findNode, orderChildren, isTempId, isChart, walk, fieldsChanged, isFullGhost } from '../lib/layout/model';
 import { computeRows, trackSpan, TRACKS } from '../lib/layout/rows';
 import { COMPOSITE_TYPES } from '../lib/layout/constraints';
 import {
   ICON_PLUS, ICON_CHART, ICON_TABLE, ICON_LIST, ICON_CHECK_CIRCLE, ICON_CODE,
   ICON_LINK, ICON_PLAY, ICON_PENCIL, ICON_BOOK, ICON_LAYOUT, ICON_REVERT,
+  ICON_EYE_SLASH,
 } from '../lib/icons';
+import { getTypeAbbr, getTypeColor } from '../lib/types';
+import { render, visibilityStrip } from './view';
 import { type Rect, unionRect, setIcon, docX, docY, widgetRects } from './geometry';
 import { armBox } from './gestures';
 import { openPicker, toggleResetProp } from './actions';
@@ -170,7 +173,21 @@ function gapCell(parentId: string, freeTracks: number, afterId?: string): HTMLEl
  *  row's trailing free tracks — the render side of the ONE row engine, so every empty slot the
  *  wireframe shows is a slot the engine agrees exists. */
 function fillGrid(grid: HTMLElement, base: LModel, children: LNode[], parentId: string, byRid: Map<string, Element>, reordered: ReadonlySet<string>): void {
-  for (const row of computeRows(children)) {
+  // Full ghosts (noVisible / hidden on every display size) never render for
+  // anyone and BMP's packing reflows around them (verified live) — so they're
+  // excluded from BOTH the cells and the row math, or the grid shown here
+  // would be a layout no user ever sees. They live in the hidden tray below
+  // the add-zone instead. They stay in the MODEL (diff/apply untouched).
+  const rendered = children.filter(c => !isFullGhost(c));
+  // A parent whose only children are full ghosts renders no rows, so without
+  // this it would show an empty box with no way to add to it (the caller took
+  // the "has children" branch on the raw count). Give it the same full-width
+  // add slot an empty parent gets — the ghosts still live in the tray below.
+  if (rendered.length === 0) {
+    grid.appendChild(gapCell(parentId, TRACKS));
+    return;
+  }
+  for (const row of computeRows(rendered)) {
     for (const c of row.items) grid.appendChild(cell(base, c, parentId, byRid, reordered));
     if (row.free > 0) grid.appendChild(gapCell(parentId, row.free, row.items[row.items.length - 1]?.id));
   }
@@ -185,8 +202,8 @@ function revertArrow(node: LNode, prop: string, label: string): HTMLElement {
   b.className = 'bp-revert' + (staged ? ' staged' : '');
   setIcon(b, ICON_REVERT);
   b.title = staged
-    ? `${label}: reset staged — reverts to the template on Apply (click to cancel)`
-    : `${label} overrides the template — click to reset it to the template value`;
+    ? `Reset staged: Apply reverts ${label} to the template value. Click to cancel.`
+    : `${label} overrides the template. Click to reset it to the template value.`;
   // mousedown + stopPropagation so it doesn't start a cell select/drag (overlay convention).
   b.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); toggleResetProp(node.id, prop); });
   return b;
@@ -220,8 +237,14 @@ function buildLabel(node: LNode, state: CellState): HTMLElement {
  *  the real widget, enough to read the styling at a glance. Layout mode never calls this. */
 function applyStyle(el: HTMLElement, label: HTMLElement, s: NodeStyle): void {
   el.classList.add('bp-styled');
+  // Transparency in BMP dissolves the widget CHROME (header fill, underline),
+  // not the content — the type icon and header text stay readable. So the
+  // preview drops the header colour + line instead of fading the whole cell
+  // (the old opacity ramp made fade 100 read as "widget missing").
+  const faded = typeof s.transparency === 'number' && s.transparency > 0;
+  if (faded) el.classList.add('bp-fade');
   const hc = colorRgb(s.headerColorBid);
-  if (hc) {
+  if (hc && !faded) {
     label.classList.add('bp-styled-hdr');
     label.style.background = hc;
     label.style.color = contrastInk(hc);
@@ -235,9 +258,6 @@ function applyStyle(el: HTMLElement, label: HTMLElement, s: NodeStyle): void {
   if (s.borderStyle === 'LINE') el.classList.add('bp-bd-line');
   else if (s.borderStyle === 'NONE') el.classList.add('bp-bd-none');
   if (s.headerStyle === 'NONE') el.classList.add('bp-hdr-none');
-  if (typeof s.transparency === 'number' && s.transparency > 0) {
-    el.style.opacity = String(Math.max(0.15, 1 - s.transparency / 100));
-  }
 }
 
 /** Does this node's appearance differ from the baseline? (Any STYLE_NODE_FIELDS field, absence folded to
@@ -272,6 +292,19 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   if (bp.mode === 'style') {
     if (node.style) applyStyle(el, labelEl, node.style);
     if (styleDirty(base, node)) el.classList.add('bp-style-dirty'); // staged appearance edit → ring it
+  }
+  // Per-viewer visibility marker: adminVisibleOnly / visibleAsParentOnly render
+  // normally for the configurator (they DO occupy this layout), but users don't
+  // see them and their layout reflows without them — surface that on the cell.
+  const vis = node.style?.visibility;
+  if (vis === 'ADMINVISIBLEONLY' || vis === 'VISIBLEASPARENTONLY') {
+    const tag = document.createElement('span');
+    tag.className = 'bp-vis-tag';
+    tag.textContent = vis === 'ADMINVISIBLEONLY' ? 'ADMIN' : 'PARENT';
+    tag.title = vis === 'ADMINVISIBLEONLY'
+      ? 'visibility = adminVisibleOnly. Renders for you; non-admin users do not see it and their layout reflows without it.'
+      : 'visibility = visibleAsParentOnly. Shown only in the parent context; other viewers do not see it.';
+    el.appendChild(tag);
   }
 
   if (node.kind === 'container') {
@@ -331,6 +364,120 @@ function compositeChildCell(node: LNode): HTMLElement {
  * the pill bar — using a different rule — highlighted nothing, e.g. on BMP's non-model Result tab). It's
  * optional only so the headless tests can render without a resolution step (they default to tab 0).
  */
+interface GhostEntry {
+  node: LNode;
+  /** Where it re-packs on restore: after this sibling, or first in `parentName`. */
+  prevName: string | null;
+  parentName: string;
+}
+
+/** Collect the viewed tab's FULL ghosts, top-most only (a ghost container's
+ *  children ride along with it — listing them separately would double-count).
+ *  Each entry carries its return position: the nearest preceding NON-ghost
+ *  sibling (what it packs after when restored), or "first" in its parent. */
+function collectGhosts(tab: LNode): GhostEntry[] {
+  const out: GhostEntry[] = [];
+  const walkTop = (parent: LNode, nodes: LNode[]): void => {
+    const ordered = orderChildren(nodes);
+    for (let i = 0; i < ordered.length; i++) {
+      const n = ordered[i];
+      if (isFullGhost(n)) {
+        let prevName: string | null = null;
+        for (let j = i - 1; j >= 0; j--) {
+          if (!isFullGhost(ordered[j])) { prevName = ordered[j].name || ordered[j].id; break; }
+        }
+        out.push({ node: n, prevName, parentName: parent.name || parent.id });
+      } else {
+        walkTop(n, n.children);
+      }
+    }
+  };
+  walkTop(tab, tab.children);
+  return out;
+}
+
+/** The per-tab hidden tray — the add-zone's quiet counterpart directly below
+ *  it. Collapsed: one grey line with the count. Expanded: a hatched row of
+ *  ghost cells (type chip · name · reason · restore). The grid above shows
+ *  ONLY what BMP renders, so it stays truthful; this is where the rest live. */
+function ghostTray(tab: LNode): HTMLElement | null {
+  const ghosts = collectGhosts(tab);
+  if (!ghosts.length) return null;
+
+  const zone = document.createElement('div');
+  zone.className = 'bp-ghost-tray' + (bp.ghostTrayOpen ? ' open' : '');
+  zone.style.gridColumn = 'span 12';
+
+  const head = document.createElement('button');
+  head.className = 'bp-ghost-head';
+  const hi = document.createElement('span'); setIcon(hi, ICON_EYE_SLASH); hi.className = 'bp-ghost-ic';
+  const ht = document.createElement('span');
+  ht.textContent = 'Hidden widgets';
+  const ct = document.createElement('span'); ct.className = 'bp-ghost-count'; ct.textContent = String(ghosts.length);
+  const hh = document.createElement('span'); hh.className = 'bp-ghost-hint';
+  hh.textContent = bp.ghostTrayOpen ? '— click to fold' : '— click to show';
+  head.append(hi, ht, ct, hh);
+  head.title = 'Widgets on this tab that no viewer sees (noVisible, or hidden on every display size). The grid above shows the page as it really packs — without them.';
+  // mousedown is the overlay's gesture convention (every cell/handle toggles on
+  // mousedown, not click) and it fires before render() tears this node down, so
+  // it's the single source of truth. The trailing click is swallowed only so it
+  // can't reach the canvas underneath — it must NOT toggle again (the head it
+  // would land on is a freshly-rendered node, so a shared debounce can't guard
+  // it; two handlers toggling was the open-then-immediately-close bug).
+  head.addEventListener('mousedown', (e) => {
+    e.stopPropagation(); e.preventDefault();
+    bp.ghostTrayOpen = !bp.ghostTrayOpen;
+    render();
+  });
+  head.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); });
+  zone.appendChild(head);
+
+  if (bp.ghostTrayOpen) {
+    // Shadow row — each ghost as a LIFE-SIZE blueprint cell at its true column
+    // width: night header (chip + name + type), hatched body with the type
+    // watermark, and a footer holding the REAL visibility strip. The strip is
+    // both the reason display (slashed eye = noVisible, slashed letters =
+    // sizes off) and the control: any toggle that un-ghosts the node re-packs
+    // it into the grid above at its model position on the very next render —
+    // the node never left the model, only this render-time tray.
+    const row = document.createElement('div');
+    row.className = 'bp-ghost-row';
+    for (const g of ghosts) {
+      const c = document.createElement('div');
+      c.className = 'bp-ghost-cell';
+      c.style.gridColumn = `span ${trackSpan(g.node)}`;
+
+      const lab = document.createElement('div'); lab.className = 'bp-ghost-lab';
+      const typ = document.createElement('span'); typ.className = 'typ';
+      typ.textContent = getTypeAbbr(g.node.className);
+      typ.style.setProperty('--type-color', getTypeColor(g.node.className));
+      const nm = document.createElement('span'); nm.className = 'bp-ghost-nm'; nm.textContent = g.node.name || g.node.id;
+      const ty = document.createElement('span'); ty.className = 'bp-ghost-ty'; ty.textContent = g.node.className.toUpperCase();
+      lab.append(typ, nm, ty);
+      c.appendChild(lab);
+
+      const body = document.createElement('div'); body.className = 'bp-ghost-body';
+      const icon = typeIcon(g.node.className);
+      if (icon) { const wm = document.createElement('span'); wm.className = 'bp-ghost-wm'; setIcon(wm, icon); body.appendChild(wm); }
+      c.appendChild(body);
+
+      const foot = document.createElement('div'); foot.className = 'bp-ghost-foot';
+      const strip = visibilityStrip(g.node);
+      if (strip) foot.appendChild(strip);
+      const pos = document.createElement('span'); pos.className = 'bp-ghost-pos';
+      pos.textContent = g.prevName ? `returns after \u201C${g.prevName}\u201D` : `returns first in \u201C${g.parentName}\u201D`;
+      pos.title = 'Un-hiding re-packs the widget at its saved position in the grid above.';
+      foot.appendChild(pos);
+      foot.addEventListener('mousedown', (e) => e.stopPropagation());
+      c.appendChild(foot);
+
+      row.appendChild(c);
+    }
+    zone.appendChild(row);
+  }
+  return zone;
+}
+
 export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element>, layer: HTMLElement, viewedId?: string | null): boolean {
   const tab = (viewedId ? m.tabs.find(t => t.id === viewedId) : null) ?? m.tabs[0] ?? null;
   if (!tab) return false;
@@ -384,10 +531,12 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   const add = document.createElement('div'); add.className = 'bp-radd-zone'; add.style.gridColumn = 'span 12';
   add.dataset.bpid = tab.id; add.dataset.bpkind = 'avail';
   const ai = document.createElement('span'); ai.className = 'bp-radd-ic'; setIcon(ai, ICON_PLUS);
-  const at = document.createElement('span'); at.textContent = tab.children.length ? `Add a row to "${tab.name}"` : `Tab "${tab.name}" is empty — add a widget`;
+  const at = document.createElement('span'); at.textContent = tab.children.length ? `Add a container or widget to "${tab.name}"` : `Tab "${tab.name}" is empty. Add a container or widget`;
   add.append(ai, at);
   add.addEventListener('mousedown', (e) => { e.stopPropagation(); openPicker(tab.id, { at: { x: e.clientX, y: e.clientY } }); });
   grid.appendChild(add);
+  const tray = ghostTray(tab);
+  if (tray) grid.appendChild(tray);
   wrap.appendChild(grid);
 
   layer.appendChild(wrap);

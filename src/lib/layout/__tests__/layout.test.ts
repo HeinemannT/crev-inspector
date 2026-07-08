@@ -300,6 +300,60 @@ describe('edit engine (pure, returns new model)', () => {
   });
 });
 
+describe('container smart naming (Col N + autoName flag)', () => {
+  it('auto-names a new container "Col N" for its width and flags it tool-owned', () => {
+    const { model: m, id } = addContainer(demo(), 'tab1', 0, 3);
+    const c = findNode(m, id)!.node;
+    expect(c.name).toBe('Col 3');
+    expect(c.autoName).toBe(true);
+  });
+  it('names a 0-width (auto) container "Col auto", never "Col 6"', () => {
+    const { model: m, id } = addContainer(demo(), 'tab1', 0, 0);
+    expect(findNode(m, id)!.node.name).toBe('Col auto');
+  });
+  it('de-dupes same-width siblings with a (2) suffix', () => {
+    let r = addContainer(demo(), 'tab1', 0, 2); let m = r.model;
+    r = addContainer(m, 'tab1', 0, 2); m = r.model;
+    const names = findNode(m, 'tab1')!.node.children.filter(c => c.kind === 'container').map(c => c.name);
+    expect(names).toContain('Col 2');
+    expect(names).toContain('Col 2 (2)');
+  });
+  it('keeps a tool-named container in step with its width on an L-resize', () => {
+    const { model: m0, id } = addContainer(demo(), 'tab1', 0, 6);
+    expect(findNode(resize(m0, id, 'L', 3), id)!.node.name).toBe('Col 3');
+  });
+  it('an explicit rename takes name ownership — later resizes never rename', () => {
+    const { model: m0, id } = addContainer(demo(), 'tab1', 0, 6);
+    const m1 = rename(m0, id, 'Sidebar');
+    expect(findNode(m1, id)!.node.autoName).toBeUndefined();
+    expect(findNode(resize(m1, id, 'L', 2), id)!.node.name).toBe('Sidebar');
+  });
+  it('never hijacks a container a human happened to name "Col 3" (no autoName flag)', () => {
+    const m1 = rename(demo(), 'box1', 'Col 3'); // box1 is a plain reconstructed container (no flag)
+    expect(findNode(resize(m1, 'box1', 'L', 5), 'box1')!.node.name).toBe('Col 3');
+  });
+});
+
+describe('tab reorder (insertRelative on tab siblings → moveAfter)', () => {
+  const threeTabs = () => model(
+    n({ id: 'tA', kind: 'tab', className: 'Tab', name: 'A', children: [n({ id: 'wa', kind: 'widget', className: 'BarChart', name: 'a' })] }),
+    n({ id: 'tB', kind: 'tab', className: 'Tab', name: 'B', children: [n({ id: 'wb', kind: 'widget', className: 'BarChart', name: 'b' })] }),
+    n({ id: 'tC', kind: 'tab', className: 'Tab', name: 'C', children: [n({ id: 'wc', kind: 'widget', className: 'BarChart', name: 'c' })] }),
+  );
+  it('reorders the tabs array (B to end → A, C, B) and normalize preserves it', () => {
+    const moved = insertRelative(threeTabs(), 'tB', 'tC', false);
+    expect(moved.tabs.map(t => t.id)).toEqual(['tA', 'tC', 'tB']);
+  });
+  it('a tab reorder emits a moveAfter chain that reseats the moved tab', () => {
+    const base = threeTabs();
+    const desired = insertRelative(base, 'tA', 'tC', false); // A after C → B, C, A
+    const reorders = diff(base, desired).filter(s => s.kind === 'reorder');
+    // the diff reconstructs the exact desired order as a moveAfter chain; the operative move is A→C.
+    expect(reorders.length).toBeGreaterThan(0);
+    expect(reorders.some(s => s.id === 'tA' && s.afterId === 'tC')).toBe(true);
+  });
+});
+
 // The drag gestures (gestures.ts) stage these ops; lock their behaviour and the swap/insert inverses
 // the tray's per-node revert relies on.
 describe('gesture edit ops (drag-to-move / reorder / cross-tab)', () => {
@@ -567,11 +621,17 @@ describe('diff + ec compile', () => {
 });
 
 describe('constraints', () => {
-  it('lints empty tabs (invisible on the page)', () => {
-    const m = model(n({ id: 'empty', kind: 'tab', className: 'Tab', name: 'Empty', children: [] }));
-    const msg = lint(m, 'template', [])[0];
-    expect(msg.level).toBe('warn');
-    expect(msg.text).toContain('Empty');
+  it('lints empty tabs as ONE counted grey note (info), not per-tab warnings', () => {
+    const m = model(
+      n({ id: 'e1', kind: 'tab', className: 'Tab', name: 'Empty A', children: [] }),
+      n({ id: 'e2', kind: 'tab', className: 'Tab', name: 'Empty B', children: [] }),
+    );
+    const msgs = lint(m, 'template', []);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].level).toBe('info');
+    expect(msgs[0].text).toContain('2 tabs');
+    expect(msgs[0].text).toContain('Empty A');
+    expect(msgs[0].text).toContain('Empty B');
   });
   it('lints structural add/delete as an instance scope note (info), only when the target is an instance', () => {
     const w = n({ id: 'w1', kind: 'widget', className: 'Status', name: 'W', children: [] });

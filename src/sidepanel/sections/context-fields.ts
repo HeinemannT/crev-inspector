@@ -8,7 +8,7 @@
 
 import { h } from '../../lib/dom';
 import { contextFieldsFor, normalizeBmpEnum } from '../../lib/widget-metadata';
-import { getTypeColor, getTypeAbbr } from '../../lib/types';
+import { typeBadge } from '../../lib/type-badge';
 import type { ObjectPaneIdentity } from '../../lib/types';
 
 export interface ContextSectionInput {
@@ -80,10 +80,7 @@ function renderListGroup(label: string, items: ObjectPaneIdentity[], onNavigate:
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate(item.rid); }
           },
         },
-          h('span', {
-            class: 'ctx-list-chip',
-            style: `--type-color:${getTypeColor(item.type)}`,
-          }, getTypeAbbr(item.type)),
+          typeBadge(item.type, { size: 'xs' }),
           h('span', { class: 'ctx-list-name' }, item.name || '(unnamed)'),
           item.businessId ? h('span', { class: 'ctx-list-bid' }, item.businessId) : null,
         ),

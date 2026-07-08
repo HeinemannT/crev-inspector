@@ -57,7 +57,7 @@ async function getBmpAuth() {
 }
 
 describe('BmpAuth login mutex', () => {
-  it('4 concurrent login() calls produce only 1 fetch sequence (3 fetches)', async () => {
+  it('4 concurrent login() calls produce only 1 fetch sequence (2 fetches)', async () => {
     const BmpAuth = await getBmpAuth();
     const auth = new BmpAuth('https://bmp.test/', 'admin', 'pass');
 
@@ -73,8 +73,8 @@ describe('BmpAuth login mutex', () => {
       expect(jwt).toBe('jwt-token-abc');
     }
 
-    // Only 3 fetch calls (auth + graphql + cstoken), NOT 12
-    expect(fetchCallCount).toBe(3);
+    // Session borrow wins: only 2 fetch calls (graphql + cstoken), NOT 8
+    expect(fetchCallCount).toBe(2);
   });
 
   it('failed login clears promise so next call retries', async () => {
@@ -95,7 +95,7 @@ describe('BmpAuth login mutex', () => {
     fetchCallCount = 0;
     const jwt = await auth.login();
     expect(jwt).toBe('jwt-token-abc');
-    expect(fetchCallCount).toBe(3); // fresh 3-step flow
+    expect(fetchCallCount).toBe(2); // fresh session-borrow flow: graphql + cstoken
   });
 
   it('4 concurrent refreshAuth() calls produce only 1 fetch to /cstoken', async () => {
@@ -160,6 +160,6 @@ describe('BmpAuth login mutex', () => {
     fetchCallCount = 0;
     const jwt = await auth.login();
     expect(jwt).toBe('jwt-token-abc');
-    expect(fetchCallCount).toBe(3);
+    expect(fetchCallCount).toBe(2);
   });
 });

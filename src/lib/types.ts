@@ -92,7 +92,7 @@ export type PageMessage =
   | { type: 'BMP_URL_CHANGED' }
   | { type: 'GET_CONTEXT_RID' }
   | { type: 'CONTEXT_RID_DATA'; rid?: string; name?: string; objectType?: string; businessId?: string }
-  | { type: 'SELECT_OBJECT'; rid: string }
+  | { type: 'SELECT_OBJECT'; rid: string; openPanel?: boolean }
   | { type: 'COPY_TO_CLIPBOARD'; text: string };
 
 // ── Inspect Toggle ───────────────────────────────────────────────
@@ -231,8 +231,7 @@ export type ProfileMessage =
   | { type: 'SAVE_PROFILE'; profile: ServerProfile }
   | { type: 'DELETE_PROFILE'; profileId: string }
   | { type: 'SET_ACTIVE_PROFILE'; profileId: string }
-  | { type: 'PROFILE_SWITCHED'; profileId: string; label: string }
-  | { type: 'SHOW_PROFILE_SWITCHER' };
+  | { type: 'PROFILE_SWITCHED'; profileId: string; label: string };
 
 // ── EC Execution ─────────────────────────────────────────────────
 export type EcMessage =
@@ -252,10 +251,10 @@ export type EcMessage =
 // SAVE_PROPERTY (html/javascript route through saveCodeViaEc), so this family
 // only carries the open gesture for now.
 export type StudioMessage =
-  | { type: 'OPEN_CVO_STUDIO'; rid: string; property?: string }
+  | { type: 'OPEN_STUDIO'; rid: string; property?: string }
   // Re-fetch a CVO's code after a save, to confirm what actually landed (the
   // save->reload pattern: catches a silent in-script rollback) and re-seed.
-  | { type: 'STUDIO_FETCH_CODE'; rid: string }
+  | { type: 'STUDIO_FETCH_CODE'; rid: string; props?: string[] }
   | { type: 'STUDIO_CODE_DATA'; ok: boolean; code?: Record<string, string>; error?: string }
   // Fetch live `_data` from the CVO data servlet for the chosen render context.
   | { type: 'STUDIO_FETCH_DATA'; cvoRid: string; businessObjectRid: string; periodMillis?: number }
@@ -377,11 +376,9 @@ export type FavoritesMessage =
   | { type: 'FAVORITES_DATA'; entries: FavoriteEntry[] };
 
 // ── Context Menu ─────────────────────────────────────────────────
-export type ContextMenuAction = 'copy-rid' | 'copy-bid' | 'copy-name' | 'view-props' | 'open-editor' | 'paint-from';
 
 export type ContextMenuMessage =
-  | { type: 'SET_CONTEXT_RID'; rid: string; name?: string; objectType?: string; businessId?: string }
-  | { type: 'CONTEXT_MENU_ACTION'; action: ContextMenuAction; rid: string; tabId: number };
+  | { type: 'SET_CONTEXT_RID'; rid: string; name?: string; objectType?: string; businessId?: string };
 
 // ── Technical Overlay ────────────────────────────────────────────
 export type OverlayModeMessage =
@@ -563,8 +560,7 @@ export type DiffMessage =
   | { type: 'OPEN_DIFF'; leftRid: string; rightRid?: string }
   | { type: 'OPEN_TEMPLATE_DIFF'; rid: string }
   | { type: 'FETCH_DIFF_PROPS'; rid: string }
-  | { type: 'DIFF_PROPS_RESULT'; rid: string; props: Record<string, string>; identity: { name?: string; type?: string; businessId?: string }; error?: string }
-  | { type: 'SET_COMPARE_RID'; rid: string; name?: string; objectType?: string };
+  | { type: 'DIFF_PROPS_RESULT'; rid: string; props: Record<string, string>; identity: { name?: string; type?: string; businessId?: string }; error?: string };
 
 // ── Code Search ──────────────────────────────────────────────────
 export interface CodeSearchResult {
@@ -640,7 +636,7 @@ export type LayoutMessage =
   // reject a commit aimed at a different environment (the user switched profiles mid-edit).
   | { type: 'LAYOUT_LOAD_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
   // Create a dedicated tabset for a RESULT-only page (no tabset), move its widgets onto it, then load.
-  | { type: 'LAYOUT_CREATE_TABSET'; page: NeedsTabset; name: string }
+  | { type: 'LAYOUT_CREATE_TABSET'; page: NeedsTabset }
   | { type: 'LAYOUT_CREATE_TABSET_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
   | { type: 'LAYOUT_APPLY'; env: string; ctx: BlueprintCtx; baseline: LModel; desired: LModel }
   | { type: 'LAYOUT_APPLY_RESULT'; ok: boolean; noop: boolean; stale?: boolean; script?: string; notes?: PlanNote[]; model?: LModel; baseline?: LModel; error?: string }
@@ -722,7 +718,7 @@ export const CHART_TYPES = ['BarChart','PieChart','LineChart','AreaChart','Water
 // ExtendedTable red (#fa4d56) clearly stands out from them. Risk charts get
 // their own deeper red below (they're a distinct beast from generic charts).
 const CHART_COLOR = '#ff8a80'; // chart coral (lighter than table red)
-const RISK_CHART_COLOR = '#d4374a'; // deeper red — risk charts
+const RISK_CHART_COLOR = '#ff7eb6'; // pink — risk charts (grouped with DashboardHTML)
 const CHART_ABBREVIATIONS: Record<string, string> = {
   BarChart: 'BAR', PieChart: 'PIE', LineChart: 'LIN', AreaChart: 'ARA',
   WaterfallChart: 'WFC', BubbleChart: 'BUB', RadarChart: 'RDR', TreeChart: 'TRE',
@@ -752,70 +748,67 @@ const CHART_ABBREVIATIONS: Record<string, string> = {
  * adjacent pills on a dense page don't read as one block of color.
  */
 const TYPE_COLORS: Record<string, string> = {
-  // ── Structural / page (green family) ──────────────────────────
+  // ── Organisation — the only true green ────────────────────────
   Organisation: '#24a148',
-  Scorecard:    '#42be65',
-  EditPage:     '#6fdc8c',
-  ModelPage:    '#6fdc8c',
+
+  // ── Pages (page-green) ────────────────────────────────────────
+  Scorecard: '#6fdc8c',
+  ModelPage: '#6fdc8c',
+
+  // ── Scorecard-tree / GRC objects — four yellow-orange pairs. For a
+  // configurator these are functionally alike, so we DON'T over-distinguish
+  // by hue: icon carries the object, colour just groups the band.
+  Strategy:    '#f1c21b', Perspective: '#f1c21b', // amber pair
+  Theme:       '#f5cd47', Objective:   '#f5cd47',  // gold group
+  Measure:     '#f5cd47', Action:      '#f5cd47',  // gold group
+  Risk:        '#e8890c', Control:     '#e8890c',  // orange pair
+  Issue:       '#b28600', Indicator:   '#b28600',  // dark-gold pair
+
+  // ── Input surfaces (blue A — object-creating shells) ──────────
+  InputView:        '#1f8bff',
+  CreateObjectView: '#1f8bff',
+  // ── Input definitions (blue B — the linked set / page) ────────
+  InputSet: '#4589ff',
+  EditPage: '#4589ff',
+  // ── Input fields + Label (light blue — live under an InputSet) ─
+  TextInput:      '#78a9ff',
+  NumberInput:    '#78a9ff',
+  DateInput:      '#78a9ff',
+  ChoiceInput:    '#78a9ff',
+  BooleanInput:   '#78a9ff',
+  ReferenceInput: '#78a9ff',
+  ButtonInput:    '#78a9ff',
+  Label:          '#78a9ff',
+  // ── Action button — keeps its strong blue ─────────────────────
+  ActionButton: '#0f62fe',
 
   // ── Layout structure (indigo family) ──────────────────────────
-  // Tabs / containers organise the page. Given their own hue so they
-  // read as navigation/layout chrome and stop falling back to the
-  // anonymous "unknown" grey in trees and chips.
+  Container: '#9aa3e8',
   TabSet:    '#5d6bc7',
   Tab:       '#7e8ce0',
-  Container: '#9aa3e8',
+  DashboardFolder: '#ff7eb6',
 
-  // ── Logic / code (purple family) — transport sits with its EC siblings ──
-  ExtendedTransport: '#9b7bff',
+  // ── Tables — ExtendedTable bold red, the rest coral ───────────
+  ExtendedTable:    '#fa4d56',
+  FilterTable:      '#ff8389',
+  ReportTable:      '#ff8389',
+  FilteredComments: '#ff8389',
 
-  // ── Visualization (warm family) ───────────────────────────────
-  // Tables all share the bold red so they read as one group that stands out
-  // from the (coral) charts — no need to tell ExtendedTable/ReportTable/
-  // FilterTable apart from each other.
-  ExtendedTable:       '#fa4d56',
-  FilterTable:         '#fa4d56',
-  FilteredComments:    '#ff8389',
-  ReportTable:         '#fa4d56',
-  CustomVisualization: '#ff8389',
-  DashboardFolder:     '#ff7eb6',
+  // ── Visualization ─────────────────────────────────────────────
+  CustomVisualization: '#fa4d56', // code-bearing → red, like ExtendedTable
   DashboardHTML:       '#ff7eb6',
 
-  // ── Interactables (blue family) ───────────────────────────────
-  InputView:        '#1f8bff',
-  InputSet:         '#4589ff',
-  TextInput:        '#78a9ff',
-  NumberInput:      '#78a9ff',
-  DateInput:        '#78a9ff',
-  ChoiceInput:      '#78a9ff',
-  BooleanInput:     '#78a9ff',
-  ButtonInput:      '#0f62fe',
-  ActionButton:     '#0f62fe',
-  CreateObjectView: '#4589ff',
-
-  // ── Logic / code-bearing (purple family) ──────────────────────
-  Workflow:           '#a56eff',
+  // ── Logic / code (purple family) ──────────────────────────────
   ExtendedCode:       '#be95ff',
   ExtendedExpression: '#d4bbff',
+  ExtendedTransport:  '#9b7bff',
+  Workflow:           '#a56eff',
 
-  // ── Content (passive but coloured to stand out from #707070 unknown) ──
-  // Warm muted tone — narrative content, not interactable but distinct from
-  // "type not yet known" greys.
+  // ── Content ───────────────────────────────────────────────────
   TextElement: '#d2a373',
-  Label:       '#bca37a',
 
   // ── Status ────────────────────────────────────────────────────
-  StatusType: '#f1c21b',
-
-  // ── Domain palette (preserved — meanings beyond UI role) ──────
-  Strategy:    '#33b1ff',
-  Theme:       '#08bdba',
-  Perspective: '#82cfff',
-  Objective:   '#08bdba',
-  Measure:     '#42be65',
-  Risk:        '#fa4d56',
-  Control:     '#3ddbd9',
-  Action:      '#ff832b',
+  StatusType: '#8d8d8d', // grey
 
   ...Object.fromEntries(CHART_TYPES.map(t => [t, CHART_COLOR])),
   // Risk charts override the generic chart coral with a deeper red so they
@@ -851,6 +844,8 @@ const TYPE_ABBREVIATIONS: Record<string, string> = {
   Risk:                'RSK',
   Control:             'CTL',
   Action:              'ACT',
+  Issue:               'ISS',
+  Indicator:           'IND',
   InputView:           'INV',
   InputSet:            'INS',
   TextInput:           'TIN',
@@ -858,6 +853,7 @@ const TYPE_ABBREVIATIONS: Record<string, string> = {
   DateInput:           'DIN',
   ChoiceInput:         'CIN',
   BooleanInput:        'BIN',
+  ReferenceInput:      'REF',
   ButtonInput:         'BTN',
   CreateObjectView:    'COV',
   TextElement:         'TXT',
@@ -870,7 +866,7 @@ const TYPE_ABBREVIATIONS: Record<string, string> = {
   ...CHART_ABBREVIATIONS,
 };
 
-export const DEFAULT_TYPE_COLOR = '#707070';
+export const DEFAULT_TYPE_COLOR = '#8d8d8d'; // grey — unmapped / unknown type (pairs with the cube fallback badge)
 
 export function getTypeColor(type?: string): string {
   if (!type) return DEFAULT_TYPE_COLOR;
@@ -926,6 +922,9 @@ export const CODE_PROPS_FOR_TYPE: Record<string, readonly string[]> = {
   Label: ['defaultExpression', 'expression'],
   ExtendedTransport: ['expression'],
   ExtendedExpression: ['expression'],
+  // The two sanitized HTML bodies (no EC slots on this type) — also makes
+  // Code Search cover TextElement content.
+  TextElement: ['text', 'longText'],
 };
 
 /** Types that have viewable/editable code properties */

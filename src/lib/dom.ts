@@ -71,3 +71,9 @@ function appendChildren(parent: Node, children: Child[]): void {
     }
   }
 }
+
+/** Fire a short confirmation onto the status bar's feedback slot (the bar
+ *  listens for this event; see buildApp in sidepanel.ts). */
+export function statusFlash(msg: string): void {
+  document.dispatchEvent(new CustomEvent('crev:status-flash', { detail: msg }));
+}

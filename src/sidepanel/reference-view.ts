@@ -4,7 +4,7 @@
  */
 
 import type { InspectorMessage, CodeSearchResult } from '../lib/types';
-import { getTypeColor, getTypeAbbr } from '../lib/types';
+import { typeBadge } from '../lib/type-badge';
 import { h, render, svg } from '../lib/dom';
 import { ICON_ARROW_LEFT } from './utils';
 import { ecPreviewSpan } from '../lib/ec-format';
@@ -71,14 +71,11 @@ export function clearReferenceView() {
 }
 
 function renderRefs(panel: HTMLElement) {
-  const color = getTypeColor(s.targetType);
-  const abbr = getTypeAbbr(s.targetType);
-
   const children: (HTMLElement | false | null)[] = [
     h('button', { class: 'detail-back', onClick: () => { clearReferenceView(); onBackCb?.(); } }, svg(ICON_ARROW_LEFT), ' Back'),
 
     h('div', { class: 'ref-header' },
-      s.targetType && h('span', { class: 'type-badge', style: `--type-color:${color}` }, abbr),
+      s.targetType ? typeBadge(s.targetType, { size: 'xs' }) : null,
       h('span', { class: 'ref-title' }, `References to ${s.targetName}`),
     ),
 
@@ -105,11 +102,10 @@ function renderRefs(panel: HTMLElement) {
 
   for (const [rid, matches] of grouped) {
     const first = matches[0];
-    const matchColor = getTypeColor(first.type);
     children.push(
       h('div', { class: 'ref-group' },
         h('div', { class: 'ref-group-header', onClick: () => onNavigateCb?.(rid) },
-          h('span', { class: 'type-badge', style: `--type-color:${matchColor}` }, getTypeAbbr(first.type)),
+          typeBadge(first.type, { size: 'xs' }),
           h('span', { class: 'ref-group-name' }, first.name ?? 'unnamed'),
           h('span', { class: 'ref-group-bid' }, first.businessId ?? ''),
           h('span', { class: 'ref-group-count' }, `${matches.length}`),

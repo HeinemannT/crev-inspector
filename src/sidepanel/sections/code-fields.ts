@@ -5,6 +5,7 @@
  */
 
 import { h, svg } from '../../lib/dom';
+import { hasStudio, modeForType } from '../../studio/studio-mode';
 import { ICON_FILE_JS, ICON_CODE } from '../../lib/icons';
 import { codeFieldsFor, indirectCodeFieldsFor } from '../../lib/widget-metadata';
 import { ecPreviewSpan } from '../../lib/ec-format';
@@ -31,7 +32,8 @@ export function renderCodeSection(input: CodeSectionInput): HTMLElement | null {
   const indirect = indirectCodeFieldsFor(input.type);
   // CustomVisualization code fields (html/javascript) open in the CVO studio;
   // everything else opens in the EC editor.
-  const isCvo = input.type === 'CustomVisualization';
+  const studio = hasStudio(input.type);
+  const studioTitle = modeForType(input.type).title;
   const rows: HTMLElement[] = [];
 
   for (const def of direct) {
@@ -46,7 +48,8 @@ export function renderCodeSection(input: CodeSectionInput): HTMLElement | null {
       content,
       rid: input.rid,
       sendMessage: input.sendMessage,
-      isCvo,
+      studio,
+      studioTitle,
       gateProp: disabled ? gateProp : undefined,
       gateValue: disabled ? gateValue ?? '' : undefined,
     }));
@@ -89,7 +92,8 @@ function renderCodeRow(opts: {
   editProp?: string;
   sendMessage: SendFn;
   /** CustomVisualization rows open the CVO studio rather than the EC editor. */
-  isCvo?: boolean;
+  studio?: boolean;
+  studioTitle?: string;
   subtitle?: string;
   /** Set when the field is gated by an `enabledBy` flag that's currently false. */
   gateProp?: string;
@@ -105,11 +109,11 @@ function renderCodeRow(opts: {
       h('span', { class: 'code-row-meta' }, `${lines} ${lines === 1 ? 'line' : 'lines'}`),
       h('button', {
         class: 'btn btn-small btn-ghost code-row-edit',
-        title: opts.isCvo ? `Open ${opts.label} in the CVO studio` : `Edit ${opts.label} in the floating editor`,
-        onClick: () => opts.sendMessage(opts.isCvo
-          ? { type: 'OPEN_CVO_STUDIO', rid: opts.rid, property: opts.editProp ?? opts.prop }
+        title: opts.studio ? `Open ${opts.label} in the ${opts.studioTitle ?? 'studio'}` : `Edit ${opts.label} in the floating editor`,
+        onClick: () => opts.sendMessage(opts.studio
+          ? { type: 'OPEN_STUDIO', rid: opts.rid, property: opts.editProp ?? opts.prop }
           : { type: 'OPEN_EDITOR', rid: opts.rid, property: opts.editProp ?? opts.prop }),
-      }, svg(opts.isCvo ? ICON_FILE_JS : ICON_CODE), 'Edit'),
+      }, svg(opts.studio ? ICON_FILE_JS : ICON_CODE), 'Edit'),
     ),
     opts.subtitle ? h('div', { class: 'code-row-subtitle' }, opts.subtitle) : null,
     disabled

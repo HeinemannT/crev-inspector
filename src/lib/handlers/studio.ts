@@ -1,11 +1,11 @@
 /**
- * CVO Studio handlers — opens the CustomVisualization studio overlay.
- * Save/preview reuse the EC handlers (SAVE_PROPERTY routes html/javascript
- * through saveCodeViaEc), so this only owns the open gesture for now.
+ * Studio handlers — opens the studio overlay (CVO or TextElement mode; the
+ * launcher resolves the mode from the object's type). Save/preview reuse the
+ * EC handlers (SAVE_PROPERTY routes code props through saveCodeViaEc).
  */
 import { register } from '../handler-registry'
 import { getCtx } from '../sw-context'
-import { openCvoStudioWindow } from '../cvo-studio'
+import { openStudioWindow } from '../cvo-studio'
 import { errorMessage, log } from '../logger'
 import { formatEcLiteral } from '../ec-guards'
 import type { StudioChildType } from '../types'
@@ -17,9 +17,9 @@ const CHILD_CLASS: Record<StudioChildType, string> = {
   connection: 'CustomVisualizationServerConnection',
 }
 
-register('OPEN_CVO_STUDIO', (msg, _respond, meta) => {
-  openCvoStudioWindow(msg.rid, msg.property, { tabId: meta.senderTabId, windowId: meta.panelWindowId })
-    .catch(e => log.swallow('handler:openCvoStudio', e))
+register('OPEN_STUDIO', (msg, _respond, meta) => {
+  openStudioWindow(msg.rid, msg.property, { tabId: meta.senderTabId, windowId: meta.panelWindowId })
+    .catch(e => log.swallow('handler:openStudio', e))
   const ctx = getCtx()
   const cached = ctx.cache.get(msg.rid)
   if (cached) {
@@ -31,7 +31,7 @@ register('STUDIO_FETCH_CODE', async (msg, respond) => {
   const ctx = getCtx()
   if (!ctx.client) { respond({ type: 'STUDIO_CODE_DATA', ok: false, error: 'Not connected' }); return }
   try {
-    const code = await ctx.client.fetchCodeViaEc(msg.rid, ['html', 'javascript'])
+    const code = await ctx.client.fetchCodeViaEc(msg.rid, msg.props ?? ['html', 'javascript'])
     respond({ type: 'STUDIO_CODE_DATA', ok: true, code })
   } catch (e) {
     respond({ type: 'STUDIO_CODE_DATA', ok: false, error: errorMessage(e) })

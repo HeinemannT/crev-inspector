@@ -14,6 +14,7 @@
  *   - contextFields:      enum / boolean / list values that shape interpretation
  *                         of the other fields (actionType, persistence, …)
  */
+import { TYPES_WITH_CODE } from './types';
 
 /** BMP EC returns enum values as `"EnumName.value"` strings (e.g.
  *  `ActionType.action`, `PersistStrategy.session`, `TextType.rich`) — NOT the
@@ -70,7 +71,12 @@ export const TYPE_META: Record<string, TypeMeta> = {
     references: [{ prop: 'customvisualizationdata', label: 'data binding' }],
   },
   TextElement: {
-    codeFields: [{ prop: 'expression' }, { prop: 'defaultExpression' }],
+    // TextElement has NO expression/defaultExpression (verified against the
+    // live 5.6.10 field list, 2026-07-06). Its code-bearing props are the two
+    // HTML bodies: `text` (teaser) and `longText` (the SHOW MORE body). BMP
+    // sanitizes both on write (strict whitelist — no radius/gradient/shadow/
+    // transform; see the Widget Showcase 'three sanitizers' lab, sc_cvo_demo).
+    codeFields: [{ prop: 'text' }, { prop: 'longText' }],
   },
   Label: {
     codeFields: [{ prop: 'defaultExpression' }, { prop: 'expression' }],
@@ -246,7 +252,39 @@ export function isInputField(type: string): boolean {
 }
 
 export function hasCode(type: string): boolean {
-  return !!(TYPE_META[type]?.codeFields?.length || TYPE_META[type]?.indirectCodeFields?.length);
+  if (TYPE_META[type]?.codeFields?.length || TYPE_META[type]?.indirectCodeFields?.length) return true;
+  // Charts + a few pure-EC types carry code via CODE_PROPS_FOR_TYPE without a
+  // full TYPE_META entry — consult that set too so the affordance is complete.
+  return TYPES_WITH_CODE.has(type);
+}
+
+export function hasReferences(type: string): boolean {
+  return referencesFor(type).length > 0;
+}
+
+/**
+ * The anatomy affordances of a BMP type — the SINGLE seam every surface reads
+ * to decide what a type "is": the on-page inspect sub-badges, the object
+ * detail header, and the Inspect-tab connection view. Derived purely from the
+ * TYPE_META model (+ CODE_PROPS_FOR_TYPE for chart code), so adding a type in
+ * one place lights it up everywhere.
+ */
+export interface TypeAffordances {
+  /** Carries Extended Code (direct, indirect, or a chart expression). */
+  code: boolean;
+  /** References other objects — a jump target to where linked config lives. */
+  references: boolean;
+  /** Has a walkable connection chain (InputView→InputSet→fields, ActionButton→action…). */
+  flow: boolean;
+}
+
+export function typeAffordances(type?: string): TypeAffordances {
+  if (!type) return { code: false, references: false, flow: false };
+  return {
+    code: hasCode(type),
+    references: hasReferences(type),
+    flow: FLOW_TYPES.has(type),
+  };
 }
 
 /** Union of every direct code-field property across all types. Used by

@@ -9,16 +9,17 @@ import { EditorView } from '@codemirror/view'
 import { Extension } from '@codemirror/state'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
+import { MOCHA } from '../lib/ec-palette'
 
 // ── Catppuccin Mocha palette ────────────────────────────────
 const base     = '#1a1a1a'  // Aligned with extension surface-1 (not Mocha's purplish #1e1e2e)
 const mantle   = '#151515'  // Slightly darker than base for gutter contrast
 const surface0 = '#313244'
 const surface1 = '#45475a'
-const surface2 = '#585b70'
+const surface2 = MOCHA.surface2
 const overlay0 = '#6c7086'
-const text     = '#cdd6f4'
-const subtext0 = '#a6adc8'
+const text     = MOCHA.text
+const subtext0 = MOCHA.subtext0
 const accent   = '#8b5cf6'  // CREV accent, not Catppuccin mauve
 
 // ── Theme (editor chrome) ───────────────────────────────────
@@ -177,18 +178,18 @@ const theme = EditorView.theme({
 
 // ── Highlight style (base tokens for non-EC languages) ──────
 const highlightStyle = HighlightStyle.define([
-  { tag: tags.keyword, color: '#cba6f7' },       // mauve
-  { tag: tags.operator, color: '#89dceb' },       // sky
-  { tag: tags.number, color: '#fab387' },         // peach
-  { tag: tags.string, color: '#a6e3a1' },         // green
+  { tag: tags.keyword, color: MOCHA.mauve },       // mauve
+  { tag: tags.operator, color: MOCHA.sky },       // sky
+  { tag: tags.number, color: MOCHA.peach },         // peach
+  { tag: tags.string, color: MOCHA.green },         // green
   { tag: tags.comment, color: overlay0, fontStyle: 'italic' },
-  { tag: tags.function(tags.variableName), color: '#89b4fa' }, // blue
+  { tag: tags.function(tags.variableName), color: MOCHA.blue }, // blue
   { tag: tags.variableName, color: text },
-  { tag: tags.typeName, color: '#f9e2af' },       // yellow
-  { tag: tags.bool, color: '#fab387' },           // peach
+  { tag: tags.typeName, color: MOCHA.yellow },       // yellow
+  { tag: tags.bool, color: MOCHA.peach },           // peach
   { tag: tags.null, color: overlay0, fontStyle: 'italic' },
-  { tag: tags.propertyName, color: '#89b4fa' },   // blue
-  { tag: tags.definition(tags.variableName), color: '#f38ba8' }, // red (definitions)
+  { tag: tags.propertyName, color: MOCHA.blue },   // blue
+  { tag: tags.definition(tags.variableName), color: MOCHA.red }, // red (definitions)
 ])
 
 /** Complete Catppuccin Mocha theme — chrome + base syntax highlighting.

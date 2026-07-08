@@ -196,35 +196,6 @@
 /* Size: wide */
 .btn-wide { width: 100%; padding: var(--space-2) var(--space-3); }
 
-/* ── Type chip ────────────────────────────────────────
- * One coloured type-abbreviation tile shared by every surface that
- * identifies an object by type: the layout tree, the template/object tree,
- * the detail-view sibling tree, the Workshop context chips + identity
- * header, the Objects tab, and the Reference view. Previously these were
- * three separate rules (.type-badge / .pane-tree-chip / .layout-type) that
- * had drifted on size (text-xs vs 9px), radius, and min-width, so chips
- * looked different across surfaces. Unified here; the historical class
- * names are kept as aliases so existing markup renders identically.
- * The `--type-color` custom property (set inline per node) drives the fill. */
-.type-chip,
-.type-badge,
-.pane-tree-chip,
-.layout-type {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 22px;
-  padding: 1px var(--space-xs);
-  border-radius: var(--radius-sm);
-  background: var(--type-color, var(--surface-3));
-  color: #fff;
-  font-size: var(--text-2xs);
-  font-weight: var(--weight-semi);
-  letter-spacing: 0.3px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
 /* ── Inputs ───────────────────────────────────────── */
 
 .input {

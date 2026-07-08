@@ -12,7 +12,6 @@ import { connectPort, disconnectPort, sendToSW, onPortMessage, onReconnect } fro
 import { dispatchBroadcast } from './lib/handler-registry';
 import { initEnvTag, updateEnvTag, destroyEnvTag } from './lib/env-tag';
 import { showToast } from './lib/toast';
-import { hideQuickInspector, isQuickInspectorVisible } from './lib/quick-inspector';
 import { broadcast, onSync, teardownCrossTab } from './lib/cross-tab';
 import OVERLAY_CSS from './content-overlay.css';
 
@@ -93,7 +92,6 @@ function setInspectMode(active: boolean) {
     if (s.debounceTimer) { clearTimeout(s.debounceTimer); s.debounceTimer = null; }
     removeOverlays(s);
     s.requestedRids.clear();
-    hideQuickInspector();
   }
 }
 
@@ -108,7 +106,11 @@ function injectStyles() {
 
   const tooltip = document.createElement('div');
   tooltip.id = 'crev-tooltip';
-  document.body.appendChild(tooltip);
+  // documentElement, NOT body — BMP puts transforms on body-level wrappers,
+  // and a transformed ancestor traps position:fixed in its stacking context,
+  // which painted the card UNDER outlines/badges. Same escape hatch the
+  // frame overlays use.
+  document.documentElement.appendChild(tooltip);
 
   // Delegated hover handler for the badge pills. Hovering the pill (not the
   // whole widget) shows the info card — the widget body stays clickable for
@@ -118,6 +120,11 @@ function injectStyles() {
   // this on every mouse move.
   document.body.addEventListener('mouseover', (e) => {
     if (!s.inspectActive) return;
+    // Moving onto (or within) the hover card must not count as "left the
+    // label" — every child span re-fires mouseover here, and the card's own
+    // one-time mouseenter can't keep cancelling the hide timer. Clicking or
+    // text-selecting an id inside the card was killing it mid-gesture.
+    if ((e.target as HTMLElement).closest?.('#crev-tooltip')) return;
     const pill = (e.target as HTMLElement).closest?.('.crev-label') as HTMLElement | null;
     if (pill === s.hoveredLabelEl) return;
     s.hoveredLabelEl = pill;
@@ -393,26 +400,15 @@ document.body.addEventListener('contextmenu', (e) => {
   }
 }, { capture: true, signal: s.listenerLifetime.signal });
 
-// ── Escape + click-outside dismiss quick inspector ───────────────
+// ── Escape stops paint mode ──────────────────────────────────────
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (isQuickInspectorVisible()) {
-    hideQuickInspector();
-    return;
-  }
   // Esc stops an active paint session (matches the in-page banner hint).
   if (s.paintPhase !== 'off') {
     sendToSW({ type: 'TOGGLE_PAINT' } as InspectorMessage);
   }
 }, { signal: s.listenerLifetime.signal });
-
-document.addEventListener('click', (e) => {
-  if (!isQuickInspectorVisible()) return;
-  const target = e.target as HTMLElement;
-  if (target.closest('#crev-quick-inspector')) return;
-  hideQuickInspector();
-}, { capture: true, signal: s.listenerLifetime.signal });
 
 // ── Messages from MAIN world interceptor (via CustomEvent) ───────
 
@@ -542,7 +538,6 @@ function flashContext(el: HTMLElement): void {
 
 function resetContentState() {
   removeOverlays(s);
-  hideQuickInspector();
   destroyEnvTag();
   teardownFrameOverlayModule();
   disableBlueprint();

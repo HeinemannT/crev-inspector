@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { APPEARANCE_TYPES, PROP_GROUPS, findPropDef } from '../pane-schema';
 import { PANE_PROPS } from '../../lib/bmp-client';
-import { COLOR_LINK_PROPS, PAINT_STYLE_PROPS, PAINT_PROP_RESET } from '../../lib/types';
+import { COLOR_LINK_PROPS, PAINT_STYLE_PROPS, PAINT_PROP_RESET, STYLE_PROPS } from '../../lib/types';
 
 describe('APPEARANCE_TYPES coverage', () => {
   it('includes the widget types the old WebChild set omitted', () => {
@@ -84,8 +84,11 @@ describe('style-prop catalog is the single source (locks pane-schema ⇄ style-p
       expect(findPropDef(p), `${p} should have a PropDef`).toBeTruthy();
     }
   });
-  it('PAINT_PROP_RESET covers exactly the paintable props with type-correct literals', () => {
-    expect(Object.keys(PAINT_PROP_RESET).sort()).toEqual([...PAINT_STYLE_PROPS].sort());
+  it('PAINT_PROP_RESET covers every catalog prop (paintable + flags) with type-correct literals', () => {
+    // The reset map spans the WHOLE catalog (flags need type-correct clears
+    // too); the paintbrush copy-set is the paintable subset of it.
+    expect(Object.keys(PAINT_PROP_RESET).sort()).toEqual(STYLE_PROPS.map(p => p.prop).sort());
+    for (const p of PAINT_STYLE_PROPS) expect(PAINT_PROP_RESET[p]).toBeTruthy();
     expect(PAINT_PROP_RESET.headerColor).toBe('""');   // colour link clears with ""
     expect(PAINT_PROP_RESET.transparency).toBe('0');     // number
     expect(PAINT_PROP_RESET.shadow).toBe('FALSE');       // boolean

@@ -16,7 +16,7 @@
  */
 
 import type { InspectorMessage, BmpObject, HistoryEntry } from '../../lib/types';
-import { getTypeColor, getTypeAbbr } from '../../lib/types';
+import { typeBadge } from '../../lib/type-badge';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { truncRid, copyText, ICON_COPY, ICON_SEARCH } from '../utils';
@@ -302,7 +302,7 @@ export class ObjectsTab implements Tab {
           h('div', { class: `bx-dd-opt${selected.has(t) ? ' on' : ''}`, 'data-action': 'type-option', 'data-type': t, 'data-fam': kind },
             h('span', { class: 'bx-dd-box' }, selected.has(t) ? svg(ICON_CHECK) : null),
             h('span', { class: 'bx-dd-name' },
-              h('span', { class: 'bx-chip bx-chip--sm', style: `--tc:${getTypeColor(t)}` }, getTypeAbbr(t)),
+              typeBadge(t, { size: 'xs' }),
               t),
           )),
       ),
@@ -372,7 +372,7 @@ export class ObjectsTab implements Tab {
     const crumb = rawCrumb && rawCrumb !== r.name ? rawCrumb : '';
     const prov = provenance(r);
     return h('div', { class: 'bx-row', 'data-action': 'row-click', 'data-rid': r.rid },
-      h('span', { class: 'bx-chip', style: `--tc:${getTypeColor(r.type)}`, title: r.type ?? '' }, getTypeAbbr(r.type)),
+      typeBadge(r.type, { size: 'xs' }),
       h('span', { class: 'bx-name', title: r.name ?? '' }, r.name ?? '(unnamed)'),
       crumb ? h('span', { class: 'bx-crumb', title: crumb }, crumb) : null,
       h('span', { class: `bx-prov bx-prov--${prov}`, title: prov === 'touched' ? 'In your cache (touched)' : 'From the workspace (live)' }),
@@ -422,7 +422,7 @@ export class ObjectsTab implements Tab {
    *  the shared row-click handler to navigate. */
   private renderHomeRow(rid: string, name?: string, type?: string, businessId?: string): HTMLElement {
     return h('div', { class: 'bx-row', 'data-action': 'row-click', 'data-rid': rid, title: name ?? truncRid(rid) },
-      h('span', { class: 'bx-chip', style: `--tc:${getTypeColor(type)}`, title: type ?? '' }, getTypeAbbr(type)),
+      typeBadge(type, { size: 'xs' }),
       h('span', { class: 'bx-name' }, name ?? '(unnamed)'),
       businessId ? h('span', { class: 'bx-crumb', title: businessId }, businessId) : null,
       h('div', { class: 'bx-row-actions' },

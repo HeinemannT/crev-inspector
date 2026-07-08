@@ -9,11 +9,11 @@
  * calls (activate / deactivate / handleMessage / render) directly.
  */
 
-import type { InspectorMessage, BmpObject, WidgetInfo, DetectionPhase, LayoutNode } from '../../lib/types';
-import { getTypeColor, getTypeAbbr } from '../../lib/types';
+import type { InspectorMessage, BmpObject, WidgetInfo, LayoutNode } from '../../lib/types';
+import { typeBadge } from '../../lib/type-badge';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
-import { truncRid, ICON_REFRESH, ICON_CROSSHAIR, ICON_LAYOUT, ICON_BLUEPRINT } from '../utils';
+import { truncRid, ICON_REFRESH, ICON_LAYOUT, ICON_BLUEPRINT } from '../utils';
 import { ICON_CHEVRON, ICON_SPINNER } from '../../lib/icons';
 import type { Tab, SendFn } from './tab-types';
 import { LAYOUT_BEARING_TYPES } from '../../lib/layout-target';
@@ -40,14 +40,12 @@ export function cleanWidgetName(raw: string | undefined): string {
 
 export class WorkshopLayoutPane implements Tab {
   // Detection + widgets (from PAGE_INFO)
-  private detection = { phase: 'unknown' as DetectionPhase, confidence: 0, signals: [] as string[] };
   private widgets: WidgetInfo[] = [];
   // Ambient page location — separate from contextRid so the user can see
   // "scorecard + active tab" even when contextRid was set elsewhere.
   // Populated from PAGE_INFO.rid / .tabRid on every refresh.
   private pageRid: string | null = null;
   private pageTabRid: string | null = null;
-  private pageTabName: string | null = null;
   /** Enrichment for the widget list — rid → { type, name, businessId }.
    *  Populated lazily as SERVER_LOOKUP_RESULTs arrive for the widget rids we
    *  asked about on every PAGE_INFO. The overlay BADGE_ENRICHMENT broadcast
@@ -102,6 +100,26 @@ export class WorkshopLayoutPane implements Tab {
   constructor(send: SendFn, onNavigate: (rid: string) => void) {
     this.send = send;
     this.onNavigate = onNavigate;
+    // The context picker ⌖ moved into the DetailView path bar (Path-Spine);
+    // it arms the picker here via this event so the pick logic stays owned
+    // by the pane that renders the layout tree.
+    document.addEventListener('crev:arm-context-picker', () => this.armPickerExternal());
+  }
+
+  private lastContainer: HTMLElement | null = null;
+
+  /** Arm/disarm the context picker from outside the strip (path-bar ⌖). */
+  private armPickerExternal(): void {
+    if (this.pickingContext) {
+      this.disarmPicker();
+    } else {
+      this.pickingContext = true;
+      if (!this.inspectActive) {
+        this.didEnableInspectForPick = true;
+        this.send({ type: 'SET_INSPECT_STATE', active: true });
+      }
+    }
+    if (this.lastContainer) this.render(this.lastContainer);
   }
 
   activate() {
@@ -115,11 +133,9 @@ export class WorkshopLayoutPane implements Tab {
   /** Wipe all context + page state (used on workspace/profile switch — every
    *  RID here belongs to the old workspace) and re-detect for the new one. */
   reset(): void {
-    this.detection = { phase: 'unknown', confidence: 0, signals: [] };
     this.widgets = [];
     this.pageRid = null;
     this.pageTabRid = null;
-    this.pageTabName = null;
     this.widgetEnrichments.clear();
     this.widgetEnrichInFlight.clear();
     this.contextRid = null;
@@ -197,11 +213,6 @@ export class WorkshopLayoutPane implements Tab {
         this.widgets = msg.widgets;
         this.pageRid = msg.rid ?? null;
         this.pageTabRid = msg.tabRid ?? null;
-        this.pageTabName = msg.tabName ?? null;
-        if (msg.detection) {
-          const phase: DetectionPhase = msg.detection.isBmp ? 'detected' : 'not-detected';
-          this.detection = { phase, confidence: msg.detection.confidence, signals: msg.detection.signals };
-        }
         // Auto-detect: empty → set the page's rid.
         // Follow the URL: if the existing context was AUTO-detected and
         // the user has navigated BMP to a different scorecard, switch
@@ -225,9 +236,6 @@ export class WorkshopLayoutPane implements Tab {
         // SERVER_LOOKUP_RESULT comes back per-rid; we update widgetEnrichments
         // as each lands. The handler dedupes via widgetEnrichInFlight + Map.
         this.requestWidgetEnrichments();
-        return true;
-      case 'DETECTION_STATE':
-        this.detection = { phase: msg.phase, confidence: msg.confidence, signals: msg.signals };
         return true;
       case 'INSPECT_STATE':
         // Track inspect-mode state so the context picker knows whether
@@ -407,73 +415,12 @@ export class WorkshopLayoutPane implements Tab {
   private blueprintActive = false;
 
   render(container: HTMLElement) {
+    this.lastContainer = container;
     const children: (HTMLElement | false | null)[] = [];
-
-    // Context band — OUR design. Its job is to carry WHERE you are: the page's
-    // context object (Scorecard / Page / …) and the active Tab, with a subtle
-    // detection dot instead of a meaningless "detection %". Always shown.
-    {
-      const detected = this.detection.phase === 'detected';
-      const checking = this.detection.phase === 'checking' || this.detection.phase === 'unknown';
-      const resolveName = (rid: string, fallback: string) =>
-        this.widgetEnrichments.get(rid)?.name || fallback;
-      // The context object's real type, not a hardcoded "Scorecard" — it may be
-      // a Page, a Template, etc.
-      const pageType = (this.pageRid ? this.widgetEnrichments.get(this.pageRid)?.type : null) || 'Scorecard';
-      const chipChildren: HTMLElement[] = [];
-      // Suppress chips that point at the current context — the click would be a
-      // no-op (e.g. the auto-detected scorecard is already the context).
-      if (this.pageRid && this.pageRid !== this.contextRid) {
-        chipChildren.push(h('button', {
-          class: 'workshop-ctx-chip',
-          'data-action': 'pick-page-scorecard',
-          'data-rid': this.pageRid,
-          title: `Set ${pageType} as context`,
-        },
-          h('span', { class: 'pane-tree-chip', style: `--type-color:${getTypeColor(pageType)}` }, getTypeAbbr(pageType)),
-          h('span', { class: 'workshop-ctx-chip-value' }, resolveName(this.pageRid, truncRid(this.pageRid))),
-        ));
-      }
-      if (this.pageTabRid && this.pageTabRid !== this.contextRid) {
-        chipChildren.push(h('button', {
-          class: 'workshop-ctx-chip',
-          'data-action': 'pick-page-tab',
-          'data-rid': this.pageTabRid,
-          'data-name': this.pageTabName ?? '',
-          title: 'Set the active tab as context',
-        },
-          h('span', { class: 'pane-tree-chip', style: `--type-color:${getTypeColor('Tab')}` }, getTypeAbbr('Tab')),
-          h('span', { class: 'workshop-ctx-chip-value' }, this.pageTabName || resolveName(this.pageTabRid, truncRid(this.pageTabRid))),
-        ));
-      }
-
-      let body: HTMLElement;
-      if (chipChildren.length > 0) {
-        body = h('div', { class: 'workshop-ctx-chips' }, ...chipChildren);
-      } else if (checking) {
-        body = h('span', { class: 'workshop-ctx-empty' }, 'Checking page…');
-      } else if (this.pageRid) {
-        body = h('span', { class: 'workshop-ctx-empty' }, 'On the page you’re inspecting.');
-      } else if (detected) {
-        body = h('span', { class: 'workshop-ctx-empty' }, 'BMP page · no scorecard context.');
-      } else {
-        body = h('span', { class: 'workshop-ctx-empty' }, 'Not a BMP page.');
-      }
-
-      children.push(h('div', { class: 'workshop-ctx-strip' },
-        // (No status dot here — page-detection is already conveyed by the body text + the header/bottom
-        // connection indicators; the green dot before the context label was redundant.)
-        body,
-        h('button', {
-          class: `workshop-ctx-picker${this.pickingContext ? ' active' : ''}`,
-          'data-action': 'pick-context',
-          title: this.pickingContext
-            ? 'Cancel context picker (Esc)'
-            : 'Pick an element on the page to set as context',
-          'aria-pressed': this.pickingContext ? 'true' : 'false',
-        }, svg(ICON_CROSSHAIR)),
-      ));
-    }
+    // Context strip removed (Path-Spine sign-off): the DetailView path bar
+    // carries location; its ⌀ picker arms via armPickerExternal(). The old
+    // dormant chip builders were deleted in the 2026-07 dead-code sweep
+    // (git history has them if layout-tree mode ever wants chips back).
 
     // The workshop-ctx-strip above carries the picker + ambient
     // chips; the empty / loading states below render directly when no
@@ -749,7 +696,6 @@ export class WorkshopLayoutPane implements Tab {
       return h('div', { class: 'grid-cell grid-cell--deep' }, '…');
     }
     const span = (node[colField] ?? 6) || 6;
-    const color = getTypeColor(node.type);
     const cls = ['grid-cell', `grid-cell--${node.type.toLowerCase()}`];
     if (span === 0) cls.push('grid-cell--hidden');
     if (this.highlightedNodeRid === node.rid) cls.push('grid-cell--highlight');
@@ -787,7 +733,7 @@ export class WorkshopLayoutPane implements Tab {
       // the layout tree, so the user's eyes can match the same node
       // across both surfaces.
       h('div', { class: 'grid-cell-head' },
-        h('span', { class: 'grid-cell-type', style: `--type-color:${color}` }, getTypeAbbr(node.type)),
+        typeBadge(node.type, { size: 'xs' }),
         h('span', { class: 'grid-cell-name' }, node.name ?? node.businessId ?? truncRid(node.rid)),
         span === 0 ? h('span', { class: 'grid-cell-hidden-badge', title: 'columns=0: hidden at this breakpoint' }, '∅') : null,
       ),
@@ -846,7 +792,6 @@ export class WorkshopLayoutPane implements Tab {
     const kids = childrenOf.get(node.rid) ?? [];
     const isExpanded = this.expandedNodes.has(node.rid) || autoExpanded.has(node.rid);
     const hasKids = kids.length > 0;
-    const color = getTypeColor(node.type);
     const cols = node.columnsLargeScreen;
     const showSize = cols != null && (node.type === 'Tab' || node.type === 'Container' || node.type === 'CustomVisualization' || node.type === 'ExtendedTable' || node.type === 'InputView' || node.type === 'TextElement' || node.type === 'ActionButton');
 
@@ -871,7 +816,7 @@ export class WorkshopLayoutPane implements Tab {
         'data-action': hasKids ? 'toggle-layout-node' : undefined,
         'data-rid': node.rid,
       }, hasKids ? svg(ICON_CHEVRON) : '  '),
-      h('span', { class: 'layout-type', style: `--type-color:${color}`, title: node.type }, getTypeAbbr(node.type)),
+      typeBadge(node.type, { size: 'xs' }),
       h('span', {
         class: 'layout-name',
         'data-action': 'nav-layout-node',

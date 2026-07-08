@@ -1,7 +1,7 @@
 /**
  * Quick Profile Switcher — floating overlay for instant profile switching.
- * Triggered by clicking the header status area.
- * Number keys 1-9 for instant selection, Escape to dismiss.
+ * Triggered by clicking the header status area. Click a row to switch;
+ * click anywhere else to dismiss (auto-dismisses after 10 s).
  */
 
 import { h } from '../lib/dom';
@@ -9,7 +9,6 @@ import { S, sendMessage } from './state';
 
 let overlayEl: HTMLElement | null = null;
 let dismissTimer: ReturnType<typeof setTimeout> | null = null;
-let keyHandler: ((e: KeyboardEvent) => void) | null = null;
 let hideTime = 0; // prevent open-after-close on same click (capture vs bubble race)
 
 export function showProfileSwitcher(): void {
@@ -24,29 +23,24 @@ export function showProfileSwitcher(): void {
     return;
   }
 
-  const rows = profiles.map((p, i) => {
+  const rows = profiles.map((p) => {
     const isActive = p.id === S.settings.activeProfileId;
-    const num = i + 1;
     return h('div', {
       class: `ps-row${isActive ? ' ps-row--active' : ''}`,
       'data-profile-id': p.id,
-      'data-index': String(num),
     },
-      h('span', { class: 'ps-num' }, String(num)),
       h('span', { class: 'ps-label' }, p.label || p.bmpUrl),
-      isActive && h('span', { class: 'ps-check' }, '\u2713'),
+      isActive && h('span', { class: 'ps-check' }, '✓'),
     );
   });
 
   overlayEl = h('div', { class: 'profile-switcher' },
     h('div', { class: 'ps-title' }, 'Switch Profile'),
     ...rows,
-    h('div', { class: 'ps-hint' }, 'Press 1\u20139 or click \u00b7 Esc to close'),
   );
 
   document.body.appendChild(overlayEl);
 
-  // Click handler
   overlayEl.addEventListener('click', (e) => {
     const row = (e.target as HTMLElement).closest<HTMLElement>('[data-profile-id]');
     if (row) {
@@ -57,27 +51,11 @@ export function showProfileSwitcher(): void {
   // Reset dismiss timer on interaction
   overlayEl.addEventListener('mouseenter', resetDismissTimer);
 
-  // Keyboard handler
-  keyHandler = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      hideProfileSwitcher();
-      return;
-    }
-    const num = parseInt(e.key, 10);
-    if (num >= 1 && num <= profiles.length) {
-      e.preventDefault();
-      selectProfile(profiles[num - 1].id);
-    }
-  };
-  document.addEventListener('keydown', keyHandler, true);
-
   // Click outside to dismiss
   requestAnimationFrame(() => {
     document.addEventListener('click', outsideClickHandler, true);
   });
 
-  // Auto-dismiss after 5 seconds
   resetDismissTimer();
 }
 
@@ -86,10 +64,6 @@ export function hideProfileSwitcher(): void {
     overlayEl.remove();
     overlayEl = null;
     hideTime = Date.now();
-  }
-  if (keyHandler) {
-    document.removeEventListener('keydown', keyHandler, true);
-    keyHandler = null;
   }
   document.removeEventListener('click', outsideClickHandler, true);
   if (dismissTimer) {
@@ -113,10 +87,6 @@ function showEmpty() {
   );
   document.body.appendChild(overlayEl);
 
-  keyHandler = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') { e.preventDefault(); hideProfileSwitcher(); }
-  };
-  document.addEventListener('keydown', keyHandler, true);
   requestAnimationFrame(() => {
     document.addEventListener('click', outsideClickHandler, true);
   });

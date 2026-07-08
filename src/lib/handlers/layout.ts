@@ -74,8 +74,9 @@ register('LAYOUT_LOAD', async (msg, respond) => {
   const ctx = getCtx();
   if (!ctx.client) { respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: 'Not connected' }); return; }
   const t0 = Date.now();
+  const timings: string[] = []; // operation-local — see makeLayoutIO
   try {
-    const res = await loadPage(ctx.client, msg.rid, msg.prefer);
+    const res = await loadPage(ctx.client, msg.rid, msg.prefer, timings);
     if (!res) {
       respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: 'Not an editable page (no tabset resolved)' });
       ctx.logActivity('warn', `Blueprint load: ${msg.rid} is not an editable page`);
@@ -85,7 +86,7 @@ register('LAYOUT_LOAD', async (msg, respond) => {
       type: 'LAYOUT_LOAD_RESULT', ok: true, env: envToken(ctx),
       ctx: res.ctx, model: res.load.model, baseline: res.load.baseline, orphans: res.load.orphans,
     });
-    ctx.logActivity('success', `Blueprint loaded ${res.ctx.pageClass} ${res.ctx.pageId}${res.ctx.resultOnly ? ' (result-only, no tabset)' : ''} (${Date.now() - t0}ms)`);
+    ctx.logActivity('success', `Blueprint loaded ${res.ctx.pageClass} ${res.ctx.pageId}${res.ctx.resultOnly ? ' (result-only, no tabset)' : ''} (${Date.now() - t0}ms)`, `EC calls: ${timings.join(' | ')}`);
   } catch (e) {
     respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: errorMessage(e) });
     ctx.logActivity('error', 'Blueprint load threw', e instanceof Error ? e.message : String(e));
@@ -97,7 +98,7 @@ register('LAYOUT_CREATE_TABSET', async (msg, respond) => {
   if (!ctx.client) { respond({ type: 'LAYOUT_CREATE_TABSET_RESULT', ok: false, error: 'Not connected' }); return; }
   const t0 = Date.now();
   try {
-    const res = await createTabset(ctx.client, msg.page, msg.name);
+    const res = await createTabset(ctx.client, msg.page);
     if (!res) {
       respond({ type: 'LAYOUT_CREATE_TABSET_RESULT', ok: false, error: 'Could not create the tabset' });
       ctx.logActivity('error', `Blueprint: create-tabset failed for ${msg.page.pageId}`);
@@ -126,8 +127,9 @@ register('LAYOUT_APPLY', async (msg, respond) => {
     return;
   }
   const t0 = Date.now();
+  const timings: string[] = []; // operation-local — see makeLayoutIO
   try {
-    const res = await applyPage(ctx.client, msg.ctx, msg.baseline, msg.desired);
+    const res = await applyPage(ctx.client, msg.ctx, msg.baseline, msg.desired, timings);
     respond({
       type: 'LAYOUT_APPLY_RESULT', ok: res.ok, noop: res.noop, stale: res.stale,
       script: res.script, notes: res.notes, model: res.model, baseline: res.baseline, error: res.error,
@@ -136,7 +138,7 @@ register('LAYOUT_APPLY', async (msg, respond) => {
     if (res.noop) {
       ctx.logActivity('success', 'Blueprint apply: no changes');
     } else if (res.ok) {
-      ctx.logActivity('success', `Blueprint applied ${res.plan.length} step(s) (${Date.now() - t0}ms)`, res.script);
+      ctx.logActivity('success', `Blueprint applied ${res.plan.length} step(s) (${Date.now() - t0}ms)`, `EC calls: ${timings.join(' | ')}\n\n${res.script}`);
     } else {
       ctx.logActivity('error', 'Blueprint apply failed', res.error);
     }

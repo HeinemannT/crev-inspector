@@ -3,7 +3,7 @@
  * Uses CodeMirror MergeView for visual diff rendering.
  */
 
-import { getTypeColor, getTypeAbbr } from '../lib/types';
+import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
 import { h, render } from '../lib/dom';
 import { serializeForDiff } from '../lib/diff-serializer';
 import { CODE_PROPS_FOR_TYPE } from '../lib/types';
@@ -171,10 +171,10 @@ function renderUI() {
 }
 
 function renderIdentityChip(identity: { name?: string; type?: string; businessId?: string }): HTMLElement {
-  const color = getTypeColor(identity.type);
-  const abbr = getTypeAbbr(identity.type);
   const children: (HTMLElement | string)[] = [
-    h('span', { class: 'diff-type-badge', style: `--type-color:${color}` }, abbr),
+    identity.businessId
+      ? wireBadgeCopy(typeBadge(identity.type, { size: 'xs' }), () => identity.businessId!)
+      : typeBadge(identity.type, { size: 'xs' }),
     ' ',
     identity.name ?? 'unnamed',
   ];

@@ -555,9 +555,9 @@ function makeObjectData(rid: string, type: string, properties: Record<string, an
 /** Build an ExtendedExecuteCommand */
 export function makeExtendedExecuteCommand(
   code: string,
-  opts?: { objectRid?: bigint; transactional?: boolean },
+  opts?: { objectRid?: bigint; orgRid?: bigint; transactional?: boolean },
 ): any {
-  const ctx = makeContext(opts?.objectRid ? { objectRid: opts.objectRid } : undefined);
+  const ctx = makeContext(opts?.objectRid || opts?.orgRid ? { objectRid: opts?.objectRid, orgRid: opts?.orgRid } : undefined);
   return {
     $type: 'com.corporater.bmp.dto.command.extended.ExtendedExecuteCommand',
     commandColumn: 0,

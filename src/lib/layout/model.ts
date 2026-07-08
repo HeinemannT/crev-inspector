@@ -233,6 +233,15 @@ export function descendantWidgets(n: LNode): LNode[] {
   return out;
 }
 
+/** Widgets that actually render for a viewer — full ghosts (noVisible, or hidden on
+ *  every display size) excluded. A tab whose widgets are ALL ghosts is hidden by BMP
+ *  exactly like an empty tab (verified live 2026-07-06), so "does this tab appear on
+ *  the page" must count these, not raw `descendantWidgets`. NOT a global swap: the
+ *  ghost tray + other counts still need every widget. */
+export function descendantVisibleWidgets(n: LNode): LNode[] {
+  return descendantWidgets(n).filter(w => !isFullGhost(w));
+}
+
 let tmpSeq = 0;
 /** Fresh temp id for a staged add (resolved to a real id by the post-apply re-fetch). */
 export function tempId(prefix = 'new'): string {
@@ -240,3 +249,16 @@ export function tempId(prefix = 'new'): string {
   return `${prefix}:${tmpSeq}`;
 }
 export const isTempId = (id: string): boolean => id.includes(':');
+
+/** A FULL ghost never renders for anyone: `visibility = NOVISIBLE`, or every
+ *  ScreenSizeVisibility flag off. BMP's packing reflows around it (verified
+ *  live 2026-07-06: A|B|C 2+2+2 row; hiding B slid C into its slot) — so the
+ *  blueprint grid must exclude ghosts or the layout it shows is false. NOTE
+ *  adminVisibleOnly / visibleAsParentOnly are NOT ghosts here (they render
+ *  for the configurator); they get a cell marker instead. */
+export function isFullGhost(n: LNode): boolean {
+  const s = n.style;
+  if (!s) return false;
+  if (s.visibility === 'NOVISIBLE') return true;
+  return s.shownOnLargeDisplay === false && s.shownOnMediumDisplay === false && s.shownOnSmallDisplay === false;
+}

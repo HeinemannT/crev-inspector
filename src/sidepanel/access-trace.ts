@@ -11,7 +11,7 @@
  */
 import { h, render, svg } from '../lib/dom';
 import { ICON_X_CIRCLE, ICON_CHECK_CIRCLE, ICON_MINUS_CIRCLE, ICON_CHECK, ICON_CHEVRON } from '../lib/icons';
-import { getTypeAbbr, getTypeColor } from '../lib/types';
+import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
 import type { AccessSubject, AccessTraceAction, AccessTraceNode, InspectorMessage } from '../lib/types';
 
 /** How this overlay reaches the SW. Injected by the host surface (the side panel
@@ -186,7 +186,7 @@ function renderHeader(): HTMLElement {
   return h('div', { class: 'atrace-head' },
     h('span', { class: 'atrace-title' }, 'Test access'),
     h('span', { class: 'atrace-obj' },
-      h('span', { class: 'pane-id-chip', style: `--type-color:${getTypeColor(o.type)}`, title: o.type }, getTypeAbbr(o.type)),
+      wireBadgeCopy(typeBadge(o.type, { size: 'xs' }), () => o.rid),
       h('span', { class: 'atrace-obj-name', title: o.name }, o.name || '(unnamed)'),
     ),
     h('button', { class: 'atrace-close', title: 'Close (Esc)', onClick: () => closeAccessTrace() }, '✕'),

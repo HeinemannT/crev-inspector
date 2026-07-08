@@ -1,20 +1,22 @@
 /**
- * CVO source formatting. Pretty-prints the html / javascript fields — reflowing
- * a minified or single-line source into clean, indented multi-line.
+ * Studio source formatting. Pretty-prints a slot by its LANGUAGE (html vs
+ * javascript/css) — reflowing a minified or single-line source into clean,
+ * indented multi-line. Mode-agnostic: a TextElement's `text` and a CVO's
+ * `html` both take the html path.
  *
  * js-beautify is a sizeable dependency, so it's loaded with a dynamic import:
  * it lands in its own chunk that's only fetched the first time the user hits
  * Format, never on studio startup.
  */
-import type { StudioCodeProp } from './studio-types'
+import type { CodeLang } from '../editor-core/cm-scaffold'
 
 /** Two-space indent, matching the studio editor (web convention, not EC's 5). */
 const INDENT = 2
 
-export async function formatCode(prop: StudioCodeProp, code: string): Promise<string> {
+export async function formatCode(lang: CodeLang, code: string): Promise<string> {
   const mod = await import('js-beautify')
   const beautify = mod.default ?? mod
-  if (prop === 'html') {
+  if (lang === 'html') {
     // Indent structure, but keep each tag on one line — never hard-wrap or
     // split a tag's attributes onto their own lines (that produced jarring
     // `<div\n  style=…>` breaks). The Wrap toggle handles visual fit in the

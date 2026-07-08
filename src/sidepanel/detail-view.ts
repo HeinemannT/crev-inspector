@@ -14,24 +14,23 @@
  */
 
 import type { BmpObject, InspectorMessage, ObjectPaneIdentity, ObjectPaneCard, ObjectPaneSiblingMsg } from '../lib/types';
-import { getTypeColor, getTypeAbbr } from '../lib/types';
-import { h, render, svg } from '../lib/dom';
-import { ICON_FILE_JS, ICON_CODE, ICON_LAYOUT, ICON_SHIELD, ICON_ARROW_LEFT, ICON_ARROW_LINE_UP, ICON_X, ICON_STAR_FILLED, ICON_STAR_HOLLOW } from '../lib/icons';
+import { h, render, svg, statusFlash } from '../lib/dom';
+import { ICON_FILE_JS, ICON_CODE, ICON_LAYOUT, ICON_SHIELD, ICON_STAR_FILLED, ICON_STAR_HOLLOW, ICON_COPY, ICON_ARROW_OUT, ICON_CROSSHAIR, ICON_CHEVRON } from '../lib/icons';
 import { resolveLayoutShortcut } from '../lib/layout-target';
 import { confirmModal } from '../lib/modal';
 import { displayValue } from './property-editors';
-import { openColorPicker } from './color-picker';
 import { renderPaneTree, type PaneTreeData } from './pane-tree';
+import { typeBadge } from '../lib/type-badge';
 import { openAccessTrace } from './access-trace';
 import { renderCodeSection } from './sections/code-fields';
 import { renderLinks, connectionsToLinks, referencesToLinks, type LinkInbound, type LinksModel } from './sections/links';
 import { referencesFor } from '../lib/widget-metadata';
-import { renderPropertyGroups, type PaneGroupsCtx } from './sections/property-groups';
 import { renderFlowSection } from './sections/flow-walker';
+import { hasStudio, modeForType } from '../studio/studio-mode';
 import { renderContextSection } from './sections/context-fields';
 import { S } from './state';
 import { LOOKUP_WATCHDOG_TIMEOUT } from '../lib/constants';
-import { hasFlow } from '../lib/widget-metadata';
+import { hasFlow, normalizeBmpEnum } from '../lib/widget-metadata';
 import type { FlowChainMsg, ConnGroup } from '../lib/types';
 
 type SendFn = (msg: InspectorMessage) => void;
@@ -81,7 +80,7 @@ interface PaneChildren {
 
 // Property schema lives in pane-schema.ts so the full-view popout can reuse it.
 import { buildChangesPayload } from './pane-edit';
-import { requestSchema, isPropAvailable, subscribePaneSchema } from './pane-schema-runtime';
+import { requestSchema, subscribePaneSchema } from './pane-schema-runtime';
 import { showToast } from '../lib/toast';
 
 export class DetailView {
@@ -90,19 +89,17 @@ export class DetailView {
   private draft: Record<string, string> = {};
   /** Where to save edits. Mirrors the editor's pattern. */
   private target: SaveTarget = 'instance';
+
+  /** Active body segment — 'flow' is the anatomy lens (Flow chain, or Code +
+   *  Links for non-flow types); 'structure' is the local tree (parent ·
+   *  siblings · children); 'info' is identity metadata + context fields.
+   *  Sticky across object swaps: the chosen lens is a working mode. */
+  private segment: 'flow' | 'structure' | 'info' = 'flow';
   /** True while APPLY_OBJECT_CHANGES is in flight. */
   private saving = false;
 
   /** Local tree children expansion state for the current object. */
   private childrenState: PaneChildren | null = null;
-  /** Properties-area height as a percentage of the split (40..85).
-   *  Default 80% — inside Workshop the DetailView is already in the
-   *  bottom half of an outer split, so its OWN inner split must lean
-   *  hard toward props (the user is editing) and only give the tree
-   *  sub-pane (siblings/children of non-layout types) ~20% of detail
-   *  height. Users who need more tree room drag the inner divider. */
-  private splitPct = 80;
-
   private lookupTimeout: ReturnType<typeof setTimeout> | null = null;
   /** Timers that bump `state.loadingStage` from 'normal' → 'slow' → 'verySlow'
    *  at 3s / 7s so the loading row tells the user the inspector is alive when
@@ -142,15 +139,6 @@ export class DetailView {
      *  than from a Tab/Container directly). */
     private onOpenLayout?: (rid: string, highlightRid?: string) => void,
   ) {
-    // Restore persisted divider position. The storage key is
-    // suffixed `_v23` so stale values tuned for the pre-Workshop
-    // layout (much smaller default props share) don't leak in.
-    try {
-      const stored = localStorage.getItem('crev_pane_split_v23');
-      const n = stored ? parseFloat(stored) : NaN;
-      if (Number.isFinite(n) && n >= 40 && n <= 85) this.splitPct = n;
-    } catch { /* localStorage disabled, fine */ }
-
     // Re-render when a type schema lands (pane-schema-runtime
     // populates the cache from any active tab; we only need to
     // repaint when our pane is what's visible).
@@ -473,17 +461,9 @@ export class DetailView {
       : (this.state.instanceProps[prop] ?? '');
   }
 
-  private currentDisplayValue(prop: string): string {
-    return this.draft[prop] ?? this.currentServerValue(prop);
-  }
-
-  private setDraft(prop: string, value: string, panel: HTMLElement): void {
-    const server = this.currentServerValue(prop);
-    if (value === server) delete this.draft[prop];
-    else this.draft[prop] = value;
-    this.renderDetail(panel);
-  }
-
+  // NOTE: the draft/save pipeline (draft map, action bar, APPLY_OBJECT_CHANGES)
+  // stays although property groups moved to Blueprint — future editors (name,
+  // context fields) will feed it. The per-editor helpers went with the groups.
 
   private async discardAll(panel: HTMLElement): Promise<void> {
     const n = Object.keys(this.draft).length;
@@ -559,11 +539,34 @@ export class DetailView {
 
   // ── Rendering ────────────────────────────────────────────────────
 
+  /** The header type badge — click copies the business id (green ✓ flash),
+   *  the panel-wide badge gesture. */
+  private identityBadge(rid: string, businessId: string | undefined, type: string | undefined): HTMLElement {
+    const b = typeBadge(type);
+    const id = businessId || rid;
+    b.title = `Copy ${id}`;
+    b.setAttribute('role', 'button');
+    b.setAttribute('tabindex', '0');
+    const copy = () => {
+      navigator.clipboard?.writeText(id).catch(() => { /* blocked — silent */ });
+      statusFlash(`Copied ${id} \u2713`);
+      const lbl = b.querySelector<HTMLElement>('.lbl');
+      const original = lbl?.textContent ?? '';
+      if (lbl) lbl.textContent = '✓';
+      b.classList.add('bdg-copied');
+      setTimeout(() => { if (lbl) lbl.textContent = original; b.classList.remove('bdg-copied'); }, 700);
+    };
+    b.addEventListener('click', (e) => { e.stopPropagation(); copy(); });
+    b.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copy(); }
+    });
+    b.classList.add('pane-id-bdg');
+    return b;
+  }
+
   private renderDetail(panel: HTMLElement): void {
     if (!this.state) return;
     const s = this.state;
-    const color = getTypeColor(s.identity.type);
-    const abbr = getTypeAbbr(s.identity.type);
     const hasTemplate = !!s.template;
     const dirtyCount = Object.keys(this.draft).length;
 
@@ -571,12 +574,14 @@ export class DetailView {
     // object), otherwise closes the detail view. Lives inline in the header
     // row so it visually belongs to the object (not a standalone purple bar).
     const hasHistory = this.history.length > 0;
+    // Always the quiet ‹ arrow (the mock's tasteful back) — with no history
+    // it closes the detail, same semantics, no jarring ✕.
     const backButton = h('button', {
-      class: `pane-back-inline${hasHistory ? ' pane-back-inline--history' : ''}`,
+      class: 'dv-path-back',
       title: hasHistory ? 'Back to the previous object' : 'Close detail view',
       'aria-label': hasHistory ? 'Back' : 'Close',
       onClick: () => this.goBack(panel),
-    }, svg(hasHistory ? ICON_ARROW_LEFT : ICON_X));
+    }, svg(ICON_CHEVRON));
 
     // (Path breadcrumb trail removed — the back button + the "↑ inside" parent
     // crumb are the single location model now; the trail duplicated both.)
@@ -618,7 +623,7 @@ export class DetailView {
     // clipping the object name; the name now owns its own row below.)
     const layoutBtn = layout?.selfIsLayout
       ? h('button', {
-          class: 'detail-action-btn detail-action-btn--icon',
+          class: 'dv-act',
           title: `Open ${s.identity.type} in the Layout view`,
           'aria-label': `Open ${s.identity.type} in the Layout view`,
           onClick: () => { this.onOpenLayout!(layout.target, layout.highlight); },
@@ -626,19 +631,20 @@ export class DetailView {
       : null;
     // CustomVisualization routes to the CVO studio (html/js + live preview)
     // instead of the EC editor; every other code-bearing type opens the editor.
-    const isCvo = s.identity.type === 'CustomVisualization';
+    const studio = hasStudio(s.identity.type);
+    const studioTitle = modeForType(s.identity.type).title;
     const editBtn = showEditBtn
       ? h('button', {
-          class: 'detail-action-btn detail-action-btn--icon',
-          title: isCvo ? 'Open in the CVO studio' : `Open .${editTargetProp} in the Extended Code editor`,
-          'aria-label': isCvo ? 'Open in the CVO studio' : `Edit ${editTargetProp} in the editor`,
-          onClick: () => this.sendMessage(isCvo
-            ? { type: 'OPEN_CVO_STUDIO', rid: s.rid, property: editTargetProp! }
+          class: 'dv-act',
+          title: studio ? `Open in the ${studioTitle}` : `Open .${editTargetProp} in the Extended Code editor`,
+          'aria-label': studio ? `Open in the ${studioTitle}` : `Edit ${editTargetProp} in the editor`,
+          onClick: () => this.sendMessage(studio
+            ? { type: 'OPEN_STUDIO', rid: s.rid, property: editTargetProp! }
             : { type: 'OPEN_EDITOR', rid: s.rid, property: editTargetProp! }),
-        }, svg(isCvo ? ICON_FILE_JS : ICON_CODE))
+        }, svg(studio ? ICON_FILE_JS : ICON_CODE))
       : null;
     const accessBtn = h('button', {
-      class: 'detail-action-btn detail-action-btn--icon',
+      class: 'dv-act',
       title: 'Test access: trace whether a user or role can read, write, add, or delete this object',
       'aria-label': 'Test access',
       onClick: () => openAccessTrace({ rid: s.rid, name: s.identity.name, type: s.identity.type }),
@@ -656,38 +662,58 @@ export class DetailView {
       },
     }, svg(isPinned ? ICON_STAR_FILLED : ICON_STAR_HOLLOW));
 
-    // Two-row header:
-    //   Row 1 (context + actions): ← back · ↑parent ·········· edit · access · instance|template
-    //   Row 2 (identity):          [chip] Name ··············· id · ★
-    const headerRows: HTMLElement[] = [
-      h('div', { class: 'pane-header-nav' },
-        backButton,
-        s.parent ? this.renderParentCrumb(s.parent, panel) : null,
-        h('div', { class: 'pane-header-actions' },
-          layoutBtn,
-          editBtn,
-          accessBtn,
-          this.renderTargetToggle(hasTemplate, panel),
-        ),
+    // Header per the Path-Spine sign-off (inspect-ledger.html):
+    //   Path bar:  ‹ · parent / Current(bold)
+    //   Identity:  [badge] Name ············ instance|template
+    //   Sub row:   Type ·················· open · layout · edit · access · ★
+    const curLabel = s.identity.name || s.identity.businessId || '(unnamed)';
+    const parentLabel = s.parent ? (s.parent.name || s.parent.businessId || '(unnamed)') : null;
+    const pathBar = h('div', { class: 'dv-path' },
+      backButton,
+      s.parent ? h('button', {
+        class: 'dv-crumb',
+        title: `Open parent: ${s.parent.businessId || s.parent.rid}`,
+        onClick: () => this.swapTo(s.parent!.rid, {
+          rid: s.parent!.rid, name: s.parent!.name, type: s.parent!.type,
+          businessId: s.parent!.businessId,
+          source: 'server', discoveredAt: Date.now(), updatedAt: Date.now(),
+        }, panel).catch(() => {}),
+      }, parentLabel) : null,
+      s.parent ? h('span', { class: 'dv-path-sep' }, '/') : null,
+      h('span', { class: 'dv-path-cur', title: curLabel }, curLabel),
+      h('span', { class: 'dv-sp' }),
+      // Context picker ⌖ — right end of the path bar, per the mock. Arms the
+      // layout pane's picker (it owns the pick flow).
+      h('button', {
+        class: 'dv-path-pick',
+        title: 'Pick an element on the page to set as context',
+        'aria-label': 'Pick context on page',
+        onClick: () => document.dispatchEvent(new CustomEvent('crev:arm-context-picker')),
+      }, svg(ICON_CROSSHAIR)),
+    );
+    const openBmpBtn = h('button', {
+      class: 'dv-act',
+      title: 'Open in BMP (new tab)',
+      'aria-label': 'Open in BMP',
+      onClick: () => this.sendMessage({ type: 'BMP_OPEN_OBJECT', rid: s.rid }),
+    }, svg(ICON_ARROW_OUT));
+    const header = h('div', { class: 'dv-header' },
+      pathBar,
+      h('div', { class: 'dv-idrow' },
+        this.identityBadge(s.rid, s.identity.businessId, s.identity.type),
+        h('span', { class: 'dv-idname', title: s.identity.name }, curLabel),
+        this.renderTargetToggle(hasTemplate, panel),
       ),
-      h('div', { class: 'pane-header-id' },
-        // The pill + name open THIS object's page in the BMP portal (?rid=).
-        h('button', {
-          class: 'pane-id-open',
-          'aria-label': 'Open in BMP',
-          onClick: () => this.sendMessage({ type: 'BMP_OPEN_OBJECT', rid: s.rid }),
-        },
-          h('span', { class: 'pane-id-chip', title: s.identity.type }, abbr),
-          h('span', { class: 'pane-id-name', title: s.identity.name }, s.identity.name || '(unnamed)'),
-        ),
-        s.identity.businessId ? h('span', { class: 'pane-id-bid' }, s.identity.businessId) : null,
+      h('div', { class: 'dv-subrow' },
+        h('span', { class: 'dv-subtype' }, s.identity.type ?? ''),
+        h('span', { class: 'dv-sp' }),
+        openBmpBtn,
+        layoutBtn,
+        editBtn,
+        accessBtn,
         star,
       ),
-    ];
-    if (s.card) {
-      headerRows.push(this.renderCardCrumb(s.card, panel));
-    }
-    const header = h('div', { class: 'pane-header', style: `--type-color:${color}` }, ...headerRows);
+    );
 
     // Properties or loading / error
     let propsBody: HTMLElement;
@@ -718,29 +744,14 @@ export class DetailView {
       : null;
     if (actionBar) actionBar.classList.add('pane-action-bar--floating');
 
-    const propsArea = h('div', {
-      class: 'pane-props-area',
-      style: `flex: 0 0 ${this.splitPct}%`,
-    },
+    // Single scroll area — the tree lives in the Structure segment now, so
+    // the inner props↔tree splitter is gone (Path-Spine sign-off).
+    const propsArea = h('div', { class: 'pane-props-area pane-props-area--full' },
       propsBody,
       actionBar,
     );
 
-    const divider = h('div', { class: 'pane-divider', role: 'separator', 'aria-label': 'Drag to resize the panes', 'aria-valuenow': String(this.splitPct), 'aria-valuemin': '40', 'aria-valuemax': '85' });
-    this.wireDivider(divider, panel);
-
-    const treeArea = h('div', { class: 'pane-tree-area' },
-      s.loaded ? this.renderTreeArea(panel) : h('div', { class: 'pane-loading' }, ''),
-    );
-
-    const split = h('div', { class: 'pane-split' }, propsArea, divider, treeArea);
-
-    const children: (HTMLElement | null | false)[] = [
-      header,
-      split,
-    ];
-
-    render(panel, h('div', { class: 'pane-shell' }, ...children.filter(Boolean) as HTMLElement[]));
+    render(panel, h('div', { class: 'pane-shell' }, header, propsArea));
     // Keep the tab-bar's dirty dot synced with the live draft state.
     // Cheap DOM mutation; the dot lives in the header so it survives
     // panel re-renders. No-op if the dot isn't in the DOM yet (boot
@@ -804,29 +815,6 @@ export class DetailView {
   /** Inline parent reference for the header's nav row: ↑ [type chip] Name.
    *  The up-arrow + the parent's own type chip are the visual language for
    *  "this is the container" — no "inside" word needed. Click → swap to it. */
-  private renderParentCrumb(parent: ObjectPaneIdentity, panel: HTMLElement): HTMLElement {
-    return h('button', {
-      class: 'pane-parent-inline',
-      title: `Open parent: ${parent.businessId || parent.rid}`,
-      onClick: () => this.swapTo(parent.rid, {
-        rid: parent.rid,
-        name: parent.name,
-        type: parent.type,
-        businessId: parent.businessId,
-        source: 'server',
-        discoveredAt: Date.now(),
-        updatedAt: Date.now(),
-      }, panel),
-    },
-      h('span', { class: 'pane-parent-inline-arrow', 'aria-hidden': 'true' }, svg(ICON_ARROW_LINE_UP)),
-      h('span', {
-        class: 'pane-parent-inline-chip',
-        style: `--type-color:${getTypeColor(parent.type)}`,
-      }, getTypeAbbr(parent.type)),
-      h('span', { class: 'pane-parent-inline-name' }, parent.name || '(unnamed)'),
-    );
-  }
-
   /** The object's effective detail card — its own `.card`, or (for enterprise
    *  objects whose instance card is empty) the card inherited from its template.
    *  The card is the mouseover detail view; clicking opens that card OBJECT in
@@ -879,11 +867,56 @@ export class DetailView {
 
     const typeIsFlow = hasFlow(this.state!.identity.type);
 
-    // Flow is the answer to "what does this widget actually do" — render it
-    // FIRST for flow-bearing types so the chain (button → transport group →
-    // ExtendedTransport · or · view → set → inputs) is the first thing the
-    // user sees, not the last. Container + Context follow.
+    // Segmented body — the Path-Spine design. First segment is the anatomy
+    // lens: the Flow chain for flow-bearing types, Code + Links otherwise.
+    // 'Info' carries identity metadata + context fields. Styling / layout
+    // controls (Columns, tool menu, header style, border, transparency,
+    // visibility) are Blueprint's job now and no longer render in Inspect.
+    const firstLabel = typeIsFlow ? 'Flow' : 'Code';
+    // Segment counts — quick scent of what each lens holds (mock: "Flow 6 ·
+    // Structure 9"). Flow count walks the chain; Structure counts siblings.
+    let flowCount = 0;
+    let flowWithEc = 0;
+    if (typeIsFlow && this.state!.flow) {
+      type N = { children?: N[]; codeFields?: unknown[] };
+      const walk = (n: N) => {
+        flowCount++;
+        if (n.codeFields && n.codeFields.length > 0) flowWithEc++;
+        for (const c of n.children ?? []) walk(c);
+      };
+      for (const st of this.state!.flow.steps as N[]) walk(st);
+    }
+    const structCount = this.state!.siblingTotal || this.state!.siblings.length;
+    // Quiet facts on the segment bar's right — same line as the tabs, so the
+    // meta reads as part of the chrome instead of a tacked-on header. Steps
+    // count lives in the Flow tab itself; here: EC count + persistence.
+    const persistence = this.state!.contextValues?.persistence;
+    const segFacts = this.segment === 'flow' && typeIsFlow
+      ? [
+          flowWithEc > 0 ? `${flowWithEc} with EC` : null,
+          persistence ? `persistence ${normalizeBmpEnum(persistence).toLowerCase()}` : null,
+        ].filter(Boolean).join(' · ')
+      : '';
+    wrap.appendChild(h('div', { class: 'dv-segs' },
+      this.segBtn(firstLabel, 'flow', panel, flowCount || undefined),
+      this.segBtn('Structure', 'structure', panel, structCount || undefined),
+      this.segBtn('Info', 'info', panel),
+      segFacts ? h('span', { class: 'dv-segs-meta' }, segFacts) : null,
+    ));
+
+    if (this.segment === 'structure') {
+      wrap.appendChild(this.renderTreeArea(panel));
+      return wrap;
+    }
+    if (this.segment === 'info') {
+      wrap.appendChild(this.renderInfoPane(panel));
+      return wrap;
+    }
+
     if (typeIsFlow) {
+      // Flow is the answer to "what does this widget actually do" — the chain
+      // (button → transport group → ExtendedTransport · or · view → set →
+      // inputs) IS the anatomy; its code lives inside the ledger steps.
       wrap.appendChild(renderFlowSection({
         chain: this.state!.flow,
         loading: this.state!.flowLoading,
@@ -891,60 +924,120 @@ export class DetailView {
         onNavigate: (rid) => this.swapTo(rid, null, panel, true).catch(() => {}),
         sendMessage: this.sendMessage,
       }));
+      return wrap;
     }
 
-    // Container moved to a parent-crumb in the header (renderParentCrumb)
-    // so identity context lives next to the title, freeing Flow / Code to be
-    // the first body section.
+    // Non-flow types: Code + References take the role the Flow section does
+    // for flow types.
+    const codeSection = renderCodeSection({
+      type: this.state!.identity.type,
+      rid: this.state!.rid,
+      codeFields: this.state!.codeFields,
+      indirectCode: this.state!.indirectCode,
+      indirectCodeRids: this.state!.indirectCodeRids,
+      gateValues: this.state!.gateValues,
+      sendMessage: this.sendMessage,
+    });
+    if (codeSection) wrap.appendChild(codeSection);
 
-    // Context section — enum/boolean/list values that shape how to read the
-    // other sections (actionType, persistence, useShowExpression, …). Only
-    // renders when the type has populated context values.
+    // Links — the one object-relationship section. Widget types feed their
+    // curated bindings (data set, InputSet, …) as outgoing links; domain
+    // types feed discovered relationships (out + in) plus the lazy inbound
+    // scan. Both render in the same name-first grammar. Each row re-centers
+    // the pane (one-hop graph walk).
+    const linksSection = renderLinks({
+      links: this.buildLinksModel(),
+      onNavigate: (rid) => this.swapTo(rid, null, panel, true).catch(() => {}),
+      onScanInbound: () => {
+        this.state!.inbound = { loaded: false, scanning: true, targets: [] };
+        this.sendMessage({ type: 'FETCH_INBOUND', rid: this.state!.rid });
+        this.renderDetail(panel);
+      },
+    });
+    if (linksSection) wrap.appendChild(linksSection);
+
+    return wrap;
+  }
+
+  private segBtn(label: string, key: 'flow' | 'structure' | 'info', panel: HTMLElement, count?: number): HTMLElement {
+    return h('button', {
+      class: `dv-seg${this.segment === key ? ' dv-seg--on' : ''}`,
+      onClick: () => {
+        if (this.segment === key) return;
+        this.segment = key;
+        this.renderDetail(panel);
+      },
+    }, label, count != null ? h('span', { class: 'dv-seg-n' }, String(count)) : null);
+  }
+
+  /** Info pane — the quiet identity meta grid (copyable ids) followed by the
+   *  context fields (persistence, actionType, …). */
+  private renderInfoPane(panel: HTMLElement): HTMLElement {
+    const { rid, businessId, type } = this.state!.identity;
+    const metaRow = (label: string, value: string | undefined, copyable = false) => {
+      const valEl = h('span', { class: 'dv-meta-v mono' }, value ?? '—');
+      const cells: HTMLElement[] = [h('span', { class: 'dv-meta-k' }, label), valEl];
+      if (copyable && value) {
+        cells.push(h('button', {
+          class: 'dv-meta-copy',
+          title: `Copy ${label}`,
+          onClick: () => {
+            navigator.clipboard?.writeText(value).catch(() => { /* blocked — silent */ });
+            statusFlash(`Copied ${value} \u2713`);
+            const original = valEl.textContent;
+            valEl.textContent = '✓ copied';
+            valEl.classList.add('dv-meta-v--ok');
+            setTimeout(() => { valEl.textContent = original; valEl.classList.remove('dv-meta-v--ok'); }, 700);
+          },
+        }, svg(ICON_COPY)));
+      } else {
+        cells.push(h('span'));
+      }
+      return cells;
+    };
+
+    const meta = h('div', { class: 'dv-meta' },
+      ...metaRow('Type', type),
+      ...metaRow('Business ID', businessId, true),
+      ...metaRow('RID', rid, true),
+    );
+
+    const wrap = h('div', {}, meta);
+
+    // The object's detail card is a related object, not an ancestor — it
+    // lives here in Info rather than in the path bar.
+    if (this.state!.card) wrap.appendChild(this.renderCardCrumb(this.state!.card, panel));
+
+    // Context fields — enum/boolean/list values that shape how to read the
+    // object (actionType, persistence, useShowExpression, …). Only renders
+    // when the type has populated context values.
     const ctxSection = renderContextSection({
       type: this.state!.identity.type,
       contextValues: this.state!.contextValues,
       lists: this.state!.lists,
-      onNavigate: (rid) => this.swapTo(rid, null, panel, true).catch(() => {}),
+      onNavigate: (r) => this.swapTo(r, null, panel, true).catch(() => {}),
     });
     if (ctxSection) wrap.appendChild(ctxSection);
 
-    // For non-flow types, Code + References take the role the Flow section
-    // does for flow types. Flow types already rendered the Flow section
-    // above; their code lives inside the chain cards.
-    if (!typeIsFlow) {
-      const codeSection = renderCodeSection({
-        type: this.state!.identity.type,
-        rid: this.state!.rid,
-        codeFields: this.state!.codeFields,
-        indirectCode: this.state!.indirectCode,
-        indirectCodeRids: this.state!.indirectCodeRids,
-        gateValues: this.state!.gateValues,
-        sendMessage: this.sendMessage,
-      });
-      if (codeSection) wrap.appendChild(codeSection);
-
-      // Links — the one object-relationship section. Widget types feed their
-      // curated bindings (data set, InputSet, …) as outgoing links; domain
-      // types feed discovered relationships (out + in) plus the lazy inbound
-      // scan. Both render in the same name-first grammar. Each row re-centers
-      // the pane (one-hop graph walk).
-      const linksSection = renderLinks({
-        links: this.buildLinksModel(),
-        onNavigate: (rid) => this.swapTo(rid, null, panel, true).catch(() => {}),
-        onScanInbound: () => {
-          this.state!.inbound = { loaded: false, scanning: true, targets: [] };
-          this.sendMessage({ type: 'FETCH_INBOUND', rid: this.state!.rid });
-          this.renderDetail(panel);
-        },
-      });
-      if (linksSection) wrap.appendChild(linksSection);
-    }
-
-
-    // Property groups (Layout / Display / Appearance / Visibility / Columns) —
-    // shared with the Object View popout via the single renderer below, so the
-    // two surfaces can't drift. See sections/property-groups.ts.
-    wrap.appendChild(renderPropertyGroups(this.makeGroupsCtx(panel)));
+    // Action rows — the mock's Info list (Open in BMP / Test access / Pin).
+    const isPinned = S.favoriteEntries.some(f => f.rid === this.state!.rid);
+    const irow = (icon: string, label: string, hint: string | null, onClick: () => void) =>
+      h('button', { class: 'dv-irow', onClick },
+        h('span', { class: 'dv-irow-ic' }, svg(icon)),
+        h('span', { class: 'dv-irow-l' }, label),
+        hint ? h('span', { class: 'dv-irow-r' }, hint) : null,
+      );
+    wrap.appendChild(h('div', { class: 'dv-irows' },
+      irow(ICON_ARROW_OUT, 'Open in BMP', 'new tab',
+        () => this.sendMessage({ type: 'BMP_OPEN_OBJECT', rid: this.state!.rid })),
+      irow(ICON_SHIELD, 'Test access', 'read · write · add · delete',
+        () => openAccessTrace({ rid: this.state!.rid, name: this.state!.identity.name, type: this.state!.identity.type })),
+      irow(isPinned ? ICON_STAR_FILLED : ICON_STAR_HOLLOW, isPinned ? 'Unpin from favorites' : 'Pin to favorites', null,
+        () => this.sendMessage({
+          type: 'TOGGLE_FAVORITE', rid: this.state!.rid, name: this.state!.identity.name,
+          objectType: this.state!.identity.type, businessId: this.state!.identity.businessId,
+        })),
+    ));
 
     return wrap;
   }
@@ -964,23 +1057,6 @@ export class DetailView {
   }
 
   /** Build the controller the shared property-group renderer needs. */
-  private makeGroupsCtx(panel: HTMLElement): PaneGroupsCtx {
-    return {
-      objectType: this.state!.identity.type,
-      isAvailable: (def) => isPropAvailable(this.state!.identity.type, def.prop, def.availableOn),
-      displayValue: (prop) => this.currentDisplayValue(prop),
-      serverValue: (prop) => this.currentServerValue(prop),
-      isDirty: (prop) => this.draft[prop] != null,
-      setDraft: (prop, value) => this.setDraft(prop, value, panel),
-      openColorPicker: (def, anchor, currentBid) => openColorPicker({
-        anchor,
-        currentBid,
-        sendMessage: this.sendMessage,
-        onPick: (val) => this.setDraft(def.prop, val, panel),
-      }),
-    };
-  }
-
   private renderTreeArea(panel: HTMLElement): HTMLElement {
     const s = this.state!;
     const treeData: PaneTreeData = {
@@ -1035,45 +1111,4 @@ export class DetailView {
     );
   }
 
-  // ── Divider drag ─────────────────────────────────────────────────
-
-  private wireDivider(handle: HTMLElement, panel: HTMLElement): void {
-    let startY = 0;
-    let startPct = 0;
-    let dragging = false;
-    const onMove = (e: PointerEvent) => {
-      if (!dragging) return;
-      const splitEl = panel.querySelector<HTMLElement>('.pane-split');
-      if (!splitEl) return;
-      const height = splitEl.getBoundingClientRect().height;
-      if (height <= 0) return;
-      const dy = e.clientY - startY;
-      const next = clamp(startPct + (dy / height) * 100, 40, 85);
-      this.splitPct = next;
-      const propsEl = panel.querySelector<HTMLElement>('.pane-props-area');
-      if (propsEl) propsEl.style.flex = `0 0 ${next}%`;
-    };
-    const finish = (e: PointerEvent) => {
-      if (!dragging) return;
-      dragging = false;
-      try { handle.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', finish);
-      handle.classList.remove('dragging');
-      try { localStorage.setItem('crev_pane_split_v23', String(this.splitPct)); } catch { /* ignore */ }
-    };
-    handle.addEventListener('pointerdown', (e: PointerEvent) => {
-      dragging = true;
-      startY = e.clientY;
-      startPct = this.splitPct;
-      handle.setPointerCapture(e.pointerId);
-      document.addEventListener('pointermove', onMove);
-      document.addEventListener('pointerup', finish);
-      handle.classList.add('dragging');
-    });
-  }
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.min(Math.max(v, lo), hi);
 }

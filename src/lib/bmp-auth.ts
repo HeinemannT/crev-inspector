@@ -138,22 +138,19 @@ export class BmpAuth {
     throw new AuthError('No active BMP session. Open BMP in a tab and log in, then retry.', 'needs-login');
   }
 
-  /** Strategy: borrow the browser's live BMP session for this workspace.
-   *  `skip` when there's no session to borrow (no cookie, or a stale one that
-   *  the exchange rejects with 401) so the chain falls through to credentials;
-   *  `fail` when the session is real but unusable (e.g. no Configuration
-   *  Access) — recorded, but the chain still tries the password. */
+  /** Strategy: borrow the browser's live BMP session for this workspace by trying the
+   *  token exchange directly — no cookie precheck. The exchange itself classifies the
+   *  session: `skip` when there's none or it's stale (graphql 401, or an SSO redirect
+   *  to the IdP → `_completeTokenExchange` returns null) so the chain falls through to
+   *  credentials; `fail` when the session is real but unusable (e.g. no Configuration
+   *  Access) — recorded, but the chain still tries the password. A cookie precheck
+   *  here was both redundant with that classification and wrong for SSO (the session
+   *  cookie isn't necessarily "JSESSIONID"); the only cost of dropping it is one
+   *  graphql round-trip when there's no session, which simply 401s. */
   private async _attemptSession(): Promise<AuthAttempt> {
-    let hasCookie = false;
-    try {
-      hasCookie = (await chrome.cookies.get({ url: this.bmpUrl, name: 'JSESSIONID' })) != null;
-    } catch (e) {
-      log.warn('auth:cookieGet', e, 'chrome.cookies.get failed; treating as no session');
-    }
-    if (!hasCookie) return { status: 'skip' };
     try {
       const jwt = await this._completeTokenExchange('session');
-      if (jwt == null) return { status: 'skip' };  // stale session (401) — fall through
+      if (jwt == null) return { status: 'skip' };  // no / stale session — fall through
       return { status: 'ok', jwt, via: 'session' };
     } catch (e) {
       if (e instanceof AuthError) return { status: 'fail', error: e, via: 'session' };
@@ -201,12 +198,27 @@ export class BmpAuth {
     });
 
     if (gqlResp.status === 401) return null; // no / stale session
+
+    // SSO/login-redirect guard. An SSO-fronted BMP can answer /graphql with a 302 to
+    // its identity provider instead of a 401; fetch (redirect:'follow') chases it to
+    // an HTML login page that returns 200, so the only trace is the response being
+    // `redirected` or ending on another origin. Treat that as "no usable Config
+    // Studio session" and fall through — never as an auth code. Without this the HTML
+    // body yields no code and we'd wrongly report "no Configuration Access". Guarded
+    // so a normal same-origin, in-place response is untouched.
+    if (gqlResp.redirected === true) return null;
+    if (gqlResp.url && !this._isBmpOrigin(gqlResp.url)) return null;
+
     if (!gqlResp.ok) throw new AuthError(`Authorization code request failed (HTTP ${gqlResp.status}). Check BMP URL.`, 'auth-failed');
 
     const gqlBody = await gqlResp.json().catch(() => null);
-    const authCode = gqlBody?.data?.authorizationCode?.code;
-    // Session is valid (200) but the provider returned no code → the user lacks
-    // Configuration Access (AuthorizationCodeProvider.provide() → Optional.empty).
+    // Only a genuine graphql envelope (has a `data` key) may signal "no Configuration
+    // Access" (data.authorizationCode empty — the provider returned Optional.empty).
+    // A body that isn't graphql JSON, e.g. an in-place SSO interstitial served with
+    // 200, means no usable session → fall through rather than mislabel a permissions
+    // problem.
+    if (!gqlBody || typeof gqlBody !== 'object' || !('data' in gqlBody)) return null;
+    const authCode = (gqlBody as { data?: { authorizationCode?: { code?: string } } }).data?.authorizationCode?.code;
     if (!authCode) throw new AuthError('Logged into BMP, but this user lacks Configuration Access.', 'no-config-access');
 
     const tokenResp = await fetch(`${this.bmpUrl}cstoken`, {
@@ -225,6 +237,19 @@ export class BmpAuth {
     this._via = via;            // set before persist so the stored blob is correct
     this._persistTokens();
     return this._jwt;
+  }
+
+  /** True when `url` shares the configured BMP origin. Detects an SSO/login redirect
+   *  that carried the graphql request off to an identity provider — fetch follows the
+   *  302, so the final URL's origin is the only trace left. A malformed/empty URL
+   *  counts as off-origin (we'd rather skip the session than trust an unparseable
+   *  redirect target). */
+  private _isBmpOrigin(url: string): boolean {
+    try {
+      return new URL(url).origin === new URL(this.bmpUrl).origin;
+    } catch {
+      return false;
+    }
   }
 
   /** Bootstrap a web session from stored credentials (legacy Path B step 1).

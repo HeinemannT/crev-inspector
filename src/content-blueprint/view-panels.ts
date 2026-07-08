@@ -6,12 +6,13 @@
  * builders and the tab/picker/rename cluster (which is coupled to inline-rename + render) stay in
  * view.ts.
  */
-import type { LModel, LNode, PlanNote } from '../lib/layout/types';
+import type { LModel, LNode, PlanNote, PlanStep } from '../lib/layout/types';
 import type { BlueprintCtx } from '../lib/layout/sync';
 import { findNode, isResultTab, eachInSubtree } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
 import { diff, summarizeChanges } from '../lib/layout/diff';
+import { compile } from '../lib/layout/ec';
 import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_EYE_SLASH, ICON_COPY } from '../lib/icons';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
@@ -69,11 +70,12 @@ function resultImpact(): { touched: boolean; containers: boolean } {
   return { touched, containers };
 }
 
-/** One log row of the apply plan. Structured notes (action/object/where/detail from the compiler)
+/** One log row of a plan note. Structured notes (action/object/where/detail from the compiler)
  *  render as fixed columns — icon | ACTION | type chip + object | → where | detail | ec — every row one
  *  line tall, so the log scans like a table. A note without the structured fields (defensive) falls
- *  back to its `text` sentence in the object column. */
-function planRow(note: PlanNote): HTMLElement {
+ *  back to its `text` sentence in the object column. The SAME builder renders the apply log (`full`)
+ *  and the pending tray (compact: no detail/ec columns), so the two surfaces can't drift. */
+function planRow(note: PlanNote, full = true): HTMLElement {
   const row = document.createElement('div'); row.className = `bp-prow v-${note.verb}`;
   const ic = document.createElement('span'); ic.className = 'ic'; setIcon(ic, VERB_ICON[note.verb]);
   const act = document.createElement('span'); act.className = 'act'; act.textContent = note.action ?? note.verb;
@@ -96,8 +98,13 @@ function planRow(note: PlanNote): HTMLElement {
   }
   row.appendChild(obj);
   const whr = document.createElement('span'); whr.className = 'whr';
-  if (note.where) { whr.textContent = `→ ${note.where}`; whr.title = note.where; }
+  if (note.where) {
+    const arr = document.createElement('span'); arr.className = 'bp-ic'; setIcon(arr, ICON_ARROW_RIGHT);
+    const wnm = document.createElement('span'); wnm.className = 'wnm'; wnm.textContent = note.where;
+    whr.append(arr, wnm); whr.title = note.where;
+  }
   row.appendChild(whr);
+  if (!full) return row;
   const det = document.createElement('span'); det.className = 'det'; det.textContent = note.detail ?? '';
   if (note.detail) det.title = note.detail;
   row.appendChild(det);
@@ -134,7 +141,7 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   const fanout = bp.blast?.fanout;
   if (fanout?.isMaster) {
     const n = fanout.instances.length;
-    warn(`This is a shared template — ${n} linked scorecard${n === 1 ? '' : 's'} inherit from it. `
+    warn(`This is a shared template; ${n} linked scorecard${n === 1 ? '' : 's'} inherit from it. `
       + 'Widget edits propagate to them; tab or container edits change every one.');
   } else if (shared) {
     warn('This is a shared template. These changes affect every instance that uses it.');
@@ -191,7 +198,19 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   return back;
 }
 
-/** Docked pending-changes tray — one row per changed node, each with a revert. Toggled from the chip. */
+/** A minimal PlanNote for one step — the tray's fallback when compile() rejects the plan (e.g. a
+ *  malformed colour id). Same verbs/actions as the compiler, just without where/detail/ec. */
+const STEP_ACTION: Record<PlanStep['kind'], PlanNote['action']> = { create: 'Add', update: 'Change', reparent: 'Move', reorder: 'Reorder', delete: 'Delete' };
+const STEP_VERB: Record<PlanStep['kind'], PlanNote['verb']> = { create: 'create', update: 'update', reparent: 'move', reorder: 'reorder', delete: 'delete' };
+function stepNote(base: LModel, m: LModel, s: PlanStep): PlanNote {
+  const id = s.kind === 'create' ? s.node.id : s.id;
+  const node = s.kind === 'create' ? s.node : (findNode(m, id)?.node ?? findNode(base, id)?.node ?? null);
+  return { verb: STEP_VERB[s.kind], id, text: node?.name ?? id, action: STEP_ACTION[s.kind], object: node?.name ?? id, objectType: node?.className };
+}
+
+/** Docked pending-changes tray — one row per changed node, each with a revert. Toggled from the chip.
+ *  Rows are the apply log's own rows (same compiler notes, same planRow builder, deduped to the first
+ *  note per node) minus the detail/ec columns — a strict subset, so the two logs read the same. */
 export function trayPanel(base: LModel, m: LModel): HTMLElement {
   const plan = diff(base, m);
   const { changes, actions } = summarizeChanges(plan, m);
@@ -203,22 +222,18 @@ export function trayPanel(base: LModel, m: LModel): HTMLElement {
     + (actions !== changes ? ` · ${actions} action${actions === 1 ? '' : 's'}` : '');
   wrap.appendChild(h);
   if (!plan.length) { const e = document.createElement('div'); e.className = 'bp-tray-empty'; e.textContent = 'No staged changes'; wrap.appendChild(e); return wrap; }
+  let notes: PlanNote[];
+  try { notes = compile(plan, m).notes; }
+  catch { notes = plan.map(s => stepNote(base, m, s)); }
   const seen = new Set<string>();
-  for (const s of plan) {
-    const id = s.kind === 'create' ? s.node.id : s.id;
-    if (seen.has(id)) continue; seen.add(id);
-    const node = s.kind === 'create' ? s.node : (findNode(m, id)?.node ?? findNode(base, id)?.node ?? null);
-    const name = node?.name ?? id;
-    // Two badges: WHAT changed (new/changed/deleted/moved) + WHAT it is (CREV's coloured type tag).
-    const change = s.kind === 'create' ? 'NEW' : s.kind === 'delete' ? 'DELETED' : (s.kind === 'reparent' || s.kind === 'reorder') ? 'MOVED' : 'CHANGED';
-    const row = document.createElement('div'); row.className = `bp-pop v-${s.kind}`;
-    const chg = document.createElement('span'); chg.className = 'chg'; chg.textContent = change;
-    const typ = document.createElement('span'); typ.className = 'typ'; typ.textContent = getTypeAbbr(node?.className);
-    typ.style.setProperty('--type-color', getTypeColor(node?.className)); typ.title = node?.className ?? '';
-    const tx = document.createElement('span'); tx.className = 'tx'; tx.textContent = name;
+  for (const note of notes) {
+    const id = note.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const row = planRow(note, false);
     const x = document.createElement('button'); x.className = 'bp-pop-x'; setIcon(x, ICON_X); x.title = 'Revert this change';
     x.addEventListener('mousedown', (e) => { e.stopPropagation(); revertNode(id); });
-    row.append(chg, typ, tx, x);
+    row.appendChild(x);
     wrap.appendChild(row);
   }
   return wrap;
@@ -243,8 +258,8 @@ export function modeSwitch(): HTMLElement {
     return b;
   };
   sw.append(
-    seg('layout', ICON_BLUEPRINT, 'Layout — structure, columns, position'),
-    seg('style', ICON_PAINT, 'Style — colours, shadow, border, header'),
+    seg('layout', ICON_BLUEPRINT, 'Layout: structure, columns, position'),
+    seg('style', ICON_PAINT, 'Style: colours, shadow, border, header'),
   );
   return sw;
 }
@@ -272,12 +287,12 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
     const tBtn = document.createElement('button');
     tBtn.className = 'bp-target-b' + (bp.editingTemplate ? ' on' : '');
     tBtn.textContent = 'Template';
-    tBtn.title = `Editing the shared template ${ctx.templateId} — changes affect every instance`;
+    tBtn.title = `Editing the shared template ${ctx.templateId}. Changes affect every instance.`;
     tBtn.addEventListener('click', () => setEditTarget(true));
     const iBtn = document.createElement('button');
     iBtn.className = 'bp-target-b' + (!bp.editingTemplate ? ' on' : '');
     iBtn.textContent = 'This instance';
-    iBtn.title = `Editing only ${ctx.instanceId ?? 'this instance'} — overrides the template here`;
+    iBtn.title = `Editing only ${ctx.instanceId ?? 'this instance'}. Overrides the template here.`;
     iBtn.addEventListener('click', () => setEditTarget(false));
     seg.append(tBtn, iBtn);
     c.appendChild(seg);
@@ -287,7 +302,7 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   c.appendChild(sp());
   // Peek + undo/redo are borderless (.plain) — they're frequent, low-stakes nudges, so the outline just
   // ate width and pushed Exit out of the chip. Peek: hover for a transient fade, CLICK to keep it on.
-  const peek = mkIconBtn(ICON_EYE_SLASH, togglePeek); peek.title = 'Peek at the live widgets — hover for a moment, click to keep it on';
+  const peek = mkIconBtn(ICON_EYE_SLASH, togglePeek); peek.title = 'Peek at the live widgets. Hover for a moment, or click to keep it on.';
   peek.classList.add('plain');
   if (bp.peek) peek.classList.add('on');
   peek.addEventListener('mouseenter', () => bp.layer?.classList.add('bp-peek'));

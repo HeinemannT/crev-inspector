@@ -27,7 +27,7 @@ import { reconstruct, walk, RESULT_TAB_ID } from './model';
 import type { ReconstructCtx } from './model';
 import { diff } from './diff';
 import { compile } from './ec';
-import { validateBusinessId, validateRid, formatEcLiteral } from '../ec-guards';
+import { validateBusinessId, validateRid } from '../ec-guards';
 import { LAYOUT_SEP, CTX_MARKER, OVER_MARKER, STYLE_MARKER, parseLayoutNodes } from '../layout-wire';
 import { enumMember } from '../color-util';
 import type { LayoutNode as WireNode } from '../types';
@@ -108,11 +108,14 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
   // (portal placement). A widget bound to the Result tab keeps that binding so it attaches to the Result
   // tab node. Skip ActionButtons flagged displayOnActionMenu — BMP renders those in the page's action
   // MENU, not the grid, so they're not part of the editable layout. Shared by both fetch shapes.
-  // PERFORMANCE INVARIANT (live-measured 2026-07-02): every `+` whose operand chain includes the big
-  // accumulator `_r` re-copies AND HTML-sniffs (DetectHtml regex) the whole string — so a multi-term
-  // `_r := _r + a + b + …` costs one full-accumulator pass PER TERM, and the fetch goes quadratic with
-  // a huge constant (a ~2000-line build measured 52s; the same lines built small-first, ~8s). Rule:
-  // build each node's lines in the SMALL local `_l`, then touch `_r` exactly once per node.
+  // PERFORMANCE INVARIANT (live-measured 2026-07-02, tightened 2026-07-06): every `+` whose operand
+  // chain includes the big accumulator `_r` re-copies AND HTML-sniffs (DetectHtml regex) the whole
+  // string — so a multi-term `_r := _r + a + b + …` costs one full-accumulator pass PER TERM, and the
+  // fetch goes quadratic with a huge constant (a ~2000-line build measured 52s; small-first, ~8s).
+  // Rules: (1) build each node's lines in the SMALL local `_l`; (2) append `_l` to the mid-size chunk
+  // `_c` and flush `_c` into `_r` only every 16 nodes — touching `_r` once per node cost 5.6s on a
+  // 258-node scorecard (each touch copies+sniffs the whole ~37KB accumulator); chunked flushing
+  // processes ~8x fewer accumulator bytes. Measured 2026-07-06: sc_cvo_demo fetch 5561ms before.
   //
   // F2 override channel: for an inherited widget (linkedTo a template counterpart), emit a separate
   // `<OVER>bid|prop,...` line listing the props whose value differs from the template — the parser picks
@@ -134,12 +137,14 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
   // businessId (`.id`) — resolved to rgb client-side via the colour-set cache — not a value. `.id` on a
   // MISSING colour chains to MISSING → whenMissing("") → "" (same safe pattern as the override channel).
   const styleEmit = [
-    `          _l := _l + "${STYLE}" + _w.id.whenMissing("") + "|" + _w.headerColor.id.whenMissing("") + "|" + _w.fontColor.id.whenMissing("") + "|" + _w.shadow.whenMissing("") + "|" + _w.headerStyle.whenMissing("") + "|" + _w.borderStyle.whenMissing("") + "|" + _w.transparency.whenMissing("") + "\\n"`,
+    `          _l := _l + "${STYLE}" + _w.id.whenMissing("") + "|" + _w.headerColor.id.whenMissing("") + "|" + _w.fontColor.id.whenMissing("") + "|" + _w.shadow.whenMissing("") + "|" + _w.headerStyle.whenMissing("") + "|" + _w.borderStyle.whenMissing("") + "|" + _w.transparency.whenMissing("") + "|" + _w.visibility.whenMissing("") + "|" + _w.showToolMenu.whenMissing("") + "|" + _w.disableSearch.whenMissing("") + "|" + _w.shownOnLargeDisplay.whenMissing("") + "|" + _w.shownOnMediumDisplay.whenMissing("") + "|" + _w.shownOnSmallDisplay.whenMissing("") + "\\n"`,
   ];
   const orgLoop = [
+    `_c := ""`,
+    `_i := 0`,
     `_sc.descendants().forEach(_w:`,
     `     IF _w.className.whenMissing("") = "ActionButton" AND _w.displayOnActionMenu.whenMissing(false) = true THEN`,
-    `          _r := _r`,
+    `          _c := _c`,
     `     ELSE`,
     `          _l := "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
     // The override channel only means anything for INSTANCE loads (a template's widgets have no
@@ -148,9 +153,18 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     // on heavy pages, where the fetch EC is the slow half of opening the blueprint.
     ...(ctx.target === 'template' ? [] : overEmit),
     ...styleEmit,
-    `          _r := _r + _l`,
+    `          _c := _c + _l`,
+    `          _i := _i + 1`,
+    `          IF _i > 15 THEN`,
+    `               _r := _r + _c`,
+    `               _c := ""`,
+    `               _i := 0`,
+    `          ELSE`,
+    `               _r := _r`,
+    `          ENDIF`,
     `     ENDIF`,
     `)`,
+    `_r := _r + _c`,
   ];
   // RESULT-only page (no dedicated tabset): emit ONLY the Result tab node (NOT default_tabset's shared
   // Row/Column scaffold — that belongs to every scorecard) plus the page's own org widgets, which bind to
@@ -187,10 +201,21 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `ENDIF`,
     // grid: tabs + containers — parentRid set, containerRid always empty, no chartHeight.
     // Same small-first rule as the org loop: line into `_l`, ONE `_r` touch per node.
+    `_c := ""`,
+    `_i := 0`,
     `_ts.descendants().forEach(_n:`,
     `     _l := "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + _n.name.whenMissing("") + "\\n"`,
-    `     _r := _r + _l`,
+    `     _c := _c + _l`,
+    `     _i := _i + 1`,
+    `     IF _i > 15 THEN`,
+    `          _r := _r + _c`,
+    `          _c := ""`,
+    `          _i := 0`,
+    `     ELSE`,
+    `          _r := _r`,
+    `     ENDIF`,
     `)`,
+    `_r := _r + _c`,
     ...orgLoop,
     `_r`,
   ].join('\n');
@@ -212,13 +237,17 @@ export function parseOverrides(log: string): Map<string, string[]> {
   return map;
 }
 
-/** Parse the G3 style channel (`<STYLE>bid|hcBid|fcBid|shadow|headerStyle|borderStyle|transparency`)
- *  into a businessId → NodeStyle map. Rides the same log on its own marker (parseLayoutNodes/parseOverrides
- *  ignore it). Only non-empty fields are kept, so a fully-unstyled widget produces no entry. */
+/** Parse the G3 style channel (`<STYLE>bid|hcBid|fcBid|shadow|headerStyle|borderStyle|transparency|
+ *  visibility|showToolMenu|disableSearch|shownL|shownM|shownS`) into a businessId → NodeStyle map. Rides
+ *  the same log on its own marker (parseLayoutNodes/parseOverrides ignore it). Only non-empty fields are
+ *  kept — for the flag props an EMPTY field means the type lacks the trait, so absence doubles as the
+ *  UI gate. `visibility` is an enum (BMP stringifies "Visibillity.novisible" → enumMember → NOVISIBLE). */
 export function parseStyles(log: string): Map<string, NodeStyle> {
   const map = new Map<string, NodeStyle>();
+  const bool = (v: string | undefined): boolean | undefined =>
+    v === 'true' || v === 'TRUE' ? true : v === 'false' || v === 'FALSE' ? false : undefined;
   for (const block of (log || '').split(STYLE).slice(1)) {
-    const [bid, hc, fc, shadow, headerStyle, borderStyle, transp] = (block.split('\n', 1)[0] ?? '').trim().split('|');
+    const [bid, hc, fc, shadow, headerStyle, borderStyle, transp, vis, tools, dSearch, shL, shM, shS] = (block.split('\n', 1)[0] ?? '').trim().split('|');
     if (!bid) continue;
     const s: NodeStyle = {};
     if (hc) s.headerColorBid = hc;
@@ -230,6 +259,12 @@ export function parseStyles(log: string): Map<string, NodeStyle> {
     if (headerStyle) s.headerStyle = enumMember(headerStyle);
     if (borderStyle) s.borderStyle = enumMember(borderStyle);
     if (transp && /^-?\d+$/.test(transp)) s.transparency = parseInt(transp, 10);
+    if (vis) s.visibility = enumMember(vis);
+    const t = bool(tools); if (t !== undefined) s.showToolMenu = t;
+    const d = bool(dSearch); if (d !== undefined) s.disableSearch = d;
+    const l = bool(shL); if (l !== undefined) s.shownOnLargeDisplay = l;
+    const m2 = bool(shM); if (m2 !== undefined) s.shownOnMediumDisplay = m2;
+    const s3 = bool(shS); if (s3 !== undefined) s.shownOnSmallDisplay = s3;
     if (Object.keys(s).length) map.set(bid, s);
   }
   return map;
@@ -331,6 +366,14 @@ export interface NeedsTabset {
   pageRid: string;
   pageId: string;
   pageClass: BlueprintCtx['pageClass'];
+  /** Editing scope carried from the loaded ctx so the created tabset keeps the right scope +
+   *  blast-radius label (template vs instance) instead of defaulting to instance. When editing a
+   *  template, pageRid is already the template's, so the tabset is created there. */
+  editingTemplate?: boolean;
+  hasTemplate?: boolean;
+  templateRid?: string;
+  templateId?: string;
+  instanceId?: string;
 }
 
 /** The decoded context-probe line. Keyed by NAME so the emit order in `buildContextEc` and the read here
@@ -385,7 +428,10 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
       ? {
           pageId: p.pageId, pageRid: p.pageRid, pageClass: (p.pageClass || 'Scorecard') as BlueprintCtx['pageClass'],
           tabsetId: DEFAULT_TABSET, target: 'instance', hasTemplate: p.hasLink,
-          tabScope: 'withContent', resultOnly: true,
+          // ...tpl carries templateRid/templateId. Without it a result-only INSTANCE lost its
+          // template link, so loadPage's `prefer:'template'` redirect never fired and the toggle
+          // silently stayed on the instance — every created tab then landed on the instance.
+          tabScope: 'withContent', resultOnly: true, ...tpl,
         }
       : null;
   }
@@ -399,18 +445,21 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
 
 /**
  * EC that creates a dedicated tabset for a RESULT-only page and moves its widgets onto it:
- *   root.portal → Category "<name>" → TabSet "<name>" → Tab "Main", then every RESULT widget is
- *   re-pointed (container := the new Tab). The Category is a recognisable folder a configurator can
- *   relocate later; BMP autogenerates all ids. Emits `<sep>tsId|tabId|movedCount` for the caller to
- *   build the load context. Verified mechanic live 2026-06-27 (create + bind + ancestor-walk finds it).
+ *   root.portal → TabSet "» New <Scorecard> TabSet" → Tab "Main", then every RESULT widget is
+ *   re-pointed (container := the new Tab). The TabSet lives BARE under portal root (no wrapper
+ *   Category — a page's tab strip is the union of tabs its widgets bind into, so the TabSet renders
+ *   without one; verified live 2026-07-07). The name is derived in-EC from the scorecard so it's
+ *   recognisable in Config Studio's Shared-web-items tree; the "» New" marker flags it as freshly
+ *   created and unarranged (a configurator renames it to convention later). `.add` APPENDS — it never
+ *   reorders portal siblings, so no `modifiedBy` churn on neighbours. BMP autogenerates all ids. Emits
+ *   `<sep>tsId|tabId|movedCount` for the caller to build the load context. Mechanic verified live
+ *   2026-06-27 (create + bind + ancestor-walk finds it); bare-render verified 2026-07-07.
  */
-export function buildCreateTabsetEc(pageRid: string, name: string): string {
+export function buildCreateTabsetEc(pageRid: string): string {
   const sc = `lookup(${ecRid(pageRid)})`;
-  const nm = `"${formatEcLiteral(name)}"`;
   return [
     `_sc := ${sc}`,
-    `_cat := root.portal.add(Category, name := ${nm})`,
-    `_ts := _cat.add(TabSet, name := ${nm})`,
+    `_ts := root.portal.add(TabSet, name := "» New " + _sc.name.whenMissing("Page") + " TabSet")`,
     `_tab := _ts.add(Tab, name := "Main", columnsLargeScreen := 6)`,
     `_n := 0`,
     `_sc.children().forEach(_w:`,
@@ -428,15 +477,24 @@ export function buildCreateTabsetEc(pageRid: string, name: string): string {
 
 /** Run the create-tabset EC, then load the page through its new tabset. Returns the loaded model +
  *  the ctx (so apply/edit works immediately), or null on failure. */
-export async function createTabsetAndLoad(io: LayoutIO, page: NeedsTabset, name: string): Promise<{ ctx: BlueprintCtx; load: LoadResult } | null> {
-  const res = await io.exec(buildCreateTabsetEc(page.pageRid, name), true); // commit — creates + rebinds
+export async function createTabsetAndLoad(io: LayoutIO, page: NeedsTabset): Promise<{ ctx: BlueprintCtx; load: LoadResult } | null> {
+  const res = await io.exec(buildCreateTabsetEc(page.pageRid), true); // commit — creates + rebinds
   if (!res.ok || !res.log) return null;
   const row = res.log.split(SEP)[1]?.split('\n', 1)[0]?.trim();
   const tabsetId = row?.split('|')[0];
   if (!tabsetId) return null;
+  // Preserve the editing scope. When the user was editing the template, pageRid is already the
+  // template's (the create EC ran there), so the session must STAY template-scoped — otherwise the
+  // toggle flips to "instance" and the blast-radius warning under-reports (a template edit hits every
+  // instance). Only fall back to instance scope when we weren't editing a template.
   const ctx: BlueprintCtx = {
     pageId: page.pageId, pageRid: page.pageRid, pageClass: page.pageClass,
-    tabsetId, target: 'instance', hasTemplate: false, tabScope: 'all',
+    tabsetId, tabScope: 'all',
+    target: page.editingTemplate ? 'template' : 'instance',
+    hasTemplate: page.hasTemplate ?? false,
+    ...(page.editingTemplate ? { editingTemplate: true } : {}),
+    ...(page.templateRid ? { templateRid: page.templateRid, templateId: page.templateId } : {}),
+    ...(page.instanceId ? { instanceId: page.instanceId } : {}),
   };
   const load = await loadModel(io, ctx);
   return { ctx, load };

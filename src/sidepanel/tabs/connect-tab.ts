@@ -34,6 +34,10 @@ export class ConnectTab implements Tab {
   private cacheBytes: number | null = null;
   /** Set true when the SW reports a CACHE_QUOTA_WARNING; renders a banner. */
   private cacheQuotaWarning = false;
+
+  /** Shortcuts/reference block is reference material — collapsed by default so
+   * the actual controls (servers, settings) lead. */
+  private referenceOpen = false;
   /** Per-profile host-permission state (origin pattern → granted). Refreshed on activate/save;
    *  drives the "no site access" chip on profile cards. Unknown origins simply render no chip. */
   private accessByOrigin = new Map<string, boolean>();
@@ -136,126 +140,45 @@ export class ConnectTab implements Tab {
   render(container: HTMLElement) {
     const rerender = () => this.render(container);
 
-    const children: (HTMLElement | false | null)[] = [
-      h('div', { class: 'section-header' },
-        h('span', { class: 'section-title section-title--flush' }, 'Servers'),
-        h('button', { class: 'btn btn-small', 'data-action': 'add-profile' }, '+ Add'),
-      ),
-    ];
+    const children: (HTMLElement | false | null)[] = [];
 
     if (shared.settings.profiles.length === 0 && !this.editing) {
       children.push(h('div', { class: 'empty-state empty-state--padded' },
-        'CREV Inspector examines BMP pages. Add a server below to get started.'));
+        'CREV Inspector examines BMP pages. Add a server to get started.'));
     }
 
     for (const profile of shared.settings.profiles) {
-      const isActive = profile.id === shared.settings.activeProfileId;
       if (this.editing?.id === profile.id) {
         children.push(this.renderProfileForm(rerender));
       } else {
-        const urlDisplay = profile.bmpUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
-        // A credential-less profile borrows the browser session — say so
-        // instead of the old "(no user)" which read like a misconfiguration.
-        const whoDisplay = profile.bmpUser || 'browser session';
-        const origin = originPatternFor(profile.bmpUrl);
-        const noAccess = !!origin && this.accessByOrigin.get(origin) === false;
-        children.push(
-          h('div', {
-            class: `profile-card${isActive ? ' active' : ''}`,
-            'data-action': 'select-profile',
-            'data-profile-id': profile.id,
-          },
-            h('div', { class: 'profile-radio' },
-              h('input', { type: 'radio', name: 'profile', checked: isActive }),
-            ),
-            h('div', { class: 'profile-info' },
-              h('div', { class: 'profile-label' }, profile.label),
-              h('div', { class: 'profile-detail' }, `${urlDisplay} \u00b7 ${whoDisplay}`),
-            ),
-            // "No access" chip: this profile's origin lacks its host permission (declined prompt,
-            // or revoked via the browser's Site access settings). Clicking re-requests it — the
-            // click IS the user gesture the standard prompt needs.
-            noAccess && h('button', {
-              class: 'profile-access-chip',
-              'data-action': 'grant-access',
-              'data-grant-origin': origin,
-              title: 'CREV has no permission for this server\u2019s site. Click to grant it (standard browser prompt).',
-            }, 'no access'),
-            h('button', { class: 'btn btn-small profile-edit-btn', 'data-action': 'edit-profile', 'data-edit-profile': profile.id }, 'Edit'),
-          ),
-        );
+        children.push(this.renderProfileRow(profile));
       }
     }
 
     if (this.editing?.id === null) {
       children.push(this.renderProfileForm(rerender));
+    } else {
+      // Full-width add row closes the server list.
+      children.push(h('button', { class: 'addbtn', 'data-action': 'add-profile' }, '+ Add server'));
     }
 
     children.push(
-      // ── Detection ──────────────────────────────────────
+      // ── Settings ───────────────────────────────────────
       h('div', { class: 'section-header' },
-        h('span', { class: 'section-title section-title--flush' }, 'Detection'),
+        h('span', { class: 'section-title section-title--flush' }, 'Settings'),
       ),
-      h('div', { class: 'field-group' },
-        h('label', { class: 'field-label field-label--inline' },
-          h('input', { type: 'checkbox', class: 'checkbox-accent', id: 'auto-detect', checked: shared.settings.autoDetect }),
-          'Auto-detect server from page URL',
-        ),
-      ),
-      h('div', { class: 'field-group' },
-        h('label', { class: 'field-label field-label--inline' },
-          h('input', { type: 'checkbox', class: 'checkbox-accent', id: 'enrich-all', checked: shared.settings.enrichMode === 'all' }),
-          'Include non-widget objects',
-        ),
-        // Trimmed to one line; the table-rows caveat moved to the tooltip.
-        h('span', {
-          class: 'field-hint',
-          title: 'Table rows are not covered; they navigate via anchor links and are filtered separately.',
-        }, 'Also labels inline RID elements the widget size filter hides.'),
-      ),
+      this.settingRow('auto-detect', 'Auto-detect server from page URL',
+        null, shared.settings.autoDetect),
+      this.settingRow('enrich-all', 'Include non-widget objects',
+        'Also labels inline RID elements the widget size filter hides.',
+        shared.settings.enrichMode === 'all',
+        'Table rows are not covered; they navigate via anchor links and are filtered separately.'),
 
-      // ── Version/update line, then the quiet reference (guidance) ──
-      this.renderUpdateBanner(),
-      this.renderReference(),
-
-      // ── Maintenance — placed UNDER the guidance (it's the least-used, most-destructive
-      //    section: cache + reset live), so it doesn't sit between detection and the reference. ──
-      h('div', { class: 'section-header' },
-        h('span', { class: 'section-title section-title--flush' }, 'Maintenance'),
-      ),
-      this.cacheQuotaWarning
-        ? h('div', { class: 'cache-quota-banner' },
-            'Storage quota reached. Older cache entries are being evicted. ',
-            h('button', { class: 'btn btn-small btn-ghost', 'data-action': 'reset-all', title: 'Wipe cache + enrichment to recover headroom' }, 'Reset'),
-          )
-        : null,
-      h('div', { class: 'connect-cache-row' },
-        h('span', { class: 'connect-meta' },
-          `${shared.cacheCount} cached`,
-          this.cacheBytes != null && this.cacheBytes > 0
-            ? h('span', { class: 'connect-meta-bytes', title: `${this.cacheBytes.toLocaleString()} bytes of ~10 MB quota` }, ` · ${formatBytes(this.cacheBytes)}`)
-            : null,
-        ),
-        // Disable when the cache is already empty — the red "danger" outline
-        // was alarming for a routine action that had nothing to do.
-        h('button', {
-          class: 'btn btn-ghost btn-small',
-          'data-action': 'clear-cache',
-          disabled: shared.cacheCount === 0,
-          title: shared.cacheCount === 0 ? 'Nothing to clear' : `Clear ${shared.cacheCount} cached objects (keeps activity log, favorites, settings)`,
-        }, 'Clear cache'),
-      ),
-      // "Reset all" is the nuke — pulled out of the routine cache row into its
-      // own danger-bounded strip so it can't be mistaken for "Clear cache"
-      // (they were ghost-button peers one tap apart). Confirms via modal.
-      h('div', { class: 'connect-reset-zone' },
-        h('span', { class: 'connect-reset-label' }, 'Reset all internal state'),
-        h('button', {
-          class: 'btn btn-ghost btn-small btn-danger-ghost',
-          'data-action': 'reset-all',
-          title: 'Reset all internal state: cache, enrichment, activity log, context RIDs, history. Favorites + server profiles are kept.',
-        }, 'Reset all'),
-      ),
+      // ── Footer: the low-weight informational + utility bits (keyboard
+      //    reference, version, cache, reset). None of these is a group of
+      //    controls, so none gets a section header — they read as a quiet
+      //    footer under one hairline. ──
+      this.renderFooter(rerender),
     );
 
     render(container, ...children);
@@ -398,6 +321,180 @@ export class ConnectTab implements Tab {
     });
   }
 
+  /** Two-letter monogram for the avatar tile. */
+  private initials(label: string): string {
+    const words = label.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return '?';
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+
+  /** Live connection status for the active profile's row. */
+  private profileStatus(): { text: string; cls: string; title: string } {
+    const s = shared.connState;
+    switch (s.display) {
+      case 'connected': {
+        const bits: string[] = [];
+        if (s.version) bits.push(`BMP ${s.version}`);
+        if (s.authVia) bits.push(s.authVia === 'session' ? 'via browser session' : 'via stored login');
+        return { text: 'Connected', cls: 'ok', title: bits.join(' · ') };
+      }
+      case 'checking': return { text: 'Checking…', cls: 'checking', title: '' };
+      case 'online': return { text: 'Online', cls: 'checking', title: 'Reachable, not authenticated' };
+      case 'needs-login': return { text: 'Sign-in needed', cls: 'err', title: 'Open BMP in a tab, log in, then retry' };
+      case 'no-config-access': return { text: 'No config role', cls: 'err', title: 'Logged in, but no Configuration Access role' };
+      case 'auth-failed': return { text: 'Auth failed', cls: 'err', title: 'Check the profile username and password' };
+      case 'server-down': return { text: 'Server down', cls: 'err', title: '' };
+      case 'unreachable': return { text: s.networkOffline ? 'No network' : 'Unreachable', cls: 'err', title: '' };
+      default: return { text: 'Idle', cls: 'idle', title: '' };
+    }
+  }
+
+  /** A server profile as a Carbon-style row: monogram tile, name + a Current
+   *  pill, url, and inline connection status. The active/connected profile gets
+   *  a green keyline; others read as Idle. Row-click selects; Edit shows on hover. */
+  private renderProfileRow(profile: ServerProfile): HTMLElement {
+    const isActive = profile.id === shared.settings.activeProfileId;
+    const urlDisplay = profile.bmpUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    const whoDisplay = profile.bmpUser || 'browser session';
+    const origin = originPatternFor(profile.bmpUrl);
+    const noAccess = !!origin && this.accessByOrigin.get(origin) === false;
+
+    // Status only when it says something: connection problems / checking.
+    // "Connected" is already told by the green keyline on the current row,
+    // and "Idle" told nothing — both gone so name + url get the full width.
+    let status: HTMLElement | null;
+    if (noAccess && origin) {
+      status = h('button', {
+        class: 'prof-noaccess',
+        'data-action': 'grant-access',
+        'data-grant-origin': origin,
+        title: 'CREV has no permission for this server’s site. Click to grant it (standard browser prompt).',
+      }, 'No access');
+    } else if (isActive) {
+      const s = this.profileStatus();
+      status = s.cls === 'ok' ? null : h('span', { class: 'prof-status', ...(s.title ? { title: s.title } : {}) },
+        h('span', { class: `prof-dot ${s.cls}` }),
+        s.text,
+      );
+    } else {
+      status = null;
+    }
+
+    return h('div', {
+      class: `prof${isActive ? ' cur' : ''}`,
+      'data-action': 'select-profile',
+      'data-profile-id': profile.id,
+    },
+      h('div', { class: 'prof-av' }, this.initials(profile.label)),
+      h('div', { class: 'prof-body' },
+        h('div', { class: 'prof-nm' },
+          h('span', { class: 'prof-nm-text' }, profile.label),
+          isActive ? h('span', { class: 'prof-curtag' }, 'Current') : null,
+        ),
+        h('div', { class: 'prof-url' }, `${urlDisplay} · ${whoDisplay}`),
+      ),
+      status,
+      h('button', {
+        class: 'prof-edit',
+        'data-action': 'edit-profile',
+        'data-edit-profile': profile.id,
+        title: 'Edit server',
+      }, 'Edit'),
+    );
+  }
+
+  /** A boolean setting as a label-left / toggle-right row — our control style,
+   *  replacing the raw browser checkbox. The input keeps its id so the existing
+   *  change listeners bind unchanged. */
+  private settingRow(
+    id: string,
+    name: string,
+    hint: string | null,
+    checked: boolean,
+    hintTitle?: string,
+  ): HTMLElement {
+    return h('label', { class: 'setting-row' },
+      h('span', { class: 'setting-text' },
+        h('span', { class: 'setting-name' }, name),
+        hint
+          ? h('span', { class: 'setting-hint', ...(hintTitle ? { title: hintTitle } : {}) }, hint)
+          : null,
+      ),
+      h('span', { class: 'toggle' },
+        h('input', { type: 'checkbox', class: 'toggle-input', id, checked }),
+        h('span', { class: 'toggle-track', 'aria-hidden': 'true' }),
+      ),
+    );
+  }
+
+  /** The quiet footer strip. Consolidates the mostly-informational, low-weight
+   *  bits that don't each deserve a section: keyboard reference (expandable),
+   *  the cache/reset utility actions, and the version line. One hairline sets
+   *  it apart from the real controls above. */
+  private renderFooter(rerender: () => void): HTMLElement {
+    const cacheInfo: (HTMLElement | string)[] = [`${shared.cacheCount} cached`];
+    if (this.cacheBytes != null && this.cacheBytes > 0) {
+      cacheInfo.push(h('span', {
+        class: 'connect-meta-bytes',
+        title: `${this.cacheBytes.toLocaleString()} bytes of ~10 MB quota`,
+      }, ` · ${formatBytes(this.cacheBytes)}`));
+    }
+
+    return h('div', { class: 'connect-footer' },
+      // Keyboard reference — a quiet expandable link, not a titled section.
+      this.renderReferenceDisclosure(rerender),
+
+      this.cacheQuotaWarning
+        ? h('div', { class: 'cache-quota-banner' },
+            'Storage quota reached. Older cache entries are being evicted. ',
+            h('button', { class: 'btn btn-small btn-ghost', 'data-action': 'reset-all', title: 'Wipe cache + enrichment to recover headroom' }, 'Reset'),
+          )
+        : null,
+
+      // Utility actions — cache count + Clear + Reset as quiet links. Reset
+      // is guarded by a confirm modal, so it doesn't need the red box any more.
+      h('div', { class: 'footer-actions' },
+        h('span', { class: 'footer-cache' }, ...cacheInfo),
+        h('span', { class: 'footer-spacer' }),
+        h('button', {
+          class: 'footer-action',
+          'data-action': 'clear-cache',
+          disabled: shared.cacheCount === 0,
+          title: shared.cacheCount === 0 ? 'Nothing to clear' : `Clear ${shared.cacheCount} cached objects (keeps activity log, favorites, settings)`,
+        }, 'Clear cache'),
+        h('button', {
+          class: 'footer-action footer-action--danger',
+          'data-action': 'reset-all',
+          title: 'Reset all internal state: cache, enrichment, activity log, context RIDs, history. Favorites + server profiles are kept.',
+        }, 'Reset all'),
+      ),
+
+      // Version / update — the quietest line, at the very bottom.
+      h('div', { class: 'footer-version' }, this.renderUpdateBanner()),
+    );
+  }
+
+  /** Collapsible wrapper around the shortcuts/reference tables. Closed by
+   *  default; presented as a quiet footer link, not a section header. */
+  private renderReferenceDisclosure(rerender: () => void): HTMLElement {
+    const wrap = h('div', { class: 'ref-disclosure' });
+    const toggle = h('button', {
+      class: 'ref-toggle',
+      'aria-expanded': String(this.referenceOpen),
+    },
+      h('span', { class: `disclosure-caret${this.referenceOpen ? ' open' : ''}`, 'aria-hidden': 'true' }),
+      h('span', { class: 'ref-toggle-label' }, 'Keyboard shortcuts'),
+    );
+    toggle.addEventListener('click', () => {
+      this.referenceOpen = !this.referenceOpen;
+      rerender();
+    });
+    wrap.appendChild(toggle);
+    if (this.referenceOpen) wrap.appendChild(this.renderReference());
+    return wrap;
+  }
+
   /** Update banner — placed above the Quick reference card. Always renders
    *  something so the user knows we're tracking releases. */
   private renderUpdateBanner(): HTMLElement {
@@ -470,6 +567,7 @@ export class ConnectTab implements Tab {
         rows: [
           { kind: 'cmd', action: 'Toggle side panel', command: 'open-sidebar', defaultKey: 'Ctrl+Shift+Y' },
           { kind: 'cmd', action: 'Toggle inspect on page', command: 'toggle-inspect', defaultKey: 'Ctrl+Shift+X' },
+          { kind: 'cmd', action: 'Toggle blueprint mode', command: 'toggle-blueprint', defaultKey: 'Ctrl+Shift+B' },
           { kind: 'cmd', action: 'Open Extended Code', command: 'open-extended', defaultKey: 'Ctrl+Shift+E' },
         ],
       },
@@ -481,7 +579,6 @@ export class ConnectTab implements Tab {
           { kind: 'note', action: 'Alt-click', key: 'copy RID' },
           { kind: 'note', action: 'Shift-click', key: 'copy template ID' },
           { kind: 'note', action: 'Ctrl-click', key: 'copy namespace reference' },
-          { kind: 'note', action: 'Cascade pill (↓)', key: 'jump to chain target' },
         ],
       },
       {

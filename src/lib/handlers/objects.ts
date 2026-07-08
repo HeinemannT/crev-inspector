@@ -884,6 +884,12 @@ register('SELECT_OBJECT', async (msg, respond, meta) => {
   respond({ type: 'SELECT_OBJECT', rid: msg.rid });
   const ctx = getCtx();
   ctx.sendToPanel({ type: 'SELECT_OBJECT', rid: msg.rid });
+  // openPanel (flow sub-badge): surface the side panel if it isn't open.
+  // No-op when already open; the queued panel message above survives the
+  // panel's startup via pendingPanelMessages, so the selection isn't lost.
+  if ('openPanel' in msg && msg.openPanel && meta.senderTabId != null) {
+    chrome.sidePanel.open({ tabId: meta.senderTabId }).catch(e => log.swallow('sw:openPanel', e));
+  }
   // Resolve the BMP tab to associate context with. Sources, in order of
   // reliability:
   //   1. meta.senderTabId — content-script senders

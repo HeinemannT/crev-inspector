@@ -47,6 +47,17 @@ export interface NodeStyle {
   headerStyle?: string;   // INSIDE | OUTSIDE | NONE
   borderStyle?: string;   // LINE | NONE
   transparency?: number;  // 0..100
+  // Widget flags (style channel, not paintable). ABSENT = the type lacks the
+  // trait (fetch read MISSING) — presence gates the flag's UI.
+  showToolMenu?: boolean;   // HasToolsMenu           (default true)
+  disableSearch?: boolean;  // HasDisableSearch       (default false)
+  // Visibility (the WRITABLE knob — the `visible` boolean is read-only/computed):
+  // VISIBLE | NOVISIBLE | ADMINVISIBLEONLY | VISIBLEASPARENTONLY.
+  visibility?: string;
+  // ScreenSizeVisibility trio — default true; all three false = full ghost.
+  shownOnLargeDisplay?: boolean;
+  shownOnMediumDisplay?: boolean;
+  shownOnSmallDisplay?: boolean;
 }
 
 /** G3 — maps each NodeStyle field to its BMP property name + the "unset/default" value the diff treats
@@ -104,6 +115,10 @@ export interface LNode {
    *  renders full width (= 6); a container renders as a ~1-track auto cell — see rows.trackSpan.
    *  L is always set; M/S optional. */
   cols: { L: number; M?: number; S?: number };
+  /** UI-only: the tool auto-named this container for its width ("Col N"). While set, a resize keeps the
+   *  name in step; an explicit rename clears it (the user owns the name). Never sent to BMP — the diff
+   *  compares only real fields (name/cols/height), so this flag is invisible to compile. */
+  autoName?: boolean;
   /** Authored height in px — charts (`chartHeight`) and URLView only. Undefined = content-driven. */
   height?: number;
   children: LNode[];
@@ -160,6 +175,9 @@ export interface PlanNote {
   verb: 'create' | 'update' | 'move' | 'reorder' | 'delete';
   text: string;
   ec?: string;
+  /** The subject node's model id — lets the pending tray render the SAME rows as the apply log
+   *  (deduped to one per node) and wire its per-node revert. */
+  id?: string;
   /** Structured columns for the apply-log table (view-panels.previewModal). `text` stays the
    *  single-sentence fallback; these split it into uniform, scannable fields. */
   action?: 'Add' | 'Style' | 'Change' | 'Reset' | 'Move' | 'Reorder' | 'Delete';

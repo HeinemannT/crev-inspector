@@ -28,10 +28,20 @@ import {
 /** Wrap a BmpClient as a LayoutIO. `commit` → transactional executeEc. Layout runs get the wide
  *  LAYOUT_EC_TIMEOUT: the fetch walks every widget of the page (plus override + style channels),
  *  which on a heavy live scorecard legitimately outlives the general 30s EC window. */
-export function makeLayoutIO(client: BmpClient): LayoutIO {
+/** Per-exec timings collector. Pass an operation-local array so the load/apply
+ *  breakdown in the activity log is attributable (call count × duration) without
+ *  DevTools. It MUST be operation-local, not a module global: the service worker
+ *  interleaves async handlers at every await, so a shared array would let a
+ *  concurrent LOAD/APPLY/BLAST wipe or cross-contaminate another op's timings.
+ *  Defaults to a throwaway array for callers that don't report timings. */
+export function makeLayoutIO(client: BmpClient, timings: string[] = []): LayoutIO {
   return {
     async exec(code: string, commit = false) {
+      const t0 = Date.now();
       const r = await client.executeEc(code, undefined, commit, undefined, LAYOUT_EC_TIMEOUT);
+      const line = `${Date.now() - t0}ms (commit=${commit}, ${code.length}ch → ${r.log?.length ?? 0}ch)`;
+      timings.push(line);
+      log.debug('layout:exec', line);
       return { ok: r.ok, log: r.log, error: r.error };
     },
   };
@@ -51,8 +61,8 @@ export type LoadPageResult =
  *  editing it propagates to all instances. The returned ctx carries the toggle state (editingTemplate +
  *  instanceId/templateId) so the chrome can offer [Template | This instance] and reload with
  *  `prefer='instance'` to edit just this page. */
-export async function loadPage(client: BmpClient, rid: string, prefer: 'template' | 'instance' = 'template'): Promise<LoadPageResult> {
-  const io = makeLayoutIO(client);
+export async function loadPage(client: BmpClient, rid: string, prefer: 'template' | 'instance' = 'template', timings: string[] = []): Promise<LoadPageResult> {
+  const io = makeLayoutIO(client, timings);
   const ctx = await resolvePageContext(io, rid);
   if (!ctx) return null;
   if (prefer === 'template' && ctx.templateRid && ctx.templateId) {
@@ -74,14 +84,14 @@ export async function loadPage(client: BmpClient, rid: string, prefer: 'template
 }
 
 /** Create a dedicated tabset for a RESULT-only page (moving its widgets onto it), then load it. */
-export async function createTabset(client: BmpClient, page: NeedsTabset, name: string): Promise<{ ctx: BlueprintCtx; load: LoadResult } | null> {
-  return createTabsetAndLoad(makeLayoutIO(client), page, name);
+export async function createTabset(client: BmpClient, page: NeedsTabset): Promise<{ ctx: BlueprintCtx; load: LoadResult } | null> {
+  return createTabsetAndLoad(makeLayoutIO(client), page);
 }
 
 /** Apply an edit: diff baseline→desired, compile, commit, re-fetch. The ctx must be the one
  *  `loadPage` returned for this page (it carries the page root + tabset + tab scope). */
-export async function applyPage(client: BmpClient, ctx: BlueprintCtx, baseline: LModel, desired: LModel): Promise<ApplyResult> {
-  return applyModel(makeLayoutIO(client), baseline, desired, ctx);
+export async function applyPage(client: BmpClient, ctx: BlueprintCtx, baseline: LModel, desired: LModel, timings: string[] = []): Promise<ApplyResult> {
+  return applyModel(makeLayoutIO(client, timings), baseline, desired, ctx);
 }
 
 /** Apply-preview blast radius (best-effort; an `rref` walk can be slow, so callers fail silently).

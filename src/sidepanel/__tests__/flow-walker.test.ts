@@ -1,9 +1,11 @@
 /**
- * Renderer tests for the Flow walker — the icon-led card visualization.
+ * Renderer tests for the Flow walker — the accordion "ledger" visualization.
  *
- * The single-child spine collapses: a lone top step renders as a `.flow-root`
- * header (`.flow-root-head`), a single-child container (InputSet / NTG) renders
- * as a quiet `.flow-group` line, and the leaves render as `.flow-card`s.
+ * The single-child spine collapses: the root renders as a step ONLY when it
+ * carries its own fields (its identity already heads the pane), single-child
+ * containers (InputSet / NTG) render as quiet `.flow-group` rows that keep the
+ * whole-row copy+navigate gesture, and the leaves render as `.flow-step`
+ * accordion rows (header toggles open; the stub badge copies).
  *
  * @vitest-environment happy-dom
  */
@@ -47,78 +49,138 @@ describe('renderFlowSection', () => {
     expect(el.querySelector('.flow-empty')).toBeTruthy();
   });
 
-  it('compact header surfaces step count + EC-bearing count', () => {
-    // The header counts the RAW tree (not the collapsed spine): all 3 nodes,
-    // 1 of them with EC.
-    const chain: FlowChainMsg = {
-      steps: [
-        step({
-          identity: { rid: '1', businessId: 'iv', name: 'IV', type: 'InputView' },
-          children: [
-            step({ identity: { rid: '2', businessId: 'ti', name: 'TI', type: 'TextInput' } }),
-            step({
-              identity: { rid: '3', businessId: 'bi', name: 'BI', type: 'ButtonInput' },
-              codeFields: [{ prop: 'expression', lineCount: 1, firstLine: 'root.foo()' }],
-            }),
-          ],
-        }),
-      ],
-    };
+  it('renders no section header — the segment bar carries the label', () => {
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '1', businessId: 'bi', name: 'BI', type: 'ButtonInput' },
+      codeFields: [{ prop: 'expression', lineCount: 1, firstLine: 'root.foo()' }],
+    })] };
     const el = renderFlowSection(inputs({ chain }));
-    const head = el.querySelector('.flow-section-head')!;
-    expect(head).toBeTruthy();
-    expect(head.textContent).toContain('Flow');
-    expect(head.textContent).toContain('3 steps');
-    expect(head.textContent).toContain('1 with EC');
+    expect(el.classList.contains('flow-section')).toBe(true);
+    expect(el.querySelector('.flow-section-head')).toBeNull();
+    expect(el.querySelector('.flow-chain')).toBeTruthy();
   });
 
-  it('renders a lone top step as the root header with type pill + name', () => {
+  it('omits a bare root step — the identity already heads the pane', () => {
     const chain: FlowChainMsg = { steps: [step({
       identity: { rid: '7', businessId: 'ab_demo', name: 'Demo AB', type: 'ActionButton' },
     })] };
     const el = renderFlowSection(inputs({ chain }));
-    const head = el.querySelector('.flow-root-head');
-    expect(head).toBeTruthy();
-    expect(head!.querySelector('.flow-pill')).toBeTruthy();
-    expect(head!.querySelector('.flow-name')!.textContent).toBe('Demo AB');
-    // businessId now lives in the title tooltip, not a visible chip.
-    expect(head!.getAttribute('title')).toContain('ab_demo');
+    expect(el.querySelector('.flow-root')).toBeTruthy();
+    expect(el.querySelector('.flow-step')).toBeNull();
+    expect(el.querySelector('.flow-group')).toBeNull();
   });
 
-  it('plain-clicking the root head copies the business id AND navigates', () => {
+  it('renders a root WITH own fields as an open accordion step (badge · name · grey id)', () => {
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '7', businessId: 'ab_demo', name: 'Demo AB', type: 'ActionButton' },
+      codeFields: [{ prop: 'expression', lineCount: 1, firstLine: 'root.foo()' }],
+    })] };
+    const el = renderFlowSection(inputs({ chain }));
+    const stepEl = el.querySelector('.flow-step')!;
+    expect(stepEl).toBeTruthy();
+    expect(stepEl.classList.contains('flow-step--open')).toBe(true); // root always unfolds
+    const head = stepEl.querySelector('.flow-step-h')!;
+    expect(head.querySelector('.bdg')).toBeTruthy(); // shared stub badge, not a pill
+    expect(head.querySelector('.flow-step-nm')!.textContent).toBe('Demo AB');
+    expect(head.querySelector('.flow-row-id')!.textContent).toBe('ab_demo'); // inline grey mono id
+    expect(head.querySelector('.flow-step-car')).toBeTruthy(); // chevron
+  });
+
+  it('clicking a step header toggles it open/closed without navigating', () => {
+    const onNavigate = vi.fn();
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '7', businessId: 'ab', name: 'AB', type: 'ActionButton' },
+      codeFields: [{ prop: 'expression', lineCount: 1, firstLine: 'x' }],
+    })] };
+    const el = renderFlowSection(inputs({ chain, onNavigate }));
+    const stepEl = el.querySelector<HTMLElement>('.flow-step')!;
+    const head = stepEl.querySelector<HTMLElement>('.flow-step-h')!;
+    expect(stepEl.classList.contains('flow-step--open')).toBe(true);
+    head.click();
+    expect(stepEl.classList.contains('flow-step--open')).toBe(false);
+    head.click();
+    expect(stepEl.classList.contains('flow-step--open')).toBe(true);
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it('clicking the stub badge copies the business id without navigating or toggling', () => {
     const onNavigate = vi.fn();
     const writes: string[] = [];
     Object.defineProperty(globalThis.navigator, 'clipboard', {
       value: { writeText: (t: string) => { writes.push(t); return Promise.resolve(); } },
       configurable: true,
     });
-    const chain: FlowChainMsg = { steps: [step({ identity: { rid: '42', businessId: 'bizId42', name: 'N', type: 'ButtonInput' } })] };
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '42', businessId: 'bizId42', name: 'N', type: 'ButtonInput' },
+      codeFields: [{ prop: 'expression', lineCount: 1, firstLine: 'x' }],
+    })] };
     const el = renderFlowSection(inputs({ chain, onNavigate }));
-    const head = el.querySelector<HTMLElement>('.flow-root-head');
-    head!.click();
-    expect(onNavigate).toHaveBeenCalledWith('42');
-    expect(writes).toContain('bizId42'); // plain click = copy ID + open
+    const stepEl = el.querySelector<HTMLElement>('.flow-step')!;
+    const badge = stepEl.querySelector<HTMLElement>('.flow-step-h .bdg')!;
+    badge.click();
+    expect(writes).toContain('bizId42'); // plain click = copy business id
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(stepEl.classList.contains('flow-step--open')).toBe(true); // no toggle
   });
 
-  it('alt-clicking copies the RID instead and does NOT navigate', () => {
+  it('alt-clicking the stub badge copies the RID instead and does NOT navigate', () => {
     const onNavigate = vi.fn();
     const writes: string[] = [];
     Object.defineProperty(globalThis.navigator, 'clipboard', {
       value: { writeText: (t: string) => { writes.push(t); return Promise.resolve(); } },
       configurable: true,
     });
-    const chain: FlowChainMsg = { steps: [step({ identity: { rid: '42', businessId: 'bizId42', name: 'N', type: 'ButtonInput' } })] };
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '42', businessId: 'bizId42', name: 'N', type: 'ButtonInput' },
+      codeFields: [{ prop: 'expression', lineCount: 1, firstLine: 'x' }],
+    })] };
     const el = renderFlowSection(inputs({ chain, onNavigate }));
-    const head = el.querySelector<HTMLElement>('.flow-root-head')!;
-    head.dispatchEvent(new MouseEvent('click', { altKey: true, bubbles: true }));
+    const badge = el.querySelector<HTMLElement>('.flow-step-h .bdg')!;
+    badge.dispatchEvent(new MouseEvent('click', { altKey: true, bubbles: true }));
     expect(writes).toContain('42');       // Alt → RID
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
-  it('collapses a single-child InputSet into a quiet container line', () => {
-    // InputView → InputSet (no inputs of its own): the spine collapses, so the
-    // InputView is the root header and the InputSet is a `.flow-group` line —
-    // not a nested card.
+  it('plain-clicking a container group row copies the business id AND navigates', () => {
+    const onNavigate = vi.fn();
+    const writes: string[] = [];
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      value: { writeText: (t: string) => { writes.push(t); return Promise.resolve(); } },
+      configurable: true,
+    });
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '1', businessId: 'iv', name: 'IV', type: 'InputView' },
+      children: [step({ identity: { rid: '42', businessId: 'bizId42', name: 'IS', type: 'InputSet' } })],
+    })] };
+    const el = renderFlowSection(inputs({ chain, onNavigate }));
+    const group = el.querySelector<HTMLElement>('.flow-group')!;
+    group.click();
+    expect(onNavigate).toHaveBeenCalledWith('42');
+    expect(writes).toContain('bizId42'); // plain click = copy ID + open
+  });
+
+  it('alt-clicking a container group row copies the RID instead and does NOT navigate', () => {
+    const onNavigate = vi.fn();
+    const writes: string[] = [];
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      value: { writeText: (t: string) => { writes.push(t); return Promise.resolve(); } },
+      configurable: true,
+    });
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '1', businessId: 'iv', name: 'IV', type: 'InputView' },
+      children: [step({ identity: { rid: '42', businessId: 'bizId42', name: 'IS', type: 'InputSet' } })],
+    })] };
+    const el = renderFlowSection(inputs({ chain, onNavigate }));
+    const group = el.querySelector<HTMLElement>('.flow-group')!;
+    group.dispatchEvent(new MouseEvent('click', { altKey: true, bubbles: true }));
+    expect(writes).toContain('42');       // Alt → RID
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it('collapses a single-child InputSet into a quiet container group row', () => {
+    // InputView → InputSet (no inputs of its own): the spine collapses. The
+    // fieldless root is omitted (its identity heads the pane) and the InputSet
+    // is a `.flow-group` row — badge · name · grey id · open ↗.
     const chain: FlowChainMsg = { steps: [step({
       identity: { rid: '1', businessId: 'iv', name: 'IV', type: 'InputView' },
       children: [step({
@@ -127,15 +189,16 @@ describe('renderFlowSection', () => {
       })],
     })] };
     const el = renderFlowSection(inputs({ chain }));
-    expect(el.querySelector('.flow-root-head .flow-name')!.textContent).toBe('IV');
     const group = el.querySelector('.flow-group');
     expect(group).toBeTruthy();
+    expect(group!.querySelector('.bdg')).toBeTruthy();
     expect(group!.querySelector('.flow-group-name')!.textContent).toBe('IS');
-    // No leaf cards in this degenerate chain.
-    expect(el.querySelector('.flow-card')).toBeNull();
+    expect(group!.querySelector('.flow-row-id')!.textContent).toBe('is');
+    // No accordion steps in this degenerate chain.
+    expect(el.querySelector('.flow-step')).toBeNull();
   });
 
-  it('renders InputSet leaves as cards under the collapsed spine', () => {
+  it('renders InputSet leaves as accordion steps under the collapsed spine (≤2 auto-open)', () => {
     const chain: FlowChainMsg = { steps: [step({
       identity: { rid: '1', businessId: 'iv', name: 'IV', type: 'InputView' },
       children: [step({
@@ -150,14 +213,32 @@ describe('renderFlowSection', () => {
       })],
     })] };
     const el = renderFlowSection(inputs({ chain }));
-    // Root + container line.
-    expect(el.querySelector('.flow-root-head .flow-name')!.textContent).toBe('IV');
+    // Container group row (the fieldless root is omitted).
     expect(el.querySelector('.flow-group-name')!.textContent).toBe('IS');
-    // Two leaf cards.
-    const cards = el.querySelectorAll('.flow-card');
-    expect(cards.length).toBe(2);
-    const names = [...cards].map(c => c.querySelector('.flow-name')!.textContent);
+    // Two leaf steps, auto-open because there are ≤2 of them.
+    const steps = el.querySelectorAll('.flow-step');
+    expect(steps.length).toBe(2);
+    const names = [...steps].map(c => c.querySelector('.flow-step-nm')!.textContent);
     expect(names).toEqual(['TI', 'BI']);
+    expect([...steps].every(s => s.classList.contains('flow-step--open'))).toBe(true);
+  });
+
+  it('starts leaves collapsed when the ledger is long (>2 leaves)', () => {
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '1', businessId: 'iv', name: 'IV', type: 'InputView' },
+      children: [step({
+        identity: { rid: '2', businessId: 'is', name: 'IS', type: 'InputSet' },
+        children: [
+          step({ identity: { rid: '3', businessId: 'a', name: 'A', type: 'TextInput' }, inputKey: 'a' }),
+          step({ identity: { rid: '4', businessId: 'b', name: 'B', type: 'TextInput' }, inputKey: 'b' }),
+          step({ identity: { rid: '5', businessId: 'c', name: 'C', type: 'TextInput' }, inputKey: 'c' }),
+        ],
+      })],
+    })] };
+    const el = renderFlowSection(inputs({ chain }));
+    const steps = el.querySelectorAll('.flow-step');
+    expect(steps.length).toBe(3);
+    expect(el.querySelector('.flow-step--open')).toBeNull();
   });
 
   it('greyed gate state appears when gateValue is not "true"', () => {
@@ -257,10 +338,10 @@ describe('renderFlowSection', () => {
     const box = el.querySelector('.flow-groupbox')!;
     expect(box).toBeTruthy();
     expect(box.querySelector('.flow-grouplabel')!.textContent).toContain('Button group');
-    expect(box.querySelectorAll('.flow-card').length).toBe(2); // the 2 buttons
+    expect(box.querySelectorAll('.flow-step').length).toBe(2); // the 2 buttons
   });
 
-  it('renders a leaf with children as nested subcards (action graph)', () => {
+  it('renders a leaf with children as nested substeps (action graph)', () => {
     const chain: FlowChainMsg = { steps: [step({
       identity: { rid: '1', businessId: 'iv', name: 'IV', type: 'InputView' },
       children: [step({
@@ -281,10 +362,10 @@ describe('renderFlowSection', () => {
       })],
     })] };
     const el = renderFlowSection(inputs({ chain }));
-    const subcards = el.querySelector('.flow-subcards')!;
-    expect(subcards).toBeTruthy();
-    // the NTG nests, and the transport nests under it (two levels of subcards)
-    expect(el.querySelectorAll('.flow-subcards').length).toBe(2);
+    const substeps = el.querySelector('.flow-substeps')!;
+    expect(substeps).toBeTruthy();
+    // the NTG nests, and the transport nests under it (two levels of substeps)
+    expect(el.querySelectorAll('.flow-substeps').length).toBe(2);
     expect(el.textContent).toContain('Action group');
     expect(el.textContent).toContain('Email');
   });

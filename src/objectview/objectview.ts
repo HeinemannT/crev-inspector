@@ -17,7 +17,8 @@
  */
 
 import type { ObjectPaneIdentity, ObjectPaneSiblingMsg } from '../lib/types';
-import { getTypeColor, getTypeAbbr } from '../lib/types';
+import { getTypeColor } from '../lib/types';
+import { typeBadge } from '../lib/type-badge';
 import { h, render, svg } from '../lib/dom';
 import { ICON_ARROW_LINE_UP } from '../lib/icons';
 import { resolveCopyText, getModifier } from '../lib/namespace';
@@ -29,6 +30,9 @@ import { findPropDef } from '../sidepanel/pane-schema';
 import { displayValue } from '../sidepanel/property-editors';
 import { renderPropertyGroups, type PaneGroupsCtx } from '../sidepanel/sections/property-groups';
 import { renderLinks, referencesToLinks } from '../sidepanel/sections/links';
+import { renderFlowSection } from '../sidepanel/sections/flow-walker';
+import { hasFlow } from '../lib/widget-metadata';
+import { hasStudio, modeForType } from '../studio/studio-mode';
 import { openAccessTrace, routeAccessMessage, initAccessTrace } from '../sidepanel/access-trace';
 import { openColorPicker } from '../sidepanel/color-picker';
 import { confirmModal } from '../lib/modal';
@@ -71,6 +75,10 @@ interface PaneState {
   loaded: boolean;
   error: string | null;
   saving: boolean;
+  /** Flow chain (flow-bearing types only) — fetched after the pane lands. */
+  flow: import('../lib/types').FlowChainMsg | null;
+  flowLoading: boolean;
+  flowError: string | null;
 }
 
 type SaveTarget = 'instance' | 'template';
@@ -124,6 +132,9 @@ async function reloadPane(): Promise<void> {
       loaded: true,
       error: 'Failed to load object',
       saving: false,
+      flow: null,
+      flowLoading: false,
+      flowError: null,
     };
     renderPane();
     return;
@@ -137,6 +148,9 @@ async function reloadPane(): Promise<void> {
     templateProps: msg.templateProps,
     siblings: msg.siblings,
     codeFields: msg.codeFields ?? {},
+    flow: null,
+    flowLoading: false,
+    flowError: null,
     references: msg.references ?? {},
     loaded: true,
     error: (msg as any).error ?? null,
@@ -145,6 +159,24 @@ async function reloadPane(): Promise<void> {
   if (!state.template) target = 'instance';
   document.title = `${msg.instance.name || msg.instance.businessId || rid} - CREV Object View`;
   renderPane();
+
+  // Flow chain — the Inspect tab's anatomy view, fetched separately so the
+  // pane paints first. Only for flow-bearing types (InputView, ActionButton…).
+  if (msg.instance.type && hasFlow(msg.instance.type)) {
+    state.flowLoading = true;
+    renderPane();
+    const flowMsg = await sendRequest({ type: 'FETCH_FLOW_CHAIN', rid, objectType: msg.instance.type });
+    if (state && state.rid === rid) {
+      state.flowLoading = false;
+      if (flowMsg && flowMsg.type === 'FLOW_CHAIN_DATA') {
+        state.flow = flowMsg.chain;
+        state.flowError = flowMsg.error ?? null;
+      } else {
+        state.flowError = 'Flow fetch failed';
+      }
+      renderPane();
+    }
+  }
 }
 
 // ── Draft helpers ─────────────────────────────────────────────────
@@ -245,11 +277,30 @@ async function commitSave(): Promise<void> {
 
 // ── Rendering ─────────────────────────────────────────────────────
 
+/** The header type badge — click copies the business id (green ✓ flash),
+ *  the panel-wide badge gesture. */
+function identityBadge(): HTMLElement {
+  const s = state!;
+  const b = typeBadge(s.identity.type);
+  const id = s.identity.businessId || s.rid;
+  b.title = `Copy ${id}`;
+  b.classList.add('pane-id-bdg');
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(id).catch(() => { /* blocked — silent */ });
+    const lbl = b.querySelector<HTMLElement>('.lbl');
+    const orig = lbl?.textContent ?? '';
+    if (lbl) lbl.textContent = '\u2713';
+    b.classList.add('bdg-copied');
+    setTimeout(() => { if (lbl) lbl.textContent = orig; b.classList.remove('bdg-copied'); }, 700);
+  });
+  return b;
+}
+
 function renderPane(): void {
   if (!state) return;
   const s = state;
   const color = getTypeColor(s.identity.type);
-  const abbr = getTypeAbbr(s.identity.type);
   const hasTemplate = !!s.template;
   const dirtyCount = Object.keys(draft).length;
 
@@ -304,7 +355,7 @@ function renderPane(): void {
       ),
     ),
     h('div', { class: 'pane-header-id' },
-      h('span', { class: 'pane-id-chip', title: s.identity.type }, abbr),
+      identityBadge(),
       h('span', { class: 'pane-id-name' }, s.identity.name || '(unnamed)'),
       s.identity.businessId ? h('span', { class: 'pane-id-bid' }, s.identity.businessId) : null,
     ),
@@ -356,10 +407,7 @@ function renderParentCrumb(parent: ObjectPaneIdentity): HTMLElement {
     onClick: () => sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid: parent.rid }),
   },
     h('span', { class: 'pane-parent-crumb-arrow' }, svg(ICON_ARROW_LINE_UP)),
-    h('span', {
-      class: 'pane-parent-crumb-chip',
-      style: `--type-color:${getTypeColor(parent.type)}`,
-    }, getTypeAbbr(parent.type)),
+    typeBadge(parent.type, { size: 'xs' }),
     h('span', { class: 'pane-parent-crumb-name' }, parent.name || '(unnamed)'),
     parent.businessId
       ? h('span', { class: 'pane-parent-crumb-bid' }, parent.businessId)
@@ -375,25 +423,72 @@ function renderPropertiesArea(): HTMLElement {
   }
 
   const wrap = h('div');
-  // Property groups — shared with the sidebar DetailView (single source of
-  // truth, so the popout can't drift). See sidepanel/sections/property-groups.ts.
+
+  // Identity meta — the Inspect tab's quiet Info grammar (dv-meta styles come
+  // from the shared sidepanel.css). Copy buttons flash green like everywhere.
+  const metaRow = (label: string, value: string | undefined, copyable = false) => {
+    if (!value) return [];
+    const valEl = h('span', { class: 'dv-meta-v mono' }, value);
+    const cells: HTMLElement[] = [h('span', { class: 'dv-meta-k' }, label), valEl];
+    if (copyable) {
+      cells.push(h('button', {
+        class: 'dv-meta-copy', title: `Copy ${label}`,
+        onClick: () => {
+          navigator.clipboard?.writeText(value).catch(() => { /* blocked — silent */ });
+          const orig = valEl.textContent;
+          valEl.textContent = '\u2713 copied';
+          valEl.classList.add('dv-meta-v--ok');
+          setTimeout(() => { valEl.textContent = orig; valEl.classList.remove('dv-meta-v--ok'); }, 700);
+        },
+      }, '\u29c9'));
+    } else {
+      cells.push(h('span'));
+    }
+    return cells;
+  };
+  wrap.appendChild(h('div', { class: 'dv-meta' },
+    ...metaRow('Type', s.identity.type),
+    ...metaRow('Business ID', s.identity.businessId, true),
+    ...metaRow('RID', s.rid, true),
+  ));
+
+  const typeIsFlow = hasFlow(s.identity.type);
+
+  // Flow — the Inspect tab's anatomy ledger, shared renderer. For flow types
+  // the chain carries their code + references, so the popout's own code/links
+  // sections are skipped (mirrors the Inspect rule).
+  if (typeIsFlow) {
+    wrap.appendChild(renderFlowSection({
+      chain: s.flow,
+      loading: s.flowLoading,
+      error: s.flowError,
+      onNavigate: (r) => { location.hash = r; },
+      sendMessage: sendFireForget,
+    }));
+  }
+
+  // Property groups — the popout KEEPS the layout/appearance editors (it is
+  // the full-object EDITOR; on-page styling work lives in Blueprint, but this
+  // surface is where deliberate property edits happen).
   wrap.appendChild(renderPropertyGroups(makeGroupsCtx()));
 
-  // Richer code section — popout-only. Each code prop renders as a
-  // card with its own header (label + line count + Edit) and the
-  // first ~5 lines of source, EC-syntax-highlighted for `expression`,
-  // plain mono for HTML / JS. Click anywhere in the snippet opens
-  // the property in the floating editor.
-  const codeSection = renderPopoutCodeSection();
-  if (codeSection) wrap.appendChild(codeSection);
+  if (!typeIsFlow) {
+    // Richer code section — popout-only. Each code prop renders as a
+    // card with its own header (label + line count + Edit) and the
+    // first ~5 lines of source, EC-syntax-highlighted for `expression`,
+    // plain mono for HTML / JS. Click anywhere in the snippet opens
+    // the property in the floating editor.
+    const codeSection = renderPopoutCodeSection();
+    if (codeSection) wrap.appendChild(codeSection);
 
-  // Links — shared with the side panel. The popout only knows curated
-  // bindings (no discovered-relationship scan), so it's outgoing-only.
-  const linksSection = renderLinks({
-    links: { outgoing: referencesToLinks(s.identity.type, s.references), incoming: [] },
-    onNavigate: (rid) => { location.hash = rid; },
-  });
-  if (linksSection) wrap.appendChild(linksSection);
+    // Links — shared with the side panel. The popout only knows curated
+    // bindings (no discovered-relationship scan), so it's outgoing-only.
+    const linksSection = renderLinks({
+      links: { outgoing: referencesToLinks(s.identity.type, s.references), incoming: [] },
+      onNavigate: (rid) => { location.hash = rid; },
+    });
+    if (linksSection) wrap.appendChild(linksSection);
+  }
 
   return wrap;
 }
@@ -451,17 +546,24 @@ function renderPopoutCodeCard(prop: string, body: string): HTMLElement {
   const previewLines = lines.slice(0, POPOUT_CODE_PREVIEW_LINES);
   const isEc = prop === 'expression';
   const isHidden = lines.length > POPOUT_CODE_PREVIEW_LINES;
+  const studio = hasStudio(state?.identity.type);
+  const openMsg = () => sendFireForget(studio
+    ? { type: 'OPEN_STUDIO', rid: state!.rid, property: prop }
+    : { type: 'OPEN_EDITOR', rid: state!.rid, property: prop });
+  const openTitle = studio
+    ? `Open .${prop} in the ${modeForType(state?.identity.type).title} (${lines.length} lines total)`
+    : `Open .${prop} in the Extended Code editor (${lines.length} lines total)`;
 
   const codeBlock = h('pre', {
     class: 'ov-code-card-body',
     role: 'button',
     tabindex: '0',
-    title: `Open .${prop} in the Extended Code editor (${lines.length} lines total)`,
-    onClick: () => sendFireForget({ type: 'OPEN_EDITOR', rid: state!.rid, property: prop }),
+    title: openTitle,
+    onClick: openMsg,
     onKeydown: (e: KeyboardEvent) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        sendFireForget({ type: 'OPEN_EDITOR', rid: state!.rid, property: prop });
+        openMsg();
       }
     },
   });
@@ -522,8 +624,8 @@ function renderSiblingsSection(): HTMLElement | null {
     h('div', { class: 'ov-children' },
       ...s.siblings.map(sib =>
         h('div', { class: 'ov-child-row', 'data-open-rid': sib.rid },
-          h('span', { class: 'ov-type-badge', style: `--type-color:${getTypeColor(sib.type)}` }, getTypeAbbr(sib.type)),
-          h('span', { class: 'ov-child-name' }, sib.name ?? 'unnamed'),
+          typeBadge(sib.type, { size: 'xs' }),
+          h('span', { class: 'ov-child-name' }, sib.name || '(unnamed)'),
           sib.businessId ? h('span', { class: 'ov-child-bid' }, sib.businessId) : null,
         ),
       ),
@@ -538,7 +640,7 @@ function renderTemplateSection(): HTMLElement | null {
   return h('div', { class: 'ov-section' },
     h('div', { class: 'ov-section-title' }, 'Template'),
     h('div', { class: 'ov-template-link', 'data-open-rid': tmpl.rid },
-      h('span', { class: 'ov-type-badge', style: `--type-color:${getTypeColor(tmpl.type)}` }, getTypeAbbr(tmpl.type)),
+      typeBadge(tmpl.type, { size: 'xs' }),
       h('span', { class: 'ov-child-name' }, tmpl.name || 'unnamed'),
       tmpl.businessId ? h('span', { class: 'ov-child-bid' }, tmpl.businessId) : null,
     ),

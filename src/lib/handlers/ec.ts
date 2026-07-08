@@ -9,7 +9,10 @@ import { openEditorWindow, openExtendedWindow } from '../editor';
 import { errorMessage, log } from '../logger';
 import { invalidateRid } from '../enrichment';
 
-const SCRIPT_PROPS_SET = new Set<string>(SCRIPT_PROPS);
+// Props saved as EC string literals (saveCodeViaEc). SCRIPT_PROPS plus the
+// TextElement HTML bodies — their typed binary save path rejects the value
+// ("argument type mismatch"); `_o.change(text := "…")` is the verified route.
+const SCRIPT_PROPS_SET = new Set<string>([...SCRIPT_PROPS, 'text', 'longText']);
 
 register('EC_EXECUTE', async (msg, respond) => {
   const ctx = getCtx();

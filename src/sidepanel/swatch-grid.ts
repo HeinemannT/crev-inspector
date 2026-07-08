@@ -120,7 +120,7 @@ export function renderSwatchGrid(opts: SwatchGridOpts): HTMLElement {
   if (opts.onClear && !q) {
     wrap.appendChild(h('button', {
       class: `sw-clear${!opts.currentBid ? ' sw-clear--sel' : ''}`,
-      type: 'button', title: 'No colour — clear the link', 'aria-label': 'No colour',
+      type: 'button', title: 'No color: clear the link', 'aria-label': 'No colour',
       onClick: opts.onClear,
     }, h('span', { class: 'sw-clear-chip' }), h('span', null, 'None')));
   }

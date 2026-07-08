@@ -3,8 +3,11 @@
  */
 
 import { getTypeColor, getTypeAbbr } from './lib/types';
-import { h, render } from './lib/dom';
-import { sendRequest } from './lib/messaging';
+import { buildObjectCard } from './lib/object-card';
+import { typeAffordances } from './lib/widget-metadata';
+import { hasStudio } from './studio/studio-mode';
+import { render } from './lib/dom';
+import { sendRequest, sendFireForget } from './lib/messaging';
 import { updateOverlayBlockState } from './content-frame-overlay';
 import type { ContentState } from './content-state';
 
@@ -22,22 +25,40 @@ export function showTooltipForElement(s: ContentState, el: HTMLElement, rid: str
   const tooltip = document.getElementById('crev-tooltip');
   if (!tooltip) return;
 
-  const enrichment = s.enrichments.get(rid);
-  const color = getTypeColor(enrichment?.type);
-  const typeAbbr = getTypeAbbr(enrichment?.type);
-  const typeName = enrichment?.type ?? (s.requestedRids.has(rid) ? 'Loading\u2026' : 'Unknown');
+  // The card is interactive (copy rows + open button): keep it alive while
+  // the cursor is on it, hide on leave. Wired once.
+  if (!tooltip.dataset.wired) {
+    tooltip.dataset.wired = '1';
+    tooltip.addEventListener('mouseenter', () => {
+      if (s.tooltipHideTimer) { clearTimeout(s.tooltipHideTimer); s.tooltipHideTimer = null; }
+    });
+    tooltip.addEventListener('mouseleave', () => hideTooltip(s));
+  }
 
-  render(tooltip,
-    h('div', { class: 'crev-tt-type', style: `--type-color:${color}` }, typeAbbr),
-    ' ',
-    h('span', { class: 'crev-tt-typename' }, typeName),
-    enrichment?.name && h('div', { class: 'crev-tt-name' }, enrichment.name),
-    enrichment?.businessId && h('div', { class: 'crev-tt-row' }, `ID: ${enrichment.businessId}`),
-    h('div', { class: 'crev-tt-row' }, `RID: ${rid}`),
-    // Interaction hint — lives here (not a native `title`) so it can't paint a
-    // browser tooltip over this very card.
-    h('div', { class: 'crev-tt-hint' }, 'Click open · double-click details · right-click context · Alt RID · Shift template · Ctrl ref'),
-  );
+  const enrichment = s.enrichments.get(rid);
+  const type = enrichment?.type;
+  const color = getTypeColor(type);
+  // Open EC only for code-bearing types; route to the studio when the type
+  // has one (CVO / TextElement), else the floating editor — same rule the
+  // stub's code square uses.
+  const codeBearing = typeAffordances(type).code;
+  render(tooltip, buildObjectCard(
+    {
+      name: enrichment?.name,
+      type,
+      typeFallback: s.requestedRids.has(rid) ? 'Loading\u2026' : 'Unknown',
+      businessId: enrichment?.businessId,
+      templateBusinessId: enrichment?.templateBusinessId,
+      rid,
+      color,
+    },
+    {
+      onOpenFull: () => sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid }),
+      onOpenEc: codeBearing
+        ? () => sendFireForget(hasStudio(type) ? { type: 'OPEN_STUDIO', rid } : { type: 'OPEN_EDITOR', rid })
+        : undefined,
+    },
+  ));
   tooltip.style.top = '-9999px';
   tooltip.style.left = '-9999px';
   tooltip.style.display = 'block';
@@ -74,9 +95,13 @@ export function hideTooltip(s: ContentState) {
   if (s.tooltipHideTimer) clearTimeout(s.tooltipHideTimer);
   s.tooltipHideTimer = setTimeout(() => {
     const tooltip = document.getElementById('crev-tooltip');
+    // Last-line defence: never hide while the cursor is ON the card —
+    // timer-vs-mouseenter races (and any listener that re-arms the hide
+    // mid-transit) can't kill an actively used card this way.
+    if (tooltip?.matches(':hover')) { s.tooltipHideTimer = null; return; }
     if (tooltip) { tooltip.style.display = 'none'; tooltip.classList.remove('crev-visible'); }
     s.tooltipHideTimer = null;
-  }, 50);
+  }, 400);
 }
 
 /** Request and render technical overlay property cards */

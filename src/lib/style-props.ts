@@ -27,6 +27,10 @@ export interface StylePropDef {
   def: string | number | boolean;
   /** Enum members (value = BMP member name; label = short Style-toolbar caption). Absent for non-enums. */
   options?: readonly { value: string; label: string }[];
+  /** False = excluded from the paintbrush copy-set (widget FLAGS like visible / showToolMenu /
+   *  disableSearch ride the style channel for fetch+stage+apply, but painting them across widgets
+   *  would be a footgun — especially visible). Default true. */
+  paint?: boolean;
 }
 
 /** THE single catalog. Every style fact lives here once: the BMP prop name, whether it's a colour link,
@@ -42,10 +46,33 @@ export const STYLE_PROPS: readonly StylePropDef[] = [
     options: [{ value: 'INSIDE', label: 'In' }, { value: 'OUTSIDE', label: 'Out' }, { value: 'NONE', label: 'None' }] },
   { prop: 'borderStyle',  colorLink: false, reset: '"None"', nodeKey: 'borderStyle',    def: '',
     options: [{ value: 'LINE', label: 'Line' }, { value: 'NONE', label: 'None' }] },
+  // Widget FLAGS — portal chrome toggles that ride the style channel (fetch / stage / apply) but are
+  // NOT paintable. Defaults cited from the decompiled 5.6.10 traits: HasToolsMenu.isShowToolMenu
+  // @DefaultValue(true), HasDisableSearch.isDisableSearch @DefaultValue(false). Trait presence is
+  // detected at fetch time (a type without the trait reads MISSING → empty wire field → the UI simply
+  // doesn't render that flag).
+  { prop: 'showToolMenu',  colorLink: false, reset: 'TRUE',  nodeKey: 'showToolMenu',  def: true,  paint: false },
+  { prop: 'disableSearch', colorLink: false, reset: 'FALSE', nodeKey: 'disableSearch', def: false, paint: false },
+  // Visibility (live-verified 2026-07-06): the `visible` BOOLEAN is READ-ONLY (Visibillity has no
+  // setVisible — isVisible is computed), so the writable knob is the `visibility` ENUM. Members
+  // (probed via EC conversion, case-insensitive): visible / noVisible / adminVisibleOnly /
+  // visibleAsParentOnly. noVisible hides for EVERYONE (incl. admin); adminVisibleOnly renders for
+  // admins only. The eye toggle writes VISIBLE ↔ NOVISIBLE.
+  { prop: 'visibility', colorLink: false, reset: '"visible"', nodeKey: 'visibility', def: 'VISIBLE', paint: false,
+    options: [
+      { value: 'VISIBLE', label: 'Visible' }, { value: 'NOVISIBLE', label: 'Hidden' },
+      { value: 'ADMINVISIBLEONLY', label: 'Admin only' }, { value: 'VISIBLEASPARENTONLY', label: 'As parent' },
+    ] },
+  // ScreenSizeVisibility trio (writable booleans, default true) — the per-breakpoint hide; all three
+  // off = the widget is gone from the page on every display size (packing reflows — verified live).
+  { prop: 'shownOnLargeDisplay',  colorLink: false, reset: 'TRUE', nodeKey: 'shownOnLargeDisplay',  def: true, paint: false },
+  { prop: 'shownOnMediumDisplay', colorLink: false, reset: 'TRUE', nodeKey: 'shownOnMediumDisplay', def: true, paint: false },
+  { prop: 'shownOnSmallDisplay',  colorLink: false, reset: 'TRUE', nodeKey: 'shownOnSmallDisplay',  def: true, paint: false },
 ];
 
-/** Paintable style props in canonical order (the paintbrush copy-set + the Style-mode controls). */
-export const PAINT_STYLE_PROPS: readonly string[] = STYLE_PROPS.map(s => s.prop);
+/** Paintable style props in canonical order (the paintbrush copy-set + the Style-mode controls).
+ *  Widget flags (paint: false) are excluded — they stage/apply but never copy across widgets. */
+export const PAINT_STYLE_PROPS: readonly string[] = STYLE_PROPS.filter(s => s.paint !== false).map(s => s.prop);
 
 /** The CorpoColor-link subset — set via `prop := t.<bid>`, cleared via the reset literal "". */
 export const COLOR_LINK_PROPS: ReadonlySet<string> = new Set(STYLE_PROPS.filter(s => s.colorLink).map(s => s.prop));
