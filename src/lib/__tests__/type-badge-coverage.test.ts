@@ -7,7 +7,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { getTypeAbbr, getTypeColor } from '../types';
-import { typeBadge } from '../type-badge';
+import { typeBadge, typeIcon } from '../type-badge';
+import { ICON_GRID_NINE, ICON_CHART } from '../icons';
 
 // [className, code, colour] — the full set added on top of the original coverage.
 const EXPECTED: [string, string, string][] = [
@@ -57,5 +58,57 @@ describe('expanded type-badge coverage', () => {
     expect(new Set(codes).size).toBe(codes.length); // no duplicate within the new set
     expect(codes).not.toContain('OBJ');             // Objective keeps OBJ
     expect(codes).not.toContain('STA');             // StatusType keeps STA
+  });
+});
+
+// Second wave — the addable widget types discovered from the BMP containment model.
+const ADDABLE: [string, string, string][] = [
+  // Tables / lists (coral)
+  ['ActivityLogTable', 'ATL', '#ff8389'], ['DataTable', 'DTB', '#ff8389'], ['DataTableView', 'DTV', '#ff8389'],
+  ['DatasetTableQueryView', 'DQV', '#ff8389'], ['NodeInputTable', 'NIT', '#ff8389'], ['StandardTable', 'STB', '#ff8389'],
+  ['TablePivot', 'TPV', '#ff8389'], ['TableView', 'TVW', '#ff8389'], ['TreeTable', 'TTB', '#ff8389'],
+  ['ScenarioTable', 'SCT', '#ff8389'], ['ViewCacheStatusTable', 'VCT', '#ff8389'], ['IncidentList', 'ICL', '#ff8389'],
+  ['IssueList', 'ISL', '#ff8389'], ['PolicyAssetList', 'PAL', '#ff8389'], ['RiskEventList', 'REL', '#ff8389'],
+  ['ShortcutList', 'SCL', '#ff8389'], ['TreatmentList', 'TML', '#ff8389'], ['LocalComments', 'LCM', '#ff8389'],
+  ['AttachmentList', 'ATT', '#ff8389'],
+  // Forms / enrollments (cyan)
+  ['AnsweredReportFormEnrollment', 'ARE', '#1192e8'], ['Enrollment', 'ENR', '#1192e8'], ['Enrollments', 'ENS', '#1192e8'],
+  ['FormResponses', 'FRS', '#1192e8'], ['ReportFormEnrollment', 'RFE', '#1192e8'], ['ReportFormEnrollments', 'RFS', '#1192e8'],
+  ['ReportForms', 'RPF', '#1192e8'], ['TaskFormEnrollment', 'TFE', '#1192e8'],
+  // Views / media (brown)
+  ['URLView', 'URL', '#d2a373'], ['ExternalResourcesView', 'ERV', '#d2a373'], ['SpreadsheetView', 'SSV', '#d2a373'],
+  // Process / diagram (deep purple)
+  ['ProcessLandscapeView', 'PLV', '#6929c4'], ['LinkMap', 'LKM', '#6929c4'], ['BowtieDiagram', 'BOW', '#6929c4'],
+  // Dashboards / BI (pink)
+  ['Dashboard', 'DBD', '#ff7eb6'], ['PowerBi', 'PBI', '#ff7eb6'],
+  // Charts (chart coral)
+  ['StandardChart', 'SCH', '#ff8a80'], ['Trend', 'TRN', '#ff8a80'],
+  // Structural (indigo)
+  ['ButtonContainer', 'BCN', '#9aa3e8'], ['Section', 'SEC', '#9aa3e8'], ['WebChildReference', 'WCR', '#9aa3e8'],
+  // Governance / metadata (grey)
+  ['ObjectApproval', 'APR', '#8d8d8d'], ['ObjectClassification', 'CLS', '#8d8d8d'],
+];
+
+describe('addable-widget type-badge coverage', () => {
+  it.each(ADDABLE)('%s → code %s, colour %s', (type, code, colour) => {
+    expect(getTypeAbbr(type)).toBe(code);
+    expect(getTypeColor(type)).toBe(colour);
+  });
+
+  it('every addable type renders "mapped" — its code, not the OBJ fallback', () => {
+    for (const [type, code] of ADDABLE) {
+      expect(typeBadge(type).querySelector('.lbl')?.textContent, type).toBe(code);
+    }
+  });
+
+  it('addable codes are unique within this wave', () => {
+    const codes = ADDABLE.map(e => e[1]);
+    expect(new Set(codes).size).toBe(codes.length);
+  });
+
+  it('RiskChart now has its own glyph, distinct from the generic chart', () => {
+    expect(typeIcon('RiskChart')).toBe(ICON_GRID_NINE);
+    expect(typeIcon('RiskChart')).not.toBe(ICON_CHART);
+    expect(typeIcon('BarChart')).toBe(ICON_CHART); // real charts still use the generic chart glyph
   });
 });

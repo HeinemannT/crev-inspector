@@ -23,7 +23,8 @@ import {
   ICON_CHART, ICON_CODE, ICON_SWAP, ICON_CUBE, ICON_LINK,
   ICON_FLOW_ARROW, ICON_LAYOUT, ICON_DOTS_THREE_V, ICON_TREE_STRUCTURE,
   ICON_NOTE_PENCIL, ICON_CIRCLE, ICON_ARTICLE, ICON_IMAGE, ICON_FILE_PDF,
-  ICON_BOULES,
+  ICON_BOULES, ICON_SQUARES_FOUR, ICON_GRID_NINE, ICON_GLOBE, ICON_PAPERCLIP,
+  ICON_CHECK_CIRCLE,
 } from './icons';
 import { getTypeAbbr, getTypeColor, CHART_TYPES } from './types';
 
@@ -73,7 +74,7 @@ const TYPE_ICON: Record<string, string> = {
   // Visualization
   CustomVisualization: ICON_FILE_JS,
   DashboardHTML: ICON_FILE_HTML,
-  RiskChart: ICON_CHART,
+  RiskChart: ICON_GRID_NINE, // risk matrix — its own glyph, not the generic chart
   RiskRadarChart: ICON_CHART,
   // Logic / code
   ExtendedCode: ICON_CODE,
@@ -149,6 +150,31 @@ const TYPE_ICON: Record<string, string> = {
   CeTask:                  ICON_BOULES,
   CeIndicator:             ICON_BOULES,
   CeAssuranceActivity:     ICON_BOULES,
+
+  // ── Addable widget types (from the containment model) — one glyph per group ──
+  // Tables / lists → table (AttachmentList gets the paperclip)
+  ActivityLogTable: ICON_TABLE, DataTable: ICON_TABLE, DataTableView: ICON_TABLE,
+  DatasetTableQueryView: ICON_TABLE, NodeInputTable: ICON_TABLE, StandardTable: ICON_TABLE,
+  TablePivot: ICON_TABLE, TableView: ICON_TABLE, TreeTable: ICON_TABLE, ScenarioTable: ICON_TABLE,
+  ViewCacheStatusTable: ICON_TABLE, IncidentList: ICON_TABLE, IssueList: ICON_TABLE,
+  PolicyAssetList: ICON_TABLE, RiskEventList: ICON_TABLE, ShortcutList: ICON_TABLE,
+  TreatmentList: ICON_TABLE, LocalComments: ICON_TABLE, AttachmentList: ICON_PAPERCLIP,
+  // Forms / enrollments → note-pencil
+  AnsweredReportFormEnrollment: ICON_NOTE_PENCIL, Enrollment: ICON_NOTE_PENCIL,
+  Enrollments: ICON_NOTE_PENCIL, FormResponses: ICON_NOTE_PENCIL, ReportFormEnrollment: ICON_NOTE_PENCIL,
+  ReportFormEnrollments: ICON_NOTE_PENCIL, ReportForms: ICON_NOTE_PENCIL, TaskFormEnrollment: ICON_NOTE_PENCIL,
+  // Views / media
+  URLView: ICON_GLOBE, ExternalResourcesView: ICON_FOLDER, SpreadsheetView: ICON_TABLE,
+  // Process / diagram → flow-arrow
+  ProcessLandscapeView: ICON_FLOW_ARROW, LinkMap: ICON_FLOW_ARROW, BowtieDiagram: ICON_FLOW_ARROW,
+  // Dashboards / BI → dashboard grid
+  Dashboard: ICON_SQUARES_FOUR, PowerBi: ICON_SQUARES_FOUR,
+  // Charts
+  StandardChart: ICON_CHART, Trend: ICON_CHART_LINE_UP,
+  // Structural → container (WebChildReference is a reference → link)
+  ButtonContainer: ICON_CONTAINER, Section: ICON_CONTAINER, WebChildReference: ICON_LINK,
+  // Governance / metadata
+  ObjectApproval: ICON_CHECK_CIRCLE, ObjectClassification: ICON_LIST,
 };
 
 const CHART_SET = new Set<string>(CHART_TYPES);

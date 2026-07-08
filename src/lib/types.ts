@@ -836,6 +836,31 @@ const TYPE_COLORS: Record<string, string> = {
   CeTIA: '#08bdba', CePreScreening: '#08bdba', CeWorkflow: '#08bdba', CeService: '#08bdba',
   CeQuestionnaire: '#08bdba', CeTask: '#08bdba', CeIndicator: '#08bdba', CeAssuranceActivity: '#08bdba',
 
+  // ── Addable widget types (from the containment model) — reusing the bands above ──
+  // Tables / lists (coral)
+  ActivityLogTable: '#ff8389', DataTable: '#ff8389', DataTableView: '#ff8389',
+  DatasetTableQueryView: '#ff8389', NodeInputTable: '#ff8389', StandardTable: '#ff8389',
+  TablePivot: '#ff8389', TableView: '#ff8389', TreeTable: '#ff8389', ScenarioTable: '#ff8389',
+  ViewCacheStatusTable: '#ff8389', IncidentList: '#ff8389', IssueList: '#ff8389',
+  PolicyAssetList: '#ff8389', RiskEventList: '#ff8389', ShortcutList: '#ff8389',
+  TreatmentList: '#ff8389', LocalComments: '#ff8389', AttachmentList: '#ff8389',
+  // Forms / enrollments (cyan)
+  AnsweredReportFormEnrollment: '#1192e8', Enrollment: '#1192e8', Enrollments: '#1192e8',
+  FormResponses: '#1192e8', ReportFormEnrollment: '#1192e8', ReportFormEnrollments: '#1192e8',
+  ReportForms: '#1192e8', TaskFormEnrollment: '#1192e8',
+  // Views / media (brown, like TextElement)
+  URLView: '#d2a373', ExternalResourcesView: '#d2a373', SpreadsheetView: '#d2a373',
+  // Process / diagram (deep purple)
+  ProcessLandscapeView: '#6929c4', LinkMap: '#6929c4', BowtieDiagram: '#6929c4',
+  // Dashboards / BI (pink, like DashboardHTML)
+  Dashboard: '#ff7eb6', PowerBi: '#ff7eb6',
+  // Charts (chart coral)
+  StandardChart: CHART_COLOR, Trend: CHART_COLOR,
+  // Structural (indigo, like Container)
+  ButtonContainer: '#9aa3e8', Section: '#9aa3e8', WebChildReference: '#9aa3e8',
+  // Governance / metadata (grey)
+  ObjectApproval: '#8d8d8d', ObjectClassification: '#8d8d8d',
+
   ...Object.fromEntries(CHART_TYPES.map(t => [t, CHART_COLOR])),
   // Risk charts override the generic chart coral with a deeper red so they
   // stand apart from the other charts at a glance.
@@ -906,6 +931,20 @@ const TYPE_ABBREVIATIONS: Record<string, string> = {
   CeIssue: 'ISU', CeProcedure: 'PCD', CeComplianceRequirement: 'CMP', CeRegulation: 'REG',
   CeTIA: 'TIA', CePreScreening: 'PRS', CeWorkflow: 'WKF', CeService: 'SVC',
   CeQuestionnaire: 'QNR', CeTask: 'CTK', CeIndicator: 'CID', CeAssuranceActivity: 'ASA',
+  // ── Addable widget types (from the containment model) ──
+  ActivityLogTable: 'ATL', DataTable: 'DTB', DataTableView: 'DTV', DatasetTableQueryView: 'DQV',
+  NodeInputTable: 'NIT', StandardTable: 'STB', TablePivot: 'TPV', TableView: 'TVW', TreeTable: 'TTB',
+  ScenarioTable: 'SCT', ViewCacheStatusTable: 'VCT', IncidentList: 'ICL', IssueList: 'ISL',
+  PolicyAssetList: 'PAL', RiskEventList: 'REL', ShortcutList: 'SCL', TreatmentList: 'TML',
+  LocalComments: 'LCM', AttachmentList: 'ATT',
+  AnsweredReportFormEnrollment: 'ARE', Enrollment: 'ENR', Enrollments: 'ENS', FormResponses: 'FRS',
+  ReportFormEnrollment: 'RFE', ReportFormEnrollments: 'RFS', ReportForms: 'RPF', TaskFormEnrollment: 'TFE',
+  URLView: 'URL', ExternalResourcesView: 'ERV', SpreadsheetView: 'SSV',
+  ProcessLandscapeView: 'PLV', LinkMap: 'LKM', BowtieDiagram: 'BOW',
+  Dashboard: 'DBD', PowerBi: 'PBI',
+  StandardChart: 'SCH', Trend: 'TRN',
+  ButtonContainer: 'BCN', Section: 'SEC', WebChildReference: 'WCR',
+  ObjectApproval: 'APR', ObjectClassification: 'CLS',
   ...CHART_ABBREVIATIONS,
 };
 
