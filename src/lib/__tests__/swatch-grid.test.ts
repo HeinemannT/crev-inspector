@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { resolveSwatchGroups, renderSwatchGrid, BASIC_COLORS } from '../swatch-grid';
-import { buildChangesPayload } from '../pane-edit';
+import { buildChangesPayload } from '../../sidepanel/pane-edit';
 import type { ColorSetData } from '../../lib/types';
 
 const sets: ColorSetData[] = [

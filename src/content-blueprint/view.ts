@@ -16,7 +16,7 @@ import { diff, summarizeChanges } from '../lib/layout/diff';
 import { ICON_PLUS, ICON_MINUS, ICON_PENCIL, ICON_TRASH, ICON_ARROW_RIGHT, ICON_X, ICON_LAYOUT, ICON_LINK, ICON_EYE_OPEN, ICON_EYE_SLASH, ICON_DOTS_THREE_V, ICON_SEARCH } from '../lib/icons';
 import { colorLinkBid } from '../lib/color-util';
 import { styleOptions } from '../lib/style-props';
-import { renderSwatchGrid } from '../sidepanel/swatch-grid';
+import { renderSwatchGrid } from '../lib/swatch-grid';
 import { bp, model, PALETTE, MOST_USED } from './state';
 import { colorRgb, colorInfo, colorSets } from './colors';
 import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkBtn, mkIconBtn, docX, docY } from './geometry';
