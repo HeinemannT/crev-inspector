@@ -103,7 +103,8 @@ Minted tokens live only in `chrome.storage.session` (cleared when the browser cl
 npm install
 npm run build           # outputs to dist/ and mirrors to the repo root for "Load unpacked"
 npm run dev             # vite watch
-npx vitest run
+npm run typecheck
+npm test
 ```
 
-Pushing a `v*.*.*` tag triggers `.github/workflows/release.yml`, which runs verify, test, build, package, and release.
+Every push and pull request triggers `.github/workflows/ci.yml`, which runs typecheck, test, and build. Pushing a `v*.*.*` tag additionally triggers `.github/workflows/release.yml`, which runs test, build, package, and release.
