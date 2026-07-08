@@ -14,8 +14,8 @@
  */
 import type { BmpClient } from './bmp-client';
 import { LAYOUT_EC_TIMEOUT } from './constants';
-import type { LayoutIO, BlueprintCtx, NeedsTabset, LoadResult, ApplyResult } from './layout/sync';
-import { loadModel, applyModel, resolvePageContext, createTabsetAndLoad } from './layout/sync';
+import type { LayoutIO, BlueprintCtx, LoadResult, ApplyResult } from './layout/sync';
+import { loadModel, applyModel, resolvePageContext } from './layout/sync';
 import type { LModel } from './layout/types';
 import { validateBusinessId, validateRid } from './ec-guards';
 import { log } from './logger';
@@ -81,11 +81,6 @@ export async function loadPage(client: BmpClient, rid: string, prefer: 'template
   // still show the toggle and switch to the template.
   const instCtx: BlueprintCtx = { ...ctx, editingTemplate: false, instanceId: ctx.pageId };
   return { kind: 'page', ctx: instCtx, load: await loadModel(io, instCtx) };
-}
-
-/** Create a dedicated tabset for a RESULT-only page (moving its widgets onto it), then load it. */
-export async function createTabset(client: BmpClient, page: NeedsTabset): Promise<{ ctx: BlueprintCtx; load: LoadResult } | null> {
-  return createTabsetAndLoad(makeLayoutIO(client), page);
 }
 
 /** Apply an edit: diff baseline→desired, compile, commit, re-fetch. The ctx must be the one

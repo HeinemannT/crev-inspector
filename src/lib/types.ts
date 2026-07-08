@@ -6,7 +6,7 @@ import { PAINT_STYLE_PROPS, COLOR_LINK_PROPS, PAINT_PROP_RESET, STYLE_PROPS, sty
 export { PAINT_STYLE_PROPS, COLOR_LINK_PROPS, PAINT_PROP_RESET, STYLE_PROPS, styleResetLiteral };
 import type { LModel, PlanNote, NodeStyle } from './layout/types';
 import type { StylePreset } from './style-presets';
-import type { BlueprintCtx, NeedsTabset } from './layout/sync';
+import type { BlueprintCtx } from './layout/sync';
 import type { InstanceFanout, ContainerBlast } from './layout/blast-radius';
 
 /** Unified connection state — single source of truth for health + auth */
@@ -635,9 +635,6 @@ export type LayoutMessage =
   // `env` = the active profile id at load time; the panel echoes it back on apply so the SW can
   // reject a commit aimed at a different environment (the user switched profiles mid-edit).
   | { type: 'LAYOUT_LOAD_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
-  // Create a dedicated tabset for a RESULT-only page (no tabset), move its widgets onto it, then load.
-  | { type: 'LAYOUT_CREATE_TABSET'; page: NeedsTabset }
-  | { type: 'LAYOUT_CREATE_TABSET_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
   | { type: 'LAYOUT_APPLY'; env: string; ctx: BlueprintCtx; baseline: LModel; desired: LModel }
   | { type: 'LAYOUT_APPLY_RESULT'; ok: boolean; noop: boolean; stale?: boolean; script?: string; notes?: PlanNote[]; model?: LModel; baseline?: LModel; error?: string }
   // Apply-preview blast radius: is the page a template master (fan-out), and do any touched shared
@@ -706,7 +703,7 @@ export const DEFAULT_SETTINGS: InspectorSettings = {
   activeProfileId: '',
   autoDetect: true,
   saveTarget: 'template',
-  enrichMode: 'all',
+  enrichMode: 'widgets',
   // Default: copy every paintable style prop (single-sourced — see style-props.ts).
   paintProps: [...PAINT_STYLE_PROPS],
 };

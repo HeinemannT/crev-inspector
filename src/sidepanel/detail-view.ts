@@ -693,8 +693,8 @@ export class DetailView {
     );
     const openBmpBtn = h('button', {
       class: 'dv-act',
-      title: 'Open in BMP (new tab)',
-      'aria-label': 'Open in BMP',
+      title: 'Open in web (new tab)',
+      'aria-label': 'Open in web',
       onClick: () => this.sendMessage({ type: 'BMP_OPEN_OBJECT', rid: s.rid }),
     }, svg(ICON_ARROW_OUT));
     const header = h('div', { class: 'dv-header' },
@@ -1028,7 +1028,7 @@ export class DetailView {
         hint ? h('span', { class: 'dv-irow-r' }, hint) : null,
       );
     wrap.appendChild(h('div', { class: 'dv-irows' },
-      irow(ICON_ARROW_OUT, 'Open in BMP', 'new tab',
+      irow(ICON_ARROW_OUT, 'Open in web', 'new tab',
         () => this.sendMessage({ type: 'BMP_OPEN_OBJECT', rid: this.state!.rid })),
       irow(ICON_SHIELD, 'Test access', 'read · write · add · delete',
         () => openAccessTrace({ rid: this.state!.rid, name: this.state!.identity.name, type: this.state!.identity.type })),

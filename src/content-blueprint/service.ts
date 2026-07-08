@@ -15,7 +15,6 @@ import { bp, model } from './state';
 import { render } from './view';
 
 type LoadResult = Extract<InspectorMessage, { type: 'LAYOUT_LOAD_RESULT' }>;
-type CreateTabsetResult = Extract<InspectorMessage, { type: 'LAYOUT_CREATE_TABSET_RESULT' }>;
 type ApplyResult = Extract<InspectorMessage, { type: 'LAYOUT_APPLY_RESULT' }>;
 type BlastResult = Extract<InspectorMessage, { type: 'LAYOUT_BLAST_RESULT' }>;
 
@@ -50,37 +49,6 @@ export async function loadPage(rid: string, prefer: 'template' | 'instance' = 't
   if (orphans) showToast(`Blueprint: ${orphans} widget${orphans === 1 ? ' is' : 's are'} bound to this page but placed on no tab or container, so the editor does not show ${orphans === 1 ? 'it' : 'them'}`, 'info');
   render();
   return true;
-}
-
-/** Create a dedicated tabset for the current RESULT-only page (the tab-bar "+ Create tabset"
- *  affordance), moving its widgets onto it, then adopt the freshly-loaded model. The page identity
- *  comes from the loaded ctx (which carries pageRid/pageId/pageClass). */
-export async function createTabset(): Promise<void> {
-  const c = bp.ctx;
-  if (!c || !c.resultOnly || bp.creatingTabset) return;
-  // Carry the editing scope so the created tabset lands where the user is editing (template vs
-  // instance) and keeps the correct blast-radius label — see createTabsetAndLoad.
-  const page = {
-    needsTabset: true as const, pageRid: c.pageRid, pageId: c.pageId, pageClass: c.pageClass,
-    editingTemplate: c.editingTemplate, hasTemplate: c.hasTemplate,
-    templateRid: c.templateRid, templateId: c.templateId, instanceId: c.instanceId,
-  };
-  const g = bp.gen;
-  bp.creatingTabset = true; render();
-  const res = await sendRequest<CreateTabsetResult>({ type: 'LAYOUT_CREATE_TABSET', page });
-  if (!sameSession(g)) return;
-  bp.creatingTabset = false;
-  if (!res?.ok || !res.model || !res.ctx) {
-    showToast(`Blueprint: ${res?.error || 'could not create a tabset'}`, 'error');
-    render();
-    return;
-  }
-  rebase(res.model);
-  bp.ctx = res.ctx; // the new ctx carries a real tabset (no longer resultOnly)
-  bp.editingTemplate = res.ctx.editingTemplate ?? false; // keep the toggle in sync with the created scope
-  bp.env = res.env ?? null;
-  showToast('Blueprint: tabset created. You can now arrange this page.', 'success');
-  render();
 }
 
 /** Best-effort blast-radius probe for the open apply-preview. Stores the result on `bp.blast` and

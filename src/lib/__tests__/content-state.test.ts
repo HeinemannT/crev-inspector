@@ -14,7 +14,7 @@ describe('ContentState', () => {
 
   it('initializes with correct defaults', () => {
     expect(s.inspectActive).toBe(false);
-    expect(s.enrichMode).toBe('all');
+    expect(s.enrichMode).toBe('widgets');
     expect(s.paintPhase).toBe('off');
     expect(s.paintSourceName).toBeNull();
     expect(s.styleInjected).toBe(false);
@@ -84,7 +84,7 @@ describe('ContentState', () => {
       s.resetAll();
 
       expect(s.inspectActive).toBe(false);
-      expect(s.enrichMode).toBe('all');
+      expect(s.enrichMode).toBe('widgets');
       expect(s.paintPhase).toBe('off');
       expect(s.paintSourceName).toBeNull();
       expect(s.styleInjected).toBe(false);

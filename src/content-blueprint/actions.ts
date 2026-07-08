@@ -9,7 +9,7 @@
  */
 import { findNode, isTempId, isResultTab } from '../lib/layout/model';
 import { bandInsertIndex } from '../lib/layout/placement';
-import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, findTabOf, toggleReset, setStyle } from '../lib/layout/edit';
+import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, createTabset, findTabOf, toggleReset, setStyle } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { compile } from '../lib/layout/ec';
 import { History } from '../lib/layout/history';
@@ -18,7 +18,7 @@ import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { render } from './view';
-import { applyPage, fetchBlast, createTabset } from './service';
+import { applyPage, fetchBlast } from './service';
 import { ensureColorSets } from './colors';
 import { loadPresets, savePreset, deletePreset } from './presets';
 import { PAINT_STYLE_PROPS } from '../lib/style-props';
@@ -368,11 +368,14 @@ export function confirmApply(): void {
 
 export function exitBlueprint(): void { sendToSW({ type: 'BLUEPRINT_TOGGLE' }); }
 
-/** Create a dedicated tabset for a RESULT-only page and move its widgets onto it, then load the
- *  editor. The name is derived in-EC from the scorecard ("» New <Scorecard> TabSet"), so there's
- *  nothing to prompt for. */
+/** "+ Create tabset" on a RESULT-only page: STAGE a virtual tabset with a "Main" tab and rehome the
+ *  page's widgets onto it. Nothing is written yet — the tabset + tabs are created together in the Apply
+ *  EC (see edit.createTabset + ec.ts). Staged like any edit, so it's undoable and previewable. */
 export function doCreateTabset(): void {
-  void createTabset();
+  const m = model(); if (!m) return;
+  const r = createTabset(m);
+  bp.selectedId = r.id;
+  mutate(r.model);
 }
 
 /** Keyboard: Escape backs out (modal → picker → move-menu → selection); Delete removes the selected

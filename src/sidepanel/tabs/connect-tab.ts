@@ -170,9 +170,8 @@ export class ConnectTab implements Tab {
       this.settingRow('auto-detect', 'Auto-detect server from page URL',
         null, shared.settings.autoDetect),
       this.settingRow('enrich-all', 'Include non-widget objects',
-        'Also labels inline RID elements the widget size filter hides.',
-        shared.settings.enrichMode === 'all',
-        'Table rows are not covered; they navigate via anchor links and are filtered separately.'),
+        'Also labels inline elements (tables, others)',
+        shared.settings.enrichMode === 'all'),
 
       // ── Footer: the low-weight informational + utility bits (keyboard
       //    reference, version, cache, reset). None of these is a group of

@@ -82,7 +82,13 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
   // So we never SELECT the root; `pageClass` is metadata only. (Verified live 2026-06-26.)
   const lines: string[] = [];
   if (needWidget) lines.push(`_sc := t.${ecBid(m.pageId)}`);
-  if (needTabset) lines.push(`_ts := t.${ecBid(m.tabsetId)}`);
+  // A STAGED (virtual) tabset has no businessId yet — create it here so it lands in the SAME EC as its
+  // tabs (`_ts.add(Tab …)` below), under the portal root and bare (a page's tab strip is the union of the
+  // tabs its widgets bind into, so no wrapper Category is needed — verified live). Otherwise reference the
+  // existing tabset by business id.
+  if (needTabset) lines.push(m.tabsetVirtual
+    ? `_ts := root.portal.add(TabSet, name := ${ecStr(m.tabsetName ?? '» New TabSet')}) // BMP assigns id`
+    : `_ts := t.${ecBid(m.tabsetId)}`);
 
   const notes: PlanNote[] = [];
   let k = 0;

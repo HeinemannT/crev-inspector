@@ -248,8 +248,7 @@ function updateWindowTitle() {
  *  click-popover version lives in showEditorHelp() below. */
 function editorHelpText(): string {
   return [
-    `${KBD_MOD}+Enter        Preview (dry-run)`,
-    `${KBD_MOD}+Shift+Enter  Execute`,
+    `F5              Preview (dry-run)`,
     `${KBD_MOD}+S            Save (when editing a property)`,
     `${KBD_MOD}+D            Select next occurrence (then multi-cursor edit to rename)`,
     `${KBD_MOD}+/            Toggle comment`,
@@ -268,8 +267,7 @@ function showEditorHelp(anchor: HTMLElement): void {
     {
       title: 'Run',
       rows: [
-        [`${KBD_MOD}+Enter`,        'Preview (dry-run, safe)'],
-        [`${KBD_MOD}+Shift+Enter`,  'Execute: commits changes'],
+        ['F5',                     'Preview (dry-run, safe)'],
         [`${KBD_MOD}+S`,            'Save current property'],
       ],
     },
@@ -598,9 +596,10 @@ function buildExtensions(slot: CodeSlot): Extension[] {
       ...baseKeymapBindings,
       { key: 'Ctrl-Shift-x', run: wrapInIf },
       { key: 'Ctrl-Shift-e', run: wrapInForEach },
-      { key: 'Ctrl-Enter', run: () => { doPreview(); return true } },
+      // Preview on F5 only. Ctrl+Enter was advertised on the button but never fired
+      // reliably inside the BMP page context, so it's removed. Execute is
+      // button-only by design (no keyboard shortcut).
       { key: 'F5', run: () => { doPreview(); return true }, preventDefault: true },
-      { key: 'Ctrl-Shift-Enter', run: () => { doRun(); return true } },
       { key: 'Ctrl-s', run: () => { doSave(); return true } },
       closeOverlayKeyBinding,
     ]),
@@ -798,19 +797,19 @@ function buildActionRow(): HTMLElement {
       h('button', {
         class: `btn btn-accent editor-run-preview${hasSel ? ' editor-run-preview--sel' : ''}`,
         id: 'btn-preview',
-        title: `Preview (dry-run, safe) · ${KBD_MOD}+Enter`,
+        title: 'Preview (dry-run, safe) · F5',
         onClick: doPreview,
       },
-        svg(ICON_PLAY), ' ', h('span', { class: 'editor-run-label' }, 'Preview'), ' ', h('kbd', null, `${KBD_MOD}↵`),
+        svg(ICON_PLAY), ' ', h('span', { class: 'editor-run-label' }, 'Preview'), ' ', h('kbd', null, 'F5'),
       ),
       h('button', {
         class: 'btn btn-accent editor-run-execute',
         id: 'btn-execute',
         disabled: !previewDone,
-        title: previewDone ? `Execute the previewed code (${KBD_MOD}+Shift+Enter)` : 'Preview successfully first to unlock',
+        title: previewDone ? 'Execute the previewed code' : 'Preview successfully first to unlock',
         onClick: () => { if (previewDone) doRun() },
       },
-        svg(ICON_LIGHTNING), ' Execute ', h('kbd', null, `${KBD_MOD}⇧↵`),
+        svg(ICON_LIGHTNING), ' Execute',
       ),
     ),
     !isExtended && h('button', {

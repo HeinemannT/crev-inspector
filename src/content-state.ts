@@ -21,7 +21,7 @@ export type EnrichmentData = {
 
 export class ContentState {
   inspectActive = false;
-  enrichMode: EnrichMode = 'all';
+  enrichMode: EnrichMode = 'widgets';
   paintPhase: PaintPhase = 'off';
   paintSourceName: string | null = null;
   styleInjected = false;
@@ -88,7 +88,7 @@ export class ContentState {
   /** Full reset for re-injection guard */
   resetAll() {
     this.inspectActive = false;
-    this.enrichMode = 'all';
+    this.enrichMode = 'widgets';
     this.paintPhase = 'off';
     this.paintSourceName = null;
     this.styleInjected = false;

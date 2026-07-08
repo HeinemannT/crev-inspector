@@ -166,11 +166,11 @@ describe('DetailView — fetch flow', () => {
     expect(sent.find(m => m.type === 'FETCH_OBJECT_PANE' && (m as { rid?: string }).rid === '777')).toBeTruthy();
   });
 
-  it('the sub-row open-in-BMP icon button opens THIS object in the BMP portal', () => {
+  it('the sub-row open-in-web icon button opens THIS object in the BMP portal', () => {
     const { dv, panel, sent } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100'), panel);
-    const open = panel.querySelector<HTMLElement>('.dv-subrow .dv-act[aria-label="Open in BMP"]');
+    const open = panel.querySelector<HTMLElement>('.dv-subrow .dv-act[aria-label="Open in web"]');
     expect(open).toBeTruthy();
     open!.click();
     expect(sent.find(m => m.type === 'BMP_OPEN_OBJECT' && (m as { rid?: string }).rid === '100')).toBeTruthy();

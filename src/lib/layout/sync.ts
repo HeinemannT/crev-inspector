@@ -359,23 +359,6 @@ export function buildContextEc(rid: string): string {
   ].join('\n');
 }
 
-/** A page whose widgets sit on the phantom RESULT tab with no TabSet — not loadable as-is, but we can
- *  offer to create a tabset for it (see `buildCreateTabsetEc`). Carries what that needs. */
-export interface NeedsTabset {
-  needsTabset: true;
-  pageRid: string;
-  pageId: string;
-  pageClass: BlueprintCtx['pageClass'];
-  /** Editing scope carried from the loaded ctx so the created tabset keeps the right scope +
-   *  blast-radius label (template vs instance) instead of defaulting to instance. When editing a
-   *  template, pageRid is already the template's, so the tabset is created there. */
-  editingTemplate?: boolean;
-  hasTemplate?: boolean;
-  templateRid?: string;
-  templateId?: string;
-  instanceId?: string;
-}
-
 /** The decoded context-probe line. Keyed by NAME so the emit order in `buildContextEc` and the read here
  *  can't silently drift (the old positional destructure broke whenever a field was inserted/appended). */
 interface ContextProbe {
@@ -409,6 +392,11 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
   const line = res.log.split(CTX)[1]?.split('\n', 1)[0]?.trim();
   const p = line ? parseContextProbe(line) : null;
   if (!p) return null;
+  // An Organisation is a container of pages, never a page host itself — so it can't be a Blueprint
+  // target. It only reaches here transiently (the page-rid resolver's majority vote can momentarily
+  // return the org mid-navigation, before the scorecard's widgets have mounted); loading it would walk
+  // the whole org subtree. Refuse it so a stale resolve is a harmless no-op, not an org-wide read/edit.
+  if (p.pageClass === 'Organisation') return null;
   if (p.kind === 'enterprise') {
     if (!p.tabsetId) return null;
     // The page root IS the shared template; every edit hits all linked instances → high blast radius.
@@ -422,8 +410,8 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
   if (!p.tabsetId) {
     // No dedicated tabset. If the object still owns widgets (they sit on the shared Result tab), load it
     // through default_tabset — withContent keeps only the Result tab — and flag it `resultOnly` so the UI
-    // offers a "+ Create tabset" affordance. An object with no widgets isn't a page. (createTabsetAndLoad
-    // reads pageRid/pageId/pageClass straight off this ctx.)
+    // offers a "+ Create tabset" affordance (which stages a virtual tabset — see edit.createTabset).
+    // An object with no widgets isn't a page.
     return p.widgetCount > 0
       ? {
           pageId: p.pageId, pageRid: p.pageRid, pageClass: (p.pageClass || 'Scorecard') as BlueprintCtx['pageClass'],
@@ -441,63 +429,6 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
     pageId: p.pageId, pageRid: p.pageRid, pageClass: (p.pageClass || 'Scorecard') as BlueprintCtx['pageClass'],
     tabsetId: p.tabsetId, target: 'instance', hasTemplate: p.hasLink, tabScope: 'all', ...tpl,
   };
-}
-
-/**
- * EC that creates a dedicated tabset for a RESULT-only page and moves its widgets onto it:
- *   root.portal → TabSet "» New <Scorecard> TabSet" → Tab "Main", then every RESULT widget is
- *   re-pointed (container := the new Tab). The TabSet lives BARE under portal root (no wrapper
- *   Category — a page's tab strip is the union of tabs its widgets bind into, so the TabSet renders
- *   without one; verified live 2026-07-07). The name is derived in-EC from the scorecard so it's
- *   recognisable in Config Studio's Shared-web-items tree; the "» New" marker flags it as freshly
- *   created and unarranged (a configurator renames it to convention later). `.add` APPENDS — it never
- *   reorders portal siblings, so no `modifiedBy` churn on neighbours. BMP autogenerates all ids. Emits
- *   `<sep>tsId|tabId|movedCount` for the caller to build the load context. Mechanic verified live
- *   2026-06-27 (create + bind + ancestor-walk finds it); bare-render verified 2026-07-07.
- */
-export function buildCreateTabsetEc(pageRid: string): string {
-  const sc = `lookup(${ecRid(pageRid)})`;
-  return [
-    `_sc := ${sc}`,
-    `_ts := root.portal.add(TabSet, name := "» New " + _sc.name.whenMissing("Page") + " TabSet")`,
-    `_tab := _ts.add(Tab, name := "Main", columnsLargeScreen := 6)`,
-    `_n := 0`,
-    `_sc.children().forEach(_w:`,
-    `     _wc := _w.container.id.whenMissing("RESULT")`,
-    `     IF _wc = "RESULT" THEN`,
-    `          _w.change(container := _tab)`,
-    `          _n := _n + 1`,
-    `     ELSE`,
-    `          _w := _w`,
-    `     ENDIF`,
-    `)`,
-    `"${SEP}" + _ts.id + "|" + _tab.id + "|" + output(_n)`,
-  ].join('\n');
-}
-
-/** Run the create-tabset EC, then load the page through its new tabset. Returns the loaded model +
- *  the ctx (so apply/edit works immediately), or null on failure. */
-export async function createTabsetAndLoad(io: LayoutIO, page: NeedsTabset): Promise<{ ctx: BlueprintCtx; load: LoadResult } | null> {
-  const res = await io.exec(buildCreateTabsetEc(page.pageRid), true); // commit — creates + rebinds
-  if (!res.ok || !res.log) return null;
-  const row = res.log.split(SEP)[1]?.split('\n', 1)[0]?.trim();
-  const tabsetId = row?.split('|')[0];
-  if (!tabsetId) return null;
-  // Preserve the editing scope. When the user was editing the template, pageRid is already the
-  // template's (the create EC ran there), so the session must STAY template-scoped — otherwise the
-  // toggle flips to "instance" and the blast-radius warning under-reports (a template edit hits every
-  // instance). Only fall back to instance scope when we weren't editing a template.
-  const ctx: BlueprintCtx = {
-    pageId: page.pageId, pageRid: page.pageRid, pageClass: page.pageClass,
-    tabsetId, tabScope: 'all',
-    target: page.editingTemplate ? 'template' : 'instance',
-    hasTemplate: page.hasTemplate ?? false,
-    ...(page.editingTemplate ? { editingTemplate: true } : {}),
-    ...(page.templateRid ? { templateRid: page.templateRid, templateId: page.templateId } : {}),
-    ...(page.instanceId ? { instanceId: page.instanceId } : {}),
-  };
-  const load = await loadModel(io, ctx);
-  return { ctx, load };
 }
 
 /** Load: fetch the merged layout, reconstruct, and hand back model + an independent baseline. */

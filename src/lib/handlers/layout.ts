@@ -6,7 +6,7 @@
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import type { SwContext } from '../sw-context';
-import { loadPage, createTabset, applyPage, loadBlastRadius } from '../layout-service';
+import { loadPage, applyPage, loadBlastRadius } from '../layout-service';
 import { ensureContentScript } from '../tab-awareness';
 import { toggleInspect } from './inspect';
 import { errorMessage, log } from '../logger';
@@ -90,28 +90,6 @@ register('LAYOUT_LOAD', async (msg, respond) => {
   } catch (e) {
     respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: errorMessage(e) });
     ctx.logActivity('error', 'Blueprint load threw', e instanceof Error ? e.message : String(e));
-  }
-});
-
-register('LAYOUT_CREATE_TABSET', async (msg, respond) => {
-  const ctx = getCtx();
-  if (!ctx.client) { respond({ type: 'LAYOUT_CREATE_TABSET_RESULT', ok: false, error: 'Not connected' }); return; }
-  const t0 = Date.now();
-  try {
-    const res = await createTabset(ctx.client, msg.page);
-    if (!res) {
-      respond({ type: 'LAYOUT_CREATE_TABSET_RESULT', ok: false, error: 'Could not create the tabset' });
-      ctx.logActivity('error', `Blueprint: create-tabset failed for ${msg.page.pageId}`);
-      return;
-    }
-    respond({
-      type: 'LAYOUT_CREATE_TABSET_RESULT', ok: true, env: envToken(ctx),
-      ctx: res.ctx, model: res.load.model, baseline: res.load.baseline, orphans: res.load.orphans,
-    });
-    ctx.logActivity('success', `Blueprint: created tabset ${res.ctx.tabsetId} for ${res.ctx.pageClass} ${res.ctx.pageId} (${Date.now() - t0}ms)`);
-  } catch (e) {
-    respond({ type: 'LAYOUT_CREATE_TABSET_RESULT', ok: false, error: errorMessage(e) });
-    ctx.logActivity('error', 'Blueprint create-tabset threw', e instanceof Error ? e.message : String(e));
   }
 });
 

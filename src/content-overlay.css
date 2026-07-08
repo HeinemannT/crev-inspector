@@ -209,12 +209,17 @@
  * 4px gap, and lands on the card without ever being "outside" long enough for
  * the hide timer to win. */
 #crev-tooltip::before {
+  /* Hover-bridge across the 4px gap between the hovered badge and the card so the
+     cursor can travel badge to card without dropping :hover. Sized to the gap ONLY.
+     It was 14px, which reached ~10px UP into the sub-badge — and because the card is
+     pointer-events:auto, that transparent strip stole clicks from the badge's lower
+     edge. The 400ms hide timer (content-tooltip.ts) covers any slower transit. */
   content: '';
   position: absolute;
-  top: -14px;
+  top: -4px;
   left: 0;
   right: 0;
-  height: 14px;
+  height: 4px;
 }
 #crev-tooltip {
   position: fixed;

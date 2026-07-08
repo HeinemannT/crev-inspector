@@ -735,9 +735,8 @@ function tabBar(base: LModel, m: LModel, liveId: string | null, viewedId: string
   if (m.resultOnly) {
     // No dedicated tabset: adding a plain tab would hit the shared default_tabset. Offer to create a
     // tabset of the page's own instead (one click — names it after the page; the Tab can be renamed).
-    const b = mkBtn(bp.creatingTabset ? 'Creating…' : '+ Create tabset', () => doCreateTabset());
-    b.title = 'This page has no tabset of its own. Create one (named "» New <this page> TabSet") to organise its widgets into tabs.';
-    b.disabled = bp.creatingTabset;
+    const b = mkBtn('+ Create tabset', () => doCreateTabset());
+    b.title = 'This page has no tabset of its own. Create one to organise its widgets into tabs. It is created together with your other changes when you Apply.';
     bar.appendChild(b);
   } else {
     bar.appendChild(mkBtn('+ Tab', addTabAction)); // plain "+ Tab" text (no icon — the icon mis-aligned)

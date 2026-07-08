@@ -57,7 +57,6 @@ export interface BpState {
   resizeObs: ResizeObserver | null;  // watches BMP content height — re-render when a widget grows (async table rows) so the backdrop keeps covering it
   ridSig: string;               // signature of the visible rids at last render — re-render when it changes
   mutRaf: number;               // rAF id coalescing mutation-driven re-renders (0 = none)
-  creatingTabset: boolean;      // create-tabset request in flight (disables the tab-bar "+ Create tabset" button)
   flipNext: boolean;            // animate result cells from old→new position on the next render (set by an edit)
   viewTabId: string | null;     // tab shown in the canvas (header tab bar switches it); null → follow BMP's live tab
   unusedTabsOpen: boolean;      // tab bar: the "+N empty" fold is expanded (shared-tabset tabs with no widgets on this page)
@@ -82,7 +81,7 @@ function freshState(): Omit<BpState, 'gen'> {
     layer: null, selectedId: null, applying: false, preview: null, previewScript: '', blast: null, blastSeq: 0, picker: null, pickerOpts: null, movePicker: null, tabMenu: null, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
     onResize: null, onKey: null, onPop: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
-    observer: null, resizeObs: null, ridSig: '', mutRaf: 0, creatingTabset: false, flipNext: false, viewTabId: null, unusedTabsOpen: false,
+    observer: null, resizeObs: null, ridSig: '', mutRaf: 0, flipNext: false, viewTabId: null, unusedTabsOpen: false,
     ghostTrayOpen: false, scrollSpacer: null, peek: false,
     resultAnchor: null,
   };

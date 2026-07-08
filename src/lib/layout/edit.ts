@@ -188,6 +188,29 @@ export function addTab(m: LModel, index: number, name = 'New Tab'): { model: LMo
   };
 }
 
+/** Stage a dedicated tabset for a RESULT-only page. The tabset is VIRTUAL — created at Apply, in the
+ *  SAME EC as its tabs, not as an eager pre-commit — a "Main" tab is added, and the page's Result-tab
+ *  widgets are rehomed onto it so they bind to a real cell instead of the phantom RESULT placement. Pure
+ *  model transform; the compiler emits the tabset via `root.portal.add(TabSet …)` (see ec.ts). No-op
+ *  unless the page is result-only. Returns the Main tab's staged id (so the caller can select it). */
+export function createTabset(m: LModel): { model: LModel; id: string } {
+  const id = tempId('tab');
+  if (!m.resultOnly) return { model: m, id };
+  return {
+    model: edit(m, c => {
+      // The result-only model holds the page's widgets on the Result tab — carry them onto the new Main
+      // tab so the diff emits a reparent (container := Main), mirroring the old eager create-tabset move.
+      const carried = c.tabs.flatMap(t => t.children);
+      c.tabs = [{ id, kind: 'tab', className: 'Tab', name: 'Main', cols: { L: 6 }, children: carried }];
+      c.tabsetId = tempId('tabset');
+      c.tabsetVirtual = true;
+      c.tabsetName = '» New TabSet';
+      c.resultOnly = false;
+    }),
+    id,
+  };
+}
+
 function insertNode(m: LModel, parentId: string, index: number, node: LNode): LModel {
   return edit(m, c => {
     const f = findNode(c, parentId);

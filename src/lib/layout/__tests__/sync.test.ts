@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   buildFetchEc, parseFetchLog, parseOverrides, parseStyles, loadModel, applyModel,
-  resolvePageContext, buildCreateTabsetEc, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
+  resolvePageContext, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
 } from '../sync';
 import { addContainer, rename } from '../edit';
 import { findNode } from '../model';
@@ -266,6 +266,11 @@ describe('sync.resolvePageContext', () => {
     const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '999');
     expect(ctx).toBeNull();
   });
+  it('refuses an Organisation root (never a page host — guards a transient org-resolve mid-nav)', async () => {
+    const probe = `${'<<<CREV_CTX>>>'}direct|1234|steadfast_sbx|Organisation||n|12`; // org: has children, no tabset
+    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '1234');
+    expect(ctx).toBeNull();
+  });
   it('returns null when the probe EC fails', async () => {
     const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: false })) }, '999');
     expect(ctx).toBeNull();
@@ -382,28 +387,5 @@ describe('sync.resolvePageContext (blast radius)', () => {
     const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '1') as BlueprintCtx;
     expect(ctx.target).toBe('instance');
     expect(ctx.hasTemplate).toBe(false);
-  });
-});
-
-describe('sync.buildCreateTabsetEc', () => {
-  it('creates a BARE portal TabSet → Tab (no Category) and rebinds only RESULT widgets', () => {
-    const ec = buildCreateTabsetEc('451704949656267090');
-    expect(ec).toContain('_sc := lookup(451704949656267090)');
-    // TabSet lives bare under portal root — no wrapper Category (a page's strip is the union of tabs
-    // its widgets bind into, so it renders without one; verified live 2026-07-07).
-    expect(ec).toContain('root.portal.add(TabSet, name := "» New " + _sc.name.whenMissing("Page") + " TabSet")');
-    expect(ec).not.toContain('root.portal.add(Category');
-    expect(ec).toContain('_ts.add(Tab, name := "Main"');
-    // only widgets currently on RESULT are moved
-    expect(ec).toContain('IF _wc = "RESULT" THEN');
-    expect(ec).toContain('_w.change(container := _tab)');
-    // emits tsId|tabId|movedCount for the caller
-    expect(ec).toContain('_ts.id + "|" + _tab.id + "|" + output(_n)');
-  });
-  it('derives the name from the scorecard in-EC, so there is no name-injection surface', () => {
-    const ec = buildCreateTabsetEc('1');
-    // the ONLY source of the name is the live object's own `.name` value — nothing is interpolated
-    // from caller input, so the old string-breakout attack surface is gone entirely.
-    expect(ec).toContain('name := "» New " + _sc.name.whenMissing("Page") + " TabSet"');
   });
 });

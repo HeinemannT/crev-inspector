@@ -148,6 +148,13 @@ export interface LModel {
   /** True when the page has no dedicated tabset (its widgets sit on the shared Result tab). The UI
    *  shows a "+ Create tabset" affordance in the tab bar so the configurator can organise the page. */
   resultOnly?: boolean;
+  /** True when the "+ Create tabset" affordance has STAGED a tabset that BMP doesn't have yet. The
+   *  compiler emits `root.portal.add(TabSet …)` for it, so the tabset is created in the SAME apply EC as
+   *  its tabs (not an eager pre-commit). `tabsetId` is a temp id until the post-apply reload discovers the
+   *  real one. */
+  tabsetVirtual?: boolean;
+  /** Name for a `tabsetVirtual` tabset ("» New … TabSet"). Only read while tabsetVirtual is true. */
+  tabsetName?: string;
 }
 
 /** One step of an apply plan (the diff between baseline and desired). */
