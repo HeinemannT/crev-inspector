@@ -222,7 +222,7 @@ initSiteAccess();
 // Access invariant: grants ≡ configured profile origins. The boot reconcile also serves as the
 // one-time migration off the legacy `<all_urls>` grant that pre-0.5.3 installs carried over
 // (it isn't a profile origin, so it gets revoked here).
-settingsReady.then(() => reconcileProfileOrigins(ctx.settings.profiles.map(p => p.bmpUrl)));
+void settingsReady.then(() => reconcileProfileOrigins(ctx.settings.profiles.map(p => p.bmpUrl)));
 
 chrome.windows.onRemoved.addListener((id) => {
   // Drop the closed window's inspect-mode entry; otherwise a future
@@ -232,7 +232,7 @@ chrome.windows.onRemoved.addListener((id) => {
 
 // ── Context menus ──────────────────────────────────────────────
 
-chrome.contextMenus.removeAll(async () => {
+async function rebuildContextMenus() {
   const items: Array<chrome.contextMenus.CreateProperties> = [
     { id: 'crev-copy-rid', title: 'Copy RID' },
     { id: 'crev-copy-bid', title: 'Copy Business ID' },
@@ -252,9 +252,11 @@ chrome.contextMenus.removeAll(async () => {
   await ctx.settingsReady.catch(() => { /* boot race; pivot restore is best-effort */ });
   try {
     const pivot = await getComparePivot();
-    if (pivot) chrome.contextMenus.update('crev-compare', { title: `Compare with ${pivot.name ?? pivot.rid}\u2026` });
+    if (pivot) void chrome.contextMenus.update('crev-compare', { title: `Compare with ${pivot.name ?? pivot.rid}\u2026` });
   } catch (e) { log.swallow('sw:restoreComparePivot', e); }
-});
+}
+
+chrome.contextMenus.removeAll(() => { void rebuildContextMenus(); });
 
 /** Compare pivot lives in chrome.storage.session, scoped per profile.
  *  Pinning a sbx object then alt-tabbing to dev no longer shows a stale
@@ -302,7 +304,7 @@ chrome.tabs.onRemoved.addListener((tabId) => { deleteContextRid(tabId); });
 // async (it awaits settingsReady + re-probes the cookie); swallow its promise.
 chrome.cookies.onChanged.addListener((info) => { void handleSessionCookieRemoved(info); });
 
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+async function handleContextMenuClick(info: chrome.contextMenus.OnClickData, tab?: chrome.tabs.Tab) {
   const tabId = tab?.id;
   if (!tabId) return;
   const ctxRid = getContextRid(tabId);
@@ -332,22 +334,24 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       openEditorWindow(ctxRid.rid, undefined, { tabId }).catch(reportFail('Open editor'));
       break;
     case 'crev-search-code':
-      openCodeSearchWindow({ tabId });
+      void openCodeSearchWindow({ tabId });
       break;
     case 'crev-compare': {
       const pivot = await getComparePivot();
       if (!pivot) {
         await setComparePivot({ rid: ctxRid.rid, name: ctxRid.name });
-        chrome.contextMenus.update('crev-compare', { title: `Compare with ${ctxRid.name ?? ctxRid.rid}\u2026` });
+        void chrome.contextMenus.update('crev-compare', { title: `Compare with ${ctxRid.name ?? ctxRid.rid}\u2026` });
       } else {
-        openDiffWindow(pivot.rid, ctxRid.rid, undefined, { tabId });
+        void openDiffWindow(pivot.rid, ctxRid.rid, undefined, { tabId });
         await setComparePivot(null);
-        chrome.contextMenus.update('crev-compare', { title: 'Compare with\u2026' });
+        void chrome.contextMenus.update('crev-compare', { title: 'Compare with\u2026' });
       }
       break;
     }
   }
-});
+}
+
+chrome.contextMenus.onClicked.addListener((info, tab) => { void handleContextMenuClick(info, tab); });
 
 // ── Port connections ────────────────────────────────────────────
 
@@ -360,14 +364,14 @@ function safeSend(port: chrome.runtime.Port, msg: InspectorMessage) {
 /** Push initial state to a newly connected content port (after settingsReady). */
 function initContentPort(port: chrome.runtime.Port, tabId: number | undefined) {
   port.onMessage.addListener((msg: InspectorMessage) => {
-    handleContentMessage(msg, tabId ?? undefined);
+    void handleContentMessage(msg, tabId ?? undefined);
   });
 
   // All initial pushes gated on settingsReady — inspect state and cache
   // are only valid after boot completes (restored from storage). Inspect
   // is per-window: this content port belongs to a tab in some window;
   // we look up that window's flag.
-  settingsReady.then(async () => {
+  void settingsReady.then(async () => {
     let inspectForWindow = false;
     if (tabId != null) {
       try {
@@ -439,7 +443,7 @@ function initPanelPort(port: chrome.runtime.Port) {
       panelPortByWindow.set(windowId, port);
       portToWindowId.set(port, windowId);
 
-      settingsReady.then(() => {
+      void settingsReady.then(() => {
         // Per-window inspect + blueprint — this panel only cares about its own window. Re-pushed on
         // connect so a reopened sidebar reflects the current toggle state (mirrors INSPECT_STATE).
         safeSend(port, { type: 'INSPECT_STATE', active: inspectActiveByWindow.get(windowId) === true });
@@ -457,11 +461,11 @@ function initPanelPort(port: chrome.runtime.Port) {
       pushPaintState();
       return;
     }
-    handlePanelMessage(msg, port);
+    void handlePanelMessage(msg, port);
   });
 
   startHealthPolling();
-  runAuthTest();
+  void runAuthTest();
 }
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -520,10 +524,10 @@ chrome.commands.onCommand.addListener((command) => {
     });
   }
   if (command === 'toggle-inspect') {
-    toggleInspect();
+    void toggleInspect();
   }
   if (command === 'toggle-blueprint') {
-    toggleBlueprint();
+    void toggleBlueprint();
   }
   if (command === 'open-extended') {
     // Mount on the user's most-recently-focused window's active tab. We have no
@@ -537,8 +541,8 @@ chrome.commands.onCommand.addListener((command) => {
 
 // ── Network state change → immediate re-poll ────────────────────
 
-self.addEventListener('online', () => { pollHealth(); });
-self.addEventListener('offline', () => { pollHealth(); });
+self.addEventListener('online', () => { void pollHealth(); });
+self.addEventListener('offline', () => { void pollHealth(); });
 
 // ── One-shot message handler ────────────────────────────────────
 

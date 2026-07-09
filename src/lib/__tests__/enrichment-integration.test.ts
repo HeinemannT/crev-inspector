@@ -115,7 +115,7 @@ interface TestHarness {
     _activities: Array<{ level: string; message: string }>;
   };
   cache: ObjectCache;
-  transportMock: ReturnType<typeof vi.fn>;
+  transportMock: ReturnType<typeof vi.fn<(...args: any[]) => Promise<any[]>>>;
   client: any;
 }
 

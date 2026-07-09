@@ -89,7 +89,7 @@ register('PAGE_CONTEXT', (msg, _respond, meta) => {
   const ctx = getCtx();
   chrome.tabs.get(tabId, (tab) => {
     if (chrome.runtime.lastError || !tab?.windowId) return;
-    chrome.tabs.query({ active: true, windowId: tab.windowId }, async (actives) => {
+    chrome.tabs.query({ active: true, windowId: tab.windowId }, (actives) => {
       if (actives[0]?.id !== tabId) return; // only the active tab's panel
       sendPageInfoToPanel(tabId); // Page tab + Workshop
       // Footer/status chip — only when the user hasn't pinned a right-click
@@ -97,8 +97,10 @@ register('PAGE_CONTEXT', (msg, _respond, meta) => {
       // fiber one) so this proactive update matches what GET_CONTEXT_RID would
       // return for the same tab.
       if (getContextRid(tabId)) return;
-      const pc = await resolveTabPageContext(tabId);
-      if (pc.rid) ctx.sendToPanelByTab(tabId, { type: 'CONTEXT_RID_DATA', rid: pc.rid });
+      void (async () => {
+        const pc = await resolveTabPageContext(tabId);
+        if (pc.rid) ctx.sendToPanelByTab(tabId, { type: 'CONTEXT_RID_DATA', rid: pc.rid });
+      })();
     });
   });
 });

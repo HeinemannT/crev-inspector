@@ -96,7 +96,7 @@ export function sendPageInfoToPanel(tabId?: number, retries = 1, panelWindowId?:
     chrome.tabs.sendMessage(id, { type: 'GET_PAGE_INFO' } satisfies InspectorMessage, (response) => {
       if (chrome.runtime.lastError || !response) {
         if (retries > 0) {
-          ensureContentScript(id).then(() => {
+          void ensureContentScript(id).then(() => {
             setTimeout(() => sendPageInfoToPanel(id, retries - 1, panelWindowId), 200);
           });
         } else {
@@ -112,7 +112,7 @@ export function sendPageInfoToPanel(tabId?: number, retries = 1, panelWindowId?:
       }
       route(id, response);
       if (response.detection) {
-        handleContentMessage(
+        void handleContentMessage(
           {
             type: 'DETECTION_RESULT',
             confidence: response.detection.confidence,

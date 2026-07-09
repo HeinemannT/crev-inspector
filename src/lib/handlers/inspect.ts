@@ -107,7 +107,7 @@ register('SET_INSPECT_STATE', async (msg, _respond, meta) => {
 });
 
 register('TOGGLE_PAINT', (_msg, _respond, meta) => {
-  togglePaint(ensureContentScript, meta.panelWindowId);
+  void togglePaint(ensureContentScript, meta.panelWindowId);
 });
 
 register('TOGGLE_TECHNICAL_OVERLAY', () => {

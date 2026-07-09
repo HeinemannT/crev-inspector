@@ -74,7 +74,7 @@ export class StylePresetStore {
 
   private scheduleSave(): void {
     if (this.saveTimer) return;
-    this.saveTimer = setTimeout(() => { this.saveTimer = null; this.persist(); }, SAVE_DELAY);
+    this.saveTimer = setTimeout(() => { this.saveTimer = null; void this.persist(); }, SAVE_DELAY);
   }
 
   private async persist(): Promise<void> {

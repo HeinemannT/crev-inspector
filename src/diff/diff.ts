@@ -35,7 +35,7 @@ let mergeViewInstance: InstanceType<typeof import('@codemirror/merge').MergeView
 let isTemplateMode = false;
 
 // Read initial state from hash and storage
-init();
+void init();
 
 async function init() {
   // Parse hash: #leftRid,rightRid or #leftRid
@@ -69,8 +69,8 @@ async function init() {
   // Auto-load both sides eagerly in template-diff mode (the user came in
   // expecting both panes filled). In manual mode, only load what's already
   // populated and let the user click Load for the rest.
-  if (left.rid) fetchSide('left');
-  if (right.rid) fetchSide('right');
+  if (left.rid) void fetchSide('left');
+  if (right.rid) void fetchSide('right');
 }
 
 function renderUI() {
@@ -144,7 +144,7 @@ function renderUI() {
     const input = document.getElementById('left-rid') as HTMLInputElement;
     if (input?.value.trim()) {
       left.rid = input.value.trim();
-      fetchSide('left');
+      void fetchSide('left');
     }
   });
 
@@ -152,7 +152,7 @@ function renderUI() {
     const input = document.getElementById('right-rid') as HTMLInputElement;
     if (input?.value.trim()) {
       right.rid = input.value.trim();
-      fetchSide('right');
+      void fetchSide('right');
     }
   });
 
@@ -161,12 +161,12 @@ function renderUI() {
     left = { ...right };
     right = tmp;
     renderUI();
-    if (left.props && right.props) updateMergeView();
+    if (left.props && right.props) void updateMergeView();
   });
 
   // If both sides loaded, render merge view
   if (left.props && right.props && !statusEl) {
-    updateMergeView();
+    void updateMergeView();
   }
 }
 

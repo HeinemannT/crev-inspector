@@ -12,5 +12,5 @@ register('PAINT_PICK', (msg) => {
 });
 
 register('PAINT_APPLY', (msg) => {
-  handlePaintApply(msg.rid);
+  void handlePaintApply(msg.rid);
 });

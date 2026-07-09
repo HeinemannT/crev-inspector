@@ -944,7 +944,7 @@ register('SELECT_OBJECT', async (msg, respond, meta) => {
   });
   // If no side panel is currently connected (closed everywhere), try
   // to open it for this tab.
-  if (!ctx.hasPanel) openSidePanelForActiveTab();
+  if (!ctx.hasPanel) void openSidePanelForActiveTab();
 });
 
 let openAttemptedThisSession = false;

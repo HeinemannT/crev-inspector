@@ -178,7 +178,7 @@ export class ObjectCache {
     if (this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
-      this.persist();
+      void this.persist();
     }, CACHE_SAVE_DELAY);
   }
 

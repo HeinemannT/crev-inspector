@@ -178,7 +178,7 @@ export class DetailView {
   show(obj: BmpObject, panel: HTMLElement): void {
     this.history = [];
     this.activePanel = panel;
-    this.swapTo(obj.rid, obj, panel, /* confirmIfDirty */ false);
+    void this.swapTo(obj.rid, obj, panel, /* confirmIfDirty */ false);
   }
 
   /** Drill-down entry — called by the orchestrator when the user clicks a
@@ -831,7 +831,7 @@ export class DetailView {
       tabindex: '0',
       onClick: open,
       onKeydown: (e: KeyboardEvent) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void open(); }
       },
     },
       h('span', { class: 'pane-card-crumb-icon' }, '▦'),
@@ -921,7 +921,7 @@ export class DetailView {
         chain: this.state!.flow,
         loading: this.state!.flowLoading,
         error: this.state!.flowError,
-        onNavigate: (rid) => this.swapTo(rid, null, panel, true).catch(() => {}),
+        onNavigate: (rid) => { this.swapTo(rid, null, panel, true).catch(() => {}); },
         sendMessage: this.sendMessage,
       }));
       return wrap;
@@ -947,7 +947,7 @@ export class DetailView {
     // the pane (one-hop graph walk).
     const linksSection = renderLinks({
       links: this.buildLinksModel(),
-      onNavigate: (rid) => this.swapTo(rid, null, panel, true).catch(() => {}),
+      onNavigate: (rid) => { this.swapTo(rid, null, panel, true).catch(() => {}); },
       onScanInbound: () => {
         this.state!.inbound = { loaded: false, scanning: true, targets: [] };
         this.sendMessage({ type: 'FETCH_INBOUND', rid: this.state!.rid });
@@ -1015,7 +1015,7 @@ export class DetailView {
       type: this.state!.identity.type,
       contextValues: this.state!.contextValues,
       lists: this.state!.lists,
-      onNavigate: (r) => this.swapTo(r, null, panel, true).catch(() => {}),
+      onNavigate: (r) => { this.swapTo(r, null, panel, true).catch(() => {}); },
     });
     if (ctxSection) wrap.appendChild(ctxSection);
 

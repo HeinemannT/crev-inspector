@@ -130,12 +130,12 @@ describe('rebuildClient does not broadcast RE_ENRICH', () => {
     mockChromeStorage();
   });
 
-  it('should not send RE_ENRICH when rebuilding client', () => {
+  it('should not send RE_ENRICH when rebuilding client', async () => {
     const ctx = makeCtx();
     ctx.settings = makeSettings();
     setSwContext(ctx);
 
-    rebuildClient();
+    await rebuildClient();
 
     const reEnrichMessages = ctx.broadcastedMessages.filter(m => m.type === 'RE_ENRICH');
     expect(reEnrichMessages).toHaveLength(0);

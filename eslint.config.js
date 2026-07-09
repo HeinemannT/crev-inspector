@@ -1,11 +1,12 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
-// Flat ESLint config. This pass introduces tooling only: the two async-safety
-// rules below run as WARNINGS (non-blocking), and the broad recommended /
-// recommendedTypeChecked noise is silenced so those two rules are the signal.
-// Ratchet path: triage the warnings, fix them, then flip both rules to 'error'
-// and run with --max-warnings 0.
+// Flat ESLint config. The two async-safety rules below are enforced as ERRORS
+// (plan 010 introduced them as warnings; plan 020 burned the warnings down to
+// zero and flipped them). `npm run lint` runs with --max-warnings 0, so CI
+// fails on any new floating promise or misused-promise callback. The broader
+// recommended / recommendedTypeChecked noise stays silenced so these two
+// rules remain the signal.
 export default tseslint.config(
   {
     // These globs target the BUILT copies emitted at the repo root by Vite
@@ -45,9 +46,9 @@ export default tseslint.config(
       },
     },
     rules: {
-      // The two rules this pass is about — kept as WARN (non-blocking).
-      '@typescript-eslint/no-floating-promises': 'warn',
-      '@typescript-eslint/no-misused-promises': 'warn',
+      // The two rules this pass is about — enforced as ERROR (plan 020).
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
 
       // Everything else off/quiet this pass. These are the recommended /
       // recommendedTypeChecked rules that fire on the existing 43K-LOC source;

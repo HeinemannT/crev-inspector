@@ -314,8 +314,8 @@ export function startHealthPolling() {
   stopHealthPolling();
   // Delay first poll so runAuthTest() completes first
   healthTimer = setTimeout(() => {
-    pollHealth();
-    healthTimer = setInterval(pollHealth, HEALTH_POLL_INTERVAL);
+    void pollHealth();
+    healthTimer = setInterval(() => { void pollHealth(); }, HEALTH_POLL_INTERVAL);
   }, 500);
 }
 

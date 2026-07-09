@@ -32,7 +32,7 @@ register('SAVE_SETTINGS', async (msg) => {
   const skipRebuild = changedKeys.length > 0 && changedKeys.every(k => CLIENT_IRRELEVANT_SETTINGS.has(k));
   const prevMode = ctx.settings.enrichMode;
   ctx.settings = { ...ctx.settings, ...msg.settings };
-  saveSettings();
+  void saveSettings();
   if (ctx.settings.enrichMode !== prevMode) {
     ctx.broadcastToContent({ type: 'ENRICH_MODE', mode: ctx.settings.enrichMode });
   }
@@ -47,7 +47,7 @@ register('SAVE_PROFILE', async (msg, respond) => {
   let activeId = ctx.settings.activeProfileId;
   if (!activeId || profiles.length === 1) activeId = msg.profile.id;
   ctx.settings = { ...ctx.settings, profiles, activeProfileId: activeId };
-  saveSettings();
+  void saveSettings();
   reconcileAccess(); // an edited URL orphans its old origin; the new one was requested in the panel
   await rebuildClient(true);
   respond({ type: 'SETTINGS_DATA', settings: ctx.settings });
@@ -60,7 +60,7 @@ register('DELETE_PROFILE', async (msg, respond) => {
   let activeId = ctx.settings.activeProfileId;
   if (activeId === msg.profileId) activeId = profiles[0]?.id ?? '';
   ctx.settings = { ...ctx.settings, profiles, activeProfileId: activeId };
-  saveSettings();
+  void saveSettings();
   // Drop the pooled client + JWT before the rebuild so we don't hand
   // out a stale client for a now-deleted profile.
   evictPooledClient(msg.profileId);
@@ -84,7 +84,7 @@ register('SET_ACTIVE_PROFILE', async (msg, respond) => {
     // tab should keep dev "sticky" against sbx URL matches, not against
     // prod URL matches.
     if (previousId) setManualOverride(previousId);
-    saveSettings();
+    void saveSettings();
     // Workspace changed — per-tab context RIDs belong to the old workspace
     // and would resolve to wrong/missing objects in the new one.
     clearAllContextRids();
@@ -103,7 +103,7 @@ register('SET_ACTIVE_PROFILE', async (msg, respond) => {
 });
 
 register('CONNECTION_TEST', () => {
-  runAuthTest();
+  void runAuthTest();
 });
 
 register('GET_CONNECTION_STATE', () => {

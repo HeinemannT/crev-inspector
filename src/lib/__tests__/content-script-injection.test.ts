@@ -22,13 +22,13 @@ import type { InspectorSettings, InspectorMessage } from '../types';
 interface InjectHarness {
   ctx: any;
   panelMsgs: InspectorMessage[];
-  executeScript: ReturnType<typeof vi.fn>;
-  sendMessage: ReturnType<typeof vi.fn>;
+  executeScript: ReturnType<typeof setupChrome>['executeScript'];
+  sendMessage: ReturnType<typeof setupChrome>['sendMessage'];
 }
 
-function setupChrome(): { executeScript: ReturnType<typeof vi.fn>; sendMessage: ReturnType<typeof vi.fn> } {
+function setupChrome() {
   mockChromeStorage();
-  const executeScript = vi.fn(async () => [{ result: undefined }]);
+  const executeScript = vi.fn(async (..._args: any[]): Promise<any> => [{ result: undefined }]);
   const sendMessage = vi.fn();
   (globalThis as any).chrome.scripting = { executeScript };
   (globalThis as any).chrome.tabs = {

@@ -301,21 +301,23 @@ export class ConnectTab implements Tab {
         }
         void this.loadUpdateStatus(true);
       },
-      'reset-all': async () => {
-        const ok = await confirmModal({
-          title: 'Reset all CREV state?',
-          body: 'Clears object cache, enrichment state, activity log, history, and per-tab context.\n\nFavorites + server profiles are kept. Use this when the extension is in a bad state.',
-          confirmLabel: 'Reset',
-          confirmVariant: 'danger',
-        });
-        if (!ok) return;
-        // Optimistically clear local UI state so the user sees the reset
-        // land immediately, before the SW round trip + downstream broadcasts.
-        shared.cacheCount = 0;
-        shared.context = null;
-        shared.lastEcMs = null;
-        this.send({ type: 'RESET_ALL' });
-        rerender();
+      'reset-all': () => {
+        void (async () => {
+          const ok = await confirmModal({
+            title: 'Reset all CREV state?',
+            body: 'Clears object cache, enrichment state, activity log, history, and per-tab context.\n\nFavorites + server profiles are kept. Use this when the extension is in a bad state.',
+            confirmLabel: 'Reset',
+            confirmVariant: 'danger',
+          });
+          if (!ok) return;
+          // Optimistically clear local UI state so the user sees the reset
+          // land immediately, before the SW round trip + downstream broadcasts.
+          shared.cacheCount = 0;
+          shared.context = null;
+          shared.lastEcMs = null;
+          this.send({ type: 'RESET_ALL' });
+          rerender();
+        })();
       },
     });
   }

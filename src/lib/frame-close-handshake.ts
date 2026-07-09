@@ -20,7 +20,7 @@
  */
 
 export function installCloseHandshake(canClose: () => boolean | Promise<boolean> = () => true): void {
-  window.addEventListener('message', async (e: MessageEvent) => {
+  async function handleMessage(e: MessageEvent) {
     // Only the parent frame (the content-script overlay host, same extension
     // origin) may request close. Defense in depth on top of the manifest
     // extension_pages CSP `frame-ancestors 'self'`, which blocks any
@@ -39,5 +39,7 @@ export function installCloseHandshake(canClose: () => boolean | Promise<boolean>
     }
     // Phase 2: final answer with the user's choice.
     window.parent.postMessage({ type: 'CREV_OVERLAY_CLOSE_RESPONSE', ok }, '*');
-  });
+  }
+
+  window.addEventListener('message', (e: MessageEvent) => { void handleMessage(e); });
 }

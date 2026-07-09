@@ -13,7 +13,7 @@ import { openCodeSearchWindow } from '../codesearch-launcher';
 import { startCodeSearch, stopCodeSearch } from '../code-search';
 
 register('OPEN_OBJECT_VIEW', (msg, _respond, meta) => {
-  openObjectViewWindow(msg.rid, { tabId: meta.senderTabId, windowId: meta.panelWindowId });
+  void openObjectViewWindow(msg.rid, { tabId: meta.senderTabId, windowId: meta.panelWindowId });
 });
 
 register('OPEN_LAYOUT_FOR', (msg, _respond, meta) => {
@@ -31,7 +31,7 @@ register('OPEN_LAYOUT_FOR', (msg, _respond, meta) => {
 });
 
 register('OPEN_DIFF', (msg, _respond, meta) => {
-  openDiffWindow(msg.leftRid, msg.rightRid, undefined, { tabId: meta.senderTabId, windowId: meta.panelWindowId });
+  void openDiffWindow(msg.leftRid, msg.rightRid, undefined, { tabId: meta.senderTabId, windowId: meta.panelWindowId });
 });
 
 register('OPEN_TEMPLATE_DIFF', async (msg, _respond, meta) => {
@@ -39,16 +39,16 @@ register('OPEN_TEMPLATE_DIFF', async (msg, _respond, meta) => {
   if (!ctx.client) return;
   const tmpl = await ctx.client.resolveTemplate(msg.rid);
   if (tmpl.templateRid) {
-    openDiffWindow(tmpl.templateRid, msg.rid, 'template', { tabId: meta.senderTabId, windowId: meta.panelWindowId });
+    void openDiffWindow(tmpl.templateRid, msg.rid, 'template', { tabId: meta.senderTabId, windowId: meta.panelWindowId });
   }
 });
 
 register('OPEN_CODE_SEARCH', (_msg, _respond, meta) => {
-  openCodeSearchWindow({ tabId: meta.senderTabId, windowId: meta.panelWindowId });
+  void openCodeSearchWindow({ tabId: meta.senderTabId, windowId: meta.panelWindowId });
 });
 
 register('CODE_SEARCH_START', (msg) => {
-  startCodeSearch(msg.query, msg.subtreeRid, msg.types, { caseSensitive: msg.caseSensitive ?? true });
+  void startCodeSearch(msg.query, msg.subtreeRid, msg.types, { caseSensitive: msg.caseSensitive ?? true });
 });
 
 register('SEARCH_REFERENCES', (msg) => {
@@ -60,7 +60,7 @@ register('SEARCH_REFERENCES', (msg) => {
   // BIDs are exact strings — case-sensitive search hits the fast
   // server-side path AND avoids spurious matches in BMP code that
   // happens to contain similarly-cased substrings.
-  startCodeSearch(query, undefined, undefined, { caseSensitive: true });
+  void startCodeSearch(query, undefined, undefined, { caseSensitive: true });
   // Tell panel to show reference results view
   ctx.sendToPanel({ type: 'SEARCH_REFERENCES', rid: msg.rid, businessId: msg.businessId, objectType: msg.objectType, name: msg.name });
 });
