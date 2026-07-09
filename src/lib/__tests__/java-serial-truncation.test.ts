@@ -12,15 +12,17 @@
  * throws instead of hanging, and `deserializeStream`'s per-object
  * try/catch turns that into a graceful stop.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   JavaWriter,
   JavaReader,
   registerType,
+  deserializeStream,
   SC_EXTERNALIZABLE,
   SC_SERIALIZABLE,
   type JavaClassDesc,
 } from '../java-serial';
+import { log } from '../logger';
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -113,5 +115,64 @@ describe('java-serial: truncated stream handling', () => {
     expect(result?.$class).toBe('com.example.NullExternalReturn');
     // Stream stayed aligned: the terminator was consumed, nothing stranded.
     expect(r.position).toBe(bytes.length);
+  });
+
+  it('BUG-01 THE HANG REGRESSION: throws (does not hang) on a negative TC_BLOCKDATALONG length in skipToEndBlockData', () => {
+    // Externalizable object with no registered extReader: readNewObject()
+    // falls straight into skipToEndBlockData() to skip the external content
+    // (java-serial.ts ~line 734), which is the unguarded site this bug fixes.
+    const desc: JavaClassDesc = {
+      name: 'com.example.CorruptBlockDataLong',
+      uid: 1n,
+      flags: SC_EXTERNALIZABLE,
+      fields: [],
+    };
+
+    const w = new JavaWriter();
+    w.writeStreamHeader();
+    w.writeByte(0x73); // TC_OBJECT
+    w.writeClassDesc(desc);
+    w.writeByte(0x7A); // TC_BLOCKDATALONG marker, at offset P
+    // Length -5: pre-fix, `this.pos += len` after reading this 4-byte int
+    // (pos == P+5) lands exactly back on P — peekByte() sees 0x7A again,
+    // and the loop re-reads the identical marker+length forever. This is
+    // the precise byte pattern that hung the service worker.
+    w.writeInt(-5);
+    const bytes = w.toBytes();
+
+    const r = new JavaReader(toArrayBuffer(bytes));
+    r.readStreamHeader();
+
+    // Synchronous call that must return (by throwing) instead of spinning
+    // forever — proof it doesn't hang.
+    expect(() => r.readObject()).toThrow(/bad block-data length/);
+  });
+
+  it('BUG-02: deserializeStream logs the swallowed error and returns only the objects parsed before the corruption', () => {
+    const w = new JavaWriter();
+    w.writeStreamHeader();
+    w.writeString('first-object'); // TC_STRING — a clean, complete first object
+    // Second "object": externalizable whose block data has the same
+    // corrupt negative TC_BLOCKDATALONG length as BUG-01.
+    w.writeByte(0x73); // TC_OBJECT
+    w.writeClassDesc({
+      name: 'com.example.CorruptSecondObject',
+      uid: 1n,
+      flags: SC_EXTERNALIZABLE,
+      fields: [],
+    });
+    w.writeByte(0x7A); // TC_BLOCKDATALONG
+    w.writeInt(-5);
+    const bytes = w.toBytes();
+
+    const swallowSpy = vi.spyOn(log, 'swallow');
+    try {
+      const results = deserializeStream(toArrayBuffer(bytes));
+
+      expect(results).toEqual(['first-object']);
+      expect(swallowSpy).toHaveBeenCalledWith('javaSerial:deserializeStream', expect.any(Error));
+    } finally {
+      swallowSpy.mockRestore();
+    }
   });
 });

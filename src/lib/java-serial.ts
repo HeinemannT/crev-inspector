@@ -3,6 +3,7 @@
  * Implements just enough of the spec to serialize BMP commands
  * and deserialize BMP responses.
  */
+import { log } from './logger';
 
 // ── Type Codes ──────────────────────────────────────────────────
 
@@ -826,6 +827,9 @@ export class JavaReader {
       } else if (tc === TC_BLOCKDATALONG) {
         this.pos++;
         const len = this.readRawInt();
+        if (len < 0 || this.pos + len > this.bytes.length) {
+          throw new Error(`Java-serial: bad block-data length ${len} at pos ${this.pos} (truncated stream)`);
+        }
         this.pos += len;
       } else {
         // Could be a nested object — read and discard
@@ -882,6 +886,9 @@ export class JavaReader {
 
   private readBlockDataLongContent(): any {
     const len = this.readRawInt();
+    if (len < 0 || this.pos + len > this.bytes.length) {
+      throw new Error(`Java-serial: bad block-data length ${len} at pos ${this.pos} (truncated stream)`);
+    }
     const view = new DataView(this.bytes.buffer, this.bytes.byteOffset + this.pos, len);
     this.pos += len;
     return { $blockData: true, length: len, view };
@@ -927,7 +934,8 @@ export function deserializeStream(buffer: ArrayBuffer): any[] {
         continue;
       }
       results.push(obj);
-    } catch {
+    } catch (e) {
+      log.swallow('javaSerial:deserializeStream', e);
       break;
     }
   }
