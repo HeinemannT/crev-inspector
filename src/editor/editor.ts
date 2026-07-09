@@ -599,8 +599,8 @@ function buildExtensions(slot: CodeSlot): Extension[] {
       // Preview on F5 only. Ctrl+Enter was advertised on the button but never fired
       // reliably inside the BMP page context, so it's removed. Execute is
       // button-only by design (no keyboard shortcut).
-      { key: 'F5', run: () => { doPreview(); return true }, preventDefault: true },
-      { key: 'Ctrl-s', run: () => { doSave(); return true } },
+      { key: 'F5', run: () => { void doPreview(); return true }, preventDefault: true },
+      { key: 'Ctrl-s', run: () => { void doSave(); return true } },
       closeOverlayKeyBinding,
     ]),
 
@@ -759,7 +759,7 @@ async function executeEc(transactional: boolean) {
   // Refresh history in background
   sendRequest({ type: 'GET_SCRIPT_HISTORY' }).then(r => {
     if (r?.type === 'SCRIPT_HISTORY_DATA') historyEntries = r.entries
-  })
+  }).catch(() => {})
 }
 
 /** Re-render the action toolbar in place from current state — the single
@@ -807,7 +807,7 @@ function buildActionRow(): HTMLElement {
         id: 'btn-execute',
         disabled: !previewDone,
         title: previewDone ? 'Execute the previewed code' : 'Preview successfully first to unlock',
-        onClick: () => { if (previewDone) doRun() },
+        onClick: () => { if (previewDone) void doRun() },
       },
         svg(ICON_LIGHTNING), ' Execute',
       ),
@@ -1649,7 +1649,7 @@ function loadHistory() {
   sendRequest({ type: 'GET_SCRIPT_HISTORY' }).then(response => {
     if (response?.type === 'SCRIPT_HISTORY_DATA') historyEntries = response.entries
     renderBottomContent()
-  })
+  }).catch(() => {})
 }
 
 function relativeTime(ts: number): string {
@@ -1732,9 +1732,9 @@ installDirtyGuards({ isDirty: anyDirty, bodyText: 'This editor has unsaved chang
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'F5' || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return
   e.preventDefault()
-  doPreview()
+  void doPreview()
 }, true)
 
 // ── Launch ───────────────────────────────────────────────────────
 
-init()
+void init()

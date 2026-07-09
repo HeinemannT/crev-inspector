@@ -488,7 +488,7 @@ function pump(): void {
   while (pendingFetches < MAX_INFLIGHT && fetchQueue.length > 0) {
     const task = fetchQueue.shift()!;
     pendingFetches++;
-    task().finally(() => { pendingFetches--; pump(); });
+    void task().finally(() => { pendingFetches--; pump(); });
   }
 }
 

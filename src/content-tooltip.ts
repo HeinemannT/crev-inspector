@@ -10,6 +10,7 @@ import { render } from './lib/dom';
 import { sendRequest, sendFireForget } from './lib/messaging';
 import { updateOverlayBlockState } from './content-frame-overlay';
 import type { ContentState } from './content-state';
+import { log } from './lib/logger';
 
 const OVERLAY_SKIP_PROPS = new Set(['rid', 'id', 'name', 'type', '__typename', 'typename',
   'source', 'discoveredAt', 'updatedAt', 'treePath', 'webParentRid', 'hasChildren']);
@@ -120,7 +121,7 @@ export function applyTechnicalOverlay(s: ContentState) {
           }
           renderOverlayCards(s);
         }
-      });
+      }).catch(e => log.swallow('content-tooltip:applyTechnicalOverlay', e));
     }
   }
   renderOverlayCards(s);
