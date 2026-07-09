@@ -37,6 +37,31 @@ describe('instance fan-out', () => {
   });
 });
 
+describe('buildInstanceFanoutEc / buildContainerBlastEc (golden, plan 014)', () => {
+  it('emits the exact SELF + INST row EC as before the ec-row-codec migration', () => {
+    expect(buildInstanceFanoutEc('t.crev_demo_complex')).toBe([
+      '_p := t.crev_demo_complex',
+      `_r := "${SEP}SELF|" + _p.rid.whenMissing("") + "|" + _p.linkedTo.rid.whenMissing("") + "\\n"`,
+      '_p.rref(linkedTo).forEach(_i:',
+      `     _r := _r + "${SEP}INST|" + _i.rid.whenMissing("") + "|" + _i.id.whenMissing("") + "|" + _i.name.whenMissing("") + "\\n"`,
+      ')',
+      '_r',
+    ].join('\n'));
+  });
+
+  it('emits the exact per-container scorecard row EC as before the migration', () => {
+    expect(buildContainerBlastEc(['t.cont_a'])).toBe([
+      '_r := ""',
+      '_c0 := t.cont_a',
+      '_c0.rref(container).forEach(_w:',
+      '     _sc := _w.scorecard',
+      `     _r := _r + "${SEP}" + _sc.rid.whenMissing("") + "|" + _sc.linkedTo.rid.whenMissing("") + "|" + _sc.name.whenMissing("") + "\\n"`,
+      ')',
+      '_r',
+    ].join('\n'));
+  });
+});
+
 describe('shared-structure blast', () => {
   it('builds one rref(container) walk per touched container', () => {
     const ec = buildContainerBlastEc(['t.cont_a', 't.cont_b']);
