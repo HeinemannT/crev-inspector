@@ -58,8 +58,28 @@ declare global {
 // enable at once. The previous instance's teardown, parked on window, aborts this controller.
 const cmdLifetime = new AbortController();
 
-document.addEventListener('crev-bp-cmd', ((event: CustomEvent<BlueprintCmd>) => {
-  const detail = event.detail;
+/** Shape-guard for the `crev-bp-cmd` detail. `document` is shared with the page's own
+ *  MAIN-world scripts (same mechanism that lets the interceptor talk to content.ts), so a
+ *  compromised/XSS'd page could dispatch a forged event here — validate before acting.
+ *  This channel has no apply path (a layout commit needs baseline+desired supplied by the
+ *  side panel — see handlers/layout.ts), so a forged well-formed command is bounded to
+ *  UI-state redress; shape-validation (allowlist of the four known shapes) is proportionate
+ *  — see plan 016's SEC-02 scope note for why a nonce handshake isn't warranted here. */
+function parseBlueprintCmd(detail: unknown): BlueprintCmd | null {
+  if (typeof detail !== 'object' || detail === null) return null;
+  const d = detail as Record<string, unknown>;
+  if (d.cmd === 'enable' || d.cmd === 'disable' || d.cmd === 'resetColors') {
+    return { cmd: d.cmd };
+  }
+  if (d.cmd === 'setResumePrefer' && (d.prefer === 'template' || d.prefer === 'instance')) {
+    return { cmd: 'setResumePrefer', prefer: d.prefer };
+  }
+  return null;
+}
+
+document.addEventListener('crev-bp-cmd', ((event: CustomEvent) => {
+  const detail = parseBlueprintCmd(event.detail);
+  if (!detail) return;
   switch (detail.cmd) {
     case 'enable': enableBlueprint(); break;
     case 'disable': disableBlueprint(); break;

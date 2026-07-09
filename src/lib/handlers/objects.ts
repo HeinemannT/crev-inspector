@@ -17,6 +17,7 @@ import * as schemaCache from '../type-schema-cache';
 import { refFieldsFromSchema, buildConnectionsEc, parseConnections, buildJunctionEc, parseJunctions, pickFarSide, buildInboundEc, parseInbound, type SchemaProp } from '../connections';
 import type { ConnGroup } from '../types';
 import { buildRowEc } from '../ec-row-codec';
+import { isRidShaped } from '../validate-inbound';
 
 // ── EC builders (exported for tests) ─────────────────────────────
 
@@ -651,8 +652,13 @@ register('RESET_ALL', (msg, respond) => {
 
 register('OBJECTS_DISCOVERED', (msg) => {
   const ctx = getCtx();
-  ctx.cache.putAll(msg.objects);
-  ctx.logActivity('success', `Found ${msg.objects.length} object${msg.objects.length !== 1 ? 's' : ''}`);
+  // Defence in depth: content.ts's crev-interceptor listener already shape-
+  // validates (lib/validate-inbound.ts), but this handler is also reachable
+  // from other message paths — never trust rid shape verbatim at the cache
+  // write site.
+  const objects = msg.objects.filter(o => isRidShaped(o.rid));
+  ctx.cache.putAll(objects);
+  ctx.logActivity('success', `Found ${objects.length} object${objects.length !== 1 ? 's' : ''}`);
   ctx.sendToPanel({ type: 'CACHE_STATS', count: ctx.cache.size });
 });
 
