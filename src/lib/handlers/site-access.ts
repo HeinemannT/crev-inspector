@@ -15,7 +15,7 @@ register('SITE_ACCESS_CHANGED', async (msg) => {
   // The connection state was computed while the origin was still blocked ("unreachable"), and the
   // next health poll is up to 30s away — re-test now so the panel flips to connected right after
   // the user clicks Allow instead of sitting on a stale error.
-  runAuthTest();
+  void runAuthTest();
   if (msg.tabId != null) {
     await injectIntoTab(msg.tabId);
     getCtx().logActivity('success', 'Site access granted — CREV enabled on this tab');

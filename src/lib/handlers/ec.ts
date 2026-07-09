@@ -91,7 +91,7 @@ register('OPEN_EDITOR', (msg, _respond, meta) => {
   // the panel's window's active tab. Without this, two-panel users could
   // click "Open Editor" in panel A and have the editor land on window B's
   // tab (whichever was most recently focused).
-  openEditorWindow(
+  void openEditorWindow(
     msg.rid,
     msg.property,
     { tabId: meta.senderTabId, windowId: meta.panelWindowId },
