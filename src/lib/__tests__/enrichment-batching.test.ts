@@ -245,7 +245,7 @@ describe('enrichBadges failure handling', () => {
 
     // Don't await — enrichBadges will hang on the 15s retry setTimeout
     // Just call it and let it start
-    enrichBadges(ALL_RIDS.slice(0, 50));
+    void enrichBadges(ALL_RIDS.slice(0, 50));
 
     // Give microtasks a tick to process
     await new Promise(r => setTimeout(r, 50));
