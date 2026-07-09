@@ -20,7 +20,9 @@ Studio. See `ARCHITECTURE.md` for the component map and message-passing details.
   wire-protocol round-trip against a **live BMP**. Not run by `npm test` or CI's default gate;
   don't assume the binary protocol is exercised unless this was run explicitly.
 - `npx tsc --noEmit` — typecheck. `tsconfig.json` is `strict: true`, `noUnusedLocals: true`.
-- No ESLint configured yet.
+- `npm run lint` — `eslint src` (flat config, `eslint.config.js`). Async-safety rules
+  (`no-floating-promises`, `no-misused-promises`) are `warn`-only pending a ratchet to `error`
+  with `--max-warnings 0`. CI runs this step (`.github/workflows/ci.yml`).
 
 ## Invariants that bite
 

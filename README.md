@@ -104,7 +104,8 @@ npm install
 npm run build           # outputs to dist/ and mirrors to the repo root for "Load unpacked"
 npm run dev             # vite watch
 npm run typecheck
+npm run lint
 npm test
 ```
 
-Every push and pull request triggers `.github/workflows/ci.yml`, which runs typecheck, test, and build. Pushing a `v*.*.*` tag additionally triggers `.github/workflows/release.yml`, which runs test, build, package, and release.
+Every push and pull request triggers `.github/workflows/ci.yml`, which runs typecheck, lint, test, and build. Pushing a `v*.*.*` tag additionally triggers `.github/workflows/release.yml`, which runs test, build, package, and release.
