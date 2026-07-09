@@ -42,7 +42,7 @@ export function registerTabListeners() {
 
     chrome.tabs.get(activeInfo.tabId, (tab) => {
       if (chrome.runtime.lastError) return;
-      if (tab?.url) autoDetectProfile(tab.url);
+      if (tab?.url) void autoDetectProfile(tab.url);
     });
     // Push detection + page info only to the panel in THIS window —
     // a tab switch in window B shouldn't refresh window A's panel.
@@ -93,7 +93,7 @@ export function registerTabListeners() {
     // Cookie-based fast gate: early BMP detection on page load
     if (changeInfo.status === 'loading' && tab?.url && /^https?:/.test(tab.url)) {
       if (isActiveTab) {
-        checkBmpCookie(tab.url!).then((hasCookie) => {
+        void checkBmpCookie(tab.url!).then((hasCookie) => {
           if (hasCookie && !getTabDetection(tabId)) {
             const entry = { phase: 'detected' as DetectionPhase, confidence: 0.7, signals: ['JSESSIONID'] };
             setTabDetection(tabId, entry);
@@ -108,7 +108,7 @@ export function registerTabListeners() {
       deleteContextRid(tabId); // Clear stale context on navigation
 
       if (isActiveTab) {
-        autoDetectProfile(changeInfo.url!);
+        void autoDetectProfile(changeInfo.url!);
         ctx.sendToPanelByWindow(windowId!, { type: 'DETECTION_STATE', phase: 'checking' as DetectionPhase, confidence: 0, signals: [] });
       }
     }

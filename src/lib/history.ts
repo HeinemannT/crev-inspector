@@ -72,7 +72,7 @@ export class HistoryManager {
     if (this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
-      this.persist();
+      void this.persist();
     }, HISTORY_SAVE_DELAY);
   }
 

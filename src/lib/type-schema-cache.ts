@@ -77,16 +77,18 @@ let flushScheduled = false;
 function scheduleFlush(): void {
   if (flushScheduled) return;
   flushScheduled = true;
-  queueMicrotask(async () => {
-    flushScheduled = false;
-    try {
-      const snapshot: Record<string, CacheEntry> = {};
-      for (const [k, e] of mem) snapshot[k] = e;
-      await chrome.storage.local.set({ [STORAGE_KEY]: snapshot });
-    } catch {
-      // Storage quota or transient failure — drop silently; the
-      // in-memory cache is still authoritative for this session.
-    }
+  queueMicrotask(() => {
+    void (async () => {
+      flushScheduled = false;
+      try {
+        const snapshot: Record<string, CacheEntry> = {};
+        for (const [k, e] of mem) snapshot[k] = e;
+        await chrome.storage.local.set({ [STORAGE_KEY]: snapshot });
+      } catch {
+        // Storage quota or transient failure — drop silently; the
+        // in-memory cache is still authoritative for this session.
+      }
+    })();
   });
 }
 
@@ -159,13 +161,15 @@ let rootFlushScheduled = false;
 function scheduleRootFlush(): void {
   if (rootFlushScheduled) return;
   rootFlushScheduled = true;
-  queueMicrotask(async () => {
-    rootFlushScheduled = false;
-    try {
-      const snap: Record<string, RootEntry> = {};
-      for (const [k, e] of rootMem) snap[k] = e;
-      await chrome.storage.local.set({ [ROOT_KEY]: snap });
-    } catch { /* drop */ }
+  queueMicrotask(() => {
+    void (async () => {
+      rootFlushScheduled = false;
+      try {
+        const snap: Record<string, RootEntry> = {};
+        for (const [k, e] of rootMem) snap[k] = e;
+        await chrome.storage.local.set({ [ROOT_KEY]: snap });
+      } catch { /* drop */ }
+    })();
   });
 }
 

@@ -45,7 +45,7 @@ export class ScriptHistoryManager {
     if (this.entries.length > SCRIPT_HISTORY_MAX) {
       this.entries = this.entries.slice(0, SCRIPT_HISTORY_MAX);
     }
-    this.persist();
+    void this.persist();
   }
 
   getAll(): ScriptHistoryEntry[] {
@@ -54,7 +54,7 @@ export class ScriptHistoryManager {
 
   clear(): void {
     this.entries = [];
-    this.persist();
+    void this.persist();
   }
 
   private async persist() {

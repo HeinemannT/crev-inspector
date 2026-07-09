@@ -234,7 +234,7 @@ export async function handleSessionCookieRemoved(info: chrome.cookies.CookieChan
     log.info('settings:sessionCookieGone', `BMP session ended for ${p.label}; cleared the borrowed token`);
     if (p.id === ctx.settings.activeProfileId) {
       resetConnectionState();
-      if (ctx.hasPanel) runAuthTest(); else pushConnectionState();
+      if (ctx.hasPanel) void runAuthTest(); else pushConnectionState();
     }
   }
 }
@@ -273,7 +273,7 @@ async function rebuildClientInternal(clearCache: boolean) {
   if (ctx.hasPanel) {
     stopHealthPolling();
     startHealthPolling();
-    runAuthTest(); // pushes CONNECTION_STATE on completion — intentionally not awaited
+    void runAuthTest(); // pushes CONNECTION_STATE on completion — intentionally not awaited
   } else {
     pushConnectionState(); // no panel = no runAuthTest, push once for content scripts
   }
@@ -326,7 +326,7 @@ export async function autoDetectProfile(pageUrl: string) {
   inflightAutoDetectTarget = matched.id;
   try {
     ctx.settings = { ...ctx.settings, activeProfileId: matched.id };
-    saveSettings();
+    void saveSettings();
     // Workspace changed — drop per-tab context RIDs (they belong to the old
     // workspace and would resolve to wrong/missing objects in the new one).
     clearAllContextRids();
