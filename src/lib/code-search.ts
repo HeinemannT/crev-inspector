@@ -37,6 +37,12 @@ import type { CodeSearchResult } from './types';
 import { log } from './logger';
 import { sendFireForget } from './messaging';
 import type { BmpClient } from './bmp-client';
+import { buildRowEc, identityRow, parseDelimitedRow, parseDelimitedLines } from './ec-row-codec';
+
+/** Triple-pipe delimiter used by this file's identity-row EC (matches the
+ *  convention `ec-parser.ts`/`handlers/objects.ts` use elsewhere). */
+const PIPE3 = '|||';
+const IDENTITY_FIELDS = ['rid', 'id', 'name', 'className'];
 
 /** Bumped on every start; in-flight loops capture and check it to
  *  short-circuit when superseded. Concurrent start+stop is safe. */
@@ -48,6 +54,25 @@ let activeGeneration = 0;
 let lastProgress = { results: 0, searched: 0, total: 0 };
 
 interface ScopeInfo { rid: string; businessId: string; name: string; type: string; }
+
+/** Build the EC that resolves `ref` to its identity row for scope resolution.
+ *  Exported so a golden test can lock the exact EC string in. */
+export function buildScopeResolveEc(ref: string): string {
+  return [
+    `_o := ${ref}`,
+    buildRowEc(identityRow('_o', { ridDefault: '"MISSING"' }), PIPE3),
+  ].join('\n');
+}
+
+/** Parse the `buildScopeResolveEc` output into an identity row, or null when
+ *  the object doesn't exist / the log carries no identity line. */
+export function parseScopeResolveLog(ecLog: string): ScopeInfo | null {
+  const line = ecLog.split('\n').map(l => l.trim()).find(l => l.includes(PIPE3));
+  if (!line) return null;
+  const row = parseDelimitedRow(line, IDENTITY_FIELDS, PIPE3);
+  if (!row || !row.rid || row.rid === 'MISSING') return null;
+  return { rid: row.rid, businessId: row.id || '', name: row.name || '', type: row.className || '' };
+}
 
 /** Resolve the search scope from a user string: a numeric RID or a
  *  namespace.bid ref (e.g. `t.118`, `ceiss.bar`). Returns the EC ref to scope
@@ -67,17 +92,11 @@ async function resolveScope(
   } else {
     return null;
   }
-  const ec = [
-    `_o := ${ref}`,
-    '_o.rid.whenMissing("MISSING") + "|||" + _o.id.whenMissing("") + "|||" + _o.name.whenMissing("") + "|||" + _o.className.whenMissing("")',
-  ].join('\n');
-  const res = await client.executeEc(ec, undefined, false);
+  const res = await client.executeEc(buildScopeResolveEc(ref), undefined, false);
   if (!res.ok || !res.log) return null;
-  const line = res.log.split('\n').map(l => l.trim()).find(l => l.includes('|||'));
-  if (!line) return null;
-  const [rid, businessId, name, type] = line.split('|||');
-  if (!rid || rid === 'MISSING') return null;
-  return { ref, scope: { rid, businessId: businessId || '', name: name || '', type: type || '' } };
+  const scope = parseScopeResolveLog(res.log);
+  if (!scope) return null;
+  return { ref, scope };
 }
 
 function broadcastScope(scope: ScopeInfo | null, error?: string): void {
@@ -341,6 +360,21 @@ async function fetchIdentitiesForRids(
   return out;
 }
 
+/** Build the per-entry EC lines for `fetchIdentityChunk`: one `_o := <ref>`
+ *  read plus a `rid|||bid|||name` row appended to the shared `_r`
+ *  accumulator. `rid` is the caller's known-good rid (interpolated as an EC
+ *  string literal), not re-read from the object — cheaper and avoids a
+ *  `.rid` access on a resolveRef() that may have raced. Exported so a golden
+ *  test can lock the row shape in. */
+export function buildIdentityChunkRowLines(rid: string, ref: string): string[] {
+  return [
+    `_o := ${ref}`,
+    `_bid := _o.id.whenMissing("")`,
+    `_name := _o.name.whenMissing("")`,
+    `_r := _r + ${buildRowEc([{ name: 'rid', expr: `"${rid}"` }, { name: 'bid', expr: '_bid' }, { name: 'name', expr: '_name' }], PIPE3)} + "\\n"`,
+  ];
+}
+
 async function fetchIdentityChunk(
   client: BmpClient,
   rids: string[],
@@ -354,10 +388,7 @@ async function fetchIdentityChunk(
 
   const lines = ['_r := ""'];
   for (const { rid, ref } of valid) {
-    lines.push(`_o := ${ref}`);
-    lines.push(`_bid := _o.id.whenMissing("")`);
-    lines.push(`_name := _o.name.whenMissing("")`);
-    lines.push(`_r := _r + "${rid}|||" + _bid + "|||" + _name + "\\n"`);
+    lines.push(...buildIdentityChunkRowLines(rid, ref));
   }
   lines.push('_r');
   const ec = lines.join('\n');
@@ -365,11 +396,9 @@ async function fetchIdentityChunk(
   try {
     const result = await client.executeEc(ec);
     if (!result.ok || !result.log) return;
-    for (const line of result.log.split('\n')) {
-      if (!line.includes('|||')) continue;
-      const [rid, businessId, name] = line.split('|||');
-      if (!rid) continue;
-      out.set(rid.trim(), { name: (name ?? '').trim(), businessId: (businessId ?? '').trim() });
+    for (const row of parseDelimitedLines(result.log, ['rid', 'businessId', 'name'], PIPE3)) {
+      if (!row.rid) continue;
+      out.set(row.rid, { name: row.name, businessId: row.businessId });
     }
   } catch (e) {
     log.swallow('codeSearch:fetchIdentityChunk', e);

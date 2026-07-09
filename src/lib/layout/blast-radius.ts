@@ -20,6 +20,8 @@
  * `.ancestor(Scorecard)` does NOT in that context (returns MISSING) — verified live.
  */
 
+import { buildRowEc } from '../ec-row-codec';
+
 const SEP = '<<<CREV_BLAST>>>';
 
 export interface InstanceFanout {
@@ -47,11 +49,20 @@ export interface ContainerBlast {
 /** (A) Build the fan-out probe for the page being edited. Emits one SELF row (own rid + linkedTo)
  *  then one INST row per linking instance. */
 export function buildInstanceFanoutEc(pageRef: string): string {
+  const selfRow = buildRowEc([
+    { name: 'rid', expr: '_p.rid.whenMissing("")' },
+    { name: 'linkedTo', expr: '_p.linkedTo.rid.whenMissing("")' },
+  ], '|');
+  const instRow = buildRowEc([
+    { name: 'rid', expr: '_i.rid.whenMissing("")' },
+    { name: 'id', expr: '_i.id.whenMissing("")' },
+    { name: 'name', expr: '_i.name.whenMissing("")' },
+  ], '|');
   return [
     `_p := ${pageRef}`,
-    `_r := "${SEP}SELF|" + _p.rid.whenMissing("") + "|" + _p.linkedTo.rid.whenMissing("") + "\\n"`,
+    `_r := "${SEP}SELF|" + ${selfRow} + "\\n"`,
     `_p.rref(linkedTo).forEach(_i:`,
-    `     _r := _r + "${SEP}INST|" + _i.rid.whenMissing("") + "|" + _i.id.whenMissing("") + "|" + _i.name.whenMissing("") + "\\n"`,
+    `     _r := _r + "${SEP}INST|" + ${instRow} + "\\n"`,
     `)`,
     `_r`,
   ].join('\n');
@@ -82,12 +93,17 @@ export function parseInstanceFanout(log: string): InstanceFanout {
 /** (B) Build the shared-structure probe for the containers the plan touches. One rref(container)
  *  walk per container, emitting (scorecardRid | scorecardLinkedTo | scorecardName) rows. */
 export function buildContainerBlastEc(containerRefs: string[]): string {
+  const scRow = buildRowEc([
+    { name: 'rid', expr: '_sc.rid.whenMissing("")' },
+    { name: 'linkedTo', expr: '_sc.linkedTo.rid.whenMissing("")' },
+    { name: 'name', expr: '_sc.name.whenMissing("")' },
+  ], '|');
   const lines: string[] = ['_r := ""'];
   containerRefs.forEach((ref, i) => {
     lines.push(`_c${i} := ${ref}`);
     lines.push(`_c${i}.rref(container).forEach(_w:`);
     lines.push('     _sc := _w.scorecard');
-    lines.push(`     _r := _r + "${SEP}" + _sc.rid.whenMissing("") + "|" + _sc.linkedTo.rid.whenMissing("") + "|" + _sc.name.whenMissing("") + "\\n"`);
+    lines.push(`     _r := _r + "${SEP}" + ${scRow} + "\\n"`);
     lines.push(')');
   });
   lines.push('_r');

@@ -24,6 +24,7 @@ import type { AuthMode, AuthErrorCode, AuthVia } from './bmp-auth';
 import { BmpTransport } from './bmp-transport';
 import { pMap, compareVersions } from './util';
 import { parsePipeLines, parseSepBlocks, parseSepMultiObject } from './ec-parser';
+import { buildRowEc, identityRow, parseDelimitedLines, parseDelimitedRow } from './ec-row-codec';
 import { validateRid, validateEcIdentifier, formatEcLiteral } from './ec-guards';
 import { resolveNamespace } from './namespace';
 import { ecResolveTemplate } from './template-link';
@@ -382,6 +383,118 @@ function atCoerceStringMap(v: unknown): Record<string, string> {
   return out;
 }
 
+/** Build the EC for `listAccessSubjects`: every user then every role, each as
+ *  a `kind|||rid|||id|||name` row. Exported so a golden test can lock the
+ *  exact EC string in. */
+export function buildAccessSubjectsEc(): string {
+  const userRow = buildRowEc([
+    { name: 'kind', expr: '"user"' },
+    { name: 'rid', expr: '_u.rid' },
+    { name: 'id', expr: '_u.id.whenMissing("")' },
+    { name: 'name', expr: '_u.name.whenMissing("")' },
+  ], '|||');
+  const roleRow = buildRowEc([
+    { name: 'kind', expr: '"role"' },
+    { name: 'rid', expr: '_r.rid' },
+    { name: 'id', expr: '_r.id.whenMissing("")' },
+    { name: 'name', expr: '_r.name.whenMissing("")' },
+  ], '|||');
+  return [
+    '_out := ""',
+    'root.user.children().forEach(_u:',
+    `     _out := _out + ${userRow} + "\\n"`,
+    ')',
+    'root.role.children().forEach(_r:',
+    `     _out := _out + ${roleRow} + "\\n"`,
+    ')',
+    '_out',
+  ].join('\n');
+}
+
+/** Parse the `buildAccessSubjectsEc` output into sorted access subjects. */
+export function parseAccessSubjectsLog(ecLog: string): AccessSubject[] {
+  const subjects: AccessSubject[] = [];
+  for (const row of parseDelimitedLines(ecLog, ['kind', 'rid', 'id', 'name'], '|||')) {
+    if ((row.kind !== 'user' && row.kind !== 'role') || !row.rid || row.rid === 'MISSING') continue;
+    subjects.push({
+      rid: row.rid,
+      name: row.name || row.id || row.rid,
+      kind: row.kind,
+      businessId: row.id || undefined,
+    });
+  }
+  return subjects.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Parse `resolveTemplate`'s `rid|||name|||className|||id` output line
+ *  (skipping BMP's "Result : 0" / "Duration" log noise) into a
+ *  TemplateResolution. Exported so a golden test can lock the exact
+ *  field order + MISSING-sentinel handling in. */
+export function parseResolveTemplateLog(ecLog: string): TemplateResolution {
+  // Find the output line (contains |||) — skip "Result : 0", "Duration" etc.
+  const lines = ecLog.trim().split('\n');
+  const match = lines.find(l => l.includes('|||'))?.trim();
+  if (!match || match.startsWith('MISSING')) return { templateRid: null };
+
+  // minFields: 1 — the row's trailing fields (name/className/id) are genuinely
+  // optional in practice (BMP can emit a short row); only rid is required.
+  const row = parseDelimitedRow(match, ['rid', 'name', 'className', 'id'], '|||', { minFields: 1 });
+  const tRid = row?.rid;
+  if (!tRid || tRid === 'MISSING') return { templateRid: null };
+  return {
+    templateRid: tRid,
+    templateName: row.name || undefined,
+    templateType: row.className || undefined,
+    templateBusinessId: row.id || undefined,
+  };
+}
+
+/** Build the EC for `fetchLayoutTree`. Emits the shared layout wire format
+ *  (see layout-wire.ts): one node per LAYOUT_SEP marker, fields
+ *  rid|bid|type|parentRid|containerRid|L|M|S|chartHeight|name. `name` is
+ *  LAST (free-text, parsed as the rest) so a `|` in a name can't shift the
+ *  structural fields. Exported so a golden test can lock the exact EC
+ *  string in. */
+export function buildLayoutTreeEc(ref: string): string {
+  const nodeRow = buildRowEc([
+    { name: 'rid', expr: '_n.rid' },
+    { name: 'id', expr: '_n.id.whenMissing("")' },
+    { name: 'className', expr: '_n.className.whenMissing("")' },
+    { name: 'parentRid', expr: '_p.rid.whenMissing("")' },
+    { name: 'containerRid', expr: '_c.rid.whenMissing("")' },
+    { name: 'L', expr: '_n.columnsLargeScreen.whenMissing("")' },
+    { name: 'M', expr: '_n.columnsMediumScreen.whenMissing("")' },
+    { name: 'S', expr: '_n.columnsSmallScreen.whenMissing("")' },
+    { name: 'chartHeight', expr: '_n.chartHeight.whenMissing("")' },
+    { name: 'name', expr: '_n.name.whenMissing("")' },
+  ], '|');
+  // Root row: same 10-field shape, but the root has no parent/container/
+  // chartHeight of its own — those three columns are literal empties.
+  const rootRow = buildRowEc([
+    { name: 'rid', expr: '_root.rid' },
+    { name: 'id', expr: '_root.id.whenMissing("")' },
+    { name: 'className', expr: '_root.className.whenMissing("")' },
+    { name: 'parentRid', expr: '""' },
+    { name: 'containerRid', expr: '""' },
+    { name: 'L', expr: '_root.columnsLargeScreen.whenMissing("")' },
+    { name: 'M', expr: '_root.columnsMediumScreen.whenMissing("")' },
+    { name: 'S', expr: '_root.columnsSmallScreen.whenMissing("")' },
+    { name: 'chartHeight', expr: '""' },
+    { name: 'name', expr: '_root.name.whenMissing("")' },
+  ], '|');
+  return `
+_root := ${ref}
+_r := ""
+_root.descendants().forEach(_n:
+     _p := _n.parent
+     _c := _n.container
+     _r := _r + "${LAYOUT_SEP}" + ${nodeRow} + "\\n"
+)
+_r := _r + "${LAYOUT_SEP}" + ${rootRow} + "\\n"
+_r
+`.trim();
+}
+
 export function parseAccessTraceNode(dto: any): AccessTraceNode {
   const kids = dto?.childrenDTOs?.$elements ?? dto?.childrenDTOs ?? [];
   return {
@@ -628,31 +741,8 @@ export class BmpClient {
 
   /** List users + roles (the possible trace subjects) via EC, sorted by name. */
   async listAccessSubjects(): Promise<AccessSubject[]> {
-    const ec = [
-      '_out := ""',
-      'root.user.children().forEach(_u:',
-      '     _out := _out + "user|||" + _u.rid + "|||" + _u.id.whenMissing("") + "|||" + _u.name.whenMissing("") + "\\n"',
-      ')',
-      'root.role.children().forEach(_r:',
-      '     _out := _out + "role|||" + _r.rid + "|||" + _r.id.whenMissing("") + "|||" + _r.name.whenMissing("") + "\\n"',
-      ')',
-      '_out',
-    ].join('\n');
-    const result = await this.executeEc(ec);
-    const subjects: AccessSubject[] = [];
-    for (const line of (result.log ?? '').split('\n')) {
-      const parts = line.split('|||');
-      if (parts.length < 4) continue;
-      const [kind, srid, bid, name] = parts;
-      if ((kind !== 'user' && kind !== 'role') || !srid || srid.trim() === 'MISSING') continue;
-      subjects.push({
-        rid: srid.trim(),
-        name: (name?.trim() || bid?.trim() || srid.trim()),
-        kind,
-        businessId: bid?.trim() || undefined,
-      });
-    }
-    return subjects.sort((a, b) => a.name.localeCompare(b.name));
+    const result = await this.executeEc(buildAccessSubjectsEc());
+    return parseAccessSubjectsLog(result.log ?? '');
   }
 
   // ── EC operations ────────────────────────────────────────────
@@ -710,28 +800,11 @@ export class BmpClient {
     const code = [
       `_o := ${ref}`,
       ...ecResolveTemplate('_o', '_t'),
-      '_t.rid.whenMissing("MISSING") + "|||" + _t.name.whenMissing("") + "|||" + _t.className.whenMissing("") + "|||" + _t.id.whenMissing("")',
+      buildRowEc(identityRow('_t', { ridDefault: '"MISSING"', order: ['rid', 'name', 'className', 'id'] }), '|||'),
     ].join('\n');
     const ecResult = await this.executeEc(code, undefined, false);
     if (!ecResult.ok || !ecResult.log) return { templateRid: null };
-
-    // Find the output line (contains |||) — skip "Result : 0", "Duration" etc.
-    const lines = ecResult.log.trim().split('\n');
-    const match = lines.find(l => l.includes('|||'))?.trim();
-    if (!match || match.startsWith('MISSING')) return { templateRid: null };
-
-    const parts = match.split('|||');
-    const tRid = parts[0]?.trim();
-    const tName = parts[1]?.trim();
-    const tType = parts[2]?.trim();
-    const tBid = parts[3]?.trim();
-    if (!tRid || tRid === 'MISSING') return { templateRid: null };
-    return {
-      templateRid: tRid,
-      templateName: tName || undefined,
-      templateType: tType || undefined,
-      templateBusinessId: tBid || undefined,
-    };
+    return parseResolveTemplateLog(ecResult.log);
   }
 
   /** Batch enrich: get businessId, type, name, templateBusinessId for multiple RIDs.
@@ -784,7 +857,18 @@ export class BmpClient {
       lines.push('    _cType := _o.actionObject.className.whenMissing("")');
       lines.push('    _cName := _o.actionObject.name.whenMissing("")');
       lines.push('  ENDIF');
-      lines.push(`  _r := _r + "${rid}" + _d + _o.id.whenMissing("") + _d + _cls.whenMissing("") + _d + _o.name.whenMissing("") + _d + _tid + _d + _cRid + _d + _cBid + _d + _cType + _d + _cName + "\\n"`);
+      const row = buildRowEc([
+        { name: 'rid', expr: `"${rid}"` },
+        { name: 'id', expr: '_o.id.whenMissing("")' },
+        { name: 'className', expr: '_cls.whenMissing("")' },
+        { name: 'name', expr: '_o.name.whenMissing("")' },
+        { name: 'templateBid', expr: '_tid' },
+        { name: 'cascadeRid', expr: '_cRid' },
+        { name: 'cascadeBid', expr: '_cBid' },
+        { name: 'cascadeType', expr: '_cType' },
+        { name: 'cascadeName', expr: '_cName' },
+      ], '|||');
+      lines.push(`  _r := _r + ${row} + "\\n"`);
       lines.push('ENDIF');
     }
     lines.push('_r');
@@ -890,21 +974,7 @@ export class BmpClient {
    *  reference). */
   async fetchLayoutTree(rid: string): Promise<LayoutNode[]> {
     const ref = await this.resolveRef(rid);
-    // Emits the shared layout wire format (see layout-wire.ts): one node per LAYOUT_SEP marker, fields
-    // rid|bid|type|parentRid|containerRid|L|M|S|chartHeight|name. `name` is LAST (free-text, parsed as
-    // the rest) so a `|` in a name can't shift the structural fields.
-    const ec = `
-_root := ${ref}
-_r := ""
-_root.descendants().forEach(_n:
-     _p := _n.parent
-     _c := _n.container
-     _r := _r + "${LAYOUT_SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _p.rid.whenMissing("") + "|" + _c.rid.whenMissing("") + "|" + _n.columnsLargeScreen.whenMissing("") + "|" + _n.columnsMediumScreen.whenMissing("") + "|" + _n.columnsSmallScreen.whenMissing("") + "|" + _n.chartHeight.whenMissing("") + "|" + _n.name.whenMissing("") + "\\n"
-)
-_r := _r + "${LAYOUT_SEP}" + _root.rid + "|" + _root.id.whenMissing("") + "|" + _root.className.whenMissing("") + "|||" + _root.columnsLargeScreen.whenMissing("") + "|" + _root.columnsMediumScreen.whenMissing("") + "|" + _root.columnsSmallScreen.whenMissing("") + "||" + _root.name.whenMissing("") + "\\n"
-_r
-`.trim();
-    const result = await this.executeEc(ec);
+    const result = await this.executeEc(buildLayoutTreeEc(ref));
     if (!result.ok || !result.log) return [];
     return parseLayoutNodes(result.log);
   }
@@ -912,11 +982,12 @@ _r
   /** Fetch direct children of an object via EC */
   async fetchChildren(rid: string): Promise<Array<{ rid: string; name?: string; type?: string; businessId?: string }>> {
     const ref = await this.resolveRef(rid);
+    const childRow = buildRowEc(identityRow('_c', { ridDefault: '"SKIP"', order: ['rid', 'id', 'className', 'name'] }), '|||');
     const code = [
       `_o := ${ref}`,
       '_r := ""',
       '_o.children().forEach(_c:',
-      '  _r := _r + _c.rid.whenMissing("SKIP") + "|||" + _c.id.whenMissing("") + "|||" + _c.className.whenMissing("") + "|||" + _c.name.whenMissing("") + "\\n"',
+      `  _r := _r + ${childRow} + "\\n"`,
       ')',
       '_r',
     ].join('\n');
