@@ -118,7 +118,7 @@ export function connectPanel(): void {
 }
 
 function sendPanelHello(): void {
-  windowIdReady.then(() => {
+  void windowIdReady.then(() => {
     if (panelWindowId != null) {
       portInstance?.send({ type: 'PANEL_HELLO', windowId: panelWindowId });
     }

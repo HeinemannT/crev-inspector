@@ -182,7 +182,7 @@ async function init() {
   renderShell()
   ensureSurface()
   schedulePreview()
-  if (mode.hasSandbox) fetchChildren()
+  if (mode.hasSandbox) void fetchChildren()
 }
 
 /** Create the editing surface (once) with the html + javascript slots, or
@@ -208,7 +208,7 @@ function ensureSurface() {
       lintGutter(),
       keymap.of([
         ...baseKeymapBindings,
-        { key: 'Ctrl-s', mac: 'Cmd-s', run: () => { doSave(); return true } },
+        { key: 'Ctrl-s', mac: 'Cmd-s', run: () => { void doSave(); return true } },
         { key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { void runPreview({ retryDeps: true }); return true } },
         { key: 'Shift-Alt-f', run: () => { void doFormat(); return true } },
         closeOverlayKeyBinding,
@@ -444,7 +444,7 @@ function respError(resp: unknown, fallback = ''): string {
 // ── Preview (sandbox) ────────────────────────────────────────────
 function schedulePreview() {
   if (previewTimer) clearTimeout(previewTimer)
-  previewTimer = setTimeout(() => runPreview(), PREVIEW_DEBOUNCE_MS)
+  previewTimer = setTimeout(() => { void runPreview() }, PREVIEW_DEBOUNCE_MS)
 }
 
 async function runPreview(opts: { retryDeps?: boolean } = {}) {
@@ -1049,4 +1049,4 @@ async function doDiscard() {
 // Guard the overlay close when there are unsaved edits.
 installDirtyGuards({ isDirty: anyDirty, bodyText: 'This studio has unsaved changes. Close anyway?' })
 
-init()
+void init()
