@@ -235,4 +235,18 @@ describe('buildHoverResolveEc — syntax regression', () => {
     const lastLine = ec.trim().split('\n').pop() ?? '';
     expect(lastLine.split('"|||"').length).toBe(5);
   });
+
+  // Golden (plan 014 — ec-row-codec migration): the exact EC string this
+  // builder produced before it was rewritten to compose its result row via
+  // ec-row-codec's buildRowEc. Locks the CODE_BEARING_TYPES OR-chain order
+  // and the exact field order/whenMissing defaults of the result row.
+  it('golden: exact EC string for a namespace ref', () => {
+    const ec = buildHoverResolveEc('t.foo');
+    expect(ec).toBe([
+      '_o := t.foo',
+      '_cls := _o.className.whenMissing("")',
+      '_code := (IF _cls = "ExtendedMethodConfig" OR _cls = "ExtendedTable" OR _cls = "ExtendedExpression" OR _cls = "ReferenceMethodConfig" OR _cls = "HistoricalReferenceMethodConfig" OR _cls = "CustomVisualization" OR _cls = "DashboardHTML" THEN output(_o.expression.whenMissing("")) ELSE "" ENDIF)',
+      '_o.name.whenMissing("") + "|||" + _cls + "|||" + _o.rid.whenMissing("") + "|||" + _o.id.whenMissing("") + "|||" + _code',
+    ].join('\n'));
+  });
 });

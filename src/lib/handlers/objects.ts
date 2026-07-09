@@ -16,6 +16,7 @@ import type { TemplateResolution } from '../bmp-client';
 import * as schemaCache from '../type-schema-cache';
 import { refFieldsFromSchema, buildConnectionsEc, parseConnections, buildJunctionEc, parseJunctions, pickFarSide, buildInboundEc, parseInbound, type SchemaProp } from '../connections';
 import type { ConnGroup } from '../types';
+import { buildRowEc } from '../ec-row-codec';
 
 // ── EC builders (exported for tests) ─────────────────────────────
 
@@ -28,11 +29,18 @@ import type { ConnGroup } from '../types';
  *  it for the hover path. */
 export function buildHoverResolveEc(ref: string): string {
   const codeBearingCheck = [...CODE_BEARING_TYPES].map(t => `_cls = "${t}"`).join(' OR ');
+  const row = buildRowEc([
+    { name: 'name', expr: '_o.name.whenMissing("")' },
+    { name: 'className', expr: '_cls' },
+    { name: 'rid', expr: '_o.rid.whenMissing("")' },
+    { name: 'id', expr: '_o.id.whenMissing("")' },
+    { name: 'code', expr: '_code' },
+  ], '|||');
   return [
     `_o := ${ref}`,
     '_cls := _o.className.whenMissing("")',
     `_code := (IF ${codeBearingCheck} THEN output(_o.expression.whenMissing("")) ELSE "" ENDIF)`,
-    '_o.name.whenMissing("") + "|||" + _cls + "|||" + _o.rid.whenMissing("") + "|||" + _o.id.whenMissing("") + "|||" + _code',
+    row,
   ].join('\n');
 }
 
