@@ -21,10 +21,11 @@
 
 export function installCloseHandshake(canClose: () => boolean | Promise<boolean> = () => true): void {
   async function handleMessage(e: MessageEvent) {
-    // Only the parent frame (the content-script overlay host, same extension
-    // origin) may request close. Defense in depth on top of the manifest
-    // extension_pages CSP `frame-ancestors 'self'`, which blocks any
-    // cross-origin page from framing this view in the first place.
+    // Only the parent frame (the content-script overlay host in the BMP page
+    // that framed this view) may request close. The overlay is deliberately
+    // embedded into the http(s) BMP host page, so the parent is the BMP origin,
+    // not the extension origin — this source check, not the CSP, is what keeps
+    // an arbitrary framer from driving the close handshake.
     if (e.source !== window.parent) return;
     const msg = e.data as { type?: string } | undefined;
     if (msg?.type !== 'CREV_OVERLAY_CLOSE_REQUEST') return;
