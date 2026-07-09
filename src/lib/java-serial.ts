@@ -756,11 +756,26 @@ export class JavaReader {
     return result;
   }
 
-  /** Build class hierarchy chain (parent first) from a class desc */
+  /** Build class hierarchy chain (parent first) from a class desc.
+   *
+   *  A classDesc's handle is registered (`addHandle`) BEFORE its superClassDesc
+   *  is read (`readClassDescBody`), so a crafted stream can make a descriptor's
+   *  `parent` a TC_REFERENCE back to itself or an ancestor — a cycle. Without a
+   *  guard this `while` walks forever and `unshift` grows unbounded, hanging and
+   *  OOMing the service worker (the same "malformed /cs/command wedges the SW"
+   *  class the block-data length guards close, via a different primitive that
+   *  `MAX_READ_DEPTH` — which only bounds `readObject` recursion — does not
+   *  cover). Detect the cycle by descriptor identity and fail like the sibling
+   *  guards; `deserializeStream` catches and stops cleanly. */
   private buildClassChain(desc: JavaClassDesc): JavaClassDesc[] {
     const chain: JavaClassDesc[] = [];
+    const seen = new Set<JavaClassDesc>();
     let d: JavaClassDesc | null | undefined = desc;
     while (d) {
+      if (seen.has(d)) {
+        throw new Error('Java-serial: cyclic classDesc parent chain (malformed stream)');
+      }
+      seen.add(d);
       chain.unshift(d);
       d = d.parent;
     }

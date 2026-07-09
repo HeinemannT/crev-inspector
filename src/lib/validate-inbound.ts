@@ -18,19 +18,16 @@
  * Pure function, no I/O — trivially unit-testable.
  */
 import type { BmpObject } from './types';
+import { isRidShaped } from './rid-shape';
+
+// Re-exported so existing importers (`handlers/objects.ts`) keep a stable path;
+// the definition lives once in `rid-shape.ts`, shared with the MAIN-world producer.
+export { isRidShaped };
 
 export type InterceptorMsg =
   | { type: 'OBJECTS_DISCOVERED'; objects: BmpObject[] }
   | { type: 'PAGE_CONTEXT'; rid?: string; tabRid?: string }
   | { type: 'BMP_SIGNALS_RESULT'; signals: string[] };
-
-/** BMP rids are crypto-random 64-bit Java longs — always many digits in
- *  practice. Same rule the MAIN-world interceptor already applies to
- *  `webParentRid`/`selectedTabRid` (`interceptor.ts:47`) — kept in sync here
- *  so producer and receiver agree on what "rid-shaped" means. */
-export function isRidShaped(v: unknown): v is string {
-  return typeof v === 'string' && /^-?\d{6,}$/.test(v);
-}
 
 function hasRidShapedRid(v: unknown): v is { rid: string } {
   return typeof v === 'object' && v !== null && isRidShaped((v as { rid?: unknown }).rid);

@@ -38,11 +38,13 @@ declare global {
     /** One-shot edit-target override for the NEXT enable, set by content.ts's post-apply resume
      *  before this script has necessarily loaded — consumed (and cleared) on init. */
     __crevBpResumePrefer?: 'template' | 'instance';
-    /** Set by content.ts immediately before requesting this file's injection (first activation only)
-     *  — this script's `crev-bp-cmd` listener isn't attached yet when that injection request fires,
-     *  so the enable command would otherwise be dropped. Consumed (and cleared) on init; every
-     *  activation after that goes through the CustomEvent instead. */
-    __crevBpPendingEnable?: boolean;
+    /** True once THIS script has attached its `crev-bp-cmd` listener. content.ts reads it to decide
+     *  whether to dispatch a command live or buffer it in `__crevBpPendingCmds`. */
+    __crevBpEntryReady?: boolean;
+    /** Order-preserving buffer of commands content.ts issued before the listener existed (the very
+     *  first activation, whose injection request fires before this file finishes loading). Drained in
+     *  order on init below; every command after that flows live through the CustomEvent. */
+    __crevBpPendingCmds?: BlueprintCmd[];
     /** Re-injection guard (mirrors `window.__crev_content_loaded` in content.ts) — a second
      *  chrome.scripting.executeScript into the same tab re-runs this file with a FRESH module scope
      *  (a new `bp` singleton, new resize/keydown/mutation listeners), so the previous instance must
@@ -77,15 +79,18 @@ function parseBlueprintCmd(detail: unknown): BlueprintCmd | null {
   return null;
 }
 
-document.addEventListener('crev-bp-cmd', ((event: CustomEvent) => {
-  const detail = parseBlueprintCmd(event.detail);
-  if (!detail) return;
+function handleCmd(detail: BlueprintCmd): void {
   switch (detail.cmd) {
     case 'enable': enableBlueprint(); break;
     case 'disable': disableBlueprint(); break;
     case 'resetColors': resetColorSets(); break;
     case 'setResumePrefer': setBlueprintResumePrefer(detail.prefer); break;
   }
+}
+
+document.addEventListener('crev-bp-cmd', ((event: CustomEvent) => {
+  const detail = parseBlueprintCmd(event.detail);
+  if (detail) handleCmd(detail);
 }) as EventListener, { signal: cmdLifetime.signal });
 
 function teardown(): void {
@@ -109,8 +114,12 @@ if (window.__crevBpResumePrefer) {
   window.__crevBpResumePrefer = undefined;
 }
 
-// Honor a first-activation request that raced this script's own load.
-if (window.__crevBpPendingEnable) {
-  window.__crevBpPendingEnable = false;
-  enableBlueprint();
-}
+// Drain any commands content.ts buffered before this listener existed (the first-injection window),
+// in the order they were issued, then let subsequent commands flow live. Snapshot + clear the queue
+// and flip the ready flag BEFORE replaying, so a command that arrives mid-drain is dispatched live
+// (through the already-attached listener above) rather than lost or double-run — an on→off toggle
+// that raced injection therefore ends in the user's LAST intent, not a hardcoded enable.
+const pendingCmds = window.__crevBpPendingCmds ?? [];
+window.__crevBpPendingCmds = undefined;
+window.__crevBpEntryReady = true;
+for (const cmd of pendingCmds) handleCmd(cmd);

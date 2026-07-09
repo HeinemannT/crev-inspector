@@ -43,19 +43,39 @@ declare global {
     // Full contract documented in content-blueprint-entry.ts, which is the sole reader of all three.
     __crevBpResolver?: () => string | undefined;
     __crevBpResumePrefer?: 'template' | 'instance';
-    __crevBpPendingEnable?: boolean;
+    /** True once content-blueprint.js has attached its `crev-bp-cmd` listener.
+     *  Until then, commands are buffered in `__crevBpPendingCmds` and drained
+     *  in order on the entry's init — see the queue rationale on `sendBlueprintCmd`. */
+    __crevBpEntryReady?: boolean;
+    /** Order-preserving buffer for `crev-bp-cmd` commands issued before the entry
+     *  script's listener exists (the first-injection window). Drained on init. */
+    __crevBpPendingCmds?: BlueprintCmd[];
   }
 }
 
-/** Blueprint command channel — mirrors the crev-content/crev-interceptor CustomEvent convention.
- *  A safe no-op when content-blueprint.js was never injected in this tab (no listener attached). */
+/** Blueprint command channel — mirrors the crev-content/crev-interceptor CustomEvent convention. */
 type BlueprintCmd =
   | { cmd: 'enable' }
   | { cmd: 'disable' }
   | { cmd: 'resetColors' }
   | { cmd: 'setResumePrefer'; prefer: 'template' | 'instance' };
+
+/** Send a command to the (lazily-injected) Blueprint editor.
+ *
+ *  content-blueprint.js attaches its `crev-bp-cmd` listener only at the end of
+ *  its own injection, so any command issued during the first-injection window
+ *  would be lost on the bare CustomEvent channel. Buffer commands in an
+ *  order-preserving queue until the entry signals `__crevBpEntryReady`; the
+ *  entry drains the queue in order on init. This makes the channel reliable for
+ *  ALL commands — previously only `enable` had an ad-hoc fallback, so a fast
+ *  on→off toggle during that window could leave Blueprint enabled against the
+ *  user's last action (the disable was silently dropped). */
 function sendBlueprintCmd(detail: BlueprintCmd): void {
-  document.dispatchEvent(new CustomEvent('crev-bp-cmd', { detail }));
+  if (window.__crevBpEntryReady) {
+    document.dispatchEvent(new CustomEvent('crev-bp-cmd', { detail }));
+  } else {
+    (window.__crevBpPendingCmds ??= []).push(detail);
+  }
 }
 
 // ── Single state instance ────────────────────────────────────────
@@ -89,13 +109,12 @@ window.__crevBpResolver = () => {
 let blueprintInjected = false;
 
 /** Turn Blueprint on for this tab. First call requests the on-demand injection (content-blueprint.js
- *  is not part of this always-on bundle); every call dispatches the enable command — a no-op if the
- *  editor isn't listening yet, in which case `window.__crevBpPendingEnable` (set below, before the
- *  injection request goes out) covers the race and the entry script self-enables on its own init. */
+ *  is not part of this always-on bundle); every call sends the enable command through
+ *  `sendBlueprintCmd`, which buffers it until the entry script is listening (so the enable — and any
+ *  disable that races behind it — is delivered in order, never dropped). */
 function activateBlueprint(): void {
   if (!blueprintInjected) {
     blueprintInjected = true;
-    window.__crevBpPendingEnable = true;
     sendFireForget({ type: 'INJECT_BLUEPRINT' });
   }
   sendBlueprintCmd({ cmd: 'enable' });

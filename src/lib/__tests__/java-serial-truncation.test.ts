@@ -148,6 +148,35 @@ describe('java-serial: truncated stream handling', () => {
     expect(() => r.readObject()).toThrow(/bad block-data length/);
   });
 
+  it('A1 THE HANG REGRESSION: throws (does not hang) on a classDesc whose superClassDesc references itself (cyclic parent chain)', () => {
+    // Craft a TC_OBJECT whose classDesc's superClassDesc is a TC_REFERENCE back
+    // to the classDesc itself. The reader registers the desc's handle
+    // (BASE_HANDLE = 0x7E0000, the first handle in this stream) in
+    // readClassDescBody BEFORE it reads the superClassDesc, so this
+    // self-reference resolves to desc.parent === desc. Pre-fix, buildClassChain's
+    // `while (d) { chain.unshift(d); d = d.parent }` never terminated and unshift
+    // grew unbounded — a service-worker hang/OOM on a malformed /cs/command
+    // response, the same class MAX_READ_DEPTH does not cover (it bounds
+    // readObject recursion, not this iterative parent walk).
+    const w = new JavaWriter();
+    w.writeStreamHeader();
+    w.writeByte(0x73); // TC_OBJECT
+    w.writeByte(0x72); // TC_CLASSDESC -> desc registered at handle 0x7E0000 (first handle)
+    w.writeRawUTF('X'); // class name
+    w.writeLong(0n); // serialVersionUID
+    w.writeByte(SC_SERIALIZABLE); // flags: regular serializable -> reaches buildClassChain
+    w.writeShort(0); // fieldCount = 0
+    w.writeByte(0x78); // TC_ENDBLOCKDATA (empty classAnnotation)
+    w.writeReference(0x7E0000); // superClassDesc = TC_REFERENCE to desc itself -> cycle
+    const bytes = w.toBytes();
+
+    const r = new JavaReader(toArrayBuffer(bytes));
+    r.readStreamHeader();
+
+    // Synchronous call that must return (by throwing) instead of spinning forever.
+    expect(() => r.readObject()).toThrow(/cyclic classDesc parent chain/);
+  });
+
   it('BUG-02: deserializeStream logs the swallowed error and returns only the objects parsed before the corruption', () => {
     const w = new JavaWriter();
     w.writeStreamHeader();

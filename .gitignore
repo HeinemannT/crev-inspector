@@ -22,3 +22,7 @@ dist/
 
 # Internal docs
 ARCHITECTURE.md
+
+# Advisor local scratch + agent worktrees (never in the public repo)
+/plans/
+/.claude/

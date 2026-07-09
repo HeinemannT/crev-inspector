@@ -100,7 +100,8 @@ beforeEach(() => {
   delete w.__crev_content_loaded;
   delete w.__crev_teardown;
   delete w.__crevBpResolver;
-  delete w.__crevBpPendingEnable;
+  delete w.__crevBpEntryReady;
+  delete w.__crevBpPendingCmds;
   delete w.__crevBpResumePrefer;
 });
 
@@ -109,47 +110,62 @@ afterEach(() => {
 });
 
 describe('activateBlueprint — first-activation race + injection-once guard', () => {
-  it('first call: fires INJECT_BLUEPRINT exactly once, sets __crevBpPendingEnable BEFORE the message, and dispatches enable', async () => {
+  it('first activation: fires INJECT_BLUEPRINT exactly once and BUFFERS enable (entry not listening yet)', async () => {
     await loadContent();
     expect(messageListener).toBeDefined();
     const bpCmdEvents = captureBpCmdEvents();
-
-    // Capture the pending-enable flag's value AT THE MOMENT sendFireForget is invoked — proves the
-    // flag is set before the injection request goes out, not after (the race the comment at
-    // content.ts:91-94 documents).
-    let pendingWhenSent: unknown;
-    sendFireForget.mockImplementationOnce(() => {
-      pendingWhenSent = (window as any).__crevBpPendingEnable;
-    });
 
     messageListener!({ type: 'BLUEPRINT_STATE', active: true }, {}, () => {});
 
     expect(sendFireForget).toHaveBeenCalledTimes(1);
     expect(sendFireForget).toHaveBeenCalledWith({ type: 'INJECT_BLUEPRINT' });
-    expect(pendingWhenSent).toBe(true);
-    expect(bpCmdEvents).toEqual([{ cmd: 'enable' }]);
+    // The entry hasn't signalled ready, so nothing is dispatched live — enable is queued in order
+    // for the entry to drain on its own init (the race content.ts:91-94 documents).
+    expect(bpCmdEvents).toEqual([]);
+    expect((window as any).__crevBpPendingCmds).toEqual([{ cmd: 'enable' }]);
   });
 
-  it('second and third calls do not re-fire INJECT_BLUEPRINT (blueprintInjected guard holds), but still dispatch enable every time', async () => {
+  it('B1 REGRESSION: on→off during the first-injection window buffers [enable, disable] in order — the disable is not dropped', async () => {
     await loadContent();
     const bpCmdEvents = captureBpCmdEvents();
 
+    // User toggles Blueprint on, then off, before content-blueprint.js has attached its listener.
     messageListener!({ type: 'BLUEPRINT_STATE', active: true }, {}, () => {});
-    messageListener!({ type: 'BLUEPRINT_STATE', active: true }, {}, () => {});
-    messageListener!({ type: 'BLUEPRINT_STATE', active: true }, {}, () => {});
+    messageListener!({ type: 'BLUEPRINT_STATE', active: false }, {}, () => {});
 
+    // Both commands survive, in order — pre-fix the disable was a lost live CustomEvent and the
+    // entry self-enabled from a hardcoded pending flag, leaving Blueprint stuck ON.
+    expect(bpCmdEvents).toEqual([]);
+    expect((window as any).__crevBpPendingCmds).toEqual([{ cmd: 'enable' }, { cmd: 'disable' }]);
+    // The off toggle must not trigger a second injection.
     expect(sendFireForget).toHaveBeenCalledTimes(1);
-    expect(bpCmdEvents).toEqual([{ cmd: 'enable' }, { cmd: 'enable' }, { cmd: 'enable' }]);
+    expect(sendFireForget).toHaveBeenCalledWith({ type: 'INJECT_BLUEPRINT' });
   });
 
-  it('BLUEPRINT_STATE with active:false dispatches disable, not enable, and never touches injection', async () => {
+  it('once the entry signals ready, commands dispatch live instead of buffering; INJECT fires only once', async () => {
+    await loadContent();
+    const bpCmdEvents = captureBpCmdEvents();
+    (window as any).__crevBpEntryReady = true;
+
+    messageListener!({ type: 'BLUEPRINT_STATE', active: true }, {}, () => {});
+    messageListener!({ type: 'BLUEPRINT_STATE', active: true }, {}, () => {});
+    messageListener!({ type: 'BLUEPRINT_STATE', active: true }, {}, () => {});
+
+    // blueprintInjected guard holds — INJECT once; every enable dispatches live, nothing buffered.
+    expect(sendFireForget).toHaveBeenCalledTimes(1);
+    expect(bpCmdEvents).toEqual([{ cmd: 'enable' }, { cmd: 'enable' }, { cmd: 'enable' }]);
+    expect((window as any).__crevBpPendingCmds).toBeUndefined();
+  });
+
+  it('BLUEPRINT_STATE active:false while the entry is not ready buffers disable and never injects', async () => {
     await loadContent();
     const bpCmdEvents = captureBpCmdEvents();
 
     messageListener!({ type: 'BLUEPRINT_STATE', active: false }, {}, () => {});
 
     expect(sendFireForget).not.toHaveBeenCalled();
-    expect(bpCmdEvents).toEqual([{ cmd: 'disable' }]);
+    expect(bpCmdEvents).toEqual([]);
+    expect((window as any).__crevBpPendingCmds).toEqual([{ cmd: 'disable' }]);
   });
 });
 

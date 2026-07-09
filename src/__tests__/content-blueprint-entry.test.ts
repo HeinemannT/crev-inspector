@@ -5,8 +5,9 @@
  * is the BRIDGE contract with content.ts, which can't be exercised through the real editor —
  *
  *   - on init it adopts the rid resolver content.ts published on `window.__crevBpResolver`,
- *   - it drains the one-shot `window.__crevBpResumePrefer` and the first-activation
- *     `window.__crevBpPendingEnable` flags (clearing both),
+ *   - it drains the one-shot `window.__crevBpResumePrefer` flag, then drains the
+ *     `window.__crevBpPendingCmds` queue (commands content.ts buffered before this listener
+ *     existed) IN ORDER and flips `window.__crevBpEntryReady`,
  *   - and it routes `crev-bp-cmd` CustomEvents to enable/disable/resetColors/setResumePrefer.
  *
  * Each case re-imports the module (vi.resetModules) so the once-per-load init logic runs against the
@@ -45,7 +46,8 @@ beforeEach(() => {
   // Reset the bridge hooks + re-injection guard between cases.
   delete w.__crevBpResolver;
   delete w.__crevBpResumePrefer;
-  delete w.__crevBpPendingEnable;
+  delete w.__crevBpEntryReady;
+  delete w.__crevBpPendingCmds;
   delete w.__crevBpEntryLoaded;
   delete w.__crevBpEntryTeardown;
 });
@@ -60,25 +62,44 @@ describe('content-blueprint-entry init', () => {
     expect(setBlueprintRidResolver).toHaveBeenCalledWith(resolver);
   });
 
-  it('does not enable when there is no pending-enable flag', async () => {
+  it('does not enable when the pending-command queue is empty, and marks itself ready', async () => {
     (window as any).__crevBpResolver = () => 'rid-1';
     await loadEntry();
     expect(enableBlueprint).not.toHaveBeenCalled();
+    expect((window as any).__crevBpEntryReady).toBe(true);
   });
 
-  it('honors a first-activation pending-enable flag and clears it', async () => {
+  it('drains a buffered enable command from the pending queue on init, then clears the queue + marks ready', async () => {
     (window as any).__crevBpResolver = () => 'rid-1';
-    (window as any).__crevBpPendingEnable = true;
+    (window as any).__crevBpPendingCmds = [{ cmd: 'enable' }];
 
     await loadEntry();
 
     expect(enableBlueprint).toHaveBeenCalledTimes(1);
-    expect((window as any).__crevBpPendingEnable).toBe(false);
+    expect((window as any).__crevBpPendingCmds).toBeUndefined();
+    expect((window as any).__crevBpEntryReady).toBe(true);
   });
 
-  it('drains a stashed resume-prefer BEFORE enabling, then clears it', async () => {
+  it('B1 REGRESSION: drains buffered [enable, disable] IN ORDER, ending disabled — the raced disable is not dropped', async () => {
+    (window as any).__crevBpResolver = () => 'rid-1';
+    // The exact sequence content.ts buffers when the user toggles Blueprint on then off during the
+    // first-injection window. Pre-fix, only enable had a fallback and the disable was lost, leaving
+    // Blueprint stuck ON against the user's last action.
+    (window as any).__crevBpPendingCmds = [{ cmd: 'enable' }, { cmd: 'disable' }];
+
+    await loadEntry();
+
+    expect(enableBlueprint).toHaveBeenCalledTimes(1);
+    expect(disableBlueprint).toHaveBeenCalledTimes(1);
+    // Order preserved: enable before disable, so the terminal state is disabled.
+    expect(enableBlueprint.mock.invocationCallOrder[0])
+      .toBeLessThan(disableBlueprint.mock.invocationCallOrder[0]);
+    expect((window as any).__crevBpPendingCmds).toBeUndefined();
+  });
+
+  it('drains a stashed resume-prefer BEFORE draining the pending queue, then clears it', async () => {
     (window as any).__crevBpResumePrefer = 'instance';
-    (window as any).__crevBpPendingEnable = true;
+    (window as any).__crevBpPendingCmds = [{ cmd: 'enable' }];
 
     await loadEntry();
 

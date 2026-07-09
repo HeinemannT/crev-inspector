@@ -5,6 +5,7 @@
  */
 
 import type { BmpObject, InspectorMessage } from './lib/types';
+import { isRidShaped } from './lib/rid-shape';
 
 function post(payload: InspectorMessage) {
   document.dispatchEvent(new CustomEvent('crev-interceptor', { detail: payload }));
@@ -41,10 +42,6 @@ interface FiberLike {
   return?: FiberLike;
   child?: FiberLike;
   sibling?: FiberLike;
-}
-
-function isRidShaped(v: unknown): v is string {
-  return typeof v === 'string' && /^-?\d{6,}$/.test(v);
 }
 
 /** The object the page is bound to (`webParentRid`) + the active tab
