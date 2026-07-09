@@ -183,6 +183,73 @@ describe('ensureContentScript', () => {
   });
 });
 
+describe('ensureBlueprintScript', () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('injects content-blueprint.js (the on-demand Blueprint editor) into the tab', async () => {
+    const h = await createInjectHarness();
+    const { ensureBlueprintScript } = await import('../content-script-injection');
+    await ensureBlueprintScript(42);
+
+    expect(h.executeScript).toHaveBeenCalledTimes(1);
+    expect(h.executeScript.mock.calls[0][0]).toEqual({
+      target: { tabId: 42 },
+      files: ['content-blueprint.js'],
+    });
+    // Distinct log copy from the content.js inject so the two are separable in the activity log.
+    expect(h.ctx.logActivity).toHaveBeenCalledWith('info', expect.stringContaining('Blueprint'));
+  });
+
+  it('is gated on host permission — no inject on a non-granted tab', async () => {
+    const h = await createInjectHarness();
+    ((globalThis as any).chrome.permissions.contains as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+
+    const { ensureBlueprintScript } = await import('../content-script-injection');
+    await expect(ensureBlueprintScript(43)).resolves.toBeUndefined();
+
+    expect(h.executeScript).not.toHaveBeenCalled();
+    expect(h.ctx.logActivity).not.toHaveBeenCalled();
+  });
+
+  it('does not throw when executeScript rejects (swallowed)', async () => {
+    const h = await createInjectHarness();
+    h.executeScript.mockRejectedValueOnce(new Error('Frame removed'));
+
+    const { ensureBlueprintScript } = await import('../content-script-injection');
+    await expect(ensureBlueprintScript(42)).resolves.toBeUndefined();
+    expect(h.ctx.logActivity).toHaveBeenCalledWith('info', expect.stringContaining('Blueprint'));
+  });
+
+  it('dedupes parallel calls — one injection per tab while in flight', async () => {
+    const h = await createInjectHarness();
+    let resolveScript: (() => void) | undefined;
+    h.executeScript.mockImplementationOnce(
+      () => new Promise<void>(r => { resolveScript = () => r(); }),
+    );
+
+    const { ensureBlueprintScript } = await import('../content-script-injection');
+    const [p1, p2, p3] = [ensureBlueprintScript(42), ensureBlueprintScript(42), ensureBlueprintScript(42)];
+
+    await vi.waitFor(() => { expect(h.executeScript).toHaveBeenCalledTimes(1); });
+    resolveScript!();
+    await Promise.all([p1, p2, p3]);
+
+    expect(h.executeScript).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-injects on a later call after the in-flight promise settles', async () => {
+    const h = await createInjectHarness();
+    const { ensureBlueprintScript } = await import('../content-script-injection');
+
+    await ensureBlueprintScript(42);
+    expect(h.executeScript).toHaveBeenCalledTimes(1);
+    await ensureBlueprintScript(42);
+    expect(h.executeScript).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('sendPageInfoToPanel', () => {
   beforeEach(() => {
     vi.useFakeTimers();

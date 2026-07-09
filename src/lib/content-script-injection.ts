@@ -47,6 +47,40 @@ export function ensureContentScript(tabId: number): Promise<void> {
   return p;
 }
 
+/** Tabs currently mid-injection for content-blueprint.js. Separate map from `inFlightInjections`
+ *  (content.js) — the two scripts inject independently and dedupe independently. Same pattern:
+ *  concurrent callers for the same tab share one executeScript, not one-per-tab-forever (a later
+ *  call — e.g. a fresh content.ts instance after a SW idle→reinject cycle — re-injects, which is
+ *  harmless: content-blueprint-entry.ts guards its own re-entry the same way content.ts does). */
+const inFlightBlueprintInjections = new Map<number, Promise<void>>();
+
+/** Inject content-blueprint.js (the lazily-loaded Blueprint layout editor, ~150 KB) into the given
+ *  tab. Called on request — content.ts asks for this on the tab's first blueprint activation rather
+ *  than the script being registered for every page load (see plans/009). Gated on host permission
+ *  like `ensureContentScript`; no-ops silently on a non-granted / non-injectable tab. */
+export function ensureBlueprintScript(tabId: number): Promise<void> {
+  const existing = inFlightBlueprintInjections.get(tabId);
+  if (existing) return existing;
+  const p = (async () => {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      const pattern = originPatternFor(tab?.url);
+      if (!pattern || !(await chrome.permissions.contains({ origins: [pattern] }))) return; // not granted — hands off
+      getCtx().logActivity('info', 'Injecting Blueprint editor…');
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content-blueprint.js'],
+      });
+    } catch (e) {
+      log.swallow('tabs:injectBlueprintScript', e);
+    } finally {
+      inFlightBlueprintInjections.delete(tabId);
+    }
+  })();
+  inFlightBlueprintInjections.set(tabId, p);
+  return p;
+}
+
 /** Query page info from the content script and forward to the right
  *  panel(s). Multi-window aware: if `tabId` is provided, the response
  *  is routed only to the panel in that tab's window — keeping other

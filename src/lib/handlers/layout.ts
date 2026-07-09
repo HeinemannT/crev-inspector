@@ -7,7 +7,7 @@ import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import type { SwContext } from '../sw-context';
 import { loadPage, applyPage, loadBlastRadius } from '../layout-service';
-import { ensureContentScript } from '../tab-awareness';
+import { ensureContentScript, ensureBlueprintScript } from '../tab-awareness';
 import { toggleInspect } from './inspect';
 import { errorMessage, log } from '../logger';
 
@@ -47,6 +47,15 @@ export async function toggleBlueprint(windowId?: number): Promise<void> {
 
 register('BLUEPRINT_TOGGLE', async (_msg, _respond, meta) => {
   await toggleBlueprint(meta.panelWindowId ?? undefined);
+});
+
+// Content → SW: the tab is activating Blueprint for the first time and needs the editor's
+// content-blueprint.js injected (it's not part of the always-on content bundle — see plans/009).
+// Fire-and-forget; content.ts follows up by dispatching the `crev-bp-cmd` enable event once this
+// resolves (or the newly-injected script picks up the pending-enable window flag on its own init).
+register('INJECT_BLUEPRINT', async (_msg, _respond, meta) => {
+  if (meta.senderTabId == null) return;
+  await ensureBlueprintScript(meta.senderTabId);
 });
 
 // Post-apply resume: apply toggles blueprint OFF and reloads the page (the live grid only reflows on

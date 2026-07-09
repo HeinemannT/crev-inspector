@@ -20,9 +20,7 @@ import { updatePaintCursors, flashApplyResult } from './content-paint';
 import { showTooltipForElement, hideTooltip, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
 import { mountFrameOverlay, teardownFrameOverlayModule } from './content-frame-overlay';
-import { enableBlueprint, disableBlueprint, setBlueprintRidResolver, setBlueprintResumePrefer } from './content-blueprint';
-import { RESUME_KEY as BP_RESUME_KEY } from './content-blueprint/service';
-import { resetColorSets as resetBlueprintColors } from './content-blueprint/colors';
+import { BP_RESUME_KEY } from './lib/blueprint-resume';
 import { sendFireForget } from './lib/messaging';
 
 declare global {
@@ -38,7 +36,25 @@ declare global {
      *  instance (duplicate MOUNT_FRAME → two editor windows; a stale
      *  observer/port that re-paints overlays after inspect is toggled off). */
     __crev_teardown?: () => void;
+    // Blueprint bridge — the editor lives in a separately-injected content-blueprint.js (plans/009),
+    // not in this always-on bundle. These hooks are how content.ts hands it a live rid resolver and
+    // a queued activation without a static import (which would pull the ~150 KB editor back in).
+    // Full contract documented in content-blueprint-entry.ts, which is the sole reader of all three.
+    __crevBpResolver?: () => string | undefined;
+    __crevBpResumePrefer?: 'template' | 'instance';
+    __crevBpPendingEnable?: boolean;
   }
+}
+
+/** Blueprint command channel — mirrors the crev-content/crev-interceptor CustomEvent convention.
+ *  A safe no-op when content-blueprint.js was never injected in this tab (no listener attached). */
+type BlueprintCmd =
+  | { cmd: 'enable' }
+  | { cmd: 'disable' }
+  | { cmd: 'resetColors' }
+  | { cmd: 'setResumePrefer'; prefer: 'template' | 'instance' };
+function sendBlueprintCmd(detail: BlueprintCmd): void {
+  document.dispatchEvent(new CustomEvent('crev-bp-cmd', { detail }));
 }
 
 // ── Single state instance ────────────────────────────────────────
@@ -51,14 +67,38 @@ const s = new ContentState();
 // MAIN-world interceptor answers in the same dispatch (its PAGE_CONTEXT reply lands in
 // handleFiberPageContext before dispatchEvent returns). Cached until a URL change clears it
 // (content-observer), so this doesn't re-walk fibers on every blueprint mutation tick.
-setBlueprintRidResolver(() => {
+//
+// Published onto `window` rather than passed to a `setBlueprintRidResolver` import — the resolver is
+// a closure over ContentState (`s.fiberPageContext`) that content-blueprint-entry.ts (a SEPARATE
+// content-script injection, see plans/009) reads by reference. All content scripts injected into one
+// tab share one ISOLATED-world `window`, so this is a live bridge, not a snapshot.
+window.__crevBpResolver = () => {
   const url = extractUrlRids();
   if (url.rid) return url.rid;
   if (!s.fiberPageContext?.rid) {
     document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'EXTRACT_FIBERS' } }));
   }
   return resolvePageContext(url, s.fiberPageContext).rid;
-});
+};
+
+// Whether this content.ts instance has already asked the SW to inject content-blueprint.js. Reset on
+// every fresh content.ts instance (a new page load or SW idle→reinject cycle) — a re-injection into a
+// tab that already has content-blueprint.js alive is harmless (that entry script guards its own
+// re-entry the same way content.ts does), just a redundant round trip.
+let blueprintInjected = false;
+
+/** Turn Blueprint on for this tab. First call requests the on-demand injection (content-blueprint.js
+ *  is not part of this always-on bundle); every call dispatches the enable command — a no-op if the
+ *  editor isn't listening yet, in which case `window.__crevBpPendingEnable` (set below, before the
+ *  injection request goes out) covers the race and the entry script self-enables on its own init. */
+function activateBlueprint(): void {
+  if (!blueprintInjected) {
+    blueprintInjected = true;
+    window.__crevBpPendingEnable = true;
+    sendFireForget({ type: 'INJECT_BLUEPRINT' });
+  }
+  sendBlueprintCmd({ cmd: 'enable' });
+}
 
 // ── Inspect mode ─────────────────────────────────────────────────
 
@@ -177,8 +217,8 @@ function handleConnectionState(state: ConnectionState) {
 
 function handleProfileSwitched(label: string) {
   showToast(`Switched to ${label}`, 'info');
-  disableBlueprint(); // any blueprint overlay is bound to the previous env's page — tear it down
-  resetBlueprintColors(); // colours are per-workspace — drop the overlay's cached bid→rgb map
+  sendBlueprintCmd({ cmd: 'disable' }); // any blueprint overlay is bound to the previous env's page — tear it down
+  sendBlueprintCmd({ cmd: 'resetColors' }); // colours are per-workspace — drop the overlay's cached bid→rgb map
   s.overlayProps.clear();
   renderOverlayCards(s);
   if (s.technicalOverlay) applyTechnicalOverlay(s);
@@ -424,7 +464,7 @@ function oneShotMessageListener(msg: InspectorMessage, _sender: chrome.runtime.M
   // Blueprint toggle arrives via chrome.tabs.sendMessage (one-shot), like INSPECT_STATE — the
   // SW's BLUEPRINT_TOGGLE handler relays here. (LAYOUT_*_RESULT come back on the port instead.)
   if (msg.type === 'BLUEPRINT_STATE') {
-    if (msg.active) enableBlueprint(); else disableBlueprint();
+    if (msg.active) activateBlueprint(); else sendBlueprintCmd({ cmd: 'disable' });
     return false;
   }
   if (msg.type === 'GET_PAGE_INFO') {
@@ -519,7 +559,7 @@ function flashContext(el: HTMLElement): void {
 function resetContentState() {
   removeOverlays(s);
   teardownFrameOverlayModule();
-  disableBlueprint();
+  sendBlueprintCmd({ cmd: 'disable' });
   document.getElementById(OVERLAY_STYLE_ID)?.remove();
   document.getElementById('crev-tooltip')?.remove();
   document.getElementById('crev-paint-banner')?.remove();
@@ -582,7 +622,7 @@ try {
     sessionStorage.removeItem(BP_RESUME_KEY); // one-shot — a later manual reload must not re-trigger
     const r = JSON.parse(raw) as { prefer?: string; t?: number };
     if (typeof r?.t === 'number' && Date.now() - r.t < 30_000) {
-      setBlueprintResumePrefer(r.prefer === 'instance' ? 'instance' : 'template');
+      window.__crevBpResumePrefer = r.prefer === 'instance' ? 'instance' : 'template';
       const askResume = (tries: number): void => {
         if (document.querySelector('[data-rid]')) { sendFireForget({ type: 'BLUEPRINT_RESUME' }); return; }
         if (tries > 0) setTimeout(() => askResume(tries - 1), 500);

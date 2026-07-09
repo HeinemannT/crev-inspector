@@ -11,6 +11,7 @@ import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import type { InspectorMessage } from '../lib/types';
 import type { LModel } from '../lib/layout/types';
+import { BP_RESUME_KEY } from '../lib/blueprint-resume';
 import { bp, model } from './state';
 import { render } from './view';
 
@@ -92,7 +93,7 @@ export async function applyPage(): Promise<void> {
   // so applying to "This instance" doesn't dump the user back into template mode (or, before this,
   // into nothing at all: the off-toggle used to end the session and the user had to re-enter by hand).
   try {
-    sessionStorage.setItem(RESUME_KEY, JSON.stringify({
+    sessionStorage.setItem(BP_RESUME_KEY, JSON.stringify({
       prefer: bp.editingTemplate ? 'template' : 'instance', t: Date.now(),
     }));
   } catch { /* sandboxed / storage disabled — resume is best-effort */ }
@@ -100,6 +101,3 @@ export async function applyPage(): Promise<void> {
   sendToSW({ type: 'BLUEPRINT_TOGGLE' }); // flips per-window state off; updates the sidebar toggle
   setTimeout(() => location.reload(), 500);
 }
-
-/** sessionStorage key for the post-apply resume flag — written here, consumed by content.ts on boot. */
-export const RESUME_KEY = 'crev_bp_resume';
