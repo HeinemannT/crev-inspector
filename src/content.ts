@@ -10,6 +10,7 @@ import { h } from './lib/dom';
 import { log } from './lib/logger';
 import { connectPort, disconnectPort, sendToSW, onPortMessage, onReconnect } from './lib/content-port';
 import { dispatchBroadcast } from './lib/handler-registry';
+import { parseInterceptorMessage } from './lib/validate-inbound';
 import { showToast } from './lib/toast';
 import { broadcast, onSync, teardownCrossTab } from './lib/cross-tab';
 import { ensureOverlayStyle, OVERLAY_STYLE_ID } from './content-overlay-style';
@@ -433,7 +434,12 @@ document.addEventListener('keydown', (e) => {
 // ── Messages from MAIN world interceptor (via CustomEvent) ───────
 
 document.addEventListener('crev-interceptor', ((event: CustomEvent) => {
-  const msg = event.detail;
+  // The page shares this `document` with the MAIN-world interceptor (see
+  // lib/validate-inbound.ts) — a compromised/XSS'd page could forge this
+  // event, so validate shape before acting on it. Malformed payloads are
+  // dropped silently (allowlist).
+  const msg = parseInterceptorMessage(event.detail);
+  if (!msg) return;
   if (msg.type === 'OBJECTS_DISCOVERED') {
     sendToSW(msg);
   }
