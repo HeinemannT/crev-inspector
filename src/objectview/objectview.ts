@@ -95,7 +95,7 @@ if (!rid) {
   // are present; attaching it inside renderPane() (every state change) was
   // stacking N handlers and firing OPEN_OBJECT_VIEW N times on a single click.
   root.addEventListener('click', handleActionClick);
-  init();
+  void init();
 }
 
 async function init() {
