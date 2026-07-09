@@ -14,7 +14,7 @@ import { deleteContextRid } from './context-rid';
 import { sendPageInfoToPanel } from './content-script-injection';
 
 // Re-export for backward compatibility with existing importers
-export { ensureContentScript, sendPageInfoToPanel, handleGetDetection } from './content-script-injection';
+export { ensureContentScript, ensureBlueprintScript, sendPageInfoToPanel, handleGetDetection } from './content-script-injection';
 
 /** Per-window active-tab tracking. The previous singleton broke when
  *  the user had BMP open in two windows — onActivated in one window

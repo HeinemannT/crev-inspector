@@ -5,29 +5,49 @@ import * as esbuild from 'esbuild';
 
 const BUILD_TARGET = 'esnext' as const;
 const contentEntry = resolve(__dirname, 'src/content.ts');
+const blueprintEntry = resolve(__dirname, 'src/content-blueprint-entry.ts');
 
 /**
  * Content scripts run as classic scripts (not ES modules), so they
- * cannot use `import` statements. Use esbuild to bundle content.ts
- * into a self-contained IIFE that replaces the Vite-generated output.
+ * cannot use `import` statements. Use esbuild to bundle each content
+ * entry into a self-contained IIFE that replaces the Vite-generated output.
+ *
+ * Two entries share one esbuild pass config:
+ *   - content.js            — the always-on inspector bundle (src/content.ts)
+ *   - content-blueprint.js  — the lazily-injected Blueprint editor (~150 KB:
+ *     content-blueprint/* + lib/layout/* + the ~63 KB CSS via the text loader),
+ *     injected on demand on first Ctrl+Shift+B activation (plans/009), NOT
+ *     registered for every page load. Keeping it out of content.js is the whole
+ *     point of the split — see src/content-blueprint-entry.ts.
  */
+async function bundleOne(entryPoint: string): Promise<string> {
+  const result = await esbuild.build({
+    entryPoints: [entryPoint],
+    bundle: true,
+    write: false,
+    format: 'iife',
+    minify: true,
+    target: BUILD_TARGET,
+    loader: { '.css': 'text' },
+  });
+  return result.outputFiles[0].text;
+}
+
 function bundleContentScript(): Plugin {
   return {
     name: 'bundle-content-script',
     async generateBundle(_options, bundle) {
-      const result = await esbuild.build({
-        entryPoints: [contentEntry],
-        bundle: true,
-        write: false,
-        format: 'iife',
-        minify: true,
-        target: BUILD_TARGET,
-        loader: { '.css': 'text' },
-      });
-      const entry = bundle['content.js'];
-      if (entry && entry.type === 'chunk') {
-        entry.code = result.outputFiles[0].text;
+      const contentEntryChunk = bundle['content.js'];
+      if (contentEntryChunk && contentEntryChunk.type === 'chunk') {
+        contentEntryChunk.code = await bundleOne(contentEntry);
       }
+      // content-blueprint.js has no Rollup input (it's content-only, never imported by an ES-module
+      // page), so emit it directly as an asset rather than patching an existing chunk.
+      this.emitFile({
+        type: 'asset',
+        fileName: 'content-blueprint.js',
+        source: await bundleOne(blueprintEntry),
+      });
     },
   };
 }
@@ -102,7 +122,7 @@ function extensionPlugin(): Plugin {
       // --- Copy built artifacts from dist/ to project root ---
 
       // Top-level JS files
-      for (const file of ['content.js', 'interceptor.js', 'service-worker.js']) {
+      for (const file of ['content.js', 'content-blueprint.js', 'interceptor.js', 'service-worker.js']) {
         const src = resolve(dist, file);
         if (existsSync(src)) copyFileSync(src, resolve(root, file));
       }

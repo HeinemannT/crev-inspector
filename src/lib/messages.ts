@@ -374,6 +374,12 @@ export type LayoutMessage =
   // Content → SW after the post-apply reload: turn blueprint back ON for the sender tab's window so
   // the editing session survives the refresh (apply toggles it off before reloading — see applyPage).
   | { type: 'BLUEPRINT_RESUME' }
+  // Content → SW on first blueprint activation in a tab: the Blueprint editor (~150 KB, lib/layout/*
+  // + content-blueprint/*) is NOT part of the always-on content bundle — it lives in a separate
+  // content-blueprint.js, injected on demand into the sender tab. Fire-and-forget; content.ts follows
+  // up with the `crev-bp-cmd` CustomEvent (or the window pending-enable flag, if the injected script
+  // hasn't attached its listener yet) to actually turn the overlay on.
+  | { type: 'INJECT_BLUEPRINT' }
   // Panel → SW after a successful chrome.permissions.request (the standard per-site prompt): re-sync
   // the dynamic content-script registrations and, when a tab is named, inject into it right away
   // (registered scripts only cover future loads) + refresh its detection/page info.
