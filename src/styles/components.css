@@ -362,58 +362,25 @@
 .editor-ai-btn:hover,
 .studio-ai-btn:hover { color: var(--accent-bright); }
 
-/* Invoke command strip (Popover 1) — one row: sparkle · mode chip (Ask/Edit,
-   Tab toggles) · instruction input · ↵ cap, plus a scope footer stating what
-   code will be sent and to which model. Anchored near the selection head; the
-   nub is positioned by JS and hidden when clamping detaches it. */
-.ai-strip {
-  position: fixed;
-  z-index: 1200;
-  width: 480px;
-  max-width: calc(100vw - 16px);
-  background: var(--surface-2);
-  border: 1px solid var(--surface-4);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-3);
-  animation: crev-help-in 120ms var(--ease-decelerate);
-}
-.ai-strip-nub {
-  position: absolute;
-  top: -5px;
-  width: 9px;
-  height: 9px;
-  margin-left: -5px;
-  background: var(--surface-2);
-  border-left: 1px solid var(--surface-4);
-  border-top: 1px solid var(--surface-4);
-  transform: rotate(45deg);
-  pointer-events: none;
-}
-.ai-strip-row {
+/* AI invoke command bar — verb-at-send. One tight ~34px row shared verbatim by
+   both shells: sparkle (model in its tooltip) · instruction input · Edit (⌃↵,
+   outlined quiet) · Ask (↵, solid purple). No mode chip, no scope footer — the
+   placeholder states scope, the gutter bracket (.cm-ai-scope) marks it. Enter
+   sends Ask, Ctrl/Cmd+Enter sends Edit. */
+.ai-inbar {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-}
-.ai-strip-spark { display: inline-flex; flex: none; color: var(--accent-bright); }
-.ai-strip-spark svg { width: 15px; height: 15px; }
-.ai-modechip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  flex: none;
-  padding: 1px var(--space-2);
-  border: none;
-  border-radius: 9px;
+  height: 34px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  background: var(--surface-3);
+  border-top: 1px solid var(--surface-4);
+  border-bottom: 1px solid var(--surface-4);
   font-family: var(--font-body);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semi);
-  color: var(--accent-bright);
-  background: var(--accent-bg);
-  cursor: pointer;
 }
-.ai-modechip-tab { color: var(--text-3); font-weight: var(--weight-normal); }
-.ai-strip-input {
+.ai-inbar-spark { display: inline-flex; flex: none; color: var(--accent-bright); cursor: default; }
+.ai-inbar-spark svg { width: 15px; height: 15px; }
+.ai-inbar-input {
   flex: 1;
   min-width: 0;
   background: none;
@@ -423,23 +390,64 @@
   font: inherit;
   font-size: var(--text-sm);
 }
-.ai-strip-input::placeholder { color: var(--text-3); }
-.ai-strip-kbd {
+.ai-inbar-input::placeholder { color: var(--text-3); }
+.ai-verb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   flex: none;
-  padding: 1px 4px;
+  padding: 4px var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  cursor: pointer;
+}
+.ai-verb-kbd { font-family: var(--font-mono); font-size: var(--text-2xs); font-weight: var(--weight-normal); opacity: 0.75; }
+.ai-verb--ask { background: var(--accent); color: #fff; }
+.ai-verb--ask:hover { background: var(--accent-dim); }
+.ai-verb--edit { background: none; color: var(--accent-bright); border-color: var(--surface-4); }
+.ai-verb--edit:hover { background: var(--accent-bg); }
+
+/* Scope indicator: the 2px purple bracket + a subtle highlight over the target
+   lines. Stands in for the native selection while focus is in the bar (the
+   editor is blurred) and doubles as the scope badge. */
+.cm-ai-scope {
+  background: var(--accent-bg);
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+/* Floating fallback shell — the shared .ai-inbar inside an anchored card. Used
+   when the editor view isn't visible (studio preview-only layout) or absent.
+   Anchored near the selection head; the nub is positioned by JS and hidden when
+   clamping detaches it. */
+.ai-strip {
+  position: fixed;
+  z-index: 1200;
+  width: 460px;
+  max-width: calc(100vw - 16px);
+  background: var(--surface-3);
   border: 1px solid var(--surface-4);
-  border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  color: var(--text-3);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+  animation: crev-help-in 120ms var(--ease-decelerate);
 }
-.ai-strip-scope {
-  padding: var(--space-1) var(--space-3);
-  border-top: 1px solid var(--surface-3);
-  font-size: var(--text-2xs);
-  color: var(--text-3);
+.ai-strip .ai-inbar { border: none; background: none; }
+.ai-strip-nub {
+  position: absolute;
+  top: -5px;
+  width: 9px;
+  height: 9px;
+  margin-left: -5px;
+  background: var(--surface-3);
+  border-left: 1px solid var(--surface-4);
+  border-top: 1px solid var(--surface-4);
+  transform: rotate(45deg);
+  pointer-events: none;
+  z-index: 1;
 }
-.ai-strip-scope b { color: var(--text-2); font-weight: var(--weight-medium); }
 .ai-prose { white-space: pre-wrap; margin: 0 0 var(--space-2); }
 .ai-prose:last-child { margin-bottom: 0; }
 .ai-prose code,
