@@ -310,7 +310,6 @@ body {
 .editor-cm-wrap .cm-search input:focus,
 .editor-cm-wrap .cm-textfield:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .editor-cm-wrap .cm-search button,
 .editor-cm-wrap .cm-button {

@@ -831,7 +831,7 @@ body {
   margin: 8px 0 10px; padding: 0 10px; height: 38px;
   background: var(--surface-2); border: 1px solid var(--surface-3); border-radius: var(--radius-lg);
 }
-.bx-shell:focus-within { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.bx-shell:focus-within { border-color: var(--accent); }
 .bx-shell-icon { display: inline-flex; color: var(--text-3); }
 .bx-shell-icon svg { width: 14px; height: 14px; }
 .bx-input {
@@ -2433,7 +2433,7 @@ body.crev-divider-dragging * { user-select: none; }
   border: 1px solid var(--surface-3);
   border-radius: var(--radius-sm);
 }
-.prop-column-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+.prop-column-input:focus { border-color: var(--accent); }
 .prop-column-input.prop-cell--dirty { border-color: var(--accent); background: rgba(139, 92, 246, 0.08); }
 .prop-column-label {
   font-size: var(--text-2xs);
@@ -2602,7 +2602,7 @@ body.crev-divider-dragging * { user-select: none; }
 }
 .prop-number-input:focus {
   border-color: var(--accent);
-  box-shadow: inset 0 1px 0 rgba(0,0,0,0.25), 0 0 0 2px rgba(139, 92, 246, 0.18);
+  box-shadow: inset 0 1px 0 rgba(0,0,0,0.25);
 }
 /* Hide the native browser spin-buttons on <input type="number">. The
  * default arrows are chunky, low-contrast, and crowd the already-narrow
@@ -4419,7 +4419,7 @@ body.crev-divider-dragging * { user-select: none; }
   background: var(--surface-0);
   outline: none;
 }
-.ai-composer-input:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.ai-composer-input:focus { border-color: var(--accent); }
 .ai-composer-foot {
   display: flex;
   align-items: center;

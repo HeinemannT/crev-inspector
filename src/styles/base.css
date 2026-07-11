@@ -24,10 +24,26 @@ body {
 
 /* ── Focus ────────────────────────────────────────────── */
 
-:focus-visible {
+/* Buttons, rows, and other controls get the 2px ring (it carries the
+ * keyboard-navigation a11y contract). Text-entry elements are excluded:
+ * they signal focus through the caret, so their border simply wakes up
+ * to the accent instead ("border wakes up", signed off 2026-07-11). */
+:focus-visible:not(input):not(textarea):not(select) {
   outline: none;
   box-shadow: var(--focus-ring);
   border-radius: var(--radius-sm);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent);
 }
 
 :focus:not(:focus-visible) {
