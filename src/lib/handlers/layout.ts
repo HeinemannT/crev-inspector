@@ -31,6 +31,10 @@ export async function setBlueprintActive(windowId: number, active: boolean, tabI
       chrome.tabs.sendMessage(target, state).catch(e => log.swallow('blueprint:toggleTab', e));
     } else if (!active) { ctx.blueprintTabByWindow.delete(windowId); }
   } catch (e) { log.swallow('blueprint:toggleQuery', e); }
+  // Persist so the toggle survives an MV3 SW idle-suspend (mirrors setInspectActive). After a restart
+  // the boot restore repopulates this, so BLUEPRINT_TOGGLE / Ctrl+Shift+B / the side-panel toggle read
+  // the true state instead of an empty map — the fix for "Exit does nothing after the SW slept".
+  ctx.persistBlueprintState();
 }
 
 /** Flip blueprint on/off for a window (defaulting to the last-focused one — used by both the

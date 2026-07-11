@@ -101,13 +101,18 @@ export async function refresh(): Promise<UpdateStatus> {
       };
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
-      const cached: CachedCheck = { latest: null, checkedAt: Date.now(), error };
+      // A transient failure (offline, GitHub rate-limit) must NOT forget a real
+      // available update or reset the 24h clock into a day-long lockout. Keep the
+      // last-known `latest` and the prior `checkedAt` so a stale cache stays stale
+      // and retries on the next call, instead of masquerading as a fresh check.
+      const prev = await readCache();
+      const cached: CachedCheck = { latest: prev?.latest ?? null, checkedAt: prev?.checkedAt ?? Date.now(), error };
       await writeCache(cached);
       return {
         current,
-        latest: null,
+        latest: cached.latest,
         releasesUrl: RELEASES_URL,
-        isUpdate: false,
+        isUpdate: !!(cached.latest && isNewer(cached.latest, current)),
         checkedAt: cached.checkedAt,
         error,
       };

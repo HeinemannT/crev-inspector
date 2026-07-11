@@ -136,6 +136,7 @@ const ctx: SwContext = {
     else inspectActiveByWindow.delete(windowId);
     persistInspectState();
   },
+  persistBlueprintState,
   get technicalOverlay() { return technicalOverlay; },
   set technicalOverlay(v) { technicalOverlay = v; },
   settingsReady,
@@ -186,6 +187,31 @@ async function restoreInspectState(): Promise<void> {
   } catch (e) { log.swallow('sw:restoreInspect', e); }
 }
 
+/** Per-window blueprint state restore — the mirror of restoreInspectState. Runs inside the boot
+ *  Promise.all so it completes BEFORE settingsReady resolves; since every handler awaits settingsReady,
+ *  the toggle/exit paths never read an empty map after an SW restart (that was the "X does nothing" bug).
+ *  Entries for windows that no longer exist are dropped so a recycled window id can't inherit stale state. */
+async function restoreBlueprintState(): Promise<void> {
+  try {
+    const sess = await chrome.storage.session.get(['crev_blueprint_active_by_window', 'crev_blueprint_tab_by_window']);
+    const active = sess.crev_blueprint_active_by_window as Record<string, boolean> | undefined;
+    const tabs = sess.crev_blueprint_tab_by_window as Record<string, number> | undefined;
+    if (!active && !tabs) return;
+    const liveWindows = await chrome.windows.getAll();
+    const liveIds = new Set(liveWindows.map(w => w.id).filter((id): id is number => id != null));
+    for (const [k, v] of Object.entries(active ?? {})) {
+      const id = Number(k);
+      if (Number.isFinite(id) && liveIds.has(id) && v === true) blueprintActiveByWindow.set(id, true);
+    }
+    for (const [k, v] of Object.entries(tabs ?? {})) {
+      const id = Number(k);
+      // Only keep the pinned tab for a window whose blueprint is (still) active — a stale tab for an
+      // inactive window is noise the toggle would ignore anyway.
+      if (Number.isFinite(id) && liveIds.has(id) && blueprintActiveByWindow.get(id) === true) blueprintTabByWindow.set(id, v);
+    }
+  } catch (e) { log.swallow('sw:restoreBlueprint', e); }
+}
+
 // Boot: load state managers independently (one failure must not block the rest)
 Promise.all([
   cache.load().catch(e => log.swallow('sw:cache', e)),
@@ -196,6 +222,7 @@ Promise.all([
   restoreActivity().catch(e => log.swallow('sw:activity', e)),
   loadTabDetection().catch(e => log.swallow('sw:tabDetection', e)),
   restoreInspectState().catch(e => log.swallow('sw:restoreInspect', e)),
+  restoreBlueprintState().catch(e => log.swallow('sw:restoreBlueprint', e)),
 ]).then(async () => {
   const stored = await chrome.storage.local.get(['crev_settings']).catch(e => { log.swallow('sw:loadStorage', e); return {} as Record<string, unknown>; });
   await loadSettingsFrom((stored as Record<string, unknown>).crev_settings);
@@ -214,6 +241,21 @@ function persistInspectState() {
     .catch(e => log.swallow('sw:persistInspect', e));
 }
 
+/** Per-window blueprint toggle state, persisted to chrome.storage.session so it survives an MV3 SW
+ *  idle-suspend within a browser session — the same treatment inspect gets above, and for the same
+ *  reason: the toggle (BLUEPRINT_TOGGLE / Ctrl+Shift+B / the side-panel button) reads the in-memory map
+ *  to decide on/off, and a wiped map made it flip the WRONG way (an empty map read as "off" → re-activate,
+ *  so Exit appeared dead). Restored at boot BEFORE settingsReady (see restoreBlueprintState). The pinned
+ *  tab rides along so a post-apply resume still targets the right tab after a restart. */
+function persistBlueprintState() {
+  const active: Record<string, boolean> = {};
+  for (const [k, v] of blueprintActiveByWindow) if (v) active[String(k)] = true;
+  const tabs: Record<string, number> = {};
+  for (const [k, v] of blueprintTabByWindow) tabs[String(k)] = v;
+  chrome.storage.session.set({ crev_blueprint_active_by_window: active, crev_blueprint_tab_by_window: tabs })
+    .catch(e => log.swallow('sw:persistBlueprint', e));
+}
+
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(e => log.swallow('sw:sidePanel', e));
 
 // Per-site access: reconcile the dynamic content-script registrations with the granted origins at
@@ -228,6 +270,10 @@ chrome.windows.onRemoved.addListener((id) => {
   // Drop the closed window's inspect-mode entry; otherwise a future
   // window assigned the same ID would inherit stale state.
   if (inspectActiveByWindow.delete(id)) persistInspectState();
+  // Same for blueprint (active flag + pinned tab), for the same recycled-window-id reason.
+  const hadBp = blueprintActiveByWindow.delete(id);
+  const hadTab = blueprintTabByWindow.delete(id);
+  if (hadBp || hadTab) persistBlueprintState();
 });
 
 // ── Context menus ──────────────────────────────────────────────

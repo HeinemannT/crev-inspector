@@ -86,6 +86,7 @@ export function registerTabListeners() {
       if (windowId != null && ctx.blueprintTabByWindow.get(windowId) === tabId) {
         ctx.blueprintActiveByWindow.set(windowId, false);
         ctx.blueprintTabByWindow.delete(windowId);
+        ctx.persistBlueprintState(); // keep the session-persisted copy in step with the ended session
         ctx.sendToPanelByWindow(windowId, { type: 'BLUEPRINT_STATE', active: false });
       }
     }

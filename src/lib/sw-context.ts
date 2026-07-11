@@ -39,6 +39,10 @@ export interface SwContext {
   isInspectActive(windowId: number | undefined): boolean;
   /** Set inspect mode for a window and persist the change. */
   setInspectActive(windowId: number, active: boolean): void;
+  /** Persist blueprintActiveByWindow + blueprintTabByWindow to chrome.storage.session so the toggle
+   *  survives an MV3 SW idle-suspend. Call after any mutation to those maps (mirrors setInspectActive's
+   *  persistence). Restored at boot before settingsReady — see service-worker.ts restoreBlueprintState. */
+  persistBlueprintState(): void;
   technicalOverlay: boolean;
   settingsReady: Promise<void>;
 

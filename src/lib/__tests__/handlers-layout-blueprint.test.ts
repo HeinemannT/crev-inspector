@@ -59,6 +59,7 @@ function makeHarness(overrides: { inspectActiveWindows?: Set<number> } = {}): Ha
     client: null,
     blueprintActiveByWindow: new Map<number, boolean>(),
     blueprintTabByWindow: new Map<number, number>(),
+    persistBlueprintState: vi.fn(),
     isInspectActive: vi.fn((windowId: number | undefined) => windowId != null && inspectActiveWindows.has(windowId)),
     logActivity: vi.fn(),
     sendToPanelByWindow: vi.fn((_w: number, m: InspectorMessage) => panelMsgs.push(m)),
@@ -211,5 +212,20 @@ describe('toggleBlueprint', () => {
 
     await setBlueprintActive(1, true); // already true — true no-op, no re-broadcast
     expect(h.ctx.sendToPanelByWindow).not.toHaveBeenCalled();
+  });
+
+  it('persists blueprint state on a real transition so it survives an MV3 SW idle→restart (the fix for "Exit does nothing after the SW slept")', async () => {
+    const h = makeHarness();
+    const { setBlueprintActive } = await import('../handlers/layout');
+
+    await setBlueprintActive(1, true);
+    expect(h.ctx.persistBlueprintState).toHaveBeenCalledTimes(1);
+    await setBlueprintActive(1, false);
+    expect(h.ctx.persistBlueprintState).toHaveBeenCalledTimes(2);
+
+    // A true no-op (already in that state) returns before persisting — nothing changed to persist.
+    h.ctx.persistBlueprintState.mockClear();
+    await setBlueprintActive(1, false);
+    expect(h.ctx.persistBlueprintState).not.toHaveBeenCalled();
   });
 });

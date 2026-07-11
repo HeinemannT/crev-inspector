@@ -8,6 +8,35 @@ _None._
 
 ## Fixed
 
+### Blueprint Exit (X) does nothing after the SW idle-restarts — FIXED 2026-07-10
+- Symptom: open Blueprint, edit for a while, click the ✕ (Exit) in the command chip → nothing happens,
+  the overlay stays up. Same for `Ctrl+Shift+B` and the side-panel Blueprint toggle. Other chip buttons
+  (undo/redo/tray/discard/apply/peek) were fine.
+- Root cause: leaving Blueprint went through `BLUEPRINT_TOGGLE`, whose handler flips the SW's in-memory
+  `blueprintActiveByWindow` map. That map is NOT persisted; an MV3 service-worker idle→restart (≈30 s of
+  no SW events — trivial to hit mid-edit, since all editing is content-side DOM work) rebuilds it EMPTY.
+  `toggleBlueprint` then computes `next = !map.get(wid)` = `!undefined` = **true** and RE-activates
+  instead of turning off. The content overlay lives in the content script (survives SW restart), so it
+  never went away → "X does nothing".
+- Fix: persist `blueprintActiveByWindow` (+ `blueprintTabByWindow`) to `chrome.storage.session`, exactly
+  as `inspectActiveByWindow` already was (service-worker.ts:40-45, 167-215). `restoreBlueprintState()`
+  runs inside the boot `Promise.all` that gates `settingsReady`, and every handler `await`s
+  `settingsReady` — so the map is repopulated BEFORE any toggle/exit handler runs. No reconnect-timing
+  race. `ctx.persistBlueprintState()` is called after every mutation (setBlueprintActive, the
+  profile-switch clear, the tab-navigate session-end); closed windows are dropped at boot + on
+  `windows.onRemoved` so a recycled window id can't inherit stale state.
+- Why this over a point-fix: the codebase already had the canonical MV3 pattern for exactly this class
+  (inspect). Blueprint just never adopted it. An earlier deterministic-message + content-rehydration
+  attempt worked for the ✕ button but was inconsistent with that pattern AND still raced on
+  `Ctrl+Shift+B` (the command wakes the SW and can run before the content port rehydrates). Persistence
+  fixes all three exit affordances race-free with one pattern.
+- Class audit (other in-memory SW toggles): inspect — already persisted (fine). Paint (`paintPhase`) —
+  not persisted but fail-safe: SW-reset means "off" and reconnect re-pushes it (paint.ts:29), so it's
+  never stuck-on. `technicalOverlay` — global bool, minor. Blueprint was the only stuck-ON case because
+  its content init deliberately does NOT re-push state on reconnect (to preserve in-progress edits).
+- Tests: `handlers-layout-blueprint.test.ts` — asserts `setBlueprintActive` persists on a real
+  transition and skips the persist on a true no-op; the three ctx harnesses gain `persistBlueprintState`.
+
 ### Duplicate editor windows + inspect re-opening itself — FIXED 2026-06-19
 - Two symptoms, one root cause: re-injection leaked the previous content-script instance.
   `chrome.scripting.executeScript({files:['content.js']})` (fired by `ensureContentScript`

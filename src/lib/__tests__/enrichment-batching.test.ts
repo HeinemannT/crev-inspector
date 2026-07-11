@@ -90,6 +90,7 @@ function createMockContext(opts: MockOpts = {}) {
     inspectActiveByWindow: new Map(),
     blueprintActiveByWindow: new Map(),
     blueprintTabByWindow: new Map(),
+    persistBlueprintState: vi.fn(),
     isInspectActive: () => false,
     setInspectActive: vi.fn(),
     technicalOverlay: false,

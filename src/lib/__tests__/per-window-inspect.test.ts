@@ -67,6 +67,7 @@ async function createInspectHarness(opts: {
     inspectActiveByWindow,
     blueprintActiveByWindow: new Map<number, boolean>(),
     blueprintTabByWindow: new Map<number, number>(),
+    persistBlueprintState: vi.fn(),
     settings,
     technicalOverlay: false,
     settingsReady: Promise.resolve(),
