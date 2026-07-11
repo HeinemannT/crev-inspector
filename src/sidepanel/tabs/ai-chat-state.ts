@@ -77,9 +77,12 @@ export function isTerminal(s: StreamState): boolean {
   return s.status !== 'streaming';
 }
 
-/** Display summaries of the tools a reply ran, for the committed transcript. */
+/** Display summaries of the tools a reply ran, for the committed transcript.
+ *  `ok` is carried so the collapsed turn summary can show ✓/✕ and each expanded
+ *  line its own tick. Only an explicit error marks a call failed — a still
+ *  pending call (e.g. from a cancelled turn) counts as ok. */
 export function toolTraceOf(s: StreamState): AiChatToolTrace[] {
-  return s.tools.map(t => ({ name: t.name, summary: t.summary }));
+  return s.tools.map(t => ({ name: t.name, summary: t.summary, ok: t.status !== 'err' }));
 }
 
 /** Freeze a finished stream into an assistant transcript turn. Cancelled and

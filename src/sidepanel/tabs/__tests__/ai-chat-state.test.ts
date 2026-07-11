@@ -104,7 +104,7 @@ describe('toAssistantTurn', () => {
     expect(toAssistantTurn(s)).toEqual({
       role: 'assistant',
       text: 'Answer.',
-      toolTrace: [{ name: 'read_object', summary: 'x · ok' }],
+      toolTrace: [{ name: 'read_object', summary: 'x · ok', ok: true }],
     });
   });
 
@@ -112,6 +112,20 @@ describe('toAssistantTurn', () => {
     const s = run([{ kind: 'text-delta', delta: 'hi' }, { kind: 'done' }]);
     expect(toAssistantTurn(s)).toEqual({ role: 'assistant', text: 'hi' });
     expect(toolTraceOf(s)).toEqual([]);
+  });
+
+  it('carries per-call ok status into the trace (✕ on a failed call)', () => {
+    const s = run([
+      { kind: 'tool-start', name: 'read_object', summary: 'a' },
+      { kind: 'tool-end', name: 'read_object', summary: 'a · ok', ok: true },
+      { kind: 'tool-start', name: 'preview_ec', summary: 'b' },
+      { kind: 'tool-end', name: 'preview_ec', summary: 'b · syntax error', ok: false },
+      { kind: 'done' },
+    ]);
+    expect(toolTraceOf(s)).toEqual([
+      { name: 'read_object', summary: 'a · ok', ok: true },
+      { name: 'preview_ec', summary: 'b · syntax error', ok: false },
+    ]);
   });
 
   it('keeps partial text from a cancelled stream', () => {

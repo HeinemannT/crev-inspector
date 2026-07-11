@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Command strip — 4 redesign ideas</title>
+<style>
+  :root { --brand: #8a3ffc; --mono: "JetBrains Mono", ui-monospace, monospace; }
+  * { box-sizing: border-box; margin: 0; }
+  body { font: 13px/1.45 Inter, system-ui, sans-serif; color: #161616; background: #fafafa; padding: 40px; }
+  h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+  .sub { color: #6f6f6f; margin-bottom: 30px; max-width: 660px; }
+  h2 { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #6f6f6f; margin: 34px 0 6px; }
+  .note { color: #6f6f6f; font-size: 12px; margin: 4px 0 12px; max-width: 640px; }
+  .note b { color: #525252; }
+
+  /* editor mock */
+  .ed { position: relative; width: 780px; background: #1e1e2e; border: 1px solid #363646; border-radius: 2px; font-family: var(--mono); font-size: 12.5px; color: #cdd6f4; padding: 12px 0; overflow: hidden; }
+  .cl { padding: 1px 16px 1px 46px; position: relative; white-space: pre; }
+  .cl .n { position: absolute; left: 0; width: 34px; text-align: right; color: #585b70; }
+  .cl.sel { background: #2f3350; }
+  .k { color: #cba6f7; } .f { color: #89b4fa; } .s { color: #a6e3a1; } .v { color: #f5c2e7; } .num { color: #fab387; }
+  .sp { color: #b48cff; }
+  svg.spk { width: 14px; height: 14px; flex: none; }
+
+  /* ============ 1: verb-at-send ============ */
+  .p1 { position: absolute; left: 46px; top: 96px; width: 480px; display: flex; align-items: center; gap: 0;
+        background: #262637; border: 1px solid #45475a; border-radius: 4px; height: 34px; padding: 0 4px 0 10px;
+        box-shadow: 0 8px 24px rgba(0,0,0,.45); font-family: Inter; }
+  .p1 .scope { font-family: var(--mono); font-size: 9.5px; color: #94a0c8; background: #313244; border-radius: 8px; padding: 1px 7px; margin: 0 8px 0 6px; flex: none; }
+  .p1 input { flex: 1; background: none; border: none; outline: none; color: #cdd6f4; font: 12.5px Inter; min-width: 0; }
+  .p1 input::placeholder { color: #6c7086; }
+  .p1 .act { font: 600 11.5px Inter; border: none; border-radius: 3px; padding: 5px 11px; cursor: pointer; margin-left: 4px; flex: none; display: flex; gap: 5px; align-items: center; }
+  .p1 .act .kbd { font: 9px var(--mono); opacity: .75; font-weight: 400; }
+  .p1 .ask { background: #8a3ffc; color: #fff; }
+  .p1 .edit { background: none; color: #b48cff; border: 1px solid #45475a; }
+
+  /* ============ 2: placeholder carries everything ============ */
+  .p2 { position: absolute; left: 46px; top: 96px; width: 340px; background: #262637; border: 1px solid #45475a; border-radius: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.45); font-family: Inter; overflow: hidden; }
+  .p2 .seg { display: flex; border-bottom: 1px solid #363646; }
+  .p2 .seg button { flex: 1; font: 600 11.5px Inter; padding: 6px 0; border: none; background: none; color: #6c7086; cursor: pointer; display: flex; gap: 6px; align-items: center; justify-content: center; }
+  .p2 .seg button.on { color: #fff; background: rgba(138,63,252,.22); box-shadow: inset 0 -2px 0 #8a3ffc; }
+  .p2 .row { display: flex; align-items: center; padding: 2px 6px 2px 10px; }
+  .p2 input { flex: 1; background: none; border: none; outline: none; color: #cdd6f4; font: 12.5px Inter; padding: 7px 0; min-width: 0; }
+  .p2 input::placeholder { color: #6c7086; }
+  .p2 .go { width: 26px; height: 26px; border-radius: 3px; border: none; background: #8a3ffc; color: #fff; cursor: pointer; font-size: 13px; flex: none; }
+
+  /* ============ 3: verb-first palette ============ */
+  .p3 { position: absolute; left: 46px; top: 96px; width: 300px; background: #262637; border: 1px solid #45475a; border-radius: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.45); font-family: Inter; overflow: hidden; }
+  .p3 .vrow { display: flex; align-items: center; gap: 9px; padding: 8px 12px; cursor: pointer; color: #cdd6f4; font-size: 12.5px; }
+  .p3 .vrow.hover { background: rgba(138,63,252,.18); }
+  .p3 .vrow .ic { width: 22px; height: 22px; border-radius: 3px; display: grid; place-items: center; font-size: 12px; flex: none; }
+  .p3 .vrow .ic.a { background: rgba(138,63,252,.25); color: #b48cff; }
+  .p3 .vrow .ic.e { background: rgba(123,92,255,.22); color: #a5b4fc; }
+  .p3 .vrow .d { font-size: 10.5px; color: #6c7086; margin-left: auto; font-family: var(--mono); }
+  .p3b { position: absolute; left: 400px; top: 96px; width: 330px; background: #262637; border: 1px solid #45475a; border-radius: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.45); font-family: Inter; display: flex; align-items: center; padding: 4px 8px 4px 6px; height: 36px; }
+  .p3b .tok { display: flex; gap: 5px; align-items: center; font: 600 11px Inter; color: #b48cff; background: rgba(138,63,252,.18); border-radius: 3px; padding: 3px 8px; flex: none; }
+  .p3b .tok .x { color: #6c7086; cursor: pointer; font-weight: 400; }
+  .p3b input { flex: 1; background: none; border: none; outline: none; color: #cdd6f4; font: 12.5px Inter; margin-left: 8px; min-width: 0; }
+  .p3b input::placeholder { color: #6c7086; }
+
+  /* ============ 4: inline native bar ============ */
+  .inbar { display: flex; align-items: center; gap: 8px; background: #262637; border-top: 1px solid #45475a; border-bottom: 1px solid #45475a; padding: 6px 16px 6px 46px; font-family: Inter; position: relative; }
+  .inbar input { flex: 1; background: none; border: none; outline: none; color: #cdd6f4; font: 12.5px Inter; min-width: 0; }
+  .inbar input::placeholder { color: #6c7086; }
+  .inbar .modes { display: flex; gap: 2px; font: 600 11px Inter; flex: none; }
+  .inbar .modes span { padding: 3px 9px; border-radius: 3px; color: #6c7086; cursor: pointer; }
+  .inbar .modes span.on { background: #8a3ffc; color: #fff; }
+  .inbar .esc { font: 9.5px var(--mono); color: #6c7086; border: 1px solid #45475a; border-radius: 3px; padding: 1px 4px; flex: none; }
+  .gutter { position: absolute; left: 38px; width: 2px; background: #8a3ffc; }
+
+  .cap { font-size: 11.5px; color: #6f6f6f; margin-top: 8px; max-width: 760px; }
+  .cap b { color: #525252; }
+</style>
+</head>
+<body>
+
+<h1>Command strip — 4 redesign ideas</h1>
+<div class="sub">Complaints addressed: too big, wasted space, unintuitive mode. Each idea kills the two-line layout and the Tab-mystery mode chip in a different way. All shown at the selection on a dark editor.</div>
+
+<svg style="display:none"><symbol id="spk" viewBox="0 0 256 256">
+  <path fill="currentColor" d="M100 36 L118 94 L176 112 L118 130 L100 188 L82 130 L24 112 L82 94 Z"/>
+  <path fill="currentColor" d="M188 140 L198 170 L228 180 L198 190 L188 220 L178 190 L148 180 L178 170 Z"/>
+</symbol></svg>
+
+<h2>1 — Verb at send (no mode at all)</h2>
+<div class="note">One 34px row. You type the instruction first, then pick the intent with the button you press: <b>Ask</b> is Enter, <b>Edit</b> is Ctrl+Enter. The mode concept disappears — intent is chosen last, the way people actually think. Scope is a tiny pill inside the bar; model name lives in its tooltip.</div>
+<div class="ed" style="height:200px">
+  <div class="cl sel"><span class="n">1</span><span class="v">_riskCount</span> := <span class="num">0</span></div>
+  <div class="cl sel"><span class="n">2</span><span class="k">root</span>.<span class="f">descendants</span>().<span class="f">forEach</span>(<span class="v">item</span>:</div>
+  <div class="cl"><span class="n">3</span>     <span class="k">IF</span> <span class="v">item</span>.name = <span class="s">"*risk*"</span> <span class="k">THEN</span></div>
+  <div class="p1">
+    <svg class="spk sp"><use href="#spk"/></svg>
+    <span class="scope">1–2</span>
+    <input placeholder="What do you want to know or change?">
+    <button class="act edit">Edit <span class="kbd">⌃↵</span></button>
+    <button class="act ask">Ask <span class="kbd">↵</span></button>
+  </div>
+</div>
+<div class="cap"><b>Why it works:</b> zero chrome before typing, no toggle to discover, both verbs always visible with their shortcuts printed on them. <b>Risk:</b> two buttons cost ~150px of row width.</div>
+
+<h2>2 — Placeholder carries everything (tight card)</h2>
+<div class="note">A 340px two-row card, but every pixel earns its place: the top is a real 50/50 segmented control (obvious click targets), and the <b>placeholder text does the scope-explaining</b>: "Edit lines 1–2…" / "Ask about lines 1–2…". No footer line, no badges. Send arrow embedded.</div>
+<div class="ed" style="height:200px">
+  <div class="cl sel"><span class="n">1</span><span class="v">_riskCount</span> := <span class="num">0</span></div>
+  <div class="cl sel"><span class="n">2</span><span class="k">root</span>.<span class="f">descendants</span>().<span class="f">forEach</span>(<span class="v">item</span>:</div>
+  <div class="cl"><span class="n">3</span>     <span class="k">IF</span> <span class="v">item</span>.name = <span class="s">"*risk*"</span> <span class="k">THEN</span></div>
+  <div class="p2">
+    <div class="seg">
+      <button class="on"><svg class="spk"><use href="#spk"/></svg>Ask</button>
+      <button>✎ Edit</button>
+    </div>
+    <div class="row">
+      <input placeholder="Ask about lines 1–2…">
+      <button class="go">→</button>
+    </div>
+  </div>
+</div>
+<div class="cap"><b>Why it works:</b> smallest footprint of the card options; the placeholder answers "what will it see" without a scope footer. Tab still toggles for keyboard users. <b>Risk:</b> two rows tall (but 30% narrower and shorter than today).</div>
+
+<h2>3 — Verb-first palette (progressive)</h2>
+<div class="note">Ctrl+K opens a two-row chooser (left). Pick a verb — click, arrow keys, or just press <b>A</b>/<b>E</b> — and it collapses into a one-row input with the verb as a removable token (right). Most discoverable for new users; two keystrokes for pros.</div>
+<div class="ed" style="height:210px">
+  <div class="cl sel"><span class="n">1</span><span class="v">_riskCount</span> := <span class="num">0</span></div>
+  <div class="cl sel"><span class="n">2</span><span class="k">root</span>.<span class="f">descendants</span>().<span class="f">forEach</span>(<span class="v">item</span>:</div>
+  <div class="cl"><span class="n">3</span>     <span class="k">IF</span> <span class="v">item</span>.name = <span class="s">"*risk*"</span> <span class="k">THEN</span></div>
+  <div class="p3">
+    <div class="vrow hover"><span class="ic a">?</span>Ask about lines 1–2 <span class="d">A</span></div>
+    <div class="vrow"><span class="ic e">✎</span>Edit lines 1–2 <span class="d">E</span></div>
+  </div>
+  <div class="p3b">
+    <span class="tok">✎ Edit 1–2 <span class="x">✕</span></span>
+    <input placeholder="Describe the change…">
+  </div>
+</div>
+<div class="cap"><b>Why it works:</b> nothing to explain, ever — the verbs are sentences. The token makes the chosen scope+mode explicit and removable. <b>Risk:</b> one extra step per invoke (mitigated by A/E keys and remembering the last verb as preselected).</div>
+
+<h2>4 — Inline native bar (Cursor-style)</h2>
+<div class="note">No floating box at all: the bar is injected <b>into the editor</b> as an inline widget directly under the selection, full editor width. A 2px purple gutter bracket marks the target lines — that IS the scope badge. Mode is a two-word toggle on the right. Feels like part of the editor, uses all the horizontal space.</div>
+<div class="ed" style="height:230px; padding-bottom: 0;">
+  <div class="gutter" style="top:14px; height:38px;"></div>
+  <div class="cl sel"><span class="n">1</span><span class="v">_riskCount</span> := <span class="num">0</span></div>
+  <div class="cl sel"><span class="n">2</span><span class="k">root</span>.<span class="f">descendants</span>().<span class="f">forEach</span>(<span class="v">item</span>:</div>
+  <div class="inbar">
+    <svg class="spk sp"><use href="#spk"/></svg>
+    <input placeholder="Ask or edit lines 1–2…">
+    <div class="modes"><span class="on">Ask</span><span>Edit</span></div>
+    <span class="esc">esc</span>
+  </div>
+  <div class="cl"><span class="n">3</span>     <span class="k">IF</span> <span class="v">item</span>.name = <span class="s">"*risk*"</span> <span class="k">THEN</span></div>
+  <div class="cl"><span class="n">4</span>          <span class="v">_riskCount</span> := <span class="v">_riskCount</span> + <span class="num">1</span></div>
+</div>
+<div class="cap"><b>Why it works:</b> zero occlusion (code moves down instead of being covered), scope is literally drawn on the gutter, full-width input. This is the pattern Cursor and Copilot converged on. <b>Risk:</b> highest implementation cost (CodeMirror block widget + layout shift), and the studio preview panes complicate "inline".</div>
+
+</body>
+</html>

@@ -4243,6 +4243,27 @@ body.crev-divider-dragging * { user-select: none; }
 .ai-tl-name { color: var(--text-2); flex: none; }
 .ai-tl-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Committed tool trace — collapsed to one "Ran N tools" summary by default,
+   the per-call lines revealed on click. */
+.ai-tg { margin-bottom: 2px; }
+.ai-tg-sum {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+.ai-tg-tick { flex: none; color: var(--success); }
+.ai-tg-sum--err .ai-tg-tick { color: var(--danger); }
+.ai-tg-sum:hover .ai-tg-label { color: var(--text-2); }
+.ai-tg-detail { display: none; }
+.ai-tg--open .ai-tg-detail { display: block; }
+
 /* Markdown table — zebra rows. */
 .ai-md-table {
   border-collapse: collapse;
@@ -4343,21 +4364,14 @@ body.crev-divider-dragging * { user-select: none; }
   cursor: pointer;
 }
 
-/* Composer — context chips bottom-left (no label), textarea, footer. */
+/* Composer — textarea, then a single footer row: context (chips / hint) on the
+   left, model + Send on the right. */
 .ai-composer {
   flex: none;
   border-top: 1px solid var(--surface-3);
   padding: 8px 10px;
   background: var(--surface-0);
 }
-.ai-chips {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-bottom: 6px;
-}
-.ai-chips:empty { display: none; }
 .ai-cchip {
   display: inline-flex;
   align-items: center;
@@ -4409,14 +4423,37 @@ body.crev-divider-dragging * { user-select: none; }
 .ai-composer-foot {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-top: 6px;
-  font-size: var(--text-2xs);
-  color: var(--text-3);
+  gap: 8px;
+  margin-top: 8px;
 }
-.ai-composer-model { font-family: var(--font-mono); }
+/* Context cell — grows to fill, pushing model + Send to the right. Chips wrap
+   to a second line when two are attached and space is tight; the Send row
+   stays intact. */
+.ai-composer-ctx {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ai-composer-hint {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.ai-composer-model {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
 .ai-send {
-  margin-left: auto;
+  flex: none;
   padding: 5px 14px;
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);

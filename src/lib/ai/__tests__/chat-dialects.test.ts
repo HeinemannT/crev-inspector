@@ -64,6 +64,61 @@ describe('streamAnthropicTurn — tool_use accumulation', () => {
     await streamAnthropicTurn({ model: 'm', apiKey: 'k', system: '', messages: [], tools: [], onText: () => {} });
     expect(JSON.parse(calls[0].body).tools).toBeUndefined();
   });
+
+  it('places cache breakpoints on the last tool, the system block, and the last message (<= 4 total)', async () => {
+    const calls: any[] = [];
+    vi.stubGlobal('fetch', vi.fn((_u: string, init: any) => { calls.push(init); return Promise.resolve(okStream(['event: message_stop\ndata: {}\n\n'])); }));
+
+    const tools = [
+      { name: 'read_object', description: 'a', input_schema: { type: 'object' as const, properties: {}, required: [], additionalProperties: false as const } },
+      { name: 'preview_ec', description: 'b', input_schema: { type: 'object' as const, properties: {}, required: [], additionalProperties: false as const } },
+    ];
+    await streamAnthropicTurn({
+      model: 'claude-opus-4-8', apiKey: 'k', system: 'PERSONA + KNOWLEDGE',
+      messages: [
+        { role: 'user', content: 'hi' },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read_object', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'result' }] },
+      ],
+      tools,
+      onText: () => {},
+    });
+
+    const body = JSON.parse(calls[0].body);
+    const bp = { type: 'ephemeral' };
+
+    // 1. LAST tool def carries the breakpoint; earlier ones do not.
+    expect(body.tools[body.tools.length - 1].cache_control).toEqual(bp);
+    expect(body.tools[0].cache_control).toBeUndefined();
+
+    // 2. The single system block carries a breakpoint.
+    expect(body.system[0].cache_control).toEqual(bp);
+
+    // 3. The last block of the LAST message carries the turn-boundary breakpoint;
+    //    earlier messages do not.
+    const lastMsg = body.messages[body.messages.length - 1];
+    expect(lastMsg.content[lastMsg.content.length - 1].cache_control).toEqual(bp);
+    expect(JSON.stringify(body.messages[0])).not.toContain('cache_control');
+    expect(JSON.stringify(body.messages[1])).not.toContain('cache_control');
+
+    // Anthropic caps a request at 4 breakpoints; we use exactly 3.
+    const total = (calls[0].body.match(/"cache_control"/g) ?? []).length;
+    expect(total).toBe(3);
+    expect(total).toBeLessThanOrEqual(4);
+  });
+
+  it('serializes the tool block byte-stable across calls (cache-safe)', async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', vi.fn((_u: string, init: any) => { bodies.push(init.body); return Promise.resolve(okStream(['event: message_stop\ndata: {}\n\n'])); }));
+    const tools = [
+      { name: 'read_object', description: 'a', input_schema: { type: 'object' as const, properties: {}, required: [], additionalProperties: false as const } },
+      { name: 'preview_ec', description: 'b', input_schema: { type: 'object' as const, properties: {}, required: [], additionalProperties: false as const } },
+    ];
+    for (let i = 0; i < 2; i++) {
+      await streamAnthropicTurn({ model: 'm', apiKey: 'k', system: 'S', messages: [{ role: 'user', content: `turn ${i}` }], tools, onText: () => {} });
+    }
+    expect(JSON.stringify(JSON.parse(bodies[0]).tools)).toBe(JSON.stringify(JSON.parse(bodies[1]).tools));
+  });
 });
 
 describe('streamOpenAiTurn — delta.tool_calls accumulation', () => {
@@ -88,6 +143,36 @@ describe('streamOpenAiTurn — delta.tool_calls accumulation', () => {
       role: 'assistant', content: null,
       tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'read_type', arguments: '{"type":"ButtonInput"}' } }],
     });
+  });
+
+  it('keeps a byte-stable message prefix across two consecutive turns', async () => {
+    // OpenAI-compat caching is automatic on a stable prefix — nothing before the
+    // new turn may vary. Turn 2 = turn 1's messages + the assistant reply + a
+    // fresh user turn; the shared prefix must serialize identically.
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', vi.fn((_u: string, init: any) => {
+      bodies.push(init.body);
+      return Promise.resolve(okStream([
+        'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+        'data: [DONE]\n\n',
+      ]));
+    }));
+
+    const base: any[] = [
+      { role: 'system', content: 'PERSONA + KNOWLEDGE PREFIX' },
+      { role: 'user', content: 'first question' },
+    ];
+    await streamOpenAiTurn({ baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', apiKey: 'k', messages: base, onText: () => {} });
+    const next = [...base, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'second question' }];
+    await streamOpenAiTurn({ baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', apiKey: 'k', messages: next, onText: () => {} });
+
+    const m1 = JSON.parse(bodies[0]).messages;
+    const m2 = JSON.parse(bodies[1]).messages;
+    // The system block and every shared history entry are byte-identical.
+    for (let i = 0; i < m1.length; i++) {
+      expect(JSON.stringify(m2[i])).toBe(JSON.stringify(m1[i]));
+    }
   });
 
   it('returns a plain assistant text message when no tools are called', async () => {

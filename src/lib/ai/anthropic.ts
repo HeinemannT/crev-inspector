@@ -47,10 +47,45 @@ export type AnthropicContentBlock =
 
 export type AnthropicMessage = { role: 'user' | 'assistant'; content: string | AnthropicContentBlock[] };
 
+/** A 5-minute ephemeral cache breakpoint. Anthropic caps a request at 4 of
+ *  these; the tool turn uses at most 3 (tools, system, turn boundary). */
+const CACHE_CONTROL = { type: 'ephemeral' } as const;
+
+/** A content block that may carry a cache breakpoint (wire shape only). */
+type WireBlock = AnthropicContentBlock & { cache_control?: typeof CACHE_CONTROL };
+type WireMessage = { role: 'user' | 'assistant'; content: string | WireBlock[] };
+type WireTool = ReturnType<typeof toAnthropicTools>[number] & { cache_control?: typeof CACHE_CONTROL };
+
+/** Put a cache breakpoint on the LAST tool definition. Tool defs serialize as
+ *  one unit before system, so one breakpoint at the tail caches all of them —
+ *  provided the set stays byte-stable across the session (it does: TOOL_DEFS is
+ *  a fixed-order constant). */
+function withToolCacheBreakpoint(tools: ReturnType<typeof toAnthropicTools>): WireTool[] {
+  return tools.map((t, i) => (i === tools.length - 1 ? { ...t, cache_control: CACHE_CONTROL } : { ...t }));
+}
+
+/** Put a cache breakpoint on the last content block of the FINAL message — the
+ *  standard multi-turn pattern. This moves the breakpoint forward every request
+ *  so consecutive requests inside the tool loop (and across user turns) re-read
+ *  the prefix instead of falling outside the 20-block lookback window. A plain
+ *  string content is promoted to a single text block so the marker has a home. */
+function withHistoryCacheBreakpoint(messages: AnthropicMessage[]): WireMessage[] {
+  if (messages.length === 0) return messages;
+  const out: WireMessage[] = messages.slice();
+  const last = out[out.length - 1];
+  const blocks: WireBlock[] = typeof last.content === 'string'
+    ? [{ type: 'text', text: last.content }]
+    : last.content.map(b => ({ ...b }));
+  if (blocks.length === 0) return out;
+  blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: CACHE_CONTROL };
+  out[out.length - 1] = { role: last.role, content: blocks };
+  return out;
+}
+
 export async function streamAnthropic(opts: AnthropicStreamOpts): Promise<{ text: string }> {
   const url = `${PROVIDERS.anthropic.baseUrl}/v1/messages`;
   const system = opts.system
-    ? [{ type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } }]
+    ? [{ type: 'text', text: opts.system, cache_control: CACHE_CONTROL }]
     : undefined;
   const body = {
     model: opts.model,
@@ -131,17 +166,29 @@ interface BlockAcc {
  *  caller can drive the tool loop. */
 export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<AnthropicTurnResult> {
   const url = `${PROVIDERS.anthropic.baseUrl}/v1/messages`;
+  // Prompt-cache breakpoints (max 4 per request; Anthropic reads = 0.1x input).
+  // The stable prefix serializes as tools → system → messages, so we place at
+  // most THREE ephemeral breakpoints, one per prefix segment:
+  //   1. the LAST tool definition  → caches the whole (byte-stable) tools block
+  //   2. the system block          → caches tools + system together
+  //   3. the last block of the last message → a moving turn-boundary breakpoint
+  // (3) is essential: Anthropic's cache lookback only walks 20 content blocks
+  // back from a breakpoint, and one tool loop can emit far more than 20
+  // tool_use/tool_result blocks, so without a fresh breakpoint at the tail the
+  // NEXT request silently misses the prefix cache.
   const system = opts.system
-    ? [{ type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } }]
+    ? [{ type: 'text', text: opts.system, cache_control: CACHE_CONTROL }]
     : undefined;
   const useTools = opts.tools && opts.tools.length > 0;
+  const tools = useTools ? withToolCacheBreakpoint(opts.tools!) : undefined;
+  const messages = withHistoryCacheBreakpoint(opts.messages);
   const body = {
     model: opts.model,
     max_tokens: MAX_TOKENS,
     stream: true,
     ...(system ? { system } : {}),
-    ...(useTools ? { tools: opts.tools } : {}),
-    messages: opts.messages,
+    ...(tools ? { tools } : {}),
+    messages,
   };
 
   const response = await fetch(url, {

@@ -40,6 +40,10 @@ interface DisplayTurn {
   turn: AiChatTurn;
   /** "using editor · <bid>" — set on assistant turns produced with 2 sources. */
   contextTag?: string;
+  /** View-only: whether the committed tool trace is expanded. Historical turns
+   *  render collapsed by default; the flag persists an explicit expand across
+   *  re-renders. */
+  toolsExpanded?: boolean;
 }
 
 export class AiTab implements Tab {
@@ -65,7 +69,8 @@ export class AiTab implements Tab {
   // ── Persistent composer nodes (reused across renders) ───────────
   private textarea: HTMLTextAreaElement | null = null;
   private threadEl: HTMLElement | null = null;
-  private chipsEl: HTMLElement | null = null;
+  /** Footer context cell — holds the chips, or the no-context hint. */
+  private ctxEl: HTMLElement | null = null;
   private streamReplyEl: HTMLElement | null = null;
   private draft = '';
   private escHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -325,7 +330,7 @@ export class AiTab implements Tab {
   private buildAssistantTurn(d: DisplayTurn): HTMLElement {
     const el = h('div', { class: 'ai-a' });
     if (d.turn.toolTrace && d.turn.toolTrace.length) {
-      el.appendChild(this.buildToolTrace(d.turn.toolTrace.map(t => ({ name: t.name, summary: t.summary, status: 'ok' as const }))));
+      el.appendChild(this.buildToolGroup(d));
     }
     if (d.contextTag) {
       el.appendChild(h('div', { class: 'ai-a-tag' }, h('span', { class: 'ai-a-pip' }), d.contextTag));
@@ -349,6 +354,38 @@ export class AiTab implements Tab {
     }
     el.appendChild(body);
     return el;
+  }
+
+  /** Committed tool trace: one collapsed "Ran N tools" summary (✓ all ok / ✕
+   *  any failed), clickable to reveal the per-call lines. Historical turns start
+   *  collapsed; the individual lines stay available on demand. */
+  private buildToolGroup(d: DisplayTurn): HTMLElement {
+    const trace = d.turn.toolTrace ?? [];
+    const anyFailed = trace.some(t => t.ok === false);
+    const n = trace.length;
+    const tick = anyFailed ? '✕' : '✓';
+    const detail = this.buildToolTrace(
+      trace.map(t => ({ name: t.name, summary: t.summary, status: t.ok === false ? 'err' as const : 'ok' as const })),
+    );
+    detail.classList.add('ai-tg-detail');
+
+    const group = h('div', { class: `ai-tg${d.toolsExpanded ? ' ai-tg--open' : ''}` });
+    const summary = h('button', {
+      class: `ai-tg-sum${anyFailed ? ' ai-tg-sum--err' : ''}`,
+      'aria-expanded': d.toolsExpanded ? 'true' : 'false',
+      title: 'Show tool calls',
+    },
+      h('span', { class: 'ai-tg-tick' }, tick),
+      h('span', { class: 'ai-tg-label' }, `Ran ${n} tool${n === 1 ? '' : 's'}`),
+    );
+    summary.addEventListener('click', () => {
+      d.toolsExpanded = !d.toolsExpanded;
+      group.classList.toggle('ai-tg--open', d.toolsExpanded);
+      summary.setAttribute('aria-expanded', d.toolsExpanded ? 'true' : 'false');
+    });
+    group.appendChild(summary);
+    group.appendChild(detail);
+    return group;
   }
 
   private buildToolTrace(tools: { name: string; summary: string; status: 'pending' | 'ok' | 'err' }[]): HTMLElement {
@@ -509,17 +546,20 @@ export class AiTab implements Tab {
     }
     this.textarea.placeholder = this.placeholder();
 
-    const chips = h('div', { class: 'ai-chips' });
-    this.chipsEl = chips;
-    this.fillChips(chips);
+    // Footer: [ context chips / no-context hint ] … [ model ] [ Send ] on one
+    // centered flex row. Context is the footer's main content; the model name is
+    // subordinate, immediately left of Send.
+    const ctx = h('div', { class: 'ai-composer-ctx' });
+    this.ctxEl = ctx;
+    this.fillContext(ctx);
 
     const foot = h('div', { class: 'ai-composer-foot' },
+      ctx,
       h('span', { class: 'ai-composer-model' }, this.model()),
-      ' · session only',
       this.buildSendButton(),
     );
 
-    return h('div', { class: 'ai-composer' }, chips, this.textarea, foot);
+    return h('div', { class: 'ai-composer' }, this.textarea, foot);
   }
 
   private placeholder(): string {
@@ -547,20 +587,29 @@ export class AiTab implements Tab {
   }
 
   private refreshChips(): void {
-    if (!this.chipsEl) return;
-    this.fillChips(this.chipsEl);
+    if (!this.ctxEl) return;
+    this.fillContext(this.ctxEl);
     if (this.textarea) this.textarea.placeholder = this.placeholder();
     // Refresh empty-state suggestions + code-block Apply state.
     if (this.transcript.length === 0 && !this.stream) this.renderThread();
   }
 
-  private fillChips(chips: HTMLElement): void {
-    chips.textContent = '';
+  /** Fill the footer context cell: the attached chips, or a quiet hint when no
+   *  object/editor is attached. The empty-state copy already says the chat is
+   *  not saved, so the footer carries context only. */
+  private fillContext(ctx: HTMLElement): void {
+    ctx.textContent = '';
     const ed = this.activeEditorSource();
     const sel = this.selectionSource();
-    if (ed) chips.appendChild(this.buildChip(ed, false));
-    if (sel) chips.appendChild(this.buildChip(sel, true));
-    if (ed && sel) chips.appendChild(h('span', { class: 'ai-divnote' }, '2 contexts'));
+    if (!ed && !sel) {
+      ctx.classList.add('ai-composer-ctx--empty');
+      ctx.appendChild(h('span', { class: 'ai-composer-hint' }, 'No context. Select an object or open an editor.'));
+      return;
+    }
+    ctx.classList.remove('ai-composer-ctx--empty');
+    if (ed) ctx.appendChild(this.buildChip(ed, false));
+    if (sel) ctx.appendChild(this.buildChip(sel, true));
+    if (ed && sel) ctx.appendChild(h('span', { class: 'ai-divnote' }, '2 contexts'));
   }
 
   private buildChip(src: AiContextSource, isSelection: boolean): HTMLElement {

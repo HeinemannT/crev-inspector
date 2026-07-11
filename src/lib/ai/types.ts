@@ -123,6 +123,9 @@ export interface AiChatQuote {
 export interface AiChatToolTrace {
   name: string;
   summary: string;
+  /** Whether the call succeeded. Drives the ✓/✕ on the collapsed turn summary
+   *  and each expanded line. Absent (legacy) is treated as success. */
+  ok?: boolean;
 }
 
 /** One transcript turn. The panel owns the transcript and sends it whole on
