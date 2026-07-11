@@ -35,7 +35,7 @@ describe('AI chat handler routing', () => {
     setSwContext(makeCtx());
     const { getHandler } = await import('../../handler-registry');
     await import('../ai');
-    for (const t of ['AI_CHAT_SEND', 'AI_CHAT_CANCEL', 'AI_PREVIEW_CODE', 'AI_APPLY_PROPOSAL', 'AI_CHAT_HANDOFF', 'AI_OPEN_IN_EDITOR']) {
+    for (const t of ['AI_CHAT_SEND', 'AI_CHAT_CANCEL', 'AI_PREVIEW_CODE', 'AI_APPLY_PROPOSAL', 'AI_INSERT_AT_CURSOR', 'AI_CHAT_HANDOFF', 'AI_OPEN_IN_EDITOR']) {
       expect(getHandler(t), t).toBeDefined();
     }
   });

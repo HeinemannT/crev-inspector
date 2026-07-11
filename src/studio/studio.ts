@@ -204,9 +204,10 @@ async function setupAiAssist(): Promise<void> {
     if (msg.type === 'AI_CONFIG_CHANGED') void applyAiConfig(msg.configured)
     // Chat-tab Apply: when the proposal targets this studio's object + the
     // active file, raise the standard merge-diff Accept/Reject on the live doc.
-    if (msg.type === 'AI_APPLY_PROPOSAL' && aiAssist && ctx) {
+    if ((msg.type === 'AI_APPLY_PROPOSAL' || msg.type === 'AI_INSERT_AT_CURSOR') && aiAssist && ctx) {
       if (msg.target.rid === ctx.instance.rid && msg.target.slot === activeProp) {
-        aiAssist.propose(msg.code)
+        if (msg.type === 'AI_APPLY_PROPOSAL') aiAssist.propose(msg.code)
+        else aiAssist.insertAtCursor(msg.code)
       }
     }
   })

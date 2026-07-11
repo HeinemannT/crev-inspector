@@ -415,14 +415,17 @@ export class AiTab implements Tab {
     const previewBtn = h('button', { class: 'ai-cb-btn', title: 'Dry-run this code against BMP' }, 'Preview');
 
     // Primary action depends on whether an editor is attached:
-    //  - editor chip present → Apply (merge proposal into the open slot)
+    //  - editor chip present → Apply (replace the open slot) + Insert (add at
+    //    the cursor); both land behind the merge-diff review
     //  - no editor chip      → Open in editor (launch a free-script editor
     //    preloaded with this code, so the user isn't stuck copy-only)
     let primaryBtn: HTMLElement;
+    // The extra Insert button, only when an editor is attached.
+    let insertBtn: HTMLElement | null = null;
     if (canApply) {
       const applyBtn = h('button', {
         class: 'ai-cb-btn ai-cb-apply',
-        title: 'Apply as a merge proposal in the open editor',
+        title: 'Replace the open script',
       }, 'Apply');
       applyBtn.addEventListener('click', () => {
         const ed = this.activeEditorSource();
@@ -431,6 +434,17 @@ export class AiTab implements Tab {
         statusFlash('Sent to editor');
       });
       primaryBtn = applyBtn;
+
+      insertBtn = h('button', {
+        class: 'ai-cb-btn',
+        title: 'Insert at the cursor',
+      }, 'Insert');
+      insertBtn.addEventListener('click', () => {
+        const ed = this.activeEditorSource();
+        if (!ed?.slot) { showToast('Open an editor on the object first', 'info'); return; }
+        sendFireForget({ type: 'AI_INSERT_AT_CURSOR', code, target: { rid: ed.object.rid, slot: ed.slot.name } });
+        statusFlash('Inserted at cursor');
+      });
     } else {
       const openBtn = h('button', {
         class: 'ai-cb-btn ai-cb-apply',
@@ -443,13 +457,15 @@ export class AiTab implements Tab {
       primaryBtn = openBtn;
     }
 
-    const block = h('div', { class: 'ai-cb' },
-      h('div', { class: 'ai-cb-h' },
-        h('span', { class: 'ai-cb-lang' }, lang || 'code'),
-        primaryBtn, previewBtn, copyBtn,
-      ),
-      pre,
+    const header = h('div', { class: 'ai-cb-h' },
+      h('span', { class: 'ai-cb-lang' }, lang || 'code'),
+      primaryBtn,
     );
+    if (insertBtn) header.appendChild(insertBtn);
+    header.appendChild(previewBtn);
+    header.appendChild(copyBtn);
+
+    const block = h('div', { class: 'ai-cb' }, header, pre);
 
     previewBtn.addEventListener('click', () => {
       void this.runPreview(code, block, previewBtn);

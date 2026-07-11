@@ -100,6 +100,14 @@ export function buildPrompt(payload: AiRequestPayload): BuiltPrompt {
     const target = hasSelection ? 'the selected region only' : 'the whole property';
     lines.push(`Return ONLY the revised replacement for ${target}, as EXACTLY ONE fenced code block containing just the final revised code, with no prose before or after it.`);
     lines.push('Do NOT quote, repeat, or show the original code first — output only the single, already-corrected version. Do not include the selection markers in your reply.');
+    if (hasSelection) {
+      // Safety-net hardening: even when the requested change logically spans the
+      // whole script (e.g. "rename X everywhere"), the reply must stay scoped to
+      // the selection — returning the whole document here would be spliced into
+      // the selection range. The frame-side whole-doc detector is a fallback for
+      // when the model ignores this, not the primary path.
+      lines.push('If the change requires edits beyond the selected lines, STILL return only the revised selected region — do NOT return the entire script. Assume the rest of the script is unchanged.');
+    }
   }
 
   return { system, user: lines.join('\n'), packs };
@@ -193,9 +201,17 @@ export function extractCodeBlock(reply: string, current?: string): ExtractedCode
   const fences = matchFences(reply);
   if (fences.length) {
     let chosen = fences[fences.length - 1];
+    // Skip a trailing EMPTY fence — splicing "" would delete the target. Prefer
+    // the last non-empty block; every-fence-empty reports no code. Mirrors the
+    // frame-side extractReplyCode (ai-assist.ts).
+    if (chosen.trim() === '') {
+      const nonEmpty = [...fences].reverse().find(f => f.trim() !== '');
+      if (nonEmpty === undefined) return { code: null, error: 'The reply did not contain code.' };
+      chosen = nonEmpty;
+    }
     if (current != null && chosen === current) {
       for (let i = fences.length - 2; i >= 0; i--) {
-        if (fences[i] !== current) { chosen = fences[i]; break; }
+        if (fences[i] !== current && fences[i].trim() !== '') { chosen = fences[i]; break; }
       }
     }
     return { code: chosen };

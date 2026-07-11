@@ -228,6 +228,12 @@ register('AI_APPLY_PROPOSAL', (msg) => {
   sendFireForget(msg);
 });
 
+register('AI_INSERT_AT_CURSOR', (msg) => {
+  // Relay to the open editor/studio surface, which inserts the code at its
+  // cursor behind the standard merge-diff proposal for target { rid, slot }.
+  sendFireForget(msg);
+});
+
 register('AI_OPEN_IN_EDITOR', (msg, _respond, meta) => {
   // Chat "Open in editor" (no editor chip attached): launch the Extended Code
   // editor in free-script mode preloaded with the block's code, mounted on the

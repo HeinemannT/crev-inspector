@@ -38,6 +38,7 @@ import { h, svg } from '../lib/dom'
 import { anchorPopover } from '../lib/popover-anchor'
 import { sendFireForget } from '../lib/messaging'
 import { fetchAiConfig } from './ai-config'
+import { scrubToolMarkup } from '../lib/ai/scrub'
 import { ICON_SPARKLE } from '../lib/icons'
 import type { InspectorMessage } from '../lib/types'
 import type {
@@ -71,6 +72,10 @@ export interface AiAssist {
    *  chat tab's Apply → AI_APPLY_PROPOSAL). Replaces the whole active slot;
    *  Accept / Reject work exactly like an inline Edit proposal. */
   propose: (code: string) => void
+  /** Insert externally supplied code at the current cursor (the chat tab's
+   *  Insert → AI_INSERT_AT_CURSOR). Additive, not a slot replace, but still
+   *  behind the standard merge-diff Accept/Reject so nothing lands unreviewed. */
+  insertAtCursor: (code: string) => void
 }
 
 /** Hint glyph on the Edit verb button — Ctrl+Enter everywhere, additionally
@@ -105,6 +110,10 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
   let dismissCleanup: (() => void) | null = null
   let barEl: HTMLElement | null = null
   let pending = false
+  /** Code currently staged behind an Accept/Reject bar. Guards against the
+   *  duplicate delivery of an external Apply/Insert (the panel message reaches
+   *  this page directly AND is re-broadcast by the SW). */
+  let stagedCode: string | null = null
 
   // ── Streaming reply plumbing (Edit only) ───────────────────────
   chrome.runtime.onMessage.addListener((msg: InspectorMessage) => {
@@ -432,16 +441,13 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
 
   // ── Edit: diff bar + merge overlay ─────────────────────────────
   function finishEdit(): void {
-    // What we asked the model to revise — the selection when there was one,
-    // else the whole document. Used to reject a proposal that merely re-quotes
-    // the original (see extractReplyCode) and to detect a genuine no-op.
-    const current = requestSelection ? requestSelection.text : requestBefore
-    const { code, error } = extractReplyCode(answerText, current)
-    if (code == null) { showBarError(error ?? 'The reply did not contain code.'); return }
-    const after = composeReplacement(requestBefore, code, requestSelection)
-    if (after === requestBefore) { showBarNoChange(); return }
-    applyProposal(code)
-    showBarAccept()
+    const outcome = resolveEdit(answerText, requestBefore, requestSelection)
+    switch (outcome.kind) {
+      case 'error': showBarError(outcome.message); return
+      case 'no-change': showBarNoChange(); return
+      case 'whole-doc-choice': showBarWholeDoc(outcome.replacement); return
+      case 'proposal': applyProposal(outcome.replacement); showBarAccept(); return
+    }
   }
 
   function applyProposal(replacement: string): void {
@@ -459,11 +465,13 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
     })
     surface.setOverlay(overlay)
     pending = true
+    stagedCode = replacement
   }
 
   function acceptProposal(): void {
     host.surface()?.setOverlay([])
     pending = false
+    stagedCode = null
     removeBar()
     host.surface()?.focus()
   }
@@ -474,12 +482,14 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
     if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: requestBefore } })
     surface?.setOverlay([])
     pending = false
+    stagedCode = null
     removeBar()
     surface?.focus()
   }
 
   function clearProposal(): void {
     if (pending) { host.surface()?.setOverlay([]); pending = false }
+    stagedCode = null
     removeBar()
   }
 
@@ -516,6 +526,34 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
       h('div', { class: 'ai-bar-actions' },
         h('button', { class: 'btn btn-accent btn-small', onClick: acceptProposal }, 'Accept'),
         h('button', { class: 'btn btn-ghost btn-small', onClick: rejectProposal }, 'Reject'),
+      ),
+    )
+  }
+
+  /** The model returned a whole-script rewrite for a partial-selection scope
+   *  (see detectWholeDocRewrite). Splicing that into the selection would
+   *  duplicate the body, so instead of a silent corruption we offer a choice:
+   *  apply the rewrite against the FULL document (same merge-diff flow), or
+   *  reject. No proposal is staged until the user chooses Apply. */
+  function showBarWholeDoc(code: string): void {
+    const bar = ensureBar()
+    bar.className = 'ai-bar'
+    bar.replaceChildren(
+      h('span', { class: 'ai-bar-icon' }, svg(ICON_SPARKLE)),
+      h('span', { class: 'ai-bar-text' }, 'The model rewrote the whole script'),
+      h('div', { class: 'ai-bar-actions' },
+        h('button', {
+          class: 'btn btn-accent btn-small', title: 'Propose the rewrite against the whole script',
+          onClick: () => {
+            // Re-scope the pending proposal to the full document, then run the
+            // standard merge-diff Accept/Reject against it.
+            requestSelection = null
+            if (code === requestBefore) { showBarNoChange(); return }
+            applyProposal(code)
+            showBarAccept()
+          },
+        }, 'Apply to whole script'),
+        h('button', { class: 'btn btn-ghost btn-small', onClick: () => removeBar() }, 'Reject'),
       ),
     )
   }
@@ -565,13 +603,36 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
     showBarAccept()
   }
 
+  /** External insertion (AI_INSERT_AT_CURSOR from the chat tab): splice `code`
+   *  at the current cursor as a zero-width edit, behind the same merge-diff
+   *  Accept/Reject. Apply = replace slot (propose); Insert = add at cursor. */
+  function insertAtCursor(code: string): void {
+    const view = host.surface()?.view
+    if (!view) return
+    // Duplicate delivery guard (see stagedCode): the same message reaches this
+    // page directly AND via the SW re-broadcast. Ignore an identical staged code.
+    if (pending && stagedCode === code) return
+    cancelActive()
+    clearProposal()
+    closeBar()
+    const before = view.state.doc.toString()
+    const pos = view.state.selection.main.head
+    requestBefore = before
+    // A zero-width "selection" at the cursor turns composeReplacement into an
+    // insertion, reusing the exact splice + no-op detection the edit path uses.
+    requestSelection = { from: pos, to: pos, text: '' }
+    if (!code) { showBarNoChange(); return }
+    applyProposal(code)
+    showBarAccept()
+  }
+
   function close(): void {
     cancelActive()
     closeBar()
     clearProposal()
   }
 
-  return { open, close, hasPendingProposal: () => pending, propose }
+  return { open, close, hasPendingProposal: () => pending, propose, insertAtCursor }
 }
 
 // ── Edit-reply parsing (pure, shared with tests) ─────────────────
@@ -603,12 +664,25 @@ function extractFences(reply: string): string[] {
  *  only when there is no fence and it doesn't read as prose. Kept in sync with
  *  the SW-side extractCodeBlock (this runs in the frame). */
 export function extractReplyCode(reply: string, current?: string): { code: string | null; error?: string } {
+  // A DSML tool-markup leak (some providers emit their tool-call DSL as plain
+  // text when the tool budget is spent) must never be spliced into the doc.
+  // Scrub first so fence extraction sees clean text. Harmless for clean replies.
+  reply = scrubToolMarkup(reply)
   const fences = extractFences(reply)
   if (fences.length) {
     let chosen = fences[fences.length - 1]
+    // Skip a trailing EMPTY fence (whitespace-only). Splicing "" would silently
+    // delete the selection — or WIPE the whole document on a whole-script scope,
+    // one Accept away. Prefer the last non-empty block; if every fence is empty,
+    // report no code rather than propose an erasure.
+    if (chosen.trim() === '') {
+      const nonEmpty = [...fences].reverse().find(f => f.trim() !== '')
+      if (nonEmpty === undefined) return { code: null, error: 'The reply did not contain code.' }
+      chosen = nonEmpty
+    }
     if (current != null && chosen === current) {
       for (let i = fences.length - 2; i >= 0; i--) {
-        if (fences[i] !== current) { chosen = fences[i]; break }
+        if (fences[i] !== current && fences[i].trim() !== '') { chosen = fences[i]; break }
       }
     }
     return { code: chosen }
@@ -626,4 +700,97 @@ function looksLikeProse(text: string): boolean {
   const codeSignals = /[{};]|:=|=>|\bforEach\b|\bSELECT\b|\bfunction\b|<\/?[a-z]|\bconst\b|\blet\b|\breturn\b/i.test(s)
   const sentences = s.split(/[.!?](\s|$)/).filter(Boolean).length
   return !codeSignals && sentences >= 2
+}
+
+// ── Whole-doc-rewrite detection for scoped edits ─────────────────
+//
+// The CONFIRMED failure: the user selects a couple of lines and asks for a
+// change that logically touches the whole script ("rename X everywhere"). The
+// model helpfully returns the ENTIRE rewritten script. If we splice that whole
+// script into the 2-line selection range, we duplicate the body — the diff is
+// honest but the result is useless. This detects that case so the UI can offer
+// "apply to the whole script" instead of silently corrupting the selection.
+//
+// Only ever fires for a PARTIAL selection (a whole-script scope already targets
+// the full doc, so a full-length reply is exactly right). Two cheap signals,
+// with a guard so it never fires when the selection already IS most of the doc:
+//
+//   Guard   — selection covers >= 50% of the document's lines → never fire
+//             (a full-length reply is expected; this is the "selection IS most
+//             of the doc" case the heuristic must NOT touch).
+//   Signal A — the reply reproduces document text that lies OUTSIDE the
+//             selection (the normalized leading and/or trailing context, when
+//             that context is non-trivial: >= 12 normalized chars). If the model
+//             echoed code we did not ask it to touch, it rewrote the whole doc.
+//   Signal B — the reply is nearly as long as the whole document (>= 90% of its
+//             lines) while the selection is only a small slice of it.
+//
+// Normalization collapses runs of whitespace and trims, so reflowed indentation
+// or a reformatted body still matches. Thresholds are deliberately conservative:
+// a false negative just falls back to the honest splice-and-diff path.
+const WHOLE_DOC_MIN_CONTEXT = 12
+const WHOLE_DOC_SELECTION_MAX_FRACTION = 0.5
+const WHOLE_DOC_LINE_RATIO = 0.9
+
+function normWhitespace(s: string): string {
+  return s.replace(/\s+/g, ' ').trim()
+}
+
+function countLines(s: string): number {
+  if (s === '') return 0
+  return s.split('\n').length
+}
+
+export function detectWholeDocRewrite(before: string, replacement: string, selection: AiSelection | null): boolean {
+  if (!selection || selection.from === selection.to) return false
+  const docLines = countLines(before)
+  if (docLines === 0) return false
+  const selLines = countLines(selection.text)
+
+  // Guard: the selection already covers most of the document — a full-length
+  // reply is expected, so the heuristic must not fire.
+  if (selLines / docLines >= WHOLE_DOC_SELECTION_MAX_FRACTION) return false
+
+  const body = normWhitespace(replacement)
+
+  // Signal A: the reply echoes out-of-selection context (leading and/or
+  // trailing document text). Non-trivial context only.
+  const leading = normWhitespace(before.slice(0, selection.from))
+  const trailing = normWhitespace(before.slice(selection.to))
+  if (leading.length >= WHOLE_DOC_MIN_CONTEXT && body.includes(leading)) return true
+  if (trailing.length >= WHOLE_DOC_MIN_CONTEXT && body.includes(trailing)) return true
+
+  // Signal B: the reply is nearly the whole document by line count.
+  if (countLines(replacement) >= WHOLE_DOC_LINE_RATIO * docLines) return true
+
+  return false
+}
+
+// ── Edit-outcome resolver (pure, shared with tests) ──────────────
+
+/** The full decision an edit reply produces, independent of DOM. finishEdit()
+ *  is a thin consumer of this; the interaction matrix drives it directly so the
+ *  document is provably never silently corrupted. */
+export type EditOutcome =
+  | { kind: 'error'; message: string }
+  | { kind: 'no-change' }
+  /** Splice `replacement` into the selection (or replace the whole doc when the
+   *  scope had no selection). `after` is the resulting document. */
+  | { kind: 'proposal'; replacement: string; after: string }
+  /** The model rewrote the whole script for a partial-selection scope. The UI
+   *  must NOT splice into the selection; it offers "apply to whole script",
+   *  which proposes `replacement` as the FULL document. */
+  | { kind: 'whole-doc-choice'; replacement: string; wholeDocAfter: string }
+
+/** Resolve a raw edit reply against the captured baseline + scope. Pure. */
+export function resolveEdit(reply: string, before: string, selection: AiSelection | null): EditOutcome {
+  const current = selection ? selection.text : before
+  const { code, error } = extractReplyCode(reply, current)
+  if (code == null) return { kind: 'error', message: error ?? 'The reply did not contain code.' }
+  if (detectWholeDocRewrite(before, code, selection)) {
+    return { kind: 'whole-doc-choice', replacement: code, wholeDocAfter: code }
+  }
+  const after = composeReplacement(before, code, selection)
+  if (after === before) return { kind: 'no-change' }
+  return { kind: 'proposal', replacement: code, after }
 }

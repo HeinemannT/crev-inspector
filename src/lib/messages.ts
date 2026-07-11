@@ -443,6 +443,10 @@ export type AiMessage =
   // Apply a proposed code block to the open editor/studio via the standard
   // merge-diff proposal. Routed to the surface holding the target object.
   | { type: 'AI_APPLY_PROPOSAL'; code: string; target: { rid: string; slot: string } }
+  // Insert a proposed code block at the open editor/studio's CURSOR (additive,
+  // not a slot replace) via the same merge-diff proposal. Routed to the surface
+  // holding the target object, exactly like AI_APPLY_PROPOSAL.
+  | { type: 'AI_INSERT_AT_CURSOR'; code: string; target: { rid: string; slot: string } }
   // Chat "Open in editor" (no editor context chip attached): launch the
   // Extended Code editor in free-script mode preloaded with the block's code.
   | { type: 'AI_OPEN_IN_EDITOR'; code: string }
