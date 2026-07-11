@@ -24,14 +24,14 @@ import type {
 } from '../../lib/ai/types';
 import { h, svg, statusFlash } from '../../lib/dom';
 import { typeBadge } from '../../lib/type-badge';
-import { ICON_SPARKLE, ICON_X, ICON_COPY, ICON_PIN } from '../../lib/icons';
+import { ICON_SPARKLE, ICON_X, ICON_COPY, ICON_PIN, ICON_REFRESH, ICON_PENCIL } from '../../lib/icons';
 import { sendFireForget, sendRequest } from '../../lib/messaging';
 import { showToast } from '../../lib/toast';
 import { S } from '../state';
 import { renderMarkdown } from './ai-markdown';
 import {
   type StreamState, initStream, reduceStream, cancelStream, isTerminal,
-  toAssistantTurn,
+  toAssistantTurn, prepareRetry, prepareEdit,
 } from './ai-chat-state';
 
 /** One committed transcript turn plus display-only meta the canonical
@@ -75,6 +75,14 @@ export class AiTab implements Tab {
   private draft = '';
   private escHandler: ((e: KeyboardEvent) => void) | null = null;
 
+  // ── Edit-last-message state ─────────────────────────────────────
+  /** True while the composer holds the last user turn for revision. */
+  private editing = false;
+  /** The original user turn's via/quote, reattached when the edit resubmits. */
+  private editingMeta: { via?: AiChatTurn['via']; quote?: AiChatQuote } | null = null;
+  /** The notice row above the composer, shown only while editing. */
+  private noticeEl: HTMLElement | null = null;
+
   // The tab talks to the SW via one-shot chrome.runtime messaging (streams are
   // broadcasts, not port replies), so the port send function is unused here —
   // the parameter exists to match the Tab-constructor convention.
@@ -87,10 +95,12 @@ export class AiTab implements Tab {
     void sendRequest({ type: 'AI_GET_EDITOR_CONTEXT' }).then(r => {
       if (r?.type === 'AI_EDITOR_CONTEXT') { this.setEditorSource(r.source); }
     });
-    // Esc cancels an active stream while the tab is focused.
+    // Esc cancels the edit-last-message state first, then an active stream.
     if (!this.escHandler) {
       this.escHandler = (e: KeyboardEvent) => {
-        if (e.key === 'Escape' && this.activeRequestId) { e.preventDefault(); this.stop(); }
+        if (e.key !== 'Escape') return;
+        if (this.editing) { e.preventDefault(); this.cancelEditing(); return; }
+        if (this.activeRequestId) { e.preventDefault(); this.stop(); }
       };
       document.addEventListener('keydown', this.escHandler);
     }
@@ -197,6 +207,7 @@ export class AiTab implements Tab {
 
   private resetForProfile(): void {
     this.stop();
+    this.cancelEditing();
     this.transcript = [];
     this.stream = null;
     this.pinnedSelection = null;
@@ -262,6 +273,86 @@ export class AiTab implements Tab {
     this.updateSendButton();
   }
 
+  // ── Retry + Edit-last-message ───────────────────────────────────
+
+  /** Unified send trigger (button click / Enter). Routes an in-flight request
+   *  to Stop, an active edit to the edit-resubmit, and otherwise a normal send. */
+  private onSend(): void {
+    if (this.activeRequestId) { this.stop(); return; }
+    const text = this.textarea?.value ?? '';
+    if (this.editing) { this.commitEdit(text); return; }
+    this.submit(text);
+  }
+
+  /** Regenerate the last reply: drop it (with any error line) and resend the
+   *  same user turn. The envelope rebuilds from the current chips, so tool
+   *  traces from the removed reply are gone with it. Gated on no active stream. */
+  private retryLast(): void {
+    if (this.activeRequestId) return;
+    const plan = prepareRetry(this.transcript.map(d => d.turn));
+    if (!plan) return;
+    this.cancelEditing();
+    // Truncate our richer transcript to the plan prefix (kept turns keep their
+    // display metadata); submit() re-pushes the user turn + rebuilds history.
+    this.transcript = this.transcript.slice(0, plan.turns.length);
+    this.submit(plan.resend.text, { via: plan.resend.via, quote: plan.resend.quote });
+  }
+
+  /** Enter editing state for the last user turn: load its text into the
+   *  composer and show the notice. The turn + its reply stay visible until the
+   *  edit is sent (removal happens in commitEdit). Gated on no active stream. */
+  private editLast(): void {
+    if (this.activeRequestId) return;
+    const plan = prepareEdit(this.transcript.map(d => d.turn));
+    if (!plan) return;
+    this.editing = true;
+    this.editingMeta = { via: plan.draft.via, quote: plan.draft.quote };
+    this.draft = plan.draft.text;
+    if (this.textarea) {
+      this.textarea.value = plan.draft.text;
+      this.textarea.focus();
+      this.textarea.setSelectionRange(plan.draft.text.length, plan.draft.text.length);
+    }
+    this.syncEditNotice();
+  }
+
+  /** Resubmit the edited last message: remove the old user turn and its reply,
+   *  then submit the revised text as a fresh turn (via/quote preserved so a
+   *  quoted code region stays attached). Empty text keeps editing active. */
+  private commitEdit(text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const meta = this.editingMeta;
+    const plan = prepareEdit(this.transcript.map(d => d.turn));
+    if (plan) this.transcript = this.transcript.slice(0, plan.turns.length);
+    this.editing = false;
+    this.editingMeta = null;
+    this.syncEditNotice();
+    this.submit(trimmed, { via: meta?.via, quote: meta?.quote });
+  }
+
+  /** Leave editing without sending — restore the composer to empty/normal. */
+  private cancelEditing(): void {
+    if (!this.editing) return;
+    this.editing = false;
+    this.editingMeta = null;
+    this.draft = '';
+    if (this.textarea) this.textarea.value = '';
+    this.syncEditNotice();
+  }
+
+  private syncEditNotice(): void {
+    if (this.noticeEl) this.noticeEl.hidden = !this.editing;
+  }
+
+  /** Index of the last user turn in the transcript, or -1. */
+  private lastUserIndex(): number {
+    for (let i = this.transcript.length - 1; i >= 0; i--) {
+      if (this.transcript[i].turn.role === 'user') return i;
+    }
+    return -1;
+  }
+
   // ── Tab render ──────────────────────────────────────────────────
 
   render(container: HTMLElement): void {
@@ -286,9 +377,18 @@ export class AiTab implements Tab {
       return;
     }
 
-    for (const d of this.transcript) {
-      thread.appendChild(d.turn.role === 'user' ? this.buildUserTurn(d.turn) : this.buildAssistantTurn(d));
-    }
+    // Retry sits on the last assistant turn, Edit on the last user turn — both
+    // only when the thread is idle (no active/streaming request).
+    const idle = !this.stream && !this.activeRequestId;
+    const turns = this.transcript.map(d => d.turn);
+    const retryTarget = idle && prepareRetry(turns) ? this.transcript.length - 1 : -1;
+    const editTarget = idle && prepareEdit(turns) ? this.lastUserIndex() : -1;
+
+    this.transcript.forEach((d, i) => {
+      thread.appendChild(d.turn.role === 'user'
+        ? this.buildUserTurn(d.turn, i === editTarget)
+        : this.buildAssistantTurn(d, i === retryTarget));
+    });
     if (this.stream) {
       const el = this.buildStreamReply();
       this.streamReplyEl = el;
@@ -314,8 +414,9 @@ export class AiTab implements Tab {
 
   // ── Turn builders ───────────────────────────────────────────────
 
-  private buildUserTurn(turn: AiChatTurn): HTMLElement {
-    const el = h('div', { class: 'ai-u' });
+  private buildUserTurn(turn: AiChatTurn, editable = false): HTMLElement {
+    const el = h('div', { class: `ai-u${editable ? ' ai-u--editable' : ''}` });
+    if (editable) el.title = 'Click to edit and resend this message';
     if (turn.via === 'strip') {
       const lines = turn.quote?.lines ? ` · lines ${turn.quote.lines}` : '';
       el.appendChild(h('div', { class: 'ai-u-via' }, `via Ctrl+K · editor${lines}`));
@@ -324,10 +425,20 @@ export class AiTab implements Tab {
       el.appendChild(h('pre', { class: 'ai-quote' }, turn.quote.code));
     }
     el.appendChild(h('div', { class: 'ai-u-text' }, turn.text));
+    if (editable) {
+      const edit = h('button', {
+        class: 'ai-u-edit',
+        title: 'Edit and resend',
+        'aria-label': 'Edit this message',
+      }, svg(ICON_PENCIL));
+      edit.addEventListener('click', (e) => { e.stopPropagation(); this.editLast(); });
+      el.appendChild(edit);
+      el.addEventListener('click', () => this.editLast());
+    }
     return el;
   }
 
-  private buildAssistantTurn(d: DisplayTurn): HTMLElement {
+  private buildAssistantTurn(d: DisplayTurn, retryable = false): HTMLElement {
     const el = h('div', { class: 'ai-a' });
     if (d.turn.toolTrace && d.turn.toolTrace.length) {
       el.appendChild(this.buildToolGroup(d));
@@ -338,6 +449,15 @@ export class AiTab implements Tab {
     const body = h('div', { class: 'ai-a-body' });
     renderMarkdown(body, d.turn.text, { codeBlock: (lang, code) => this.buildCodeBlock(lang, code) });
     el.appendChild(body);
+    if (retryable) {
+      const retry = h('button', {
+        class: 'ai-a-retry',
+        title: 'Retry this reply',
+        'aria-label': 'Retry this reply',
+      }, svg(ICON_REFRESH));
+      retry.addEventListener('click', () => this.retryLast());
+      el.appendChild(h('div', { class: 'ai-a-actions' }, retry));
+    }
     return el;
   }
 
@@ -505,30 +625,10 @@ export class AiTab implements Tab {
   // ── Empty state ─────────────────────────────────────────────────
 
   private buildEmptyState(): HTMLElement {
-    const ctxName = this.contextName();
-    const sug = (label: (HTMLElement | string)[], text: string): HTMLElement => {
-      const b = h('button', { class: 'ai-sug' }, ...label);
-      b.addEventListener('click', () => this.submit(text));
-      return b;
-    };
-    const mono = (t: string) => h('span', { class: 'ai-mono' }, t);
-    const suggestions = ctxName
-      ? [
-          sug(['Explain the layout of ', mono(ctxName)], `Explain the layout of ${ctxName}`),
-          sug(['List all properties on ', mono(ctxName), ' as a table'], `List all properties on ${ctxName} as a table`),
-          sug(['Write EC to count risks by status'], 'Write EC to count risks by status'),
-        ]
-      : [
-          sug(['Explain how this workspace is structured'], 'Explain how this workspace is structured'),
-          sug(['Search code for a reference or function'], 'Search the workspace code for a reference or function'),
-          sug(['Write EC to count risks by status'], 'Write EC to count risks by status'),
-        ];
-
     return h('div', { class: 'ai-empty' },
       h('span', { class: 'ai-empty-icon' }, svg(ICON_SPARKLE)),
       h('div', { class: 'ai-empty-title' }, 'Ask about your workspace'),
       h('div', { class: 'ai-empty-sub' }, 'Answers can read objects, types and layouts, search code, and preview EC. The conversation lasts until the panel closes.'),
-      h('div', { class: 'ai-sugs' }, ...suggestions),
     );
   }
 
@@ -555,12 +655,23 @@ export class AiTab implements Tab {
       ta.addEventListener('keydown', (e: KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
-          this.submit(ta.value);
+          this.onSend();
         }
       });
       this.textarea = ta;
     }
     this.textarea.placeholder = this.placeholder();
+
+    // Edit notice — hidden until editLast() shows it. Sits above the input.
+    const cancel = h('button', { class: 'ai-edit-cancel', type: 'button' }, 'Cancel');
+    cancel.addEventListener('click', () => this.cancelEditing());
+    const notice = h('div', { class: 'ai-edit-notice', hidden: true },
+      h('span', { class: 'ai-edit-notice-text' },
+        'Editing your last message. The previous reply will be replaced.'),
+      cancel,
+    );
+    this.noticeEl = notice;
+    this.syncEditNotice();
 
     // Footer: [ context chips / no-context hint ] … [ model ] [ Send ] on one
     // centered flex row. Context is the footer's main content; the model name is
@@ -575,7 +686,7 @@ export class AiTab implements Tab {
       this.buildSendButton(),
     );
 
-    return h('div', { class: 'ai-composer' }, this.textarea, foot);
+    return h('div', { class: 'ai-composer' }, notice, this.textarea, foot);
   }
 
   private placeholder(): string {
@@ -589,10 +700,7 @@ export class AiTab implements Tab {
       class: `ai-send${streaming ? ' ai-send--stop' : ''}`,
       title: streaming ? 'Stop generating' : 'Send (Enter)',
     }, streaming ? 'Stop' : 'Send');
-    btn.addEventListener('click', () => {
-      if (this.activeRequestId) this.stop();
-      else if (this.textarea) this.submit(this.textarea.value);
-    });
+    btn.addEventListener('click', () => this.onSend());
     return btn;
   }
 
@@ -606,7 +714,7 @@ export class AiTab implements Tab {
     if (!this.ctxEl) return;
     this.fillContext(this.ctxEl);
     if (this.textarea) this.textarea.placeholder = this.placeholder();
-    // Refresh empty-state suggestions + code-block Apply state.
+    // Re-render the empty state when context toggles while the thread is empty.
     if (this.transcript.length === 0 && !this.stream) this.renderThread();
   }
 

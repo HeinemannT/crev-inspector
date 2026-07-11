@@ -4176,6 +4176,7 @@ body.crev-divider-dragging * { user-select: none; }
 
 /* User bubble — right aligned, no "You" label. */
 .ai-u {
+  position: relative;
   align-self: flex-end;
   max-width: 86%;
   background: var(--surface-1);
@@ -4185,6 +4186,30 @@ body.crev-divider-dragging * { user-select: none; }
   font-size: var(--text-sm);
   color: var(--text-1);
 }
+.ai-u--editable { cursor: pointer; }
+/* Edit affordance — a quiet pencil on the last user turn, revealed on hover or
+   keyboard focus. */
+.ai-u-edit {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--text-3);
+  cursor: pointer;
+  line-height: 0;
+  opacity: 0;
+  transition: opacity 150ms ease, color 150ms ease;
+}
+.ai-u-edit svg { width: 11px; height: 11px; }
+.ai-u--editable:hover .ai-u-edit,
+.ai-u-edit:focus-visible { opacity: 1; }
+.ai-u-edit:hover { color: var(--accent); }
 .ai-u-via {
   font-size: var(--text-2xs);
   color: var(--text-3);
@@ -4218,6 +4243,24 @@ body.crev-divider-dragging * { user-select: none; }
   color: var(--text-3);
 }
 .ai-a-pip { width: 6px; height: 6px; border-radius: 50%; background: var(--fam-code); }
+
+/* Retry affordance — a quiet arrow-clockwise at the reply's bottom-right,
+   only on the last assistant turn while the thread is idle. */
+.ai-a-actions { display: flex; justify-content: flex-end; margin-top: 2px; }
+.ai-a-retry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  line-height: 0;
+  transition: color 150ms ease;
+}
+.ai-a-retry svg { width: 11px; height: 11px; }
+.ai-a-retry:hover { color: var(--accent); }
 
 /* Tool trace — quiet mono lines on a 2px keyline. */
 .ai-tools {
@@ -4372,6 +4415,31 @@ body.crev-divider-dragging * { user-select: none; }
   padding: 8px 10px;
   background: var(--surface-0);
 }
+/* Edit-last-message notice — sits above the input while editing. */
+.ai-edit-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--surface-0));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-0));
+  font-size: var(--text-xs);
+  color: var(--text-2);
+}
+.ai-edit-notice[hidden] { display: none; }
+.ai-edit-notice-text { flex: 1 1 auto; min-width: 0; }
+.ai-edit-cancel {
+  flex: none;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  text-decoration: underline;
+  cursor: pointer;
+}
 .ai-cchip {
   display: inline-flex;
   align-items: center;
@@ -4472,7 +4540,7 @@ body.crev-divider-dragging * { user-select: none; }
 }
 .ai-send--stop:hover { background: color-mix(in srgb, var(--danger) 10%, var(--surface-0)); border-color: var(--danger); }
 
-/* Empty state — sparkle + capability line + context-derived suggestions. */
+/* Empty state — sparkle + capability line. */
 .ai-empty {
   flex: 1;
   display: flex;
@@ -4489,23 +4557,3 @@ body.crev-divider-dragging * { user-select: none; }
 .ai-empty-icon svg { width: 30px; height: 30px; }
 .ai-empty-title { font-weight: var(--weight-semi); color: var(--text-2); font-size: var(--text-base); }
 .ai-empty-sub { max-width: 320px; }
-.ai-sugs {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 14px;
-  width: 100%;
-  max-width: 360px;
-}
-.ai-sug {
-  padding: 7px 10px;
-  border: 1px solid var(--surface-4);
-  border-radius: var(--radius-sm);
-  background: var(--surface-0);
-  font-size: var(--text-sm);
-  color: var(--text-2);
-  text-align: left;
-  cursor: pointer;
-}
-.ai-sug:hover { border-color: var(--accent); color: var(--text-1); }
-.ai-mono { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-1); }
