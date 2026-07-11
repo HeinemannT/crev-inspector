@@ -12,6 +12,7 @@
  */
 
 import type { AiChatEvent, AiChatTurn, AiChatToolTrace } from '../../lib/ai/types';
+import { scrubToolMarkup } from '../../lib/ai/scrub';
 
 export type ToolStatus = 'pending' | 'ok' | 'err';
 
@@ -85,7 +86,11 @@ export function toolTraceOf(s: StreamState): AiChatToolTrace[] {
  *  errored streams still commit whatever text streamed so the thread keeps a
  *  record; the caller decides whether to append the error line separately. */
 export function toAssistantTurn(s: StreamState): AiChatTurn {
-  const turn: AiChatTurn = { role: 'assistant', text: s.text };
+  // Belt-and-suspenders: the SW already scrubs DSML tool markup from the
+  // stream, but scrub the committed text too so a marker that split exactly on
+  // a chunk boundary can never persist into the transcript (and get replayed to
+  // the model on the next turn).
+  const turn: AiChatTurn = { role: 'assistant', text: scrubToolMarkup(s.text) };
   const trace = toolTraceOf(s);
   if (trace.length) turn.toolTrace = trace;
   return turn;

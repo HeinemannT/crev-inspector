@@ -22,6 +22,10 @@ export interface EditorContext {
   saveTarget: SaveTarget
   property: string | null
   extended?: boolean
+  /** Free-script (extended) mode only: initial document text to preload. Used
+   *  by the chat tab's "Open in editor" handoff so a code block lands in a
+   *  ready-to-run scratch editor. One-shot: consumed on first mount. */
+  initialCode?: string
   executionContextRid?: string
   /** Resolved identity of the EC execution context (`this`) — the object the
    *  BMP page is currently rendering for. For an enterprise detail page that's

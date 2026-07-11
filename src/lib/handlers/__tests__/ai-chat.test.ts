@@ -8,6 +8,13 @@ import { mockChromeStorage } from '../../__tests__/chrome-mock';
 import { setSwContext } from '../../sw-context';
 import type { ToolCall } from '../../ai/tools';
 
+// The AI_OPEN_IN_EDITOR handler launches the free-script editor; stub the
+// window launcher so we can assert routing without a real editor frame.
+vi.mock('../../editor', () => ({
+  openExtendedWindow: vi.fn(() => Promise.resolve()),
+  openEditorWindow: vi.fn(() => Promise.resolve()),
+}));
+
 function makeCtx(overrides: any = {}): any {
   return {
     client: null,
@@ -28,9 +35,30 @@ describe('AI chat handler routing', () => {
     setSwContext(makeCtx());
     const { getHandler } = await import('../../handler-registry');
     await import('../ai');
-    for (const t of ['AI_CHAT_SEND', 'AI_CHAT_CANCEL', 'AI_PREVIEW_CODE', 'AI_APPLY_PROPOSAL', 'AI_CHAT_HANDOFF']) {
+    for (const t of ['AI_CHAT_SEND', 'AI_CHAT_CANCEL', 'AI_PREVIEW_CODE', 'AI_APPLY_PROPOSAL', 'AI_CHAT_HANDOFF', 'AI_OPEN_IN_EDITOR']) {
       expect(getHandler(t), t).toBeDefined();
     }
+  });
+});
+
+describe('AI_OPEN_IN_EDITOR routing', () => {
+  it('launches the free-script editor preloaded with the block code, on the panel tab', async () => {
+    mockChromeStorage();
+    setSwContext(makeCtx());
+    const { getHandler } = await import('../../handler-registry');
+    await import('../ai');
+    const editor = await import('../../editor');
+    const handler = getHandler('AI_OPEN_IN_EDITOR')!;
+    void handler(
+      { type: 'AI_OPEN_IN_EDITOR', code: 'output(1 + 1)' } as any,
+      () => {},
+      { senderTabId: 7, panelWindowId: 3, isOneShot: false },
+    );
+    expect(editor.openExtendedWindow).toHaveBeenCalledWith(
+      undefined,
+      { tabId: 7, windowId: 3 },
+      'output(1 + 1)',
+    );
   });
 });
 
@@ -87,6 +115,37 @@ describe('executeAiTool — defensive', () => {
     expect(res.isError).toBe(false);
     expect(res.content).toContain('Alpha (ButtonInput) rid=1');
     expect(res.content).toContain('Beta (CustomVisualization) rid=2');
+  });
+
+  it('search_objects enriches hits with businessId + template bid (one batched call)', async () => {
+    mockChromeStorage();
+    const quickSearch = vi.fn(async () => ({ totalHits: 2, objects: [
+      { rid: '1', name: 'Alpha', type: 'ButtonInput' },
+      { rid: '2', name: 'Beta', type: 'CustomVisualization' },
+    ] }));
+    const batchEnrich = vi.fn(async (_rids: string[]) => ({ results: {
+      '1': { businessId: 'btn_a', type: 'ButtonInput', name: 'Alpha' },
+      '2': { businessId: 'cvo_b', type: 'CustomVisualization', name: 'Beta', templateBusinessId: 'tmpl_news' },
+    } }));
+    setSwContext(makeCtx({ client: { quickSearch, batchEnrich } }));
+    const { executeAiTool } = await import('../ai-tools');
+    const res = await executeAiTool(call('search_objects', { query: 'a' }));
+    // Exactly one batched enrichment for both hits.
+    expect(batchEnrich).toHaveBeenCalledTimes(1);
+    expect(batchEnrich.mock.calls[0][0]).toEqual(['1', '2']);
+    expect(res.content).toContain('Alpha (ButtonInput) bid=btn_a rid=1');
+    expect(res.content).toContain('Beta (CustomVisualization) bid=cvo_b rid=2  [tpl bid=tmpl_news]');
+  });
+
+  it('search_objects degrades to rid-only when enrichment fails', async () => {
+    mockChromeStorage();
+    const quickSearch = vi.fn(async () => ({ totalHits: 1, objects: [{ rid: '1', name: 'Alpha', type: 'ButtonInput' }] }));
+    const batchEnrich = vi.fn(async () => { throw new Error('EC down'); });
+    setSwContext(makeCtx({ client: { quickSearch, batchEnrich } }));
+    const { executeAiTool } = await import('../ai-tools');
+    const res = await executeAiTool(call('search_objects', { query: 'a' }));
+    expect(res.isError).toBe(false);
+    expect(res.content).toContain('Alpha (ButtonInput) rid=1');
   });
 
   it('read_object reports a clear miss for an unresolvable ref', async () => {

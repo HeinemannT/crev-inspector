@@ -672,7 +672,10 @@ function ensureSurface(): void {
 
   const slots: CodeSlot[] = []
   if (ctx.extended) {
-    slots.push({ key: 'extended', lang: 'ec', code: '' })
+    // Preload a chat "Open in editor" handoff's code (one-shot), else blank.
+    const seed = ctx.initialCode ?? ''
+    ctx.initialCode = undefined
+    slots.push({ key: 'extended', lang: 'ec', code: seed })
   } else {
     for (const [prop, val] of Object.entries(ctx.instanceCode ?? {})) {
       slots.push({ key: slotKey('instance', prop), lang: langFor(prop, false), code: val })

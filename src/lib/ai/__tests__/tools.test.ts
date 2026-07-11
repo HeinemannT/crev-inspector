@@ -49,8 +49,8 @@ describe('tool schemas', () => {
     }
   });
 
-  it('caps the tool call budget at 8', () => {
-    expect(MAX_TOOL_CALLS).toBe(8);
+  it('caps the tool call budget at 12', () => {
+    expect(MAX_TOOL_CALLS).toBe(12);
   });
 });
 

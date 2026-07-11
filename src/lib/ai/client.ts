@@ -12,7 +12,8 @@ import type { AnthropicContentBlock, AnthropicMessage } from './anthropic';
 import { streamOpenAiCompat, streamOpenAiTurn, openAiTools, listModels as listOpenAiModels } from './openai-compat';
 import type { OpenAiMessage } from './openai-compat';
 import type { ExecuteTool, ToolCall, ToolResult } from './tools';
-import { MAX_TOOL_CALLS } from './tools';
+import { MAX_TOOL_CALLS, TOOL_BUDGET_EXHAUSTED_NOTE } from './tools';
+import { ToolMarkupScrubber } from './scrub';
 
 export interface StreamCompletionOpts {
   settings: AiSettings;
@@ -108,12 +109,17 @@ function summarizeCall(call: ToolCall): string {
 async function runToolLoop(
   runTurn: (allowTools: boolean) => Promise<ToolCall[]>,
   appendResults: (results: Array<{ call: ToolCall; result: ToolResult }>) => void,
+  appendFinalNote: () => void,
   opts: StreamChatOpts,
 ): Promise<void> {
   let used = 0;
+  let notedFinal = false;
   for (;;) {
     if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const allowTools = used < MAX_TOOL_CALLS;
+    // On the forced tools-off turn, tell the model WHY tools vanished so it
+    // answers instead of emitting tool-call syntax as plain text (Issue A).
+    if (!allowTools && !notedFinal) { appendFinalNote(); notedFinal = true; }
     const toolCalls = await runTurn(allowTools);
     // A tools-off turn (or a turn that asked for nothing) is the final answer.
     if (!allowTools || toolCalls.length === 0) return;
@@ -137,6 +143,10 @@ async function runAnthropicChat(opts: StreamChatOpts): Promise<void> {
   messages.push({ role: 'user', content: opts.text });
 
   const runTurn = async (allowTools: boolean): Promise<ToolCall[]> => {
+    // Scrub DSML-style tool markup from text before it reaches the transcript.
+    // One scrubber per turn (clean state; flushed at turn end). Deltas may
+    // split a marker across chunks — the scrubber buffers a suspicious tail.
+    const scrub = new ToolMarkupScrubber();
     const turn = await streamAnthropicTurn({
       model: opts.settings.model,
       apiKey: opts.apiKey,
@@ -144,8 +154,10 @@ async function runAnthropicChat(opts: StreamChatOpts): Promise<void> {
       messages,
       tools: allowTools ? anthropicTools() : [],
       signal: opts.signal,
-      onText: (d) => opts.onEvent({ kind: 'text-delta', delta: d }),
+      onText: (d) => { const clean = scrub.feed(d); if (clean) opts.onEvent({ kind: 'text-delta', delta: clean }); },
     });
+    const tail = scrub.flush();
+    if (tail) opts.onEvent({ kind: 'text-delta', delta: tail });
     if (turn.content.length) messages.push({ role: 'assistant', content: turn.content });
     return turn.toolCalls;
   };
@@ -160,7 +172,18 @@ async function runAnthropicChat(opts: StreamChatOpts): Promise<void> {
     messages.push({ role: 'user', content });
   };
 
-  await runToolLoop(runTurn, appendResults, opts);
+  // Anthropic requires alternating roles — fold the note into the last
+  // tool_result user turn when present, else push a fresh user turn.
+  const appendFinalNote = (): void => {
+    const last = messages[messages.length - 1];
+    if (last && last.role === 'user' && Array.isArray(last.content)) {
+      last.content.push({ type: 'text', text: TOOL_BUDGET_EXHAUSTED_NOTE });
+    } else {
+      messages.push({ role: 'user', content: TOOL_BUDGET_EXHAUSTED_NOTE });
+    }
+  };
+
+  await runToolLoop(runTurn, appendResults, appendFinalNote, opts);
 }
 
 async function runOpenAiChat(opts: StreamChatOpts, baseUrl: string): Promise<void> {
@@ -170,6 +193,9 @@ async function runOpenAiChat(opts: StreamChatOpts, baseUrl: string): Promise<voi
   messages.push({ role: 'user', content: opts.text });
 
   const runTurn = async (allowTools: boolean): Promise<ToolCall[]> => {
+    // Per-turn DSML scrubber (see runAnthropicChat) — DeepSeek is the provider
+    // that actually leaks tool markup as text once tools are dropped.
+    const scrub = new ToolMarkupScrubber();
     const turn = await streamOpenAiTurn({
       baseUrl,
       model: opts.settings.model,
@@ -177,8 +203,10 @@ async function runOpenAiChat(opts: StreamChatOpts, baseUrl: string): Promise<voi
       messages,
       tools: allowTools ? openAiTools() : [],
       signal: opts.signal,
-      onText: (d) => opts.onEvent({ kind: 'text-delta', delta: d }),
+      onText: (d) => { const clean = scrub.feed(d); if (clean) opts.onEvent({ kind: 'text-delta', delta: clean }); },
     });
+    const tail = scrub.flush();
+    if (tail) opts.onEvent({ kind: 'text-delta', delta: tail });
     messages.push(turn.assistantMessage);
     return turn.toolCalls;
   };
@@ -187,7 +215,13 @@ async function runOpenAiChat(opts: StreamChatOpts, baseUrl: string): Promise<voi
     for (const r of results) messages.push({ role: 'tool', tool_call_id: r.call.id, content: r.result.content });
   };
 
-  await runToolLoop(runTurn, appendResults, opts);
+  // OpenAI-compat allows a user turn after tool results — the plainest place
+  // for the note.
+  const appendFinalNote = (): void => {
+    messages.push({ role: 'user', content: TOOL_BUDGET_EXHAUSTED_NOTE });
+  };
+
+  await runToolLoop(runTurn, appendResults, appendFinalNote, opts);
 }
 
 /** One-shot "does this key work" probe. Sends a tiny request and reports

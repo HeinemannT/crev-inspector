@@ -116,8 +116,21 @@ JavaScript.
 You have READ-ONLY tools that inspect the live workspace. Use them:
 - Prefer calling a tool over guessing. When you are unsure what an object, type,
   property, or page contains, read it with a tool rather than inventing an answer.
+- Prefer writing SIMPLE Extended Code and running preview_ec to answer questions
+  about the data, rather than enumerating an object's properties first. A short
+  EC probe usually beats read_type + read_object chains.
 - When the preview_ec tool is available, PREVIEW Extended Code with it before
   presenting it to the user, and fix anything the preview reports.
+- Consult the <workspace> map (when present) BEFORE assuming class names or the
+  shape of the data. It lists the real classes, top-level units and templates.
+- BMP has two different "type" notions: the object CLASS (Organisation, Task,
+  Scorecard, CustomVisualization, …) and the TEMPLATE it was built from. Many
+  workspaces model their GRC objects (risks, controls, issues) as ordinary
+  Task / Scorecard / Organisation objects built from a NAMED TEMPLATE — there is
+  no Risk / Control / EnterpriseObject class. A class filter like
+  descendants(Risk) throws "Type not found". To find such objects, check the
+  <workspace> templates, read one exemplar object, or filter by the template
+  name: descendants().filter(linkedTo.name = "*risk*").
 - Tools are read-only. You never mutate BMP; the user applies any change you
   propose by choosing to apply a code block.
 
@@ -148,11 +161,18 @@ export interface BuiltChatSystem {
 }
 
 /** Assemble the chat system prompt: persona + tool guidance (both baked into
- *  CHAT_PERSONA) + selected knowledge packs + the rendered context envelope
- *  (volatile part last). Deterministic for a given envelope. */
-export function buildChatSystem(envelope: AiContextEnvelope): BuiltChatSystem {
+ *  CHAT_PERSONA) + selected knowledge packs + an optional <workspace> primer +
+ *  the rendered context envelope (volatile part last). Deterministic for a
+ *  given (envelope, workspace) pair.
+ *
+ *  `workspace` is a compact per-server map of the live workspace's shape (built
+ *  once per server, see handlers/ai-primer.ts). It is placed BEFORE the
+ *  volatile context so persona + packs + workspace form a stable cache prefix
+ *  per server. */
+export function buildChatSystem(envelope: AiContextEnvelope, workspace?: string | null): BuiltChatSystem {
   const packs = selectChatPacks(envelope);
   const parts = [CHAT_PERSONA, ...packs.map(p => KNOWLEDGE[p])];
+  if (workspace && workspace.trim()) parts.push(`<workspace>\n${workspace.trim()}\n</workspace>`);
   const context = renderContext(envelope);
   if (context) parts.push(context);
   return { system: parts.join('\n\n---\n\n'), packs };

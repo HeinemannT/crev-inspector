@@ -36,8 +36,10 @@ function toolThenText() {
 
 afterEach(() => { vi.restoreAllMocks(); });
 
+import { MAX_TOOL_CALLS, TOOL_BUDGET_EXHAUSTED_NOTE } from '../tools';
+
 describe('streamChat tool loop', () => {
-  it('caps tool calls at 8, then forces a tools-off final answer', async () => {
+  it('caps tool calls at MAX_TOOL_CALLS, then forces a tools-off final answer', async () => {
     vi.stubGlobal('fetch', toolThenText());
     const events: AiChatEvent[] = [];
     let toolCount = 0;
@@ -45,12 +47,35 @@ describe('streamChat tool loop', () => {
 
     await streamChat({ settings, apiKey: 'k', system: 'S', history: [], text: 'go', onEvent: e => events.push(e), executeTool });
 
-    expect(toolCount).toBe(8);
-    expect(events.filter(e => e.kind === 'tool-start')).toHaveLength(8);
-    expect(events.filter(e => e.kind === 'tool-end')).toHaveLength(8);
+    expect(toolCount).toBe(MAX_TOOL_CALLS);
+    expect(events.filter(e => e.kind === 'tool-start')).toHaveLength(MAX_TOOL_CALLS);
+    expect(events.filter(e => e.kind === 'tool-end')).toHaveLength(MAX_TOOL_CALLS);
     expect(events.at(-1)).toEqual({ kind: 'done' });
     // The forced final turn streamed text.
     expect(events.some(e => e.kind === 'text-delta' && e.delta === 'Final')).toBe(true);
+  });
+
+  it('appends the tool-budget note on the forced final turn (and only then)', async () => {
+    const bodies: any[] = [];
+    const fetchMock = vi.fn((_u: string, init: any) => {
+      const body = JSON.parse(init.body);
+      bodies.push(body);
+      const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
+      return Promise.resolve(okStream(hasTools ? TOOL_TURN : TEXT_TURN));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const executeTool = vi.fn(async (): Promise<ToolResult> => ({ content: 'ok', isError: false }));
+    await streamChat({ settings, apiKey: 'k', system: 'S', history: [], text: 'go', onEvent: () => {}, executeTool });
+
+    // The last request is the forced tools-off turn: no tools, and the note is
+    // present in its message array (folded into the last user turn for Anthropic).
+    const final = bodies.at(-1);
+    expect(final.tools).toBeUndefined();
+    const flat = JSON.stringify(final.messages);
+    expect(flat).toContain(TOOL_BUDGET_EXHAUSTED_NOTE);
+    // Tool-bearing turns before the cap must NOT carry the note.
+    const withTools = bodies.filter(b => Array.isArray(b.tools) && b.tools.length > 0);
+    for (const b of withTools) expect(JSON.stringify(b.messages)).not.toContain(TOOL_BUDGET_EXHAUSTED_NOTE);
   });
 
   it('stops immediately when the model answers with no tools', async () => {

@@ -376,26 +376,43 @@ export class AiTab implements Tab {
     });
 
     const previewBtn = h('button', { class: 'ai-cb-btn', title: 'Dry-run this code against BMP' }, 'Preview');
-    const applyBtn = h('button', {
-      class: 'ai-cb-btn ai-cb-apply',
-      title: canApply ? 'Apply as a merge proposal in the open editor' : 'Open an editor on the object to apply',
-      disabled: !canApply,
-    }, 'Apply');
+
+    // Primary action depends on whether an editor is attached:
+    //  - editor chip present → Apply (merge proposal into the open slot)
+    //  - no editor chip      → Open in editor (launch a free-script editor
+    //    preloaded with this code, so the user isn't stuck copy-only)
+    let primaryBtn: HTMLElement;
+    if (canApply) {
+      const applyBtn = h('button', {
+        class: 'ai-cb-btn ai-cb-apply',
+        title: 'Apply as a merge proposal in the open editor',
+      }, 'Apply');
+      applyBtn.addEventListener('click', () => {
+        const ed = this.activeEditorSource();
+        if (!ed?.slot) { showToast('Open an editor on the object first', 'info'); return; }
+        sendFireForget({ type: 'AI_APPLY_PROPOSAL', code, target: { rid: ed.object.rid, slot: ed.slot.name } });
+        statusFlash('Sent to editor');
+      });
+      primaryBtn = applyBtn;
+    } else {
+      const openBtn = h('button', {
+        class: 'ai-cb-btn ai-cb-apply',
+        title: 'Open the Extended Code editor preloaded with this code',
+      }, 'Open in editor');
+      openBtn.addEventListener('click', () => {
+        sendFireForget({ type: 'AI_OPEN_IN_EDITOR', code });
+        statusFlash('Opening editor');
+      });
+      primaryBtn = openBtn;
+    }
 
     const block = h('div', { class: 'ai-cb' },
       h('div', { class: 'ai-cb-h' },
         h('span', { class: 'ai-cb-lang' }, lang || 'code'),
-        applyBtn, previewBtn, copyBtn,
+        primaryBtn, previewBtn, copyBtn,
       ),
       pre,
     );
-
-    applyBtn.addEventListener('click', () => {
-      const ed = this.activeEditorSource();
-      if (!ed?.slot) { showToast('Open an editor on the object first', 'info'); return; }
-      sendFireForget({ type: 'AI_APPLY_PROPOSAL', code, target: { rid: ed.object.rid, slot: ed.slot.name } });
-      statusFlash('Sent to editor');
-    });
 
     previewBtn.addEventListener('click', () => {
       void this.runPreview(code, block, previewBtn);

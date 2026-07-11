@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildPrompt, selectPacks, extractCodeBlock, looksLikeProse } from '../prompt';
-import type { AiRequestPayload } from '../types';
+import { buildPrompt, selectPacks, extractCodeBlock, looksLikeProse, buildChatSystem } from '../prompt';
+import type { AiRequestPayload, AiContextEnvelope } from '../types';
 
 function payload(over: Partial<AiRequestPayload> = {}): AiRequestPayload {
   return {
@@ -107,6 +107,43 @@ describe('extractCodeBlock', () => {
 
   it('errors on an empty reply', () => {
     expect(extractCodeBlock('   ').code).toBeNull();
+  });
+});
+
+describe('buildChatSystem workspace primer', () => {
+  const env: AiContextEnvelope = { v: 1, server: { id: 's1', url: 'u' }, sources: [] };
+  const primer = 'objects=1117\nclasses: Task=400, Scorecard=45\nunits: Group (org_group, Organisation);\ntemplates(277 distinct): § Risk Register (3226) x2;';
+
+  // NB: the persona prose also mentions the token "<workspace>", so presence of
+  // the injected BLOCK is keyed on the closing tag, which only the block emits.
+  it('omits the <workspace> block when no primer is given', () => {
+    const { system } = buildChatSystem(env);
+    expect(system).not.toContain('</workspace>');
+  });
+
+  it('injects the primer inside a <workspace> block', () => {
+    const { system } = buildChatSystem(env, primer);
+    expect(system).toContain('</workspace>');
+    expect(system).toContain('objects=1117');
+    expect(system).toContain('§ Risk Register (3226)');
+  });
+
+  it('is deterministic + stable for a fixed (envelope, primer) pair', () => {
+    expect(buildChatSystem(env, primer).system).toBe(buildChatSystem(env, primer).system);
+  });
+
+  it('places the workspace block BEFORE the volatile context region', () => {
+    const withCtx: AiContextEnvelope = {
+      v: 1, server: { id: 's1', url: 'u' },
+      sources: [{ kind: 'selection', object: { rid: '9', businessId: 'sc_x', name: 'X', type: 'Scorecard' } }],
+    };
+    const { system } = buildChatSystem(withCtx, primer);
+    expect(system.indexOf('</workspace>')).toBeLessThan(system.indexOf('<context'));
+  });
+
+  it('ignores an empty / whitespace primer', () => {
+    expect(buildChatSystem(env, '   ').system).not.toContain('</workspace>');
+    expect(buildChatSystem(env, null).system).not.toContain('</workspace>');
   });
 });
 

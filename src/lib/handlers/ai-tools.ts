@@ -169,8 +169,26 @@ async function searchObjects(client: BmpClient, input: Record<string, unknown>, 
   if (typeFilter) hits = hits.filter(o => (o.type ?? '') === typeFilter);
   const shown = hits.slice(0, SEARCH_CAP);
   if (shown.length === 0) return ok(`No matches for "${query}"${typeFilter ? ` of type ${typeFilter}` : ''}.`);
+  // quickSearch returns rids only. Enrich with businessId + template bid in ONE
+  // batched EC round trip (the battle-tested client.batchEnrich: version-aware
+  // rid resolution, linkedTo then template fallback) so the model can reference
+  // each hit directly as t.<bid> instead of dereferencing every hit with
+  // read_object. That per-hit read_object storm is what used to burn the tool
+  // budget and trigger the DSML text leak. Defensive: a failed probe just
+  // leaves hits showing rid only.
+  let enrich: Awaited<ReturnType<BmpClient['batchEnrich']>>['results'] = {};
+  try {
+    enrich = (await client.batchEnrich(shown.map(o => o.rid), signal)).results;
+  } catch (e) {
+    log.swallow('ai-tool:search:enrich', e);
+  }
   const lines = [`${shown.length} of ${totalHits} hit(s) for "${query}"${typeFilter ? ` (type=${typeFilter})` : ''}:`];
-  for (const o of shown) lines.push(`  ${o.name ?? '(no name)'} (${o.type ?? '?'}) rid=${o.rid}`);
+  for (const o of shown) {
+    const e = enrich[o.rid];
+    const bid = e?.businessId ? `bid=${e.businessId} ` : '';
+    const tpl = e?.templateBusinessId ? `  [tpl bid=${e.templateBusinessId}]` : '';
+    lines.push(`  ${o.name ?? '(no name)'} (${o.type ?? '?'}) ${bid}rid=${o.rid}${tpl}`);
+  }
   return ok(lines.join('\n'));
 }
 

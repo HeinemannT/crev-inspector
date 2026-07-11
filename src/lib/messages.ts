@@ -443,6 +443,9 @@ export type AiMessage =
   // Apply a proposed code block to the open editor/studio via the standard
   // merge-diff proposal. Routed to the surface holding the target object.
   | { type: 'AI_APPLY_PROPOSAL'; code: string; target: { rid: string; slot: string } }
+  // Chat "Open in editor" (no editor context chip attached): launch the
+  // Extended Code editor in free-script mode preloaded with the block's code.
+  | { type: 'AI_OPEN_IN_EDITOR'; code: string }
   // Command strip's Ask hands off to the chat tab: the SW opens the sidepanel
   // and forwards this so the panel switches to the AI tab and submits it.
   | { type: 'AI_CHAT_HANDOFF'; text: string; quote?: AiChatQuote; envelope: AiContextEnvelope }

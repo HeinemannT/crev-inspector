@@ -159,7 +159,11 @@ export async function openEditorWindow(
  *  through the shared resolver — so the console gets the right `this` on BMP's
  *  custom-routed pages (where the URL has no `?rid=`) instead of opening
  *  contextless. */
-export async function openExtendedWindow(pageRidOverride?: string, target?: { tabId?: number; windowId?: number }) {
+export async function openExtendedWindow(
+  pageRidOverride?: string,
+  target?: { tabId?: number; windowId?: number },
+  initialCode?: string,
+) {
   const swCtx = getCtx();
   await swCtx.settingsReady;
 
@@ -195,6 +199,7 @@ export async function openExtendedWindow(pageRidOverride?: string, target?: { ta
     saveTarget: swCtx.settings.saveTarget,
     property: null,
     extended: true,
+    ...(initialCode ? { initialCode } : {}),
     executionContextRid: pageRid,
     useLookup: swCtx.client?.supportsLookup !== false,
   };

@@ -10,8 +10,21 @@
  */
 
 /** Max tool calls the orchestrator will execute in one user turn. On the cap
- *  it makes one final turn with NO tools offered, forcing a text answer. */
-export const MAX_TOOL_CALLS = 8;
+ *  it makes one final turn with NO tools offered, forcing a text answer.
+ *
+ *  Raised 8 → 12: search_objects now returns each hit's businessId + template
+ *  (see handlers/ai-tools.ts), so the model no longer burns a read_object per
+ *  hit just to learn ids. Each search is materially cheaper, so a modestly
+ *  higher budget buys multi-step exploration without the runaway dereferencing
+ *  that used to hit the old cap and trigger the DSML-leak (see ai/scrub.ts). */
+export const MAX_TOOL_CALLS = 12;
+
+/** Appended (in the dialect's best role) on the forced final turn so the model
+ *  knows WHY tools vanished and answers instead of re-emitting tool syntax as
+ *  text. Kept out of the visible transcript. */
+export const TOOL_BUDGET_EXHAUSTED_NOTE =
+  'Tool budget for this turn is exhausted. Answer now with the information ' +
+  'you already gathered. Do not attempt further tool calls.';
 
 /** Hard character cap on any single tool result handed back to the model.
  *  Over the cap the result is sliced and marked so the model can SEE it was

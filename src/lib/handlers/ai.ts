@@ -21,6 +21,8 @@ import { sendFireForget } from '../messaging';
 import { streamCompletion, streamChat, testConnection, listModels } from '../ai/client';
 import { buildChatSystem } from '../ai/prompt';
 import { executeAiTool } from './ai-tools';
+import { buildWorkspacePrimer } from './ai-primer';
+import { openExtendedWindow } from '../editor';
 import { PROVIDERS } from '../ai/providers';
 import { errorMessage, log } from '../logger';
 
@@ -147,6 +149,23 @@ register('AI_CANCEL', (msg) => {
 
 // ── Chat (tool-using conversation) ───────────────────────────────
 
+/** Workspace primer cache, keyed by server id (envelope.server.id). Built once
+ *  per server on the first chat turn; a different active profile keys a
+ *  different entry so a profile switch never reuses another server's map.
+ *  `null` = the probe ran but failed / was empty (don't re-probe every turn). */
+const primerByServer = new Map<string, string | null>();
+
+/** Get (and lazily build + cache) the workspace primer for a server. Degrades
+ *  to null on any failure. Cheap after the first turn (one Map lookup). */
+async function workspacePrimerFor(serverId: string, signal?: AbortSignal): Promise<string | null> {
+  if (primerByServer.has(serverId)) return primerByServer.get(serverId) ?? null;
+  const ctx = getCtx();
+  if (!ctx.client) return null;
+  const primer = await buildWorkspacePrimer(ctx.client, signal);
+  primerByServer.set(serverId, primer);
+  return primer;
+}
+
 register('AI_CHAT_SEND', async (msg) => {
   const ctx = getCtx();
   const rid = msg.requestId;
@@ -160,7 +179,8 @@ register('AI_CHAT_SEND', async (msg) => {
   inflight.set(rid, controller);
   try {
     const key = await decrypt(ai.apiKeyEnc);
-    const { system } = buildChatSystem(msg.envelope);
+    const primer = await workspacePrimerFor(msg.envelope.server.id, controller.signal);
+    const { system } = buildChatSystem(msg.envelope, primer);
     await streamChat({
       settings: ai,
       apiKey: key,
@@ -206,6 +226,21 @@ register('AI_APPLY_PROPOSAL', (msg) => {
   // Relay to the open editor/studio surface (a separate page from the panel),
   // which shows the standard merge-diff proposal for target { rid, slot }.
   sendFireForget(msg);
+});
+
+register('AI_OPEN_IN_EDITOR', (msg, _respond, meta) => {
+  // Chat "Open in editor" (no editor chip attached): launch the Extended Code
+  // editor in free-script mode preloaded with the block's code, mounted on the
+  // panel window's active BMP tab (same target rule as OPEN_EXTENDED).
+  //
+  // Limitation (documented): if a free-script editor is ALREADY open, this
+  // opens a second one — the SW cannot cheaply detect a scratch editor (it
+  // broadcasts no object identity, so AI_EDITOR_CONTEXT stays null for it).
+  // The attached-editor case is already covered by the code block's Apply
+  // button (AI_APPLY_PROPOSAL → propose()); this action only shows when NO
+  // editor chip is attached.
+  openExtendedWindow(undefined, { tabId: meta.senderTabId, windowId: meta.panelWindowId }, msg.code)
+    .catch(e => log.swallow('ai:openInEditor', e));
 });
 
 // ── Editor context (drives the chat tab's 'editor' chip) ─────────
