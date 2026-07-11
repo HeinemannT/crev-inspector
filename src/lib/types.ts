@@ -1,5 +1,7 @@
 import type { AuthMode, AuthVia } from './bmp-auth';
 export type { AuthMode, AuthVia };
+import type { AiSettings } from './ai/types';
+export type { AiSettings };
 // Style-prop catalog is single-sourced in style-props.ts; imported for DEFAULT_SETTINGS below and
 // re-exported for back-compat with the many `from './types'` import sites.
 import { PAINT_STYLE_PROPS, COLOR_LINK_PROPS, PAINT_PROP_RESET, STYLE_PROPS, styleResetLiteral } from './style-props';
@@ -335,10 +337,14 @@ export interface InspectorSettings {
    *  PAINT_STYLE_PROPS, toggled via the paint button's right-click menu.
    *  Optional/undefined ⇒ copy all (see DEFAULT_SETTINGS + activePaintProps). */
   paintProps?: string[];
+  /** AI coding-assistant config. Absent until the user configures a provider
+   *  + key in the Connect tab. The API key inside is stored AES-GCM encrypted;
+   *  it is stripped from the session snapshot (see snapshotSettings). */
+  ai?: AiSettings;
 }
 
 export const DEFAULT_SETTINGS: InspectorSettings = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   profiles: [],
   activeProfileId: '',
   autoDetect: true,

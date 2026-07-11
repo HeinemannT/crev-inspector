@@ -16,6 +16,7 @@
  * first-time injection into the already-open tab that was just granted.
  */
 import { log } from './logger';
+import { AI_API_ORIGINS } from './ai/providers';
 
 const CONTENT_ID = 'crev-content';
 const INTERCEPTOR_ID = 'crev-interceptor';
@@ -84,6 +85,10 @@ export function initSiteAccess(): void {
  *  panel (permissions.request needs the user gesture); removal needs none. */
 export async function reconcileProfileOrigins(profileUrls: Array<string | undefined>): Promise<void> {
   const keep = new Set(profileUrls.map(originPatternFor).filter((p): p is string => !!p));
+  // Never drop the AI provider API origins — a saved AI key needs its host
+  // permission to survive every profile save/delete/boot reconcile. They're
+  // harmless when no key is configured (nothing calls them).
+  for (const o of AI_API_ORIGINS) keep.add(o);
   const granted = await grantedOrigins();
   const drop = granted.filter(o => !keep.has(o));
   if (drop.length) {

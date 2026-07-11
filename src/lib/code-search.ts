@@ -192,6 +192,53 @@ export async function startCodeSearch(
   if (!aborted()) broadcastDone(allResults.length, typesDone);
 }
 
+/** Synchronous, broadcast-free code search — used by the AI `code_search`
+ *  tool. Reuses the same per-type pipeline as the streaming engine but
+ *  collects the results into a single array (capped) instead of streaming
+ *  progress. Never throws: a connection / EC failure resolves to an empty
+ *  result with `error` set so the caller can hand the model a readable string. */
+export async function collectCodeSearch(
+  query: string,
+  opts: { types?: string[]; subtreeRid?: string; caseSensitive?: boolean; cap?: number } = {},
+): Promise<{ results: CodeSearchResult[]; capped: boolean; error?: string }> {
+  const ctx = getCtx();
+  await ctx.settingsReady;
+  if (!ctx.client) return { results: [], capped: false, error: 'Not connected to BMP' };
+  if (!query.trim()) return { results: [], capped: false, error: 'Empty search pattern' };
+
+  const cap = opts.cap ?? 30;
+  const caseSensitive = opts.caseSensitive ?? true;
+  const validTypes = new Set(Object.keys(CODE_PROPS_FOR_TYPE));
+  const searchTypes = (opts.types ?? [...validTypes]).filter(t => validTypes.has(t));
+  if (searchTypes.length === 0) return { results: [], capped: false, error: 'No searchable types' };
+
+  let subtreeRef: string | null = null;
+  if (opts.subtreeRid) {
+    const resolved = await resolveScope(ctx.client, opts.subtreeRid);
+    if (!resolved) return { results: [], capped: false, error: `Couldn't resolve scope "${opts.subtreeRid}"` };
+    subtreeRef = resolved.ref;
+  }
+
+  const never = () => false;
+  const all: CodeSearchResult[] = [];
+  for (let i = 0; i < searchTypes.length; i += MAX_ENUM_PARALLEL) {
+    const batch = searchTypes.slice(i, i + MAX_ENUM_PARALLEL);
+    const perType = await Promise.all(batch.map(async (t) => {
+      try {
+        return await searchOneType(ctx.client!, t, query.trim(), caseSensitive, subtreeRef, never);
+      } catch (e) {
+        log.swallow('codeSearch:collect', e);
+        return [] as CodeSearchResult[];
+      }
+    }));
+    for (const r of perType) all.push(...r);
+    if (all.length >= cap) break;
+  }
+
+  const capped = all.length > cap;
+  return { results: capped ? all.slice(0, cap) : all, capped };
+}
+
 export function stopCodeSearch(): void {
   // Supersede in-flight loops (they bail on the next aborted() check) AND tell
   // the panel we're done — otherwise its "searching" flag never clears and the

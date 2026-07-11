@@ -75,6 +75,10 @@ export class CodeSurface {
   private currentLang = ''
   private wrap = false
   private readonly wrapCompartment = new Compartment()
+  /** Reconfigurable slot for transient overlay extensions (the AI edit
+   *  merge-diff). Empty by default; the AI assist reconfigures it with a
+   *  `unifiedMergeView` while a proposal is pending, then clears it. */
+  private readonly overlayCompartment = new Compartment()
 
   /** `getParent` is resolved on every (re)build / reattach rather than captured
    *  once — apps re-render their shell, which replaces the editor container. */
@@ -145,6 +149,7 @@ export class CodeSurface {
       extensions: [
         ...this.cb.buildExtensions(slot),
         this.wrapCompartment.of(this.wrap ? EditorView.lineWrapping : []),
+        this.overlayCompartment.of([]),
         EditorView.updateListener.of(u => this.onUpdate(u)),
       ],
     })
@@ -302,6 +307,13 @@ export class CodeSurface {
   setWrap(wrap: boolean): void {
     this.wrap = wrap
     this._view?.dispatch({ effects: this.wrapCompartment.reconfigure(wrap ? EditorView.lineWrapping : []) })
+  }
+
+  /** Reconfigure the transient overlay slot (pass `[]` to clear). Used by the
+   *  AI edit flow to layer a `unifiedMergeView` over the live doc, then remove
+   *  it on accept/reject. */
+  setOverlay(ext: Extension): void {
+    this._view?.dispatch({ effects: this.overlayCompartment.reconfigure(ext) })
   }
 
   /** Re-attach the view's DOM into the (current) parent after the app re-rendered

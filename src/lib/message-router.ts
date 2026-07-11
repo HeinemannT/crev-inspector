@@ -30,6 +30,7 @@ import './handlers/windows';
 import './handlers/bmp-goto';
 import './handlers/layout';
 import './handlers/site-access';
+import './handlers/ai';
 
 // Re-export for external callers that referenced old names
 export { getLinkedDefs } from './handlers/objects';

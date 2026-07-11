@@ -78,6 +78,13 @@ export function migrateStoredSettings(s: Record<string, unknown>): boolean {
     s.schemaVersion = 2;
     migrated = true;
   }
+  // v2 → v3: the optional `ai` field was introduced. No data reshaping needed
+  // (it's absent until the user configures a provider), but bump the version so
+  // stored data advances in lockstep with DEFAULT_SETTINGS.
+  if ((s.schemaVersion as number) < 3) {
+    s.schemaVersion = 3;
+    migrated = true;
+  }
   return migrated;
 }
 
@@ -138,6 +145,10 @@ export function snapshotSettings(): void {
   const sanitized = {
     ...s,
     profiles: s.profiles.map(p => ({ ...p, bmpPass: '' })),
+    // Strip the (encrypted) AI key from the session snapshot — the panel only
+    // needs to know a key is configured plus the provider + model to render the
+    // AI settings row; it never handles the key itself.
+    ...(s.ai ? { ai: { ...s.ai, apiKeyEnc: '' } } : {}),
   };
   chrome.storage.session.set({ crev_settings_snapshot: sanitized }).catch(e => log.swallow('settings:snapshot', e));
 }

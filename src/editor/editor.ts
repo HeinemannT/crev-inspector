@@ -14,11 +14,14 @@ import { KBD_MOD } from '../editor-core/platform'
 import { closeOverlayKeyBinding, installDirtyGuards } from '../editor-core/overlay'
 
 // Shared types + context helpers
-import { type SaveTarget, type ScriptHistoryEntry, getTypeColor } from '../lib/types'
+import { type SaveTarget, type ScriptHistoryEntry, type InspectorMessage, getTypeColor } from '../lib/types'
 import { typeBadge, wireBadgeCopy } from '../lib/type-badge'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { captureTypingFocus } from '../lib/focus-keep'
-import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_CODE, ICON_CHEVRON, ICON_WARNING } from '../lib/icons'
+import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_CODE, ICON_CHEVRON, ICON_WARNING, ICON_SPARKLE } from '../lib/icons'
+import { fetchAiConfig } from '../editor-core/ai-config'
+import type { AiAssist } from '../editor-core/ai-assist'
+import type { AiLang, AiObjectContext, AiContextSource } from '../lib/ai/types'
 import { renderEcOutput, ecOutputToText, parseBmpDurationMs, formatRunTiming } from './ec-output'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
@@ -68,6 +71,10 @@ let surface: CodeSurface | null = null
  *  window; html/javascript/css get grammar-only; else plain. */
 type SlotLang = 'ec' | 'html' | 'javascript' | 'css' | 'plain'
 let activeProperty = ''
+/** AI assistant — created in init() only when a provider key is configured.
+ *  When null, NOTHING of the AI feature renders (zero-footprint rule). */
+let aiAssist: AiAssist | null = null
+let aiConfigured = false
 let bottomPanelOpen = false
 let bottomMode: 'output' | 'history' | 'vars' = 'output'
 let outputHeight = 160 // last manually-dragged px, persisted
@@ -189,6 +196,7 @@ async function init() {
       activeProperty = Object.keys(activeCode)[0] ?? 'expression'
     }
   }
+  await setupAiAssist()
   updateWindowTitle()
   renderShell()
   ensureSurface()
@@ -528,6 +536,7 @@ function renderShell() {
       updateWindowTitle()
       renderShell()
       surface?.activate(activeKey())
+      broadcastEditorContext()
     })
   }
 
@@ -540,6 +549,7 @@ function renderShell() {
       previewDone = false
       renderShell()
       surface?.activate(activeKey())
+      broadcastEditorContext()
     })
   }
 }
@@ -601,6 +611,8 @@ function buildExtensions(slot: CodeSlot): Extension[] {
       // button-only by design (no keyboard shortcut).
       { key: 'F5', run: () => { void doPreview(); return true }, preventDefault: true },
       { key: 'Ctrl-s', run: () => { void doSave(); return true } },
+      // AI assistant — Mod-k. No-op when no provider key is configured.
+      { key: 'Mod-k', run: () => { openAiAssist(); return true }, preventDefault: true },
       closeOverlayKeyBinding,
     ]),
 
@@ -697,6 +709,133 @@ function updateStatusBar(): void {
   const col = pos - line.from + 1
   const bar = document.getElementById('status-bar')
   if (bar) bar.textContent = `Ln ${line.number}, Col ${col}`
+}
+
+// ── AI assistant ─────────────────────────────────────────────────
+
+/** Probe for a configured AI provider and subscribe to config changes so the
+ *  assistant appears / disappears live (zero-footprint). When it isn't
+ *  configured, nothing AI renders (buildActionRow gates the sparkle button on
+ *  `aiConfigured`, Mod-k is a no-op) and the merge-heavy ai-assist module is
+ *  never loaded. */
+async function setupAiAssist(): Promise<void> {
+  chrome.runtime.onMessage.addListener((msg: InspectorMessage) => {
+    if (msg.type === 'AI_CONFIG_CHANGED') void applyAiConfig(msg.configured)
+    // Chat-tab Apply: when the proposal targets the object + slot this editor
+    // has open, raise the standard merge-diff Accept/Reject on the live doc.
+    if (msg.type === 'AI_APPLY_PROPOSAL' && aiAssist && ctx) {
+      const target = getSaveTarget(ctx)
+      const slot = ctx.extended ? 'expression' : activeProperty
+      if (msg.target.rid === target.rid && msg.target.slot === slot) {
+        aiAssist.propose(msg.code)
+      }
+    }
+  })
+  // Tell the sidepanel this editor is gone so its 'editor' context chip drops.
+  window.addEventListener('pagehide', () => {
+    if (aiConfigured) sendFireForget({ type: 'AI_EDITOR_CONTEXT', source: null })
+  })
+  try {
+    const cfg = await fetchAiConfig()
+    await applyAiConfig(cfg.configured)
+  } catch {
+    aiConfigured = false
+  }
+}
+
+/** React to the current AI-configured state: lazily build the assistant (which
+ *  pulls in @codemirror/merge) on first need, or tear it down + close anything
+ *  open when the key is removed. Repaints the toolbar so the sparkle follows. */
+async function applyAiConfig(configured: boolean): Promise<void> {
+  if (configured) {
+    if (!aiAssist) {
+      const { createAiAssist } = await import('../editor-core/ai-assist')
+      aiAssist = createAiAssist({
+        surface: () => surface,
+        lang: () => aiLangForActiveSlot(),
+        context: () => aiContext(),
+        anchorEl: () => document.getElementById('btn-ai'),
+        contextSource: () => aiContextSource(),
+      })
+    }
+    aiConfigured = true
+  } else {
+    aiConfigured = false
+    aiAssist?.close()
+    aiAssist = null
+  }
+  broadcastEditorContext()
+  refreshActions()
+}
+
+/** Open the AI popover (no-op when the feature isn't configured). */
+function openAiAssist(): void {
+  if (aiConfigured) aiAssist?.open()
+}
+
+/** Map the active slot's language family to the AI request lang. */
+function aiLangForActiveSlot(): AiLang {
+  const lang = langFor(activeProperty, !!ctx?.extended)
+  if (lang === 'ec') return 'extended'
+  if (lang === 'javascript') return 'javascript'
+  return 'html'
+}
+
+/** The 'editor' context source for the chat envelope: the open object's
+ *  identity + the active slot's full code (+ selection). Null for the scratch
+ *  Extended window with no object, or before a context loads. */
+function aiContextSource(): AiContextSource | null {
+  if (!ctx) return null
+  const identity = ctx.extended ? ctx.instance : getActiveIdentity(ctx)
+  if (!identity?.rid) return null
+  const slotName = ctx.extended ? 'expression' : activeProperty
+  const view = surface?.view
+  const code = view ? view.state.doc.toString() : (getActiveCode(ctx)[slotName] ?? '')
+  const lang = aiLangForActiveSlot()
+  const source: AiContextSource = {
+    kind: 'editor',
+    object: {
+      rid: identity.rid,
+      businessId: identity.businessId ?? '',
+      name: identity.name ?? '',
+      type: identity.type ?? '',
+      ...(ctx.template?.businessId ? { templateBusinessId: ctx.template.businessId } : {}),
+    },
+    slot: { name: slotName, lang, code },
+  }
+  const sel = view?.state.selection.main
+  if (sel && sel.from !== sel.to && source.slot) {
+    source.slot.selection = { from: sel.from, to: sel.to }
+  }
+  return source
+}
+
+/** Broadcast which object+slot this editor has open, so the sidepanel AI chat
+ *  tab can render its 'editor' context chip. Zero-footprint: only sent while a
+ *  provider key is configured. Last-writer-wins when several editors are open
+ *  (the most recently opened / switched surface owns the chip). */
+function broadcastEditorContext(): void {
+  if (!aiConfigured) return
+  sendFireForget({ type: 'AI_EDITOR_CONTEXT', source: aiContextSource() })
+}
+
+/** Object grounding for the prompt: identity + the other code props, truncated. */
+function aiContext(): AiObjectContext {
+  if (!ctx) return {}
+  const identity = ctx.extended ? ctx.instance : getActiveIdentity(ctx)
+  const codeMap = getActiveCode(ctx)
+  const otherSlots = Object.entries(codeMap)
+    .filter(([prop]) => prop !== activeProperty && !ctx!.extended)
+    .map(([name, code]) => ({ name, code: (code ?? '').slice(0, 1500) }))
+    .filter(s => s.code.trim() !== '')
+  return {
+    objectType: identity.type,
+    businessId: identity.businessId,
+    name: identity.name,
+    templateBusinessId: ctx.template?.businessId,
+    slotName: ctx.extended ? undefined : activeProperty,
+    otherSlots: otherSlots.length ? otherSlots : undefined,
+  }
 }
 
 // ── Actions ──────────────────────────────────────────────────────
@@ -832,8 +971,16 @@ function buildActionRow(): HTMLElement {
     }, ' Discard'),
     h('div', { class: 'editor-actions-spacer' }),
     h('span', { class: 'editor-status', id: 'status-bar' }, 'Ln 1, Col 1'),
-    // Editor-meta utilities — wrap, EC reference, help — far right, separated
-    // from the action verbs.
+    // Editor-meta utilities — AI, wrap, EC reference, help — far right,
+    // separated from the action verbs. The AI button only exists when a
+    // provider key is configured (zero-footprint rule).
+    aiConfigured && h('button', {
+      class: 'btn-micro editor-ai-btn',
+      id: 'btn-ai',
+      title: `Ask or edit with AI (${KBD_MOD}+K)`,
+      'aria-label': 'AI assistant',
+      onClick: openAiAssist,
+    }, svg(ICON_SPARKLE)),
     h('button', {
       class: `btn-micro${wrapLines ? ' active' : ''}`,
       id: 'btn-wrap',

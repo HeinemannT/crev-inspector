@@ -52,6 +52,46 @@ describe('snapshotSettings (credentials never persisted to session storage)', ()
     expect(written.autoDetect).toBe(true);
   });
 
+  it('strips the (encrypted) AI key but keeps provider + model', async () => {
+    const { setSwContext } = await import('../sw-context');
+    const { snapshotSettings } = await import('../settings');
+    setSwContext({
+      settings: {
+        schemaVersion: 3,
+        activeProfileId: '',
+        autoDetect: true,
+        saveTarget: 'template',
+        enrichMode: 'widgets',
+        profiles: [],
+        ai: { provider: 'anthropic', model: 'claude-opus-4-8', apiKeyEnc: 'enc:super-secret-key' },
+      },
+    } as any);
+
+    snapshotSettings();
+
+    const written = (chrome.storage.session.set as any).mock.calls[0][0].crev_settings_snapshot;
+    expect(written.ai.apiKeyEnc).toBe('');
+    expect(written.ai.provider).toBe('anthropic');
+    expect(written.ai.model).toBe('claude-opus-4-8');
+  });
+
+  it('does not mutate the source AI key', async () => {
+    const { setSwContext } = await import('../sw-context');
+    const { snapshotSettings } = await import('../settings');
+    const settings = {
+      schemaVersion: 3,
+      activeProfileId: '',
+      autoDetect: true,
+      saveTarget: 'template' as const,
+      enrichMode: 'widgets' as const,
+      profiles: [],
+      ai: { provider: 'openai' as const, model: 'gpt-5.2', apiKeyEnc: 'KEEP-ENC' },
+    };
+    setSwContext({ settings } as any);
+    snapshotSettings();
+    expect(settings.ai.apiKeyEnc).toBe('KEEP-ENC');
+  });
+
   it('handles empty profile list without throwing', async () => {
     const { setSwContext } = await import('../sw-context');
     const { snapshotSettings } = await import('../settings');

@@ -28,10 +28,13 @@ import { closeOverlayKeyBinding, installDirtyGuards } from '../editor-core/overl
 import { detectFileResourceRids, detectCdnUrls } from './dep-detect'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
-import { sendRequest } from '../lib/messaging'
+import { sendRequest, sendFireForget } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
-import { type StudioChild, type StudioChildType } from '../lib/types'
-import { ICON_PLAY, ICON_REFRESH, ICON_CHECK, ICON_X, ICON_WARNING, ICON_WRAP, ICON_BRACKETS } from '../lib/icons'
+import { type StudioChild, type StudioChildType, type InspectorMessage } from '../lib/types'
+import { ICON_PLAY, ICON_REFRESH, ICON_CHECK, ICON_X, ICON_WARNING, ICON_WRAP, ICON_BRACKETS, ICON_SPARKLE } from '../lib/icons'
+import { fetchAiConfig } from '../editor-core/ai-config'
+import type { AiAssist } from '../editor-core/ai-assist'
+import type { AiLang, AiObjectContext, AiContextSource } from '../lib/ai/types'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from './studio-types'
 import { STUDIO_MODES, type StudioMode, type StudioFile } from './studio-mode'
 import { isCvoSandboxOutbound, type CvoRenderRequest, type CvoConsoleLevel, type CvoLib } from './cvo-protocol'
@@ -56,6 +59,10 @@ const fileFor = (prop: StudioCodeProp): StudioFile =>
  *  per-slot dirty, stash/restore, and save/discard baselines. */
 let surface: CodeSurface | null = null
 let activeProp: StudioCodeProp = 'html' // re-seeded in init() from the mode
+/** AI assistant — built in init() only when a provider key is configured.
+ *  Null ⇒ nothing AI renders (zero-footprint rule). */
+let aiAssist: AiAssist | null = null
+let aiConfigured = false
 // Pane layout: editor only / both / preview only — one control, one enum
 // (replaces the old show-preview + maximize booleans). 'code' has no preview
 // pane (so toggling to/from it rebuilds the shell + remounts the iframe);
@@ -179,10 +186,127 @@ async function init() {
   renderContextRef = renderContextRid
   document.title = ctx.instance.name ? `${mode.title} · ${ctx.instance.name}` : mode.title
 
+  await setupAiAssist()
   renderShell()
   ensureSurface()
   schedulePreview()
   if (mode.hasSandbox) void fetchChildren()
+}
+
+// ── AI assistant ─────────────────────────────────────────────────
+
+/** Probe for a configured AI provider and subscribe to config changes so the
+ *  assistant appears / disappears live (zero-footprint). Nothing AI renders
+ *  otherwise (refreshActions gates the button), and the merge-heavy ai-assist
+ *  module is never loaded until a key exists. */
+async function setupAiAssist(): Promise<void> {
+  chrome.runtime.onMessage.addListener((msg: InspectorMessage) => {
+    if (msg.type === 'AI_CONFIG_CHANGED') void applyAiConfig(msg.configured)
+    // Chat-tab Apply: when the proposal targets this studio's object + the
+    // active file, raise the standard merge-diff Accept/Reject on the live doc.
+    if (msg.type === 'AI_APPLY_PROPOSAL' && aiAssist && ctx) {
+      if (msg.target.rid === ctx.instance.rid && msg.target.slot === activeProp) {
+        aiAssist.propose(msg.code)
+      }
+    }
+  })
+  // Tell the sidepanel this studio is gone so its 'editor' context chip drops.
+  window.addEventListener('pagehide', () => {
+    if (aiConfigured) sendFireForget({ type: 'AI_EDITOR_CONTEXT', source: null })
+  })
+  try {
+    const cfg = await fetchAiConfig()
+    await applyAiConfig(cfg.configured)
+  } catch {
+    aiConfigured = false
+  }
+}
+
+/** React to the current AI-configured state: lazily build the assistant (which
+ *  pulls in @codemirror/merge) on first need, or tear it down + close anything
+ *  open when the key is removed. Repaints the toolbar so the sparkle follows. */
+async function applyAiConfig(configured: boolean): Promise<void> {
+  if (configured) {
+    if (!aiAssist) {
+      const { createAiAssist } = await import('../editor-core/ai-assist')
+      aiAssist = createAiAssist({
+        surface: () => surface,
+        lang: () => (fileFor(activeProp).lang === 'javascript' ? 'javascript' : 'html') as AiLang,
+        context: () => aiContext(),
+        anchorEl: () => document.getElementById('studio-ai'),
+        contextSource: () => aiContextSource(),
+      })
+    }
+    aiConfigured = true
+  } else {
+    aiConfigured = false
+    aiAssist?.close()
+    aiAssist = null
+  }
+  broadcastEditorContext()
+  refreshActions()
+}
+
+function openAiAssist(): void {
+  if (aiConfigured) aiAssist?.open()
+}
+
+/** The 'editor' context source for the chat envelope: the open object's
+ *  identity + the active file's full code (+ selection). */
+function aiContextSource(): AiContextSource | null {
+  if (!ctx) return null
+  const id = ctx.instance
+  const view = surface?.view
+  const code = view ? view.state.doc.toString() : (activeCode()[activeProp] ?? '')
+  const lang: AiLang = fileFor(activeProp).lang === 'javascript' ? 'javascript' : 'html'
+  const source: AiContextSource = {
+    kind: 'editor',
+    object: {
+      rid: id.rid,
+      businessId: id.businessId ?? '',
+      name: id.name ?? '',
+      type: id.type ?? '',
+      ...(ctx.template?.businessId ? { templateBusinessId: ctx.template.businessId } : {}),
+    },
+    slot: { name: activeProp, lang, code },
+  }
+  const sel = view?.state.selection.main
+  if (sel && sel.from !== sel.to && source.slot) {
+    source.slot.selection = { from: sel.from, to: sel.to }
+  }
+  return source
+}
+
+/** Broadcast which object+file this studio has open (the sidepanel AI chat
+ *  tab's 'editor' chip). Zero-footprint: only while a key is configured. */
+function broadcastEditorContext(): void {
+  if (!aiConfigured) return
+  sendFireForget({ type: 'AI_EDITOR_CONTEXT', source: aiContextSource() })
+}
+
+/** Object grounding for the prompt: identity + sibling files + (CVO) a `_data`
+ *  sample so the model knows the data shape. */
+function aiContext(): AiObjectContext {
+  if (!ctx) return {}
+  const id = ctx.instance
+  const codeMap = activeCode()
+  const otherSlots = Object.entries(codeMap)
+    .filter(([prop]) => prop !== activeProp)
+    .map(([name, code]) => ({ name, code: (code ?? '').slice(0, 1500) }))
+    .filter(s => s.code.trim() !== '')
+  let dataSample: string | undefined
+  if (mode.hasSandbox) {
+    try { dataSample = JSON.stringify(currentData()).slice(0, 2000) } catch { dataSample = undefined }
+  }
+  return {
+    objectType: id.type,
+    businessId: id.businessId || id.rid,
+    name: id.name,
+    templateBusinessId: ctx.template?.businessId,
+    slotName: activeProp,
+    otherSlots: otherSlots.length ? otherSlots : undefined,
+    dataSample,
+  }
 }
 
 /** Create the editing surface (once) with the html + javascript slots, or
@@ -211,6 +335,7 @@ function ensureSurface() {
         { key: 'Ctrl-s', mac: 'Cmd-s', run: () => { void doSave(); return true } },
         { key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: () => { void runPreview({ retryDeps: true }); return true } },
         { key: 'Shift-Alt-f', run: () => { void doFormat(); return true } },
+        { key: 'Mod-k', run: () => { openAiAssist(); return true }, preventDefault: true },
         closeOverlayKeyBinding,
       ]),
       // Re-render on user edits only — a programmatic slot-swap (tab switch)
@@ -374,6 +499,7 @@ function refreshActions() {
       h('button', { class: `seg-btn${layout === 'split' ? ' active' : ''}`, title: 'Editor and preview', onClick: () => setLayout('split') }, 'Split'),
       h('button', { class: `seg-btn${layout === 'preview' ? ' active' : ''}`, title: 'Preview only', onClick: () => setLayout('preview') }, 'Preview'),
     ),
+    aiConfigured ? h('button', { class: 'btn-micro studio-ai-btn', id: 'studio-ai', title: `Ask or edit with AI (${KBD_MOD}+K)`, 'aria-label': 'AI assistant', onClick: openAiAssist }, svg(ICON_SPARKLE)) : null,
     h('button', { class: 'btn-micro help-btn', title: 'Quick reference', 'aria-label': 'Quick reference', onClick: (e: Event) => showStudioHelp(e.currentTarget as HTMLElement, KBD_MOD) }, '?'),
   )
 }
@@ -431,6 +557,7 @@ function switchProp(p: StudioCodeProp) {
   updateFileSwitch()
   refreshActions()
   surface?.activate(p)
+  broadcastEditorContext()
 }
 
 /** Pull the `.error` off any studio response (all error-bearing replies carry

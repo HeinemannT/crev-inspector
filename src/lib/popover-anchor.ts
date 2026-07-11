@@ -48,6 +48,19 @@ export function anchorPopover(popover: HTMLElement, anchor: HTMLElement): void {
     top = flipped >= MARGIN ? flipped : Math.max(MARGIN, vh - ph - MARGIN)
   }
 
+  // Final safety clamp on BOTH axes — the branches above don't cover an anchor
+  // scrolled off the top/left edge (negative rect), which would otherwise leave
+  // the popover partially outside the viewport. Never place past MARGIN; when
+  // the popover is larger than the viewport, pin to MARGIN and let it overflow
+  // the far edge (best effort without resizing).
+  left = clamp(left, MARGIN, Math.max(MARGIN, vw - pw - MARGIN))
+  top = clamp(top, MARGIN, Math.max(MARGIN, vh - ph - MARGIN))
+
   popover.style.left = `${left}px`
   popover.style.top = `${top}px`
+}
+
+/** Constrain `v` to the inclusive `[lo, hi]` range. */
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(Math.max(v, lo), hi)
 }

@@ -113,4 +113,22 @@ describe('anchorPopover viewport clamping', () => {
     anchorPopover(popover, anchor);
     expect(popover.style.top).toBe(`${MARGIN}px`);
   });
+
+  it('clamps to MARGIN when the anchor is scrolled above the top edge (negative rect)', () => {
+    // Anchor scrolled out of view above the viewport: rect.bottom is negative.
+    // The "fits below" branch would otherwise leave top negative → off-screen.
+    setViewport(1000, 700);
+    const popover = makePopover(340, 160);
+    const anchor = makeAnchor({ top: -80, bottom: -60, left: 400, right: 420 });
+    anchorPopover(popover, anchor);
+    expect(popover.style.top).toBe(`${MARGIN}px`);
+  });
+
+  it('clamps to MARGIN when the anchor is scrolled off the left edge', () => {
+    setViewport(1000, 700);
+    const popover = makePopover(340, 160);
+    const anchor = makeAnchor({ top: 40, bottom: 60, left: -200, right: -180 });
+    anchorPopover(popover, anchor);
+    expect(popover.style.left).toBe(`${MARGIN}px`);
+  });
 });

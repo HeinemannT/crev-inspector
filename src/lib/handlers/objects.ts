@@ -310,8 +310,9 @@ function parseSchemaPropsLog(log: string): { props: SchemaProp[]; canonical?: st
   return { props, canonical };
 }
 
-/** Cache-or-fetch a type's schema props. `refresh` bypasses the cache. */
-async function loadSchemaProps(className: string, refresh = false): Promise<
+/** Cache-or-fetch a type's schema props. `refresh` bypasses the cache.
+ *  Exported for the AI read_type tool, which reuses this exact live path. */
+export async function loadSchemaProps(className: string, refresh = false): Promise<
   { ok: true; props: SchemaProp[]; canonical?: string } | { ok: false; error: string }
 > {
   const ctx = getCtx();

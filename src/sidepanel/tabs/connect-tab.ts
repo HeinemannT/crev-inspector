@@ -7,13 +7,15 @@ import { resolveAuthMode } from '../../lib/bmp-auth';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { ICON_EYE_OPEN, ICON_EYE_CLOSED } from '../utils';
-import { ICON_WARNING, ICON_REFRESH } from '../../lib/icons';
+import { ICON_WARNING, ICON_REFRESH, ICON_SPARKLE } from '../../lib/icons';
 import { S as shared, getTabPanel } from '../state';
 import { FLASH_INVALID_DURATION } from '../../lib/constants';
 import { confirmModal } from '../../lib/modal';
 import { getUpdateStatus, refresh as refreshUpdate, type UpdateStatus } from '../../lib/version-check';
 import { originPatternFor } from '../../lib/site-access';
 import { requestOriginsInGesture } from '../site-access-strip';
+import { PROVIDERS, AI_PROVIDER_IDS } from '../../lib/ai/providers';
+import type { AiProviderId } from '../../lib/ai/types';
 import type { Tab, SendFn } from './tab-types';
 
 type EditingProfile = { id: string | null; label: string; bmpUrl: string; bmpUser: string; bmpPass: string; authMode?: AuthMode };
@@ -42,11 +44,32 @@ export class ConnectTab implements Tab {
    *  drives the "no site access" chip on profile cards. Unknown origins simply render no chip. */
   private accessByOrigin = new Map<string, boolean>();
 
+  // ── AI assistant settings state ────────────────────────────────
+  /** True once a provider key is stored (derived from SETTINGS_DATA + updated
+   *  by AI_CONFIG_SAVED). Drives "Key saved" vs the key input. */
+  private aiConfigured = false;
+  /** Draft provider/model while the user is choosing, before Save. Null ⇒
+   *  derive from the stored config (or the provider default). */
+  private aiProviderDraft: AiProviderId | null = null;
+  private aiModelDraft: string | null = null;
+  /** Draft of the unsaved API key, carried across re-renders so an async
+   *  repaint (provider change, a status/model-list tick) can't wipe a key the
+   *  user typed but hasn't Saved yet. Cleared once the key is saved/removed. */
+  private aiKeyDraft = '';
+  /** True when replacing an already-saved key (shows the key input again). */
+  private aiReplacingKey = false;
+  private aiTestStatus: { ok: boolean; text: string } | null = null;
+  private aiTesting = false;
+  private aiModelOptions: string[] = [];
+  /** Collapsed server-row card vs the expanded config form. */
+  private aiExpanded = false;
+
   constructor(send: SendFn) {
     this.send = send;
   }
 
   activate() {
+    this.aiConfigured = !!shared.settings.ai?.apiKeyEnc;
     this.send({ type: 'GET_SETTINGS' });
     this.send({ type: 'GET_CACHE_BYTES' });
     void this.refreshAccess();
@@ -120,9 +143,39 @@ export class ConnectTab implements Tab {
   handleMessage(msg: InspectorMessage): boolean {
     switch (msg.type) {
       case 'SETTINGS_DATA':
+        this.aiConfigured = !!shared.settings.ai?.apiKeyEnc;
+        return !this.editing;
       case 'CONNECTION_STATE':
       case 'PROFILE_SWITCHED':
         return !this.editing; // re-render unless user is editing a form
+      case 'AI_CONFIG_SAVED':
+        this.aiConfigured = msg.configured;
+        if (msg.ok) {
+          this.aiReplacingKey = false;
+          this.aiTestStatus = null;
+          this.aiKeyDraft = '';   // key is stored now — drop the unsaved draft
+          if (msg.provider) shared.settings = { ...shared.settings, ai: { provider: msg.provider, model: msg.model ?? '', apiKeyEnc: msg.configured ? 'set' : '' } };
+          if (!msg.configured) shared.settings = { ...shared.settings, ai: undefined };
+        } else {
+          this.aiTestStatus = { ok: false, text: msg.error ?? 'Could not save' };
+        }
+        return !this.editing;
+      case 'AI_TEST_RESULT':
+        this.aiTesting = false;
+        this.aiTestStatus = msg.ok ? { ok: true, text: 'Connected' } : { ok: false, text: msg.error ?? 'Failed' };
+        // Mirror the persisted last-test into shared settings so the collapsed
+        // card renders READY + latency immediately (the SW also persisted it).
+        if (shared.settings.ai) {
+          shared.settings = {
+            ...shared.settings,
+            ai: { ...shared.settings.ai, lastTest: { ok: msg.ok, ms: msg.ms ?? 0, at: Date.now() } },
+          };
+        }
+        return !this.editing;
+      case 'AI_MODELS_RESULT':
+        if (msg.ok && msg.models) this.aiModelOptions = msg.models;
+        else this.aiTestStatus = { ok: false, text: msg.error ?? 'Could not load models' };
+        return !this.editing;
       case 'CACHE_BYTES':
         // Update the "~X MB" hint next to the cache count. If we're editing
         // a profile form we skip the re-render so the user's keystrokes
@@ -173,6 +226,9 @@ export class ConnectTab implements Tab {
         'Also labels inline elements (tables, others)',
         shared.settings.enrichMode === 'all'),
 
+      // ── AI assistant ───────────────────────────────────────
+      this.renderAiSection(),
+
       // ── Footer: the low-weight informational + utility bits (keyboard
       //    reference, version, cache, reset). None of these is a group of
       //    controls, so none gets a section header — they read as a quiet
@@ -192,6 +248,28 @@ export class ConnectTab implements Tab {
       const enrichMode = (e.target as HTMLInputElement).checked ? 'all' as const : 'widgets' as const;
       shared.settings = { ...shared.settings, enrichMode };
       this.send({ type: 'SAVE_SETTINGS', settings: { enrichMode } });
+    });
+
+    // AI provider select — switching provider resets the model draft to that
+    // provider's default and clears any loaded model list / test status.
+    container.querySelector('#ai-provider')?.addEventListener('change', (e) => {
+      const provider = (e.target as HTMLSelectElement).value as AiProviderId;
+      this.aiProviderDraft = provider;
+      this.aiModelDraft = PROVIDERS[provider].defaultModel;
+      this.aiModelOptions = [];
+      this.aiTestStatus = null;
+      rerender();
+    });
+    // Model input — keep the typed value across re-renders (test/model-list
+    // responses re-render the tab) without churning on every keystroke.
+    container.querySelector('#ai-model')?.addEventListener('input', (e) => {
+      this.aiModelDraft = (e.target as HTMLInputElement).value;
+    });
+    // API key input — same race protection as the model: keep the typed value
+    // in a draft so an async re-render (provider switch, test/model-list tick)
+    // can't recreate the input empty before the user hits Save.
+    container.querySelector('#ai-key')?.addEventListener('input', (e) => {
+      this.aiKeyDraft = (e.target as HTMLInputElement).value;
     });
 
     // Live update for the HTTP-downgrade warning while editing the URL. We
@@ -300,6 +378,62 @@ export class ConnectTab implements Tab {
           this.updatePanel = fresh;
         }
         void this.loadUpdateStatus(true);
+      },
+      'ai-save': () => {
+        const provider = (container.querySelector('#ai-provider') as HTMLSelectElement | null)?.value as AiProviderId | undefined;
+        const model = (container.querySelector('#ai-model') as HTMLInputElement | null)?.value.trim();
+        const keyInput = container.querySelector('#ai-key') as HTMLInputElement | null;
+        const apiKey = keyInput?.value ?? '';
+        if (!provider || !model) return;
+        // A first-time save needs a key; a provider/model-only re-save keeps the
+        // stored key (apiKey omitted).
+        if (!this.aiConfigured && !apiKey.trim()) { flashInvalid(keyInput!); return; }
+        this.aiTestStatus = null;
+        // Request the provider API origin's host permission INSIDE this click —
+        // the SW's cross-origin fetch needs it, and the browser prompt requires
+        // a user gesture. Already-granted origins resolve silently; a denial
+        // surfaces as an inline status so the user knows why calls will fail.
+        void requestOriginsInGesture([PROVIDERS[provider].origin]).then((granted) => {
+          if (!granted) {
+            this.aiTestStatus = { ok: false, text: 'Site access to the provider was declined' };
+            const panel = getTabPanel('connect');
+            if (panel && !this.editing) this.render(panel);
+          }
+        });
+        this.send({ type: 'AI_SAVE_CONFIG', provider, model, ...(apiKey.trim() ? { apiKey } : {}) });
+        this.aiModelDraft = model;
+        this.aiProviderDraft = provider;
+      },
+      'ai-expand': () => { this.aiExpanded = !this.aiExpanded; this.aiTestStatus = null; rerender(); },
+      'ai-replace': () => { this.aiReplacingKey = true; this.aiTestStatus = null; this.aiKeyDraft = ''; rerender(); },
+      'ai-replace-cancel': () => { this.aiReplacingKey = false; this.aiKeyDraft = ''; rerender(); },
+      'ai-remove': () => {
+        void (async () => {
+          const ok = await confirmModal({
+            title: 'Remove AI key?',
+            body: 'Clears the stored provider and API key. The AI assistant will disappear from the editor and studio.',
+            confirmLabel: 'Remove',
+            confirmVariant: 'danger',
+          });
+          if (!ok) return;
+          this.aiProviderDraft = null;
+          this.aiModelDraft = null;
+          this.aiKeyDraft = '';
+          this.aiModelOptions = [];
+          this.aiTestStatus = null;
+          this.aiExpanded = false;
+          this.send({ type: 'AI_REMOVE_CONFIG' });
+        })();
+      },
+      'ai-test': () => {
+        this.aiTesting = true;
+        this.aiTestStatus = null;
+        this.send({ type: 'AI_TEST' });
+        rerender();
+      },
+      'ai-load-models': () => {
+        const provider = (this.aiProviderDraft ?? shared.settings.ai?.provider ?? 'anthropic');
+        this.send({ type: 'AI_LIST_MODELS', provider });
       },
       'reset-all': () => {
         void (async () => {
@@ -427,6 +561,138 @@ export class ConnectTab implements Tab {
         h('input', { type: 'checkbox', class: 'toggle-input', id, checked }),
         h('span', { class: 'toggle-track', 'aria-hidden': 'true' }),
       ),
+    );
+  }
+
+  /** AI assistant — a server-row-twin card (collapsed) that expands the config
+   *  form. The assistant only appears in the editor / studio once a key is
+   *  stored. Card shows READY / UNTESTED + last-test latency; the row / Edit /
+   *  Set up expands the existing provider / model / key / test form. */
+  private renderAiSection(): HTMLElement {
+    const wrap = h('div', { class: 'ai-settings' }, this.renderAiCard());
+    if (this.aiExpanded) wrap.appendChild(this.renderAiForm());
+    return wrap;
+  }
+
+  /** The collapsed card: sparkle (20px, purple, no tile), name + status pill,
+   *  a mono provider/model line, and right-side latency + Edit / Set up. */
+  private renderAiCard(): HTMLElement {
+    const stored = shared.settings.ai;
+    const configured = this.aiConfigured;
+    const lastTest = stored?.lastTest;
+    const verified = configured && !!lastTest?.ok;
+    const providerLabel = stored ? PROVIDERS[stored.provider].label : '';
+    const model = stored?.model ?? '';
+
+    const spark = h('span', { class: 'ai-card-spark', 'aria-hidden': 'true' }, svg(ICON_SPARKLE));
+
+    const name = h('div', { class: 'ai-card-nm' }, 'AI Assistant');
+    if (configured) {
+      name.appendChild(verified
+        ? h('span', { class: 'ai-pill ai-pill--ok' }, 'READY')
+        : h('span', { class: 'ai-pill ai-pill--warn' }, 'UNTESTED'));
+    }
+
+    const ln2 = configured
+      ? `${providerLabel} · ${model} · key saved`
+      : 'Bring your own API key · Anthropic, OpenAI, DeepSeek, Grok';
+
+    const right = h('div', { class: 'ai-card-right' });
+    if (configured) {
+      if (verified) {
+        right.appendChild(h('span', { class: 'ai-card-dot' }));
+        right.appendChild(h('span', { class: 'ai-card-latency' }, lastTest ? `${lastTest.ms} ms` : ''));
+      }
+      right.appendChild(h('button', {
+        class: 'ai-card-edit', 'data-action': 'ai-expand',
+        title: this.aiExpanded ? 'Close' : 'Edit AI settings',
+      }, this.aiExpanded ? 'Close' : 'Edit'));
+    } else {
+      right.appendChild(h('button', { class: 'btn btn-small', 'data-action': 'ai-expand' }, 'Set up'));
+    }
+
+    return h('div', {
+      class: `ai-card${verified ? ' ready' : ''}${this.aiExpanded ? ' expanded' : ''}`,
+      'data-action': 'ai-expand',
+      role: 'button',
+      title: configured ? 'AI assistant settings' : 'Set up the AI assistant',
+    },
+      spark,
+      h('div', { class: 'ai-card-meta' }, name, h('div', { class: 'ai-card-ln2' }, ln2)),
+      right,
+    );
+  }
+
+  /** The expanded configuration form (provider / model / key / test). Reused
+   *  verbatim from the previous inline section; the card above toggles it. */
+  private renderAiForm(): HTMLElement {
+    const stored = shared.settings.ai;
+    const provider: AiProviderId = this.aiProviderDraft ?? stored?.provider ?? 'anthropic';
+    const meta = PROVIDERS[provider];
+    const model = this.aiModelDraft ?? stored?.model ?? meta.defaultModel;
+    const showKeyInput = !this.aiConfigured || this.aiReplacingKey;
+
+    const providerSelect = h('select', { class: 'field-input ai-select', id: 'ai-provider' },
+      ...AI_PROVIDER_IDS.map(id => h('option', {
+        value: id,
+        ...(id === provider ? { selected: 'selected' } : {}),
+      }, PROVIDERS[id].label)),
+    );
+
+    // Model datalist — provider suggestions plus any live-loaded ids.
+    const modelOptions = [...new Set([...meta.suggestedModels, ...this.aiModelOptions])];
+    const dataList = h('datalist', { id: 'ai-models' },
+      ...modelOptions.map(m => h('option', { value: m })),
+    );
+
+    const statusEl = this.aiTestStatus
+      ? h('span', { class: `ai-conn-status ${this.aiTestStatus.ok ? 'ok' : 'err'}` }, this.aiTestStatus.text)
+      : this.aiTesting
+        ? h('span', { class: 'ai-conn-status' }, 'Testing…')
+        : null;
+
+    const keyRow = showKeyInput
+      ? h('div', { class: 'field-group' },
+          h('label', { class: 'field-label' }, this.aiConfigured ? 'New API key' : 'API key'),
+          h('div', { class: 'field-row ai-key-row' },
+            h('input', { class: 'field-input', id: 'ai-key', type: 'password', placeholder: 'paste key', autocomplete: 'off', value: this.aiKeyDraft }),
+            h('button', { class: 'btn btn-accent btn-small', 'data-action': 'ai-save' }, 'Save'),
+            this.aiReplacingKey ? h('button', { class: 'btn btn-small', 'data-action': 'ai-replace-cancel' }, 'Cancel') : null,
+          ),
+          h('span', { class: 'field-hint' }, 'Stored encrypted on this device. Sent only to the provider you choose.'),
+        )
+      : h('div', { class: 'field-group' },
+          h('label', { class: 'field-label' }, 'API key'),
+          h('div', { class: 'field-row ai-key-row' },
+            h('span', { class: 'ai-key-saved' }, '•••••••••••• saved'),
+            h('button', { class: 'btn btn-small', 'data-action': 'ai-replace' }, 'Replace'),
+            h('button', { class: 'btn btn-danger btn-small', 'data-action': 'ai-remove' }, 'Remove'),
+          ),
+        );
+
+    return h('div', { class: 'ai-form' },
+      h('div', { class: 'field-group' },
+        h('label', { class: 'field-label' }, 'Provider'),
+        providerSelect,
+      ),
+      h('div', { class: 'field-group' },
+        h('label', { class: 'field-label' }, 'Model'),
+        h('div', { class: 'field-row ai-key-row' },
+          h('input', { class: 'field-input', id: 'ai-model', value: model, list: 'ai-models', autocomplete: 'off', placeholder: meta.defaultModel }),
+          meta.openAiCompat ? h('button', { class: 'footer-action', 'data-action': 'ai-load-models', title: 'Load the provider model list' }, 'Load list') : null,
+        ),
+        dataList,
+      ),
+      keyRow,
+      // Save provider/model without re-entering the key (only when configured
+      // and not currently replacing the key).
+      this.aiConfigured && !this.aiReplacingKey
+        ? h('div', { class: 'field-row ai-conn-row' },
+            h('button', { class: 'btn btn-accent btn-small', 'data-action': 'ai-save' }, 'Save changes'),
+            h('button', { class: 'footer-action', 'data-action': 'ai-test' }, 'Test connection'),
+            statusEl,
+          )
+        : (statusEl ? h('div', { class: 'field-row ai-conn-row' }, statusEl) : null),
     );
   }
 

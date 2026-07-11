@@ -26,6 +26,7 @@ import { ConnectTab } from './tabs/connect-tab';
 import { ObjectsTab } from './tabs/objects-tab';
 import { LogTab } from './tabs/log-tab';
 import { WorkshopTab } from './tabs/workshop-tab';
+import { AiTab } from './tabs/ai-tab';
 import { showToast } from '../lib/toast';
 
 // ── Tab instances ────────────────────────────────────────────────
@@ -92,8 +93,16 @@ const tabs: Record<string, Tab> = {
   connect: new ConnectTab(sendMessage),
   workshop: new WorkshopTab(sendMessage, navigateToDetail, detailView),
   objects: new ObjectsTab(sendMessage, navigateToDetail),
+  ai: new AiTab(sendMessage),
   log: new LogTab(sendMessage),
 };
+const aiTab = tabs.ai as AiTab;
+
+/** The AI tab is present ONLY when a provider key is configured (zero-footprint).
+ *  `S.settings.ai` exists iff a key was saved (the session snapshot keeps the
+ *  provider even with the key stripped). Kept in sync via AI_CONFIG_CHANGED. */
+let aiEnabled = false;
+function computeAiEnabled(): boolean { return !!S.settings.ai; }
 
 const logTab = tabs.log as LogTab;
 logTab.onActivityChange(() => updateStatusBar());
@@ -143,6 +152,21 @@ onPortMessage((msg: InspectorMessage) => {
     return;
   }
 
+  // Command-strip handoff (arrives on the port via ctx.sendToPanel, surviving
+  // panel startup via pendingPanelMessages — same path as SELECT_OBJECT). Make
+  // sure the AI tab exists, switch to it, and submit the strip's message as a
+  // turn (with its via-strip eyebrow + quoted code).
+  if (msg.type === 'AI_CHAT_HANDOFF') {
+    if (!aiEnabled) {
+      aiEnabled = true;
+      app.querySelector('.tab-bar')?.replaceWith(buildTabBar());
+      app.querySelector('.tab-content')?.replaceWith(buildTabContent());
+    }
+    switchTab('ai');
+    aiTab.submitHandoff(msg.text, msg.quote, msg.envelope);
+    return;
+  }
+
   // Shared state updates
   let headerChanged = false;
   switch (msg.type) {
@@ -161,6 +185,7 @@ onPortMessage((msg: InspectorMessage) => {
     case 'SETTINGS_DATA':
       S.settings = msg.settings;
       headerChanged = true;
+      syncAiTab(); // full settings may add/remove the AI tab (key configured?)
       void refreshSiteAccessStrip(); // profile (server origin) may have changed
       break;
     case 'CONNECTION_STATE':
@@ -210,6 +235,10 @@ onPortMessage((msg: InspectorMessage) => {
       S.context = null;
       S.detailRid = null;
       (tabs.workshop as WorkshopTab).resetContext();
+      // AI chat grounding is per-workspace — reset the transcript even when
+      // the AI tab isn't active (the per-tab routing below only reaches the
+      // active tab, which would leave a stale cross-workspace conversation).
+      if (S.activeTab !== 'ai') aiTab.handleMessage(msg);
       // Colours are per-workspace — drop the panel's cached swatches so profile B
       // never shows profile A's colours (the linked-colour picker cache).
       resetColorSets();
@@ -325,9 +354,113 @@ onReconnect(() => {
 
 connectPanel();
 
+// ── Runtime broadcasts (NOT on the panel port) ───────────────────
+// AI chat streams (AI_CHAT_EVENT), the AI config toggle (AI_CONFIG_CHANGED),
+// and the editor-context signal (AI_EDITOR_CONTEXT) are broadcast by the SW /
+// editor via chrome.runtime.sendMessage, which the panel port does NOT carry.
+// This is the panel's only consumer of those broadcasts.
+chrome.runtime.onMessage.addListener((msg: InspectorMessage) => {
+  switch (msg.type) {
+    case 'AI_CHAT_EVENT':
+      aiTab.onChatEvent(msg);
+      break;
+    case 'AI_EDITOR_CONTEXT':
+      aiTab.setEditorSource(msg.source);
+      break;
+    case 'AI_CONFIG_CHANGED': {
+      // Mirror the change into shared settings so tab visibility + the chat
+      // footer model reflect it, then add / remove the AI tab.
+      S.settings = {
+        ...S.settings,
+        ai: msg.configured
+          ? { provider: msg.provider ?? S.settings.ai?.provider ?? 'anthropic', model: msg.model ?? '', apiKeyEnc: 'set' }
+          : undefined,
+      };
+      syncAiTab();
+      if (aiEnabled && S.activeTab === 'ai') renderActiveTab();
+      break;
+    }
+  }
+  return undefined;
+});
+
 // ── Render ───────────────────────────────────────────────────────
 
-const TAB_NAMES = ['connect', 'workshop', 'objects', 'log'] as const;
+/** Every tab that can exist, in bar order. Used for id/label lookups + the
+ *  stored-active-tab validity check. The AI slot is only rendered when
+ *  configured — see tabOrder(). */
+const ALL_TABS = ['connect', 'workshop', 'objects', 'ai', 'log'] as const;
+
+/** The tabs actually rendered right now: base four, plus AI (before Log) when
+ *  a provider key is configured. */
+function tabOrder(): string[] {
+  return aiEnabled
+    ? ['connect', 'workshop', 'objects', 'ai', 'log']
+    : ['connect', 'workshop', 'objects', 'log'];
+}
+
+const TAB_LABELS: Record<string, string> = {
+  connect: 'Connect', workshop: 'Inspect', objects: 'Browse', ai: 'AI', log: 'Log',
+};
+const TAB_TITLES: Record<string, string> = {
+  connect: 'Server profiles',
+  workshop: 'Layout + selected object detail: the configurator workspace',
+  objects: 'Browse cached objects: search by RID, BID, or name',
+  ai: 'Ask about your workspace: a tool-using AI chat grounded in your context',
+  log: 'Activity feed',
+};
+
+function buildTabBar(): HTMLElement {
+  return h('div', { class: 'tab-bar', role: 'tablist' },
+    ...tabOrder().map(t => {
+      const label = TAB_LABELS[t] ?? (t.charAt(0).toUpperCase() + t.slice(1));
+      const badges: (HTMLElement | string | false | null)[] = [label];
+      if (t === 'objects') {
+        badges.push(h('span', { class: 'badge', id: 'objects-badge' }, String(S.cacheCount)));
+      }
+      if (t === 'workshop') {
+        badges.push(h('span', {
+          class: `inspect-dirty-dot${detailView.isDirty() ? ' active' : ''}`,
+          id: 'inspect-dirty-dot',
+          'aria-hidden': 'true',
+          title: detailView.isDirty() ? 'You have unsaved changes on this object' : '',
+        }));
+      }
+      return h('button', {
+        class: `tab ${S.activeTab === t ? 'active' : ''}`,
+        role: 'tab',
+        'aria-selected': S.activeTab === t ? 'true' : 'false',
+        'data-action': 'tab',
+        'data-tab': t,
+        title: TAB_TITLES[t] ?? '',
+      }, ...badges);
+    }),
+  );
+}
+
+function buildTabContent(): HTMLElement {
+  return h('div', { class: 'tab-content' },
+    ...tabOrder().map(t =>
+      h('div', { class: `tab-panel ${S.activeTab === t ? 'active' : ''}`, id: tabPanelId(t), role: 'tabpanel' }),
+    ),
+  );
+}
+
+/** Add / remove the AI tab live when the provider key is configured / cleared.
+ *  Rebuilds the tab bar + content panels in place (cheap; the tab instances
+ *  persist, so the chat transcript survives). */
+function syncAiTab(): void {
+  const wasEnabled = aiEnabled;
+  aiEnabled = computeAiEnabled();
+  if (aiEnabled === wasEnabled) return;
+  // If the AI tab just vanished while it was active, fall back to Connect.
+  if (!aiEnabled && S.activeTab === 'ai') S.activeTab = 'connect';
+  const bar = app.querySelector('.tab-bar');
+  const content = app.querySelector('.tab-content');
+  if (bar) bar.replaceWith(buildTabBar());
+  if (content) content.replaceWith(buildTabContent());
+  renderActiveTab();
+}
 
 function buildApp(): void {
   const header = h('div', { class: 'header' },
@@ -384,51 +517,7 @@ function buildApp(): void {
     ),
   );
 
-  const tabBar = h('div', { class: 'tab-bar', role: 'tablist' },
-    ...TAB_NAMES.map(t => {
-      // Display label per internal tab key; everything not in the map
-      // falls back to a capitalised key.
-      const TAB_LABELS: Record<string, string> = {
-        connect: 'Connect',
-        workshop: 'Inspect',
-        objects: 'Browse',
-        log: 'Log',
-      };
-      const label = TAB_LABELS[t] ?? (t.charAt(0).toUpperCase() + t.slice(1));
-      const badges: (HTMLElement | string | false | null)[] = [label];
-
-      if (t === 'objects') {
-        badges.push(h('span', { class: 'badge', id: 'objects-badge' }, String(S.cacheCount)));
-      }
-      if (t === 'workshop') {
-        // Dirty-dot — surfaces unsaved property edits on Workshop's
-        // detail half even when the user has navigated to another
-        // tab. Toggled in-place from DetailView's render path.
-        badges.push(h('span', {
-          class: `inspect-dirty-dot${detailView.isDirty() ? ' active' : ''}`,
-          id: 'inspect-dirty-dot',
-          'aria-hidden': 'true',
-          title: detailView.isDirty() ? 'You have unsaved changes on this object' : '',
-        }));
-      }
-
-      const TAB_TITLES: Record<string, string> = {
-        connect: 'Server profiles',
-        workshop: 'Layout + selected object detail: the configurator workspace',
-        objects: 'Browse cached objects: search by RID, BID, or name',
-        style: 'Colours, properties + visibility for the selected object',
-        log: 'Activity feed',
-      };
-      return h('button', {
-        class: `tab ${S.activeTab === t ? 'active' : ''}`,
-        role: 'tab',
-        'aria-selected': S.activeTab === t ? 'true' : 'false',
-        'data-action': 'tab',
-        'data-tab': t,
-        title: TAB_TITLES[t] ?? '',
-      }, ...badges);
-    }),
-  );
+  const tabBar = buildTabBar();
 
   // 'needs-login' is recoverable in place (log into BMP, then retry), so it
   // gets the prominent Reconnect button alongside the hard-error states.
@@ -452,11 +541,7 @@ function buildApp(): void {
   // No sidebar paint status bar — during paint the user's focus is the page,
   // where the in-page banner is the HUD. The header paint button's active
   // state is the only sidebar signal needed.
-  const tabContent = h('div', { class: 'tab-content' },
-    ...TAB_NAMES.map(t =>
-      h('div', { class: `tab-panel ${S.activeTab === t ? 'active' : ''}`, id: tabPanelId(t), role: 'tabpanel' }),
-    ),
-  );
+  const tabContent = buildTabContent();
 
   // Cache count gets a label so the lone "0" in the corner isn't a mystery.
   // Hidden entirely when zero — nothing useful to surface yet.
@@ -535,7 +620,7 @@ function switchTab(tab: string) {
     btn.classList.toggle('active', isActive);
     btn.setAttribute('aria-selected', String(isActive));
   }
-  for (const panelName of TAB_NAMES) {
+  for (const panelName of tabOrder()) {
     const panel = getTabPanel(panelName);
     if (panel) panel.classList.toggle('active', panelName === tab);
   }
@@ -920,7 +1005,7 @@ chrome.storage.session.get(['crev_active_tab', 'crev_settings_snapshot', 'crev_c
     // Unknown values fall through to the default ('connect').
     const stored = result.crev_active_tab;
     const migrated = (stored === 'inspect' || stored === 'page') ? 'workshop' : stored;
-    if ((TAB_NAMES as readonly string[]).includes(migrated)) {
+    if ((ALL_TABS as readonly string[]).includes(migrated)) {
       S.activeTab = migrated;
     }
   }
@@ -928,6 +1013,9 @@ chrome.storage.session.get(['crev_active_tab', 'crev_settings_snapshot', 'crev_c
   // the slot since we can't constrain the union per-key.
   if (result.crev_settings_snapshot) S.settings = result.crev_settings_snapshot as typeof S.settings;
   if (result.crev_conn_snapshot) S.connState = result.crev_conn_snapshot as typeof S.connState;
+  aiEnabled = computeAiEnabled();
+  // A stored 'ai' active tab is only valid once configured.
+  if (S.activeTab === 'ai' && !aiEnabled) S.activeTab = 'connect';
   buildApp();
   sendMessage({ type: 'GET_CONNECTION_STATE' });
   sendMessage({ type: 'GET_SETTINGS' });

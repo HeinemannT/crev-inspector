@@ -34,6 +34,7 @@ import type {
   TypeSchemaProp,
   WidgetInfo,
 } from './types';
+import type { AiProviderId, AiRequestPayload, AiChatTurn, AiChatEvent, AiChatQuote, AiContextEnvelope, AiContextSource } from './ai/types';
 import type { LModel, PlanNote, NodeStyle } from './layout/types';
 import type { StylePreset } from './style-presets';
 import type { BlueprintCtx } from './layout/sync';
@@ -404,6 +405,54 @@ export type StylePresetMessage =
   | { type: 'DELETE_STYLE_PRESET'; id: string }
   | { type: 'STYLE_PRESETS_DATA'; presets: StylePreset[] };
 
+// ── AI coding assistant ──────────────────────────────────────────
+// Config CRUD + test/list are one-shot request/response (panel ↔ SW). A
+// completion is fire-and-forget (AI_REQUEST) with streaming replies broadcast
+// by the SW as AI_CHUNK / AI_DONE / AI_ERROR keyed by requestId; AI_CANCEL
+// aborts the in-flight request. The API key never leaves the SW — it is stored
+// encrypted and decrypted only on the way to a provider.
+export type AiMessage =
+  | { type: 'AI_GET_CONFIG' }
+  | { type: 'AI_CONFIG_DATA'; configured: boolean; provider?: AiProviderId; model?: string }
+  | { type: 'AI_SAVE_CONFIG'; provider: AiProviderId; model: string; apiKey?: string }
+  | { type: 'AI_REMOVE_CONFIG' }
+  | { type: 'AI_CONFIG_SAVED'; ok: boolean; configured: boolean; provider?: AiProviderId; model?: string; error?: string }
+  // Broadcast (SW → all pages) whenever the stored AI config changes, so
+  // already-open editor / studio surfaces can show or hide the assistant live
+  // (zero-footprint: removing the key must disable it without a reload).
+  | { type: 'AI_CONFIG_CHANGED'; configured: boolean; provider?: AiProviderId; model?: string }
+  | { type: 'AI_TEST' }
+  | { type: 'AI_TEST_RESULT'; ok: boolean; model?: string; ms?: number; error?: string }
+  | { type: 'AI_LIST_MODELS'; provider: AiProviderId }
+  | { type: 'AI_MODELS_RESULT'; ok: boolean; models?: string[]; error?: string }
+  | { type: 'AI_REQUEST'; payload: AiRequestPayload }
+  | { type: 'AI_CHUNK'; requestId: string; delta: string }
+  | { type: 'AI_DONE'; requestId: string }
+  | { type: 'AI_ERROR'; requestId: string; message: string }
+  | { type: 'AI_CANCEL'; requestId: string }
+  // ── Chat (tool-using conversation) ──────────────────────────────
+  // AI_CHAT_SEND runs one user turn; the SW streams AI_CHAT_EVENT broadcasts
+  // keyed by requestId (the exact primitive AI_CHUNK uses). The panel owns the
+  // transcript and sends `history` whole each turn; `text` is the new turn.
+  | { type: 'AI_CHAT_SEND'; requestId: string; text: string; history: AiChatTurn[]; envelope: AiContextEnvelope }
+  | { type: 'AI_CHAT_EVENT'; requestId: string; event: AiChatEvent }
+  | { type: 'AI_CHAT_CANCEL'; requestId: string }
+  // Chat code-block Preview + "Fix it": dry-run EC, return the result text.
+  | { type: 'AI_PREVIEW_CODE'; requestId: string; code: string }
+  | { type: 'AI_PREVIEW_RESULT'; requestId: string; ok: boolean; resultText: string }
+  // Apply a proposed code block to the open editor/studio via the standard
+  // merge-diff proposal. Routed to the surface holding the target object.
+  | { type: 'AI_APPLY_PROPOSAL'; code: string; target: { rid: string; slot: string } }
+  // Command strip's Ask hands off to the chat tab: the SW opens the sidepanel
+  // and forwards this so the panel switches to the AI tab and submits it.
+  | { type: 'AI_CHAT_HANDOFF'; text: string; quote?: AiChatQuote; envelope: AiContextEnvelope }
+  // Editor / studio → SW → panel: which object+slot an editor is open on, so the
+  // AI chat tab's 'editor' context chip can appear. Broadcast on open / slot
+  // change / focus, and with source=null on close. The SW persists the last
+  // value; AI_GET_EDITOR_CONTEXT lets a panel that opened AFTER the editor sync.
+  | { type: 'AI_EDITOR_CONTEXT'; source: AiContextSource | null }
+  | { type: 'AI_GET_EDITOR_CONTEXT' };
+
 export type InspectorMessage =
   | PageMessage | InspectMessage | CacheMessage | ServerLookupMessage
   | ConnectionMessage | ProfileMessage | EcMessage | StudioMessage | FrameOverlayMessage | EnrichMessage
@@ -411,4 +460,5 @@ export type InspectorMessage =
   | HistoryMessage | FavoritesMessage | ContextMenuMessage
   | OverlayModeMessage | ObjectViewMessage | ObjectPaneMessage
   | DiffMessage | CodeSearchMessage | ScriptHistoryMessage
-  | ColorMessage | NotificationMessage | LayoutMessage | StylePresetMessage;
+  | ColorMessage | NotificationMessage | LayoutMessage | StylePresetMessage
+  | AiMessage;
