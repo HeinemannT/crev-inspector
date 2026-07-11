@@ -839,6 +839,10 @@ function renderContextPill(): HTMLElement | null {
   );
 }
 function updateContextPill(): void {
+  // The AI tab mirrors S.context as its selection chip — every context change
+  // or enrichment that repaints the pill must also refresh the chips, or the
+  // chip badge stays on the sparse (grey) identity forever.
+  (tabs['ai'] as AiTab | undefined)?.contextChanged();
   const old = document.getElementById('status-bar-context');
   const next = renderContextPill();
   if (!old || !next) return;

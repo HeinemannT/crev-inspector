@@ -132,6 +132,25 @@ export class AiTab implements Tab {
 
   // ── External hooks (called from sidepanel.ts) ───────────────────
 
+  /** The panel's selection context changed or was enriched (SELECT_OBJECT
+   *  fires with sparse identity; OBJECT_PANE_DATA upgrades it with the
+   *  authoritative type/name/businessId). Re-render the chips so the badge
+   *  picks up the real type instead of staying on the grey fallback. A pinned
+   *  selection adopts the enriched identity of the SAME object (rid match)
+   *  when its snapshot was taken sparse — pinning freezes WHICH object is
+   *  attached, not a half-loaded view of it. */
+  contextChanged(): void {
+    const c = S.context;
+    if (this.pinnedSelection && c?.rid === this.pinnedSelection.object.rid
+        && !this.pinnedSelection.object.type && c.type) {
+      this.pinnedSelection = {
+        ...this.pinnedSelection,
+        object: { rid: c.rid, businessId: c.businessId ?? '', name: c.name ?? '', type: c.type },
+      };
+    }
+    if (this.container) this.refreshChips();
+  }
+
   /** Live editor/studio context broadcast. Null when no editor is open. */
   setEditorSource(source: AiContextSource | null): void {
     this.editorSource = source;
