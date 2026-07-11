@@ -7,7 +7,7 @@
 
 import type { AiContextEnvelope, AiRequestPayload } from './types';
 import { KNOWLEDGE, type KnowledgePackId } from './knowledge';
-import { renderContext, envelopeTypes, envelopeLangs } from './context';
+import { renderContext, envelopeTypes } from './context';
 
 const SELECTION_START = '«SELECTION_START»';
 const SELECTION_END = '«SELECTION_END»';
@@ -146,17 +146,27 @@ Answer in Markdown. Keep answers concise and correct — explain only what is
 asked. Put Extended Code in fenced blocks labeled \`extended\`; put HTML/JS in
 fenced blocks labeled \`html\` / \`javascript\`. Follow the platform rules in the
 reference material exactly — they are not JavaScript/SQL conventions. When you
-are unsure, say so rather than inventing syntax.`;
+are unsure, say so rather than inventing syntax.
+
+When explaining EC semantics, restate the matching rule from the reference
+material verbatim before elaborating; do not reason from general programming
+conventions. In particular, never explain \`output(x.expression)\` versus bare
+\`x.expression\` from intuition — bare \`.expression\` RUNS the stored code and
+yields its result; \`output(x.expression)\` yields the raw source TEXT without
+running it.`;
 
 /** Choose knowledge packs for a chat turn from the attached envelope, in a
- *  fixed order (stable cached prefix). bmp-core always; ec whenever any source
- *  edits Extended Code; cvo for CustomVisualization; html-text for TextElement.
- *  With no attached sources, ships bmp-core + ec (the common case). */
+ *  fixed order (stable cached prefix). bmp-core + ec ALWAYS: EC is relevant to
+ *  every workspace conversation (a user can ask about EC no matter what chip is
+ *  attached), the packs are cheap, and the whole prefix is prompt-cached. The
+ *  earlier "ec only when a source edits EC or there are no sources" rule dropped
+ *  the pack for the standard Inspect-selection flow (a selection-kind source has
+ *  no `extended` slot) — measured 14% vs 73% EC-task pass rate without/with it.
+ *  cvo for CustomVisualization; html-text for TextElement, appended after ec so
+ *  the order stays bmp-core, ec, [type pack]. */
 export function selectChatPacks(envelope: AiContextEnvelope): KnowledgePackId[] {
-  const packs: KnowledgePackId[] = ['bmpCore'];
+  const packs: KnowledgePackId[] = ['bmpCore', 'ec'];
   const types = envelopeTypes(envelope);
-  const langs = envelopeLangs(envelope);
-  if (langs.includes('extended') || envelope.sources.length === 0) packs.push('ec');
   if (types.includes('CustomVisualization')) packs.push('cvo');
   if (types.includes('TextElement')) packs.push('htmlText');
   return packs;

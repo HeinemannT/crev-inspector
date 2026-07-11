@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPrompt, selectPacks, extractCodeBlock, looksLikeProse, buildChatSystem } from '../prompt';
+import { buildPrompt, selectPacks, selectChatPacks, extractCodeBlock, looksLikeProse, buildChatSystem } from '../prompt';
 import type { AiRequestPayload, AiContextEnvelope } from '../types';
 
 function payload(over: Partial<AiRequestPayload> = {}): AiRequestPayload {
@@ -34,6 +34,40 @@ describe('selectPacks', () => {
     // An EC lang on a CVO would still list ec before cvo.
     const p = payload({ lang: 'extended', context: { objectType: 'CustomVisualization' } });
     expect(selectPacks(p)).toEqual(['bmpCore', 'ec', 'cvo']);
+  });
+});
+
+describe('selectChatPacks', () => {
+  const srv = { id: 's1', url: 'u' };
+  function env(sources: AiContextEnvelope['sources']): AiContextEnvelope {
+    return { v: 1, server: srv, sources };
+  }
+
+  it('ships bmp-core + ec with no attached sources', () => {
+    expect(selectChatPacks(env([]))).toEqual(['bmpCore', 'ec']);
+  });
+
+  it('KEEPS the ec pack for a selection-kind source with no slot (the Inspect flow)', () => {
+    // Regression: selectChatPacks used to drop ec here (no `extended` slot,
+    // sources.length > 0), which measured 14% vs 73% on EC tasks. EC is always
+    // relevant to a workspace conversation, so the pack is always shipped.
+    const e = env([{ kind: 'selection', object: { rid: '9', businessId: '4761', name: 'Control Register', type: 'Scorecard' } }]);
+    expect(selectChatPacks(e)).toEqual(['bmpCore', 'ec']);
+  });
+
+  it('appends cvo for a CustomVisualization source, after ec', () => {
+    const e = env([{ kind: 'selection', object: { rid: '9', businessId: 'cv_1', name: 'CVO', type: 'CustomVisualization' } }]);
+    expect(selectChatPacks(e)).toEqual(['bmpCore', 'ec', 'cvo']);
+  });
+
+  it('appends html-text for a TextElement source, after ec', () => {
+    const e = env([{ kind: 'selection', object: { rid: '9', businessId: 'te_1', name: 'Text', type: 'TextElement' } }]);
+    expect(selectChatPacks(e)).toEqual(['bmpCore', 'ec', 'htmlText']);
+  });
+
+  it('keeps a stable order: bmp-core, ec, then the type pack', () => {
+    const e = env([{ kind: 'editor', object: { rid: '9', businessId: 'cv_1', name: 'CVO', type: 'CustomVisualization' }, slot: { name: 'javascript', lang: 'javascript', code: '' } }]);
+    expect(selectChatPacks(e)).toEqual(['bmpCore', 'ec', 'cvo']);
   });
 });
 

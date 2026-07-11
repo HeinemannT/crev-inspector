@@ -24,6 +24,12 @@ Parse errors (`Encountered "("` / `Encountered ":"` etc.):
 - `x = value` for assignment — assignment is `:=`
 - `_list :+ item` — the documented `:+` append operator is a PARSE ERROR on
   5.6.10.0 in every form. Append with `_list := _list.union(LIST(item))`.
+- `NOT cond` — general negation does not exist (`IF NOT _x.isMissing() THEN`
+  is a parse error). Only `NOT IN` and `NOT CONTAINS` exist. Negate with
+  `!=`, `= FALSE`, or `.isMissing()`.
+- `_map.keys()` / `_map.values()` — MAPs support only `.get(key)`, `.size()`
+  and aggregate/table methods. To enumerate group keys, go back to the list:
+  `list.as(prop).distinct()`.
 
 Runtime errors (`wrong number of arguments: 0 expected: 1`):
 - `.split(",")` `.contains(s)` `.startsWith(s)` `.endsWith(s)` — parse but
@@ -37,6 +43,12 @@ SILENT traps — no error, just a wrong result plus a "Missing value" warning:
   (exact element match), NOT substring. Substring test: `.indexOf(sub)` or
   wildcard compare `name = "*sub*"`.
 - `list.length` → MISSING. Always use `.size()`.
+- `FOR _x IN list DO ... ENDFOR` — parses WITHOUT error but the body never
+  runs (verified: accumulator stays 0, only "Missing value" warnings). The
+  only loop is `list.forEach(_x: ...)`.
+- Any unknown function name — `organisation("4761")`, `find(...)` — parses
+  and silently evaluates to MISSING; downstream guards then "work" on garbage.
+  If a function is not listed here, it does not exist.
 
 Also nonexistent: `return`, `print()`, `log()`, `console.log()`,
 `try/catch`, `switch/case`, `else if`, `for x in y`, template literals
@@ -50,6 +62,11 @@ Also nonexistent: `return`, `print()`, `log()`, `console.log()`,
   `t.sc_risk`), `r.<businessId>` for FileResource / ExternalResource. NEVER
   `o.<rid>` — RIDs do not work in EC. Other spaces: `o.` Organisation,
   `u.` User, `g.` Group, `k.` custom property.
+- **Business id lookups:** an object's business id is its `id` property
+  (`_o.id`). There is NO `businessId` property — `.filter(businessId = "x")`
+  parses, warns "Missing value" once per object, and matches nothing.
+  To fetch one object by business id, reference it directly (`t.<businessId>`);
+  never scan descendants for it.
 - **Null is `MISSING`.** Guard with `.whenMissing(fallback)`; test with
   `.isMissing()` or `= MISSING`.
 - **`forEach` uses a colon:** `list.forEach(_item: ... )`.
@@ -61,8 +78,17 @@ Also nonexistent: `return`, `print()`, `log()`, `console.log()`,
 - **The last expression is the output.** No `return`, no `print`; the final
   line's value is the result. `output(x)` logs a value — only the LAST
   `output()` survives, so concatenate diagnostics into one string.
-- **Read code as text vs evaluate:** `t.calc.expression` EVALUATES the stored
-  code; `output(t.calc.expression)` returns the raw source TEXT.
+  If the last statement is an IF whose taken branch contains multiple
+  statements, the script returns a LIST of every statement's value in that
+  branch (verified: `IF FALSE THEN "a" ELSE _x := 1  _y := 2  "z" ENDIF`
+  → `[1, 2, z]`). Assign inside the branch and put the bare variable after
+  ENDIF when you need a scalar result.
+- **Read code as text vs evaluate — the OPPOSITE of what output() suggests:**
+  bare `t.calc.expression` RUNS the stored code and yields its result;
+  `output(t.calc.expression)` yields the raw source TEXT without running it.
+  output() here is not "print the evaluated value". When asked to *show* a
+  stored expression, always wrap it in output(); when asked to *run* it,
+  use it bare. Never explain these two the other way around.
 - **Properties have no parens; methods do.** `_o.name`, `_o.id`,
   `_o.className` (properties) vs `_o.children()`, `_l.size()` (methods).
   `root` is a keyword, not `root()`.
@@ -83,8 +109,9 @@ Also nonexistent: `return`, `print()`, `log()`, `console.log()`,
    Assign first: `_n := list.filter(...).size()` then `IF _n > 0 THEN ...`.
    Plain chains without a trailing operator are fine:
    `list.filter(...).size()` and `list.filter(...).as(name).join(" | ")` work.
-3. Method chaining inside a forEach body also breaks — use intermediate
-   variables per step.
+3. Inside a forEach body, chaining a method onto a FUNCTION-call result or
+   comparing a chained expression inline breaks exactly as above; plain
+   property/method chains (`_o.linkedTo.name.whenMissing("")`) are fine.
 
 ## Strings — verified vocabulary
 
