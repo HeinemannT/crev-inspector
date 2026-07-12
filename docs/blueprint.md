@@ -202,6 +202,18 @@ header; notably ButtonGroup accepts ONLY ButtonInput — ActionButton/MenuButton
 The stale + silent-rollback guards compare `flowSignature` alongside the layout diff, so a purely-flow
 apply is neither missed nor misread as a rollback.
 
+**New references from blueprint**: a reference-less InputView/COV (typically one just staged from the
+grid picker) offers "wire to existing…" (a lean SW fetch of the workspace's InputSets/EditPages at
+picker-open — `LAYOUT_FLOW_REFS`) and "+ new" (stages a new set/page auto-named after the widget; its
+empty child list renders immediately so elements stage underneath before the first Apply). The landing
+rule (live-verified): co-locate into the Category an existing on-page reference lives in, else create
+ONE support Category under `root.portal` per apply and reuse it (`EditPage` at portal root is refused
+by BMP, so the Category is mandatory — used uniformly for both types). The wire compiles LAST
+(`widget.change(inputSet/editPage := <target>)`, var-to-var when both ends are staged), folding
+`createMode := "EDITORADD"` into the same change() for an ADD-mode COV (which otherwise ignores its
+editPage). A staged-new reference can't be SHARED (unshared until created) and its whole chain
+cancels from the band's ✕ or the pending tray.
+
 The **action-menu tray** (header, top-right) shows the viewed tab's `displayOnActionMenu` buttons +
 `displayOnAllTabs` ones with an honest "(N on other tabs)" note; ACTION cards expand their read-only
 transports inline; ADD/NAVIGATE cards show their verb sentence. Menu buttons are EXCLUDED from the

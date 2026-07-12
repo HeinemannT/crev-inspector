@@ -18,6 +18,7 @@ import { render } from './view';
 type LoadResult = Extract<InspectorMessage, { type: 'LAYOUT_LOAD_RESULT' }>;
 type ApplyResult = Extract<InspectorMessage, { type: 'LAYOUT_APPLY_RESULT' }>;
 type BlastResult = Extract<InspectorMessage, { type: 'LAYOUT_BLAST_RESULT' }>;
+type FlowRefsResult = Extract<InspectorMessage, { type: 'LAYOUT_FLOW_REFS_RESULT' }>;
 
 /** Adopt `m` as the new baseline: fresh history, clear selection. The single point where the editor
  *  rebases onto an authoritative server model (initial load + post-apply + stale-reload). */
@@ -64,6 +65,22 @@ export async function fetchBlast(seq: number, pageId: string, containers: { id: 
     bp.blast = { fanout: res?.fanout ?? null, blast: res?.blast ?? null };
     render();
   } catch { /* fail silent — no blast warning */ }
+}
+
+/** Fetch the flow "wire to existing" list for the OPEN flow picker (lean, at picker-open). Stores the
+ *  rows on `bp.flowRefList` and re-renders; a reply for a closed/changed picker is dropped. */
+export async function fetchFlowRefs(refClass: 'InputSet' | 'EditPage'): Promise<void> {
+  const g = bp.gen;
+  bp.flowRefList = null; // loading state
+  try {
+    const res = await sendRequest<FlowRefsResult>({ type: 'LAYOUT_FLOW_REFS', refClass });
+    if (!sameSession(g) || !bp.flowPicker?.wireExisting) return;
+    bp.flowRefList = res?.ok ? (res.refs ?? []) : [];
+    if (!res?.ok) showToast(`Blueprint: could not list existing ${refClass}s: ${res?.error || 'unknown'}`, 'error');
+    render();
+  } catch {
+    if (sameSession(g) && bp.flowPicker?.wireExisting) { bp.flowRefList = []; render(); }
+  }
 }
 
 /** Fire the guarded apply and rebase the editor onto the result. */

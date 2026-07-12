@@ -31,7 +31,7 @@ import { compile } from './ec';
 import { validateBusinessId, validateRid } from '../ec-guards';
 import { LAYOUT_SEP, CTX_MARKER, OVER_MARKER, STYLE_MARKER,
   FLOW_REF_MARKER, FLOW_META_MARKER, FLOW_CHILD_MARKER, FLOW_CPROP_MARKER, FLOW_TR_MARKER,
-  parseLayoutNodes } from '../layout-wire';
+  FLOW_LIST_MARKER, parseLayoutNodes } from '../layout-wire';
 import { enumMember } from '../color-util';
 import { normalizeBmpEnum, FLOW_DOT_SLOTS, FLOW_DOT_PROPS } from '../widget-metadata';
 import type { LayoutNode as WireNode } from '../types';
@@ -148,7 +148,7 @@ function buildFlowEmit(): string[] {
     `          _fkind := _fkind`,
     `     ENDIF`,
     `     _frefId := _fref.id.whenMissing("")`,
-    `     _l := _l + "${FLOW_REF_MARKER}" + ${owner} + "|" + _w.rid + "|" + _cn + "|" + _fkind + "|" + _frefId + "|" + _fref.rid.whenMissing("") + "|" + _fref.className.whenMissing("") + "|" + _w.createMode.whenMissing("") + "|" + _atype + "|" + _w.displayOnActionMenu.whenMissing("") + "|" + _w.displayOnAllTabs.whenMissing("") + "|" + _w.container.id.whenMissing("") + "|" + _fref.name.whenMissing("") + "\\n"`,
+    `     _l := _l + "${FLOW_REF_MARKER}" + ${owner} + "|" + _w.rid + "|" + _cn + "|" + _fkind + "|" + _frefId + "|" + _fref.rid.whenMissing("") + "|" + _fref.className.whenMissing("") + "|" + _w.createMode.whenMissing("") + "|" + _atype + "|" + _w.displayOnActionMenu.whenMissing("") + "|" + _w.displayOnAllTabs.whenMissing("") + "|" + _w.container.id.whenMissing("") + "|" + _fref.parent.className.whenMissing("") + "|" + _fref.parent.id.whenMissing("") + "|" + _fref.name.whenMissing("") + "\\n"`,
     `     IF _cn = "CreateObjectView" THEN`,
     `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|objectType|" + _w.objectType.whenMissing("") + "\\n"`,
     `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|destExpr|" + output(_w.parentDestinationExpression.whenMissing("")) + "\\n"`,
@@ -418,18 +418,20 @@ const firstLine = (block: string): string => (block.split('\n', 1)[0] ?? '').tri
 export function parseFlows(log: string): Map<string, FlowProjection> {
   const map = new Map<string, FlowProjection>();
   // FLOW_REF — one per flow widget. Fields: owner|ownerRid|ownerClass|kind|refId|refRid|refClass|
-  // createMode|actionType|dOAM|dOAT|container|<refName> (refName last, free text).
+  // createMode|actionType|dOAM|dOAT|container|refParentClass|refParentId|<refName> (refName last, free
+  // text). refParent* = the reference's parent, feeding the support-Category co-location rule.
   for (const block of (log || '').split(FLOW_REF_MARKER).slice(1)) {
     const parts = firstLine(block).split('|');
-    if (parts.length < 12) continue;
-    const [owner, ownerRid, ownerClass, kind, refId, refRid, refClass, createMode, actionType, dOAM, dOAT, container] = parts;
+    if (parts.length < 14) continue;
+    const [owner, ownerRid, ownerClass, kind, refId, refRid, refClass, createMode, actionType, dOAM, dOAT, container, refParentClass, refParentId] = parts;
     if (!owner) continue;
-    const refName = parts.length > 12 ? parts.slice(12).join('|') : '';
+    const refName = parts.length > 14 ? parts.slice(14).join('|') : '';
     const proj: FlowProjection = {
       ownerId: owner, ownerClass: ownerClass || '', kind: (kind || 'plain') as FlowKind,
       ...(ownerRid ? { ownerRid } : {}),
       ...(refId ? { refId } : {}), ...(refRid ? { refRid } : {}), ...(refClass ? { refClass } : {}),
       ...(refName ? { refName } : {}),
+      ...(refParentClass ? { refParentClass } : {}), ...(refParentId ? { refParentId } : {}),
       ...(createMode ? { createMode: normalizeBmpEnum(createMode) } : {}),
       ...(actionType ? { actionType: normalizeBmpEnum(actionType) } : {}),
       ...(dOAM ? { displayOnActionMenu: dOAM === 'true' } : {}),
@@ -508,6 +510,46 @@ export function parseFlows(log: string): Map<string, FlowProjection> {
   for (const p of map.values()) if (p.refId) refCount.set(p.refId, (refCount.get(p.refId) ?? 0) + 1);
   for (const p of map.values()) if (p.refId && (refCount.get(p.refId) ?? 0) > 1) p.shared = true;
   return map;
+}
+
+// ── flow "wire to existing" list (picker-open fetch, never in the main layout fetch) ─────────────
+
+/** One row of the workspace reference list the wire-to-existing picker shows. */
+export interface FlowRefListItem { id: string; rid: string; className: string; category?: string; name: string; }
+
+/** EC listing every InputSet OR EditPage under root.portal — bid/rid/class/categoryName/name only
+ *  (SELECT verified live 2026-07-12: 63 refs in ~450ms on the dev workspace — lean enough for
+ *  picker-open). `refClass` is a closed union, so it's injection-safe in the SELECT. */
+export function buildFlowRefListEc(refClass: 'InputSet' | 'EditPage'): string {
+  return [
+    `_r := ""`,
+    `_list := SELECT ${refClass} FROM root.portal`,
+    `_list.forEach(_x:`,
+    `     _r := _r + "${FLOW_LIST_MARKER}" + _x.id.whenMissing("") + "|" + _x.rid + "|" + _x.className.whenMissing("") + "|" + _x.parent.name.whenMissing("") + "|" + _x.name.whenMissing("") + "\\n"`,
+    `)`,
+    `_r`,
+  ].join('\n');
+}
+
+/** Parse the FLOW_LIST channel: bid|rid|class|catName|<name> (name last, free text). */
+export function parseFlowRefList(log: string): FlowRefListItem[] {
+  const out: FlowRefListItem[] = [];
+  for (const block of (log || '').split(FLOW_LIST_MARKER).slice(1)) {
+    const parts = firstLine(block).split('|');
+    if (parts.length < 5) continue;
+    const [id, rid, className, category] = parts;
+    const name = parts.slice(4).join('|');
+    if (!id || !rid) continue;
+    out.push({ id, rid, className: className || '', ...(category ? { category } : {}), name: name || id });
+  }
+  return out;
+}
+
+/** Fetch the wire-to-existing list (SW-side; the content script reaches it via LAYOUT_FLOW_REFS). */
+export async function loadFlowRefList(io: LayoutIO, refClass: 'InputSet' | 'EditPage'): Promise<FlowRefListItem[]> {
+  const res = await io.exec(buildFlowRefListEc(refClass));
+  if (!res.ok) throw new Error(res.error || 'flow ref list fetch failed');
+  return parseFlowRefList(res.log ?? '');
 }
 
 /** Orphans = widget-ish nodes the reconstruct couldn't place (their owner wasn't a layout node

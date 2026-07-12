@@ -9,11 +9,12 @@ import type { LModel, LNode, FlowProjection } from '../types';
 import { diff } from '../diff';
 import { compile } from '../ec';
 import { lint } from '../constraints';
-import { parseFlows } from '../sync';
+import { parseFlows, parseFlowRefList, buildFlowRefListEc } from '../sync';
 import { cloneModel } from '../model';
 import {
   addFlowChild, reorderFlowChild, removeFlowAdd, setActionFlag, addActionButton,
   effectiveFlowChildren, findFlowContainer, flowDiff, flowSignature, trayButtons,
+  stageNewFlowContainer, wireFlowRef, unwireFlowRef, effectiveRef,
 } from '../flow';
 import { FLOW_REF_MARKER, FLOW_META_MARKER, FLOW_CHILD_MARKER, FLOW_CPROP_MARKER, FLOW_TR_MARKER } from '../../layout-wire';
 
@@ -40,6 +41,7 @@ function flowModel(): LModel {
     '50845': {
       ownerId: '50845', ownerRid: 'r_cov', ownerClass: 'CreateObjectView', kind: 'editpage',
       refId: '50865', refRid: 'r_ep', refClass: 'EditPage', refName: 'Create Risk Statement',
+      refParentClass: 'Category', refParentId: '50675',
       createMode: 'EDITORADD', objectType: 'Risk Statement', destExpr: 'root.ceRiskAssessment', container: 'RESULT',
       children: [
         { id: '50866', rid: 'r_e1', className: 'EditField', name: 'Edit field', prop: 'code' },
@@ -250,16 +252,16 @@ describe('flow compiler shapes', () => {
 // ── enum normalization on the fetch parse ────────────────────────────────────
 describe('parseFlows enum normalization + wire parsing (pitfalls 3/4)', () => {
   const log = [
-    `${FLOW_REF_MARKER}50845|r_cov|CreateObjectView|editpage|50865|r_ep|EditPage|CreateMode.editorAdd||||RESULT|Create Risk Statement`,
+    `${FLOW_REF_MARKER}50845|r_cov|CreateObjectView|editpage|50865|r_ep|EditPage|CreateMode.editorAdd||||RESULT|Category|50675|Create Risk Statement`,
     `${FLOW_META_MARKER}50845|objectType|Risk Statement`,
     `${FLOW_META_MARKER}50845|destExpr|root.ceRiskAssessment`,
     `${FLOW_CHILD_MARKER}50845||50866|r_e1|EditField|1|0|0,0,1,0,0,|Edit field`,
     `${FLOW_CPROP_MARKER}50845|50866|risk_code`,
     `${FLOW_CHILD_MARKER}50845||50873|r_pb|EditPageBreak|0|1|0,0,0,0,0,|Page break`,
-    `${FLOW_REF_MARKER}50848|r_cov2|CreateObjectView|editpage|50865|r_ep|EditPage|CreateMode.editorEdit||||RESULT|Create Risk Statement`,
-    `${FLOW_REF_MARKER}50849|r_ab|ActionButton|action|||||ActionType.action|true|true|RESULT|`,
+    `${FLOW_REF_MARKER}50848|r_cov2|CreateObjectView|editpage|50865|r_ep|EditPage|CreateMode.editorEdit||||RESULT|Category|50675|Create Risk Statement`,
+    `${FLOW_REF_MARKER}50849|r_ab|ActionButton|action|||||ActionType.action|true|true|RESULT|||`,
     `${FLOW_TR_MARKER}50849|1|ExtendedTransport|Extended action`,
-    `${FLOW_REF_MARKER}50844|r_iv|InputView|inputset|50850|r_is|InputSet|||||RESULT|Input set`,
+    `${FLOW_REF_MARKER}50844|r_iv|InputView|inputset|50850|r_is|InputSet|||||RESULT|Category|50675|Input set`,
     `${FLOW_CHILD_MARKER}50844||50858|r_bg|ButtonGroup|0|0|0,0,0,0,0,|Button group`,
     `${FLOW_CHILD_MARKER}50844|50858|50860|r_gb|ButtonInput|0|0|1,0,0,0,0,|Button`,
   ].join('\n');
@@ -349,5 +351,129 @@ describe('flowSignature + shared lint', () => {
     // an edit on the UN-shared InputSet stays quiet
     const quiet = addFlowChild(base, '50850', 'TextInput').model;
     expect(lint(quiet, 'instance', flowDiff(base, quiet)).filter(x => x.level === 'warn')).toEqual([]);
+  });
+});
+
+// ── staged-new references (create a NEW InputSet / EditPage from blueprint) ──
+describe('staged-new InputSet / EditPage + reference wiring', () => {
+  it('stageNewFlowContainer stages a temp-keyed container + the widget wire; children stage underneath', () => {
+    const base = flowModel();
+    const { model: m2, id } = stageNewFlowContainer(base, '50844', 'inputSet', 'Owner input set');
+    expect(id).toContain(':');
+    expect(m2.flowEdits?.[id]?.newContainer).toEqual({ className: 'InputSet', name: 'Owner input set' });
+    expect(m2.flowEdits?.['50844']?.wireRef).toMatchObject({ prop: 'inputSet', targetId: id, targetClass: 'InputSet' });
+    // the temp key resolves as a flow container with EMPTY original children — adds stage right away
+    expect(findFlowContainer(m2, id)).toMatchObject({ className: 'InputSet', original: [] });
+    const m3 = addFlowChild(m2, id, 'TextInput', 'Name').model;
+    expect(effectiveFlowChildren(m3, id).map(c => c.name)).toEqual(['Name']);
+  });
+
+  it('a COV gaining an editPage in ADD mode stages the EDITORADD flip; EDITOR* modes do not', () => {
+    const base = flowModel();
+    // 50842-style: a COV in ADD mode (no projection entry in the fixture has ADD; craft one)
+    base.flows!['50842'] = { ownerId: '50842', ownerClass: 'CreateObjectView', kind: 'editpage', createMode: 'ADD', children: [] };
+    const flip = stageNewFlowContainer(base, '50842', 'editPage', 'P').model;
+    expect(flip.flowEdits?.['50842']?.wireRef?.setCreateMode).toBe(true);
+    // 50848 is EDITOREDIT — wiring a page must NOT flip its mode
+    const keep = wireFlowRef(base, '50848', 'editPage', '50865x', 'EditPage', 'Other page');
+    expect(keep.flowEdits?.['50848']?.wireRef?.setCreateMode).toBeUndefined();
+  });
+
+  it('wireFlowRef back to the live reference clears; unwireFlowRef cascades the staged-new container', () => {
+    const base = flowModel();
+    const wired = wireFlowRef(base, '50844', 'inputSet', 'is_other', 'InputSet', 'Other set');
+    expect(effectiveRef(wired, '50844')).toMatchObject({ id: 'is_other', staged: true, isNew: false });
+    expect(wireFlowRef(base, '50844', 'inputSet', '50850', 'InputSet').flowEdits ?? {}).toEqual({}); // no-op wire
+    const { model: m2, id } = stageNewFlowContainer(base, '50844', 'inputSet', 'S');
+    const m3 = addFlowChild(m2, id, 'TextInput').model;
+    expect(unwireFlowRef(m3, '50844').flowEdits ?? {}).toEqual({}); // wire + container + its adds all gone
+  });
+
+  it('re-wiring a widget away from a staged-new container drops the orphaned container', () => {
+    const base = flowModel();
+    const { model: m2, id } = stageNewFlowContainer(base, '50844', 'inputSet', 'S');
+    const m3 = wireFlowRef(m2, '50844', 'inputSet', 'is_other', 'InputSet');
+    expect(m3.flowEdits?.[id]).toBeUndefined();
+    expect(m3.flowEdits?.['50844']?.wireRef?.targetId).toBe('is_other');
+  });
+
+  it('compiles: co-locates the new container into the on-page reference Category, then children, then the wire', () => {
+    const base = flowModel();
+    const { model: m2, id } = stageNewFlowContainer(base, '50844', 'inputSet', 'Owner input set');
+    const m3 = addFlowChild(m2, id, 'TextInput', 'Name').model;
+    const { script } = compile(flowDiff(base, m3), m3);
+    const lines = script.split('\n');
+    // Category 50675 hosts the fixture's set+page (refParentClass) → co-locate there
+    expect(lines[0]).toBe('_ff0 := t.50675.add(InputSet, name := "Owner input set") // BMP assigns id');
+    expect(lines[1]).toBe('_ff1 := _ff0.add(TextInput, name := "Name") // BMP assigns id');
+    expect(lines[lines.length - 1]).toBe('t.50844.change(inputSet := _ff0)');
+  });
+
+  it('compiles: with NO on-page Category, ONE support Category is created and REUSED for a set + a page', () => {
+    const base = flowModel();
+    // strip the Category parents so the landing falls back to the new support folder
+    for (const k of Object.keys(base.flows!)) {
+      base.flows![k] = { ...base.flows![k], refParentClass: undefined, refParentId: undefined };
+    }
+    let m2 = stageNewFlowContainer(base, '50844', 'inputSet', 'S').model;
+    m2 = stageNewFlowContainer(m2, '50845', 'editPage', 'P').model;
+    const { script } = compile(flowDiff(base, m2), m2);
+    const catLines = script.split('\n').filter(l => l.includes('root.portal.add(Category'));
+    expect(catLines).toHaveLength(1); // created once, reused
+    expect(catLines[0]).toContain('name := "template_example_flow support"');
+    expect(script).toContain('_fcat.add(InputSet, name := "S")');
+    expect(script).toContain('_fcat.add(EditPage, name := "P")');
+  });
+
+  it('compiles: var-to-var wiring — a STAGED widget wired to a STAGED container', () => {
+    const base = flowModel();
+    // a freshly-staged InputView from the grid picker (temp layout id), wired to a staged-new set
+    const widgetId = 'w:9';
+    base.tabs[0].children.push(n({ id: widgetId, kind: 'widget', className: 'InputView', name: 'New view' }));
+    const desired = cloneModel(base);
+    desired.tabs[0] = base.tabs[0]; // keep the added widget in desired only
+    const { model: m2 } = stageNewFlowContainer(desired, widgetId, 'inputSet', 'S');
+    // compose layout + flow plans the way applyModel does — the layout create runs first and captures _n0
+    const pristine = flowModel();
+    const plan = [...diff(pristine, m2), ...flowDiff(pristine, m2)];
+    const { script } = compile(plan, m2);
+    expect(script).toContain('_n0 := _sc.add(InputView'); // layout create captures the widget var
+    expect(script).toContain(`.add(InputSet, name := "S")`);
+    expect(script.split('\n').pop()).toBe('_n0.change(inputSet := _ff0)'); // var-to-var wire, last
+  });
+
+  it('compiles: the EDITORADD flip folds into the SAME change() as the wire', () => {
+    const base = flowModel();
+    base.flows!['50842'] = { ownerId: '50842', ownerRid: 'r_cov0', ownerClass: 'CreateObjectView', kind: 'editpage', createMode: 'ADD', children: [] };
+    const wired = wireFlowRef(base, '50842', 'editPage', '50865', 'EditPage', 'Create Risk Statement');
+    const { script } = compile(flowDiff(base, wired), wired);
+    expect(script).toBe('t.50842.change(editPage := t.50865, createMode := "EDITORADD")');
+  });
+
+  it('flowSignature covers refId so a pure wire apply is not misread as a rollback', () => {
+    const m = flowModel();
+    const rewired = cloneModel(m);
+    rewired.flows!['50844'] = { ...rewired.flows!['50844'], refId: 'is_other' };
+    expect(flowSignature(rewired)).not.toBe(flowSignature(m));
+  });
+
+  it('parseFlows reads the reference parent (Category co-location source)', () => {
+    const log = `${FLOW_REF_MARKER}50844|r_iv|InputView|inputset|50850|r_is|InputSet|||||RESULT|Category|50675|Input set`;
+    const flows = parseFlows(log);
+    expect(flows.get('50844')).toMatchObject({ refParentClass: 'Category', refParentId: '50675' });
+  });
+
+  it('parseFlowRefList reads the wire-to-existing rows (name last, pipes survive)', () => {
+    const log = [
+      '<<<CREV_FLST>>>is1|111|InputSet|Cat A|Owner set',
+      '<<<CREV_FLST>>>ep1|222|EditPage|Cat B|Create X | pipe',
+      '<<<CREV_FLST>>>|333|InputSet||dropped (no bid)',
+    ].join('\n');
+    const rows = parseFlowRefList(log);
+    expect(rows).toEqual([
+      { id: 'is1', rid: '111', className: 'InputSet', category: 'Cat A', name: 'Owner set' },
+      { id: 'ep1', rid: '222', className: 'EditPage', category: 'Cat B', name: 'Create X | pipe' },
+    ]);
+    expect(buildFlowRefListEc('EditPage')).toContain('SELECT EditPage FROM root.portal');
   });
 });

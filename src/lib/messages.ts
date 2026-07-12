@@ -37,7 +37,7 @@ import type {
 import type { AiProviderId, AiRequestPayload, AiChatTurn, AiChatEvent, AiChatQuote, AiContextEnvelope, AiContextSource } from './ai/types';
 import type { LModel, PlanNote, NodeStyle } from './layout/types';
 import type { StylePreset } from './style-presets';
-import type { BlueprintCtx } from './layout/sync';
+import type { BlueprintCtx, FlowRefListItem } from './layout/sync';
 import type { InstanceFanout, ContainerBlast } from './layout/blast-radius';
 
 // ── Page & Object Discovery ──────────────────────────────────────
@@ -394,7 +394,11 @@ export type LayoutMessage =
   // Apply-preview blast radius: is the page a template master (fan-out), and do any touched shared
   // containers reach pages outside the page's own template-family. Best-effort — both may be null.
   | { type: 'LAYOUT_BLAST'; pageId: string; containers: { id: string; rid?: string }[] }
-  | { type: 'LAYOUT_BLAST_RESULT'; fanout: InstanceFanout | null; blast: ContainerBlast | null };
+  | { type: 'LAYOUT_BLAST_RESULT'; fanout: InstanceFanout | null; blast: ContainerBlast | null }
+  // Flow "wire to existing" picker: the workspace's InputSets/EditPages (lean list — bid/rid/class/
+  // category/name only), fetched at picker-open, never in the main layout fetch.
+  | { type: 'LAYOUT_FLOW_REFS'; refClass: 'InputSet' | 'EditPage' }
+  | { type: 'LAYOUT_FLOW_REFS_RESULT'; ok: boolean; refs?: FlowRefListItem[]; error?: string };
 
 // ── Saved style presets (blueprint paintbrush library) ───────────
 // Per-profile named widget appearance presets. The blueprint requests these one-shot (sendRequest);

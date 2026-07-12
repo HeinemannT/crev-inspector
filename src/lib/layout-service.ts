@@ -14,8 +14,8 @@
  */
 import type { BmpClient } from './bmp-client';
 import { LAYOUT_EC_TIMEOUT } from './constants';
-import type { LayoutIO, BlueprintCtx, LoadResult, ApplyResult } from './layout/sync';
-import { loadModel, applyModel, resolvePageContext } from './layout/sync';
+import type { LayoutIO, BlueprintCtx, LoadResult, ApplyResult, FlowRefListItem } from './layout/sync';
+import { loadModel, applyModel, resolvePageContext, loadFlowRefList } from './layout/sync';
 import type { LModel } from './layout/types';
 import { validateBusinessId, validateRid } from './ec-guards';
 import { log } from './logger';
@@ -87,6 +87,12 @@ export async function loadPage(client: BmpClient, rid: string, prefer: 'template
  *  `loadPage` returned for this page (it carries the page root + tabset + tab scope). */
 export async function applyPage(client: BmpClient, ctx: BlueprintCtx, baseline: LModel, desired: LModel, timings: string[] = []): Promise<ApplyResult> {
   return applyModel(makeLayoutIO(client, timings), baseline, desired, ctx);
+}
+
+/** The flow "wire to existing" list: every InputSet or EditPage under root.portal (lean fields only).
+ *  Fetched at picker-open — never part of the main layout fetch (pitfall #3: no fetch-size creep). */
+export async function loadFlowRefs(client: BmpClient, refClass: 'InputSet' | 'EditPage'): Promise<FlowRefListItem[]> {
+  return loadFlowRefList(makeLayoutIO(client), refClass);
 }
 
 /** Apply-preview blast radius (best-effort; an `rref` walk can be slow, so callers fail silently).

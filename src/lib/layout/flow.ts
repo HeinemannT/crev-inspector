@@ -23,9 +23,13 @@ export interface FlowContainer {
   original: FlowNode[];
 }
 
-/** Locate the flow container addressed by `key`: an InputSet/EditPage (a projection's `refId`) or a
- *  nested ButtonGroup (a FlowNode inside a projection). Returns null when `key` names no container. */
+/** Locate the flow container addressed by `key`: an InputSet/EditPage (a projection's `refId`), a
+ *  nested ButtonGroup (a FlowNode inside a projection), or a STAGED-NEW container (a temp-keyed
+ *  flowEdits entry carrying `newContainer` — original children are by definition empty). Returns null
+ *  when `key` names no container. */
 export function findFlowContainer(m: LModel, key: string): FlowContainer | null {
+  const nc = m.flowEdits?.[key]?.newContainer;
+  if (nc) return { key, className: nc.className, original: [] };
   const flows = m.flows;
   if (!flows) return null;
   for (const p of Object.values(flows)) {
@@ -64,7 +68,8 @@ function withFlowEdit(m: LModel, key: string, fn: (e: FlowEdit) => void): LModel
   const e = (edits[key] ??= {});
   fn(e);
   // Drop an entry that ended up empty (e.g. a flag toggled back to its projection value).
-  if (!e.adds?.length && !e.order && e.displayOnActionMenu === undefined && e.displayOnAllTabs === undefined) delete edits[key];
+  if (!e.adds?.length && !e.order && e.displayOnActionMenu === undefined && e.displayOnAllTabs === undefined
+    && !e.newContainer && !e.wireRef) delete edits[key];
   return c;
 }
 
@@ -131,23 +136,119 @@ export function addActionButton(m: LModel, tabContainer: string, name?: string):
   return { model, id };
 }
 
+// ── staged-new references (create a NEW InputSet / EditPage from blueprint) ──────────────────────
+
+/** Stage a NEW InputSet/EditPage for a flow widget: a temp-keyed `newContainer` entry (children stage
+ *  underneath it immediately via the normal addFlowChild path) + the widget's `wireRef` pointing at it.
+ *  A COV gaining an editPage also stages `createMode := "EDITORADD"` unless it's already an EDITOR*
+ *  mode (an ADD-mode COV ignores its editPage — flip verified live on t.50842, 2026-07-12). */
+export function stageNewFlowContainer(m: LModel, widgetId: string, prop: 'inputSet' | 'editPage', name: string): { model: LModel; id: string } {
+  const id = tempId('flowset');
+  const className = prop === 'inputSet' ? 'InputSet' as const : 'EditPage' as const;
+  let next = withFlowEdit(m, id, e => { e.newContainer = { className, name }; });
+  next = withFlowEdit(next, widgetId, e => {
+    e.wireRef = { prop, targetId: id, targetClass: className, targetName: name, ...(needsModeFlip(m, widgetId, prop) ? { setCreateMode: true } : {}) };
+  });
+  return { model: next, id };
+}
+
+/** Stage wiring a flow widget to an EXISTING InputSet/EditPage (the "wire to existing" picker).
+ *  Wiring back to the projection's current reference clears the staged edit (a no-op wire). */
+export function wireFlowRef(m: LModel, widgetId: string, prop: 'inputSet' | 'editPage', targetId: string, targetClass: string, targetName?: string): LModel {
+  // cancel a previously staged-new container this widget pointed at (it would otherwise orphan)
+  const prevTarget = m.flowEdits?.[widgetId]?.wireRef?.targetId;
+  let base = m;
+  if (prevTarget && prevTarget.includes(':') && m.flowEdits?.[prevTarget]?.newContainer) {
+    base = withFlowEdit(m, prevTarget, e => { delete e.newContainer; delete e.adds; delete e.order; });
+  }
+  return withFlowEdit(base, widgetId, e => {
+    if (m.flows?.[widgetId]?.refId === targetId) delete e.wireRef; // wired back to the live reference
+    else e.wireRef = { prop, targetId, targetClass, ...(targetName ? { targetName } : {}), ...(needsModeFlip(m, widgetId, prop) ? { setCreateMode: true } : {}) };
+  });
+}
+
+/** Cancel a staged wire (and the staged-new container behind it, when there is one). */
+export function unwireFlowRef(m: LModel, widgetId: string): LModel {
+  const target = m.flowEdits?.[widgetId]?.wireRef?.targetId;
+  let next = withFlowEdit(m, widgetId, e => { delete e.wireRef; });
+  if (target && target.includes(':') && next.flowEdits?.[target]?.newContainer) {
+    next = withFlowEdit(next, target, e => { delete e.newContainer; delete e.adds; delete e.order; });
+  }
+  return next;
+}
+
+/** Should wiring an editPage onto this widget also flip createMode to EDITORADD? Only for a COV whose
+ *  current (normalized) mode is not already an EDITOR* mode — a staged-new COV has no projection and
+ *  defaults to ADD, so it flips too. */
+function needsModeFlip(m: LModel, widgetId: string, prop: 'inputSet' | 'editPage'): boolean {
+  if (prop !== 'editPage') return false;
+  const mode = m.flows?.[widgetId]?.createMode ?? 'ADD';
+  return mode !== 'EDITORADD' && mode !== 'EDITOREDIT';
+}
+
+/** The staged reference for a widget (wireRef), or its live projection ref — the renderer's one lookup. */
+export function effectiveRef(m: LModel, widgetId: string): { id: string; className: string; name?: string; staged: boolean; isNew: boolean } | null {
+  const wire = m.flowEdits?.[widgetId]?.wireRef;
+  if (wire) return { id: wire.targetId, className: wire.targetClass, name: wire.targetName, staged: true, isNew: wire.targetId.includes(':') };
+  const p = m.flows?.[widgetId];
+  if (p?.refId) return { id: p.refId, className: p.refClass ?? 'InputSet', name: p.refName, staged: false, isNew: false };
+  return null;
+}
+
 // ── flow diff ────────────────────────────────────────────────────────────────────────────────────
+
+/** The landing for a NEW InputSet/EditPage: co-locate with an existing on-page reference's Category
+ *  when one exists (Config Studio's support-folder convention), else the page's ONE support Category
+ *  under root.portal (`'*support*'` sentinel + name — the compiler creates it lazily and reuses it
+ *  across steps, so a set AND a page created in one apply share it). */
+function flowLanding(m: LModel): { parentId: string; newCategoryName?: string } {
+  for (const p of Object.values(m.flows ?? {})) {
+    if (p.refId && p.refParentClass === 'Category' && p.refParentId) return { parentId: p.refParentId };
+  }
+  return { parentId: '*support*', newCategoryName: `${m.pageId} support` };
+}
 
 /** Diff the staged flow edits into plan steps. Keyed by businessId, so an edit staged from two cells is
  *  processed ONCE (pitfall #2). Emits nothing when `flowEdits` is empty — so a freshly-loaded model (and
- *  the layout-only regression) is byte-identical to one without flow (pitfall #1). Order: flowCreate →
- *  flowReorder → flowFlag (creates before the moves that may reference them; flags are independent). */
+ *  the layout-only regression) is byte-identical to one without flow (pitfall #1). Deterministic order:
+ *  new-container creates (Category → set/page) → child creates → reorders → flags → reference wires
+ *  LAST (so a wire can reference any staged-new target's var — including a staged-new widget's `_n<k>`
+ *  var from the layout creates, which always precede flow steps in the composed plan). */
 export function flowDiff(_baseline: LModel, desired: LModel): PlanStep[] {
   const edits = desired.flowEdits;
   if (!edits) return [];
+  const containerCreates: PlanStep[] = [];
   const creates: PlanStep[] = [];
   const reorders: PlanStep[] = [];
   const flags: PlanStep[] = [];
+  const wires: PlanStep[] = [];
 
   for (const [key, e] of Object.entries(edits)) {
+    // A staged-new InputSet/EditPage: create it in its landing (existing support Category, else the
+    // lazily-created page support Category), THEN its staged children under it (same entry).
+    if (e.newContainer) {
+      const landing = flowLanding(desired);
+      containerCreates.push({
+        kind: 'flowCreate',
+        node: { id: key, className: e.newContainer.className, name: e.newContainer.name },
+        parentId: landing.parentId, parentClass: 'Category',
+        ...(landing.newCategoryName ? { newCategoryName: landing.newCategoryName } : {}),
+      });
+    }
+    // The widget's staged reference wire (emitted last, after every create).
+    if (e.wireRef) {
+      const proj = desired.flows?.[key];
+      wires.push({
+        kind: 'flowWire', id: key, prop: e.wireRef.prop, targetId: e.wireRef.targetId,
+        ...(e.wireRef.targetName ? { targetName: e.wireRef.targetName } : {}),
+        ...(e.wireRef.setCreateMode ? { setCreateMode: true } : {}),
+        ...(proj?.ownerRid ? { rid: proj.ownerRid } : {}),
+      });
+    }
     // A NEW page-level ActionButton: the key is a temp id and the single add IS the button. Its `prop`
-    // carries the tab/RESULT container binding. Emit a widget-style create + its flag.
-    const pageAdd = key.includes(':') && e.adds?.length === 1 && e.adds[0].className === 'ActionButton';
+    // carries the tab/RESULT container binding. Emit a widget-style create + its flag. (A staged-new
+    // container entry is ALSO temp-keyed with adds — excluded by `!e.newContainer`.)
+    const pageAdd = key.includes(':') && !e.newContainer && e.adds?.length === 1 && e.adds[0].className === 'ActionButton';
     if (pageAdd) {
       const n = e.adds![0];
       creates.push({ kind: 'flowCreate', node: n, parentId: '*page*', parentClass: 'Scorecard' });
@@ -181,7 +282,7 @@ export function flowDiff(_baseline: LModel, desired: LModel): PlanStep[] {
       }
     }
   }
-  return [...creates, ...reorders, ...flags];
+  return [...containerCreates, ...creates, ...reorders, ...flags, ...wires];
 }
 
 /** Count of distinct flow objects the edits touch — for the pending-changes headline. */
@@ -238,6 +339,8 @@ export function flowSignature(m: LModel): string {
     children.map(c => c.id + (c.children?.length ? `[${childSig(c.children)}]` : '')).join(',');
   return Object.keys(flows).sort().map(k => {
     const p = flows[k];
-    return `${k}:${p.displayOnActionMenu ? 1 : 0}${p.displayOnAllTabs ? 1 : 0}:${childSig(p.children)}`;
+    // refId is part of the signature so a PURE reference-wire apply (widget.change(inputSet := …))
+    // registers as landed — without it the rollback guard would misread a wire-only commit.
+    return `${k}:${p.refId ?? ''}:${p.displayOnActionMenu ? 1 : 0}${p.displayOnAllTabs ? 1 : 0}:${childSig(p.children)}`;
   }).join('|');
 }

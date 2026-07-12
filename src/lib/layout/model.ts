@@ -200,6 +200,10 @@ export function cloneFlowEdits(fe: Record<string, FlowEdit>): Record<string, Flo
       ...(e.order ? { order: [...e.order] } : {}),
       ...(e.displayOnActionMenu !== undefined ? { displayOnActionMenu: e.displayOnActionMenu } : {}),
       ...(e.displayOnAllTabs !== undefined ? { displayOnAllTabs: e.displayOnAllTabs } : {}),
+      // staged-new container + reference wire — dropping these on clone silently un-staged them
+      // (every mutation path clones, so a second edit erased the first; caught by the flow tests)
+      ...(e.newContainer ? { newContainer: { ...e.newContainer } } : {}),
+      ...(e.wireRef ? { wireRef: { ...e.wireRef } } : {}),
     };
   }
   return out;

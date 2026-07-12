@@ -11,7 +11,7 @@ import { findNode, isTempId, isResultTab } from '../lib/layout/model';
 import { bandInsertIndex } from '../lib/layout/placement';
 import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, createTabset, findTabOf, toggleReset, setStyle } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
-import { addFlowChild, reorderFlowChild, removeFlowAdd, setActionFlag, addActionButton, flowDiff, flowChangeCount } from '../lib/layout/flow';
+import { addFlowChild, reorderFlowChild, removeFlowAdd, setActionFlag, addActionButton, flowDiff, flowChangeCount, stageNewFlowContainer, wireFlowRef, unwireFlowRef } from '../lib/layout/flow';
 import { compile } from '../lib/layout/ec';
 import { History } from '../lib/layout/history';
 import { maskStyle, type LModel, type PlanStep, type NodeStyle } from '../lib/layout/types';
@@ -19,7 +19,7 @@ import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { render } from './view';
-import { applyPage, fetchBlast } from './service';
+import { applyPage, fetchBlast, fetchFlowRefs } from './service';
 import { ensureColorSets } from './colors';
 import { loadPresets, savePreset, deletePreset } from './presets';
 import { PAINT_STYLE_PROPS } from '../lib/style-props';
@@ -193,7 +193,7 @@ export function openFlowPicker(key: string, className: string, opts?: { afterId?
   bp.picker = null; bp.pickerOpts = null; bp.selectedId = null;
   render();
 }
-export function closeFlowPicker(): void { if (bp.flowPicker) { bp.flowPicker = null; render(); } }
+export function closeFlowPicker(): void { if (bp.flowPicker) { bp.flowPicker = null; bp.flowRefList = null; render(); } }
 /** Stage a new flow child from the open flow picker (type + name auto — no property forms). */
 export function addFlowFromPicker(className: string): void {
   const m = model(); const p = bp.flowPicker;
@@ -222,6 +222,36 @@ export function cancelFlowAdd(key: string, id: string): void {
 export function setActionButtonFlag(id: string, prop: 'displayOnActionMenu' | 'displayOnAllTabs', value: boolean): void {
   const m = model(); if (!m) return;
   mutate(setActionFlag(m, id, prop, value));
+}
+/** "+ new": stage a NEW InputSet/EditPage for a reference-less flow widget, auto-named after it.
+ *  Children stage underneath immediately (the empty row list renders with its Add-element row). */
+export function stageNewRef(widgetId: string, prop: 'inputSet' | 'editPage'): void {
+  const m = model(); if (!m) return;
+  const widgetName = findNode(m, widgetId)?.node.name ?? m.flows?.[widgetId]?.ownerName ?? widgetId;
+  const name = prop === 'inputSet' ? `${widgetName} input set` : `${widgetName} edit page`;
+  mutate(stageNewFlowContainer(m, widgetId, prop, name).model);
+}
+/** Open the "wire to existing" picker for a reference-less flow widget; the workspace list fetches at
+ *  open (lean — bid/rid/class/category/name only, never in the main layout fetch). */
+export function openWireExisting(widgetId: string, prop: 'inputSet' | 'editPage', at?: { x: number; y: number }): void {
+  const refClass = prop === 'inputSet' ? 'InputSet' as const : 'EditPage' as const;
+  bp.flowPicker = { key: widgetId, className: refClass, wireExisting: true, ...(at ? { at } : {}) };
+  bp.picker = null; bp.pickerOpts = null; bp.selectedId = null;
+  render();
+  void fetchFlowRefs(refClass);
+}
+/** Wire the picker's widget to the chosen existing InputSet/EditPage. */
+export function wireExistingFromPicker(targetId: string, targetClass: string, targetName?: string): void {
+  const m = model(); const p = bp.flowPicker;
+  if (!m || !p?.wireExisting) return;
+  const prop = p.className === 'InputSet' ? 'inputSet' as const : 'editPage' as const;
+  bp.flowPicker = null; bp.flowRefList = null;
+  mutate(wireFlowRef(m, p.key, prop, targetId, targetClass, targetName));
+}
+/** Cancel a staged reference wire (and the staged-new container behind it, when there is one). */
+export function doUnwire(widgetId: string): void {
+  const m = model(); if (!m) return;
+  mutate(unwireFlowRef(m, widgetId));
 }
 /** Fold/unfold a flow cell on its reference band (default expanded; folded set lives in bp). */
 export function toggleFlowFold(ownerId: string): void {
@@ -316,7 +346,11 @@ export function revertNode(id: string): void {
   if (m.flowEdits) {
     if (m.flowEdits[id]) {
       const next = { ...m, flowEdits: { ...m.flowEdits } };
+      // A widget entry whose wireRef points at a staged-new container cascades: dropping the wire
+      // also drops the (now-orphaned) new container and its staged children.
+      const wireTarget = next.flowEdits[id].wireRef?.targetId;
       delete next.flowEdits[id];
+      if (wireTarget && wireTarget.includes(':') && next.flowEdits[wireTarget]?.newContainer) delete next.flowEdits[wireTarget];
       if (!Object.keys(next.flowEdits).length) delete (next as { flowEdits?: unknown }).flowEdits;
       mutate(next);
       return;

@@ -391,7 +391,7 @@ describe('sync.applyModel — flow steps (blueprint flow editing)', () => {
   const FREF = '<<<CREV_FREF>>>';
   const FCHD = '<<<CREV_FCHD>>>';
   const FLOW_LINES = [
-    `${FREF}4971|7298791240939894938|InputView|inputset|is1|111|InputSet|||||RESULT|Owner set`,
+    `${FREF}4971|7298791240939894938|InputView|inputset|is1|111|InputSet|||||RESULT|Category|cat1|Owner set`,
     `${FCHD}4971||f1|201|TextInput|0|0|0,0,0,0,0,|Name`,
     `${FCHD}4971||f2|202|NumberInput|0|0|0,0,0,0,0,|Score`,
   ].join('\n');

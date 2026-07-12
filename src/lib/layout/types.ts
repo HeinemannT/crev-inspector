@@ -219,6 +219,10 @@ export interface FlowProjection {
   kind: FlowKind;
   // reference band (InputSet / EditPage) — the ADD / REORDER container:
   refId?: string; refRid?: string; refClass?: string; refName?: string;
+  /** The reference's PARENT (Category detection): a new set/page created from this page co-locates
+   *  into the same Category when one exists (Config Studio's support-folder convention, verified on
+   *  the fixture: InputSet t.50850 + EditPage t.50865 live in Category t.50675 under root.portal). */
+  refParentClass?: string; refParentId?: string;
   /** true when more than one flow widget on this page references `refId` (on-page sharing — a cheap,
    *  honest signal; cross-page sharing is not probed, see sync.ts). */
   shared?: boolean;
@@ -240,7 +244,10 @@ export interface FlowProjection {
 }
 
 /** A staged edit on ONE flow object, keyed by businessId in `LModel.flowEdits` (pitfall #2 dedupe).
- *  For an InputSet/EditPage/ButtonGroup key: `adds` + `order`. For an action-button key: the flag flips. */
+ *  For an InputSet/EditPage/ButtonGroup key: `adds` + `order`. For an action-button key: the flag flips.
+ *  For a flow WIDGET key: `wireRef` (its inputSet/editPage reference). A TEMP key carrying
+ *  `newContainer` IS a staged-new InputSet/EditPage — its `adds`/`order` are the new container's
+ *  children, so children stage underneath it before the first Apply. */
 export interface FlowEdit {
   /** Newly-added children (type + name only — no property forms in blueprint). */
   adds?: FlowNode[];
@@ -250,6 +257,13 @@ export interface FlowEdit {
   displayOnActionMenu?: boolean;
   /** Staged displayOnAllTabs flip (tray scope). */
   displayOnAllTabs?: boolean;
+  /** This (temp-keyed) entry is a staged-new InputSet/EditPage awaiting creation on Apply. */
+  newContainer?: { className: 'InputSet' | 'EditPage'; name: string };
+  /** Staged reference wire on a flow WIDGET: `<widget>.change(<prop> := <target>)`. `targetId` may be
+   *  a staged-new container's temp id (compiled var-to-var) or an existing businessId. `setCreateMode`
+   *  also folds `createMode := "EDITORADD"` into the same change() — a COV in ADD mode ignores its
+   *  editPage otherwise (change(createMode) round-trip execute-verified on t.50842, 2026-07-12). */
+  wireRef?: { prop: 'inputSet' | 'editPage'; targetId: string; targetClass: string; targetName?: string; setCreateMode?: boolean };
 }
 
 /** One step of an apply plan (the diff between baseline and desired). */
@@ -277,12 +291,20 @@ export type PlanStep =
   // child is added into (`<parent>.add(<Class>, name := …)`). `parentRid` threads the rid for the
   // lookup() fallback (pitfall #5). A staged-add node carries a temp id; the compiler captures it in a
   // `_f<k>` var so a later flowReorder can address it.
-  | { kind: 'flowCreate'; node: FlowNode; parentId: string; parentClass: string; parentRid?: string }
+  // `parentId === '*support*'` = land in the page's support Category: the compiler creates ONE
+  // `root.portal.add(Category, name := newCategoryName)` per apply (lazily, reused across steps) and
+  // adds there — the fixture convention for InputSets/EditPages (verified live 2026-07-12; EditPage
+  // is REFUSED at portal root: "Can't add an object of type EditPage to Portal").
+  | { kind: 'flowCreate'; node: FlowNode; parentId: string; parentClass: string; parentRid?: string; newCategoryName?: string }
   // reorder within ONE flow parent (moveAfter chain). `afterId` is a real prior sibling (or a just-
   // created `_f<k>`); `parentId` groups the step for summaries.
   | { kind: 'flowReorder'; id: string; rid?: string; afterId: string; parentId: string }
   // action-button flag flip (displayOnActionMenu / displayOnAllTabs). `id` is the button's businessId.
-  | { kind: 'flowFlag'; id: string; rid?: string; className: string; prop: 'displayOnActionMenu' | 'displayOnAllTabs'; value: boolean };
+  | { kind: 'flowFlag'; id: string; rid?: string; className: string; prop: 'displayOnActionMenu' | 'displayOnAllTabs'; value: boolean }
+  // reference wire on a flow widget: `<widget>.change(<prop> := <target>)` (+ createMode := "EDITORADD"
+  // when setCreateMode). Emitted AFTER every flow create so a staged-new target's var exists; the
+  // widget itself may be a staged layout add (its `_n<k>` var resolves through the same vars map).
+  | { kind: 'flowWire'; id: string; rid?: string; prop: 'inputSet' | 'editPage'; targetId: string; targetName?: string; setCreateMode?: boolean };
 
 /** The subject node's model id for any plan step — `create`/`flowCreate` carry it on `node`, every
  *  other kind carries it directly. The one place that knows this shape (call sites used to branch on

@@ -18,7 +18,7 @@
  */
 import type { LModel, LNode, FlowNode, FlowProjection } from '../lib/layout/types';
 import { isTempId } from '../lib/layout/model';
-import { effectiveFlowChildren, trayButtons } from '../lib/layout/flow';
+import { effectiveFlowChildren, effectiveRef, findFlowContainer, trayButtons } from '../lib/layout/flow';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { flowDotTitle } from '../lib/widget-metadata';
 
@@ -33,7 +33,7 @@ function hexInk(hex: string): string {
 import { ICON_PLUS, ICON_LIGHTNING, ICON_ARROW_RIGHT } from '../lib/icons';
 import { setIcon } from './geometry';
 import { bp } from './state';
-import { openFlowPicker, toggleFlowFold, toggleTrayCard, setActionButtonFlag, openPicker, cancelFlowAdd } from './actions';
+import { openFlowPicker, toggleFlowFold, toggleTrayCard, setActionButtonFlag, openPicker, cancelFlowAdd, stageNewRef, openWireExisting, doUnwire } from './actions';
 import { armFlowRow } from './gestures';
 
 /** The 34×17 mono type chip that leads every flow row / band (v6 "badge"). Dashed = staged (NEW). */
@@ -199,29 +199,94 @@ function refBand(p: FlowProjection, folded: boolean): HTMLElement {
   return band;
 }
 
-/** Whether a widget's cell renders a flow panel (drives composite-style sizing in result.ts). */
-export function hasFlowPanel(m: LModel, node: LNode): boolean {
-  return !!m.flows?.[node.id];
+/** The reference slot (prop) a widget class wires: InputView → inputSet, CreateObjectView → editPage. */
+function refPropOf(className: string): 'inputSet' | 'editPage' | null {
+  return className === 'InputView' ? 'inputSet' : className === 'CreateObjectView' ? 'editPage' : null;
 }
 
-/** The flow chain inside a flow-bearing widget's result cell. Returns null when the widget has no
- *  projection (fetch found nothing — cell renders its normal watermark body). */
+/** Whether a widget's cell renders a flow panel (drives composite-style sizing in result.ts): a fetched
+ *  projection, a staged reference wire, or a reference-less (incl. freshly-staged) InputView/COV whose
+ *  band offers "wire to existing / + new". */
+export function hasFlowPanel(m: LModel, node: LNode): boolean {
+  if (m.flows?.[node.id]) return true;
+  if (m.flowEdits?.[node.id]?.wireRef) return true;
+  return refPropOf(node.className) !== null; // reference-less (or staged-new) InputView/COV → affordance band
+}
+
+/** The two affordances of a reference-less InputView/COV: "wire to existing" + "+ new". */
+function noRefBand(widgetId: string, prop: 'inputSet' | 'editPage'): HTMLElement {
+  const band = document.createElement('div'); band.className = 'bp-fband';
+  const what = prop === 'inputSet' ? 'Input set' : 'Edit page';
+  const lbl = document.createElement('span'); lbl.textContent = `No ${what.toLowerCase()} linked`; band.appendChild(lbl);
+  const end = document.createElement('span'); end.className = 'end';
+  const wire = document.createElement('button'); wire.className = 'bp-fwire';
+  wire.textContent = 'wire to existing…';
+  wire.title = `Link this widget to an existing ${what} from the workspace`;
+  wire.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); openWireExisting(widgetId, prop, { x: e.clientX, y: e.clientY }); });
+  const mk = document.createElement('button'); mk.className = 'bp-fwire new';
+  mk.textContent = `+ new ${what.toLowerCase()}`;
+  mk.title = `Stage a new ${what} (created on Apply in the page's support Category); add its elements right away`;
+  mk.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); stageNewRef(widgetId, prop); });
+  end.append(wire, mk);
+  band.appendChild(end);
+  return band;
+}
+
+/** Reference band for a STAGED reference (wired-to-existing or staged-new): dashed badge for a new
+ *  container, WIRED/NEW tag, and a cancel ✕ (drops the wire + the staged-new container behind it). */
+function stagedRefBand(widgetId: string, ref: { id: string; className: string; name?: string; isNew: boolean }): HTMLElement {
+  const band = document.createElement('div'); band.className = 'bp-fband';
+  band.appendChild(flowBadge(ref.className, ref.isNew));
+  const nm = document.createElement('span'); nm.className = 'mono'; nm.textContent = ref.name ?? ref.id; band.appendChild(nm);
+  const end = document.createElement('span'); end.className = 'end';
+  const tag = document.createElement('span'); tag.className = 'bp-ftag ' + (ref.isNew ? 'new' : 'mv');
+  tag.textContent = ref.isNew ? 'NEW' : 'WIRED';
+  tag.title = ref.isNew
+    ? 'Staged: created on Apply in the page\'s support Category, then linked to this widget.'
+    : 'Staged: linked to this widget on Apply.';
+  end.appendChild(tag);
+  const x = document.createElement('button'); x.className = 'bp-fwire';
+  x.textContent = '✕';
+  x.title = ref.isNew ? 'Cancel the new reference (and its staged elements)' : 'Cancel the staged link';
+  x.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); doUnwire(widgetId); });
+  end.appendChild(x);
+  band.appendChild(end);
+  return band;
+}
+
+/** The flow chain inside a flow-bearing widget's result cell. Returns null when the widget renders its
+ *  normal watermark body (no projection, no wire, not an InputView/COV). */
 export function flowPanel(m: LModel, node: LNode): HTMLElement | null {
   const p = m.flows?.[node.id];
-  if (!p) return null;
   const wrap = document.createElement('div'); wrap.className = 'bp-fpanel';
-  if (p.ownerClass === 'CreateObjectView') wrap.appendChild(covBand(p));
-  if (p.ownerClass === 'ActionButton') {
+  if (p?.ownerClass === 'CreateObjectView') wrap.appendChild(covBand(p));
+  if (p?.ownerClass === 'ActionButton') {
     const staged = m.flowEdits?.[p.ownerId]?.displayOnActionMenu;
     wrap.appendChild(actionBand(p, staged));
   }
-  if (p.refId) {
-    const folded = bp.flowFolds.has(p.ownerId);
-    wrap.appendChild(refBand(p, folded));
-    if (!folded) {
-      childRows(effectiveFlowChildren(m, p.refId), p.refId, false, wrap);
-      wrap.appendChild(addRow('Add element', at => openFlowPicker(p.refId!, p.refClass ?? 'InputSet', { at })));
+  const ref = effectiveRef(m, node.id);
+  const prop = refPropOf(node.className);
+  if (ref) {
+    const folded = bp.flowFolds.has(node.id);
+    if (ref.staged) wrap.appendChild(stagedRefBand(node.id, ref));
+    else if (p) wrap.appendChild(refBand(p, folded)); // live reference — the normal band (SHARED, fold)
+    if (!folded || ref.staged) {
+      // A staged-new container and a live/on-page reference both resolve children through the ONE
+      // effective-children engine. A wired EXISTING set/page that is NOT on this page has unknown
+      // children — say so honestly instead of implying it's empty; staged adds still list + compile.
+      const known = findFlowContainer(m, ref.id) !== null;
+      if (!known) {
+        const note = document.createElement('div'); note.className = 'bp-fnote';
+        note.textContent = 'Existing elements are not loaded here; new elements stage below.';
+        wrap.appendChild(note);
+      }
+      childRows(effectiveFlowChildren(m, ref.id), ref.id, false, wrap);
+      wrap.appendChild(addRow('Add element', at => openFlowPicker(ref.id, ref.className, { at })));
     }
+  } else if (prop && p?.kind !== 'action' && p?.kind !== 'add' && p?.kind !== 'navigate') {
+    // Reference-less InputView/COV (typical for a widget freshly staged from the grid picker):
+    // offer the two affordances. ActionButtons never take this path (their band is the verb).
+    wrap.appendChild(noRefBand(node.id, prop));
   }
   return wrap.children.length ? wrap : null;
 }

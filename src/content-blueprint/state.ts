@@ -30,8 +30,11 @@ export interface BpState {
   // Flow editing: the add picker for a FLOW container (an InputSet/EditPage/ButtonGroup referenced by a
   // flow widget — NOT in the layout tree, so bp.picker can't address it). key = the container's
   // businessId; className drives the palette (flowChildPalette); afterId = positional insert;
-  // isAction = the tray's "Add action" (creates a page-level menu ActionButton instead).
-  flowPicker: { key: string; className: string; afterId?: string; at?: { x: number; y: number }; isAction?: boolean } | null;
+  // isAction = the tray's "Add action" (creates a page-level menu ActionButton instead);
+  // wireExisting = the "wire to existing" variant: key = the WIDGET id, className names the ref class
+  // (InputSet/EditPage), rows come from bp.flowRefList (fetched at open; null = loading).
+  flowPicker: { key: string; className: string; afterId?: string; at?: { x: number; y: number }; isAction?: boolean; wireExisting?: boolean } | null;
+  flowRefList: import('../lib/layout/sync').FlowRefListItem[] | null; // wire-to-existing rows (null = loading)
   flowFolds: Set<string>;       // flow cells folded on the reference band (by flow-WIDGET id; default expanded)
   trayCardsOpen: Set<string>;   // action-tray ACTION cards with their transport list expanded (by button id)
   movePicker: string | null;    // widgetId the move-destination menu is open for
@@ -86,7 +89,7 @@ function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
     layer: null, selectedId: null, applying: false, preview: null, previewScript: '', blast: null, blastSeq: 0, picker: null, pickerOpts: null,
-    flowPicker: null, flowFolds: new Set(), trayCardsOpen: new Set(),
+    flowPicker: null, flowRefList: null, flowFolds: new Set(), trayCardsOpen: new Set(),
     movePicker: null, tabMenu: null, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
     onResize: null, onKey: null, onPop: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
@@ -113,7 +116,7 @@ export function resetModel(): void {
   bp.resultAnchor = null;
   // flow view state is page-scoped: fold state / open cards / picker all refer to the old page's ids
   // (pitfall 10 — temp `new:` ids must not survive a reload; staged edits live in the model itself)
-  bp.flowPicker = null; bp.flowFolds = new Set(); bp.trayCardsOpen = new Set();
+  bp.flowPicker = null; bp.flowRefList = null; bp.flowFolds = new Set(); bp.trayCardsOpen = new Set();
 }
 
 export function isBlueprintActive(): boolean { return bp.active; }

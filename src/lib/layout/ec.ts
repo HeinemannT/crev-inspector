@@ -218,11 +218,39 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
           emit({ verb: 'create', id: s.node.id, text: `Add action "${s.node.name}" to the action menu`,
             action: 'Add', object: s.node.name, objectType: 'ActionButton', where: 'action menu',
             ec: `${v} := _sc.add(ActionButton, name := ${ecStr(s.node.name)}${cont}) // BMP assigns id` });
+        } else if (s.parentId === '*support*') {
+          // A new InputSet/EditPage with NO existing support Category to co-locate into: create the
+          // page's ONE support Category under root.portal lazily and reuse it for every '*support*'
+          // step in this apply (a set + a page created together share it). Verified live 2026-07-12:
+          // root.portal.add(Category) + <cat>.add(InputSet/EditPage) commit; EditPage at portal root
+          // is REFUSED ("Can't add … to Portal"), so the Category is mandatory — used uniformly.
+          if (!vars.has('*support*')) {
+            const catName = s.newCategoryName ?? 'support';
+            const catNote: PlanNote = { verb: 'create', text: `Create support Category "${catName}" in Portal`,
+              action: 'Add', object: catName, objectType: 'Category', where: 'Portal',
+              ec: `_fcat := root.portal.add(Category, name := ${ecStr(catName)}) // page support folder` };
+            emit(catNote);
+            vars.set('*support*', '_fcat');
+          }
+          emit({ verb: 'create', id: s.node.id, text: `Create ${s.node.className} "${s.node.name}" in the support Category`,
+            action: 'Add', object: s.node.name, objectType: s.node.className, where: 'support Category',
+            ec: `${v} := _fcat.add(${ecClass(s.node.className)}, name := ${ecStr(s.node.name)}) // BMP assigns id` });
         } else {
           emit({ verb: 'create', id: s.node.id, text: `Add ${s.node.className} "${s.node.name}" to ${s.parentClass}`,
             action: 'Add', object: s.node.name, objectType: s.node.className, where: s.parentClass,
             ec: `${v} := ${fref(s.parentId, s.parentRid)}.add(${ecClass(s.node.className)}, name := ${ecStr(s.node.name)}) // BMP assigns id` });
         }
+        break;
+      }
+      case 'flowWire': {
+        // `prop` is a closed union ('inputSet' | 'editPage') — injection-safe by type. setCreateMode
+        // folds the verified EDITORADD flip into the same change() (an ADD-mode COV ignores editPage —
+        // change(createMode := "EDITORADD") round-trip execute-verified on t.50842, 2026-07-12).
+        const mode = s.setCreateMode ? `, createMode := "EDITORADD"` : '';
+        const tgt = s.targetName ?? s.targetId;
+        emit({ verb: 'update', id: s.id, text: `Wire ${s.prop} to "${tgt}"`,
+          action: 'Change', object: s.id, detail: `${s.prop} → "${tgt}"${s.setCreateMode ? ' · createMode → EDITOR ADD' : ''}`,
+          ec: `${fref(s.id, s.rid)}.change(${s.prop} := ${fref(s.targetId)}${mode})` });
         break;
       }
       case 'flowReorder': {

@@ -6,7 +6,7 @@
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import type { SwContext } from '../sw-context';
-import { loadPage, applyPage, loadBlastRadius } from '../layout-service';
+import { loadPage, applyPage, loadBlastRadius, loadFlowRefs } from '../layout-service';
 import { ensureContentScript, ensureBlueprintScript } from '../tab-awareness';
 import { toggleInspect } from './inspect';
 import { errorMessage, log } from '../logger';
@@ -146,4 +146,17 @@ register('LAYOUT_BLAST', async (msg, respond) => {
   if (!ctx.client) { respond({ type: 'LAYOUT_BLAST_RESULT', fanout: null, blast: null }); return; }
   const res = await loadBlastRadius(ctx.client, msg.pageId, msg.containers);
   respond({ type: 'LAYOUT_BLAST_RESULT', fanout: res.fanout, blast: res.blast });
+});
+
+// Flow "wire to existing" picker: the workspace's InputSets / EditPages, fetched lean at picker-open
+// (never part of the main layout fetch). Stateless like every other layout handler.
+register('LAYOUT_FLOW_REFS', async (msg, respond) => {
+  const ctx = getCtx();
+  if (!ctx.client) { respond({ type: 'LAYOUT_FLOW_REFS_RESULT', ok: false, error: 'Not connected' }); return; }
+  try {
+    const refs = await loadFlowRefs(ctx.client, msg.refClass);
+    respond({ type: 'LAYOUT_FLOW_REFS_RESULT', ok: true, refs });
+  } catch (e) {
+    respond({ type: 'LAYOUT_FLOW_REFS_RESULT', ok: false, error: errorMessage(e) });
+  }
 });

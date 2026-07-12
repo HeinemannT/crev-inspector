@@ -110,7 +110,7 @@ import {
   beginRename, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
   openMovePicker, closeMovePicker, moveTo, doCreateTabset, setNodeStyle, openSwatch, closeSwatch, applySwatch,
   openTabMenu, closeTabMenu, reorderTab,
-  closeFlowPicker, addFlowFromPicker, addActionFromTray,
+  closeFlowPicker, addFlowFromPicker, addActionFromTray, wireExistingFromPicker,
 } from './actions';
 import { renderChip, modeSwitch, scopeClass, previewModal, trayPanel, hintBar } from './view-panels';
 import { paintStation, paintPopup } from './view-paint';
@@ -623,6 +623,30 @@ function flowPickerPanel(): HTMLElement {
     panel.append(head, name, create);
     back.appendChild(panel);
     setTimeout(() => { name.focus(); name.select(); }, 0);
+    return back;
+  }
+  if (p.wireExisting) {
+    // "Wire to existing": the workspace's InputSets/EditPages, fetched lean at picker-open
+    // (bp.flowRefList; null while the SW round-trip is in flight). Picking stages the reference wire.
+    head.textContent = `Wire to an existing ${p.className}`;
+    const search = document.createElement('input'); search.className = 'bp-pick-s'; search.placeholder = 'Search…';
+    const list = document.createElement('div'); list.className = 'bp-pick-list';
+    const fill = (q: string): void => {
+      list.textContent = '';
+      const rows = bp.flowRefList;
+      if (rows === null) { const e = document.createElement('div'); e.className = 'bp-pick-grp'; e.textContent = 'loading…'; list.appendChild(e); return; }
+      const ql = q.trim().toLowerCase();
+      for (const it of rows) {
+        if (ql && !it.name.toLowerCase().includes(ql) && !it.id.toLowerCase().includes(ql) && !(it.category ?? '').toLowerCase().includes(ql)) continue;
+        list.appendChild(pickRow(it.name, it.category ?? it.id, () => wireExistingFromPicker(it.id, it.className, it.name), typeIcon(it.className)));
+      }
+      if (!list.children.length) { const e = document.createElement('div'); e.className = 'bp-pick-grp'; e.textContent = 'no match'; list.appendChild(e); }
+    };
+    search.addEventListener('input', () => fill(search.value));
+    fill('');
+    panel.append(head, search, list);
+    back.appendChild(panel);
+    setTimeout(() => search.focus(), 0);
     return back;
   }
   head.textContent = `Add to ${p.className}`;
