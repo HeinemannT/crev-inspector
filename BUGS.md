@@ -4,7 +4,40 @@ Running list of confirmed-but-not-yet-fixed issues. Newest on top.
 
 ## Open
 
-_None._
+Backlog from the 2026-07-12 deep-risk review (the HIGH-severity items D1/D2/P1/P2/H2/M5 are already
+fixed on main). These are the deferred remainder — legitimate but lower-severity. Ranked.
+
+- **D3 — persistent apply-outcome UI (reconsider deferring).** Load/apply failures surface only as a
+  3s auto-dismiss `showToast(..., 'error')` (`service.ts`; `toast.ts` `AUTO_DISMISS_MS = 3000`). Now
+  that D1 made "partial apply — review the layout" a real outcome (BMP EC isn't atomic), a 3s toast is
+  a poor vehicle for it: a glance away misses it, and the success toast is often cut off by the 500ms
+  reload. Want a persistent, dismissible banner (or an in-overlay state) that distinguishes
+  success / partial / failed and stays until acknowledged. Pairs with D1 — the highest-value leftover.
+- **D5 — read-path marker-string injection.** Every wire parser does `log.split(MARKER)` with fixed
+  literals (`<<<CREV_LAYOUT>>>` etc.; `sync.ts`, `blast-radius.ts`). An object name/caption that
+  literally contains a marker string produces a phantom node/record → the diff computes against a
+  corrupt baseline → wrong writes (phantom delete/reorder) on Confirm. Exotic, but names are fully
+  customer-controlled. Guard: reject/replace the marker substring in emitted free-text, or length-check
+  the split fields.
+- **M6 — a transient load error tears the whole overlay down.** `service.ts` returns false on any
+  `!res?.ok`; `content-blueprint.ts` responds with `disableBlueprint()`. A cold-SW race / network blip
+  / EC timeout on load thus closes Blueprint entirely (user must re-toggle). The enable path retries for
+  an unresolved rid; the load-failure path has no equivalent — give it a retry affordance instead of teardown.
+- **D4 — reload-fails-after-commit reports "apply failed" although the write landed.** The post-commit
+  re-fetch (`sync.ts`) runs after the successful commit; if it throws, `applyModel` throws and the UI
+  shows failure though the change is real. Duplication is still blocked by the stale-guard on retry;
+  this is a messaging gap. Low probability.
+- **P3 — per-frame whole-document `ridSignature`.** `content-blueprint.ts` `ridSignature()` does a
+  `querySelectorAll('[data-rid]')` + map + sort + join over the whole page every mutation frame, even
+  when the signature is unchanged. Continuous during any page animation/spinner. Cache/skip when the
+  observed subtree didn't touch `[data-rid]` nodes.
+- **P4 — drag `markTarget` forces a sync hit-test every mousemove.** `gestures.ts` toggles ghost
+  `display` around `elementFromPoint` + 2× `findNode` per move — a forced reflow per drag frame on
+  large models. Cache the model lookups; avoid the display toggle where possible.
+
+## Inspect-side / other
+
+_None open._
 
 ## Backlog — Inspect mode improvements
 
