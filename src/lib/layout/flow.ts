@@ -30,15 +30,17 @@ export interface FlowContainer {
 export function findFlowContainer(m: LModel, key: string): FlowContainer | null {
   const nc = m.flowEdits?.[key]?.newContainer;
   if (nc) return { key, className: nc.className, original: [] };
-  const flows = m.flows;
-  if (!flows) return null;
-  for (const p of Object.values(flows)) {
+  for (const p of Object.values(m.flows ?? {})) {
     if (p.refId === key) return { key, className: p.refClass ?? 'InputSet', rid: p.refRid, original: p.children };
     // a nested ButtonGroup lives one level down in a projection's children
     for (const c of p.children) {
       if (c.id === key && c.children) return { key, className: c.className || 'ButtonGroup', rid: c.rid, original: c.children };
     }
   }
+  // on-demand fetched children of an EXISTING off-page reference the user wired to (FIX: wire to
+  // existing — the main fetch never projected it, so its real contents come from flowRefChildren).
+  const rc = m.flowRefChildren?.[key];
+  if (rc) return { key, className: rc.className, rid: rc.rid, original: rc.children };
   return null;
 }
 
@@ -197,15 +199,20 @@ export function effectiveRef(m: LModel, widgetId: string): { id: string; classNa
 
 // ── flow diff ────────────────────────────────────────────────────────────────────────────────────
 
-/** The landing for a NEW InputSet/EditPage: co-locate with an existing on-page reference's Category
- *  when one exists (Config Studio's support-folder convention), else the page's ONE support Category
- *  under root.portal (`'*support*'` sentinel + name — the compiler creates it lazily and reuses it
- *  across steps, so a set AND a page created in one apply share it). */
-function flowLanding(m: LModel): { parentId: string; newCategoryName?: string } {
+/** An on-page reference's EXISTING Category (a reference whose parent is a Category) — the co-location
+ *  target for anything new this apply creates in the support folder. Shared by the compiler's ONE
+ *  support-Category resolver: a new tabset / InputSet / EditPage all reuse this Category rather than
+ *  creating a duplicate (Config Studio's support-folder convention; the fixture's set+page live in
+ *  Category t.50675). `name` is the Category's display name for the honest "lands in …" preview label
+ *  (from `refParentName`, when the fetch carried it). Undefined = no on-page Category → the compiler
+ *  creates ONE `root.portal.add(Category, name := <page display name>)` and reuses that. */
+export function existingSupportCategory(m: LModel): { id: string; name?: string } | undefined {
   for (const p of Object.values(m.flows ?? {})) {
-    if (p.refId && p.refParentClass === 'Category' && p.refParentId) return { parentId: p.refParentId };
+    if (p.refId && p.refParentClass === 'Category' && p.refParentId) {
+      return { id: p.refParentId, ...(p.refParentName ? { name: p.refParentName } : {}) };
+    }
   }
-  return { parentId: '*support*', newCategoryName: `${m.pageId} support` };
+  return undefined;
 }
 
 /** Diff the staged flow edits into plan steps. Keyed by businessId, so an edit staged from two cells is
@@ -224,15 +231,14 @@ export function flowDiff(_baseline: LModel, desired: LModel): PlanStep[] {
   const wires: PlanStep[] = [];
 
   for (const [key, e] of Object.entries(edits)) {
-    // A staged-new InputSet/EditPage: create it in its landing (existing support Category, else the
-    // lazily-created page support Category), THEN its staged children under it (same entry).
+    // A staged-new InputSet/EditPage: create it in the page's ONE support Category (the compiler
+    // resolves that Category — reuse an on-page one, else create it — and shares it across every
+    // support landing), THEN its staged children under it (same entry).
     if (e.newContainer) {
-      const landing = flowLanding(desired);
       containerCreates.push({
         kind: 'flowCreate',
         node: { id: key, className: e.newContainer.className, name: e.newContainer.name },
-        parentId: landing.parentId, parentClass: 'Category',
-        ...(landing.newCategoryName ? { newCategoryName: landing.newCategoryName } : {}),
+        parentId: '*support*', parentClass: 'Category',
       });
     }
     // The widget's staged reference wire (emitted last, after every create).

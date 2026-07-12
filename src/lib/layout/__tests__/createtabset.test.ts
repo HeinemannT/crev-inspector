@@ -47,10 +47,14 @@ describe('createTabset → diff → compile (one atomic apply EC)', () => {
     expect(plan.some(s => s.kind === 'delete')).toBe(false);            // RESULT tab is NOT deleted
   });
 
-  it('compile emits the tabset creation in the SAME EC as its tab (root.portal.add, not t.<id>)', () => {
+  it('compile emits the tabset creation in the SAME EC as its tab, landing it in the ONE support Category', () => {
     const staged = createTabset(resultOnly());
     const { script } = compile(diff(resultOnly(), staged.model), staged.model);
-    expect(script).toContain('root.portal.add(TabSet, name :=');    // tabset created here, not pre-committed
+    // FIX: the virtual tabset no longer lands bare under the portal — it goes in the page's support
+    // Category (named after the page — here the pageId, since this fixture has no display name), so a
+    // page's new tabset + any new sets/pages all live in ONE folder.
+    expect(script).toContain('_fcat := root.portal.add(Category, name := "xpl_lt_sc")'); // ONE support Category
+    expect(script).toContain('_ts := _fcat.add(TabSet, name :=');    // tabset created in that Category
     expect(script).not.toContain('_ts := t.');                       // NOT referenced by business id
     expect(script).toContain('_ts.add(Tab, name := "Main"');         // its tab, same program
     expect(script).toMatch(/t\.w1\.change\(container := _n\d\)/);     // widget binds to the just-created tab var

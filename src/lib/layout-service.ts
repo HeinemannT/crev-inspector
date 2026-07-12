@@ -15,8 +15,8 @@
 import type { BmpClient } from './bmp-client';
 import { LAYOUT_EC_TIMEOUT } from './constants';
 import type { LayoutIO, BlueprintCtx, LoadResult, ApplyResult, FlowRefListItem } from './layout/sync';
-import { loadModel, applyModel, resolvePageContext, loadFlowRefList } from './layout/sync';
-import type { LModel } from './layout/types';
+import { loadModel, applyModel, resolvePageContext, loadFlowRefList, loadFlowRefChildren as loadFlowRefChildrenCore } from './layout/sync';
+import type { LModel, FlowNode } from './layout/types';
 import { validateBusinessId, validateRid } from './ec-guards';
 import { log } from './logger';
 import {
@@ -93,6 +93,12 @@ export async function applyPage(client: BmpClient, ctx: BlueprintCtx, baseline: 
  *  Fetched at picker-open — never part of the main layout fetch (pitfall #3: no fetch-size creep). */
 export async function loadFlowRefs(client: BmpClient, refClass: 'InputSet' | 'EditPage'): Promise<FlowRefListItem[]> {
   return loadFlowRefList(makeLayoutIO(client), refClass);
+}
+
+/** On-demand children of ONE existing InputSet/EditPage — fetched when the user wires a widget to an
+ *  off-page reference, so the cell shows its real current contents (staged edits layer on top). */
+export async function loadFlowRefChildren(client: BmpClient, refId: string): Promise<FlowNode[]> {
+  return loadFlowRefChildrenCore(makeLayoutIO(client), refId);
 }
 
 /** Apply-preview blast radius (best-effort; an `rref` walk can be slow, so callers fail silently).

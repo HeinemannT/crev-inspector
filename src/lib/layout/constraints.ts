@@ -36,6 +36,15 @@
  *   ✓ moveBefore/moveAfter on InputSet + EditPage children                [execute-verified]
  *   ✓ change(displayOnActionMenu := TRUE/FALSE) round-trip                [execute-verified: true→false→true]
  *   ✗ ChoiceInput does not exist on this instance ("Type ChoiceInput not found") — not in any palette.
+ *
+ * Unified support-Category landing (FIX, 2026-07-12) — ONE root.portal Category holds a page's new
+ * TabSet + InputSets + EditPages together (verified execute, net-zero: created a Category then added a
+ * TabSet+Tab, an InputSet, and an EditPage INTO it — the commit log shows all four adds resolved with
+ * tsParent=Category / tabParent=TabSet — then rolled the whole transaction back; 0 leftover):
+ *   ✓ <Category>.add(TabSet)  ·  <TabSet>.add(Tab)  ·  <Category>.add(InputSet|EditPage)
+ * On-demand wire-to-existing children read: t.<inputSetOrEditPage bid>.children() returns the same
+ * child rows the main fetch projects (preview-verified on InputSet t.50850 — 12 children, code-presence
+ * via output()).
  * These are the verbs ec.ts's flowCreate/flowReorder/flowFlag steps emit (composite adds no longer
  * blocked — the old "compile doesn't emit yet" note below is history for these types).
  */

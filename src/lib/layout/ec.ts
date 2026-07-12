@@ -13,6 +13,7 @@
  * that semantic is confirmed against a template-backed page.
  */
 import { walk } from './model';
+import { existingSupportCategory } from './flow';
 import { COMPOSITE_TYPES } from './constraints';
 // Shared EC sanitisation (escaping + identifier/id validation) — the same guards the other EC
 // generators use. ecClass/ecBid are thin aliases; ecStr wraps the shared escaper in quotes.
@@ -94,18 +95,44 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
   // So we never SELECT the root; `pageClass` is metadata only. (Verified live 2026-06-26.)
   const lines: string[] = [];
   if (needWidget || needFlowSc) lines.push(`_sc := t.${ecBid(m.pageId)}`);
-  // A STAGED (virtual) tabset has no businessId yet — create it here so it lands in the SAME EC as its
-  // tabs (`_ts.add(Tab …)` below), under the portal root and bare (a page's tab strip is the union of the
-  // tabs its widgets bind into, so no wrapper Category is needed — verified live). Otherwise reference the
-  // existing tabset by business id.
-  if (needTabset) lines.push(m.tabsetVirtual
-    ? `_ts := root.portal.add(TabSet, name := ${ecStr(m.tabsetName ?? '» New TabSet')}) // BMP assigns id`
-    : `_ts := t.${ecBid(m.tabsetId)}`);
 
   const notes: PlanNote[] = [];
   let k = 0;
   let fk = 0; // flow-create var counter (`_ff<fk>`) — distinct namespace from layout's `_n<k>`
   const emit = (note: PlanNote) => { lines.push(note.ec!); notes.push(note); };
+
+  // The ONE support Category for this apply — shared by the virtual-tabset create AND every new
+  // InputSet/EditPage. Reuse an on-page reference's existing Category (co-locate) rather than making a
+  // duplicate; else create ONE `root.portal.add(Category, name := <page display name>)` lazily,
+  // captured in `_fcat`, and reuse it across steps. (EditPage is REFUSED at portal root, so the
+  // Category is mandatory and used uniformly — verified live 2026-07-12: a single Category holds a
+  // TabSet + its Tabs, InputSets, and EditPages together.)
+  const existingCat = existingSupportCategory(m);
+  const supportCatName = existingCat?.name ?? m.pageName ?? m.pageId;
+  let supportCatRef: string | null = existingCat ? `t.${ecBid(existingCat.id)}` : null;
+  const ensureSupportCat = (): string => {
+    if (supportCatRef) return supportCatRef;
+    emit({ verb: 'create', text: `Create support Category "${supportCatName}" in Portal`,
+      action: 'Add', object: supportCatName, objectType: 'Category', where: 'Portal',
+      ec: `_fcat := root.portal.add(Category, name := ${ecStr(supportCatName)}) // page support folder` });
+    supportCatRef = '_fcat';
+    return supportCatRef;
+  };
+
+  // A STAGED (virtual) tabset has no businessId yet — create it in the SAME EC as its tabs (`_ts.add(Tab
+  // …)` below), landing it in the shared support Category so a page's new tabset + new sets/pages all
+  // live in ONE folder named after the page. Otherwise reference the existing tabset by business id.
+  if (needTabset) {
+    if (m.tabsetVirtual) {
+      const cat = ensureSupportCat();
+      const tsName = m.tabsetName ?? '» New TabSet';
+      emit({ verb: 'create', text: `Create tabset "${tsName}" in ${supportCatName}`,
+        action: 'Add', object: tsName, objectType: 'TabSet', where: supportCatName,
+        ec: `_ts := ${cat}.add(TabSet, name := ${ecStr(tsName)}) // BMP assigns id` });
+    } else {
+      lines.push(`_ts := t.${ecBid(m.tabsetId)}`);
+    }
+  }
 
   for (const s of plan) {
     switch (s.kind) {
@@ -219,22 +246,13 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
             action: 'Add', object: s.node.name, objectType: 'ActionButton', where: 'action menu',
             ec: `${v} := _sc.add(ActionButton, name := ${ecStr(s.node.name)}${cont}) // BMP assigns id` });
         } else if (s.parentId === '*support*') {
-          // A new InputSet/EditPage with NO existing support Category to co-locate into: create the
-          // page's ONE support Category under root.portal lazily and reuse it for every '*support*'
-          // step in this apply (a set + a page created together share it). Verified live 2026-07-12:
-          // root.portal.add(Category) + <cat>.add(InputSet/EditPage) commit; EditPage at portal root
-          // is REFUSED ("Can't add … to Portal"), so the Category is mandatory — used uniformly.
-          if (!vars.has('*support*')) {
-            const catName = s.newCategoryName ?? 'support';
-            const catNote: PlanNote = { verb: 'create', text: `Create support Category "${catName}" in Portal`,
-              action: 'Add', object: catName, objectType: 'Category', where: 'Portal',
-              ec: `_fcat := root.portal.add(Category, name := ${ecStr(catName)}) // page support folder` };
-            emit(catNote);
-            vars.set('*support*', '_fcat');
-          }
-          emit({ verb: 'create', id: s.node.id, text: `Create ${s.node.className} "${s.node.name}" in the support Category`,
-            action: 'Add', object: s.node.name, objectType: s.node.className, where: 'support Category',
-            ec: `${v} := _fcat.add(${ecClass(s.node.className)}, name := ${ecStr(s.node.name)}) // BMP assigns id` });
+          // A new InputSet/EditPage lands in the page's ONE support Category — the shared resolver
+          // reuses an on-page reference's existing Category (co-locate) or lazily creates one named
+          // after the page, so a set + a page (+ a new tabset) created together all share it.
+          const cat = ensureSupportCat();
+          emit({ verb: 'create', id: s.node.id, text: `Create ${s.node.className} "${s.node.name}" in ${supportCatName}`,
+            action: 'Add', object: s.node.name, objectType: s.node.className, where: supportCatName,
+            ec: `${v} := ${cat}.add(${ecClass(s.node.className)}, name := ${ecStr(s.node.name)}) // BMP assigns id` });
         } else {
           emit({ verb: 'create', id: s.node.id, text: `Add ${s.node.className} "${s.node.name}" to ${s.parentClass}`,
             action: 'Add', object: s.node.name, objectType: s.node.className, where: s.parentClass,

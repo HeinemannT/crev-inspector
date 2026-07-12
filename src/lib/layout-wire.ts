@@ -17,6 +17,7 @@ import type { LayoutNode } from './types';
 // ── EC fetch wire protocol: three independent channels ride the SAME log, each on its own marker, so
 // each parser scans only its own lines and ignores the others. `buildFetchEc`/`buildContextEc` emit them.
 export const LAYOUT_SEP = '<<<CREV_LAYOUT>>>'; // layout tree — one node per marker (parseLayoutNodes)
+export const PAGE_MARKER = '<<<CREV_PAGE>>>';  // page display name — support-Category naming (parsePageName)
 export const CTX_MARKER = '<<<CREV_CTX>>>';    // page-context probe line (resolvePageContext)
 export const OVER_MARKER = '<<<CREV_OVER>>>';  // F2 per-widget override flags `bid|prop,…` (parseOverrides)
 export const STYLE_MARKER = '<<<CREV_STY>>>';  // G3 per-widget styling `bid|hcBid|fcBid|shadow|headerStyle|borderStyle|transparency` (parseStyles)

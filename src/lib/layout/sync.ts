@@ -29,7 +29,7 @@ import { diff } from './diff';
 import { flowDiff, flowSignature } from './flow';
 import { compile } from './ec';
 import { validateBusinessId, validateRid } from '../ec-guards';
-import { LAYOUT_SEP, CTX_MARKER, OVER_MARKER, STYLE_MARKER,
+import { LAYOUT_SEP, PAGE_MARKER, CTX_MARKER, OVER_MARKER, STYLE_MARKER,
   FLOW_REF_MARKER, FLOW_META_MARKER, FLOW_CHILD_MARKER, FLOW_CPROP_MARKER, FLOW_TR_MARKER,
   FLOW_LIST_MARKER, parseLayoutNodes } from '../layout-wire';
 import { enumMember } from '../color-util';
@@ -80,6 +80,7 @@ export interface ApplyResult {
 }
 
 const SEP = LAYOUT_SEP;   // layout wire marker
+const PAGE = PAGE_MARKER; // page-name marker (support-Category naming)
 const CTX = CTX_MARKER;   // page-context probe marker
 const OVER = OVER_MARKER; // F2 per-widget override channel marker
 const STYLE = STYLE_MARKER; // G3 per-widget style channel marker
@@ -149,6 +150,13 @@ function buildFlowEmit(): string[] {
     `     ENDIF`,
     `     _frefId := _fref.id.whenMissing("")`,
     `     _l := _l + "${FLOW_REF_MARKER}" + ${owner} + "|" + _w.rid + "|" + _cn + "|" + _fkind + "|" + _frefId + "|" + _fref.rid.whenMissing("") + "|" + _fref.className.whenMissing("") + "|" + _w.createMode.whenMissing("") + "|" + _atype + "|" + _w.displayOnActionMenu.whenMissing("") + "|" + _w.displayOnAllTabs.whenMissing("") + "|" + _w.container.id.whenMissing("") + "|" + _fref.parent.className.whenMissing("") + "|" + _fref.parent.id.whenMissing("") + "|" + _fref.name.whenMissing("") + "\\n"`,
+    // The reference's parent Category NAME — the honest "lands in …" label when a new set/page
+    // co-locates there. Rides FLOW_META (owner|refParentName|<name>, free-text last).
+    `     IF _frefId <> "" THEN`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|refParentName|" + _fref.parent.name.whenMissing("") + "\\n"`,
+    `     ELSE`,
+    `          _l := _l`,
+    `     ENDIF`,
     `     IF _cn = "CreateObjectView" THEN`,
     `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|objectType|" + _w.objectType.whenMissing("") + "\\n"`,
     `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|destExpr|" + output(_w.parentDestinationExpression.whenMissing("")) + "\\n"`,
@@ -310,6 +318,7 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     return [
       `_sc := ${sc}`,
       `_r := ""`,
+      `_r := _r + "${PAGE}" + _sc.name.whenMissing("") + "\\n"`,
       `_res := t.${RESULT_TAB_ID}`,
       `_r := _r + "${SEP}" + _res.rid + "|${RESULT_TAB_ID}|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + _res.name.whenMissing("Result") + "\\n"`,
       ...orgLoop,
@@ -320,6 +329,7 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `_ts := ${ts}`,
     `_sc := ${sc}`,
     `_r := ""`,
+    `_r := _r + "${PAGE}" + _sc.name.whenMissing("") + "\\n"`,
     `_r := _r + "${SEP}" + ${root} + "\\n"`,
     // The scorecard's intrinsic "Result" tab lives in the SHARED default_tabset, not this page's tabset,
     // so `_ts.descendants()` below never reaches it. Emit it here (with its REAL parent) when it's a
@@ -359,6 +369,15 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
 
 /** Parse the merged-fetch log into wire nodes — the shared layout wire parser (see layout-wire.ts). */
 export const parseFetchLog = parseLayoutNodes;
+
+/** Parse the page display name (one `<PAGE>` line, free-text). Names the ONE support Category new
+ *  InputSets/EditPages + a virtual tabset land in. Empty/absent → undefined (compile falls back to the
+ *  pageId). Rides the fetch log on its own marker (every other parser ignores it). */
+export function parsePageName(log: string): string | undefined {
+  const block = (log || '').split(PAGE_MARKER)[1];
+  const name = block ? (block.split('\n', 1)[0] ?? '').trim() : '';
+  return name || undefined;
+}
 
 /** Parse the F2 override channel (`<OVER>bid|prop,prop` lines) into a businessId → prop-names map. It
  *  rides the same log as the layout wire but on a distinct marker, so the two parsers read it
@@ -410,6 +429,31 @@ export function parseStyles(log: string): Map<string, NodeStyle> {
  *  per marker occurrence" reader used by every flow channel below. */
 const firstLine = (block: string): string => (block.split('\n', 1)[0] ?? '').trim();
 
+/** Decode ONE FLOW_CHILD record: owner|parentChildBid|childBid|childRid|childClass|required|isBreak|
+ *  dotsCsv|<childName> (name last, free text). Returns the owner + nesting parent + a bare FlowNode
+ *  (no children/caption yet — those are stitched by the caller). Null for a malformed / empty row.
+ *  Shared by `parseFlows` (per-widget projection) and `parseFlowRefChildren` (on-demand ref fetch). */
+function flowChildNodeFrom(parts: string[]): { owner: string; parentBid: string; node: FlowNode } | null {
+  if (parts.length < 9) return null;
+  const [owner, parentBid, childBid, childRid, childClass, req, brk, dotsCsv] = parts;
+  if (!childBid) return null;
+  const name = parts.slice(8).join('|');
+  const slotBits = (dotsCsv || '').split(',');
+  const dots = (FLOW_DOT_PROPS[childClass] ?? []).map(prop => ({
+    prop, set: slotBits[FLOW_DOT_SLOTS.indexOf(prop)] === '1',
+  }));
+  return {
+    owner, parentBid,
+    node: {
+      id: childBid, className: childClass || '', name: name || childBid,
+      ...(childRid ? { rid: childRid } : {}),
+      ...(req === '1' ? { required: true } : {}),
+      ...(brk === '1' ? { isBreak: true } : {}),
+      ...(dots.length ? { dots } : {}),
+    },
+  };
+}
+
 /** Parse the flow channels (FLOW_REF / FLOW_META / FLOW_CHILD / FLOW_CPROP / FLOW_TR) into a
  *  businessId → FlowProjection map, keyed by the flow WIDGET's businessId. Each channel rides the same
  *  fetch log on its own marker (the layout / override / style parsers ignore these lines). `shared` is
@@ -455,35 +499,23 @@ export function parseFlows(log: string): Map<string, FlowProjection> {
     else if (field === 'navExpr') p.navExpr = value;
     else if (field === 'actionGroup') p.actionGroup = value;
     else if (field === 'ownerName') p.ownerName = value;
+    else if (field === 'refParentName') p.refParentName = value;
   }
   // FLOW_CHILD — owner|parentChildBid|childBid|childRid|childClass|required|isBreak|dotsCsv|<name>.
   // A record with a non-empty parentChildBid nests under the FlowNode of that bid (a ButtonGroup); the
   // ButtonGroup row is always emitted before its grandchildren, so its node already exists here.
   const byChildBid = new Map<string, FlowNode>(); // per-owner lookup for nesting (bids are page-unique)
   for (const block of (log || '').split(FLOW_CHILD_MARKER).slice(1)) {
-    const parts = firstLine(block).split('|');
-    if (parts.length < 9) continue;
-    const [owner, parentBid, childBid, childRid, childClass, req, brk, dotsCsv] = parts;
-    const name = parts.slice(8).join('|');
-    const p = map.get(owner);
-    if (!p || !childBid) continue;
-    const slotBits = (dotsCsv || '').split(',');
-    const dots = (FLOW_DOT_PROPS[childClass] ?? []).map(prop => ({
-      prop, set: slotBits[FLOW_DOT_SLOTS.indexOf(prop)] === '1',
-    }));
-    const node: FlowNode = {
-      id: childBid, className: childClass || '', name: name || childBid,
-      ...(childRid ? { rid: childRid } : {}),
-      ...(req === '1' ? { required: true } : {}),
-      ...(brk === '1' ? { isBreak: true } : {}),
-      ...(dots.length ? { dots } : {}),
-    };
-    byChildBid.set(childBid, node);
-    if (parentBid) {
-      const parent = byChildBid.get(parentBid);
-      (parent ? (parent.children ??= []) : p.children).push(node);
+    const rec = flowChildNodeFrom(firstLine(block).split('|'));
+    if (!rec) continue;
+    const p = map.get(rec.owner);
+    if (!p) continue;
+    byChildBid.set(rec.node.id, rec.node);
+    if (rec.parentBid) {
+      const parent = byChildBid.get(rec.parentBid);
+      (parent ? (parent.children ??= []) : p.children).push(rec.node);
     } else {
-      p.children.push(node);
+      p.children.push(rec.node);
     }
   }
   // FLOW_CPROP — owner|childBid|<caption> (caption last).
@@ -550,6 +582,66 @@ export async function loadFlowRefList(io: LayoutIO, refClass: 'InputSet' | 'Edit
   const res = await io.exec(buildFlowRefListEc(refClass));
   if (!res.ok) throw new Error(res.error || 'flow ref list fetch failed');
   return parseFlowRefList(res.log ?? '');
+}
+
+/** EC for the on-demand children of ONE existing InputSet/EditPage (the "wire to existing" cell, when
+ *  the wired reference isn't on this page so the main fetch never projected it). Emits the SAME
+ *  FLOW_CHILD/FLOW_CPROP shape the main fetch uses (one level of ButtonGroup nesting), keyed by the
+ *  ref's own id as `owner`. Code-presence read via `output(...)` — never evaluated (pitfall #3). */
+export function buildFlowRefChildrenEc(refId: string): string {
+  return [
+    `_ref := t.${ecBid(refId)}`,
+    `_owner := _ref.id.whenMissing("")`,
+    `_r := ""`,
+    `_l := ""`,
+    `_ref.children().forEach(_fc:`,
+    ...flowChildEmit('_fc', '_owner', '""'),
+    `     IF _fc.className.whenMissing("") = "ButtonGroup" THEN`,
+    `          _fc.children().forEach(_fcc:`,
+    ...flowChildEmit('_fcc', '_owner', '_fc.id.whenMissing("")'),
+    `          )`,
+    `     ELSE`,
+    `          _l := _l`,
+    `     ENDIF`,
+    `)`,
+    `_r := _r + _l`,
+    `_r`,
+  ].join('\n');
+}
+
+/** Parse a `buildFlowRefChildrenEc` log into the ref's ordered children (nesting + captions stitched),
+ *  reusing the shared `flowChildNodeFrom` record decoder. Owner-agnostic — every FLOW_CHILD row here
+ *  belongs to the one fetched reference. */
+export function parseFlowRefChildren(log: string): FlowNode[] {
+  const roots: FlowNode[] = [];
+  const byChildBid = new Map<string, FlowNode>();
+  for (const block of (log || '').split(FLOW_CHILD_MARKER).slice(1)) {
+    const rec = flowChildNodeFrom(firstLine(block).split('|'));
+    if (!rec) continue;
+    byChildBid.set(rec.node.id, rec.node);
+    if (rec.parentBid) {
+      const parent = byChildBid.get(rec.parentBid);
+      (parent ? (parent.children ??= []) : roots).push(rec.node);
+    } else {
+      roots.push(rec.node);
+    }
+  }
+  for (const block of (log || '').split(FLOW_CPROP_MARKER).slice(1)) {
+    const parts = firstLine(block).split('|');
+    if (parts.length < 3) continue;
+    const node = byChildBid.get(parts[1]);
+    const caption = parts.slice(2).join('|');
+    if (node && caption) node.prop = caption;
+  }
+  return roots;
+}
+
+/** Fetch an existing reference's current children on demand (SW-side; the content script reaches it via
+ *  LAYOUT_FLOW_REF_CHILDREN when the user wires to an off-page InputSet/EditPage). */
+export async function loadFlowRefChildren(io: LayoutIO, refId: string): Promise<FlowNode[]> {
+  const res = await io.exec(buildFlowRefChildrenEc(refId));
+  if (!res.ok) throw new Error(res.error || 'flow ref children fetch failed');
+  return parseFlowRefChildren(res.log ?? '');
 }
 
 /** Orphans = widget-ish nodes the reconstruct couldn't place (their owner wasn't a layout node
@@ -751,6 +843,8 @@ export async function loadModel(io: LayoutIO, ctx: BlueprintCtx): Promise<LoadRe
   const flows = parseFlows(log);         // flow projections keyed by flow-widget businessId (read-only)
   const model = reconstruct(nodes, ctx, overrides, styles, flows);
   const baseline = reconstruct(nodes, ctx, overrides, styles, flows); // independent clone — diff target, never mutated
+  const pageName = parsePageName(log);   // names the ONE support Category new sets/pages/tabset land in
+  if (pageName) { model.pageName = pageName; baseline.pageName = pageName; }
   return { model, baseline, orphans: findOrphans(nodes, model) };
 }
 

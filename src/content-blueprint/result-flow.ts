@@ -272,12 +272,15 @@ export function flowPanel(m: LModel, node: LNode): HTMLElement | null {
     else if (p) wrap.appendChild(refBand(p, folded)); // live reference — the normal band (SHARED, fold)
     if (!folded || ref.staged) {
       // A staged-new container and a live/on-page reference both resolve children through the ONE
-      // effective-children engine. A wired EXISTING set/page that is NOT on this page has unknown
-      // children — say so honestly instead of implying it's empty; staged adds still list + compile.
+      // effective-children engine. A wired EXISTING off-page set/page gets its real children fetched on
+      // demand (FIX 2) → findFlowContainer sees them. While that fetch is in flight, say "loading"; if it
+      // failed / hasn't started, say the contents are unknown honestly — staged adds still list + compile.
       const known = findFlowContainer(m, ref.id) !== null;
       if (!known) {
         const note = document.createElement('div'); note.className = 'bp-fnote';
-        note.textContent = 'Existing elements are not loaded here; new elements stage below.';
+        note.textContent = bp.flowRefChildrenPending.has(ref.id)
+          ? 'Loading existing elements…'
+          : 'Existing elements are not loaded here; new elements stage below.';
         wrap.appendChild(note);
       }
       childRows(effectiveFlowChildren(m, ref.id), ref.id, false, wrap);

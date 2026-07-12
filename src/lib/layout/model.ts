@@ -182,6 +182,9 @@ export function cloneModel(m: LModel): LModel {
     // (structuredClone-free: staged flow state must survive undo/redo without aliasing the baseline).
     ...(m.flows ? { flows: { ...m.flows } } : {}),
     ...(m.flowEdits ? { flowEdits: cloneFlowEdits(m.flowEdits) } : {}),
+    // read-only, like `flows` — the on-demand cache of a wired existing off-page reference's children,
+    // so it survives edits/undo without deep-cloning (a session cache, keyed by ref businessId).
+    ...(m.flowRefChildren ? { flowRefChildren: { ...m.flowRefChildren } } : {}),
   };
 }
 

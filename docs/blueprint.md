@@ -205,14 +205,27 @@ apply is neither missed nor misread as a rollback.
 **New references from blueprint**: a reference-less InputView/COV (typically one just staged from the
 grid picker) offers "wire to existing…" (a lean SW fetch of the workspace's InputSets/EditPages at
 picker-open — `LAYOUT_FLOW_REFS`) and "+ new" (stages a new set/page auto-named after the widget; its
-empty child list renders immediately so elements stage underneath before the first Apply). The landing
-rule (live-verified): co-locate into the Category an existing on-page reference lives in, else create
-ONE support Category under `root.portal` per apply and reuse it (`EditPage` at portal root is refused
-by BMP, so the Category is mandatory — used uniformly for both types). The wire compiles LAST
-(`widget.change(inputSet/editPage := <target>)`, var-to-var when both ends are staged), folding
-`createMode := "EDITORADD"` into the same change() for an ADD-mode COV (which otherwise ignores its
-editPage). A staged-new reference can't be SHARED (unshared until created) and its whole chain
-cancels from the band's ✕ or the pending tray.
+empty child list renders immediately so elements stage underneath before the first Apply).
+
+**Wiring to an EXISTING off-page reference** fetches that reference's real current children on demand
+(`LAYOUT_FLOW_REF_CHILDREN` → `t.<bid>.children()`, same child shape as the main projection) and renders
+them as the cell's normal (non-staged) rows, so staged adds/reorders layer on top exactly as for an
+on-page reference — cached per ref for the session (`bp.flowRefChildren`, baked read-only into the model
+so the pure diff/render see it). While the fetch is in flight the cell shows "Loading…"; on failure it
+falls back to the "contents unknown" note (never a hard error).
+
+**The support-Category landing (unified).** Everything a page newly creates in the portal — the virtual
+tabset from "+ Create tabset", *and* every new InputSet/EditPage — lands in ONE Category per apply,
+named after the page's **display name** (`LModel.pageName`, from the fetch; falls back to `pageId`).
+The compiler resolves it once (`ec.ts` `ensureSupportCat`): reuse an on-page reference's existing
+Category when one exists (co-locate — `flow.existingSupportCategory`, using its `refParentName` for the
+label), else create ONE `root.portal.add(Category, name := <page display name>)` and reuse that var for
+every landing. `EditPage` at portal root is refused by BMP, so the Category is mandatory — used
+uniformly. (Live-verified 2026-07-12: a single Category holds a TabSet+Tab, an InputSet, and an EditPage
+together — execute, net-zero.) The wire compiles LAST (`widget.change(inputSet/editPage := <target>)`,
+var-to-var when both ends are staged), folding `createMode := "EDITORADD"` into the same change() for an
+ADD-mode COV (which otherwise ignores its editPage). A staged-new reference can't be SHARED (unshared
+until created) and its whole chain cancels from the band's ✕ or the pending tray.
 
 The **action-menu tray** (header, top-right) shows the viewed tab's `displayOnActionMenu` buttons +
 `displayOnAllTabs` ones with an honest "(N on other tabs)" note; ACTION cards expand their read-only

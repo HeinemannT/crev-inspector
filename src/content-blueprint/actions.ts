@@ -19,7 +19,7 @@ import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { render } from './view';
-import { applyPage, fetchBlast, fetchFlowRefs } from './service';
+import { applyPage, fetchBlast, fetchFlowRefs, fetchFlowRefChildren } from './service';
 import { ensureColorSets } from './colors';
 import { loadPresets, savePreset, deletePreset } from './presets';
 import { PAINT_STYLE_PROPS } from '../lib/style-props';
@@ -240,13 +240,17 @@ export function openWireExisting(widgetId: string, prop: 'inputSet' | 'editPage'
   render();
   void fetchFlowRefs(refClass);
 }
-/** Wire the picker's widget to the chosen existing InputSet/EditPage. */
+/** Wire the picker's widget to the chosen existing InputSet/EditPage. When the target isn't on this
+ *  page (no projection references it), fetch its real children on demand so the cell shows the current
+ *  contents instead of an "unknown contents" note (FIX 2). */
 export function wireExistingFromPicker(targetId: string, targetClass: string, targetName?: string): void {
   const m = model(); const p = bp.flowPicker;
   if (!m || !p?.wireExisting) return;
   const prop = p.className === 'InputSet' ? 'inputSet' as const : 'editPage' as const;
   bp.flowPicker = null; bp.flowRefList = null;
   mutate(wireFlowRef(m, p.key, prop, targetId, targetClass, targetName));
+  const onPage = Object.values(m.flows ?? {}).some(fp => fp.refId === targetId);
+  if (!onPage) void fetchFlowRefChildren(targetId, targetClass);
 }
 /** Cancel a staged reference wire (and the staged-new container behind it, when there is one). */
 export function doUnwire(widgetId: string): void {

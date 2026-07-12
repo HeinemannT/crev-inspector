@@ -35,7 +35,7 @@ import type {
   WidgetInfo,
 } from './types';
 import type { AiProviderId, AiRequestPayload, AiChatTurn, AiChatEvent, AiChatQuote, AiContextEnvelope, AiContextSource } from './ai/types';
-import type { LModel, PlanNote, NodeStyle } from './layout/types';
+import type { LModel, PlanNote, NodeStyle, FlowNode } from './layout/types';
 import type { StylePreset } from './style-presets';
 import type { BlueprintCtx, FlowRefListItem } from './layout/sync';
 import type { InstanceFanout, ContainerBlast } from './layout/blast-radius';
@@ -398,7 +398,12 @@ export type LayoutMessage =
   // Flow "wire to existing" picker: the workspace's InputSets/EditPages (lean list — bid/rid/class/
   // category/name only), fetched at picker-open, never in the main layout fetch.
   | { type: 'LAYOUT_FLOW_REFS'; refClass: 'InputSet' | 'EditPage' }
-  | { type: 'LAYOUT_FLOW_REFS_RESULT'; ok: boolean; refs?: FlowRefListItem[]; error?: string };
+  | { type: 'LAYOUT_FLOW_REFS_RESULT'; ok: boolean; refs?: FlowRefListItem[]; error?: string }
+  // Wire-to-existing follow-up: the on-demand children of ONE existing off-page InputSet/EditPage the
+  // user just wired to (the main fetch never projected it). Same shape as the main flow projection's
+  // child rows; rendered as the reference's real current contents (staged adds/reorders layer on top).
+  | { type: 'LAYOUT_FLOW_REF_CHILDREN'; refId: string }
+  | { type: 'LAYOUT_FLOW_REF_CHILDREN_RESULT'; ok: boolean; children?: FlowNode[]; error?: string };
 
 // ── Saved style presets (blueprint paintbrush library) ───────────
 // Per-profile named widget appearance presets. The blueprint requests these one-shot (sendRequest);

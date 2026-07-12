@@ -6,7 +6,7 @@
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import type { SwContext } from '../sw-context';
-import { loadPage, applyPage, loadBlastRadius, loadFlowRefs } from '../layout-service';
+import { loadPage, applyPage, loadBlastRadius, loadFlowRefs, loadFlowRefChildren } from '../layout-service';
 import { ensureContentScript, ensureBlueprintScript } from '../tab-awareness';
 import { toggleInspect } from './inspect';
 import { errorMessage, log } from '../logger';
@@ -158,5 +158,18 @@ register('LAYOUT_FLOW_REFS', async (msg, respond) => {
     respond({ type: 'LAYOUT_FLOW_REFS_RESULT', ok: true, refs });
   } catch (e) {
     respond({ type: 'LAYOUT_FLOW_REFS_RESULT', ok: false, error: errorMessage(e) });
+  }
+});
+
+// Wire-to-existing follow-up: the on-demand children of ONE existing off-page InputSet/EditPage, so the
+// cell shows its real current contents (staged adds layer on top). Fails soft — the UI keeps its note.
+register('LAYOUT_FLOW_REF_CHILDREN', async (msg, respond) => {
+  const ctx = getCtx();
+  if (!ctx.client) { respond({ type: 'LAYOUT_FLOW_REF_CHILDREN_RESULT', ok: false, error: 'Not connected' }); return; }
+  try {
+    const children = await loadFlowRefChildren(ctx.client, msg.refId);
+    respond({ type: 'LAYOUT_FLOW_REF_CHILDREN_RESULT', ok: true, children });
+  } catch (e) {
+    respond({ type: 'LAYOUT_FLOW_REF_CHILDREN_RESULT', ok: false, error: errorMessage(e) });
   }
 });

@@ -137,6 +137,9 @@ export interface LModel {
   /** org-model root that owns widgets (`<page>.add(Widget …)`) — the Scorecard/ModelPage/etc. */
   pageId: string;
   pageRid?: string;
+  /** the page's display name (from the main fetch). Names the ONE support Category that new
+   *  InputSets/EditPages and a virtual tabset land in (falls back to `pageId` when empty). */
+  pageName?: string;
   /** the page's BMP class — only consumed by the apply `SELECT <class>`; fetch uses `lookup(rid)`. */
   pageClass: PageClass;
   /** portal-model root that owns tabs (`<tabset>.add(Tab)`). */
@@ -161,6 +164,11 @@ export interface LModel {
   /** Staged flow edits, keyed by the flow object's businessId (pitfall #2 dedupe). The ONLY flow state
    *  `flowDiff` compares; empty on a freshly-loaded model, so load → diff is a no-op. */
   flowEdits?: Record<string, FlowEdit>;
+  /** On-demand fetched children of an EXISTING off-page InputSet/EditPage the user wired to (the
+   *  "wire to existing" picker), keyed by that reference's businessId. READ-ONLY, like `flows` — a
+   *  session cache injected when a wired reference has no on-page projection, so its real current
+   *  contents render (and staged adds/reorders layer on top) instead of an "unknown contents" note. */
+  flowRefChildren?: Record<string, { className: string; rid?: string; children: FlowNode[] }>;
 }
 
 // ── Flow projection (blueprint flow editing) ────────────────────────────────────────────────────
@@ -221,8 +229,10 @@ export interface FlowProjection {
   refId?: string; refRid?: string; refClass?: string; refName?: string;
   /** The reference's PARENT (Category detection): a new set/page created from this page co-locates
    *  into the same Category when one exists (Config Studio's support-folder convention, verified on
-   *  the fixture: InputSet t.50850 + EditPage t.50865 live in Category t.50675 under root.portal). */
-  refParentClass?: string; refParentId?: string;
+   *  the fixture: InputSet t.50850 + EditPage t.50865 live in Category t.50675 under root.portal).
+   *  `refParentName` is that Category's display name — the honest "lands in …" label for a co-located
+   *  create (rides the FLOW_META channel, free-text-last). */
+  refParentClass?: string; refParentId?: string; refParentName?: string;
   /** true when more than one flow widget on this page references `refId` (on-page sharing — a cheap,
    *  honest signal; cross-page sharing is not probed, see sync.ts). */
   shared?: boolean;
@@ -291,11 +301,13 @@ export type PlanStep =
   // child is added into (`<parent>.add(<Class>, name := …)`). `parentRid` threads the rid for the
   // lookup() fallback (pitfall #5). A staged-add node carries a temp id; the compiler captures it in a
   // `_f<k>` var so a later flowReorder can address it.
-  // `parentId === '*support*'` = land in the page's support Category: the compiler creates ONE
-  // `root.portal.add(Category, name := newCategoryName)` per apply (lazily, reused across steps) and
-  // adds there — the fixture convention for InputSets/EditPages (verified live 2026-07-12; EditPage
-  // is REFUSED at portal root: "Can't add an object of type EditPage to Portal").
-  | { kind: 'flowCreate'; node: FlowNode; parentId: string; parentClass: string; parentRid?: string; newCategoryName?: string }
+  // `parentId === '*support*'` = land in the page's ONE support Category: the compiler resolves that
+  // Category ONCE per apply (reusing an on-page reference's existing Category, else creating a single
+  // `root.portal.add(Category, name := <page display name>)` lazily) and shares it across every
+  // support landing — the new virtual tabset AND all new InputSets/EditPages. The fixture convention
+  // for InputSets/EditPages (verified live 2026-07-12; EditPage is REFUSED at portal root: "Can't add
+  // an object of type EditPage to Portal").
+  | { kind: 'flowCreate'; node: FlowNode; parentId: string; parentClass: string; parentRid?: string }
   // reorder within ONE flow parent (moveAfter chain). `afterId` is a real prior sibling (or a just-
   // created `_f<k>`); `parentId` groups the step for summaries.
   | { kind: 'flowReorder'; id: string; rid?: string; afterId: string; parentId: string }

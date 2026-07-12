@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import type { LModel, LNode, FlowProjection } from '../types';
 import { diff } from '../diff';
 import { compile } from '../ec';
+import { createTabset } from '../edit';
 import { lint } from '../constraints';
 import { parseFlows, parseFlowRefList, buildFlowRefListEc } from '../sync';
 import { cloneModel } from '../model';
@@ -420,9 +421,60 @@ describe('staged-new InputSet / EditPage + reference wiring', () => {
     const { script } = compile(flowDiff(base, m2), m2);
     const catLines = script.split('\n').filter(l => l.includes('root.portal.add(Category'));
     expect(catLines).toHaveLength(1); // created once, reused
-    expect(catLines[0]).toContain('name := "template_example_flow support"');
+    // named after the page (display name → falls back to pageId here); NOT "<pageId> support" anymore
+    expect(catLines[0]).toContain('name := "template_example_flow"');
     expect(script).toContain('_fcat.add(InputSet, name := "S")');
     expect(script).toContain('_fcat.add(EditPage, name := "P")');
+  });
+
+  it('compiles: uses the page DISPLAY NAME for the support Category when the model carries one', () => {
+    const base = flowModel();
+    base.pageName = 'Example Flow objects';
+    for (const k of Object.keys(base.flows!)) {
+      base.flows![k] = { ...base.flows![k], refParentClass: undefined, refParentId: undefined };
+    }
+    const m2 = stageNewFlowContainer(base, '50844', 'inputSet', 'S').model;
+    const { script } = compile(flowDiff(base, m2), m2);
+    expect(script).toContain('root.portal.add(Category, name := "Example Flow objects")');
+  });
+
+  it('compiles: a NEW tabset + a NEW InputSet in ONE apply share a SINGLE support Category', () => {
+    // RESULT-only page with a reference-less InputView → create a tabset AND a new set in one apply.
+    const base: LModel = {
+      pageId: 'pg_flow', pageName: 'My Page', pageClass: 'Scorecard', tabsetId: 'default_tabset',
+      target: 'instance', hasTemplate: false, resultOnly: true,
+      tabs: [n({ id: 'RESULT', kind: 'tab', className: 'Tab', name: 'Result', children: [
+        n({ id: 'iv1', kind: 'widget', className: 'InputView', name: 'IV' }),
+      ] })],
+      flows: { iv1: { ownerId: 'iv1', ownerClass: 'InputView', kind: 'inputset', children: [] } },
+    };
+    const staged = createTabset(base);                       // virtual tabset + Main tab, widget rehomed
+    const withRef = stageNewFlowContainer(staged.model, 'iv1', 'inputSet', 'New set');
+    const plan = [...diff(base, withRef.model), ...flowDiff(base, withRef.model)];
+    const { script } = compile(plan, withRef.model);
+    const catLines = script.split('\n').filter(l => l.includes('root.portal.add(Category'));
+    expect(catLines).toHaveLength(1);                        // ONE Category for both landings
+    expect(catLines[0]).toContain('name := "My Page"');      // named after the page display name
+    expect(script).toContain('_ts := _fcat.add(TabSet');     // tabset lands in it
+    expect(script).toContain('_fcat.add(InputSet, name := "New set")'); // the new set lands in it too
+  });
+
+  it('compiles: co-locates a NEW tabset into an EXISTING on-page reference Category (no duplicate)', () => {
+    // Same shape but the InputView already references an on-page set living in Category cat9 → the new
+    // tabset must reuse cat9, NOT create a fresh support Category.
+    const base: LModel = {
+      pageId: 'pg2', pageName: 'Page 2', pageClass: 'Scorecard', tabsetId: 'default_tabset',
+      target: 'instance', hasTemplate: false, resultOnly: true,
+      tabs: [n({ id: 'RESULT', kind: 'tab', className: 'Tab', name: 'Result', children: [
+        n({ id: 'iv2', kind: 'widget', className: 'InputView', name: 'IV' }),
+      ] })],
+      flows: { iv2: { ownerId: 'iv2', ownerClass: 'InputView', kind: 'inputset',
+        refId: 'is9', refClass: 'InputSet', refName: 'Set', refParentClass: 'Category', refParentId: 'cat9', refParentName: 'Support', children: [] } },
+    };
+    const staged = createTabset(base);
+    const { script } = compile(diff(base, staged.model), staged.model);
+    expect(script).not.toContain('root.portal.add(Category'); // reuse, don't duplicate
+    expect(script).toContain('_ts := t.cat9.add(TabSet');     // lands in the existing Category
   });
 
   it('compiles: var-to-var wiring — a STAGED widget wired to a STAGED container', () => {
@@ -448,6 +500,29 @@ describe('staged-new InputSet / EditPage + reference wiring', () => {
     const wired = wireFlowRef(base, '50842', 'editPage', '50865', 'EditPage', 'Create Risk Statement');
     const { script } = compile(flowDiff(base, wired), wired);
     expect(script).toBe('t.50842.change(editPage := t.50865, createMode := "EDITORADD")');
+  });
+
+  it('a wired existing off-page reference resolves its on-demand children; adds + reorders layer on top', () => {
+    const base = flowModel();
+    // wire InputView 50844 to an OFF-page InputSet, then inject its fetched children (FIX 2 cache)
+    let m = wireFlowRef(base, '50844', 'inputSet', 'ext_is', 'InputSet', 'Shared set');
+    m = { ...m, flowRefChildren: { ext_is: { className: 'InputSet', rid: 'r_ext', children: [
+      { id: 'x1', className: 'TextInput', name: 'Existing A' },
+      { id: 'x2', className: 'NumberInput', name: 'Existing B' },
+    ] } } };
+    expect(findFlowContainer(m, 'ext_is')).toMatchObject({ className: 'InputSet', rid: 'r_ext' });
+    expect(effectiveFlowChildren(m, 'ext_is').map(c => c.name)).toEqual(['Existing A', 'Existing B']);
+    // an add lands under the fetched children (cloneModel carries flowRefChildren forward)
+    const m2 = addFlowChild(m, 'ext_is', 'TextInput', 'New C').model;
+    expect(effectiveFlowChildren(m2, 'ext_is').map(c => c.name)).toEqual(['Existing A', 'Existing B', 'New C']);
+    // reorder rides the SAME engine — move the new child to the front
+    const newId = effectiveFlowChildren(m2, 'ext_is')[2].id;
+    const m3 = reorderFlowChild(m2, 'ext_is', newId, null);
+    expect(effectiveFlowChildren(m3, 'ext_is')[0].name).toBe('New C');
+    // compiles: the add targets the existing set by id + a reorder against a real child
+    const { script } = compile(flowDiff(base, m3), m3);
+    expect(script).toContain('t.ext_is.add(TextInput, name := "New C")');
+    expect(script).toContain('.moveAfter(');
   });
 
   it('flowSignature covers refId so a pure wire apply is not misread as a rollback', () => {

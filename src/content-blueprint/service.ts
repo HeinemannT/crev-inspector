@@ -19,6 +19,7 @@ type LoadResult = Extract<InspectorMessage, { type: 'LAYOUT_LOAD_RESULT' }>;
 type ApplyResult = Extract<InspectorMessage, { type: 'LAYOUT_APPLY_RESULT' }>;
 type BlastResult = Extract<InspectorMessage, { type: 'LAYOUT_BLAST_RESULT' }>;
 type FlowRefsResult = Extract<InspectorMessage, { type: 'LAYOUT_FLOW_REFS_RESULT' }>;
+type FlowRefChildrenResult = Extract<InspectorMessage, { type: 'LAYOUT_FLOW_REF_CHILDREN_RESULT' }>;
 
 /** Adopt `m` as the new baseline: fresh history, clear selection. The single point where the editor
  *  rebases onto an authoritative server model (initial load + post-apply + stale-reload). */
@@ -80,6 +81,34 @@ export async function fetchFlowRefs(refClass: 'InputSet' | 'EditPage'): Promise<
     render();
   } catch {
     if (sameSession(g) && bp.flowPicker?.wireExisting) { bp.flowRefList = []; render(); }
+  }
+}
+
+/** Bake the ref-children cache into the baseline + present model (read-only projection data, keyed by
+ *  ref businessId), so the pure diff/render see a wired existing off-page reference's real contents.
+ *  Not a history push — this is not an edit; future edits carry it forward via cloneModel. */
+function bakeRefChildren(): void {
+  const rec = Object.fromEntries([...bp.flowRefChildren]);
+  if (bp.baseline) bp.baseline.flowRefChildren = rec;
+  const m = model(); if (m) m.flowRefChildren = rec;
+  render();
+}
+
+/** Fetch the CURRENT children of an existing off-page InputSet/EditPage the user just wired to, so the
+ *  cell shows its real contents instead of the "unknown contents" note. Cached per ref for the session
+ *  (re-opening/re-wiring never refetches). Fails soft — on error the cell keeps the honest note. */
+export async function fetchFlowRefChildren(refId: string, refClass: string): Promise<void> {
+  if (bp.flowRefChildren.has(refId)) { bakeRefChildren(); return; }
+  const g = bp.gen;
+  bp.flowRefChildrenPending.add(refId); render();
+  try {
+    const res = await sendRequest<FlowRefChildrenResult>({ type: 'LAYOUT_FLOW_REF_CHILDREN', refId });
+    if (!sameSession(g)) return;
+    bp.flowRefChildrenPending.delete(refId);
+    if (res?.ok) { bp.flowRefChildren.set(refId, { className: refClass, children: res.children ?? [] }); bakeRefChildren(); }
+    else render(); // fall back to the honest note (don't hard-error)
+  } catch {
+    if (sameSession(g)) { bp.flowRefChildrenPending.delete(refId); render(); }
   }
 }
 

@@ -3,7 +3,7 @@
  * Actions mutate `bp` and call view.render(); view reads `bp`. Keeping the state here (data only)
  * means neither the view nor the controller owns it, and there's no import cycle through it.
  */
-import type { LModel, PlanNote, NodeStyle } from '../lib/layout/types';
+import type { LModel, PlanNote, NodeStyle, FlowNode } from '../lib/layout/types';
 import type { StylePreset } from '../lib/style-presets';
 import { PAINT_STYLE_PROPS } from '../lib/style-props';
 import type { BlueprintCtx } from '../lib/layout/sync';
@@ -35,6 +35,12 @@ export interface BpState {
   // (InputSet/EditPage), rows come from bp.flowRefList (fetched at open; null = loading).
   flowPicker: { key: string; className: string; afterId?: string; at?: { x: number; y: number }; isAction?: boolean; wireExisting?: boolean } | null;
   flowRefList: import('../lib/layout/sync').FlowRefListItem[] | null; // wire-to-existing rows (null = loading)
+  // Wire-to-existing children cache (FIX 2): the real current children of an EXISTING off-page
+  // InputSet/EditPage the user wired to, keyed by ref businessId. Session-scoped (survives edits/undo);
+  // baked into the model so the pure diff/render see it. `flowRefChildrenPending` = refs mid-fetch (the
+  // cell shows a "loading" note until the reply lands, then falls back to the "unknown contents" note).
+  flowRefChildren: Map<string, { className: string; rid?: string; children: FlowNode[] }>;
+  flowRefChildrenPending: Set<string>;
   flowFolds: Set<string>;       // flow cells folded on the reference band (by flow-WIDGET id; default expanded)
   trayCardsOpen: Set<string>;   // action-tray ACTION cards with their transport list expanded (by button id)
   movePicker: string | null;    // widgetId the move-destination menu is open for
@@ -89,7 +95,7 @@ function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
     layer: null, selectedId: null, applying: false, preview: null, previewScript: '', blast: null, blastSeq: 0, picker: null, pickerOpts: null,
-    flowPicker: null, flowRefList: null, flowFolds: new Set(), trayCardsOpen: new Set(),
+    flowPicker: null, flowRefList: null, flowRefChildren: new Map(), flowRefChildrenPending: new Set(), flowFolds: new Set(), trayCardsOpen: new Set(),
     movePicker: null, tabMenu: null, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
     onResize: null, onKey: null, onPop: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
@@ -117,6 +123,8 @@ export function resetModel(): void {
   // flow view state is page-scoped: fold state / open cards / picker all refer to the old page's ids
   // (pitfall 10 — temp `new:` ids must not survive a reload; staged edits live in the model itself)
   bp.flowPicker = null; bp.flowRefList = null; bp.flowFolds = new Set(); bp.trayCardsOpen = new Set();
+  // the ref-children cache is keyed by page-unique businessIds — stale on a page change / target toggle
+  bp.flowRefChildren = new Map(); bp.flowRefChildrenPending = new Set();
 }
 
 export function isBlueprintActive(): boolean { return bp.active; }

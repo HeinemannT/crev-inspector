@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   buildFetchEc, parseFetchLog, parseOverrides, parseStyles, loadModel, applyModel,
-  resolvePageContext, buildContextEc, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
+  resolvePageContext, buildContextEc, DEFAULT_TABSET, parsePageName,
+  buildFlowRefChildrenEc, parseFlowRefChildren, type LayoutIO, type BlueprintCtx,
 } from '../sync';
 import { addContainer, rename } from '../edit';
 import { addFlowChild } from '../flow';
@@ -452,6 +453,51 @@ describe('sync.applyModel — flow steps (blueprint flow editing)', () => {
     expect(ec).toContain('<<<CREV_FCHD>>>');
     expect(ec).toContain('displayOnActionMenu'); // the menu-button grid exclusion branch
     expect(ec).toContain('_fref.children().forEach(_fc:'); // NOT `_c` — that's the chunk accumulator
+  });
+});
+
+describe('sync — page name + on-demand ref children (support-Category + wire-to-existing)', () => {
+  const PAGE = '<<<CREV_PAGE>>>';
+  const FCHD = '<<<CREV_FCHD>>>';
+  const FCPR = '<<<CREV_FCPR>>>';
+
+  it('buildFetchEc emits the PAGE marker so the model can name its support Category', () => {
+    expect(buildFetchEc({ ...CTX, pageRid: SCRID })).toContain('<<<CREV_PAGE>>>');
+    // resultOnly path emits it too
+    expect(buildFetchEc({ ...CTX, pageRid: SCRID, resultOnly: true, tabScope: 'withContent' })).toContain('<<<CREV_PAGE>>>');
+  });
+
+  it('parsePageName reads the display name (free-text last); empty/absent → undefined', () => {
+    expect(parsePageName(`${PAGE}Example Flow objects\nother junk`)).toBe('Example Flow objects');
+    expect(parsePageName('no marker here')).toBeUndefined();
+    expect(parsePageName(`${PAGE}`)).toBeUndefined();
+  });
+
+  it('loadModel threads the page name onto model + baseline', async () => {
+    const { model, baseline } = await loadModel(fakeIo(`${PAGE}My Scorecard\n` + LIVE_LOG), CTX);
+    expect(model.pageName).toBe('My Scorecard');
+    expect(baseline.pageName).toBe('My Scorecard');
+  });
+
+  it('buildFlowRefChildrenEc addresses the ref by business id, one ButtonGroup nesting level', () => {
+    const ec = buildFlowRefChildrenEc('is1');
+    expect(ec).toContain('_ref := t.is1');
+    expect(ec).toContain('_ref.children().forEach(_fc:');
+    expect(ec).toContain('_fc.children().forEach(_fcc:');
+    expect(() => buildFlowRefChildrenEc('is"; drop')).toThrow(/Invalid business id/); // injection-guarded
+  });
+
+  it('parseFlowRefChildren reads rows + captions, nesting ButtonGroup grandchildren', () => {
+    const log = [
+      `${FCHD}is1||c1|201|TextInput|1|0|0,0,0,0,0,|Name`,
+      `${FCHD}is1||bg|202|ButtonGroup|0|0|0,0,0,0,0,|Buttons`,
+      `${FCHD}is1|bg|b1|203|ButtonInput|0|0|0,0,0,0,0,|Go`,
+      `${FCPR}is1|c1|code`,
+    ].join('\n');
+    const kids = parseFlowRefChildren(log);
+    expect(kids.map(c => c.id)).toEqual(['c1', 'bg']);
+    expect(kids[0]).toMatchObject({ required: true, prop: 'code' });
+    expect(kids[1].children?.map(c => c.id)).toEqual(['b1']);
   });
 });
 
