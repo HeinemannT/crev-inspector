@@ -449,6 +449,15 @@ function touchedContainers(plan: PlanStep[], m: LModel): { id: string; rid?: str
   return [...out.values()];
 }
 
+/** Are there unsaved staged edits (layout or flow)? Staged edits live only in memory (the History +
+ *  the working model), so an accidental Ctrl+R or in-portal navigation discards the whole session. This
+ *  drives the beforeunload guard in the blueprint lifecycle. */
+export function hasPendingEdits(): boolean {
+  const m = model();
+  if (!bp.baseline || !m) return false;
+  return diff(bp.baseline, m).length > 0 || flowChangeCount(m) > 0;
+}
+
 /** Apply opens a preview first — never commit blind. The plan is computed with the SAME diff+compile
  *  the SW will run, so the human-readable notes match exactly what gets executed. */
 export function openApplyPreview(): void {
@@ -462,17 +471,22 @@ export function openApplyPreview(): void {
   bp.preview = notes;
   bp.previewScript = script; // the modal's "Copy EC" copies the whole program, not per-row fragments
   bp.blast = null;
+  bp.blastPending = true; // Confirm waits for the impact probe — the shared-master / fan-out warning
+                          // is the most consequential one and must not be skippable by a fast click.
   const seq = ++bp.blastSeq; // invalidates any in-flight probe from an earlier preview
   render();
-  // Best-effort + async: the modal renders now; the template-fan-out / shared-structure warnings
-  // appear when (if) the rref walk returns. Never blocks the confirm path.
+  // Async: the modal renders now with Confirm disabled ("Checking impact…"); fetchBlast clears
+  // `blastPending` (and fills the fan-out / shared-structure warnings) when the rref walk returns —
+  // or fails, so a dead probe can't wedge Confirm shut.
   void fetchBlast(seq, bp.ctx.pageId, touchedContainers(plan, m));
 }
-export function closePreview(): void { bp.preview = null; bp.previewScript = ''; bp.blast = null; render(); }
+export function closePreview(): void { bp.preview = null; bp.previewScript = ''; bp.blast = null; bp.blastPending = false; render(); }
 
-/** Confirmed from the preview modal — fire the guarded SW apply (service owns the round-trip). */
+/** Confirmed from the preview modal — fire the guarded SW apply (service owns the round-trip). Blocked
+ *  while the impact probe is still running (`blastPending`) so the fan-out / shared-structure warning
+ *  always renders before a commit — the UI also disables the Confirm button in that window. */
 export function confirmApply(): void {
-  if (!bp.ctx || !bp.baseline || !bp.env || !model() || bp.applying) return;
+  if (!bp.ctx || !bp.baseline || !bp.env || !model() || bp.applying || bp.blastPending) return;
   bp.preview = null;
   bp.previewScript = '';
   bp.blast = null;

@@ -25,6 +25,7 @@ export interface BpState {
   previewScript: string;        // the FULL compiled EC behind the open preview (the modal's "Copy EC")
   blast: { fanout: InstanceFanout | null; blast: ContainerBlast | null } | null; // preview blast radius (async, best-effort)
   blastSeq: number;             // bumped per openApplyPreview; a late blast reply for an older seq is dropped
+  blastPending: boolean;        // an impact (blast-radius) probe is in flight for the open preview — Confirm waits for it so a shared-master warning can't be skipped by a fast click
   picker: string | null;        // containerId/compositeId/tabId the add picker is open for
   pickerOpts: { afterId?: string; cols?: number; at?: { x: number; y: number } } | null; // positional insert (after a sibling, sized to a gap) + the click point to anchor the picker popup at
   // Flow editing: the add picker for a FLOW container (an InputSet/EditPage/ButtonGroup referenced by a
@@ -58,6 +59,7 @@ export interface BpState {
   onResize: (() => void) | null; // window 'resize' handler (re-anchors the canvas; scroll is native)
   onKey: ((e: KeyboardEvent) => void) | null;
   onPop: (() => void) | null;    // 'popstate' handler — reloads the overlay when back/forward changes the page rid
+  onBeforeUnload: ((e: BeforeUnloadEvent) => void) | null; // 'beforeunload' — warns before a reload/close discards staged edits
   loadedRid: string;             // the URL ?rid= the current model was loaded for (detects a page change on back/forward)
   editingTemplate: boolean;      // F: editing the shared template (vs this instance) — drives the [Template|This instance] toggle
   mode: 'layout' | 'style';      // G3: layout editing (cols/move/rename) vs style editing (colours/shadow/border) — pure render switch, same loaded model
@@ -94,11 +96,11 @@ export interface BpState {
 function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
-    layer: null, selectedId: null, applying: false, preview: null, previewScript: '', blast: null, blastSeq: 0, picker: null, pickerOpts: null,
+    layer: null, selectedId: null, applying: false, preview: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, picker: null, pickerOpts: null,
     flowPicker: null, flowRefList: null, flowRefChildren: new Map(), flowRefChildrenPending: new Set(), flowFolds: new Set(), trayCardsOpen: new Set(),
     movePicker: null, tabMenu: null, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
-    onResize: null, onKey: null, onPop: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
+    onResize: null, onKey: null, onPop: null, onBeforeUnload: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
     observer: null, resizeObs: null, ridSig: '', mutRaf: 0, flipNext: false, viewTabId: null, unusedTabsOpen: false,
     ghostTrayOpen: false, scrollSpacer: null, peek: false,
     resultAnchor: null,

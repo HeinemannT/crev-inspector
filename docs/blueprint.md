@@ -200,8 +200,24 @@ Flow steps join the ONE apply plan (`applyModel` composes `diff() + flowDiff()`)
 `_ff<k> := <parent>.add(<Type>, name := …)`, `moveAfter` chains, and `change(displayOnActionMenu/
 displayOnAllTabs := …)` — all verbs live-verified on the example-flow fixtures (see constraints.ts
 header; notably ButtonGroup accepts ONLY ButtonInput — ActionButton/MenuButton were refused live).
-The stale + silent-rollback guards compare `flowSignature` alongside the layout diff, so a purely-flow
+The stale + rollback guards compare `flowSignature` alongside the layout diff, so a purely-flow
 apply is neither missed nor misread as a rollback.
+
+**Apply safety — BMP Extended Code is NOT atomic** (verified live 2026-07-12 on fixture t.50675: a
+mid-script `Could not find type` error left the prior `.add()` committed — child count 4→5). The
+`transactional` flag is commit-vs-preview, not rollback-on-error, and a WARNING-level soft failure
+returns `ok:true` while dropping a step. So `applyModel` never trusts `res.ok`: after the commit it
+re-fetches UNCONDITIONALLY and reconciles the live page against the plan, classifying the outcome as
+**full** / **partial** / **none**. Every branch hands back the fresh model + baseline so the editor
+rebases onto reality (a stale desired model would re-emit its landed `add()`s and duplicate them on
+the next apply). A partial (`ok:false` errored partway, or `ok:true` with warnings) rebases in place
+and tells the user to verify + re-apply rather than reporting a clean save. See `memory/bmp-ec-nonatomic`.
+
+**Apply preview — the blast-radius gate blocks Confirm.** The template fan-out / cross-family
+shared-container warning is the highest-consequence signal (a container edit on a master rewrites N
+live instances), and it comes from an async `rref` walk. `Confirm & apply` is disabled ("Checking
+impact…") until that probe resolves — or fails, so a dead probe can't wedge it shut — so a fast click
+can never commit ahead of the warning.
 
 **Renaming a flow object** reuses the SAME inline-rename machinery as cells and tabs (a pencil →
 `beginRename` → `bp.renameId` → `openPendingRename` makes the matching `[data-bprename]` span

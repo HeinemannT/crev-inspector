@@ -64,8 +64,12 @@ export async function fetchBlast(seq: number, pageId: string, containers: { id: 
     const res = await sendRequest<BlastResult>({ type: 'LAYOUT_BLAST', pageId, containers });
     if (!sameSession(g) || !bp.preview || bp.blastSeq !== seq) return;
     bp.blast = { fanout: res?.fanout ?? null, blast: res?.blast ?? null };
-    render();
-  } catch { /* fail silent — no blast warning */ }
+  } catch { /* fail silent — no blast warning; `finally` still re-enables Confirm */ }
+  finally {
+    // Always clear the pending gate for THIS preview (success, empty reply, or error) so Confirm can
+    // never stay wedged shut. A stale reply for an older/closed preview is ignored via the seq guard.
+    if (sameSession(g) && bp.preview && bp.blastSeq === seq) { bp.blastPending = false; render(); }
+  }
 }
 
 /** Fetch the flow "wire to existing" list for the OPEN flow picker (lean, at picker-open). Stores the
@@ -126,7 +130,22 @@ export async function applyPage(): Promise<void> {
     showToast('Blueprint: the page changed elsewhere, so it was reloaded. Re-apply your edits.', 'error');
     render(); return;
   }
-  if (!res?.ok) { showToast(`Blueprint apply failed: ${res?.error || 'unknown'}`, 'error'); render(); return; }
+  // Partial apply — BMP EC is not atomic (see memory/bmp-ec-nonatomic), so a mid-script error or a
+  // WARNING-level soft failure can leave some steps applied and others not. Rebase onto the re-fetched
+  // real state (never keep the stale desired model — its landed adds would re-emit and duplicate) and
+  // warn the user to verify. Covers both ok:false (errored partway) and ok:true+warnings.
+  if (res?.partial && res.model) {
+    rebase(res.model);
+    showToast(res.error || 'Blueprint: some changes may not have applied. The layout was refreshed — check and re-apply what is missing.', 'error');
+    render(); return;
+  }
+  if (!res?.ok) {
+    // Hard failure that returned fresh state (e.g. BMP discarded the whole transaction): rebase so the
+    // editor reflects reality rather than holding a stale desired model with un-landed temp-id creates.
+    if (res?.model) rebase(res.model);
+    showToast(`Blueprint apply failed: ${res?.error || 'unknown'}`, 'error');
+    render(); return;
+  }
   if (res.noop) { if (res.model) rebase(res.model); showToast('Blueprint: nothing to apply', 'info'); render(); return; }
   // Committed. The live grid can only reflow on a real page load — so refresh to show the new layout,
   // and turn blueprint OFF (SW state + sidebar toggle + overlay) so we don't reopen onto a stale model.

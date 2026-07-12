@@ -43,7 +43,7 @@ import type { LModel, PlanNote, PlanStep, NodeStyle, FlowProjection, FlowNode, F
  *  a transactional (writing) run — the fetch/probe paths leave it false (read-only), apply sets it
  *  true. The adapter is also where silent-rollback detection lives (see layout-service). */
 export interface LayoutIO {
-  exec(code: string, commit?: boolean): Promise<{ ok: boolean; log?: string; error?: string }>;
+  exec(code: string, commit?: boolean): Promise<{ ok: boolean; log?: string; error?: string; hasWarning?: boolean }>;
 }
 
 /** What `loadModel`/`applyModel` need beyond the reconstruct ctx: the scorecard rid (for the
@@ -69,6 +69,11 @@ export interface ApplyResult {
   /** True when the live page drifted from the baseline since load (someone else edited it). Nothing
    *  was committed; `model`/`baseline` carry the FRESH live state so the UI can rebase the edits. */
   stale?: boolean;
+  /** True when the commit landed only PARTIALLY — BMP EC is not atomic (see memory/bmp-ec-nonatomic),
+   *  so a mid-script error or a WARNING-level soft failure can leave some steps applied and others not.
+   *  `model`/`baseline` carry the re-fetched real state; the UI should rebase and ask the user to verify
+   *  rather than report full success. Can accompany `ok:false` (hard error partway) or `ok:true` (warnings). */
+  partial?: boolean;
   plan: PlanStep[];
   notes: PlanNote[];
   /** The compiled EC (empty string on no-op) — handy for a dry-run preview and for logs. */
@@ -864,22 +869,42 @@ export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel
       error: 'The page changed since you started editing. Review the refreshed layout and reapply.' };
   }
   const res = await io.exec(script, true); // commit — the only writing exec in the whole flow
-  if (!res.ok) {
-    return { ok: false, noop: false, plan, notes, script, error: res.error || 'apply failed' };
-  }
+
+  // BMP Extended Code is NOT transactional (verified live 2026-07-12 on fixture t.50675: a mid-script
+  // `Could not find type` error left the prior `.add()` committed — child count went 4→5; see
+  // memory/bmp-ec-nonatomic). So the commit can land PARTIALLY, and a WARNING-level soft failure
+  // returns ok:true while silently dropping a step (`res.ok = !hasError`). `res.ok`/`res.error` alone
+  // therefore can't distinguish full success from partial — the only source of truth is a re-fetch.
+  // Reload UNCONDITIONALLY and reconcile the live page against what we asked for. Every branch hands
+  // back the fresh model + baseline so the editor rebases onto reality: keeping the stale desired model
+  // (with its temp-id creates that DID land) would re-emit those `add()`s and duplicate them on the
+  // next apply — the reload-not-rebase invariant, which the old "apply failed" early-return violated.
   const reloaded = await loadModel(io, ctx);
-  // Silent-rollback guard (structural, not log-scraping). The commit is transactional — all steps land
-  // or none do — so after a SUCCESSFUL apply of a non-empty plan the re-fetched page MUST differ from
-  // the baseline. If it still matches, BMP discarded the transaction and returned ok with no ERROR
-  // (the "200 but nothing changed" case). Catch it here rather than letting the UI mark an unchanged
-  // page as saved. A reworded/localized rollback message can't slip past this the way a regex could.
-  // A PURELY-flow apply changes no layout node, so the layout diff alone would misread success as a
-  // rollback — the flow signature covers that half (adds/reorders/flag flips all change it).
-  const layoutLanded = diff(baseline, reloaded.model).length > 0;
-  const flowLanded = flowSignature(reloaded.model) !== flowSignature(baseline);
-  if (!layoutLanded && !flowLanded) {
+  const landed = diff(baseline, reloaded.model).length > 0
+    || flowSignature(reloaded.model) !== flowSignature(baseline);
+
+  if (!res.ok) {
+    // The script aborted mid-way. Because EC isn't atomic, earlier steps may already be committed.
+    return { ok: false, noop: false, partial: landed, plan, notes, script,
+      model: reloaded.model, baseline: reloaded.baseline,
+      error: landed
+        ? `Apply failed partway: ${res.error || 'BMP error'}. Some changes DID land — the layout was refreshed to the real state; review it before re-applying.`
+        : (res.error || 'Apply failed; the page is unchanged.') };
+  }
+  if (!landed) {
+    // res.ok, but the re-fetched page is byte-identical to the baseline → BMP silently discarded the
+    // whole transaction (the "200 but nothing changed" rollback). Catch it rather than mark it saved.
+    // A PURELY-flow apply changes no layout node, so the flow signature covers that half.
     return { ok: false, noop: false, plan, notes, script, model: reloaded.model, baseline: reloaded.baseline,
       error: 'BMP discarded the changes. The page is unchanged; reload the page and try again.' };
+  }
+  if (res.hasWarning) {
+    // Something landed, but BMP emitted a WARNING — a step may have soft-failed (a missing-value
+    // lookup, a reorder anchor that had moved) and been skipped while the script continued. Report
+    // possibly-partial so the UI asks the user to verify instead of claiming a clean save.
+    return { ok: true, noop: false, partial: true, plan, notes, script,
+      model: reloaded.model, baseline: reloaded.baseline,
+      error: 'Applied, but BMP reported warnings — some steps may not have taken. The layout was refreshed; check it matches what you intended.' };
   }
   return { ok: true, noop: false, plan, notes, script, model: reloaded.model, baseline: reloaded.baseline };
 }

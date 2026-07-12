@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 // we're testing, so stub it to a no-op.
 vi.mock('../gestures', () => ({ armBox: () => {} }));
 
-import { cellState, renderResult } from '../result';
+import { cellState, indexBaseline, renderResult } from '../result';
 import { bp } from '../state';
 import type { LModel, LNode } from '../../lib/layout/types';
 
@@ -19,7 +19,7 @@ const mdl = (tabs: LNode[]): LModel =>
   ({ pageId: 'sc1', tabsetId: 'ts1', pageClass: 'Scorecard', tabs, target: 'instance', hasTemplate: false });
 
 describe('cellState (result-view diff classification)', () => {
-  const base = mdl([tab('t1', [container('A', 3, [widget('w1', 6)]), widget('w2', 3)])]);
+  const base = indexBaseline(mdl([tab('t1', [container('A', 3, [widget('w1', 6)]), widget('w2', 3)])]));
 
   it('flags a temp-id node as new', () => {
     expect(cellState(base, widget('box:9', 6), 't1')).toBe('new');

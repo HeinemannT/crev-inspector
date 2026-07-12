@@ -198,7 +198,15 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
     copy.title = 'Copy the full Extended Code program these changes compile to';
     foot.appendChild(copy);
   }
-  foot.append(mkBtn('Cancel', closePreview), (() => { const b = mkBtn('Confirm & apply', confirmApply); b.className = 'apply'; return b; })());
+  foot.append(mkBtn('Cancel', closePreview), (() => {
+    // While the impact probe runs, Confirm is disabled and labelled — a commit must not race ahead of
+    // the fan-out / shared-structure warning (the highest-consequence one). fetchBlast clears the gate.
+    const pending = bp.blastPending;
+    const b = mkBtn(pending ? 'Checking impact…' : 'Confirm & apply', confirmApply);
+    b.className = 'apply';
+    if (pending) { b.disabled = true; b.classList.add('disabled'); b.title = 'Checking how many objects this edit affects before you commit'; }
+    return b;
+  })());
   card.appendChild(foot);
   back.appendChild(card);
   return back;

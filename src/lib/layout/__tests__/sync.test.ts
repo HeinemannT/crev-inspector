@@ -373,17 +373,54 @@ describe('sync.applyModel', () => {
     expect(res.error).toMatch(/discarded|unchanged/i);
     expect(res.model).toBeDefined();         // fresh live state still handed back
   });
-  it('reports failure when the commit EC errors (stale-check passes first)', async () => {
+  it('on a commit ERROR with nothing landed, fails but hands back fresh state (EC is non-atomic)', async () => {
     const io = fakeIo(LIVE_LOG);
     const { baseline } = await loadModel(io, CTX);
     const desired = rename(baseline, '4969', 'X');
+    // commit errors; the post-commit reload shows the page unchanged → nothing landed.
     io.exec = vi.fn(async (code: string, commit = false) =>
       commit ? { ok: false, error: 'rollback: bad' } : { ok: true, log: LIVE_LOG });
     const res = await applyModel(io, baseline, desired, CTX);
     expect(res.ok).toBe(false);
     expect(res.stale).toBeFalsy();
     expect(res.error).toMatch(/rollback/);
-    expect(res.model).toBeUndefined();
+    expect(res.partial).toBeFalsy();      // reload shows unchanged → nothing committed
+    expect(res.model).toBeDefined();      // re-fetched so the editor rebases onto reality, not a stale model
+  });
+  it('flags PARTIAL when the commit errors but the re-fetch shows some steps DID land (EC not atomic)', async () => {
+    const io = fakeIo(LIVE_LOG);
+    const { baseline } = await loadModel(io, CTX);
+    const desired = rename(baseline, '4969', 'X');
+    // A mid-script error, but a prior step (a rename of 4964) already committed → the reload differs.
+    const partialLog = LIVE_LOG.replace('|Register', '|Register PARTIAL');
+    let fetchCall = 0;
+    io.exec = vi.fn(async (code: string, commit = false) => {
+      if (commit) return { ok: false, error: 'boom' };
+      fetchCall++;
+      return { ok: true, log: fetchCall === 1 ? LIVE_LOG : partialLog }; // 1st = stale check (unchanged), then reload (changed)
+    });
+    const res = await applyModel(io, baseline, desired, CTX);
+    expect(res.ok).toBe(false);
+    expect(res.partial).toBe(true);
+    expect(res.error).toMatch(/partway/i);
+    expect(res.model).toBeDefined();
+  });
+  it('flags PARTIAL when the commit returns ok WITH warnings (a step may have soft-failed)', async () => {
+    const io = fakeIo(LIVE_LOG);
+    const { baseline } = await loadModel(io, CTX);
+    const desired = rename(baseline, '4969', 'Analyst Notes');
+    const changedLog = LIVE_LOG.replace('|Register', '|Register CHANGED');
+    let fetchCall = 0;
+    io.exec = vi.fn(async (code: string, commit = false) => {
+      if (commit) return { ok: true, log: changedLog, hasWarning: true };
+      fetchCall++;
+      return { ok: true, log: fetchCall === 1 ? LIVE_LOG : changedLog }; // stale check unchanged; reload shows the landed change
+    });
+    const res = await applyModel(io, baseline, desired, CTX);
+    expect(res.ok).toBe(true);
+    expect(res.partial).toBe(true);
+    expect(res.error).toMatch(/warning/i);
+    expect(res.model).toBeDefined();
   });
 });
 

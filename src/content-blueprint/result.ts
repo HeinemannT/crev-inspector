@@ -21,7 +21,7 @@
  * so the gesture machinery treats them as honest, final-position drop targets).
  */
 import { STYLE_NODE_FIELDS, type LModel, type LNode, type NodeStyle } from '../lib/layout/types';
-import { findNode, orderChildren, isTempId, isChart, walk, fieldsChanged, isFullGhost } from '../lib/layout/model';
+import { orderChildren, isTempId, isChart, walk, fieldsChanged, isFullGhost } from '../lib/layout/model';
 import { computeRows, trackSpan, TRACKS } from '../lib/layout/rows';
 import { COMPOSITE_TYPES } from '../lib/layout/constraints';
 import {
@@ -73,12 +73,24 @@ export type CellState = 'same' | 'new' | 'moved' | 'changed';
  *  `reordered` carries the ids whose order changed within an unchanged parent (a swap/drag-reorder),
  *  which look 'same' field-wise but should still read as 'moved'. */
 const NO_REORDER: ReadonlySet<string> = new Set();
-export function cellState(base: LModel, node: LNode, modelParentId: string | null, reordered: ReadonlySet<string> = NO_REORDER): CellState {
+
+/** A flat baseline lookup — every baseline node (tabs included) keyed by id with its parent's id, built
+ *  ONCE per render. Replaces a per-cell `findNode(base,…)` (a full-tree DFS): the result canvas classifies
+ *  every rendered cell against the baseline, so without this the render was O(cells × all-baseline-nodes)
+ *  — quadratic, and painful on a many-tab shared tabset where the baseline holds every tab's nodes. */
+export type BaselineIndex = Map<string, { node: LNode; parentId: string | null }>;
+export function indexBaseline(base: LModel): BaselineIndex {
+  const idx: BaselineIndex = new Map();
+  walk(base, (n, parent) => idx.set(n.id, { node: n, parentId: parent?.id ?? null }));
+  return idx;
+}
+
+export function cellState(base: BaselineIndex, node: LNode, modelParentId: string | null, reordered: ReadonlySet<string> = NO_REORDER): CellState {
   if (isTempId(node.id)) return 'new';
-  const b = findNode(base, node.id);
+  const b = base.get(node.id);
   if (!b) return 'new';
   if (fieldsChanged(b.node, node)) return 'changed';
-  if ((b.parent?.id ?? null) !== modelParentId) return 'moved';
+  if (b.parentId !== modelParentId) return 'moved';
   if (reordered.has(node.id)) return 'moved';
   return 'same';
 }
@@ -89,11 +101,10 @@ export function cellState(base: LModel, node: LNode, modelParentId: string | nul
  *  of a swap light up) and limited to genuine reorders. Only groups whose membership is IDENTICAL to
  *  baseline are considered, so an insert / cross-container move (already coloured 'new' / parent-'moved')
  *  doesn't light up the neighbours its index-shift dragged along. */
-function reorderedIds(base: LModel, m: LModel): Set<string> {
+function reorderedIds(base: BaselineIndex, m: LModel): Set<string> {
   const out = new Set<string>();
   const consider = (parentId: string, kids: LNode[]): void => {
-    const bf = findNode(base, parentId);
-    const baseKids = bf ? bf.node.children : base.tabs.find(t => t.id === parentId)?.children;
+    const baseKids = base.get(parentId)?.node.children; // index holds tabs too, so this covers both tab + container parents
     if (!baseKids) return; // parent absent from baseline (a new container) — nothing to compare against
     for (const kind of ['container', 'widget'] as const) {
       const cur = orderChildren(kids).filter(c => c.kind === kind).map(c => c.id);
@@ -174,7 +185,7 @@ function gapCell(parentId: string, freeTracks: number, afterId?: string): HTMLEl
  *  row's trailing free tracks — the render side of the ONE row engine, so every empty slot the
  *  wireframe shows is a slot the engine agrees exists. `m` = the EDITED model (flow projections +
  *  staged flow edits ride on it). */
-function fillGrid(grid: HTMLElement, base: LModel, m: LModel, children: LNode[], parentId: string, byRid: Map<string, Element>, reordered: ReadonlySet<string>): void {
+function fillGrid(grid: HTMLElement, base: BaselineIndex, m: LModel, children: LNode[], parentId: string, byRid: Map<string, Element>, reordered: ReadonlySet<string>): void {
   // Full ghosts (noVisible / hidden on every display size) never render for
   // anyone and BMP's packing reflows around them (verified live) — so they're
   // excluded from BOTH the cells and the row math, or the grid shown here
@@ -268,14 +279,14 @@ function applyStyle(el: HTMLElement, label: HTMLElement, s: NodeStyle): void {
 /** Does this node's appearance differ from the baseline? (Any STYLE_NODE_FIELDS field, absence folded to
  *  its default — same rule as diff.changedStyle.) Drives the style-mode "edited" ring. A staged-add node
  *  has no baseline counterpart and already reads as 'new', so it's not flagged here. */
-function styleDirty(base: LModel, node: LNode): boolean {
-  const b = findNode(base, node.id)?.node;
+function styleDirty(base: BaselineIndex, node: LNode): boolean {
+  const b = base.get(node.id)?.node;
   if (!b) return false;
   return STYLE_NODE_FIELDS.some(f => (b.style?.[f.key] ?? f.def) !== (node.style?.[f.key] ?? f.def));
 }
 
 /** One widget/container cell. Containers recurse into a nested 6-col sub-grid. */
-function cell(base: LModel, m: LModel, node: LNode, parentId: string | null, byRid: Map<string, Element>, reordered: ReadonlySet<string>): HTMLElement {
+function cell(base: BaselineIndex, m: LModel, node: LNode, parentId: string | null, byRid: Map<string, Element>, reordered: ReadonlySet<string>): HTMLElement {
   const el = document.createElement('div');
   el.dataset.bpid = node.id;
   el.dataset.bpkind = node.kind === 'container' ? 'container' : 'widget';
@@ -521,9 +532,12 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
   const wrap = document.createElement('div'); wrap.className = 'bp-result';
   Object.assign(wrap.style, { left: `${left}px`, top: `${docTop}px`, width: `${width}px`, minHeight: `${minH}px` });
 
-  const reordered = reorderedIds(base, m);
+  // Index the baseline ONCE for this render (not per cell) — see indexBaseline. Every cellState /
+  // styleDirty / reorderedIds lookup below hits this map instead of a full-tree findNode.
+  const bidx = indexBaseline(base);
+  const reordered = reorderedIds(bidx, m);
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
-  if (tab.children.length) fillGrid(grid, base, m, tab.children, tab.id, byRid, reordered);
+  if (tab.children.length) fillGrid(grid, bidx, m, tab.children, tab.id, byRid, reordered);
   // Full-width add zone — a NEW ROW below all content (the per-row gaps cover partial rows).
   const add = document.createElement('div'); add.className = 'bp-radd-zone'; add.style.gridColumn = 'span 12';
   add.dataset.bpid = tab.id; add.dataset.bpkind = 'avail';

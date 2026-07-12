@@ -42,7 +42,9 @@ export function makeLayoutIO(client: BmpClient, timings: string[] = []): LayoutI
       const line = `${Date.now() - t0}ms (commit=${commit}, ${code.length}ch → ${r.log?.length ?? 0}ch)`;
       timings.push(line);
       log.debug('layout:exec', line);
-      return { ok: r.ok, log: r.log, error: r.error };
+      // hasWarning is surfaced so applyModel can flag a possibly-partial commit — BMP EC isn't atomic
+      // and a WARNING-level step failure returns ok:true (see memory/bmp-ec-nonatomic).
+      return { ok: r.ok, log: r.log, error: r.error, hasWarning: r.hasWarning };
     },
   };
 }

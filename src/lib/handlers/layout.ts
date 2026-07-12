@@ -122,12 +122,16 @@ register('LAYOUT_APPLY', async (msg, respond) => {
   try {
     const res = await applyPage(ctx.client, msg.ctx, msg.baseline, msg.desired, timings);
     respond({
-      type: 'LAYOUT_APPLY_RESULT', ok: res.ok, noop: res.noop, stale: res.stale,
+      type: 'LAYOUT_APPLY_RESULT', ok: res.ok, noop: res.noop, stale: res.stale, partial: res.partial,
       script: res.script, notes: res.notes, model: res.model, baseline: res.baseline, error: res.error,
     });
-    // Audit trail: the applied EC is first-class — record it so a mis-apply is reconstructable.
+    // Audit trail: the applied EC is first-class — record it so a mis-apply is reconstructable. A
+    // partial apply (BMP EC isn't atomic) is logged loudly at 'error' even when ok:true, since some
+    // steps didn't land and the recorded EC no longer matches the page.
     if (res.noop) {
       ctx.logActivity('success', 'Blueprint apply: no changes');
+    } else if (res.partial) {
+      ctx.logActivity('error', `Blueprint apply PARTIAL — ${res.error ?? 'some steps did not land'}`, `EC calls: ${timings.join(' | ')}\n\n${res.script}`);
     } else if (res.ok) {
       ctx.logActivity('success', `Blueprint applied ${res.plan.length} step(s) (${Date.now() - t0}ms)`, `EC calls: ${timings.join(' | ')}\n\n${res.script}`);
     } else {

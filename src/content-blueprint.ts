@@ -14,7 +14,7 @@ import { showToast } from './lib/toast';
 import BLUEPRINT_CSS from './content-blueprint.css';
 import { bp, STYLE_ID, isBlueprintActive, resetState, resetModel } from './content-blueprint/state';
 import { render } from './content-blueprint/view';
-import { select, onKeydown, clearHintTimer } from './content-blueprint/actions';
+import { select, onKeydown, clearHintTimer, hasPendingEdits } from './content-blueprint/actions';
 import { cancelGesture } from './content-blueprint/gestures';
 import { loadPage } from './content-blueprint/service';
 
@@ -137,6 +137,14 @@ export function enableBlueprint(): void {
   // the old page are dropped, same as a manual reload.
   bp.onPop = () => { handlePageNav(); };
   window.addEventListener('popstate', bp.onPop);
+  // Staged edits live only in memory (History + working model) — an accidental Ctrl+R, tab close, or a
+  // hard nav would discard the whole session with no recovery. Warn (native "Leave site?" dialog) only
+  // when there are actually unsaved edits, so a clean session never nags. Soft in-portal navs route
+  // through handlePageNav instead (they can't be vetoed); this covers real unloads.
+  bp.onBeforeUnload = (e: BeforeUnloadEvent) => {
+    if (hasPendingEdits()) { e.preventDefault(); e.returnValue = ''; }
+  };
+  window.addEventListener('beforeunload', bp.onBeforeUnload);
   layer.addEventListener('mousedown', (e) => { if (e.target === layer) select(null); }); // empty space deselects
   // Watch BMP content for a tab switch (SPA — no reload): when the set of visible widget rids changes,
   // re-render so the overlay follows to the newly-shown tab. Gated by the rid signature so the overlay's
@@ -223,6 +231,7 @@ export function disableBlueprint(): void {
   if (bp.onResize) window.removeEventListener('resize', bp.onResize, true);
   if (bp.onKey) window.removeEventListener('keydown', bp.onKey, true);
   if (bp.onPop) window.removeEventListener('popstate', bp.onPop);
+  if (bp.onBeforeUnload) window.removeEventListener('beforeunload', bp.onBeforeUnload);
   if (bp.raf) cancelAnimationFrame(bp.raf);
   if (bp.mutRaf) cancelAnimationFrame(bp.mutRaf);
   bp.observer?.disconnect();
