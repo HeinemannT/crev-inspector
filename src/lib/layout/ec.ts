@@ -222,10 +222,11 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
       }
       case 'reorder': {
         const label = byId.get(s.id)?.name ?? s.id;
+        const anchor = s.beforeId ?? s.afterId!;
         emit({ verb: 'reorder', id: s.id, text: `Reorder "${label}"`,
           action: 'Reorder', object: label, objectType: byId.get(s.id)?.className,
-          detail: `after "${byId.get(s.afterId)?.name ?? s.afterId}"`,
-          ec: `${ref(s.id)}.moveAfter(${ref(s.afterId)})` });
+          detail: `${s.beforeId ? 'before' : 'after'} "${byId.get(anchor)?.name ?? anchor}"`,
+          ec: `${ref(s.id)}.${s.beforeId ? 'moveBefore' : 'moveAfter'}(${ref(anchor)})` });
         break;
       }
       case 'delete': {
@@ -280,9 +281,10 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         break;
       }
       case 'flowReorder': {
+        const anchor = s.beforeId ?? s.afterId!;
         emit({ verb: 'reorder', id: s.id, text: `Reorder flow element`,
-          action: 'Reorder', object: s.id, detail: `after ${s.afterId}`,
-          ec: `${fref(s.id, s.rid)}.moveAfter(${fref(s.afterId)})` });
+          action: 'Reorder', object: s.id, detail: `${s.beforeId ? 'before' : 'after'} ${anchor}`,
+          ec: `${fref(s.id, s.rid)}.${s.beforeId ? 'moveBefore' : 'moveAfter'}(${fref(anchor)})` });
         break;
       }
       case 'flowFlag': {

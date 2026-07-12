@@ -13,6 +13,7 @@
  * their old container is removed.
  */
 import { isTempId, isResultTab } from './model';
+import { minimalReorder } from './reorder';
 import { styleAssignments } from './types';
 import type { Breakpoint, LModel, LNode, NodeKind, PlanStep } from './types';
 
@@ -125,8 +126,10 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
       const createdIn = group.filter(id => !A.has(id));
       const reparentedIn = group.filter(id => A.has(id) && !survivingBase.includes(id));
       const natural = [...survivingBase, ...createdIn, ...reparentedIn];
-      if (group.join(' ') !== natural.join(' ')) {
-        for (let i = 1; i < group.length; i++) steps.push({ kind: 'reorder', id: group[i], afterId: group[i - 1] });
+      // Minimal moves: only the items genuinely out of relative order move (one op each) — a single
+      // drag emits ONE reorder, not an N-step cascade. Shared with the flow diff (reorder.ts).
+      for (const mv of minimalReorder(natural, group)) {
+        steps.push({ kind: 'reorder', id: mv.id, ...(mv.dir === 'before' ? { beforeId: mv.anchorId } : { afterId: mv.anchorId }) });
       }
     }
   }

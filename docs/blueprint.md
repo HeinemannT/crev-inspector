@@ -332,9 +332,18 @@ compiler emits (`action/object/objectType/where/detail`; `text` is the fallback)
 - **`History.present()` clones** — you cannot memoise on the model's object identity. Use
   `history.revision()` (bumps on push/undo/redo/reset). The per-frame `pendingCount` memo in view.ts
   keys on `(baseline identity, revision)`.
-- **Logical vs raw count.** Inserting a widget mid-list compiles to a create + a `moveAfter` chain;
-  `summarizeChanges` reports `changes` (logical, headline) and `actions` (raw EC, exposed in the tray
-  "N change · M actions" and the apply modal). Don't headline `diff().length`.
+- **Minimal reorder.** `lib/layout/reorder.ts` (`minimalReorder(current, desired)`) is the ONE shared
+  helper both the layout diff and the flow diff use to emit reorders: the items already in the correct
+  relative order — a longest-increasing-subsequence of the desired order by current index — stay put, and
+  only the displaced items move, ONE op each (a single drag = one move, not an N-1 cascade). Each move
+  anchors to an already-placed neighbour: `moveAfter(<desired predecessor>)`, or `moveBefore(<current
+  first>)` for a drag-to-front. The compiler (`ec.ts` `reorder` / `flowReorder`) emits whichever the step
+  carries (`afterId` vs `beforeId`). `moveBefore` + a 2-move minimal shuffle are live-verified on the
+  fixture InputSet t.50850 (committed [OK], order read back exactly, restored).
+- **Logical vs raw count.** Inserting a widget mid-list compiles to a create + one minimal reorder;
+  `summarizeChanges` still reports `changes` (logical, headline — a whole reorder groups to ONE, by
+  parent) and `actions` (raw EC, exposed in the tray "N change · M actions" and the apply modal). Don't
+  headline `diff().length`.
 - **Cell selection needs mousedown+mouseup**, not a lone mousedown — `armBox` treats a press as a
   potential drag and only selects on mouseup-without-drag. (Mostly a test-driving gotcha.)
 - **The panel is a wireframe, not a pixel overlay** — it sits inside a 12px-padded panel, so absolute

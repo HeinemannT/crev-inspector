@@ -294,9 +294,9 @@ export type PlanStep =
   // via `styleAssignRhs`.
   | { kind: 'update'; id: string; className: string; cols?: Partial<Record<Breakpoint, number | null>>; name?: string; height?: number | null; resetProps?: string[]; styleAssign?: { prop: string; value: string | number | boolean }[] }
   | { kind: 'reparent'; id: string; nodeKind: NodeKind; toParentId: string; toParentKind: NodeKind }
-  // afterId is always a real same-kind sibling — diff anchors group[0] and reorders the rest after
-  // their predecessor, so "move to first" never needs a null (it falls out of reordering the others).
-  | { kind: 'reorder'; id: string; afterId: string }
+  // Minimal reorder (one op per displaced item): `moveAfter(afterId)` for the general case, or
+  // `moveBefore(beforeId)` for a drag-to-front. Exactly one of afterId/beforeId is set.
+  | { kind: 'reorder'; id: string; afterId?: string; beforeId?: string }
   // `rid` is threaded so the EC generator can address a businessId-less node by rid (its node lives
   // only in the baseline, so ec.ts can't recover the rid from the desired model). `name` is the
   // baseline display name, threaded for the same reason — the apply log labels the deletion.
@@ -313,9 +313,9 @@ export type PlanStep =
   // for InputSets/EditPages (verified live 2026-07-12; EditPage is REFUSED at portal root: "Can't add
   // an object of type EditPage to Portal").
   | { kind: 'flowCreate'; node: FlowNode; parentId: string; parentClass: string; parentRid?: string }
-  // reorder within ONE flow parent (moveAfter chain). `afterId` is a real prior sibling (or a just-
-  // created `_f<k>`); `parentId` groups the step for summaries.
-  | { kind: 'flowReorder'; id: string; rid?: string; afterId: string; parentId: string }
+  // Minimal reorder within ONE flow parent: `moveAfter(afterId)` (a prior sibling or a just-created
+  // `_ff<k>`) or `moveBefore(beforeId)` for a drag-to-front. `parentId` groups the step for summaries.
+  | { kind: 'flowReorder'; id: string; rid?: string; afterId?: string; beforeId?: string; parentId: string }
   // action-button flag flip (displayOnActionMenu / displayOnAllTabs). `id` is the button's businessId.
   | { kind: 'flowFlag'; id: string; rid?: string; className: string; prop: 'displayOnActionMenu' | 'displayOnAllTabs'; value: boolean }
   // rename an EXISTING flow object (child / container / reference): `<obj>.change(name := …)`. `id` is its

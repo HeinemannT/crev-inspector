@@ -206,14 +206,16 @@ describe('flow compiler shapes', () => {
     expect(script).toBe('_ff0 := t.50850.add(NumberInput, name := "Severity") // BMP assigns id');
   });
 
-  it('a staged add + reorder chains the moveAfter through the captured var', () => {
+  it('a staged mid-list add emits its create + ONE minimal reorder (no follower cascade)', () => {
     const base = flowModel();
-    let m2 = addFlowChild(base, '50850', 'NumberInput', 'Severity', '50851').model;
+    const m2 = addFlowChild(base, '50850', 'NumberInput', 'Severity', '50851').model;
     const { script } = compile(flowDiff(base, m2), m2);
     const lines = script.split('\n');
     expect(lines[0]).toBe('_ff0 := t.50850.add(NumberInput, name := "Severity") // BMP assigns id');
-    expect(lines).toContain('_ff0.moveAfter(t.50851)');   // the new node addressed by its var
-    expect(lines).toContain('t.50852.moveAfter(_ff0)');   // and referenced by the follower
+    // the new node (appended by the create) is the ONLY displaced item — one moveAfter, addressed by var
+    expect(lines).toContain('_ff0.moveAfter(t.50851)');
+    expect(lines).toHaveLength(2);                        // create + one move — no redundant follower move
+    expect(script).not.toContain('t.50852.moveAfter');   // the follower stays put (minimal)
   });
 
   it('flowFlag compiles to change(prop := TRUE/FALSE)', () => {
@@ -519,10 +521,10 @@ describe('staged-new InputSet / EditPage + reference wiring', () => {
     const newId = effectiveFlowChildren(m2, 'ext_is')[2].id;
     const m3 = reorderFlowChild(m2, 'ext_is', newId, null);
     expect(effectiveFlowChildren(m3, 'ext_is')[0].name).toBe('New C');
-    // compiles: the add targets the existing set by id + a reorder against a real child
+    // compiles: the add targets the existing set by id + a single move (New C to the front → moveBefore)
     const { script } = compile(flowDiff(base, m3), m3);
     expect(script).toContain('t.ext_is.add(TextInput, name := "New C")');
-    expect(script).toContain('.moveAfter(');
+    expect(script).toContain('_ff0.moveBefore(t.x1)');
   });
 
   it('flowSignature covers refId so a pure wire apply is not misread as a rollback', () => {

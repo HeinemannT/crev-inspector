@@ -12,6 +12,7 @@
  * backed by one InputSet share the same key, so an edit from either cell stages once (dedupe by key).
  */
 import { cloneModel, tempId } from './model';
+import { minimalReorder } from './reorder';
 import type { FlowEdit, FlowNode, LModel, PlanStep } from './types';
 
 /** The resolved container an add/reorder targets: its class + rid + ORIGINAL (fetched) children. */
@@ -349,16 +350,17 @@ export function flowDiff(_baseline: LModel, desired: LModel): PlanStep[] {
     for (const add of e.adds ?? []) {
       creates.push({ kind: 'flowCreate', node: add, parentId: key, parentClass: container?.className ?? 'InputSet', ...(container?.rid ? { parentRid: container.rid } : {}) });
     }
-    // reorder — only when the desired order genuinely differs from the natural (original + adds appended)
+    // reorder — MINIMAL moves (one op per displaced item) vs the natural order (original + adds appended,
+    // which is what BMP has after the create steps run). Shared with the layout diff (reorder.ts).
     if (e.order && container) {
       const natural = [...container.original.map(c => c.id), ...(e.adds ?? []).map(a => a.id)];
       const desiredOrder = effectiveFlowChildren(desired, key).map(n => n.id);
-      if (desiredOrder.join(' ') !== natural.join(' ') && desiredOrder.length > 1) {
-        const ridOf = (id: string): string | undefined =>
-          container.original.find(c => c.id === id)?.rid ?? (e.adds ?? []).find(a => a.id === id)?.rid;
-        for (let i = 1; i < desiredOrder.length; i++) {
-          reorders.push({ kind: 'flowReorder', id: desiredOrder[i], afterId: desiredOrder[i - 1], parentId: key, ...(ridOf(desiredOrder[i]) ? { rid: ridOf(desiredOrder[i]) } : {}) });
-        }
+      const ridOf = (id: string): string | undefined =>
+        container.original.find(c => c.id === id)?.rid ?? (e.adds ?? []).find(a => a.id === id)?.rid;
+      for (const mv of minimalReorder(natural, desiredOrder)) {
+        reorders.push({ kind: 'flowReorder', id: mv.id, parentId: key,
+          ...(mv.dir === 'before' ? { beforeId: mv.anchorId } : { afterId: mv.anchorId }),
+          ...(ridOf(mv.id) ? { rid: ridOf(mv.id) } : {}) });
       }
     }
     // flags — compare against the projection's current value; only emit a genuine change

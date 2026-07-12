@@ -590,7 +590,8 @@ describe('diff + ec compile', () => {
     ] }));
     const reordered = insertRelative(base, 'B', 'A', /* before */ true);
     const { script } = compile(diff(base, reordered), reordered);
-    expect(script).toContain('moveAfter');
+    // [A,B] → [B,A]: B moves to the front, a single moveBefore (minimal reorder — one op, not a cascade)
+    expect(script).toContain('t.B.moveBefore(t.A)');
     // a no-op edit produces no script
     expect(compile(diff(base, base), base).script).toBe('');
   });

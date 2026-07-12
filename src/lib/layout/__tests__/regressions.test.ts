@@ -29,8 +29,10 @@ describe('review regressions', () => {
     let d = addWidget(box.model, box.id, 0, 'PieChart').model; // create widget into it  -> [wNew]
     d = move(d, 'wExist', box.id, 0);                 // move existing widget in at front -> desired [wExist, wNew]
     const { script } = compile(diff(base, d), d);
-    // without the fix there is no moveAfter and BMP would render [wNew, wExist] (reversed)
-    expect(script).toContain('.moveAfter(t.wExist)');
+    // desired [wExist, wNew]; natural (creates then reparents append) is [wNew, wExist] — the minimal
+    // reorder moves the ONE displaced item (wExist to the front) as a single moveBefore the new widget's
+    // captured var. Without it BMP would render [wNew, wExist] (reversed).
+    expect(script).toMatch(/t\.wExist\.moveBefore\(_n\d\)/);
   });
 
   it('P2-C: move via the *tab-root* sentinel lands the widget in its tab, not the tabs array', () => {

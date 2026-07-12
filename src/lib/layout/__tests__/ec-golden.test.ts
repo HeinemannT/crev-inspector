@@ -42,6 +42,12 @@ const demo = (): LModel => ({
  * numbering (_n0 = the box, _n2 = the TextElement) and the reorder anchors — follows BMP's real
  * render order instead of the raw splice positions. Same operations, band-legal order; ec_preview
  * accepted every move ([OK]).
+ *
+ * Updated 2026-07-12 for MINIMAL reorder: the two new nodes (_n0 the container, _n2 the TextElement)
+ * are each inserted at the FRONT of their sibling group, so the old four-step moveAfter cascade
+ * collapses to TWO single moveBefore ops (the kept items — cont_14, 4967/4968/4969 — stay put).
+ * moveBefore live-verified on the fixture InputSet t.50850 (moveBefore + a 2-move minimal shuffle both
+ * committed [OK], order read back exactly, restored); the same generic verb the layout reorder emits.
  */
 const GOLDEN = [
   '_sc := t.4957',
@@ -54,10 +60,8 @@ const GOLDEN = [
   't.4968.change(container := t.4904)',
   't.4969.change(name := "Analyst Notes")',
   't.4969.change(container := t.4904)',
-  't.cont_crev_demo_enterprise_14.moveAfter(_n0)',
-  't.4967.moveAfter(_n2)',
-  't.4968.moveAfter(t.4967)',
-  't.4969.moveAfter(t.4968)',
+  '_n0.moveBefore(t.cont_crev_demo_enterprise_14)',
+  '_n2.moveBefore(t.4967)',
   't.cont_crev_demo_enterprise_19.delete()',
   't.cont_crev_demo_enterprise_18.delete()',
 ].join('\n');
@@ -82,8 +86,9 @@ describe('ec golden (live-validated)', () => {
     for (const step of diff(base, d)) {
       if (step.kind === 'reorder') {
         // both ends of a reorder must be the same kind — checked structurally by construction,
-        // asserted here as a guard against regressions.
-        expect(typeof step.afterId).toBe('string');
+        // asserted here as a guard against regressions. The anchor is afterId (moveAfter) or beforeId
+        // (moveBefore, drag-to-front) — exactly one is set.
+        expect(typeof (step.afterId ?? step.beforeId)).toBe('string');
       }
     }
   });
