@@ -409,11 +409,32 @@ function nameOfButton(m: LModel, p: FlowProjection): string | undefined {
   return p.ownerName ?? p.refName;
 }
 
-/** The action-menu affordance at the canvas top-right — a COLLAPSED trigger button (mirrors BMP's own
- *  top-right "Actions" button) that expands the card list on demand. The outer container is transparent +
- *  click-through (pointer-events:none); only the trigger and the expanded panel are opaque, so a collapsed
- *  menu never covers or blocks the canvas beneath it. */
-export function actionTray(m: LModel, viewedTabId: string | null): HTMLElement {
+/** How many menu buttons the trigger badge shows (tab's own + all-tabs ones + staged new). */
+function countMenuButtons(m: LModel, viewedTabId: string | null): number {
+  const { shown } = trayButtons(m, viewedTabId);
+  let staged = 0;
+  for (const [key, e] of Object.entries(m.flowEdits ?? {})) if (isStagedActionButtonAdd(key, e)) staged++;
+  return shown.length + staged;
+}
+
+/** The action-menu TRIGGER — a compact pill that docks in the tab bar (mirrors BMP's own "Actions"
+ *  button). Click to open/close the panel, which drops as a floating OVERLAY (it never widens the bar). */
+export function actionMenuTrigger(m: LModel, viewedTabId: string | null): HTMLElement {
+  const open = bp.actionMenuOpen;
+  const trigger = document.createElement('button'); trigger.className = 'bp-amenu-trigger' + (open ? ' open' : '');
+  const ti = document.createElement('span'); ti.className = 'ti'; setIcon(ti, ICON_LIGHTNING);
+  const tl = document.createElement('span'); tl.className = 'tl'; tl.textContent = 'Action menu';
+  const tn = document.createElement('span'); tn.className = 'tn'; tn.textContent = String(countMenuButtons(m, viewedTabId));
+  const tc = document.createElement('span'); tc.className = 'tc'; tc.textContent = open ? '▴' : '▾';
+  trigger.append(ti, tl, tn, tc);
+  trigger.title = open ? 'Hide the action menu' : 'Show the page action menu — the buttons BMP renders top-right';
+  onTap(trigger, () => toggleActionMenu());
+  return trigger;
+}
+
+/** The action-menu PANEL — the card list. Rendered as a floating overlay anchored under the trigger
+ *  (positioned by the caller), so opening it overlaps the canvas instead of pushing the bar. */
+export function actionMenuPanel(m: LModel, viewedTabId: string | null): HTMLElement {
   const { shown, otherTabs } = trayButtons(m, viewedTabId);
   // staged page-level adds (temp-key flowEdits whose single add is an ActionButton) render as NEW cards
   const stagedCards: FlowProjection[] = [];
@@ -422,22 +443,6 @@ export function actionTray(m: LModel, viewedTabId: string | null): HTMLElement {
       stagedCards.push({ ownerId: key, ownerClass: 'ActionButton', kind: 'plain', children: [], refName: e.adds![0].name });
     }
   }
-  const count = shown.length + stagedCards.length;
-  const open = bp.actionMenuOpen;
-
-  const wrap = document.createElement('div'); wrap.className = 'bp-amenu';
-  // Trigger — the compact pill; click to expand/collapse. Icon + label + count + chevron.
-  const trigger = document.createElement('button'); trigger.className = 'bp-amenu-trigger' + (open ? ' open' : '');
-  const ti = document.createElement('span'); ti.className = 'ti'; setIcon(ti, ICON_LIGHTNING);
-  const tl = document.createElement('span'); tl.className = 'tl'; tl.textContent = 'Action menu';
-  const tn = document.createElement('span'); tn.className = 'tn'; tn.textContent = String(count);
-  const tc = document.createElement('span'); tc.className = 'tc'; tc.textContent = open ? '▴' : '▾';
-  trigger.append(ti, tl, tn, tc);
-  trigger.title = open ? 'Hide the action menu' : 'Show the page action menu — the buttons BMP renders top-right';
-  onTap(trigger, () => toggleActionMenu());
-  wrap.appendChild(trigger);
-  if (!open) return wrap;
-
   const panel = document.createElement('div'); panel.className = 'bp-amenu-panel';
   if (otherTabs) {
     const note = document.createElement('div'); note.className = 'bp-amenu-note';
@@ -457,6 +462,5 @@ export function actionTray(m: LModel, viewedTabId: string | null): HTMLElement {
   onTap(add, (e) => openFlowPicker(viewedTabId ?? 'RESULT', 'ActionButton', { at: { x: e.clientX, y: e.clientY }, isAction: true }));
   cards.appendChild(add);
   panel.appendChild(cards);
-  wrap.appendChild(panel);
-  return wrap;
+  return panel;
 }

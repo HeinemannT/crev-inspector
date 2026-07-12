@@ -115,7 +115,7 @@ import {
 import { renderChip, modeSwitch, scopeClass, previewModal, trayPanel, hintBar } from './view-panels';
 import { paintStation, paintPopup } from './view-paint';
 import { renderResult, typeIcon } from './result';
-import { actionTray } from './result-flow';
+import { actionMenuTrigger, actionMenuPanel } from './result-flow';
 import { flowChildPalette } from '../lib/layout/constraints';
 import { flowChangeCount } from '../lib/layout/flow';
 
@@ -202,19 +202,18 @@ export function render(): void {
 }
 
 const TRAY_W = 320;
-/** Float the action-menu tray at the canvas's TOP-RIGHT (document space, so it scrolls with the canvas) —
- *  mirroring where BMP renders its own action menu, instead of cramming it into the top command bar. It's
- *  absolute (never shifts the grid), high z-index with a solid panel bg (nothing bleeds through under it),
- *  and pinned inside the canvas's right edge. Skipped on a synthetic frame (no cached anchor). */
+/** When the action menu is OPEN, drop its card panel as a floating overlay anchored under the tab-bar
+ *  trigger — position:fixed (the trigger lives in the fixed header), right-aligned to it. Opening it thus
+ *  overlaps the canvas instead of widening the bar; collapsed, nothing renders here at all. */
 function mountActionTray(layer: HTMLElement, m: LModel, viewedId: string | null): void {
-  if (bp.mode !== 'layout' || !m.flows || !Object.keys(m.flows).length) return;
-  const a = bp.canvasBox; // NOT resultAnchor: this is set every render, incl. a synthetic frame on an
-  if (!a) return;         // action-buttons-only page (no live widgets), so the menu still appears there
-
-  const tray = actionTray(m, viewedId);
-  const left = Math.max(a.left, a.left + a.width - TRAY_W - 12);
-  Object.assign(tray.style, { top: `${a.docTop + 12}px`, left: `${left}px`, width: `${TRAY_W}px` });
-  layer.appendChild(tray);
+  if (bp.mode !== 'layout' || !bp.actionMenuOpen || !m.flows || !Object.keys(m.flows).length) return;
+  const trigger = layer.querySelector('.bp-amenu-trigger');
+  if (!trigger) return;
+  const r = trigger.getBoundingClientRect();
+  const panel = actionMenuPanel(m, viewedId);
+  const left = Math.max(8, Math.round(r.right - TRAY_W));
+  Object.assign(panel.style, { position: 'fixed', top: `${Math.round(r.bottom + 5)}px`, left: `${left}px`, width: `${TRAY_W}px` });
+  layer.appendChild(panel);
 }
 
 /** Shown when the result canvas has nothing to render — the loaded model has NO TABS at all (a page
@@ -842,6 +841,13 @@ function tabBar(base: LModel, m: LModel, liveId: string | null, viewedId: string
     bar.appendChild(b);
   } else {
     bar.appendChild(mkBtn('+ Tab', addTabAction)); // plain "+ Tab" text (no icon — the icon mis-aligned)
+  }
+  // Action-menu trigger — docked at the FAR RIGHT of the tab bar (mirrors BMP's own top-right Actions
+  // button). The panel opens as a floating overlay (mountActionTray), so it never widens this bar.
+  if (m.flows && Object.keys(m.flows).length) {
+    const trig = actionMenuTrigger(m, viewedId);
+    trig.classList.add('bp-amenu-trigger-bar'); // margin-left:auto → far right
+    bar.appendChild(trig);
   }
   return bar;
 }
