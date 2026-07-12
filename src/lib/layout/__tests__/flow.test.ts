@@ -164,9 +164,11 @@ describe('flow edit ops', () => {
     const base = flowModel();
     const m2 = reorderFlowChild(base, '50850', '50852', '50858');
     expect(effectiveFlowChildren(m2, '50850').map(c => c.id)).toEqual(['50851', '50858', '50852', '50862']);
-    // reorder back to natural → flowDiff sees order == natural → no steps
+    // reorder back to natural → the entry COLLAPSES (no phantom pending, not just an empty diff)
     const m3 = reorderFlowChild(m2, '50850', '50852', '50851');
     expect(flowDiff(base, m3)).toEqual([]);
+    expect(m3.flowEdits?.['50850']).toBeUndefined();
+    expect(flowChangeCount(m3)).toBe(0);
   });
 
   it('setActionFlag stages a flip and clears when toggled back to the projection value', () => {
@@ -342,6 +344,24 @@ describe('flowSignature + shared lint', () => {
     const flagged = cloneModel(m);
     flagged.flows!['50849'] = { ...flagged.flows!['50849'], displayOnAllTabs: false };
     expect(flowSignature(flagged)).not.toBe(flowSignature(m));
+  });
+
+  it('signature includes NAMES, so a rename-only apply is not misread as a rollback', () => {
+    // A committed rename changes a child's / reference's NAME but no id, membership, order or flag. If
+    // the signature ignored names the silent-rollback guard would declare a successful rename discarded.
+    const m = flowModel();
+    const childRenamed = cloneModel(m);
+    childRenamed.flows!['50844'] = { ...childRenamed.flows!['50844'],
+      children: childRenamed.flows!['50844'].children.map(c => c.id === '50851' ? { ...c, name: 'Owner' } : c) };
+    expect(flowSignature(childRenamed)).not.toBe(flowSignature(m));
+    const refRenamed = cloneModel(m);
+    refRenamed.flows!['50844'] = { ...refRenamed.flows!['50844'], refName: 'Renamed set' };
+    expect(flowSignature(refRenamed)).not.toBe(flowSignature(m));
+    // a name containing the old delimiters can't forge a collision (JSON, not string-join)
+    const tricky = cloneModel(m);
+    tricky.flows!['50844'] = { ...tricky.flows!['50844'],
+      children: tricky.flows!['50844'].children.map(c => c.id === '50851' ? { ...c, name: 'a:b|c,d' } : c) };
+    expect(flowSignature(tricky)).not.toBe(flowSignature(m));
   });
 
   it('lint warns once per SHARED reference behind staged flow edits, naming it', () => {
@@ -566,7 +586,8 @@ describe('flowChangeCount (drives Apply/Discard/tray enablement)', () => {
   it('counts a flow-only session so Apply unlocks without any layout change', () => {
     const base = flowModel();
     expect(flowChangeCount(addFlowChild(base, '50850', 'TextInput').model)).toBe(1);
-    expect(flowChangeCount(reorderFlowChild(base, '50850', '50852', '50851'))).toBe(1);
+    // a GENUINE reorder (50852 after 50858, not its natural slot) — a no-op drop collapses to 0
+    expect(flowChangeCount(reorderFlowChild(base, '50850', '50852', '50858'))).toBe(1);
     expect(flowChangeCount(setActionFlag(base, '50843', 'displayOnActionMenu', true))).toBe(1);
     // Staging a NEW container touches TWO flow objects — the new container itself and the widget whose
     // reference is wired to it — so the count is 2. Either way it's > 0, which is what unlocks Apply.
@@ -609,6 +630,18 @@ describe('renameFlowObject', () => {
     expect(flowDiff(base, m).filter(s => s.kind === 'flowRename')).toHaveLength(1);
     const back = renameFlowObject(m, '50851', 'Text input')!; // the fixture's original name
     expect(back.flowEdits?.['50851']).toBeUndefined();
+  });
+
+  it('a staged rename SURVIVES a later unrelated edit (clone must carry rename)', () => {
+    // regression: cloneFlowEdits dropped `rename`, so a rename on A vanished the moment ANY second
+    // action cloned the model — leaving the rename un-applied and a phantom empty entry for A.
+    const base = flowModel();
+    const renamed = renameFlowObject(base, '50851', 'Kept name')!;
+    expect(cloneModel(renamed).flowEdits?.['50851']?.rename).toBe('Kept name'); // clone alone must keep it
+    const then = addFlowChild(renamed, '50865', 'EditField', 'New field').model; // a DIFFERENT edit clones
+    expect(then.flowEdits?.['50851']?.rename).toBe('Kept name');
+    expect(effectiveFlowChildren(then, '50850').find(c => c.id === '50851')?.name).toBe('Kept name');
+    expect(flowDiff(base, then).some(s => s.kind === 'flowRename' && s.id === '50851')).toBe(true);
   });
 
   it('renames a STAGED-ADD child in place (name rides the create — no separate rename step)', () => {

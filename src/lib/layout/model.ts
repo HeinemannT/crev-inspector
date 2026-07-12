@@ -207,6 +207,10 @@ export function cloneFlowEdits(fe: Record<string, FlowEdit>): Record<string, Flo
       // (every mutation path clones, so a second edit erased the first; caught by the flow tests)
       ...(e.newContainer ? { newContainer: { ...e.newContainer } } : {}),
       ...(e.wireRef ? { wireRef: { ...e.wireRef } } : {}),
+      // rename is set AFTER a clone by renameFlowObject, so a single rename survives — but ANY later
+      // edit clones again, and dropping it here silently reverted the rename (and left a phantom empty
+      // entry inflating the pending count). Every FlowEdit field must be carried, no exceptions.
+      ...(e.rename !== undefined ? { rename: e.rename } : {}),
     };
   }
   return out;
