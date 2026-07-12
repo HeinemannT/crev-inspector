@@ -75,6 +75,7 @@ export interface BpState {
   resizeObs: ResizeObserver | null;  // watches BMP content height — re-render when a widget grows (async table rows) so the backdrop keeps covering it
   ridSig: string;               // signature of the visible rids at last render — re-render when it changes
   mutRaf: number;               // rAF id coalescing mutation-driven re-renders (0 = none)
+  bodyResizeTimer: number;      // setTimeout id debouncing body-height (ResizeObserver) re-renders so a lazy-loading table's many growth frames collapse to ONE rebuild (0 = none)
   flipNext: boolean;            // animate result cells from old→new position on the next render (set by an edit)
   viewTabId: string | null;     // tab shown in the canvas (header tab bar switches it); null → follow BMP's live tab
   unusedTabsOpen: boolean;      // tab bar: the "+N empty" fold is expanded (shared-tabset tabs with no widgets on this page)
@@ -101,7 +102,7 @@ function freshState(): Omit<BpState, 'gen'> {
     movePicker: null, tabMenu: null, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
     onResize: null, onKey: null, onPop: null, onBeforeUnload: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
-    observer: null, resizeObs: null, ridSig: '', mutRaf: 0, flipNext: false, viewTabId: null, unusedTabsOpen: false,
+    observer: null, resizeObs: null, ridSig: '', mutRaf: 0, bodyResizeTimer: 0, flipNext: false, viewTabId: null, unusedTabsOpen: false,
     ghostTrayOpen: false, scrollSpacer: null, peek: false,
     resultAnchor: null,
   };
@@ -122,6 +123,11 @@ export function resetModel(): void {
   bp.baseline = null; bp.ctx = null; bp.history = null;
   bp.selectedId = null; bp.viewTabId = null; bp.unusedTabsOpen = false; bp.ridSig = ''; bp.peek = false;
   bp.resultAnchor = null;
+  // In-flight apply / preview state is tied to the page being left. A reload mid-apply (a popstate/
+  // link-nav bumps `gen`, so the late apply reply returns early without clearing `applying`) would
+  // otherwise leave "Applying…" stuck and Apply/Discard disabled on the fresh page — M5. Clearing it
+  // here, the single reload chokepoint, also dismisses a preview modal orphaned by the reload.
+  bp.applying = false; bp.preview = null; bp.previewScript = ''; bp.blast = null; bp.blastPending = false;
   // flow view state is page-scoped: fold state / open cards / picker all refer to the old page's ids
   // (pitfall 10 — temp `new:` ids must not survive a reload; staged edits live in the model itself)
   bp.flowPicker = null; bp.flowRefList = null; bp.flowFolds = new Set(); bp.trayCardsOpen = new Set();

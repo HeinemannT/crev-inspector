@@ -124,7 +124,12 @@ export function enableBlueprint(): void {
     const h = entries[0]?.contentRect.height ?? 0;
     if (Math.abs(h - lastBodyH) < 2) return; // ignore sub-pixel jitter / animation churn
     lastBodyH = h;
-    coalescedRender();
+    // Debounce (trailing): a lazy-loading ExtendedTable grows its height over many frames, and each
+    // growth would otherwise fire a full O(n) canvas rebuild. Collapse the burst into ONE rebuild once
+    // the height settles. The window-'resize' path stays immediate (a viewport resize must re-anchor
+    // promptly); only this content-growth path is debounced. Guarded/cleared on teardown.
+    if (bp.bodyResizeTimer) clearTimeout(bp.bodyResizeTimer);
+    bp.bodyResizeTimer = window.setTimeout(() => { bp.bodyResizeTimer = 0; coalescedRender(); }, 120);
   });
   bp.resizeObs.observe(document.body);
   bp.onKey = onKeydown;
@@ -234,6 +239,7 @@ export function disableBlueprint(): void {
   if (bp.onBeforeUnload) window.removeEventListener('beforeunload', bp.onBeforeUnload);
   if (bp.raf) cancelAnimationFrame(bp.raf);
   if (bp.mutRaf) cancelAnimationFrame(bp.mutRaf);
+  if (bp.bodyResizeTimer) clearTimeout(bp.bodyResizeTimer);
   bp.observer?.disconnect();
   bp.resizeObs?.disconnect();
   bp.layer?.remove();
