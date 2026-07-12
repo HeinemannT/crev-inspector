@@ -208,8 +208,9 @@ const TRAY_W = 320;
  *  and pinned inside the canvas's right edge. Skipped on a synthetic frame (no cached anchor). */
 function mountActionTray(layer: HTMLElement, m: LModel, viewedId: string | null): void {
   if (bp.mode !== 'layout' || !m.flows || !Object.keys(m.flows).length) return;
-  const a = bp.resultAnchor;
-  if (!a) return;
+  const a = bp.canvasBox; // NOT resultAnchor: this is set every render, incl. a synthetic frame on an
+  if (!a) return;         // action-buttons-only page (no live widgets), so the menu still appears there
+
   const tray = actionTray(m, viewedId);
   const left = Math.max(a.left, a.left + a.width - TRAY_W - 12);
   Object.assign(tray.style, { top: `${a.docTop + 12}px`, left: `${left}px`, width: `${TRAY_W}px` });

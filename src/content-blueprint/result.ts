@@ -525,6 +525,7 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
     left = docX(frame.left);
     if (!synthetic) bp.resultAnchor = { tabId: tab.id, docTop, left, width }; // never freeze a guessed frame
   }
+  bp.canvasBox = { docTop, left, width }; // set EVERY render (synthetic too) so the floating tray can anchor
   // Full-bleed grid backdrop BEHIND the panel — fills the whole editor width edge-to-edge (the panel
   // itself stays at content width so the cards keep BMP's column alignment). Height set after layout.
   const bg = document.createElement('div'); bg.className = 'bp-canvas-bg'; bg.style.top = `${docTop}px`;

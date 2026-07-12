@@ -359,7 +359,7 @@ function trayCard(m: LModel, p: FlowProjection, leaving = false): HTMLElement {
   } else {
     const allTabs = m.flowEdits?.[p.ownerId]?.displayOnAllTabs ?? p.displayOnAllTabs ?? false;
     ctl.append(
-      iconCtl(ICON_TABS, allTabs ? 'Shown on every tab — click to limit to this tab only' : 'Shown on this tab only — click to show on every tab', allTabs,
+      iconCtl(ICON_TABS, allTabs ? 'Shown on every tab — click to show only on the tab it belongs to' : 'Shown only on the tab it belongs to — click to show on every tab', allTabs,
         () => setActionButtonFlag(p.ownerId, 'displayOnAllTabs', !allTabs)),
       iconCtl(ICON_LAYOUT, 'Move to the canvas grid instead of the action menu', false,
         () => setActionButtonFlag(p.ownerId, 'displayOnActionMenu', false)),
