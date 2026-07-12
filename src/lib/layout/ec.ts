@@ -62,27 +62,23 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
   // the rid, so `id === rid`): `t.<rid>` does NOT resolve (the `t.` namespace is businessId-keyed,
   // and an all-digit rid slips past the businessId validator), so it would silently mis-target.
   // Address those by rid via `lookup(<rid>)` instead — the same way the fetch reaches the page root.
-  const ref = (id: string): string => {
-    const v = vars.get(id);
-    if (v) return v;
-    const n = byId.get(id);
-    if (n?.rid && n.id === n.rid) return `lookup(${ecRid(n.rid)})`;
-    return `t.${ecBid(id)}`;
-  };
+  // Address an EXISTING object by businessId — `t.<businessId>` — EXCEPT one that carries no businessId
+  // (reconstruct fell its `id` back to the rid, so `id === rid`): `t.<rid>` does NOT resolve (the `t.`
+  // namespace is businessId-keyed, and an all-digit rid slips past the businessId validator), so address
+  // those by rid via `lookup(<rid>)` — the same way the fetch reaches the page root. Shared tail below.
+  const bidOrLookup = (id: string, rid?: string): string =>
+    (rid && id === rid) ? `lookup(${ecRid(rid)})` : `t.${ecBid(id)}`;
+
+  // Reference a layout node: a `_n<k>` var when created in this batch, else by businessId/lookup.
+  const ref = (id: string): string => vars.get(id) ?? bidOrLookup(id, byId.get(id)?.rid);
   /** ref() for a node that may not be in the desired model (a delete subject lives only in the
    *  baseline). Falls back to the threaded rid for the businessId-less case, since byId can't see it. */
-  const refDeleted = (id: string, rid?: string): string =>
-    (rid && id === rid) ? `lookup(${ecRid(rid)})` : `t.${ecBid(id)}`;
+  const refDeleted = (id: string, rid?: string): string => bidOrLookup(id, rid);
 
   /** Flow-step object reference: a staged flow add captured in a `_ff<k>` var, else the businessId
    *  (or `lookup(rid)` for a businessId-less row — pitfall #5). Flow children live outside the LNode
    *  tree, so `byId` never has them; they address by businessId directly. */
-  const fref = (id: string, rid?: string): string => {
-    const v = vars.get(id);
-    if (v) return v;
-    if (rid && id === rid) return `lookup(${ecRid(rid)})`;
-    return `t.${ecBid(id)}`;
-  };
+  const fref = (id: string, rid?: string): string => vars.get(id) ?? bidOrLookup(id, rid);
 
   const needWidget = plan.some(s => s.kind === 'create' && s.node.kind === 'widget');
   const needTabset = plan.some(s => s.kind === 'create' && s.node.kind === 'tab');

@@ -433,6 +433,35 @@ const firstLine = (block: string): string => (block.split('\n', 1)[0] ?? '').tri
  *  dotsCsv|<childName> (name last, free text). Returns the owner + nesting parent + a bare FlowNode
  *  (no children/caption yet — those are stitched by the caller). Null for a malformed / empty row.
  *  Shared by `parseFlows` (per-widget projection) and `parseFlowRefChildren` (on-demand ref fetch). */
+type FlowChildRec = NonNullable<ReturnType<typeof flowChildNodeFrom>>;
+
+/** Stitch FLOW_CHILD + FLOW_CPROP marker blocks into ordered FlowNode trees. `rootFor(rec)` returns the
+ *  list a top-level (no parentBid) child belongs to — the owner projection's `children` for the page fetch,
+ *  or the single roots list for a ref-children fetch — or null to skip a record whose owner is unknown.
+ *  Nested records (non-empty parentBid) attach under their ButtonGroup, which BMP always emits before its
+ *  grandchildren. bids are page-unique, so one `byChildBid` map spans all owners. Shared by parseFlows and
+ *  parseFlowRefChildren so their nesting + caption logic can't drift. */
+function stitchFlowChildren(log: string, rootFor: (rec: FlowChildRec) => FlowNode[] | null): void {
+  const byChildBid = new Map<string, FlowNode>();
+  for (const block of (log || '').split(FLOW_CHILD_MARKER).slice(1)) {
+    const rec = flowChildNodeFrom(firstLine(block).split('|'));
+    if (!rec) continue;
+    const root = rootFor(rec);
+    if (!root) continue;
+    byChildBid.set(rec.node.id, rec.node);
+    const parent = rec.parentBid ? byChildBid.get(rec.parentBid) : undefined;
+    (parent ? (parent.children ??= []) : root).push(rec.node);
+  }
+  // FLOW_CPROP — owner|childBid|<caption> (caption last).
+  for (const block of (log || '').split(FLOW_CPROP_MARKER).slice(1)) {
+    const parts = firstLine(block).split('|');
+    if (parts.length < 3) continue;
+    const node = byChildBid.get(parts[1]);
+    const caption = parts.slice(2).join('|');
+    if (node && caption) node.prop = caption;
+  }
+}
+
 function flowChildNodeFrom(parts: string[]): { owner: string; parentBid: string; node: FlowNode } | null {
   if (parts.length < 9) return null;
   const [owner, parentBid, childBid, childRid, childClass, req, brk, dotsCsv] = parts;
@@ -501,32 +530,10 @@ export function parseFlows(log: string): Map<string, FlowProjection> {
     else if (field === 'ownerName') p.ownerName = value;
     else if (field === 'refParentName') p.refParentName = value;
   }
-  // FLOW_CHILD — owner|parentChildBid|childBid|childRid|childClass|required|isBreak|dotsCsv|<name>.
-  // A record with a non-empty parentChildBid nests under the FlowNode of that bid (a ButtonGroup); the
-  // ButtonGroup row is always emitted before its grandchildren, so its node already exists here.
-  const byChildBid = new Map<string, FlowNode>(); // per-owner lookup for nesting (bids are page-unique)
-  for (const block of (log || '').split(FLOW_CHILD_MARKER).slice(1)) {
-    const rec = flowChildNodeFrom(firstLine(block).split('|'));
-    if (!rec) continue;
-    const p = map.get(rec.owner);
-    if (!p) continue;
-    byChildBid.set(rec.node.id, rec.node);
-    if (rec.parentBid) {
-      const parent = byChildBid.get(rec.parentBid);
-      (parent ? (parent.children ??= []) : p.children).push(rec.node);
-    } else {
-      p.children.push(rec.node);
-    }
-  }
-  // FLOW_CPROP — owner|childBid|<caption> (caption last).
-  for (const block of (log || '').split(FLOW_CPROP_MARKER).slice(1)) {
-    const parts = firstLine(block).split('|');
-    if (parts.length < 3) continue;
-    const childBid = parts[1];
-    const caption = parts.slice(2).join('|');
-    const node = byChildBid.get(childBid);
-    if (node && caption) node.prop = caption;
-  }
+  // FLOW_CHILD — owner|parentChildBid|childBid|childRid|childClass|required|isBreak|dotsCsv|<name>. A
+  // record with a non-empty parentChildBid nests under that ButtonGroup; top-level children attach to the
+  // owner projection's list (skipping any FLOW_CHILD whose owner has no FLOW_REF projection).
+  stitchFlowChildren(log, rec => map.get(rec.owner)?.children ?? null);
   // FLOW_TR — owner|codeSet|trClass|<transportName>. Read-only transport rows for an ACTION card.
   for (const block of (log || '').split(FLOW_TR_MARKER).slice(1)) {
     const parts = firstLine(block).split('|');
@@ -614,25 +621,7 @@ export function buildFlowRefChildrenEc(refId: string): string {
  *  belongs to the one fetched reference. */
 export function parseFlowRefChildren(log: string): FlowNode[] {
   const roots: FlowNode[] = [];
-  const byChildBid = new Map<string, FlowNode>();
-  for (const block of (log || '').split(FLOW_CHILD_MARKER).slice(1)) {
-    const rec = flowChildNodeFrom(firstLine(block).split('|'));
-    if (!rec) continue;
-    byChildBid.set(rec.node.id, rec.node);
-    if (rec.parentBid) {
-      const parent = byChildBid.get(rec.parentBid);
-      (parent ? (parent.children ??= []) : roots).push(rec.node);
-    } else {
-      roots.push(rec.node);
-    }
-  }
-  for (const block of (log || '').split(FLOW_CPROP_MARKER).slice(1)) {
-    const parts = firstLine(block).split('|');
-    if (parts.length < 3) continue;
-    const node = byChildBid.get(parts[1]);
-    const caption = parts.slice(2).join('|');
-    if (node && caption) node.prop = caption;
-  }
+  stitchFlowChildren(log, () => roots); // owner-agnostic: every FLOW_CHILD here belongs to the one reference
   return roots;
 }
 

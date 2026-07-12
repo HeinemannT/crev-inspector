@@ -18,17 +18,6 @@ export interface Rect { left: number; top: number; width: number; height: number
 export const docX = (x: number): number => x + window.scrollX;
 export const docY = (y: number): number => y + window.scrollY;
 
-/** Place an absolutely-positioned overlay box from a VIEWPORT rect, converting to document space.
- *  `inflate` grows the box on all sides (a container frame draws a few px outside its child union). */
-export function placeDoc(el: HTMLElement, r: Rect, inflate = 0): void {
-  Object.assign(el.style, {
-    left: `${docX(r.left - inflate)}px`,
-    top: `${docY(r.top - inflate)}px`,
-    width: `${r.width + inflate * 2}px`,
-    height: `${r.height + inflate * 2}px`,
-  });
-}
-
 /** rid → live DOM WIDGET element. Built from the inspect scanner, but with the TAB ANCHORS filtered out:
  *  getAllRidElements always includes the tab-strip anchors (so the inspect overlay can badge tabs), and
  *  they carry the PAGE rid at the tab strip's y (above the content). Left in, they pollute the geometry —

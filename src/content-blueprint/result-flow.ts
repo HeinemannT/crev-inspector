@@ -18,7 +18,7 @@
  */
 import type { LModel, LNode, FlowNode, FlowProjection } from '../lib/layout/types';
 import { isTempId } from '../lib/layout/model';
-import { effectiveFlowChildren, effectiveRef, findFlowContainer, trayButtons } from '../lib/layout/flow';
+import { effectiveFlowChildren, effectiveRef, findFlowContainer, trayButtons, isStagedActionButtonAdd } from '../lib/layout/flow';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { flowDotTitle } from '../lib/widget-metadata';
 
@@ -36,13 +36,20 @@ import { bp } from './state';
 import { openFlowPicker, toggleFlowFold, toggleTrayCard, setActionButtonFlag, openPicker, cancelFlowAdd, stageNewRef, openWireExisting, doUnwire, beginRename } from './actions';
 import { armFlowRow } from './gestures';
 
+/** mousedown handler that suppresses the drag-start / focus-steal (these controls sit inside a draggable
+ *  result cell), then runs `fn`. Every interactive control in a flow row / band / tray card funnels
+ *  through here — the single choke point for the stopPropagation + preventDefault pair. */
+function onTap(el: HTMLElement, fn: (e: MouseEvent) => void): void {
+  el.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); fn(e); });
+}
+
 /** A small rename pencil for a flow object (row / reference band / staged-new container). Reuses the
  *  SHARED inline-rename machinery: beginRename flags `bp.renameId`, openPendingRename then makes the
  *  matching `[data-bprename]` span editable — identical Enter-commit / Escape-cancel / outside-commit
  *  behaviour to cells and tabs. mousedown + preventDefault so it doesn't steal focus / start a drag. */
 function renamePencil(id: string, title: string): HTMLElement {
   const b = document.createElement('button'); b.className = 'bp-fedit'; setIcon(b, ICON_PENCIL); b.title = title;
-  b.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); beginRename(id); });
+  onTap(b, () => beginRename(id));
   return b;
 }
 
@@ -89,7 +96,7 @@ function flowRow(node: FlowNode, key: string, opts: { grid?: boolean; nested?: b
   if (staged) {
     const tag = document.createElement('button'); tag.className = 'bp-ftag new'; tag.textContent = 'NEW';
     tag.title = 'Staged — created on Apply. Click to cancel this add.';
-    tag.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); cancelFlowAdd(key, node.id); });
+    onTap(tag, () => cancelFlowAdd(key, node.id));
     prop.appendChild(tag);
   }
   const dots = document.createElement('span'); dots.className = 'bp-fdots';
@@ -106,7 +113,7 @@ function addRow(label: string, onOpen: (at: { x: number; y: number }) => void): 
   const r = document.createElement('button'); r.className = 'bp-faddrow';
   const ic = document.createElement('span'); setIcon(ic, ICON_PLUS);
   r.append(ic, document.createTextNode(label));
-  r.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); onOpen({ x: e.clientX, y: e.clientY }); });
+  onTap(r, (e) => onOpen({ x: e.clientX, y: e.clientY }));
   return r;
 }
 
@@ -183,10 +190,7 @@ function placementControl(buttonId: string, onMenu: boolean): HTMLElement {
     b.className = val === onMenu ? 'on' : '';
     b.textContent = label;
     b.title = val ? 'Move this button to the page action menu (stages displayOnActionMenu)' : 'Render this button as a grid widget (stages displayOnActionMenu off)';
-    b.addEventListener('mousedown', (e) => {
-      e.stopPropagation(); e.preventDefault();
-      if (val !== onMenu) setActionButtonFlag(buttonId, 'displayOnActionMenu', val);
-    });
+    onTap(b, () => { if (val !== onMenu) setActionButtonFlag(buttonId, 'displayOnActionMenu', val); });
     seg.appendChild(b);
   }
   return seg;
@@ -209,7 +213,7 @@ function refBand(m: LModel, p: FlowProjection, folded: boolean): HTMLElement {
   }
   const fold = document.createElement('button'); fold.className = 'bp-ffold'; fold.textContent = folded ? '▸' : '▾';
   fold.title = folded ? 'Expand the flow chain' : 'Fold the flow chain';
-  fold.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); toggleFlowFold(p.ownerId); });
+  onTap(fold, () => toggleFlowFold(p.ownerId));
   end.appendChild(fold);
   band.appendChild(end);
   return band;
@@ -238,11 +242,11 @@ function noRefBand(widgetId: string, prop: 'inputSet' | 'editPage'): HTMLElement
   const wire = document.createElement('button'); wire.className = 'bp-fwire';
   wire.textContent = 'wire to existing…';
   wire.title = `Link this widget to an existing ${what} from the workspace`;
-  wire.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); openWireExisting(widgetId, prop, { x: e.clientX, y: e.clientY }); });
+  onTap(wire, (e) => openWireExisting(widgetId, prop, { x: e.clientX, y: e.clientY }));
   const mk = document.createElement('button'); mk.className = 'bp-fwire new';
   mk.textContent = `+ new ${what.toLowerCase()}`;
   mk.title = `Stage a new ${what} (created on Apply in the page's support Category); add its elements right away`;
-  mk.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); stageNewRef(widgetId, prop); });
+  onTap(mk, () => stageNewRef(widgetId, prop));
   end.append(wire, mk);
   band.appendChild(end);
   return band;
@@ -267,7 +271,7 @@ function stagedRefBand(m: LModel, widgetId: string, ref: { id: string; className
   const x = document.createElement('button'); x.className = 'bp-fwire';
   x.textContent = '✕';
   x.title = ref.isNew ? 'Cancel the new reference (and its staged elements)' : 'Cancel the staged link';
-  x.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); doUnwire(widgetId); });
+  onTap(x, () => doUnwire(widgetId));
   end.appendChild(x);
   band.appendChild(end);
   return band;
@@ -348,7 +352,7 @@ function trayCard(m: LModel, p: FlowProjection, leaving = false): HTMLElement {
     const scope = document.createElement('button'); scope.className = 'scope' + (allTabs ? ' on' : '');
     scope.textContent = allTabs ? 'ALL TABS' : 'THIS TAB';
     scope.title = allTabs ? 'Shown on every tab. Click to stage: this tab only (displayOnAllTabs off).' : 'Shown on its own tab. Click to stage: show on all tabs.';
-    scope.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); setActionButtonFlag(p.ownerId, 'displayOnAllTabs', !allTabs); });
+    onTap(scope, () => setActionButtonFlag(p.ownerId, 'displayOnAllTabs', !allTabs));
     l1.appendChild(scope);
   }
   card.appendChild(l1);
@@ -361,7 +365,7 @@ function trayCard(m: LModel, p: FlowProjection, leaving = false): HTMLElement {
   if (p.kind === 'action' && p.transports?.length) {
     const chev = document.createElement('button'); chev.className = 'chev'; chev.textContent = open ? '▴' : '▾';
     chev.title = open ? 'Hide transports' : 'Show transports';
-    chev.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); toggleTrayCard(p.ownerId); });
+    onTap(chev, () => toggleTrayCard(p.ownerId));
     l2.appendChild(chev);
   }
   card.appendChild(l2);
@@ -373,7 +377,7 @@ function trayCard(m: LModel, p: FlowProjection, leaving = false): HTMLElement {
     back.title = leaving
       ? 'Cancel the staged move — keep this button in the action menu'
       : 'Render this button as a grid widget instead (stages displayOnActionMenu off)';
-    back.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); setActionButtonFlag(p.ownerId, 'displayOnActionMenu', leaving); });
+    onTap(back, () => setActionButtonFlag(p.ownerId, 'displayOnActionMenu', leaving));
     l1.appendChild(back);
   }
 
@@ -412,8 +416,8 @@ export function actionTray(m: LModel, viewedTabId: string | null): HTMLElement {
   // staged page-level adds (temp-key flowEdits whose single add is an ActionButton) render as NEW cards
   const stagedCards: FlowProjection[] = [];
   for (const [key, e] of Object.entries(m.flowEdits ?? {})) {
-    if (key.includes(':') && e.adds?.length === 1 && e.adds[0].className === 'ActionButton') {
-      stagedCards.push({ ownerId: key, ownerClass: 'ActionButton', kind: 'plain', children: [], refName: e.adds[0].name });
+    if (isStagedActionButtonAdd(key, e)) {
+      stagedCards.push({ ownerId: key, ownerClass: 'ActionButton', kind: 'plain', children: [], refName: e.adds![0].name });
     }
   }
   const tray = document.createElement('div'); tray.className = 'bp-amenu';
@@ -432,12 +436,9 @@ export function actionTray(m: LModel, viewedTabId: string | null): HTMLElement {
   const ic = document.createElement('span'); setIcon(ic, ICON_PLUS);
   add.append(ic, document.createTextNode('Add action'));
   add.title = 'Stage a new action-menu button (created with displayOnActionMenu on Apply)';
-  add.addEventListener('mousedown', (e) => {
-    e.stopPropagation(); e.preventDefault();
-    // Born bound to the viewed tab — RESULT when the page routes its buttons through the shared
-    // Result tab (the fixture convention), else the viewed tab itself.
-    openFlowPicker(viewedTabId ?? 'RESULT', 'ActionButton', { at: { x: e.clientX, y: e.clientY }, isAction: true });
-  });
+  // Born bound to the viewed tab — RESULT when the page routes its buttons through the shared Result tab
+  // (the fixture convention), else the viewed tab itself.
+  onTap(add, (e) => openFlowPicker(viewedTabId ?? 'RESULT', 'ActionButton', { at: { x: e.clientX, y: e.clientY }, isAction: true }));
   cards.appendChild(add);
   tray.appendChild(cards);
   return tray;

@@ -1,5 +1,5 @@
 /**
- * Blueprint direct-manipulation gestures — pointer-driven edge-resize and drag-to-move/swap/reorder.
+ * Blueprint direct-manipulation gestures — pointer-driven drag-to-move/swap/reorder.
  *
  * Transient drag/resize state lives in module vars (not `bp`): it only drives a body-level ghost +
  * insertion line and the layer's drop-target highlight between mousedown and mouseup, and nothing
@@ -13,13 +13,16 @@ import type { LNode } from '../lib/layout/types';
 import { ICON_ARROW_RIGHT } from '../lib/icons';
 import { bp, model } from './state';
 import { mutate, select, setHint, doSwap, doInsert, doMoveInto, doFlowReorder, brushOnCell } from './actions';
-import { resize, setHeight, insertRelative } from '../lib/layout/edit';
+import { insertRelative } from '../lib/layout/edit';
 import { render } from './view';
 
 const isDescendant = (node: LNode, id: string): boolean => node.children.some(c => c.id === id || isDescendant(c, id));
 
-const clampL = (n: number): number => Math.max(1, Math.min(6, n));
 const DRAG_THRESHOLD = 6;      // px of movement before a press becomes a drag rather than a click
+/** Has the pointer moved past the drag threshold from the press origin? The gate that turns a press into
+ *  a drag rather than a click — shared by the box drag and the flow-row drag. */
+const passedThreshold = (ev: MouseEvent, sx: number, sy: number): boolean =>
+  Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) >= DRAG_THRESHOLD;
 const SWAP_ZONE = 0.26;        // centre fraction of a widget target that means "swap" (vs edge = insert)
 const CONTAINER_NEST_ZONE = 0.3; // centre fraction of a container target that means "nest into" (vs edge = reorder)
 
@@ -34,7 +37,7 @@ function bindGesture(mv: (e: MouseEvent) => void, up: () => void): void {
   // the BMP page selects whatever text it passes over (the mid-drag preventDefault only kicks in AFTER
   // the 6px threshold, so the press + first pixels still select). Set on <body> — covers the whole page —
   // and restore the prior inline value on release so a page-set user-select isn't clobbered. Every
-  // gesture (box drag, resize handle) funnels through here, so it's the single choke point.
+  // gesture (box drag, flow-row drag) funnels through here, so it's the single choke point.
   prevBodyUserSelect = document.body.style.userSelect;
   document.body.style.userSelect = 'none';
   document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
@@ -55,57 +58,6 @@ export function cancelGesture(): void {
   bp.dragging = false;
 }
 
-// ── edge resize ──────────────────────────────────────────────────────────────
-
-/** Wire a resize handle (right = width, bottom = height) onto the selected box. */
-export function armResize(handle: HTMLElement, id: string, dir: 'r' | 'b'): void {
-  handle.addEventListener('mousedown', (e) => startResize(e, id, dir));
-}
-
-function startResize(e: MouseEvent, id: string, dir: 'r' | 'b'): void {
-  e.preventDefault(); e.stopPropagation();
-  const m = model(); if (!m) return;
-  const f = findNode(m, id); if (!f) return;
-  const node = f.node;
-  const boxEl = (e.currentTarget as HTMLElement).parentElement; if (!boxEl) return;
-  const rect = boxEl.getBoundingClientRect();
-  const unit = rect.width / Math.max(1, node.cols.L); // px per grid column, from the node's own box
-  const startX = e.clientX, startY = e.clientY;
-  const startH = node.height ?? rect.height;
-  let nextL = node.cols.L, nextH = node.height ?? Math.round(rect.height);
-  bp.dragging = true;
-  const ghost = mkGhostRect();
-
-  const mv = (ev: MouseEvent): void => {
-    if (dir === 'r') {
-      nextL = clampL(Math.round((rect.width + (ev.clientX - startX)) / unit));
-      sizeGhost(ghost, rect.left, rect.top, nextL * unit, rect.height, `${nextL}/6`);
-    } else {
-      nextH = Math.max(20, Math.round(startH + (ev.clientY - startY)));
-      sizeGhost(ghost, rect.left, rect.top, rect.width, nextH, `${nextH}px`);
-    }
-  };
-  const up = (): void => {
-    unbindGesture();
-    ghost.remove(); bp.dragging = false;
-    if (dir === 'r' && nextL !== node.cols.L) mutate(resize(m, id, 'L', nextL));
-    else if (dir === 'b' && nextH !== node.height) mutate(setHeight(m, id, nextH));
-    else render();
-  };
-  bindGesture(mv, up);
-}
-
-function mkGhostRect(): HTMLElement {
-  const g = document.createElement('div'); g.className = 'bp-rzghost';
-  const lbl = document.createElement('span'); g.appendChild(lbl);
-  document.body.appendChild(g);
-  return g;
-}
-function sizeGhost(g: HTMLElement, left: number, top: number, w: number, h: number, label: string): void {
-  Object.assign(g.style, { left: `${left}px`, top: `${top}px`, width: `${w}px`, height: `${h}px` });
-  (g.firstChild as HTMLElement).textContent = label;
-}
-
 // ── drag to move / swap / reorder ──────────────────────────────────────────────
 
 type DragAction =
@@ -122,7 +74,7 @@ let action: DragAction | null = null;
 export function armBox(el: HTMLElement, id: string): void {
   el.addEventListener('mousedown', (e) => {
     const tgt = e.target as HTMLElement;
-    if (tgt.closest('.bp-h') || tgt.isContentEditable || tgt.closest('button')) return; // handle/rename/buttons own their gesture
+    if (tgt.isContentEditable || tgt.closest('button')) return; // rename/buttons own their gesture
     e.stopPropagation();
     dragOrSelect(e, id);
   });
@@ -139,7 +91,7 @@ function dragOrSelect(e: MouseEvent, id: string): void {
   let started = false;
   const mv = (ev: MouseEvent): void => {
     if (!started) {
-      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < DRAG_THRESHOLD) return;
+      if (!passedThreshold(ev, sx, sy)) return;
       started = true; beginDrag(id);
     }
     ev.preventDefault(); // suppress native text selection over the BMP page while dragging
@@ -320,7 +272,7 @@ function startFlowDrag(e: MouseEvent, row: HTMLElement, key: string, id: string,
     [...(bp.layer?.querySelectorAll(`[data-flowkey="${cssEsc(key)}"]`) ?? [])] as HTMLElement[];
   const mv = (ev: MouseEvent): void => {
     if (!started) {
-      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < DRAG_THRESHOLD) return;
+      if (!passedThreshold(ev, sx, sy)) return;
       started = true; bp.dragging = true;
       row.classList.add('bp-dragsrc');
       setHint('Drag up/down to reorder within this list');

@@ -69,7 +69,8 @@ result.ts              renderResult() — THE canvas: the edited model as a CSS-
 actions.ts             the controller: each gesture → a pure edit op → bp.history.push → render().
                        mutate() is the one write path. viewTab() drives BMP's real tab. togglePeek().
                        Add flows place via lib/layout/placement.bandInsertIndex (band-legal, toast on remap).
-gestures.ts            pointer-driven drag-to-move/swap/reorder + edge-resize; arms cells via armBox().
+gestures.ts            pointer-driven drag-to-move/swap/reorder; arms cells via armBox(). (Width/height
+                       edits go through the column/height controls, not an edge-drag gesture.)
                        edgeness()/nearestEdge() classify a drop; SWAP_ZONE/CONTAINER_NEST_ZONE name the bands.
                        Gap ('avail') drops resolve through lib/layout/placement.resolveGapPlacement — a slot
                        BMP can't render (cross-band) is REFUSED with a visible ✕ + reason, never silently

@@ -3,7 +3,7 @@
  *
  *  - LIVE pre-commit gate: `lint()` runs over the whole model + plan and its warnings render in the
  *    Apply-preview modal (empty-tab-won't-appear, structural-edit-on-an-instance scope note). This is
- *    the one path a user sees before committing. `checkTabVisibility`/`checkStructuralTarget` feed it.
+ *    the one path a user sees before committing. `checkStructuralTarget` + inline tab-visibility checks feed it.
  *  - Gesture affordance (enforced inline, not here): the builder simply doesn't OFFER an illegal
  *    gesture — "+ Add" appears only on tabs/containers/composites, height only on charts — so a
  *    leaf-add or bad reorder is unreachable by construction. `COMPOSITE_TYPES`/`COMPOSITE_CHILDREN`
@@ -95,17 +95,7 @@ export function flowChildPalette(className: string): { key: string; name: string
 }
 
 const ok: Guard = { ok: true, level: 'ok' };
-const warn = (reason: string): Guard => ({ ok: true, level: 'warn', reason });
 const info = (reason: string): Guard => ({ ok: true, level: 'info', reason });
-
-/** A tab only appears on the page once a VISIBLE widget resolves to it. Two ways it can be
- *  invisible even though the Tab object exists: no widgets at all, or every widget hidden
- *  (noVisible / hidden on all sizes) — BMP hides the tab in both cases (verified live). */
-export function checkTabVisibility(tab: LNode): Guard {
-  if (descendantWidgets(tab).length === 0) return warn('this tab has no widgets, so it will not appear on the page until you add one');
-  if (descendantVisibleWidgets(tab).length === 0) return warn('every widget on this tab is hidden, so BMP hides the tab until one is shown');
-  return ok;
-}
 
 /** Structural add/delete on a single instance is verified to work (live add+delete on demo scorecard
  *  4957, 2026-06-27 — the object persisted under the instance and deleted cleanly). It's not a
