@@ -12,6 +12,7 @@ import { findNode, isResultTab, eachInSubtree } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
 import { diff, summarizeChanges } from '../lib/layout/diff';
+import { flowChangeCount } from '../lib/layout/flow';
 import { compile } from '../lib/layout/ec';
 import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_EYE_SLASH, ICON_COPY } from '../lib/icons';
 import { showToast } from '../lib/toast';
@@ -127,9 +128,14 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   // Headline = logical changes; "(N actions)" exposes the raw EC step count when it differs (an insert
   // can compile to a create + a moveAfter chain). The list below still enumerates every action.
   const lm0 = model();
-  const sum = lm0 && bp.baseline ? summarizeChanges(diff(bp.baseline, lm0), lm0) : { changes: notes.length, actions: notes.length };
-  h.textContent = `Apply ${sum.changes} change${sum.changes === 1 ? '' : 's'}`
-    + (sum.actions !== sum.changes ? ` (${sum.actions} actions)` : '')
+  // Logical changes = layout changes + flow changes (per flow object); raw actions = the plan rows
+  // enumerated below (`notes`), which already include the flow steps. Without the flow term the heading
+  // undercounted (e.g. "Apply 1 change" over a 25-row flow-heavy plan).
+  const layoutChanges = lm0 && bp.baseline ? summarizeChanges(diff(bp.baseline, lm0), lm0).changes : notes.length;
+  const changes = layoutChanges + (lm0 ? flowChangeCount(lm0) : 0);
+  const actions = notes.length;
+  h.textContent = `Apply ${changes} change${changes === 1 ? '' : 's'}`
+    + (actions !== changes ? ` (${actions} actions)` : '')
     + ` to ${ctx.pageClass} ${ctx.pageId}`;
   card.appendChild(h);
   // Warnings render as ONE full-bleed strip under the header (edge-to-edge rows, hairline-separated) —

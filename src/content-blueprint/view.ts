@@ -117,6 +117,7 @@ import { paintStation, paintPopup } from './view-paint';
 import { renderResult, typeIcon } from './result';
 import { actionTray } from './result-flow';
 import { flowChildPalette } from '../lib/layout/constraints';
+import { flowChangeCount } from '../lib/layout/flow';
 
 // The pending-change count is recomputed on every render, but a pure scroll/observer render leaves the
 // model unchanged — and diff() builds two index maps and is ~O(n²) in its reorder phase. Memoise the count
@@ -126,7 +127,11 @@ let pendCache: { base: LModel; rev: number; changes: number } | null = null;
 function pendingCount(base: LModel, m: LModel): number {
   const rev = bp.history?.revision() ?? -1;
   if (pendCache && pendCache.base === base && pendCache.rev === rev) return pendCache.changes;
-  const changes = summarizeChanges(diff(base, m), m).changes;
+  // Layout changes PLUS flow changes (keyed per flow object) — the chip's Apply/Discard/tray gate on
+  // this count, so omitting flow left a flow-only session ("0 pending") unable to apply. Mirrors
+  // actions.ts:pendingLabel, which already sums both. The memo is still valid: every flow edit goes
+  // through mutate()→history.push(), bumping `rev` and invalidating the cache.
+  const changes = summarizeChanges(diff(base, m), m).changes + flowChangeCount(m);
   pendCache = { base, rev, changes };
   return changes;
 }

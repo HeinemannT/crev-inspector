@@ -15,7 +15,7 @@ import { cloneModel } from '../model';
 import {
   addFlowChild, reorderFlowChild, removeFlowAdd, setActionFlag, addActionButton,
   effectiveFlowChildren, findFlowContainer, flowDiff, flowSignature, trayButtons,
-  stageNewFlowContainer, wireFlowRef, unwireFlowRef, effectiveRef,
+  stageNewFlowContainer, wireFlowRef, unwireFlowRef, effectiveRef, flowChangeCount,
 } from '../flow';
 import { FLOW_REF_MARKER, FLOW_META_MARKER, FLOW_CHILD_MARKER, FLOW_CPROP_MARKER, FLOW_TR_MARKER } from '../../layout-wire';
 
@@ -550,5 +550,34 @@ describe('staged-new InputSet / EditPage + reference wiring', () => {
       { id: 'ep1', rid: '222', className: 'EditPage', category: 'Cat B', name: 'Create X | pipe' },
     ]);
     expect(buildFlowRefListEc('EditPage')).toContain('SELECT EditPage FROM root.portal');
+  });
+});
+
+// The chip's Apply/Discard/tray gate on this count (view.ts:pendingCount). It regressed once because
+// pendingCount summed only layout changes — a flow-only session read "0 pending" and could not be
+// applied. These lock the count that fix now depends on: it must be non-zero for every flow edit kind.
+describe('flowChangeCount (drives Apply/Discard/tray enablement)', () => {
+  it('is 0 for an unedited model', () => {
+    expect(flowChangeCount(flowModel())).toBe(0);
+  });
+
+  it('counts a flow-only session so Apply unlocks without any layout change', () => {
+    const base = flowModel();
+    expect(flowChangeCount(addFlowChild(base, '50850', 'TextInput').model)).toBe(1);
+    expect(flowChangeCount(reorderFlowChild(base, '50850', '50852', '50851'))).toBe(1);
+    expect(flowChangeCount(setActionFlag(base, '50843', 'displayOnActionMenu', true))).toBe(1);
+    // Staging a NEW container touches TWO flow objects — the new container itself and the widget whose
+    // reference is wired to it — so the count is 2. Either way it's > 0, which is what unlocks Apply.
+    expect(flowChangeCount(stageNewFlowContainer(base, '50844', 'inputSet', 'S').model)).toBe(2);
+  });
+
+  it('counts each touched flow object once (dedupe by object id, pitfall 2)', () => {
+    const base = flowModel();
+    // two adds to the SAME set = one touched object; a second, different set = two.
+    let m2 = addFlowChild(base, '50850', 'TextInput', 'A').model;
+    m2 = addFlowChild(m2, '50850', 'NumberInput', 'B').model;
+    expect(flowChangeCount(m2)).toBe(1);
+    m2 = addFlowChild(m2, '50865', 'EditField', 'C').model;
+    expect(flowChangeCount(m2)).toBe(2);
   });
 });
