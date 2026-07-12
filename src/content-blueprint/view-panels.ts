@@ -18,7 +18,7 @@ import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
-import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, discard, openApplyPreview, exitBlueprint, setMode } from './actions';
+import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, discard, armDiscard, disarmDiscard, openApplyPreview, exitBlueprint, setMode } from './actions';
 import { setEditTarget } from '../content-blueprint'; // runtime-only (click handler) — no init-time cycle
 
 const VERB_ICON: Record<PlanNote['verb'], string> = { create: ICON_PLUS, update: ICON_PENCIL, move: ICON_ARROW_RIGHT, reorder: ICON_SWAP, delete: ICON_TRASH };
@@ -331,7 +331,15 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   const redoB = mkIconBtn(ICON_ARROW_REDO, redo); redoB.title = 'Redo'; redoB.disabled = !bp.history?.canRedo(); redoB.classList.add('plain'); c.appendChild(redoB);
   const trayB = mkIconBtn(ICON_LIST, toggleTray, String(pending)); trayB.title = 'Pending changes'; trayB.disabled = pending === 0;
   if (bp.trayOpen) trayB.classList.add('on'); c.appendChild(trayB);
-  const discardB = mkBtn('Discard', discard); discardB.disabled = pending === 0 || bp.applying; c.appendChild(discardB);
+  // Discard is a two-step confirm on the SAME button: first click arms ("Sure?"), a second within a few
+  // seconds discards. Non-intrusive — no modal — and it auto-disarms. A zero-pending render clears any arm.
+  if (pending === 0 && bp.discardArm) disarmDiscard();
+  const armed = bp.discardArm;
+  const discardB = mkBtn(armed ? 'Sure?' : 'Discard', armed ? discard : armDiscard);
+  discardB.disabled = pending === 0 || bp.applying;
+  if (armed) discardB.classList.add('bp-danger');
+  discardB.title = armed ? 'Click again to discard all staged changes' : 'Discard all staged changes';
+  c.appendChild(discardB);
   const applyB = mkBtn(bp.applying ? 'Applying…' : `Apply${pending ? ` (${pending})` : ''}`, openApplyPreview);
   applyB.className = 'apply'; applyB.disabled = pending === 0 || bp.applying; c.appendChild(applyB);
   const exit = mkIconBtn(ICON_X, exitBlueprint); exit.title = 'Exit blueprint mode'; c.appendChild(exit);

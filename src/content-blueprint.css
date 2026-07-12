@@ -166,6 +166,8 @@
 #crev-blueprint-layer .bp-chip button.plain:hover:not(:disabled){background:rgba(74,144,217,.12)}
 #crev-blueprint-layer .bp-chip button.apply{background:var(--bp-cyan);color:var(--bp-ground);border-color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-chip button.apply:hover:not(:disabled){background:var(--bp-cyan-hi);color:var(--bp-ground)}
+#crev-blueprint-layer .bp-chip button.bp-danger{background:var(--bp-amber);color:var(--bp-ground);border-color:var(--bp-amber);font-weight:700}
+#crev-blueprint-layer .bp-chip button.bp-danger:hover:not(:disabled){filter:brightness(.94)}
 /* template apply = blue (= default cyan); instance apply = orange */
 #crev-blueprint-layer .bp-chip.inst button.apply{background:var(--bp-amber);border-color:var(--bp-amber)}
 #crev-blueprint-layer .bp-chip.inst button.apply:hover:not(:disabled){background:var(--bp-amber);filter:brightness(.92)}
@@ -649,30 +651,37 @@
 #crev-blueprint-layer .bp-fname[contenteditable],#crev-blueprint-layer .bp-fband .mono[contenteditable]{outline:1.5px solid var(--bp-cyan);border-radius:var(--bp-r);background:var(--bp-ground);padding:0 4px;cursor:text;white-space:nowrap;overflow:visible}
 
 /* Placement segmented control (In grid | Action bar) */
-#crev-blueprint-layer .bp-fseg{display:inline-flex;border:1px solid var(--bp-line-2);border-radius:var(--bp-r);overflow:hidden}
-#crev-blueprint-layer .bp-fseg button{border:0;background:var(--bp-ground);color:var(--bp-muted);font:600 9px 'BPInter',sans-serif;padding:2px 8px;cursor:pointer}
-#crev-blueprint-layer .bp-fseg button.on{background:var(--bp-cyan-hi);color:var(--bp-ground)}
-#crev-blueprint-layer .bp-fseg button:not(.on):hover{background:rgba(21,101,192,.1)}
 
 /* ── action-menu tray (header, top-right) ── */
-#crev-blueprint-layer .bp-amenu{width:352px;flex:none;align-self:flex-start;pointer-events:auto;max-height:60vh;overflow-y:auto}
-#crev-blueprint-layer .bp-amenu-head{display:flex;align-items:center;gap:9px;margin-bottom:6px}
-#crev-blueprint-layer .bp-amenu-head .t{font:700 9px var(--bp-mono);letter-spacing:.12em;color:var(--bp-muted)}
-#crev-blueprint-layer .bp-amenu-head .n{margin-left:auto;font:500 10px 'BPInter',sans-serif;color:var(--bp-muted)}
+/* Transparent, click-through container — only the trigger + panel are opaque, so a collapsed menu never
+   covers the canvas. Right-aligned so the trigger sits at the canvas's top-right corner. */
+#crev-blueprint-layer .bp-amenu{position:absolute;z-index:8;display:flex;flex-direction:column;align-items:flex-end;gap:6px;pointer-events:none}
+#crev-blueprint-layer .bp-amenu-trigger{pointer-events:auto;display:inline-flex;align-items:center;gap:7px;padding:5px 10px;border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);background:var(--bp-ground);box-shadow:var(--bp-shadow);color:var(--bp-text);font:600 11px 'BPInter',sans-serif;cursor:pointer}
+#crev-blueprint-layer .bp-amenu-trigger:hover{border-color:var(--bp-cyan)}
+#crev-blueprint-layer .bp-amenu-trigger.open{border-color:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-amenu-trigger .ti{display:inline-flex;width:13px;height:13px;color:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-amenu-trigger .ti svg{width:13px;height:13px}
+#crev-blueprint-layer .bp-amenu-trigger .tn{min-width:15px;text-align:center;padding:0 5px;border-radius:8px;background:var(--bp-line-2);color:var(--bp-muted);font:700 9px var(--bp-mono)}
+#crev-blueprint-layer .bp-amenu-trigger .tc{color:var(--bp-muted);font-size:9px}
+#crev-blueprint-layer .bp-amenu-panel{pointer-events:auto;width:100%;max-height:66vh;overflow-y:auto;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);box-shadow:var(--bp-shadow);padding:9px 10px}
+#crev-blueprint-layer .bp-amenu-note{font:500 10px 'BPInter',sans-serif;color:var(--bp-muted);margin-bottom:6px}
 #crev-blueprint-layer .bp-acards{display:flex;flex-direction:column;gap:6px}
-#crev-blueprint-layer .bp-acard{position:relative;display:flex;flex-direction:column;gap:3px;padding:8px 12px;border:var(--bp-div) solid var(--bp-line-2);border-radius:var(--bp-r-ui);background:var(--bp-ground);box-shadow:var(--bp-shadow)}
+#crev-blueprint-layer .bp-acard{position:relative;display:flex;flex-direction:column;gap:3px;padding:8px 12px;border:var(--bp-div) solid var(--bp-line-2);border-radius:var(--bp-r-ui);background:var(--bp-ground)}
 #crev-blueprint-layer .bp-acard:hover{border-color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-acard.stnew{border:1.5px dashed var(--bp-green)}
 #crev-blueprint-layer .bp-acard.stnew .bt{color:var(--bp-green)}
 #crev-blueprint-layer .bp-acard.leaving{border:1.5px dashed var(--bp-amber)}
 #crev-blueprint-layer .bp-acard .l1{display:flex;align-items:center;gap:8px;min-width:0}
 #crev-blueprint-layer .bp-acard .bt{min-width:0;font:600 12.5px 'BPInter',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--bp-text)}
-#crev-blueprint-layer .bp-acard .scope{margin-left:auto;flex:none;font:600 7.5px var(--bp-mono);letter-spacing:.08em;color:var(--bp-muted);border:1px solid var(--bp-line-2);border-radius:var(--bp-r);padding:2px 6px;background:transparent;cursor:pointer}
-#crev-blueprint-layer .bp-acard .scope.on{color:var(--bp-cyan-hi);border-color:var(--bp-cyan-hi)}
-#crev-blueprint-layer .bp-acard .scope:hover{background:rgba(21,101,192,.08)}
-#crev-blueprint-layer .bp-acard .bp-ftag{margin-left:auto}
-#crev-blueprint-layer .bp-agrid{flex:none;border:0;background:transparent;color:var(--bp-muted);font:600 8.5px 'BPInter',sans-serif;cursor:pointer;padding:2px 4px;text-decoration:underline dotted}
-#crev-blueprint-layer .bp-agrid:hover{color:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-acard-ctl{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:3px}
+/* Compact icon controls (scope / placement) — icon + tooltip, no text so a long name can't wrap the card. */
+#crev-blueprint-layer .bp-fic{display:inline-flex;align-items:center;justify-content:center;width:21px;height:19px;border:1px solid transparent;border-radius:var(--bp-r);background:transparent;color:var(--bp-muted);cursor:pointer;padding:0}
+#crev-blueprint-layer .bp-fic svg{width:13px;height:13px}
+#crev-blueprint-layer .bp-fic:hover{color:var(--bp-cyan-hi);background:rgba(21,101,192,.09)}
+#crev-blueprint-layer .bp-fic.on{color:var(--bp-cyan-hi);background:rgba(21,101,192,.12);border-color:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-ficseg{display:inline-flex;border:1px solid var(--bp-line-2);border-radius:var(--bp-r);overflow:hidden}
+#crev-blueprint-layer .bp-ficseg .bp-fic{border:0;border-radius:0;width:24px}
+#crev-blueprint-layer .bp-ficseg .bp-fic+.bp-fic{border-left:1px solid var(--bp-line-2)}
 #crev-blueprint-layer .bp-acard .l2{display:flex;align-items:center;gap:7px;min-width:0;color:var(--bp-muted);font:500 11px 'BPInter',sans-serif}
 #crev-blueprint-layer .bp-acard .l2 .vic{flex:none;width:11px;height:11px;display:inline-flex;color:var(--bp-muted)}
 #crev-blueprint-layer .bp-acard .l2 .vic svg{width:100%;height:100%}

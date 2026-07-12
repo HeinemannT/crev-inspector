@@ -240,6 +240,7 @@ export function disableBlueprint(): void {
   if (bp.raf) cancelAnimationFrame(bp.raf);
   if (bp.mutRaf) cancelAnimationFrame(bp.mutRaf);
   if (bp.bodyResizeTimer) clearTimeout(bp.bodyResizeTimer);
+  if (bp.discardTimer) clearTimeout(bp.discardTimer);
   bp.observer?.disconnect();
   bp.resizeObs?.disconnect();
   bp.layer?.remove();

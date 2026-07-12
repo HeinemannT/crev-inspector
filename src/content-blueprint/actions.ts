@@ -393,6 +393,7 @@ export function revertNode(id: string): void {
 
 export function setHint(text: string | null): void { if (bp.hint !== text) { bp.hint = text; render(); } }
 export function toggleTray(): void { bp.trayOpen = !bp.trayOpen; render(); }
+export function toggleActionMenu(): void { bp.actionMenuOpen = !bp.actionMenuOpen; render(); }
 /** Sticky peek toggle — keep the overlay faded so the live widgets stay visible (hover gives a transient
  *  peek; this click keeps it on). The faded state is a class on the layer; render() keeps it in sync. */
 export function togglePeek(): void { bp.peek = !bp.peek; bp.layer?.classList.toggle('bp-peek', bp.peek); render(); }
@@ -431,7 +432,21 @@ export function redo(): void {
   flashHint(`Redo · ${pendingLabel(m)}`);
   render();
 }
-export function discard(): void { if (bp.baseline) { bp.history = new History(bp.baseline); bp.selectedId = null; render(); } }
+export function discard(): void { disarmDiscard(); if (bp.baseline) { bp.history = new History(bp.baseline); bp.selectedId = null; render(); } }
+
+/** Two-step Discard confirm (non-intrusive: the SAME button just changes label). First click ARMS it —
+ *  the button reads "Sure?" for a few seconds; a second click within that window actually discards. It
+ *  auto-disarms on the timer so a stray arm never lingers. */
+export function armDiscard(): void {
+  if (bp.discardTimer) clearTimeout(bp.discardTimer);
+  bp.discardArm = true;
+  bp.discardTimer = window.setTimeout(() => { bp.discardArm = false; bp.discardTimer = 0; render(); }, 3500);
+  render();
+}
+export function disarmDiscard(): void {
+  if (bp.discardTimer) { clearTimeout(bp.discardTimer); bp.discardTimer = 0; }
+  bp.discardArm = false;
+}
 
 /** EXISTING containers the plan structurally touches (resize/rename/move/delete) — the shared cells
  *  whose blast radius the preview checks. Returns {id, rid} so the shell can address a businessId-less

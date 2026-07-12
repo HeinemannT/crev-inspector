@@ -26,6 +26,9 @@ export interface BpState {
   blast: { fanout: InstanceFanout | null; blast: ContainerBlast | null } | null; // preview blast radius (async, best-effort)
   blastSeq: number;             // bumped per openApplyPreview; a late blast reply for an older seq is dropped
   blastPending: boolean;        // an impact (blast-radius) probe is in flight for the open preview — Confirm waits for it so a shared-master warning can't be skipped by a fast click
+  discardArm: boolean;          // Discard button armed ("Sure?"): first click arms, second discards; auto-disarms after a few seconds
+  discardTimer: number;         // setTimeout id auto-disarming Discard (0 = none)
+  actionMenuOpen: boolean;      // the canvas-top-right action-menu dropdown is expanded (collapsed by default, like BMP's own Actions button, so it never covers the canvas until opened)
   picker: string | null;        // containerId/compositeId/tabId the add picker is open for
   pickerOpts: { afterId?: string; cols?: number; at?: { x: number; y: number } } | null; // positional insert (after a sibling, sized to a gap) + the click point to anchor the picker popup at
   // Flow editing: the add picker for a FLOW container (an InputSet/EditPage/ButtonGroup referenced by a
@@ -97,7 +100,7 @@ export interface BpState {
 function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
-    layer: null, selectedId: null, applying: false, preview: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, picker: null, pickerOpts: null,
+    layer: null, selectedId: null, applying: false, preview: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, discardArm: false, discardTimer: 0, actionMenuOpen: false, picker: null, pickerOpts: null,
     flowPicker: null, flowRefList: null, flowRefChildren: new Map(), flowRefChildrenPending: new Set(), flowFolds: new Set(), trayCardsOpen: new Set(),
     movePicker: null, tabMenu: null, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
@@ -128,6 +131,8 @@ export function resetModel(): void {
   // otherwise leave "Applying…" stuck and Apply/Discard disabled on the fresh page — M5. Clearing it
   // here, the single reload chokepoint, also dismisses a preview modal orphaned by the reload.
   bp.applying = false; bp.preview = null; bp.previewScript = ''; bp.blast = null; bp.blastPending = false;
+  if (bp.discardTimer) { clearTimeout(bp.discardTimer); bp.discardTimer = 0; }
+  bp.discardArm = false;
   // flow view state is page-scoped: fold state / open cards / picker all refer to the old page's ids
   // (pitfall 10 — temp `new:` ids must not survive a reload; staged edits live in the model itself)
   bp.flowPicker = null; bp.flowRefList = null; bp.flowFolds = new Set(); bp.trayCardsOpen = new Set();

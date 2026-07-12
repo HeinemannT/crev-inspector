@@ -30,10 +30,10 @@ function hexInk(hex: string): string {
   const r = parseInt(v.slice(0, 2), 16), g = parseInt(v.slice(2, 4), 16), b = parseInt(v.slice(4, 6), 16);
   return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#1c1b16' : '#fff';
 }
-import { ICON_PLUS, ICON_LIGHTNING, ICON_ARROW_RIGHT, ICON_PENCIL } from '../lib/icons';
+import { ICON_PLUS, ICON_LIGHTNING, ICON_ARROW_RIGHT, ICON_PENCIL, ICON_TABS, ICON_LAYOUT, ICON_TRAY, ICON_ARROW_UNDO } from '../lib/icons';
 import { setIcon } from './geometry';
 import { bp } from './state';
-import { openFlowPicker, toggleFlowFold, toggleTrayCard, setActionButtonFlag, openPicker, cancelFlowAdd, stageNewRef, openWireExisting, doUnwire, beginRename } from './actions';
+import { openFlowPicker, toggleFlowFold, toggleTrayCard, toggleActionMenu, setActionButtonFlag, openPicker, cancelFlowAdd, stageNewRef, openWireExisting, doUnwire, beginRename } from './actions';
 import { armFlowRow } from './gestures';
 
 /** mousedown handler that suppresses the drag-start / focus-steal (these controls sit inside a draggable
@@ -41,6 +41,15 @@ import { armFlowRow } from './gestures';
  *  through here — the single choke point for the stopPropagation + preventDefault pair. */
 function onTap(el: HTMLElement, fn: (e: MouseEvent) => void): void {
   el.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); fn(e); });
+}
+
+/** A compact icon control (scope / placement) for a tray card or action band. `active` tints it on.
+ *  Icon + tooltip only — no text label (keeps the card from wrapping). */
+function iconCtl(icon: string, title: string, active: boolean, fn: (e: MouseEvent) => void): HTMLButtonElement {
+  const b = document.createElement('button'); b.className = 'bp-fic' + (active ? ' on' : '');
+  setIcon(b, icon); b.title = title;
+  onTap(b, fn);
+  return b;
 }
 
 /** A small rename pencil for a flow object (row / reference band / staged-new container). Reuses the
@@ -182,17 +191,13 @@ function actionBand(p: FlowProjection, staged: boolean | undefined): HTMLElement
   return band;
 }
 
-/** The two-way Placement control: In grid | Action bar — stages `displayOnActionMenu`. */
+/** The two-way Placement control (icons): grid | action menu — stages `displayOnActionMenu`. */
 function placementControl(buttonId: string, onMenu: boolean): HTMLElement {
-  const seg = document.createElement('span'); seg.className = 'bp-fseg';
-  for (const [label, val] of [['In grid', false], ['Action bar', true]] as const) {
-    const b = document.createElement('button');
-    b.className = val === onMenu ? 'on' : '';
-    b.textContent = label;
-    b.title = val ? 'Move this button to the page action menu (stages displayOnActionMenu)' : 'Render this button as a grid widget (stages displayOnActionMenu off)';
-    onTap(b, () => { if (val !== onMenu) setActionButtonFlag(buttonId, 'displayOnActionMenu', val); });
-    seg.appendChild(b);
-  }
+  const seg = document.createElement('span'); seg.className = 'bp-ficseg';
+  seg.append(
+    iconCtl(ICON_LAYOUT, 'Render as a widget in the canvas grid', !onMenu, () => { if (onMenu) setActionButtonFlag(buttonId, 'displayOnActionMenu', false); }),
+    iconCtl(ICON_TRAY, 'Move to the page action menu (top-right)', onMenu, () => { if (!onMenu) setActionButtonFlag(buttonId, 'displayOnActionMenu', true); }),
+  );
   return seg;
 }
 
@@ -341,20 +346,26 @@ function trayCard(m: LModel, p: FlowProjection, leaving = false): HTMLElement {
   const bt = document.createElement('span'); bt.className = 'bt';
   bt.textContent = nameOfButton(m, p) ?? 'Action button';
   l1.appendChild(bt);
+  // Right-aligned icon controls: scope (this tab / all tabs) + placement (move to grid). Icons + tooltips
+  // only, so a long button name can't wrap the card. Staged/leaving cards show their state tag instead.
+  const ctl = document.createElement('span'); ctl.className = 'bp-acard-ctl';
   if (staged) {
-    const tag = document.createElement('span'); tag.className = 'bp-ftag new'; tag.textContent = 'NEW'; l1.appendChild(tag);
+    const tag = document.createElement('span'); tag.className = 'bp-ftag new'; tag.textContent = 'NEW'; ctl.appendChild(tag);
   } else if (leaving) {
     const tag = document.createElement('span'); tag.className = 'bp-ftag mv'; tag.textContent = 'TO GRID';
     tag.title = 'Staged: on Apply this button renders in the grid instead of the action menu.';
-    l1.appendChild(tag);
+    ctl.append(tag, iconCtl(ICON_ARROW_UNDO, 'Keep in the action menu (cancel the move to grid)', false,
+      () => setActionButtonFlag(p.ownerId, 'displayOnActionMenu', true)));
   } else {
     const allTabs = m.flowEdits?.[p.ownerId]?.displayOnAllTabs ?? p.displayOnAllTabs ?? false;
-    const scope = document.createElement('button'); scope.className = 'scope' + (allTabs ? ' on' : '');
-    scope.textContent = allTabs ? 'ALL TABS' : 'THIS TAB';
-    scope.title = allTabs ? 'Shown on every tab. Click to stage: this tab only (displayOnAllTabs off).' : 'Shown on its own tab. Click to stage: show on all tabs.';
-    onTap(scope, () => setActionButtonFlag(p.ownerId, 'displayOnAllTabs', !allTabs));
-    l1.appendChild(scope);
+    ctl.append(
+      iconCtl(ICON_TABS, allTabs ? 'Shown on every tab — click to limit to this tab only' : 'Shown on this tab only — click to show on every tab', allTabs,
+        () => setActionButtonFlag(p.ownerId, 'displayOnAllTabs', !allTabs)),
+      iconCtl(ICON_LAYOUT, 'Move to the canvas grid instead of the action menu', false,
+        () => setActionButtonFlag(p.ownerId, 'displayOnActionMenu', false)),
+    );
   }
+  l1.appendChild(ctl);
   card.appendChild(l1);
 
   const l2 = document.createElement('div'); l2.className = 'l2';
@@ -369,17 +380,6 @@ function trayCard(m: LModel, p: FlowProjection, leaving = false): HTMLElement {
     l2.appendChild(chev);
   }
   card.appendChild(l2);
-
-  if (!staged) {
-    // Placement moves both ways: the tray card offers the road back to the grid (and the undo of it).
-    const back = document.createElement('button'); back.className = 'bp-agrid';
-    back.textContent = leaving ? 'keep in menu' : 'to grid';
-    back.title = leaving
-      ? 'Cancel the staged move — keep this button in the action menu'
-      : 'Render this button as a grid widget instead (stages displayOnActionMenu off)';
-    onTap(back, () => setActionButtonFlag(p.ownerId, 'displayOnActionMenu', leaving));
-    l1.appendChild(back);
-  }
 
   if (open && p.kind === 'action' && p.transports?.length) {
     const trans = document.createElement('div'); trans.className = 'bp-atrans';
@@ -409,8 +409,10 @@ function nameOfButton(m: LModel, p: FlowProjection): string | undefined {
   return p.ownerName ?? p.refName;
 }
 
-/** The action-menu tray for the viewed tab (page-top right). Cards for the tab's menu buttons +
- *  all-tabs ones, an honest count note for the rest, staged NEW buttons, and the "Add action" card. */
+/** The action-menu affordance at the canvas top-right — a COLLAPSED trigger button (mirrors BMP's own
+ *  top-right "Actions" button) that expands the card list on demand. The outer container is transparent +
+ *  click-through (pointer-events:none); only the trigger and the expanded panel are opaque, so a collapsed
+ *  menu never covers or blocks the canvas beneath it. */
 export function actionTray(m: LModel, viewedTabId: string | null): HTMLElement {
   const { shown, otherTabs } = trayButtons(m, viewedTabId);
   // staged page-level adds (temp-key flowEdits whose single add is an ActionButton) render as NEW cards
@@ -420,15 +422,29 @@ export function actionTray(m: LModel, viewedTabId: string | null): HTMLElement {
       stagedCards.push({ ownerId: key, ownerClass: 'ActionButton', kind: 'plain', children: [], refName: e.adds![0].name });
     }
   }
-  const tray = document.createElement('div'); tray.className = 'bp-amenu';
-  const head = document.createElement('div'); head.className = 'bp-amenu-head';
-  const t = document.createElement('span'); t.className = 't'; t.textContent = 'ACTION MENU';
-  const tabName = m.tabs.find(x => x.id === viewedTabId)?.name ?? 'This page';
   const count = shown.length + stagedCards.length;
-  const n = document.createElement('span'); n.className = 'n';
-  n.textContent = `${tabName} · ${count} button${count === 1 ? '' : 's'}` + (otherTabs ? ` (${otherTabs} on other tabs)` : '');
-  head.append(t, n);
-  tray.appendChild(head);
+  const open = bp.actionMenuOpen;
+
+  const wrap = document.createElement('div'); wrap.className = 'bp-amenu';
+  // Trigger — the compact pill; click to expand/collapse. Icon + label + count + chevron.
+  const trigger = document.createElement('button'); trigger.className = 'bp-amenu-trigger' + (open ? ' open' : '');
+  const ti = document.createElement('span'); ti.className = 'ti'; setIcon(ti, ICON_LIGHTNING);
+  const tl = document.createElement('span'); tl.className = 'tl'; tl.textContent = 'Action menu';
+  const tn = document.createElement('span'); tn.className = 'tn'; tn.textContent = String(count);
+  const tc = document.createElement('span'); tc.className = 'tc'; tc.textContent = open ? '▴' : '▾';
+  trigger.append(ti, tl, tn, tc);
+  trigger.title = open ? 'Hide the action menu' : 'Show the page action menu — the buttons BMP renders top-right';
+  onTap(trigger, () => toggleActionMenu());
+  wrap.appendChild(trigger);
+  if (!open) return wrap;
+
+  const panel = document.createElement('div'); panel.className = 'bp-amenu-panel';
+  if (otherTabs) {
+    const note = document.createElement('div'); note.className = 'bp-amenu-note';
+    const tabName = m.tabs.find(x => x.id === viewedTabId)?.name ?? 'this page';
+    note.textContent = `${tabName} · ${otherTabs} more on other tab${otherTabs === 1 ? '' : 's'}`;
+    panel.appendChild(note);
+  }
   const cards = document.createElement('div'); cards.className = 'bp-acards';
   for (const e of shown) cards.appendChild(trayCard(m, e.p, e.leaving));
   for (const p of stagedCards) cards.appendChild(trayCard(m, p));
@@ -440,6 +456,7 @@ export function actionTray(m: LModel, viewedTabId: string | null): HTMLElement {
   // (the fixture convention), else the viewed tab itself.
   onTap(add, (e) => openFlowPicker(viewedTabId ?? 'RESULT', 'ActionButton', { at: { x: e.clientX, y: e.clientY }, isAction: true }));
   cards.appendChild(add);
-  tray.appendChild(cards);
-  return tray;
+  panel.appendChild(cards);
+  wrap.appendChild(panel);
+  return wrap;
 }

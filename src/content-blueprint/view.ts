@@ -182,9 +182,6 @@ export function render(): void {
   main.append(renderChip(ctx, pending), tabBar(base, m, liveId, viewedId));
   header.append(modeSwitch(), main);
   if (bp.mode === 'style') header.appendChild(paintStation()); // the paintbrush 2×2, right of the bar
-  // The action-menu tray — page-top right, layout mode. Rendered whenever the page carries flow
-  // projections (the tray also hosts "Add action" for staging new menu buttons on such pages).
-  if (bp.mode === 'layout' && m.flows && Object.keys(m.flows).length) header.appendChild(actionTray(m, viewedId));
   layer.appendChild(header);
 
   // The result canvas IS the editor: the edited model laid out as a CSS-grid wireframe (final positions,
@@ -194,6 +191,7 @@ export function render(): void {
   if (renderResult(base, m, byRid, layer, viewedId)) {
     bp.resultMode = true;
     renderFloatingChrome(byRid, m);
+    mountActionTray(layer, m, viewedId); // floats at the canvas top-right (mirrors BMP's action menu), if the page has flows
     if (oldRects) flipFrom(layer, oldRects); // animate moved/reordered cells to their new positions
     ensureScrollRoom(layer.querySelector('.bp-result')); // let the page scroll to a panel taller than BMP's content
     return;
@@ -201,6 +199,21 @@ export function render(): void {
   bp.resultMode = false;
   renderEmptyCanvas(layer);
   renderFloatingChrome(byRid, m);
+}
+
+const TRAY_W = 320;
+/** Float the action-menu tray at the canvas's TOP-RIGHT (document space, so it scrolls with the canvas) —
+ *  mirroring where BMP renders its own action menu, instead of cramming it into the top command bar. It's
+ *  absolute (never shifts the grid), high z-index with a solid panel bg (nothing bleeds through under it),
+ *  and pinned inside the canvas's right edge. Skipped on a synthetic frame (no cached anchor). */
+function mountActionTray(layer: HTMLElement, m: LModel, viewedId: string | null): void {
+  if (bp.mode !== 'layout' || !m.flows || !Object.keys(m.flows).length) return;
+  const a = bp.resultAnchor;
+  if (!a) return;
+  const tray = actionTray(m, viewedId);
+  const left = Math.max(a.left, a.left + a.width - TRAY_W - 12);
+  Object.assign(tray.style, { top: `${a.docTop + 12}px`, left: `${left}px`, width: `${TRAY_W}px` });
+  layer.appendChild(tray);
 }
 
 /** Shown when the result canvas has nothing to render — the loaded model has NO TABS at all (a page
