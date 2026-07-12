@@ -20,6 +20,13 @@ export const LAYOUT_SEP = '<<<CREV_LAYOUT>>>'; // layout tree — one node per m
 export const CTX_MARKER = '<<<CREV_CTX>>>';    // page-context probe line (resolvePageContext)
 export const OVER_MARKER = '<<<CREV_OVER>>>';  // F2 per-widget override flags `bid|prop,…` (parseOverrides)
 export const STYLE_MARKER = '<<<CREV_STY>>>';  // G3 per-widget styling `bid|hcBid|fcBid|shadow|headerStyle|borderStyle|transparency` (parseStyles)
+// Flow projection (blueprint flow editing) — four channels, each one flow-widget or flow-row per line,
+// every free-text field placed LAST (see parseFlows in sync.ts). buildFetchEc emits them inside the org loop.
+export const FLOW_REF_MARKER = '<<<CREV_FREF>>>';   // one per flow widget: owner|ownerRid|ownerClass|kind|refId|refRid|refClass|createMode|actionType|dOAM|dOAT|container|<refName>
+export const FLOW_META_MARKER = '<<<CREV_FMET>>>';  // owner|field|<value> — objectType / destExpr / addItem / navExpr (free text last)
+export const FLOW_CHILD_MARKER = '<<<CREV_FCHD>>>'; // owner|parentChildBid|childBid|childRid|childClass|required|isBreak|dotsCsv|<childName>
+export const FLOW_CPROP_MARKER = '<<<CREV_FCPR>>>'; // owner|childBid|<propCaption> (free text last)
+export const FLOW_TR_MARKER = '<<<CREV_FTR>>>';     // owner|codeSet|trClass|<transportName>
 
 const numOrUndef = (v: string | undefined): number | undefined => (v && /^-?\d+$/.test(v) ? parseInt(v, 10) : undefined);
 

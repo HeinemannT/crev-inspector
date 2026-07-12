@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Blueprint — flow editing · v6 FINAL</title>
+<style>
+  :root{
+    --ground:#ffffff; --line1:#002147; --line2:#94a3b8; --line3:#d6dde6; --hair:#eaeef4;
+    --grid:rgba(148,163,184,.05); --grid2:rgba(148,163,184,.16);
+    --cyan:#4a90d9; --cyanhi:#1565c0; --text:#002147; --muted:#5b6472; --faint:#93a0b0;
+    --amber:#d97706; --green:#16a34a;
+    --shadow:0 1px 2px 0 rgba(0,33,71,.10);
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,monospace;
+    --c-shell:#1f8bff; --c-def:#4589ff; --c-field:#78a9ff; --c-acb:#0f62fe;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{font:13px/1.5 Inter,system-ui,sans-serif;color:var(--text);background:#eef1f5;padding:48px 56px 120px;max-width:1360px;margin:0 auto}
+  h1{font-size:20px;font-weight:600;letter-spacing:-.01em}
+  .sub{color:var(--muted);max-width:880px;margin:8px 0 18px;font-size:13px}
+  .sub b,.cap b{color:var(--text);font-weight:600}
+  code{font:11px var(--mono);background:rgba(0,33,71,.055);padding:1px 5px;border-radius:3px}
+  h2{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:52px 0 14px}
+  .cap{font-size:12.5px;color:var(--muted);margin-top:14px;max-width:880px}
+  svg{display:block}
+
+  .canvas{background:var(--ground);
+    background-image:linear-gradient(var(--grid2) 1px,transparent 1px),linear-gradient(90deg,var(--grid2) 1px,transparent 1px),
+      linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+    background-size:40px 40px,40px 40px,10px 10px,10px 10px;
+    padding:32px 36px 40px;border:1px solid #dde4ec;box-shadow:var(--shadow)}
+  .pagebar{display:flex;align-items:flex-start;gap:10px;margin-bottom:26px}
+  .ptab{height:28px;display:flex;align-items:center;padding:0 15px;border:1px solid var(--line3);border-radius:2px;color:var(--faint);font:500 12px Inter,sans-serif;background:rgba(255,255,255,.75)}
+  .ptab.on{color:var(--muted);border-color:var(--line2);box-shadow:inset 0 -2px 0 var(--line2)}
+  .pagebar .sp{flex:1}
+  .rgrid{display:grid;grid-template-columns:repeat(12,1fr);gap:20px;align-items:start}
+
+  /* ═══ badge (lead slot) ═══ */
+  .badge{width:34px;height:17px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:2px;
+    font:700 8.5px var(--mono);letter-spacing:.03em;color:#fff;background:var(--bc,#8d8d8d)}
+  .badge.newb{background:transparent;border:1.5px dashed var(--bc,#8d8d8d);color:var(--bc,#8d8d8d)}
+  .badge.sm{width:30px;height:15px;font-size:7.5px}
+
+  /* ═══ strict row grid: drag 14 · lead 38 · name 1fr · prop 110 · dots 30 ═══ */
+  .row{display:grid;grid-template-columns:14px 38px minmax(0,1fr) 110px 30px;align-items:center;gap:8px;min-height:38px;padding:0 12px 0 8px}
+  .row+.row,.addrow{border-top:1px solid var(--hair)}
+  .row:hover{background:#f5f9fd}
+  .drag{width:14px;display:flex;flex-direction:column;gap:2.5px;align-items:center;opacity:0;cursor:grab}
+  .row:hover .drag,.drag.show{opacity:.9}
+  .drag i{width:3px;height:3px;border-radius:50%;background:var(--line2)}
+  .lead{display:flex;align-items:center}
+  .namecol{display:flex;align-items:center;gap:8px;min-width:0}
+  .rnm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 12.5px Inter,sans-serif;color:var(--text)}
+  .prop{font:500 10px var(--mono);color:var(--muted);display:flex;align-items:center;justify-content:flex-end;gap:6px;overflow:hidden;white-space:nowrap}
+  .req{flex:none;width:6px;height:6px;border-radius:50%;background:var(--amber)}
+  .dots{display:flex;gap:4px;justify-content:flex-end}
+  .dots i{width:7px;height:7px;border-radius:50%;background:var(--cyanhi);font-style:normal}
+  .dots i.empty{background:transparent;border:1px solid var(--line3)}
+  .tag{font:700 8.5px var(--mono);letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:2px;color:#fff}
+  .tag.new{background:var(--green)}
+  .row.stnew{background:rgba(22,163,74,.05);box-shadow:inset 2.5px 0 0 var(--green)}
+  .row.stnew .rnm{color:var(--green)}
+  .row.brk .rnm{color:var(--faint)}
+  .row.brk{min-height:30px}
+  .addrow{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 14px;color:var(--faint);font:600 11.5px Inter,sans-serif;cursor:pointer}
+  .addrow:hover{color:var(--cyanhi);background:rgba(74,144,217,.05)}
+  .addrow svg{width:11px;height:11px}
+  .nest{margin:0 14px 10px 44px;border:1px solid var(--line3);border-radius:2px;background:rgba(0,33,71,.015)}
+  .nest .row{min-height:34px}
+  .nest .row:first-child{border-top:0}
+
+  /* ═══ cell ═══ */
+  .cell{display:flex;flex-direction:column;border:1.5px solid var(--line1);background:#fff;box-shadow:var(--shadow);overflow:hidden}
+  .lab{display:flex;align-items:center;gap:9px;min-width:0;padding:11px 14px 10px;border-bottom:1px solid var(--line3)}
+  .nm{font:600 13.5px/1.2 Inter,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wd{margin-left:auto;font:500 8.5px var(--mono);color:var(--faint);flex:none}
+  .band{display:flex;align-items:center;gap:8px;padding:8px 14px;background:rgba(0,33,71,.028);border-bottom:1px solid var(--hair);font:500 11px Inter,sans-serif;color:var(--muted)}
+  .band .mono{font:500 10px var(--mono);color:var(--text)}
+  .band .aic{flex:none;width:10px;height:10px;color:var(--faint)}
+  .band .aic svg{width:100%;height:100%}
+  .band .end{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .band .shared{font:600 7.5px var(--mono);letter-spacing:.08em;color:var(--faint);border:1px solid var(--line3);border-radius:2px;padding:2px 7px;background:#fff}
+  .band .fold{flex:none;font-size:9px;color:var(--faint);cursor:pointer}
+
+  /* ═══ action menu ═══ */
+  .amenu{width:352px}
+  .amenu-head{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+  .amenu-head .t{font:700 9px var(--mono);letter-spacing:.12em;color:var(--faint)}
+  .amenu-head .n{margin-left:auto;font:500 10px Inter,sans-serif;color:var(--faint)}
+  .acards{display:flex;flex-direction:column;gap:6px}
+  .acard{position:relative;display:flex;flex-direction:column;gap:3px;padding:9px 12px 9px 26px;border:1px solid var(--line3);border-radius:2px;background:#fff;box-shadow:var(--shadow)}
+  .acard:hover{border-color:var(--cyan)}
+  .acard .drag{position:absolute;left:8px;top:14px}
+  .acard .l1{display:flex;align-items:center;gap:8px;min-width:0}
+  .acard .bt{font:600 12.5px Inter,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .acard .scope{margin-left:auto;flex:none;font:600 7.5px var(--mono);letter-spacing:.08em;color:var(--faint);border:1px solid var(--line3);border-radius:2px;padding:2px 6px}
+  .acard .l2{display:flex;align-items:center;gap:7px;min-width:0;color:var(--muted);font:500 11px Inter,sans-serif}
+  .acard .l2 .vic{flex:none;width:11px;height:11px;color:var(--faint)}
+  .acard .l2 .vic svg{width:100%;height:100%}
+  .acard .l2 .d{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .acard .l2 .d b{font-weight:600;color:var(--text)}
+  .acard .l2 .d .m{font:500 10px var(--mono)}
+  .acard .l2 .chev{margin-left:auto;font-size:9px;color:var(--faint);cursor:pointer}
+  .acard.stnew{border:1.5px dashed var(--green)}
+  .acard.stnew .bt{color:var(--green)}
+  .trans{margin-top:6px;border-top:1px solid var(--hair);padding-top:2px}
+  .trow{display:flex;align-items:center;gap:8px;min-height:26px;font:500 11px Inter,sans-serif;color:var(--muted)}
+  .trow .badge{opacity:.85}
+  .addcard{display:flex;align-items:center;justify-content:center;gap:7px;min-height:30px;border:1px dashed var(--line2);border-radius:2px;color:var(--faint);font:600 11px Inter,sans-serif;cursor:pointer}
+  .addcard:hover{border-color:var(--cyan);color:var(--cyanhi)}
+  .addcard svg{width:11px;height:11px}
+
+  .dec{max-width:880px}
+  .d1{display:flex;gap:12px;padding:11px 0;border-top:1px solid var(--line3);font-size:12.5px;color:var(--muted)}
+  .d1::before{content:"✓";flex:none;font:700 11px var(--mono);color:var(--green);margin-top:1px}
+  .d1 b{color:var(--text)}
+</style>
+</head>
+<body>
+
+<h1>Blueprint — flow editing <span style="color:var(--faint);font-weight:500">v6 · FINAL for build</span></h1>
+<div class="sub">
+  Locked: <b>badge lead, neutral rest</b>. Blue EC dots (hover explains), no ec/html chips — code editing stays in
+  Inspect/sidebar. ACTION cards expand their transports <b>inline</b>. The tray shows only the viewed tab's buttons
+  (+ all-tabs ones). Flow cells default <b>expanded</b>, folding on the reference band.
+</div>
+
+<h2>1 — The canvas</h2>
+<div class="canvas">
+  <div class="pagebar">
+    <span class="ptab on">Overview</span>
+    <span class="ptab">Assessment</span>
+    <span class="sp"></span>
+
+    <div class="amenu">
+      <div class="amenu-head">
+        <span class="t">ACTION MENU</span>
+        <span class="n">Overview · 4 buttons (1 on other tabs)</span>
+      </div>
+      <div class="acards">
+        <!-- ACTION, expanded inline -->
+        <div class="acard">
+          <span class="drag show"><i></i><i></i><i></i></span>
+          <div class="l1"><span class="badge" style="--bc:var(--c-acb)">ACB</span><span class="bt">Button Text</span><span class="scope">ALL TABS</span></div>
+          <div class="l2">
+            <span class="vic"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M215.79 118.17a8 8 0 0 0-5-5.66L153.18 90.9l14.66-73.33a8 8 0 0 0-13.69-7l-112 120a8 8 0 0 0 3 13l57.63 21.61l-14.62 73.25a8 8 0 0 0 13.69 7l112-120a8 8 0 0 0 1.94-7.26Z"/></svg></span>
+            <span class="d">Runs <b>Action group</b> · 8 transports</span>
+            <span class="chev">▴</span>
+          </div>
+          <div class="trans">
+            <div class="trow"><span class="badge sm" style="--bc:#8d8d8d">AFT</span> Activate form</div>
+            <div class="trow"><span class="badge sm" style="--bc:#8d8d8d">SMT</span> Send e-mail</div>
+            <div class="trow"><span class="badge sm" style="--bc:#8d8d8d">RRT</span> Run report</div>
+            <div class="trow"><span class="badge sm" style="--bc:#8d8d8d">SOA</span> Run web service</div>
+            <div class="trow"><span class="badge sm" style="--bc:#8d8d8d">FIL</span> Save file on shared host</div>
+            <div class="trow"><span class="badge sm" style="--bc:#8d8d8d">AOT</span> Add object</div>
+            <div class="trow"><span class="badge sm" style="--bc:#8d8d8d">CPT</span> Update object property</div>
+            <div class="trow"><span class="badge sm" style="--bc:#8d8d8d">EXT</span> Extended action <span class="dots" style="margin-left:auto"><i title="expression set"></i></span></div>
+          </div>
+        </div>
+        <div class="acard">
+          <span class="drag"><i></i><i></i><i></i></span>
+          <div class="l1"><span class="badge" style="--bc:var(--c-acb)">ACB</span><span class="bt">Button Text</span><span class="scope">ALL TABS</span></div>
+          <div class="l2">
+            <span class="vic"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Zm40 112h-32v32a8 8 0 0 1-16 0v-32H88a8 8 0 0 1 0-16h32V88a8 8 0 0 1 16 0v32h32a8 8 0 0 1 0 16Z"/></svg></span>
+            <span class="d">Adds <b>Risk Statement</b> to <span class="m">root.ceRiskAssessment</span></span>
+          </div>
+        </div>
+        <div class="acard">
+          <span class="drag"><i></i><i></i><i></i></span>
+          <div class="l1"><span class="badge" style="--bc:var(--c-acb)">ACB</span><span class="bt">Button Text</span><span class="scope">ALL TABS</span></div>
+          <div class="l2">
+            <span class="vic"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M192 64v104a8 8 0 0 1-16 0V83.31L69.66 189.66a8 8 0 0 1-11.32-11.32L164.69 72H88a8 8 0 0 1 0-16h104a8 8 0 0 1 8 8Z"/></svg></span>
+            <span class="d">Goes to <span class="m">this.object.parent</span></span>
+          </div>
+        </div>
+        <div class="acard stnew">
+          <span class="drag"><i></i><i></i><i></i></span>
+          <div class="l1"><span class="badge newb" style="--bc:var(--c-acb)">ACB</span><span class="bt">Escalate</span><span class="tag new" style="margin-left:auto">NEW</span></div>
+          <div class="l2">
+            <span class="vic"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M215.79 118.17a8 8 0 0 0-5-5.66L153.18 90.9l14.66-73.33a8 8 0 0 0-13.69-7l-112 120a8 8 0 0 0 3 13l57.63 21.61l-14.62 73.25a8 8 0 0 0 13.69 7l112-120a8 8 0 0 0 1.94-7.26Z"/></svg></span>
+            <span class="d">Runs <b>tg_escalation</b> · 2 transports</span>
+          </div>
+        </div>
+        <div class="addcard">
+          <svg viewBox="0 0 256 256" fill="currentColor"><path d="M224 128a8 8 0 0 1-8 8h-80v80a8 8 0 0 1-16 0v-80H40a8 8 0 0 1 0-16h80V40a8 8 0 0 1 16 0v80h80a8 8 0 0 1 8 8Z"/></svg>
+          Add action
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="rgrid">
+    <!-- ═══ InputView ═══ -->
+    <div class="cell" style="grid-column:span 6">
+      <div class="lab">
+        <span class="badge" style="--bc:var(--c-shell)">INV</span>
+        <span class="nm">Input view</span><span class="wd">full</span>
+      </div>
+      <div class="band">
+        <span class="badge" style="--bc:var(--c-def)">INS</span>
+        <span class="mono">Input set</span>
+        <span class="end"><span class="shared">SHARED</span><span class="fold">▾</span></span>
+      </div>
+      <div class="row" style="border-top:0">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">TIN</span></span>
+        <span class="namecol"><span class="rnm">Text input</span></span>
+        <span class="prop"></span>
+        <span class="dots"><i class="empty" title="showExpression empty"></i><i class="empty" title="enableExpression empty"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">NIN</span></span>
+        <span class="namecol"><span class="rnm">Number input</span></span>
+        <span class="prop"></span>
+        <span class="dots"><i class="empty"></i><i class="empty"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">LBL</span></span>
+        <span class="namecol"><span class="rnm">HTML relevant</span></span>
+        <span class="prop">rich</span>
+        <span class="dots"><i title="defaultExpression set (returns HTML)"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">LIN</span></span>
+        <span class="namecol"><span class="rnm">List input</span></span>
+        <span class="prop"></span>
+        <span class="dots"><i class="empty"></i><i class="empty"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">DIN</span></span>
+        <span class="namecol"><span class="rnm">Date input</span></span>
+        <span class="prop"></span>
+        <span class="dots"><i class="empty"></i><i class="empty"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">REF</span></span>
+        <span class="namecol"><span class="rnm">Reference input</span></span>
+        <span class="prop"></span>
+        <span class="dots"><i class="empty"></i><i class="empty"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">BIN</span></span>
+        <span class="namecol"><span class="rnm">Boolean input</span></span>
+        <span class="prop"></span>
+        <span class="dots"><i class="empty"></i><i class="empty"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:#9aa3e8">GRP</span></span>
+        <span class="namecol"><span class="rnm">Button group</span></span>
+        <span class="prop"></span>
+        <span class="dots"></span>
+      </div>
+      <div class="nest">
+        <div class="row">
+          <span class="drag"><i></i><i></i><i></i></span>
+          <span class="lead"><span class="badge" style="--bc:var(--c-field)">BTN</span></span>
+          <span class="namecol"><span class="rnm">Button</span></span>
+          <span class="prop"></span>
+          <span class="dots"><i title="expression set"></i><i class="empty" title="afterExpression empty"></i></span>
+        </div>
+        <div class="addrow">
+          <svg viewBox="0 0 256 256" fill="currentColor"><path d="M224 128a8 8 0 0 1-8 8h-80v80a8 8 0 0 1-16 0v-80H40a8 8 0 0 1 0-16h80V40a8 8 0 0 1 16 0v80h80a8 8 0 0 1 8 8Z"/></svg>
+          Add button
+        </div>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">BTN</span></span>
+        <span class="namecol"><span class="rnm">Button</span></span>
+        <span class="prop"></span>
+        <span class="dots"><i title="expression set"></i><i title="afterExpression set"></i></span>
+      </div>
+      <div class="row stnew">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge newb" style="--bc:var(--c-field)">NIN</span></span>
+        <span class="namecol"><span class="rnm">Severity</span></span>
+        <span class="prop"><span class="tag new">NEW</span></span>
+        <span class="dots"></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:#f5cd47;color:#1c1b16">ACT</span></span>
+        <span class="namecol"><span class="rnm">Action</span></span>
+        <span class="prop"></span>
+        <span class="dots"><i class="empty" title="expression empty"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:#8d8d8d">VAL</span></span>
+        <span class="namecol"><span class="rnm">Validation</span></span>
+        <span class="prop">TRUE</span>
+        <span class="dots"><i title="expression set"></i></span>
+      </div>
+      <div class="addrow">
+        <svg viewBox="0 0 256 256" fill="currentColor"><path d="M224 128a8 8 0 0 1-8 8h-80v80a8 8 0 0 1-16 0v-80H40a8 8 0 0 1 0-16h80V40a8 8 0 0 1 16 0v80h80a8 8 0 0 1 8 8Z"/></svg>
+        Add element
+      </div>
+    </div>
+
+    <!-- ═══ CreateObjectView (EDITORADD) ═══ -->
+    <div class="cell" style="grid-column:span 6">
+      <div class="lab">
+        <span class="badge" style="--bc:var(--c-shell)">COV</span>
+        <span class="nm">Create object widget (Editor Add)</span><span class="wd">full</span>
+      </div>
+      <div class="band">
+        <span class="mono" style="font-weight:600">EDITOR ADD</span>
+        creates <span class="mono">Risk Statement</span>
+        <span class="aic"><svg viewBox="0 0 256 256" fill="currentColor"><path d="m221.66 133.66l-72 72a8 8 0 0 1-11.32-11.32L196.69 136H40a8 8 0 0 1 0-16h156.69l-58.35-58.34a8 8 0 0 1 11.32-11.32l72 72a8 8 0 0 1 0 11.32Z"/></svg></span>
+        <span class="mono">root.ceRiskAssessment</span>
+      </div>
+      <div class="band">
+        <span class="badge" style="--bc:var(--c-def)">EPG</span>
+        <span class="mono">Create Risk Statement</span>
+        <span class="end"><span class="shared">SHARED</span><span class="fold">▾</span></span>
+      </div>
+      <div class="row" style="border-top:0">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">EFD</span></span>
+        <span class="namecol"><span class="rnm">Edit field</span></span>
+        <span class="prop">code</span>
+        <span class="dots"><i class="empty" title="showExpression off"></i><i class="empty" title="enableExpression off"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">EFD</span></span>
+        <span class="namecol"><span class="rnm">Edit field</span></span>
+        <span class="prop">name <span class="req" title="required"></span></span>
+        <span class="dots"><i class="empty"></i><i class="empty"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">EFD</span></span>
+        <span class="namecol"><span class="rnm">Edit field</span></span>
+        <span class="prop">description</span>
+        <span class="dots"><i class="empty"></i><i class="empty"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">EFD</span></span>
+        <span class="namecol"><span class="rnm">Edit field</span></span>
+        <span class="prop">risk_taxonomy</span>
+        <span class="dots"><i class="empty"></i><i class="empty"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">EFD</span></span>
+        <span class="namecol"><span class="rnm">Edit field</span></span>
+        <span class="prop">basel_l1</span>
+        <span class="dots"><i class="empty"></i><i class="empty"></i></span>
+      </div>
+      <div class="row brk">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:#c3ccd8">PBR</span></span>
+        <span class="namecol"><span class="rnm">Page break</span></span>
+        <span class="prop"></span>
+        <span class="dots"></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">EFD</span></span>
+        <span class="namecol"><span class="rnm">Edit field</span></span>
+        <span class="prop">domain_tags</span>
+        <span class="dots"><i class="empty"></i><i class="empty"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">EFD</span></span>
+        <span class="namecol"><span class="rnm">Edit field</span></span>
+        <span class="prop">owner_reference</span>
+        <span class="dots"><i class="empty"></i><i class="empty"></i></span>
+      </div>
+      <div class="row brk">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:#c3ccd8">CBR</span></span>
+        <span class="namecol"><span class="rnm">Column break</span></span>
+        <span class="prop"></span>
+        <span class="dots"></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">INF</span></span>
+        <span class="namecol"><span class="rnm">Information</span></span>
+        <span class="prop"></span>
+        <span class="dots"><i class="empty" title="expression empty"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">EPB</span></span>
+        <span class="namecol"><span class="rnm">Button</span></span>
+        <span class="prop"></span>
+        <span class="dots"><i title="expression set"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:#8d8d8d">VAL</span></span>
+        <span class="namecol"><span class="rnm">Validation</span></span>
+        <span class="prop">TRUE</span>
+        <span class="dots"><i title="expression set"></i></span>
+      </div>
+      <div class="row">
+        <span class="drag"><i></i><i></i><i></i></span>
+        <span class="lead"><span class="badge" style="--bc:var(--c-field)">INF</span></span>
+        <span class="namecol"><span class="rnm">HTML RELEVANT</span></span>
+        <span class="prop"></span>
+        <span class="dots"><i title="expression set (returns HTML)"></i></span>
+      </div>
+      <div class="addrow">
+        <svg viewBox="0 0 256 256" fill="currentColor"><path d="M224 128a8 8 0 0 1-8 8h-80v80a8 8 0 0 1-16 0v-80H40a8 8 0 0 1 0-16h80V40a8 8 0 0 1 16 0v80h80a8 8 0 0 1 8 8Z"/></svg>
+        Add element
+      </div>
+    </div>
+  </div>
+</div>
+<div class="cap">
+  Badge leads, everything else neutral. Blue dots carry code presence (hover names the property and state); editing the code happens
+  in Inspect/sidebar, not here. The ACTION card's transport list expands inline (chevron); transports are read-only rows — their EC
+  edits live in the object pane. The tray header is honest about scope: <i>“Overview · 4 buttons (1 on other tabs)”</i>.
+</div>
+
+<h2>2 — Locked decisions</h2>
+<div class="dec">
+  <div class="d1"><span><b>Row voice:</b> type badge (registry colors) in the lead slot; dashed badge = staged; no other color per row. Registry gains EFD, INF, EPB, VAL, GRP, ACT, PBR, CBR (benefits sidepanel too).</span></div>
+  <div class="d1"><span><b>Strict row grid</b> — drag 14 · lead 38 · name 1fr · prop 110 · dots 30 — identical columns everywhere.</span></div>
+  <div class="d1"><span><b>ACTION buttons</b> expand transports inline; ADD shows item → destination; NAVIGATE shows target expression. Cards lead with buttonText.</span></div>
+  <div class="d1"><span><b>Action tray</b> shows only the viewed tab's buttons + all-tabs ones, with a count note for the rest.</span></div>
+  <div class="d1"><span><b>No property/code editing in Blueprint.</b> New objects born with type + name; EC/HTML editing and propertyMapping configuration belong to Inspect mode (backlogged there).</span></div>
+  <div class="d1"><span><b>Flow cells default expanded</b>, fold via chevron on the reference band.</span></div>
+  <div class="d1"><span><b>Landing folder for new supporting objects</b> (InputSet for a new InputView, EditPage, tabset): the same Category the page's tabset creation already targets — verified: the example scorecard's InputSet + EditPage live in Category <code>50675</code> next to the scorecard, exactly that convention. Reuse the doCreateTabset landing logic.</span></div>
+  <div class="d1"><span><b>Everything compiles into the one Apply plan</b>: <code>_x := parent.add(Type, "Name")</code> with variable capture, <code>moveBefore/moveAfter</code> for reorder, property flips as <code>change()</code>, shared-boundary lint on staged changes behind SHARED references.</span></div>
+</div>
+
+</body>
+</html>

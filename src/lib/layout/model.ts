@@ -9,7 +9,7 @@
  * container bindings.
  */
 import type { LayoutNode as WireNode } from '../types';
-import type { LModel, LNode, NodeKind, NodeStyle } from './types';
+import type { FlowEdit, FlowProjection, LModel, LNode, NodeKind, NodeStyle } from './types';
 import { COMPOSITE_TYPES } from './constraints';
 
 const CHART_CLASSES = /Chart$/;
@@ -88,7 +88,7 @@ export interface ReconstructCtx {
   tabScope?: 'all' | 'withContent';
 }
 
-export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx, overrides?: Map<string, string[]>, styles?: Map<string, NodeStyle>): LModel {
+export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx, overrides?: Map<string, string[]>, styles?: Map<string, NodeStyle>, flows?: Map<string, FlowProjection>): LModel {
   const byRid = new Map<string, WireNode>();
   for (const n of nodes) byRid.set(n.rid, n);
 
@@ -142,6 +142,9 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx, ove
     target: ctx.target ?? 'template',
     hasTemplate: ctx.hasTemplate ?? false,
     ...(ctx.resultOnly ? { resultOnly: true } : {}),
+    // Flow projections ride alongside as a read-only map (never diffed). Empty when the fetch found no
+    // flow-bearing widgets — the model then behaves exactly as before flow editing existed.
+    ...(flows && flows.size ? { flows: Object.fromEntries(flows) } : {}),
   };
 }
 
@@ -171,7 +174,35 @@ export function normalizeModel(m: LModel): LModel {
 // ── tree helpers ───────────────────────────────────────────────────────────
 
 export function cloneModel(m: LModel): LModel {
-  return { ...m, tabs: m.tabs.map(cloneNode) };
+  return {
+    ...m,
+    tabs: m.tabs.map(cloneNode),
+    // `flows` is read-only (never mutated after load), so the projection objects can be shared; the
+    // record is spread so it's a distinct container. `flowEdits` IS mutated per edit, so it's deep-cloned
+    // (structuredClone-free: staged flow state must survive undo/redo without aliasing the baseline).
+    ...(m.flows ? { flows: { ...m.flows } } : {}),
+    ...(m.flowEdits ? { flowEdits: cloneFlowEdits(m.flowEdits) } : {}),
+  };
+}
+
+/** Deep-clone the staged flow-edit map (arrays + nested FlowNode subtrees) so an edit on the working
+ *  model never reaches back into a history snapshot or the baseline. */
+export function cloneFlowEdits(fe: Record<string, FlowEdit>): Record<string, FlowEdit> {
+  const cloneFlowNode = (n: import('./types').FlowNode): import('./types').FlowNode => ({
+    ...n,
+    ...(n.dots ? { dots: n.dots.map(d => ({ ...d })) } : {}),
+    ...(n.children ? { children: n.children.map(cloneFlowNode) } : {}),
+  });
+  const out: Record<string, FlowEdit> = {};
+  for (const [k, e] of Object.entries(fe)) {
+    out[k] = {
+      ...(e.adds ? { adds: e.adds.map(cloneFlowNode) } : {}),
+      ...(e.order ? { order: [...e.order] } : {}),
+      ...(e.displayOnActionMenu !== undefined ? { displayOnActionMenu: e.displayOnActionMenu } : {}),
+      ...(e.displayOnAllTabs !== undefined ? { displayOnAllTabs: e.displayOnAllTabs } : {}),
+    };
+  }
+  return out;
 }
 export function cloneNode(n: LNode): LNode {
   return {

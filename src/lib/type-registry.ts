@@ -70,6 +70,18 @@ const TYPE_COLORS: Record<string, string> = {
   ReferenceInput: '#78a9ff',
   ButtonInput:    '#78a9ff',
   Label:          '#78a9ff',
+  ListInput:      '#78a9ff',
+  // ── Flow-chain elements (blueprint flow editing) ──────────────
+  // InputSet fields + EditPage elements share the field blue; breaks are muted;
+  // Action/Validation ride the grey/gold used elsewhere for logic/passive rows.
+  EditField:           '#78a9ff',
+  EditPageInfo:        '#78a9ff',
+  EditPageButton:      '#78a9ff',
+  ButtonGroup:         '#9aa3e8', // indigo, like Container — it groups buttons
+  Validation:          '#8d8d8d', // grey — a passive guard row
+  EditPageValidation:  '#8d8d8d',
+  EditPageBreak:       '#c3ccd8', // muted — a layout break, quieter voice
+  EditPageColumnBreak: '#c3ccd8',
   // ── Action button — keeps its strong blue ─────────────────────
   ActionButton: '#0f62fe',
 
@@ -203,11 +215,30 @@ const TYPE_ABBREVIATIONS: Record<string, string> = {
   CreateObjectView:    'COV',
   TextElement:         'TXT',
   Label:               'LBL',
+  ListInput:           'LIN',
+  // ── Flow-chain elements (blueprint flow editing) ──
+  EditField:           'EFD',
+  EditPageInfo:        'INF',
+  EditPageButton:      'EPB',
+  ButtonGroup:         'GRP',
+  Validation:          'VAL',
+  EditPageValidation:  'VAL', // shares VAL with Validation by design (both are guard rows)
+  EditPageBreak:       'PBR',
+  EditPageColumnBreak: 'CBR',
   ActionButton:        'ACB',
   Workflow:            'WFL',
   ExtendedCode:        'XCO',
   ExtendedExpression:  'XPR',
   ExtendedTransport:   'XTR',
+  // Transport types (action-menu tray rows — the read-only transport list under an ACTION button)
+  ActivateFormsTransport:  'AFT',
+  SmtpTransport:           'SMT',
+  RunReportTransport:      'RRT',
+  SoapTransport:           'SOA',
+  FileTransport:           'FIL',
+  AddObjectTransport:      'AOT',
+  ChangePropertyTransport: 'CPT',
+  NotificationTransportGroup: 'NTG',
   // ── Expanded coverage (SOB/STS avoid the existing OBJ/STA codes) ──
   StrategicObjective: 'SOB', Kpi: 'KPI', TaskList: 'TSK', CheckList: 'CHK',
   RiskList: 'RKL', IndicatorList: 'INL', Function: 'FUN',

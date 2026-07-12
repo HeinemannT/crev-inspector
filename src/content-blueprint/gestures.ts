@@ -12,8 +12,8 @@ import { resolveGapPlacement } from '../lib/layout/placement';
 import type { LNode } from '../lib/layout/types';
 import { ICON_ARROW_RIGHT } from '../lib/icons';
 import { bp, model } from './state';
-import { mutate, select, setHint, doSwap, doInsert, doMoveInto, brushOnCell } from './actions';
-import { resize, setHeight } from '../lib/layout/edit';
+import { mutate, select, setHint, doSwap, doInsert, doMoveInto, doFlowReorder, brushOnCell } from './actions';
+import { resize, setHeight, insertRelative } from '../lib/layout/edit';
 import { render } from './view';
 
 const isDescendant = (node: LNode, id: string): boolean => node.children.some(c => c.id === id || isDescendant(c, id));
@@ -292,3 +292,82 @@ function endDrag(): void {
 
 const nameOf = (m: ReturnType<typeof model>, id: string): string => (m ? findNode(m, id)?.node.name ?? id : id);
 const cssEsc = (s: string): string => CSS.escape(s);
+
+// ── flow-row drag (reorder within ONE flow parent) ─────────────────────────────
+
+/**
+ * Arm the drag-dots handle of a flow row: a vertical drag among the SAME container's rows
+ * (`[data-flowkey="<key>"]`), with an insertion line above/below the hovered row. No cross-parent
+ * drags — rows of a different key are not targets (plan item 4). On drop:
+ *  - flow container (`grid` false): stages `reorderFlowChild` → moveBefore/moveAfter on Apply;
+ *  - grid composite (`grid` true): the row is an LNode child — `insertRelative` rides the existing
+ *    layout pipeline (diff reorder → ec moveAfter).
+ */
+export function armFlowRow(handle: HTMLElement, row: HTMLElement, key: string, id: string, grid: boolean): void {
+  handle.addEventListener('mousedown', (e) => {
+    e.stopPropagation(); e.preventDefault();
+    if (bp.mode === 'style') return; // style mode doesn't reorder
+    startFlowDrag(e, row, key, id, grid);
+  });
+}
+
+function startFlowDrag(e: MouseEvent, row: HTMLElement, key: string, id: string, grid: boolean): void {
+  const sx = e.clientX, sy = e.clientY;
+  let started = false;
+  // drop target: the row to insert AFTER (null = front). Recomputed on every move.
+  let afterId: string | null | undefined; // undefined = no legal drop yet
+  const rows = (): HTMLElement[] =>
+    [...(bp.layer?.querySelectorAll(`[data-flowkey="${cssEsc(key)}"]`) ?? [])] as HTMLElement[];
+  const mv = (ev: MouseEvent): void => {
+    if (!started) {
+      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < DRAG_THRESHOLD) return;
+      started = true; bp.dragging = true;
+      row.classList.add('bp-dragsrc');
+      setHint('Drag up/down to reorder within this list');
+    }
+    ev.preventDefault();
+    afterId = undefined;
+    if (dropline) dropline.style.display = 'none';
+    // nearest same-key row by vertical midpoint; above its midpoint = insert before it (after its
+    // predecessor), below = insert after it.
+    const list = rows().filter(r => r.dataset.flowid !== id);
+    let best: { el: HTMLElement; before: boolean; dist: number } | null = null;
+    for (const r of list) {
+      const rect = r.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      const dist = Math.abs(ev.clientY - mid);
+      if (!best || dist < best.dist) best = { el: r, before: ev.clientY < mid, dist };
+    }
+    if (!best) return;
+    const r = best.el.getBoundingClientRect();
+    showLine(r, best.before ? 'top' : 'bottom');
+    if (best.before) {
+      // insert before best → after best's predecessor in the filtered list
+      const i = list.indexOf(best.el);
+      afterId = i > 0 ? list[i - 1].dataset.flowid ?? null : null;
+    } else {
+      afterId = best.el.dataset.flowid ?? null;
+    }
+  };
+  const up = (): void => {
+    unbindGesture();
+    row.classList.remove('bp-dragsrc');
+    dropline?.remove(); dropline = null;
+    setHint(null);
+    bp.dragging = false;
+    if (!started || afterId === undefined) { if (started) render(); return; }
+    if (grid) {
+      // layout pipeline: same-parent reorder via insertRelative (before the successor / after afterId)
+      const m = model(); if (!m) return;
+      if (afterId === null) {
+        const first = rows().find(r => r.dataset.flowid !== id)?.dataset.flowid;
+        if (first) mutate(insertRelative(m, id, first, true));
+      } else {
+        mutate(insertRelative(m, id, afterId, false));
+      }
+    } else {
+      doFlowReorder(key, id, afterId);
+    }
+  };
+  bindGesture(mv, up);
+}

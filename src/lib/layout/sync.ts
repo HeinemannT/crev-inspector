@@ -26,13 +26,17 @@
 import { reconstruct, walk, RESULT_TAB_ID } from './model';
 import type { ReconstructCtx } from './model';
 import { diff } from './diff';
+import { flowDiff, flowSignature } from './flow';
 import { compile } from './ec';
 import { validateBusinessId, validateRid } from '../ec-guards';
-import { LAYOUT_SEP, CTX_MARKER, OVER_MARKER, STYLE_MARKER, parseLayoutNodes } from '../layout-wire';
+import { LAYOUT_SEP, CTX_MARKER, OVER_MARKER, STYLE_MARKER,
+  FLOW_REF_MARKER, FLOW_META_MARKER, FLOW_CHILD_MARKER, FLOW_CPROP_MARKER, FLOW_TR_MARKER,
+  parseLayoutNodes } from '../layout-wire';
 import { enumMember } from '../color-util';
+import { normalizeBmpEnum, FLOW_DOT_SLOTS, FLOW_DOT_PROPS } from '../widget-metadata';
 import type { LayoutNode as WireNode } from '../types';
 import { OVERRIDABLE_PROPS } from './types';
-import type { LModel, PlanNote, PlanStep, NodeStyle } from './types';
+import type { LModel, PlanNote, PlanStep, NodeStyle, FlowProjection, FlowNode, FlowKind } from './types';
 
 /** The single I/O capability sync needs: run an EC program, get its log back. Injected so the
  *  service worker can wire it to `bmp-client.executeEc` while tests pass a fake. `commit` selects
@@ -87,6 +91,120 @@ const ecRid = validateRid;
  *  (Verified live: an EnterpriseTemplate's widgets bind to Tabs/Containers under `default_tabset`,
  *  not a dedicated per-page tabset.) */
 export const DEFAULT_TABSET = 'default_tabset';
+
+/** Flow projection (blueprint flow editing): the EC that emits one flow child row. Operates on loop var
+ *  `v` (`_c` for a direct child, `_cc` for a ButtonGroup grandchild), owned by widget-id expr `owner`,
+ *  nested under `parentBid` ("" for a direct child). Code-presence is read through `output(...)` so a
+ *  code-bearing prop is NEVER evaluated (bare `.expression` would RUN it) — only its raw text is
+ *  inspected for emptiness. Every free-text field (name, caption) is emitted LAST on its line. */
+function flowChildEmit(v: string, owner: string, parentBid: string): string[] {
+  return [
+    `          _ck := ${v}.className.whenMissing("")`,
+    `          _cbrk := "0"`,
+    `          IF _ck = "EditPageBreak" THEN _cbrk := "1" ELSE _cbrk := _cbrk ENDIF`,
+    `          IF _ck = "EditPageColumnBreak" THEN _cbrk := "1" ELSE _cbrk := _cbrk ENDIF`,
+    `          _creq := "0"`,
+    `          IF output(${v}.required.whenMissing("")) = "true" THEN _creq := "1" ELSE _creq := _creq ENDIF`,
+    `          _dots := ""`,
+    ...FLOW_DOT_SLOTS.map(s => `          IF output(${v}.${s}.whenMissing("")) <> "" THEN _dots := _dots + "1," ELSE _dots := _dots + "0," ENDIF`),
+    `          _l := _l + "${FLOW_CHILD_MARKER}" + ${owner} + "|" + ${parentBid} + "|" + ${v}.id.whenMissing("") + "|" + ${v}.rid + "|" + _ck + "|" + _creq + "|" + _cbrk + "|" + _dots + "|" + ${v}.name.whenMissing("") + "\\n"`,
+    `          _cap := ""`,
+    `          IF _ck = "EditField" THEN _cap := ${v}.propertyMapping.whenMissing("") ELSE _cap := _cap ENDIF`,
+    `          IF _ck = "Label" THEN IF ${v}.textInputType.whenMissing("") = "RICH" THEN _cap := "rich" ELSE _cap := _cap ENDIF ELSE _cap := _cap ENDIF`,
+    `          IF _cap <> "" THEN _l := _l + "${FLOW_CPROP_MARKER}" + ${owner} + "|" + ${v}.id.whenMissing("") + "|" + _cap + "\\n" ELSE _l := _l ENDIF`,
+  ];
+}
+
+/** Flow projection EC for the current org-loop widget `_w` (already known to be a flow-bearing type).
+ *  Resolves its reference (InputSet/EditPage), verb (createMode/actionType), the reference's ordered
+ *  children (one level of ButtonGroup nesting), and — for an ACTION button — its transports. Appends
+ *  everything to the small per-node accumulator `_l` (chunked flush handles the perf invariant). */
+function buildFlowEmit(): string[] {
+  const owner = '_w.id.whenMissing("")';
+  return [
+    `     _fkind := "plain"`,
+    `     _fref := MISSING`,
+    `     IF _cn = "InputView" THEN`,
+    `          _fref := _w.inputSet`,
+    `          _fkind := "inputset"`,
+    `     ELSE`,
+    `          _fref := _fref`,
+    `     ENDIF`,
+    `     IF _cn = "CreateObjectView" THEN`,
+    `          _fref := _w.editPage`,
+    `          _fkind := "editpage"`,
+    `     ELSE`,
+    `          _fref := _fref`,
+    `     ENDIF`,
+    // BMP validates an ActionType comparison string against the bare member (ACTION/ADD/EDIT/NAVIGATE),
+    // NOT the stringified "ActionType.add" — so compare on the bare member here. (The emitted value below
+    // still stringifies to "ActionType.add"; the parser normalizes it.)
+    `     _atype := _w.actionType.whenMissing("")`,
+    `     IF _cn = "ActionButton" THEN`,
+    `          IF _atype = "ADD" THEN _fkind := "add" ELSE _fkind := _fkind ENDIF`,
+    `          IF _atype = "NAVIGATE" THEN _fkind := "navigate" ELSE _fkind := _fkind ENDIF`,
+    `          IF _atype = "ACTION" THEN _fkind := "action" ELSE _fkind := _fkind ENDIF`,
+    `     ELSE`,
+    `          _fkind := _fkind`,
+    `     ENDIF`,
+    `     _frefId := _fref.id.whenMissing("")`,
+    `     _l := _l + "${FLOW_REF_MARKER}" + ${owner} + "|" + _w.rid + "|" + _cn + "|" + _fkind + "|" + _frefId + "|" + _fref.rid.whenMissing("") + "|" + _fref.className.whenMissing("") + "|" + _w.createMode.whenMissing("") + "|" + _atype + "|" + _w.displayOnActionMenu.whenMissing("") + "|" + _w.displayOnAllTabs.whenMissing("") + "|" + _w.container.id.whenMissing("") + "|" + _fref.name.whenMissing("") + "\\n"`,
+    `     IF _cn = "CreateObjectView" THEN`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|objectType|" + _w.objectType.whenMissing("") + "\\n"`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|destExpr|" + output(_w.parentDestinationExpression.whenMissing("")) + "\\n"`,
+    `     ELSE`,
+    `          _l := _l`,
+    `     ENDIF`,
+    `     IF _fkind = "navigate" THEN`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|navExpr|" + output(_w.expression.whenMissing("")) + "\\n"`,
+    `     ELSE`,
+    `          _l := _l`,
+    `     ENDIF`,
+    `     IF _fkind = "add" THEN`,
+    `          _ai := ""`,
+    `          _w.addableItems.forEach(_a:`,
+    `               IF _ai = "" THEN _ai := _a.name.whenMissing("") ELSE _ai := _ai ENDIF`,
+    `          )`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|addItem|" + _ai + "\\n"`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|destExpr|" + output(_w.parentDestinationExpression.whenMissing("")) + "\\n"`,
+    `     ELSE`,
+    `          _l := _l`,
+    `     ENDIF`,
+    // The button's own name — a MENU button has no layout node (no SEP line), so the tray card's
+    // title must come from the projection.
+    `     IF _cn = "ActionButton" THEN`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|ownerName|" + _w.name.whenMissing("") + "\\n"`,
+    `     ELSE`,
+    `          _l := _l`,
+    `     ENDIF`,
+    `     IF _fkind = "action" THEN`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|actionGroup|" + _w.actionObject.name.whenMissing("") + "\\n"`,
+    `          _w.actionObject.children().forEach(_tr:`,
+    `               _tset := "0"`,
+    `               IF output(_tr.expression.whenMissing("")) <> "" THEN _tset := "1" ELSE _tset := _tset ENDIF`,
+    `               _l := _l + "${FLOW_TR_MARKER}" + ${owner} + "|" + _tset + "|" + _tr.className.whenMissing("") + "|" + _tr.name.whenMissing("") + "\\n"`,
+    `          )`,
+    `     ELSE`,
+    `          _l := _l`,
+    `     ENDIF`,
+    // NOTE the loop var is `_fc` / `_fcc` — NOT `_c`, which is the org loop's chunk accumulator. A
+    // collision there silently clobbered every prior widget's output (caught live 2026-07-11).
+    `     IF _frefId <> "" THEN`,
+    `          _fref.children().forEach(_fc:`,
+    ...flowChildEmit('_fc', owner, '""'),
+    `               IF _fc.className.whenMissing("") = "ButtonGroup" THEN`,
+    `                    _fc.children().forEach(_fcc:`,
+    ...flowChildEmit('_fcc', owner, '_fc.id.whenMissing("")'),
+    `                    )`,
+    `               ELSE`,
+    `                    _l := _l`,
+    `               ENDIF`,
+    `          )`,
+    `     ELSE`,
+    `          _l := _l`,
+    `     ENDIF`,
+  ];
+}
 
 /**
  * Build the merged-fetch EC. Emits, one per line after a `SEP` marker, every layout node in
@@ -143,25 +261,43 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `_c := ""`,
     `_i := 0`,
     `_sc.descendants().forEach(_w:`,
-    `     IF _w.className.whenMissing("") = "ActionButton" AND _w.displayOnActionMenu.whenMissing(false) = true THEN`,
-    `          _c := _c`,
+    `     _cn := _w.className.whenMissing("")`,
+    `     _l := ""`,
+    // An action-menu ActionButton (displayOnActionMenu) is NOT part of the editable GRID — BMP renders it
+    // in the page's action MENU, not a cell — so it gets no SEP widget line (it stays out of the layout
+    // model, like a ghost). But we DO still project its flow below (the tray reads that). Every other
+    // widget (incl. an in-grid ActionButton) emits its normal grid line.
+    `     _isMenuAB := "0"`,
+    `     IF _cn = "ActionButton" THEN`,
+    `          IF _w.displayOnActionMenu.whenMissing(false) = true THEN _isMenuAB := "1" ELSE _isMenuAB := _isMenuAB ENDIF`,
     `     ELSE`,
-    `          _l := "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
+    `          _isMenuAB := _isMenuAB`,
+    `     ENDIF`,
+    `     IF _isMenuAB = "0" THEN`,
+    `          _l := "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _cn + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
     // The override channel only means anything for INSTANCE loads (a template's widgets have no
     // linkedTo, so every check would compare a widget against MISSING and emit nothing). Skipping it
     // for template-target loads drops ~2·|OVERRIDABLE_PROPS| property reads per widget — a real win
     // on heavy pages, where the fetch EC is the slow half of opening the blueprint.
     ...(ctx.target === 'template' ? [] : overEmit),
     ...styleEmit,
-    `          _c := _c + _l`,
-    `          _i := _i + 1`,
-    `          IF _i > 15 THEN`,
-    `               _r := _r + _c`,
-    `               _c := ""`,
-    `               _i := 0`,
-    `          ELSE`,
-    `               _r := _r`,
-    `          ENDIF`,
+    `     ELSE`,
+    `          _l := _l`,
+    `     ENDIF`,
+    // Flow projection for a flow-bearing widget (both in-grid and action-menu). Rides the same _l.
+    `     IF _cn = "InputView" OR _cn = "CreateObjectView" OR _cn = "ActionButton" THEN`,
+    ...buildFlowEmit(),
+    `     ELSE`,
+    `          _l := _l`,
+    `     ENDIF`,
+    `     _c := _c + _l`,
+    `     _i := _i + 1`,
+    `     IF _i > 15 THEN`,
+    `          _r := _r + _c`,
+    `          _c := ""`,
+    `          _i := 0`,
+    `     ELSE`,
+    `          _r := _r`,
     `     ENDIF`,
     `)`,
     `_r := _r + _c`,
@@ -267,6 +403,110 @@ export function parseStyles(log: string): Map<string, NodeStyle> {
     const s3 = bool(shS); if (s3 !== undefined) s.shownOnSmallDisplay = s3;
     if (Object.keys(s).length) map.set(bid, s);
   }
+  return map;
+}
+
+/** First line of a marker block (everything before the first newline), or '' — the shared "one record
+ *  per marker occurrence" reader used by every flow channel below. */
+const firstLine = (block: string): string => (block.split('\n', 1)[0] ?? '').trim();
+
+/** Parse the flow channels (FLOW_REF / FLOW_META / FLOW_CHILD / FLOW_CPROP / FLOW_TR) into a
+ *  businessId → FlowProjection map, keyed by the flow WIDGET's businessId. Each channel rides the same
+ *  fetch log on its own marker (the layout / override / style parsers ignore these lines). `shared` is
+ *  computed AFTER parsing, client-side, from on-page reference counts — cheap and honest; cross-page
+ *  sharing is not probed (rref does not index editPage/inputSet references — verified 2026-07-11). */
+export function parseFlows(log: string): Map<string, FlowProjection> {
+  const map = new Map<string, FlowProjection>();
+  // FLOW_REF — one per flow widget. Fields: owner|ownerRid|ownerClass|kind|refId|refRid|refClass|
+  // createMode|actionType|dOAM|dOAT|container|<refName> (refName last, free text).
+  for (const block of (log || '').split(FLOW_REF_MARKER).slice(1)) {
+    const parts = firstLine(block).split('|');
+    if (parts.length < 12) continue;
+    const [owner, ownerRid, ownerClass, kind, refId, refRid, refClass, createMode, actionType, dOAM, dOAT, container] = parts;
+    if (!owner) continue;
+    const refName = parts.length > 12 ? parts.slice(12).join('|') : '';
+    const proj: FlowProjection = {
+      ownerId: owner, ownerClass: ownerClass || '', kind: (kind || 'plain') as FlowKind,
+      ...(ownerRid ? { ownerRid } : {}),
+      ...(refId ? { refId } : {}), ...(refRid ? { refRid } : {}), ...(refClass ? { refClass } : {}),
+      ...(refName ? { refName } : {}),
+      ...(createMode ? { createMode: normalizeBmpEnum(createMode) } : {}),
+      ...(actionType ? { actionType: normalizeBmpEnum(actionType) } : {}),
+      ...(dOAM ? { displayOnActionMenu: dOAM === 'true' } : {}),
+      ...(dOAT ? { displayOnAllTabs: dOAT === 'true' } : {}),
+      ...(container ? { container } : {}),
+      children: [],
+    };
+    map.set(owner, proj);
+  }
+  // FLOW_META — owner|field|<value> (value last). Fills the free-text config fields.
+  for (const block of (log || '').split(FLOW_META_MARKER).slice(1)) {
+    const parts = firstLine(block).split('|');
+    if (parts.length < 3) continue;
+    const [owner, field] = parts;
+    const value = parts.slice(2).join('|');
+    const p = map.get(owner);
+    if (!p || !value) continue;
+    if (field === 'objectType') p.objectType = value;
+    else if (field === 'destExpr') p.destExpr = value;
+    else if (field === 'addItem') p.addItem = value;
+    else if (field === 'navExpr') p.navExpr = value;
+    else if (field === 'actionGroup') p.actionGroup = value;
+    else if (field === 'ownerName') p.ownerName = value;
+  }
+  // FLOW_CHILD — owner|parentChildBid|childBid|childRid|childClass|required|isBreak|dotsCsv|<name>.
+  // A record with a non-empty parentChildBid nests under the FlowNode of that bid (a ButtonGroup); the
+  // ButtonGroup row is always emitted before its grandchildren, so its node already exists here.
+  const byChildBid = new Map<string, FlowNode>(); // per-owner lookup for nesting (bids are page-unique)
+  for (const block of (log || '').split(FLOW_CHILD_MARKER).slice(1)) {
+    const parts = firstLine(block).split('|');
+    if (parts.length < 9) continue;
+    const [owner, parentBid, childBid, childRid, childClass, req, brk, dotsCsv] = parts;
+    const name = parts.slice(8).join('|');
+    const p = map.get(owner);
+    if (!p || !childBid) continue;
+    const slotBits = (dotsCsv || '').split(',');
+    const dots = (FLOW_DOT_PROPS[childClass] ?? []).map(prop => ({
+      prop, set: slotBits[FLOW_DOT_SLOTS.indexOf(prop)] === '1',
+    }));
+    const node: FlowNode = {
+      id: childBid, className: childClass || '', name: name || childBid,
+      ...(childRid ? { rid: childRid } : {}),
+      ...(req === '1' ? { required: true } : {}),
+      ...(brk === '1' ? { isBreak: true } : {}),
+      ...(dots.length ? { dots } : {}),
+    };
+    byChildBid.set(childBid, node);
+    if (parentBid) {
+      const parent = byChildBid.get(parentBid);
+      (parent ? (parent.children ??= []) : p.children).push(node);
+    } else {
+      p.children.push(node);
+    }
+  }
+  // FLOW_CPROP — owner|childBid|<caption> (caption last).
+  for (const block of (log || '').split(FLOW_CPROP_MARKER).slice(1)) {
+    const parts = firstLine(block).split('|');
+    if (parts.length < 3) continue;
+    const childBid = parts[1];
+    const caption = parts.slice(2).join('|');
+    const node = byChildBid.get(childBid);
+    if (node && caption) node.prop = caption;
+  }
+  // FLOW_TR — owner|codeSet|trClass|<transportName>. Read-only transport rows for an ACTION card.
+  for (const block of (log || '').split(FLOW_TR_MARKER).slice(1)) {
+    const parts = firstLine(block).split('|');
+    if (parts.length < 4) continue;
+    const [owner, codeSet, trClass] = parts;
+    const trName = parts.slice(3).join('|');
+    const p = map.get(owner);
+    if (!p) continue;
+    (p.transports ??= []).push({ className: trClass || '', name: trName || trClass || '', codeSet: codeSet === '1' });
+  }
+  // On-page sharing: a reference used by more than one flow widget on this page is SHARED.
+  const refCount = new Map<string, number>();
+  for (const p of map.values()) if (p.refId) refCount.set(p.refId, (refCount.get(p.refId) ?? 0) + 1);
+  for (const p of map.values()) if (p.refId && (refCount.get(p.refId) ?? 0) > 1) p.shared = true;
   return map;
 }
 
@@ -466,8 +706,9 @@ export async function loadModel(io: LayoutIO, ctx: BlueprintCtx): Promise<LoadRe
   const nodes = parseFetchLog(log);
   const overrides = parseOverrides(log); // F2: per-widget overridden props (instance view → reset arrows)
   const styles = parseStyles(log);       // G3: per-widget current appearance (style mode rendering)
-  const model = reconstruct(nodes, ctx, overrides, styles);
-  const baseline = reconstruct(nodes, ctx, overrides, styles); // independent clone — diff target, never mutated
+  const flows = parseFlows(log);         // flow projections keyed by flow-widget businessId (read-only)
+  const model = reconstruct(nodes, ctx, overrides, styles, flows);
+  const baseline = reconstruct(nodes, ctx, overrides, styles, flows); // independent clone — diff target, never mutated
   return { model, baseline, orphans: findOrphans(nodes, model) };
 }
 
@@ -477,7 +718,11 @@ export async function loadModel(io: LayoutIO, ctx: BlueprintCtx): Promise<LoadRe
  * An empty diff short-circuits to a no-op so the UI can disable Apply when nothing changed.
  */
 export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel, ctx: BlueprintCtx): Promise<ApplyResult> {
-  const plan = diff(baseline, desired);
+  // Layout steps + flow steps join ONE plan → ONE compiled EC program → one commit. flowDiff reads only
+  // `desired.flowEdits` (staged by businessId), so the layout portion is byte-identical with or without
+  // flow data (pitfall #1) and a flow edit staged from two cells compiles once (pitfall #2).
+  const layoutPlan = diff(baseline, desired);
+  const plan = [...layoutPlan, ...flowDiff(baseline, desired)];
   const { script, notes } = compile(plan, desired);
   if (!plan.length || !script) {
     return { ok: true, noop: true, plan, notes, script: '' };
@@ -487,8 +732,9 @@ export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel
   // (our reorders/deletes reference rids that may have moved). Abort and hand back the fresh state.
   // This narrows but can't close the window: a concurrent edit landing between this fetch and the
   // exec below isn't caught — BMP gives us no cross-call transaction, so the check is best-effort.
+  // Flow drift is checked via the projection signature (flow rows live outside the layout diff).
   const live = await loadModel(io, ctx);
-  if (diff(baseline, live.model).length > 0) {
+  if (diff(baseline, live.model).length > 0 || flowSignature(live.model) !== flowSignature(baseline)) {
     return { ok: false, noop: false, stale: true, plan, notes, script, model: live.model, baseline: live.baseline,
       error: 'The page changed since you started editing. Review the refreshed layout and reapply.' };
   }
@@ -502,7 +748,11 @@ export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel
   // the baseline. If it still matches, BMP discarded the transaction and returned ok with no ERROR
   // (the "200 but nothing changed" case). Catch it here rather than letting the UI mark an unchanged
   // page as saved. A reworded/localized rollback message can't slip past this the way a regex could.
-  if (diff(baseline, reloaded.model).length === 0) {
+  // A PURELY-flow apply changes no layout node, so the layout diff alone would misread success as a
+  // rollback — the flow signature covers that half (adds/reorders/flag flips all change it).
+  const layoutLanded = diff(baseline, reloaded.model).length > 0;
+  const flowLanded = flowSignature(reloaded.model) !== flowSignature(baseline);
+  if (!layoutLanded && !flowLanded) {
     return { ok: false, noop: false, plan, notes, script, model: reloaded.model, baseline: reloaded.baseline,
       error: 'BMP discarded the changes. The page is unchanged; reload the page and try again.' };
   }

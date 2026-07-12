@@ -155,6 +155,101 @@ export interface LModel {
   tabsetVirtual?: boolean;
   /** Name for a `tabsetVirtual` tabset ("» New … TabSet"). Only read while tabsetVirtual is true. */
   tabsetName?: string;
+  /** Flow projections, keyed by flow-widget businessId. READ-ONLY (identical in baseline & desired) —
+   *  never diffed, so a model carrying flows diffs byte-identically to one without (pitfall #1). */
+  flows?: Record<string, FlowProjection>;
+  /** Staged flow edits, keyed by the flow object's businessId (pitfall #2 dedupe). The ONLY flow state
+   *  `flowDiff` compares; empty on a freshly-loaded model, so load → diff is a no-op. */
+  flowEdits?: Record<string, FlowEdit>;
+}
+
+// ── Flow projection (blueprint flow editing) ────────────────────────────────────────────────────
+// A flow-bearing widget (InputView / CreateObjectView / ActionButton) drives a chain: the reference
+// it points at (InputSet / EditPage) and that reference's ordered children, plus — for an ActionButton
+// — its action verb and transports. Blueprint projects this READ-ONLY chain inside the widget's cell
+// (and, for action-menu buttons, in the top-right tray).
+//
+// This structure is PARALLEL to `LNode.children` and is NEVER placed in it: `diff.ts` walks children
+// and would emit reparent/reorder garbage for flow rows, and `computeRows`/ghost logic assume layout
+// nodes (pitfall #1). Projections live in `LModel.flows`, keyed by the flow WIDGET's businessId, so two
+// InputViews backed by one InputSet each carry their own projection but resolve to ONE add/reorder
+// target. Staged edits live in `LModel.flowEdits`, keyed by the CONTAINER (InputSet/EditPage/ButtonGroup)
+// or the action button's businessId — so the same InputSet edited from two cells stages once and
+// compiles once (pitfall #2). Neither field participates in the layout diff, so a model that carries
+// flow data diffs byte-identically to one that does not.
+
+export type FlowKind = 'inputset' | 'editpage' | 'action' | 'add' | 'navigate' | 'plain';
+
+/** One code-presence dot on a flow row: a property that MAY carry EC, and whether it is set. No code
+ *  body is ever fetched — only the boolean (pitfall #3). */
+export interface FlowDot { prop: string; set: boolean; }
+
+/** One row in a flow chain — an InputSet field, an EditPage element, or a ButtonGroup child. */
+export interface FlowNode {
+  /** businessId for existing rows, `new:<n>` for staged adds. */
+  id: string;
+  /** BMP rid (string — 64-bit). Threaded so a businessId-less row is addressable by `lookup(rid)`. */
+  rid?: string;
+  className: string;
+  name: string;
+  /** Small right-aligned caption (propertyMapping, 'rich', 'TRUE', …). Rendered as textContent only. */
+  prop?: string;
+  required?: boolean;
+  /** A page/column break — rendered as a quieter row. */
+  isBreak?: boolean;
+  /** Code-presence dots (filled = set, hollow = empty). */
+  dots?: FlowDot[];
+  /** Nested rows (ButtonGroup → ButtonInputs). One level of nesting only (per v6). */
+  children?: FlowNode[];
+}
+
+/** One transport row under an ACTION button's NotificationTransportGroup (read-only). */
+export interface FlowTransport { className: string; name: string; codeSet: boolean; }
+
+/** The projection attached to a flow-bearing widget, keyed by the WIDGET's businessId in `LModel.flows`. */
+export interface FlowProjection {
+  /** the flow widget's businessId (= its key in LModel.flows). */
+  ownerId: string;
+  ownerRid?: string;
+  /** InputView | CreateObjectView | ActionButton. */
+  ownerClass: string;
+  /** The widget's own display name — needed for TRAY cards: a menu button has NO layout node, so the
+   *  projection is its only name source. Emitted for ActionButtons. */
+  ownerName?: string;
+  kind: FlowKind;
+  // reference band (InputSet / EditPage) — the ADD / REORDER container:
+  refId?: string; refRid?: string; refClass?: string; refName?: string;
+  /** true when more than one flow widget on this page references `refId` (on-page sharing — a cheap,
+   *  honest signal; cross-page sharing is not probed, see sync.ts). */
+  shared?: boolean;
+  // config band (CreateObjectView):
+  createMode?: string;   // ADD | EDITORADD | EDITOREDIT (normalized enum)
+  objectType?: string;   // created object display name
+  destExpr?: string;     // parentDestinationExpression text
+  // action button (tray card):
+  actionType?: string;   // ACTION | ADD | NAVIGATE (normalized enum)
+  actionGroup?: string;  // ACTION: the NotificationTransportGroup's display name ("Runs <actionGroup>")
+  transports?: FlowTransport[];
+  addItem?: string;      // ADD button: addable item display name
+  navExpr?: string;      // NAVIGATE button: expression text
+  displayOnActionMenu?: boolean;
+  displayOnAllTabs?: boolean;
+  container?: string;    // tab / RESULT binding (tray tab attribution)
+  /** the reference's ordered children (flat; one level of nesting via FlowNode.children). */
+  children: FlowNode[];
+}
+
+/** A staged edit on ONE flow object, keyed by businessId in `LModel.flowEdits` (pitfall #2 dedupe).
+ *  For an InputSet/EditPage/ButtonGroup key: `adds` + `order`. For an action-button key: the flag flips. */
+export interface FlowEdit {
+  /** Newly-added children (type + name only — no property forms in blueprint). */
+  adds?: FlowNode[];
+  /** Desired full child order (businessIds incl. staged `new:` ids). Absent = unchanged order. */
+  order?: string[];
+  /** Staged displayOnActionMenu flip (in-grid ↔ action bar). */
+  displayOnActionMenu?: boolean;
+  /** Staged displayOnAllTabs flip (tray scope). */
+  displayOnAllTabs?: boolean;
 }
 
 /** One step of an apply plan (the diff between baseline and desired). */
@@ -176,7 +271,25 @@ export type PlanStep =
   // `rid` is threaded so the EC generator can address a businessId-less node by rid (its node lives
   // only in the baseline, so ec.ts can't recover the rid from the desired model). `name` is the
   // baseline display name, threaded for the same reason — the apply log labels the deletion.
-  | { kind: 'delete'; id: string; nodeKind: NodeKind; className: string; rid?: string; name?: string; rehomeTo?: string };
+  | { kind: 'delete'; id: string; nodeKind: NodeKind; className: string; rid?: string; name?: string; rehomeTo?: string }
+  // ── Flow steps (blueprint flow editing) — emitted by flowDiff, kept out of the layout diff so the
+  // layout plan stays byte-identical (pitfall #1). `parentId`/`parentClass` address the composite the
+  // child is added into (`<parent>.add(<Class>, name := …)`). `parentRid` threads the rid for the
+  // lookup() fallback (pitfall #5). A staged-add node carries a temp id; the compiler captures it in a
+  // `_f<k>` var so a later flowReorder can address it.
+  | { kind: 'flowCreate'; node: FlowNode; parentId: string; parentClass: string; parentRid?: string }
+  // reorder within ONE flow parent (moveAfter chain). `afterId` is a real prior sibling (or a just-
+  // created `_f<k>`); `parentId` groups the step for summaries.
+  | { kind: 'flowReorder'; id: string; rid?: string; afterId: string; parentId: string }
+  // action-button flag flip (displayOnActionMenu / displayOnAllTabs). `id` is the button's businessId.
+  | { kind: 'flowFlag'; id: string; rid?: string; className: string; prop: 'displayOnActionMenu' | 'displayOnAllTabs'; value: boolean };
+
+/** The subject node's model id for any plan step — `create`/`flowCreate` carry it on `node`, every
+ *  other kind carries it directly. The one place that knows this shape (call sites used to branch on
+ *  `kind === 'create'` and broke whenever a node-carrying kind was added). */
+export function planStepId(s: PlanStep): string {
+  return s.kind === 'create' || s.kind === 'flowCreate' ? s.node.id : s.id;
+}
 
 export interface PlanNote {
   verb: 'create' | 'update' | 'move' | 'reorder' | 'delete';

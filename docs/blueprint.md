@@ -169,6 +169,48 @@ switch on the left), style mode only. `view-paint.ts` builds it; `bp.brush` hold
   preset paints onto any scorecard in the workspace. All popups + the shared `styleChip` motif use the
   overlay's `.bp-pick` chrome.
 
+## Flow editing (blueprint flow layer)
+
+Flow-bearing widgets — InputView, CreateObjectView, ActionButton, plus composites placed directly in
+the grid (InputSet/ButtonContainer/ButtonGroup) — render their **flow chain inside the result cell**
+(visual contract: `experiments/blueprint-flow.html`, v6 FINAL): a config band (createMode /
+destination / action verb), a reference band (INS/EPG badge + name + SHARED tag + fold chevron), then
+the reference's children as badge-led rows in a strict grid (`drag 14 · lead 38 · name 1fr · prop 110
+· dots 30`). Blue dots carry EC **presence** (booleans only — the fetch never reads code bodies);
+breaks are quiet rows; a nested ButtonGroup is an indented sub-block. **No property/EC editing here**
+— that stays in Inspect (see BUGS.md backlog).
+
+Architecture mirrors the layout split, but as a PARALLEL structure (never in `LNode.children` — the
+layout diff stays byte-identical for flow-less models, regression-tested):
+
+```
+LModel.flows      read-only projections keyed by flow-WIDGET businessId (from the fetch's
+                  FREF/FMET/FCHD/FCPR/FTR wire channels; parseFlows in sync.ts)
+LModel.flowEdits  staged edits keyed by the CONTAINER (InputSet/EditPage/ButtonGroup) or the
+                  button's businessId — the same InputSet edited from two cells stages ONCE
+lib/layout/flow.ts   pure ops (addFlowChild/reorderFlowChild/setActionFlag/addActionButton),
+                     effectiveFlowChildren (render = compile order), flowDiff → flowCreate/
+                     flowReorder/flowFlag PlanSteps, trayButtons, flowSignature
+content-blueprint/result-flow.ts   flowPanel (cell chain) · compositeFlowRows (grid composites,
+                     staging via the EXISTING layout pipeline) · actionTray (header cards)
+```
+
+Flow steps join the ONE apply plan (`applyModel` composes `diff() + flowDiff()`); the compiler emits
+`_ff<k> := <parent>.add(<Type>, name := …)`, `moveAfter` chains, and `change(displayOnActionMenu/
+displayOnAllTabs := …)` — all verbs live-verified on the example-flow fixtures (see constraints.ts
+header; notably ButtonGroup accepts ONLY ButtonInput — ActionButton/MenuButton were refused live).
+The stale + silent-rollback guards compare `flowSignature` alongside the layout diff, so a purely-flow
+apply is neither missed nor misread as a rollback.
+
+The **action-menu tray** (header, top-right) shows the viewed tab's `displayOnActionMenu` buttons +
+`displayOnAllTabs` ones with an honest "(N on other tabs)" note; ACTION cards expand their read-only
+transports inline; ADD/NAVIGATE cards show their verb sentence. Menu buttons are EXCLUDED from the
+grid wire (they're not layout); an in-grid button's Placement control (In grid | Action bar) stages
+the flip both ways — staged-to-menu cells leave the grid like ghosts, staged-to-grid cards stay in
+the tray flagged "TO GRID" until Apply. "Add action" stages a new button born
+`displayOnActionMenu := true` bound to the current tab. SHARED references (two widgets on the page
+pointing at one InputSet/EditPage) warn in the apply preview: changes appear everywhere it is used.
+
 ## Two-model split & context resolution
 
 BMP layout spans two models: the **portal** TabSet → Tab → Container grid, and the **org** model that

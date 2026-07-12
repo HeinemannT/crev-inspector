@@ -112,3 +112,26 @@ describe('addable-widget type-badge coverage', () => {
     expect(typeIcon('BarChart')).toBe(ICON_CHART); // real charts still use the generic chart glyph
   });
 });
+
+// Flow-chain elements (blueprint flow editing) — InputSet fields, EditPage elements, breaks.
+// EditPageValidation deliberately shares the VAL code with Validation (both are guard rows), so this
+// wave does NOT assert code uniqueness.
+const FLOW: [string, string, string][] = [
+  ['EditField', 'EFD', '#78a9ff'], ['EditPageInfo', 'INF', '#78a9ff'], ['EditPageButton', 'EPB', '#78a9ff'],
+  ['ListInput', 'LIN', '#78a9ff'], ['ButtonGroup', 'GRP', '#9aa3e8'],
+  ['Validation', 'VAL', '#8d8d8d'], ['EditPageValidation', 'VAL', '#8d8d8d'],
+  ['EditPageBreak', 'PBR', '#c3ccd8'], ['EditPageColumnBreak', 'CBR', '#c3ccd8'],
+];
+
+describe('flow-chain type-badge coverage', () => {
+  it.each(FLOW)('%s → code %s, colour %s', (type, code, colour) => {
+    expect(getTypeAbbr(type)).toBe(code);
+    expect(getTypeColor(type)).toBe(colour);
+  });
+
+  it('every flow type renders "mapped" — its code, not the OBJ fallback', () => {
+    for (const [type, code] of FLOW) {
+      expect(typeBadge(type).querySelector('.lbl')?.textContent, type).toBe(code);
+    }
+  });
+});

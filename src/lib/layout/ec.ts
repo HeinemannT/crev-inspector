@@ -73,15 +73,27 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
   const refDeleted = (id: string, rid?: string): string =>
     (rid && id === rid) ? `lookup(${ecRid(rid)})` : `t.${ecBid(id)}`;
 
+  /** Flow-step object reference: a staged flow add captured in a `_ff<k>` var, else the businessId
+   *  (or `lookup(rid)` for a businessId-less row — pitfall #5). Flow children live outside the LNode
+   *  tree, so `byId` never has them; they address by businessId directly. */
+  const fref = (id: string, rid?: string): string => {
+    const v = vars.get(id);
+    if (v) return v;
+    if (rid && id === rid) return `lookup(${ecRid(rid)})`;
+    return `t.${ecBid(id)}`;
+  };
+
   const needWidget = plan.some(s => s.kind === 'create' && s.node.kind === 'widget');
   const needTabset = plan.some(s => s.kind === 'create' && s.node.kind === 'tab');
+  // A page-level flow create (a brand-new action-menu button) is added to the scorecard, like a widget.
+  const needFlowSc = plan.some(s => s.kind === 'flowCreate' && s.parentId === '*page*');
 
   // Page root (owns widgets) + tabset (owns tabs) are both reached by business id with `t.<id>`.
   // This is uniform across page types: t.<scorecardId> resolves a Scorecard, t.<templateId> an
   // EnterpriseTemplate — whereas `SELECT EnterpriseTemplate` fails (templates aren't SELECT-able).
   // So we never SELECT the root; `pageClass` is metadata only. (Verified live 2026-06-26.)
   const lines: string[] = [];
-  if (needWidget) lines.push(`_sc := t.${ecBid(m.pageId)}`);
+  if (needWidget || needFlowSc) lines.push(`_sc := t.${ecBid(m.pageId)}`);
   // A STAGED (virtual) tabset has no businessId yet — create it here so it lands in the SAME EC as its
   // tabs (`_ts.add(Tab …)` below), under the portal root and bare (a page's tab strip is the union of the
   // tabs its widgets bind into, so no wrapper Category is needed — verified live). Otherwise reference the
@@ -92,6 +104,7 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
 
   const notes: PlanNote[] = [];
   let k = 0;
+  let fk = 0; // flow-create var counter (`_ff<fk>`) — distinct namespace from layout's `_n<k>`
   const emit = (note: PlanNote) => { lines.push(note.ec!); notes.push(note); };
 
   for (const s of plan) {
@@ -192,6 +205,37 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         emit({ verb: 'delete', id: s.id, text: `Delete ${s.nodeKind} (${s.className})`,
           action: 'Delete', object: s.name ?? s.id, objectType: s.className,
           ec: `${refDeleted(s.id, s.rid)}.delete()` });
+        break;
+      }
+      // ── Flow steps (blueprint flow editing) ───────────────────────────────────────────────────
+      case 'flowCreate': {
+        const v = `_ff${fk++}`;
+        vars.set(s.node.id, v);
+        if (s.parentId === '*page*') {
+          // A new action-menu button: added to the scorecard, born displayOnActionMenu (the flowFlag that
+          // follows sets it). `node.prop` carries the tab/RESULT container binding staged with it.
+          const cont = s.node.prop ? `, container := ${fref(s.node.prop)}` : '';
+          emit({ verb: 'create', id: s.node.id, text: `Add action "${s.node.name}" to the action menu`,
+            action: 'Add', object: s.node.name, objectType: 'ActionButton', where: 'action menu',
+            ec: `${v} := _sc.add(ActionButton, name := ${ecStr(s.node.name)}${cont}) // BMP assigns id` });
+        } else {
+          emit({ verb: 'create', id: s.node.id, text: `Add ${s.node.className} "${s.node.name}" to ${s.parentClass}`,
+            action: 'Add', object: s.node.name, objectType: s.node.className, where: s.parentClass,
+            ec: `${v} := ${fref(s.parentId, s.parentRid)}.add(${ecClass(s.node.className)}, name := ${ecStr(s.node.name)}) // BMP assigns id` });
+        }
+        break;
+      }
+      case 'flowReorder': {
+        emit({ verb: 'reorder', id: s.id, text: `Reorder flow element`,
+          action: 'Reorder', object: s.id, detail: `after ${s.afterId}`,
+          ec: `${fref(s.id, s.rid)}.moveAfter(${fref(s.afterId)})` });
+        break;
+      }
+      case 'flowFlag': {
+        const label = s.prop === 'displayOnActionMenu' ? (s.value ? 'move to action bar' : 'move to grid') : (s.value ? 'show on all tabs' : 'show on this tab only');
+        emit({ verb: 'update', id: s.id, text: `Action button: ${label}`,
+          action: 'Change', object: s.id, objectType: s.className, detail: `${s.prop} := ${s.value ? 'TRUE' : 'FALSE'}`,
+          ec: `${fref(s.id, s.rid)}.change(${s.prop} := ${s.value ? 'TRUE' : 'FALSE'})` });
         break;
       }
     }

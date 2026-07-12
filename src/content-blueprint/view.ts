@@ -110,10 +110,13 @@ import {
   beginRename, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
   openMovePicker, closeMovePicker, moveTo, doCreateTabset, setNodeStyle, openSwatch, closeSwatch, applySwatch,
   openTabMenu, closeTabMenu, reorderTab,
+  closeFlowPicker, addFlowFromPicker, addActionFromTray,
 } from './actions';
 import { renderChip, modeSwitch, scopeClass, previewModal, trayPanel, hintBar } from './view-panels';
 import { paintStation, paintPopup } from './view-paint';
 import { renderResult, typeIcon } from './result';
+import { actionTray } from './result-flow';
+import { flowChildPalette } from '../lib/layout/constraints';
 
 // The pending-change count is recomputed on every render, but a pure scroll/observer render leaves the
 // model unchanged — and diff() builds two index maps and is ~O(n²) in its reorder phase. Memoise the count
@@ -174,6 +177,9 @@ export function render(): void {
   main.append(renderChip(ctx, pending), tabBar(base, m, liveId, viewedId));
   header.append(modeSwitch(), main);
   if (bp.mode === 'style') header.appendChild(paintStation()); // the paintbrush 2×2, right of the bar
+  // The action-menu tray — page-top right, layout mode. Rendered whenever the page carries flow
+  // projections (the tray also hosts "Add action" for staging new menu buttons on such pages).
+  if (bp.mode === 'layout' && m.flows && Object.keys(m.flows).length) header.appendChild(actionTray(m, viewedId));
   layer.appendChild(header);
 
   // The result canvas IS the editor: the edited model laid out as a CSS-grid wireframe (final positions,
@@ -237,16 +243,22 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
   }
   if (bp.tabMenu) layer.appendChild(tabContextMenu(bp.tabMenu));
   if (bp.picker) layer.appendChild(pickerPanel(byRid));
+  if (bp.flowPicker) layer.appendChild(flowPickerPanel());
   if (bp.trayOpen) layer.appendChild(trayPanel(base, m));
   if (bp.hint) layer.appendChild(hintBar(bp.hint));
   if (bp.preview) layer.appendChild(previewModal(bp.preview, ctx));
   openPendingRename(); // the cell is freshly rendered + selected — safe to make its name editable now
 }
 
-/** Snapshot each result cell's on-screen box, keyed by bpid — the "First" of a FLIP. */
+/** Snapshot each result cell's on-screen box, keyed by bpid — the "First" of a FLIP. Flow rows carry
+ *  their own `data-bpflip` keys (`flow:<container>:<id>` — NOT data-bpid, which would make them layout
+ *  drop targets), so a flow reorder animates rows exactly like a cell move (pitfall 11). */
 function cellRects(layer: HTMLElement): Map<string, DOMRect> {
   const m = new Map<string, DOMRect>();
-  layer.querySelectorAll('.bp-rcell[data-bpid]').forEach(el => m.set((el as HTMLElement).dataset.bpid!, el.getBoundingClientRect()));
+  layer.querySelectorAll('.bp-rcell[data-bpid], [data-bpflip]').forEach(el => {
+    const h = el as HTMLElement;
+    m.set(h.dataset.bpflip ?? h.dataset.bpid!, el.getBoundingClientRect());
+  });
   return m;
 }
 
@@ -254,8 +266,8 @@ function cellRects(layer: HTMLElement): Map<string, DOMRect> {
  *  transition to 0 — so a moved/reordered cell slides to its new home instead of jumping. */
 function flipFrom(layer: HTMLElement, old: Map<string, DOMRect>): void {
   const moved: HTMLElement[] = [];
-  for (const el of layer.querySelectorAll('.bp-rcell[data-bpid]') as NodeListOf<HTMLElement>) {
-    const o = old.get(el.dataset.bpid!); if (!o) continue;
+  for (const el of layer.querySelectorAll('.bp-rcell[data-bpid], [data-bpflip]') as NodeListOf<HTMLElement>) {
+    const o = old.get(el.dataset.bpflip ?? el.dataset.bpid!); if (!o) continue;
     const n = el.getBoundingClientRect();
     const dx = o.left - n.left, dy = o.top - n.top;
     if (Math.abs(dx) < 2 && Math.abs(dy) < 2) continue;
@@ -576,6 +588,53 @@ function pickerPanel(byRid: Map<string, Element>): HTMLElement {
       if (!items.length) continue;
       const gh = document.createElement('div'); gh.className = 'bp-pick-grp'; gh.textContent = grp.group; list.appendChild(gh);
       for (const it of items) list.appendChild(pickRow(it.name, it.key, () => addFromPicker(it.key)));
+    }
+    if (!list.children.length) { const e = document.createElement('div'); e.className = 'bp-pick-grp'; e.textContent = 'no match'; list.appendChild(e); }
+  };
+  search.addEventListener('input', () => fill(search.value));
+  fill('');
+  panel.append(head, search, list);
+  back.appendChild(panel);
+  setTimeout(() => search.focus(), 0);
+  return back;
+}
+
+/** Add picker for a FLOW container (bp.flowPicker) — same chrome as pickerPanel, but the palette comes
+ *  from flowChildPalette(className) and picks stage addFlowChild (type + auto name, no property forms).
+ *  The tray's "Add action" variant (isAction) asks only for the button's name — the new menu button is
+ *  born displayOnActionMenu with the current tab binding. */
+function flowPickerPanel(): HTMLElement {
+  const p = bp.flowPicker!;
+  const back = document.createElement('div'); back.className = 'bp-pick-back';
+  back.addEventListener('mousedown', (e) => { if (e.target === back) closeFlowPicker(); });
+  const panel = document.createElement('div'); panel.className = 'bp-pick';
+  const at = p.at;
+  if (at) { panel.style.left = `${Math.max(4, Math.min(at.x, window.innerWidth - 320))}px`; panel.style.top = `${Math.max(40, Math.min(at.y - 8, window.innerHeight - 420))}px`; }
+  else { panel.style.left = '50%'; panel.style.top = '80px'; panel.style.transform = 'translateX(-50%)'; }
+  const head = document.createElement('div'); head.className = 'bp-pick-h';
+  if (p.isAction) {
+    // Name-only create: the new action-menu button (staged; created with displayOnActionMenu on Apply).
+    head.textContent = 'New action-menu button';
+    const name = document.createElement('input'); name.className = 'bp-pick-s'; name.placeholder = 'Button text…'; name.value = 'New Action';
+    const create = document.createElement('button'); create.className = 'bp-pick-it bp-pick-box'; create.textContent = 'Add to action menu';
+    const go = (): void => { addActionFromTray(name.value.trim() || 'New Action', p.key); };
+    create.addEventListener('mousedown', (e) => { e.preventDefault(); go(); });
+    name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+    panel.append(head, name, create);
+    back.appendChild(panel);
+    setTimeout(() => { name.focus(); name.select(); }, 0);
+    return back;
+  }
+  head.textContent = `Add to ${p.className}`;
+  const search = document.createElement('input'); search.className = 'bp-pick-s'; search.placeholder = 'Search…';
+  const list = document.createElement('div'); list.className = 'bp-pick-list';
+  const items = flowChildPalette(p.className);
+  const fill = (q: string): void => {
+    list.textContent = '';
+    const ql = q.trim().toLowerCase();
+    for (const it of items) {
+      if (ql && !it.name.toLowerCase().includes(ql) && !it.key.toLowerCase().includes(ql)) continue;
+      list.appendChild(pickRow(it.name, it.key, () => addFlowFromPicker(it.key), typeIcon(it.key)));
     }
     if (!list.children.length) { const e = document.createElement('div'); e.className = 'bp-pick-grp'; e.textContent = 'no match'; list.appendChild(e); }
   };

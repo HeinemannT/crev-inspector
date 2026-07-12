@@ -4,6 +4,7 @@ import {
   resolvePageContext, buildContextEc, DEFAULT_TABSET, type LayoutIO, type BlueprintCtx,
 } from '../sync';
 import { addContainer, rename } from '../edit';
+import { addFlowChild } from '../flow';
 import { findNode } from '../model';
 
 const CTX: BlueprintCtx = {
@@ -382,6 +383,75 @@ describe('sync.applyModel', () => {
     expect(res.stale).toBeFalsy();
     expect(res.error).toMatch(/rollback/);
     expect(res.model).toBeUndefined();
+  });
+});
+
+describe('sync.applyModel — flow steps (blueprint flow editing)', () => {
+  // LIVE_LOG augmented with a flow projection for InputView 4971 → InputSet is1 (two children).
+  const FREF = '<<<CREV_FREF>>>';
+  const FCHD = '<<<CREV_FCHD>>>';
+  const FLOW_LINES = [
+    `${FREF}4971|7298791240939894938|InputView|inputset|is1|111|InputSet|||||RESULT|Owner set`,
+    `${FCHD}4971||f1|201|TextInput|0|0|0,0,0,0,0,|Name`,
+    `${FCHD}4971||f2|202|NumberInput|0|0|0,0,0,0,0,|Score`,
+  ].join('\n');
+  const FLOW_LOG = LIVE_LOG + '\n' + FLOW_LINES;
+  // the re-fetch after a successful flow commit: the staged TextInput now exists as a real child
+  const FLOW_LOG_AFTER = FLOW_LOG + `\n${FCHD}4971||f3|203|TextInput|0|0|0,0,0,0,0,|New TextInput`;
+
+  it('loadModel threads flow projections into the model (and the baseline)', async () => {
+    const { model, baseline } = await loadModel(fakeIo(FLOW_LOG), CTX);
+    expect(model.flows?.['4971']?.refId).toBe('is1');
+    expect(model.flows?.['4971']?.children.map(c => c.id)).toEqual(['f1', 'f2']);
+    expect(baseline.flows?.['4971']?.refId).toBe('is1');
+    expect(model.flowEdits).toBeUndefined(); // fresh load stages nothing
+  });
+
+  it('a PURELY-flow apply commits and is NOT misread as a rollback (flow signature moved)', async () => {
+    const io = fakeIo(FLOW_LOG);
+    const { baseline, model } = await loadModel(io, CTX);
+    const desired = addFlowChild(model, 'is1', 'TextInput').model;
+    let committed = false;
+    io.exec = vi.fn(async (code: string, commit = false) => {
+      if (commit) { committed = true; return { ok: true, log: FLOW_LOG }; }
+      return { ok: true, log: committed ? FLOW_LOG_AFTER : FLOW_LOG };
+    });
+    const res = await applyModel(io, baseline, desired, CTX);
+    expect(res.ok).toBe(true);
+    expect(res.script).toContain('t.is1.add(TextInput');
+    expect(res.model?.flows?.['4971']?.children).toHaveLength(3); // re-fetched truth
+  });
+
+  it('a purely-flow apply whose re-fetch is unchanged IS a silent rollback', async () => {
+    const io = fakeIo(FLOW_LOG);
+    const { baseline, model } = await loadModel(io, CTX);
+    const desired = addFlowChild(model, 'is1', 'TextInput').model;
+    io.exec = vi.fn(async () => ({ ok: true, log: FLOW_LOG })); // nothing ever changes
+    const res = await applyModel(io, baseline, desired, CTX);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/discarded|unchanged/i);
+  });
+
+  it('blocks as STALE when the FLOW drifted live (layout identical)', async () => {
+    const io = fakeIo(FLOW_LOG);
+    const { baseline, model } = await loadModel(io, CTX);
+    const desired = addFlowChild(model, 'is1', 'TextInput').model;
+    let committed = false;
+    io.exec = vi.fn(async (_code: string, commit = false) => {
+      if (commit) committed = true;
+      return { ok: true, log: FLOW_LOG_AFTER }; // someone else already added a child
+    });
+    const res = await applyModel(io, baseline, desired, CTX);
+    expect(res.stale).toBe(true);
+    expect(committed).toBe(false);
+  });
+
+  it('buildFetchEc projects flow (FREF/FCHD markers) and keeps menu buttons out of the grid wire', () => {
+    const ec = buildFetchEc({ ...CTX, pageRid: SCRID });
+    expect(ec).toContain('<<<CREV_FREF>>>');
+    expect(ec).toContain('<<<CREV_FCHD>>>');
+    expect(ec).toContain('displayOnActionMenu'); // the menu-button grid exclusion branch
+    expect(ec).toContain('_fref.children().forEach(_fc:'); // NOT `_c` — that's the chunk accumulator
   });
 });
 

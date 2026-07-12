@@ -60,7 +60,17 @@ const TYPE_ICON: Record<string, string> = {
   ReferenceInput: ICON_LIST,
   ButtonInput: ICON_PLAY,
   Label: ICON_BOOK,
+  ListInput: ICON_LIST,
   ActionButton: ICON_LIGHTNING,
+  // Flow-chain elements (blueprint flow editing) — EditPage/InputSet children
+  EditField: ICON_PENCIL,
+  EditPageInfo: ICON_BOOK,
+  EditPageButton: ICON_PLAY,
+  ButtonGroup: ICON_SQUARES_FOUR,
+  Validation: ICON_CHECK,
+  EditPageValidation: ICON_CHECK,
+  EditPageBreak: ICON_DOTS_THREE_V,
+  EditPageColumnBreak: ICON_DOTS_THREE_V,
   // Layout structure
   Container: ICON_CONTAINER,
   TabSet: ICON_TABS,

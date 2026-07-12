@@ -11,6 +11,7 @@ import { findNode, isTempId, isResultTab } from '../lib/layout/model';
 import { bandInsertIndex } from '../lib/layout/placement';
 import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, createTabset, findTabOf, toggleReset, setStyle } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
+import { addFlowChild, reorderFlowChild, removeFlowAdd, setActionFlag, addActionButton, flowDiff, flowChangeCount } from '../lib/layout/flow';
 import { compile } from '../lib/layout/ec';
 import { History } from '../lib/layout/history';
 import { maskStyle, type LModel, type PlanStep, type NodeStyle } from '../lib/layout/types';
@@ -183,6 +184,56 @@ export function addFromPicker(className: string): void {
 
 export function addTabAction(): void { const m = model(); if (m) { const r = addTab(m, m.tabs.length, 'New Tab'); bp.selectedId = r.id; mutate(r.model); } }
 
+// ── flow editing (blueprint flow layer) ────────────────────────────────────────
+/** Open the flow add picker for a flow container (InputSet/EditPage/ButtonGroup referenced by a flow
+ *  widget). These live OUTSIDE the layout tree, so bp.picker can't address them — flowPicker carries
+ *  the container key + className (palette) instead. */
+export function openFlowPicker(key: string, className: string, opts?: { afterId?: string; at?: { x: number; y: number }; isAction?: boolean }): void {
+  bp.flowPicker = { key, className, ...opts };
+  bp.picker = null; bp.pickerOpts = null; bp.selectedId = null;
+  render();
+}
+export function closeFlowPicker(): void { if (bp.flowPicker) { bp.flowPicker = null; render(); } }
+/** Stage a new flow child from the open flow picker (type + name auto — no property forms). */
+export function addFlowFromPicker(className: string): void {
+  const m = model(); const p = bp.flowPicker;
+  if (!m || !p) return;
+  bp.flowPicker = null;
+  mutate(addFlowChild(m, p.key, className, undefined, p.afterId).model);
+}
+/** Tray "Add action": stage a new page-level menu button (born displayOnActionMenu, bound to the
+ *  viewed tab — RESULT when the page renders its buttons through the shared Result tab). */
+export function addActionFromTray(name: string, tabContainer: string): void {
+  const m = model(); if (!m) return;
+  bp.flowPicker = null;
+  mutate(addActionButton(m, tabContainer, name).model);
+}
+/** Drop of a flow-row drag: stage the reorder within its container (moveBefore/moveAfter on apply). */
+export function doFlowReorder(key: string, id: string, afterId: string | null): void {
+  const m = model(); if (!m) return;
+  mutate(reorderFlowChild(m, key, id, afterId));
+}
+/** Cancel a STAGED flow add (the only flow "delete" — existing children aren't deletable here). */
+export function cancelFlowAdd(key: string, id: string): void {
+  const m = model(); if (!m) return;
+  mutate(removeFlowAdd(m, key, id));
+}
+/** Placement control / tray toggles: stage an action-button flag flip. */
+export function setActionButtonFlag(id: string, prop: 'displayOnActionMenu' | 'displayOnAllTabs', value: boolean): void {
+  const m = model(); if (!m) return;
+  mutate(setActionFlag(m, id, prop, value));
+}
+/** Fold/unfold a flow cell on its reference band (default expanded; folded set lives in bp). */
+export function toggleFlowFold(ownerId: string): void {
+  bp.flowFolds.has(ownerId) ? bp.flowFolds.delete(ownerId) : bp.flowFolds.add(ownerId);
+  render();
+}
+/** Expand/collapse an ACTION tray card's inline transport list. */
+export function toggleTrayCard(id: string): void {
+  bp.trayCardsOpen.has(id) ? bp.trayCardsOpen.delete(id) : bp.trayCardsOpen.add(id);
+  render();
+}
+
 /** Open the tab-strip right-click reorder menu, anchored at the cursor. */
 export function openTabMenu(id: string, x: number, y: number): void { bp.tabMenu = { id, x, y }; render(); }
 export function closeTabMenu(): void { if (bp.tabMenu) { bp.tabMenu = null; render(); } }
@@ -260,6 +311,20 @@ function parentIdOf(mm: LModel, id: string): string | null {
  *  never reorders it, and we never anchor to a baseline neighbour that has itself moved away). */
 export function revertNode(id: string): void {
   const m = model(); if (!m || !bp.baseline) return;
+  // Flow edits first: the id may be a flow-edit KEY (an InputSet/EditPage/button whose staged edit is
+  // reverted whole) or a STAGED flow add's temp id inside one — neither exists in the layout tree.
+  if (m.flowEdits) {
+    if (m.flowEdits[id]) {
+      const next = { ...m, flowEdits: { ...m.flowEdits } };
+      delete next.flowEdits[id];
+      if (!Object.keys(next.flowEdits).length) delete (next as { flowEdits?: unknown }).flowEdits;
+      mutate(next);
+      return;
+    }
+    for (const [key, e] of Object.entries(m.flowEdits)) {
+      if (e.adds?.some(a => a.id === id)) { mutate(removeFlowAdd(m, key, id)); return; }
+    }
+  }
   const base = findNode(bp.baseline, id);
   if (!base) { if (bp.selectedId === id) bp.selectedId = null; mutate(remove(m, id)); return; }
   let next = rename(m, id, base.node.name);
@@ -301,9 +366,10 @@ function flashHint(text: string): void {
   hintTimer = setTimeout(() => { if (bp.hint === text) { bp.hint = null; render(); } }, 1400);
 }
 
-/** Count of staged changes vs baseline — so undo/redo can confirm where the model now stands. */
+/** Count of staged changes vs baseline — so undo/redo can confirm where the model now stands. Flow
+ *  edits (keyed per flow object) count one each on top of the layout changes. */
 function pendingLabel(m: LModel): string {
-  const n = bp.baseline ? summarizeChanges(diff(bp.baseline, m), m).changes : 0;
+  const n = (bp.baseline ? summarizeChanges(diff(bp.baseline, m), m).changes : 0) + flowChangeCount(m);
   return n === 0 ? 'back to original' : `${n} pending change${n === 1 ? '' : 's'}`;
 }
 
@@ -330,7 +396,8 @@ export function discard(): void { if (bp.baseline) { bp.history = new History(bp
 function touchedContainers(plan: PlanStep[], m: LModel): { id: string; rid?: string }[] {
   const out = new Map<string, { id: string; rid?: string }>();
   for (const s of plan) {
-    if (s.kind === 'create') continue;
+    // creates aren't shared yet; flow steps touch InputSets/EditPages, not layout containers
+    if (s.kind === 'create' || s.kind === 'flowCreate' || s.kind === 'flowReorder' || s.kind === 'flowFlag') continue;
     const node = findNode(m, s.id)?.node;
     const kind = s.kind === 'reparent' || s.kind === 'delete' ? s.nodeKind : node?.kind;
     if (kind === 'container' && !isTempId(s.id)) out.set(s.id, { id: s.id, rid: node?.rid });
@@ -343,7 +410,9 @@ function touchedContainers(plan: PlanStep[], m: LModel): { id: string; rid?: str
 export function openApplyPreview(): void {
   const m = model();
   if (!bp.ctx || !bp.baseline || !m || bp.applying) return;
-  const plan = diff(bp.baseline, m);
+  // Layout + flow steps compose into the ONE plan — the same composition applyModel (SW-side) runs,
+  // so the previewed EC matches the committed EC exactly.
+  const plan = [...diff(bp.baseline, m), ...flowDiff(bp.baseline, m)];
   if (plan.length === 0) { showToast('Blueprint: nothing to apply', 'info'); return; }
   const { script, notes } = compile(plan, m);
   bp.preview = notes;
@@ -389,6 +458,7 @@ export function onKeydown(e: KeyboardEvent): void {
     if (bp.preview) closePreview();
     else if (bp.paintPanel) closePaintPanel();
     else if (bp.swatch) closeSwatch();
+    else if (bp.flowPicker) closeFlowPicker();
     else if (bp.picker) closePicker();
     else if (bp.movePicker) closeMovePicker();
     else if (bp.tabMenu) closeTabMenu();

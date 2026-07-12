@@ -6,7 +6,7 @@
  * builders and the tab/picker/rename cluster (which is coupled to inline-rename + render) stay in
  * view.ts.
  */
-import type { LModel, LNode, PlanNote, PlanStep } from '../lib/layout/types';
+import { planStepId, type LModel, type LNode, type PlanNote, type PlanStep } from '../lib/layout/types';
 import type { BlueprintCtx } from '../lib/layout/sync';
 import { findNode, isResultTab, eachInSubtree } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
@@ -63,7 +63,7 @@ function resultImpact(): { touched: boolean; containers: boolean } {
   const ids = new Map([...subtree(base), ...subtree(m)]);
   let touched = false, containers = false;
   for (const s of diff(base, m)) {
-    const sid = s.kind === 'create' ? s.node.id : s.id; // a created node carries its id on `node`
+    const sid = planStepId(s); // create/flowCreate carry the id on `node`
     const k = ids.get(sid);
     if (k !== undefined) { touched = true; if (k === 'container') containers = true; }
   }
@@ -200,11 +200,16 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
 
 /** A minimal PlanNote for one step — the tray's fallback when compile() rejects the plan (e.g. a
  *  malformed colour id). Same verbs/actions as the compiler, just without where/detail/ec. */
-const STEP_ACTION: Record<PlanStep['kind'], PlanNote['action']> = { create: 'Add', update: 'Change', reparent: 'Move', reorder: 'Reorder', delete: 'Delete' };
-const STEP_VERB: Record<PlanStep['kind'], PlanNote['verb']> = { create: 'create', update: 'update', reparent: 'move', reorder: 'reorder', delete: 'delete' };
+const STEP_ACTION: Record<PlanStep['kind'], PlanNote['action']> = { create: 'Add', update: 'Change', reparent: 'Move', reorder: 'Reorder', delete: 'Delete', flowCreate: 'Add', flowReorder: 'Reorder', flowFlag: 'Change' };
+const STEP_VERB: Record<PlanStep['kind'], PlanNote['verb']> = { create: 'create', update: 'update', reparent: 'move', reorder: 'reorder', delete: 'delete', flowCreate: 'create', flowReorder: 'reorder', flowFlag: 'update' };
 function stepNote(base: LModel, m: LModel, s: PlanStep): PlanNote {
-  const id = s.kind === 'create' ? s.node.id : s.id;
-  const node = s.kind === 'create' ? s.node : (findNode(m, id)?.node ?? findNode(base, id)?.node ?? null);
+  const id = planStepId(s);
+  // create/flowCreate carry their subject on `node`; flow steps otherwise name their subject by id
+  // (flow rows live outside the LNode tree, so findNode can't see them).
+  const node = s.kind === 'create' ? s.node
+    : s.kind === 'flowCreate' ? { name: s.node.name, className: s.node.className }
+    : s.kind === 'flowReorder' || s.kind === 'flowFlag' ? { name: id, className: s.kind === 'flowFlag' ? s.className : undefined }
+    : (findNode(m, id)?.node ?? findNode(base, id)?.node ?? null);
   return { verb: STEP_VERB[s.kind], id, text: node?.name ?? id, action: STEP_ACTION[s.kind], object: node?.name ?? id, objectType: node?.className };
 }
 

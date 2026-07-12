@@ -30,6 +30,7 @@ import {
   ICON_EYE_SLASH,
 } from '../lib/icons';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
+import { flowPanel, compositeFlowRows, hasFlowPanel } from './result-flow';
 import { render, visibilityStrip } from './view';
 import { type Rect, unionRect, setIcon, docX, docY, widgetRects } from './geometry';
 import { armBox } from './gestures';
@@ -171,14 +172,18 @@ function gapCell(parentId: string, freeTracks: number, afterId?: string): HTMLEl
 
 /** Append a parent's children to `grid` as computeRows lays them out, dropping a gapCell in each
  *  row's trailing free tracks — the render side of the ONE row engine, so every empty slot the
- *  wireframe shows is a slot the engine agrees exists. */
-function fillGrid(grid: HTMLElement, base: LModel, children: LNode[], parentId: string, byRid: Map<string, Element>, reordered: ReadonlySet<string>): void {
+ *  wireframe shows is a slot the engine agrees exists. `m` = the EDITED model (flow projections +
+ *  staged flow edits ride on it). */
+function fillGrid(grid: HTMLElement, base: LModel, m: LModel, children: LNode[], parentId: string, byRid: Map<string, Element>, reordered: ReadonlySet<string>): void {
   // Full ghosts (noVisible / hidden on every display size) never render for
   // anyone and BMP's packing reflows around them (verified live) — so they're
   // excluded from BOTH the cells and the row math, or the grid shown here
   // would be a layout no user ever sees. They live in the hidden tray below
   // the add-zone instead. They stay in the MODEL (diff/apply untouched).
-  const rendered = children.filter(c => !isFullGhost(c));
+  // Same precedent for an ActionButton STAGED to the action menu (Placement → Action bar): it leaves
+  // the cells AND the row math for the tray card, but stays in the model/diff untouched.
+  const stagedToMenu = (c: LNode): boolean => m.flowEdits?.[c.id]?.displayOnActionMenu === true;
+  const rendered = children.filter(c => !isFullGhost(c) && !stagedToMenu(c));
   // A parent whose only children are full ghosts renders no rows, so without
   // this it would show an empty box with no way to add to it (the caller took
   // the "has children" branch on the raw count). Give it the same full-width
@@ -188,7 +193,7 @@ function fillGrid(grid: HTMLElement, base: LModel, children: LNode[], parentId: 
     return;
   }
   for (const row of computeRows(rendered)) {
-    for (const c of row.items) grid.appendChild(cell(base, c, parentId, byRid, reordered));
+    for (const c of row.items) grid.appendChild(cell(base, m, c, parentId, byRid, reordered));
     if (row.free > 0) grid.appendChild(gapCell(parentId, row.free, row.items[row.items.length - 1]?.id));
   }
 }
@@ -270,21 +275,26 @@ function styleDirty(base: LModel, node: LNode): boolean {
 }
 
 /** One widget/container cell. Containers recurse into a nested 6-col sub-grid. */
-function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<string, Element>, reordered: ReadonlySet<string>): HTMLElement {
+function cell(base: LModel, m: LModel, node: LNode, parentId: string | null, byRid: Map<string, Element>, reordered: ReadonlySet<string>): HTMLElement {
   const el = document.createElement('div');
   el.dataset.bpid = node.id;
   el.dataset.bpkind = node.kind === 'container' ? 'container' : 'widget';
   el.style.gridColumn = `span ${trackSpan(node)}`;
   const composite = isCompositeWithKids(node);
+  // A flow-bearing widget (InputView/COV/ActionButton with a projection) renders its chain in the cell
+  // body — composite-style sizing (size to the rows, no height clamp, no watermark/short-cell logic
+  // fighting the panel — pitfall 11).
+  const flow = node.kind === 'widget' && hasFlowPanel(m, node);
   const h = widgetHeight(node, byRid);
-  if (h && !composite) el.style.height = `${h.px}px`; // composites size to their children, not an estimate
+  if (h && !composite && !flow) el.style.height = `${h.px}px`; // composites/flow cells size to their children, not an estimate
   const state = cellState(base, node, parentId, reordered);
   // Too short to fit the label + the centred type watermark + the caption without overlap → drop the
   // watermark (CSS hides .bp-rwm on .bp-rshort). Short content widgets (TextElement, InputView) hit this.
-  const short = node.kind === 'widget' && !composite && !!h && h.px < SHORT_CELL_HEIGHT;
+  const short = node.kind === 'widget' && !composite && !flow && !!h && h.px < SHORT_CELL_HEIGHT;
   el.className = `bp-rcell st-${state}` + (node.kind === 'container' ? ' bp-rcont' : '') + (composite ? ' bp-rcomp-host' : '')
+    + (flow ? ' bp-rflow' : '')
     + (isChart(node.className) ? ' bp-rchart' : '') + (short ? ' bp-rshort' : '')
-    + (h && !composite ? (h.measured ? ' bp-rsized' : ' bp-rest') : '') + (bp.selectedId === node.id ? ' sel' : '');
+    + (h && !composite && !flow ? (h.measured ? ' bp-rsized' : ' bp-rest') : '') + (bp.selectedId === node.id ? ' sel' : '');
 
   const icon = typeIcon(node.className);
   const labelEl = buildLabel(node, state);
@@ -309,15 +319,17 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
 
   if (node.kind === 'container') {
     const grid = document.createElement('div'); grid.className = 'bp-rgrid';
-    if (node.children.length) fillGrid(grid, base, node.children, node.id, byRid, reordered);
+    if (node.children.length) fillGrid(grid, base, m, node.children, node.id, byRid, reordered);
     else grid.appendChild(gapCell(node.id, TRACKS)); // empty container → a full add slot
     el.appendChild(grid);
+  } else if (flow) {
+    // Flow-bearing widget: config band(s) + reference band + the chain as badge-led rows (result-flow).
+    const panel = flowPanel(m, node);
+    if (panel) el.appendChild(panel);
   } else if (composite) {
-    // Composite (ButtonContainer/ButtonGroup/InputSet/…): show its nested children read-only so a
-    // ButtonContainer's buttons are visible inside the box, at their container-relative width.
-    const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rcomp';
-    for (const c of orderChildren(node.children)) grid.appendChild(compositeChildCell(c));
-    el.appendChild(grid);
+    // Composite placed IN THE GRID (ButtonContainer/ButtonGroup/InputSet/…): its LNode children in the
+    // same flow row grammar — adds/reorders ride the EXISTING layout pipeline (ec composite branch).
+    el.appendChild(compositeFlowRows(node));
   } else {
     // Pure line-art: a faint type glyph fills the cell body with a small mono type caption beneath, so a
     // tall empty box reads as a typed placeholder (the dominant name + this glyph carry recognisability —
@@ -336,23 +348,8 @@ function cell(base: LModel, node: LNode, parentId: string | null, byRid: Map<str
   return el;
 }
 
-/** A read-only cell for a child nested inside a composite (e.g. a button in a ButtonContainer). Not
- *  armed for selection/drag — composite-child editing isn't supported yet — so it's purely visual. */
-function compositeChildCell(node: LNode): HTMLElement {
-  const el = document.createElement('div');
-  el.className = 'bp-rcell bp-rcomp-child st-same';
-  el.dataset.bpid = node.id;
-  el.dataset.bpkind = 'widget';
-  el.style.gridColumn = `span ${trackSpan(node)}`;
-  const lab = document.createElement('div'); lab.className = 'bp-rlab';
-  const icon = typeIcon(node.className);
-  if (icon) { const ic = document.createElement('span'); ic.className = 'bp-ric'; setIcon(ic, icon); lab.appendChild(ic); }
-  const nm = document.createElement('span'); nm.className = 'bp-rnm'; nm.textContent = node.name;
-  const ty = document.createElement('span'); ty.className = 'bp-rty'; ty.textContent = node.className.toUpperCase();
-  lab.append(nm, ty);
-  el.appendChild(lab);
-  return el;
-}
+// (The old read-only compositeChildCell was replaced by result-flow.compositeFlowRows — grid
+// composites now render editable badge-led rows in the flow grammar.)
 
 /**
  * Render the result wireframe into `layer` — ONE tab at a time (the header tab bar switches/manages
@@ -526,7 +523,7 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
 
   const reordered = reorderedIds(base, m);
   const grid = document.createElement('div'); grid.className = 'bp-rgrid bp-rroot';
-  if (tab.children.length) fillGrid(grid, base, tab.children, tab.id, byRid, reordered);
+  if (tab.children.length) fillGrid(grid, base, m, tab.children, tab.id, byRid, reordered);
   // Full-width add zone — a NEW ROW below all content (the per-row gaps cover partial rows).
   const add = document.createElement('div'); add.className = 'bp-radd-zone'; add.style.gridColumn = 'span 12';
   add.dataset.bpid = tab.id; add.dataset.bpkind = 'avail';

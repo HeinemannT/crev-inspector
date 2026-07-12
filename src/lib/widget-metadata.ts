@@ -227,6 +227,41 @@ export const INPUT_FIELD_TYPES: ReadonlySet<string> = new Set([
   'TextInput', 'NumberInput', 'DateInput', 'ChoiceInput', 'BooleanInput',
 ]);
 
+// ── Flow projection metadata (blueprint flow editing) ────────────────────────────────────────────
+// The fixed set of code-presence booleans the flow fetch emits per child row (in THIS order), read via
+// `.<prop>.whenMissing("") <> ""` so a type lacking the prop simply reads empty — no fetch error, no
+// per-type branching in the EC (pitfall #3: booleans only, never code bodies). The renderer then picks
+// which slots to show per className from FLOW_DOT_PROPS.
+export const FLOW_DOT_SLOTS = ['expression', 'afterExpression', 'showExpression', 'enableExpression', 'defaultExpression'] as const;
+export type FlowDotSlot = (typeof FLOW_DOT_SLOTS)[number];
+
+/** Per flow-child className → which code-presence dots to render (a subset of FLOW_DOT_SLOTS, in display
+ *  order). Live-probed on t.template_example_flow (2026-07-11): input fields carry show/enableExpression,
+ *  Label a default+expression pair, ButtonInput expression+afterExpression, Action/Validation an
+ *  expression, EditPage elements a single expression. Break rows carry none. */
+export const FLOW_DOT_PROPS: Record<string, FlowDotSlot[]> = {
+  TextInput: ['showExpression', 'enableExpression'],
+  NumberInput: ['showExpression', 'enableExpression'],
+  DateInput: ['showExpression', 'enableExpression'],
+  BooleanInput: ['showExpression', 'enableExpression'],
+  ReferenceInput: ['showExpression', 'enableExpression'],
+  ListInput: ['showExpression', 'enableExpression'],
+  ChoiceInput: ['showExpression', 'enableExpression'],
+  Label: ['defaultExpression', 'expression'],
+  ButtonInput: ['expression', 'afterExpression'],
+  Action: ['expression'],
+  Validation: ['expression'],
+  EditField: ['showExpression', 'enableExpression'],
+  EditPageInfo: ['expression'],
+  EditPageButton: ['expression'],
+  EditPageValidation: ['expression'],
+};
+
+/** A human tooltip for a flow dot ("<prop> set" / "<prop> empty"). */
+export function flowDotTitle(prop: string, set: boolean): string {
+  return `${prop} ${set ? 'set' : 'empty'}`;
+}
+
 export function codeFieldsFor(type: string): CodeFieldDef[] {
   return TYPE_META[type]?.codeFields ?? [];
 }

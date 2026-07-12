@@ -157,13 +157,19 @@ export function summarizeChanges(plan: PlanStep[], desired: LModel): { changes: 
     if (s.kind === 'create') { subjects.add(s.node.id); causeParents.add(s.parentId); }
     else if (s.kind === 'update' || s.kind === 'delete') subjects.add(s.id);
     else if (s.kind === 'reparent') { subjects.add(s.id); causeParents.add(s.toParentId); }
+    // flow steps: an add / flag flip is one acted-on subject; flow reorders group below like layout ones
+    else if (s.kind === 'flowCreate') { subjects.add(s.node.id); causeParents.add(s.parentId); }
+    else if (s.kind === 'flowFlag') subjects.add(s.id);
   }
   // reorder-only sibling groups not explained by an insert/move = a real reorder gesture; count once each
   const reorderGroups = new Set<string>();
   for (const s of plan) {
-    if (s.kind !== 'reorder') continue;
-    const p = idx.get(s.id)?.parentId;
-    if (p && !causeParents.has(p)) reorderGroups.add(p);
+    if (s.kind === 'reorder') {
+      const p = idx.get(s.id)?.parentId;
+      if (p && !causeParents.has(p)) reorderGroups.add(p);
+    } else if (s.kind === 'flowReorder') {
+      if (!causeParents.has(s.parentId)) reorderGroups.add(s.parentId); // flow parent key, same rule
+    }
   }
   return { changes: subjects.size + reorderGroups.size, actions: plan.length };
 }

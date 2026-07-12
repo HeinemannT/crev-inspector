@@ -23,26 +23,67 @@
  *   ✓ reorder siblings (incl. just-created)   moveBefore/moveAfter            [verified on vars]
  *   ✓ add widget (5 types bare) / container / tab   <root>.add(…)             [verified]
  *   ✓ delete                                  delete()  (re-home first)
+ *
+ * Flow verbs verified live via ec_preview + ec_execute on the example-flow fixtures
+ * (t.template_example_flow / InputSet t.50850 / EditPage t.50865 / ButtonGroup t.50858, 2026-07-11 —
+ * created + reordered + DELETED test objects in one committed transaction; fixtures restored):
+ *   ✓ <InputSet>.add(TextInput|NumberInput|DateInput|BooleanInput|ReferenceInput|ListInput|
+ *                    ButtonInput|Label|Action|Validation|ButtonGroup)      [execute-verified for
+ *       ButtonInput/Label/Action/Validation/NumberInput; the rest preview-verified same session]
+ *   ✓ <EditPage>.add(EditField|EditPageInfo|EditPageButton|EditPageValidation|
+ *                    EditPageBreak|EditPageColumnBreak)                    [execute-verified, all 6]
+ *   ✓ <ButtonGroup>.add(ButtonInput)                                      [execute-verified]
+ *   ✓ moveBefore/moveAfter on InputSet + EditPage children                [execute-verified]
+ *   ✓ change(displayOnActionMenu := TRUE/FALSE) round-trip                [execute-verified: true→false→true]
+ *   ✗ ChoiceInput does not exist on this instance ("Type ChoiceInput not found") — not in any palette.
+ * These are the verbs ec.ts's flowCreate/flowReorder/flowFlag steps emit (composite adds no longer
+ * blocked — the old "compile doesn't emit yet" note below is history for these types).
  */
 import type { Guard, LintMsg, LModel, LNode, PlanStep, SaveTarget } from './types';
 import { descendantWidgets, descendantVisibleWidgets } from './model';
 
 /** Composite widgets that hold children via `<composite>.add(child)` — NOT the `container :=` binding
  *  a normal widget uses. (Verified live: a child binds to its ButtonContainer parent, not a cell.)
- *  Adding INTO one needs a different EC verb that compile doesn't emit yet, so the builder must block
- *  the gesture until composite editing lands (Phase 4). Source: reference/page-hosting.md. */
+ *  The compiler serves these via flowCreate (`<composite>.add(Child)`) for the flow palettes below;
+ *  the layout-side `parentKind === 'widget'` create branch covers direct composite children too. */
 export const COMPOSITE_TYPES = new Set([
   'ButtonContainer', 'ButtonGroup', 'InputSet', 'TagList', 'ListPropertySet',
 ]);
 
 /** Which child types each composite accepts — drives the add picker when a composite is the target.
- *  (`<composite>.add(Child)`; ButtonContainer→ActionButton verified live. Source: page-hosting.md.) */
+ *  (`<composite>.add(Child)`; ButtonContainer→ActionButton verified live. Source: page-hosting.md.
+ *  InputSet palette extended + fully live-verified 2026-07-11, see the header block.) */
 export const COMPOSITE_CHILDREN: Record<string, { key: string; name: string }[]> = {
   ButtonContainer: [{ key: 'ActionButton', name: 'Action Button' }, { key: 'ButtonInput', name: 'Button Input' }, { key: 'MenuButton', name: 'Menu Button' }],
-  ButtonGroup: [{ key: 'ActionButton', name: 'Action Button' }, { key: 'MenuButton', name: 'Menu Button' }],
-  InputSet: [{ key: 'BooleanInput', name: 'Boolean' }, { key: 'DateInput', name: 'Date' }, { key: 'NumberInput', name: 'Number' }, { key: 'TextInput', name: 'Text' }, { key: 'ListInput', name: 'List' }, { key: 'ReferenceInput', name: 'Reference' }],
+  // ButtonGroup accepts ONLY ButtonInput — ActionButton and MenuButton were both REFUSED live
+  // ("Can't add an object of type ActionButton/MenuButton to Button group", t.50858, 2026-07-11).
+  // The old page-hosting.md-sourced entries were wrong for this composite.
+  ButtonGroup: [{ key: 'ButtonInput', name: 'Button Input' }],
+  InputSet: [
+    { key: 'TextInput', name: 'Text' }, { key: 'NumberInput', name: 'Number' }, { key: 'DateInput', name: 'Date' },
+    { key: 'BooleanInput', name: 'Boolean' }, { key: 'ReferenceInput', name: 'Reference' }, { key: 'ListInput', name: 'List' },
+    { key: 'Label', name: 'Label' }, { key: 'ButtonInput', name: 'Button' }, { key: 'ButtonGroup', name: 'Button Group' },
+    { key: 'Action', name: 'Action' }, { key: 'Validation', name: 'Validation' },
+  ],
   TagList: [{ key: 'Tag', name: 'Tag' }],
 };
+
+/** EditPage element palette — EditPage is NOT a grid composite (it lives outside the page, referenced by
+ *  a CreateObjectView), so it gets its own map rather than joining COMPOSITE_CHILDREN. All six verbs
+ *  execute-verified on t.50865 (2026-07-11). No propertyMapping picker — a new EditField gets name only;
+ *  mapping is configured in Inspect (locked decision). */
+export const EDITPAGE_CHILDREN: { key: string; name: string }[] = [
+  { key: 'EditField', name: 'Edit Field' }, { key: 'EditPageInfo', name: 'Information' },
+  { key: 'EditPageButton', name: 'Button' }, { key: 'EditPageValidation', name: 'Validation' },
+  { key: 'EditPageBreak', name: 'Page Break' }, { key: 'EditPageColumnBreak', name: 'Column Break' },
+];
+
+/** The add palette for a flow container by className — EditPage → EDITPAGE_CHILDREN, composites →
+ *  COMPOSITE_CHILDREN. Empty array = no add affordance (unknown container). */
+export function flowChildPalette(className: string): { key: string; name: string }[] {
+  if (className === 'EditPage') return EDITPAGE_CHILDREN;
+  return COMPOSITE_CHILDREN[className] ?? [];
+}
 
 const ok: Guard = { ok: true, level: 'ok' };
 const warn = (reason: string): Guard => ({ ok: true, level: 'warn', reason });
@@ -102,6 +143,17 @@ export function lint(m: LModel, target: SaveTarget, plan: PlanStep[]): LintMsg[]
   if (structuralOp) {
     const g = checkStructuralTarget(target, structuralOp);
     if ((g.level === 'warn' || g.level === 'info') && g.reason) out.push({ level: g.level, text: g.reason });
+  }
+  // Flow edits staged behind a SHARED reference (an InputSet/EditPage more than one widget on this page
+  // points at): the change lands on the shared object, so it appears in EVERY cell that uses it. A real
+  // warning, once per shared reference, named. (`shared` comes from the fetch's on-page reference count.)
+  const flowKeys = new Set(plan.flatMap(s =>
+    s.kind === 'flowCreate' ? [s.parentId] : s.kind === 'flowReorder' ? [s.parentId] : []));
+  const warned = new Set<string>();
+  for (const p of Object.values(m.flows ?? {})) {
+    if (!p.refId || !p.shared || !flowKeys.has(p.refId) || warned.has(p.refId)) continue;
+    warned.add(p.refId);
+    out.push({ level: 'warn', text: `"${p.refName ?? p.refId}" is shared — changes appear everywhere it is used.` });
   }
   return out;
 }

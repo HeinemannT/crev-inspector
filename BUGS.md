@@ -6,6 +6,25 @@ Running list of confirmed-but-not-yet-fixed issues. Newest on top.
 
 _None._
 
+## Backlog — Inspect mode improvements
+
+Deliberately kept OUT of Blueprint flow editing (decision 2026-07-11): Blueprint creates/arranges
+flow objects; configuring them stays in Inspect. These are the Inspect-side follow-ups:
+
+- **EditField property picker**: `propertyMapping` edited as a dropdown/autocomplete populated live
+  from the owning CreateObjectView's `objectType` template (fields of `ceras.default_riskstatement`
+  etc.), not a free-text string. Same pattern as the PBAC Architect property autocomplete.
+- **HTML-first editing for advanced-mode fields**: `Label.defaultExpression` / `EditPageInfo.expression`
+  with `advancedDefault`/`advancedMode` hold an EC expression *returning* an HTML string. Offer an
+  "edit as HTML" mode that unwraps the string literal into the editor as HTML (with highlighting)
+  and re-wraps/escapes on save; fall back to plain EC when the expression isn't a single literal.
+- **Flow-object quick-config pane**: selecting a flow child (input, EditField, transport) in the
+  Blueprint flow list opens Inspect on it; the pane should surface the type's 2–3 defining knobs
+  (key, required, buttonText, actionType…) at the top instead of the generic property dump.
+- Candidate ideas (unreviewed): show/enable expression toggles (`useShowExpression` gates) as
+  paired toggle+editor rows; a "test this validation" dry-run button on Validation objects;
+  ButtonInput `key` cross-reference check (does any sibling field use it).
+
 ## Fixed
 
 ### Blueprint Exit (X) does nothing after the SW idle-restarts — FIXED 2026-07-10
