@@ -640,6 +640,13 @@
 #crev-blueprint-layer .bp-fshared{font:600 7.5px var(--bp-mono);letter-spacing:.08em;color:var(--bp-muted);border:1px solid var(--bp-line-2);border-radius:var(--bp-r);padding:2px 7px;background:var(--bp-ground)}
 #crev-blueprint-layer .bp-ffold{flex:none;border:0;background:transparent;font-size:9px;color:var(--bp-muted);cursor:pointer;padding:2px 4px}
 #crev-blueprint-layer .bp-ffold:hover{color:var(--bp-cyan-hi)}
+/* Rename pencil — hover-revealed on a flow row, always present (dimmed) on a band's end. Reuses the
+   shared inline-rename machinery via beginRename → data-bprename span. */
+#crev-blueprint-layer .bp-fedit{flex:none;border:0;background:transparent;color:var(--bp-muted);cursor:pointer;padding:2px;display:inline-flex;align-items:center;opacity:0}
+#crev-blueprint-layer .bp-fedit svg{width:11px;height:11px}
+#crev-blueprint-layer .bp-frow:hover .bp-fedit,#crev-blueprint-layer .bp-fband .bp-fedit{opacity:.55}
+#crev-blueprint-layer .bp-fedit:hover{opacity:1;color:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-fname[contenteditable],#crev-blueprint-layer .bp-fband .mono[contenteditable]{outline:1.5px solid var(--bp-cyan);border-radius:var(--bp-r);background:var(--bp-ground);padding:0 4px;cursor:text;white-space:nowrap;overflow:visible}
 
 /* Placement segmented control (In grid | Action bar) */
 #crev-blueprint-layer .bp-fseg{display:inline-flex;border:1px solid var(--bp-line-2);border-radius:var(--bp-r);overflow:hidden}

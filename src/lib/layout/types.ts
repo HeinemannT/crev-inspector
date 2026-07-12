@@ -267,6 +267,11 @@ export interface FlowEdit {
   displayOnActionMenu?: boolean;
   /** Staged displayOnAllTabs flip (tray scope). */
   displayOnAllTabs?: boolean;
+  /** Staged NAME change on an EXISTING flow object (child / container / reference), keyed by its own
+   *  businessId. Compiled to `t.<bid>.change(name := …)`. A staged-ADD's rename mutates the add node's
+   *  name in place (name rides the create — no rename step); a staged-NEW container's rename updates
+   *  `newContainer.name`. So `rename` only ever carries an EXISTING object's new name. */
+  rename?: string;
   /** This (temp-keyed) entry is a staged-new InputSet/EditPage awaiting creation on Apply. */
   newContainer?: { className: 'InputSet' | 'EditPage'; name: string };
   /** Staged reference wire on a flow WIDGET: `<widget>.change(<prop> := <target>)`. `targetId` may be
@@ -313,6 +318,9 @@ export type PlanStep =
   | { kind: 'flowReorder'; id: string; rid?: string; afterId: string; parentId: string }
   // action-button flag flip (displayOnActionMenu / displayOnAllTabs). `id` is the button's businessId.
   | { kind: 'flowFlag'; id: string; rid?: string; className: string; prop: 'displayOnActionMenu' | 'displayOnAllTabs'; value: boolean }
+  // rename an EXISTING flow object (child / container / reference): `<obj>.change(name := …)`. `id` is its
+  // businessId (staged-add / staged-new renames don't reach here — their name rides the create).
+  | { kind: 'flowRename'; id: string; rid?: string; className?: string; name: string }
   // reference wire on a flow widget: `<widget>.change(<prop> := <target>)` (+ createMode := "EDITORADD"
   // when setCreateMode). Emitted AFTER every flow create so a staged-new target's var exists; the
   // widget itself may be a staged layout add (its `_n<k>` var resolves through the same vars map).

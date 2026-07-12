@@ -876,7 +876,11 @@ function tabPill(id: string, name: string, state: 'same' | 'renamed' | 'gone' | 
 function openPendingRename(): void {
   if (!bp.renameId || !bp.layer) return;
   const id = bp.renameId; bp.renameId = null;
-  const nm = bp.layer.querySelector(`.bp-tab[data-bpid="${CSS.escape(id)}"] .bp-tnm`)
+  // Match the editable name span by id first (`data-bprename` — result cells, flow rows, and flow bands
+  // all carry it, so a rename targets the exact object regardless of selection timing), then the tab
+  // pill, then the legacy `.sel` fallback for the live-view box.
+  const nm = bp.layer.querySelector(`[data-bprename="${CSS.escape(id)}"]`)
+    ?? bp.layer.querySelector(`.bp-tab[data-bpid="${CSS.escape(id)}"] .bp-tnm`)
     ?? bp.layer.querySelector('.bp-rcell.sel .bp-rnm, .bp-box.sel .bp-nm');
   inlineRename(id, nm as HTMLElement | null);
 }

@@ -202,6 +202,19 @@ header; notably ButtonGroup accepts ONLY ButtonInput — ActionButton/MenuButton
 The stale + silent-rollback guards compare `flowSignature` alongside the layout diff, so a purely-flow
 apply is neither missed nor misread as a rollback.
 
+**Renaming a flow object** reuses the SAME inline-rename machinery as cells and tabs (a pencil →
+`beginRename` → `bp.renameId` → `openPendingRename` makes the matching `[data-bprename]` span
+contenteditable; Enter commits, Escape cancels, an outside click commits). Every renameable name span
+(result cell, flow row, reference band, staged-new container) carries `data-bprename="<objectId>"`, so
+the pending-rename resolves the exact object regardless of selection timing (this also hardens the
+selection-toolbar pencil on a freshly-added InputView/COV cell). `doRename` routes a non-layout id to
+`renameFlowObject` (flow.ts): a staged-ADD child's rename mutates its add node in place (name rides the
+create); a staged-NEW container's updates `newContainer.name` + the wiring label; an EXISTING object
+stages `rename` (keyed per object, pitfall #2; cleared when typed back to the original) → `flowDiff`
+emits `flowRename` → `t.<bid>.change(name := "…")` (name escaped via `ecStr`; live-verified execute on
+an InputSet child + an EditField). `effectiveFlowChildren` overlays staged renames so the row shows the
+new name immediately, and `flowChangeCount` counts a rename-only edit so Apply unlocks.
+
 **New references from blueprint**: a reference-less InputView/COV (typically one just staged from the
 grid picker) offers "wire to existing…" (a lean SW fetch of the workspace's InputSets/EditPages at
 picker-open — `LAYOUT_FLOW_REFS`) and "+ new" (stages a new set/page auto-named after the widget; its

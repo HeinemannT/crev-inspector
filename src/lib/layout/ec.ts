@@ -271,6 +271,14 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
           ec: `${fref(s.id, s.rid)}.change(${s.prop} := ${fref(s.targetId)}${mode})` });
         break;
       }
+      case 'flowRename': {
+        // Rename an existing flow object: `<obj>.change(name := "…")`. Name is hostile input — ecStr
+        // escapes it. fref() addresses it by businessId (or lookup(rid) for a businessId-less row).
+        emit({ verb: 'update', id: s.id, text: `Rename to "${s.name}"`,
+          action: 'Change', object: s.name, objectType: s.className, detail: `name → "${s.name}"`,
+          ec: `${fref(s.id, s.rid)}.change(name := ${ecStr(s.name)})` });
+        break;
+      }
       case 'flowReorder': {
         emit({ verb: 'reorder', id: s.id, text: `Reorder flow element`,
           action: 'Reorder', object: s.id, detail: `after ${s.afterId}`,

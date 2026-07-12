@@ -55,12 +55,28 @@ export function effectiveFlowChildren(m: LModel, key: string): FlowNode[] {
   if (!container) return [];
   const e = editOf(m, key);
   const natural = [...container.original, ...(e?.adds ?? [])];
-  if (!e?.order) return natural;
-  const byId = new Map(natural.map(n => [n.id, n]));
   const ordered: FlowNode[] = [];
-  for (const id of e.order) { const n = byId.get(id); if (n) { ordered.push(n); byId.delete(id); } }
-  for (const n of natural) if (byId.has(n.id)) ordered.push(n); // anything the order list missed
-  return ordered;
+  if (!e?.order) {
+    ordered.push(...natural);
+  } else {
+    const byId = new Map(natural.map(n => [n.id, n]));
+    for (const id of e.order) { const n = byId.get(id); if (n) { ordered.push(n); byId.delete(id); } }
+    for (const n of natural) if (byId.has(n.id)) ordered.push(n); // anything the order list missed
+  }
+  // Overlay staged renames (keyed per flow object) so the renderer AND the reorder-id source both see the
+  // new name; reorder only reads ids, so this is display-only for it. Recurses one nesting level (a
+  // ButtonGroup grandchild rename rides here too). Identity is preserved when nothing changed.
+  return ordered.map(n => overlayRename(m, n));
+}
+
+/** Apply a staged `rename` edit to a flow node (and, recursively, its nested children), returning the
+ *  same object when nothing changed. Keyed per flow-object businessId in `flowEdits`. */
+function overlayRename(m: LModel, n: FlowNode): FlowNode {
+  const rn = m.flowEdits?.[n.id]?.rename;
+  const kids = n.children?.map(c => overlayRename(m, c));
+  const kidsChanged = !!kids && n.children!.some((c, i) => c !== kids[i]);
+  if (rn === undefined && !kidsChanged) return n;
+  return { ...n, ...(rn !== undefined ? { name: rn } : {}), ...(kids ? { children: kids } : {}) };
 }
 
 /** Immutable helper: clone the model and ensure a mutable `flowEdits[key]` entry exists, then run `fn`. */
@@ -71,7 +87,7 @@ function withFlowEdit(m: LModel, key: string, fn: (e: FlowEdit) => void): LModel
   fn(e);
   // Drop an entry that ended up empty (e.g. a flag toggled back to its projection value).
   if (!e.adds?.length && !e.order && e.displayOnActionMenu === undefined && e.displayOnAllTabs === undefined
-    && !e.newContainer && !e.wireRef) delete edits[key];
+    && !e.newContainer && !e.wireRef && e.rename === undefined) delete edits[key];
   return c;
 }
 
@@ -188,6 +204,63 @@ function needsModeFlip(m: LModel, widgetId: string, prop: 'inputSet' | 'editPage
   return mode !== 'EDITORADD' && mode !== 'EDITOREDIT';
 }
 
+// ── rename a flow object (child / container / reference / staged-new) ─────────────────────────────
+
+/** Recursively find a flow node's current name in a child list (one nesting level in practice). */
+function findFlowNodeName(children: FlowNode[], id: string): string | undefined {
+  for (const c of children) {
+    if (c.id === id) return c.name;
+    if (c.children) { const deep = findFlowNodeName(c.children, id); if (deep !== undefined) return deep; }
+  }
+  return undefined;
+}
+
+/** The CURRENT (unedited) name of an EXISTING flow object — a reference (InputSet/EditPage) or one of its
+ *  children (incl. on-demand-fetched off-page children). Undefined when it isn't a known existing object
+ *  (e.g. a staged add, handled separately). Lets `renameFlowObject` clear a rename typed back to original. */
+function existingFlowObjectName(m: LModel, id: string): string | undefined {
+  for (const p of Object.values(m.flows ?? {})) {
+    if (p.refId === id) return p.refName;
+    const found = findFlowNodeName(p.children, id);
+    if (found !== undefined) return found;
+  }
+  for (const rc of Object.values(m.flowRefChildren ?? {})) {
+    const found = findFlowNodeName(rc.children, id);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/** Stage a NAME change on a flow object, keyed per object (pitfall #2). Three cases, in order:
+ *   1. a STAGED-ADD child → mutate the add node's name in place (name rides the create — no rename step);
+ *   2. a STAGED-NEW container → update its `newContainer.name` (compiled in the create) + sync the wiring
+ *      label on whichever widget points at it, so the reference band reflects the new name;
+ *   3. an EXISTING object (child / container / reference) → stage `rename` (cleared when typed back to the
+ *      original). Names are hostile input — the EC compiler escapes them (ecStr).
+ *  Returns the new model, or null for a no-op (empty / unchanged name). */
+export function renameFlowObject(m: LModel, id: string, rawName: string): LModel | null {
+  const name = rawName.trim();
+  if (!name) return null;
+  // 1) staged-add child — mutate the add node's name in place under its container key
+  for (const [key, e] of Object.entries(m.flowEdits ?? {})) {
+    if (e.adds?.some(a => a.id === id)) {
+      if (e.adds.find(a => a.id === id)!.name === name) return null;
+      return withFlowEdit(m, key, ee => { const a = ee.adds?.find(x => x.id === id); if (a) a.name = name; });
+    }
+  }
+  // 2) staged-new container — update its staged name + the wiring label(s) that point at it
+  if (m.flowEdits?.[id]?.newContainer) {
+    if (m.flowEdits[id].newContainer!.name === name) return null;
+    const c = cloneModel(m);
+    const nc = c.flowEdits![id].newContainer; if (nc) nc.name = name;
+    for (const we of Object.values(c.flowEdits!)) if (we.wireRef?.targetId === id) we.wireRef.targetName = name;
+    return c;
+  }
+  // 3) existing object — stage a rename (clear it when renamed back to the original)
+  const cur = existingFlowObjectName(m, id);
+  return withFlowEdit(m, id, ee => { if (cur !== undefined && cur === name) delete ee.rename; else ee.rename = name; });
+}
+
 /** The staged reference for a widget (wireRef), or its live projection ref — the renderer's one lookup. */
 export function effectiveRef(m: LModel, widgetId: string): { id: string; className: string; name?: string; staged: boolean; isNew: boolean } | null {
   const wire = m.flowEdits?.[widgetId]?.wireRef;
@@ -227,10 +300,19 @@ export function flowDiff(_baseline: LModel, desired: LModel): PlanStep[] {
   const containerCreates: PlanStep[] = [];
   const creates: PlanStep[] = [];
   const reorders: PlanStep[] = [];
+  const renames: PlanStep[] = [];
   const flags: PlanStep[] = [];
   const wires: PlanStep[] = [];
 
   for (const [key, e] of Object.entries(edits)) {
+    // A rename of an EXISTING flow object (child / container / reference) — `<obj>.change(name := …)`,
+    // compiled after creates. Staged-add / staged-new renames never set `rename` (their name rides the
+    // create), so this only ever fires for a real businessId-keyed object.
+    if (e.rename !== undefined) {
+      const rid = flowObjectRid(desired, key);
+      const className = desired.flows?.[key]?.refClass;
+      renames.push({ kind: 'flowRename', id: key, name: e.rename, ...(rid ? { rid } : {}), ...(className ? { className } : {}) });
+    }
     // A staged-new InputSet/EditPage: create it in the page's ONE support Category (the compiler
     // resolves that Category — reuse an on-page one, else create it — and shares it across every
     // support landing), THEN its staged children under it (same entry).
@@ -288,7 +370,27 @@ export function flowDiff(_baseline: LModel, desired: LModel): PlanStep[] {
       }
     }
   }
-  return [...containerCreates, ...creates, ...reorders, ...flags, ...wires];
+  return [...containerCreates, ...creates, ...reorders, ...renames, ...flags, ...wires];
+}
+
+/** rid of an EXISTING flow object (reference or one of its children) — threaded on a flowRename so a
+ *  businessId-less object (id === rid) can be addressed by `lookup(rid)` in the compiler. */
+function flowObjectRid(m: LModel, id: string): string | undefined {
+  const findRid = (children: FlowNode[]): string | undefined => {
+    for (const c of children) {
+      if (c.id === id) return c.rid;
+      if (c.children) { const deep = findRid(c.children); if (deep) return deep; }
+    }
+    return undefined;
+  };
+  for (const p of Object.values(m.flows ?? {})) {
+    if (p.refId === id) return p.refRid;
+    const r = findRid(p.children); if (r) return r;
+  }
+  for (const rc of Object.values(m.flowRefChildren ?? {})) {
+    const r = findRid(rc.children); if (r) return r;
+  }
+  return undefined;
 }
 
 /** Count of distinct flow objects the edits touch — for the pending-changes headline. */

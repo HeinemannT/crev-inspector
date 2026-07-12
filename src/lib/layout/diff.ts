@@ -159,7 +159,7 @@ export function summarizeChanges(plan: PlanStep[], desired: LModel): { changes: 
     else if (s.kind === 'reparent') { subjects.add(s.id); causeParents.add(s.toParentId); }
     // flow steps: an add / flag flip / reference wire is one acted-on subject; flow reorders group below
     else if (s.kind === 'flowCreate') { subjects.add(s.node.id); causeParents.add(s.parentId); }
-    else if (s.kind === 'flowFlag' || s.kind === 'flowWire') subjects.add(s.id);
+    else if (s.kind === 'flowFlag' || s.kind === 'flowWire' || s.kind === 'flowRename') subjects.add(s.id);
   }
   // reorder-only sibling groups not explained by an insert/move = a real reorder gesture; count once each
   const reorderGroups = new Set<string>();

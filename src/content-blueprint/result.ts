@@ -222,7 +222,7 @@ function buildLabel(node: LNode, state: CellState): HTMLElement {
   const icon = typeIcon(node.className);
   if (icon) { const ic = document.createElement('span'); ic.className = 'bp-ric'; setIcon(ic, icon); lab.appendChild(ic); }
   const over = node.overrides ?? [];
-  const nm = document.createElement('span'); nm.className = 'bp-rnm'; nm.textContent = node.name; lab.appendChild(nm);
+  const nm = document.createElement('span'); nm.className = 'bp-rnm'; nm.textContent = node.name; nm.dataset.bprename = node.id; lab.appendChild(nm);
   if (over.includes('name')) lab.appendChild(revertArrow(node, 'name', 'name'));
   const ty = document.createElement('span'); ty.className = 'bp-rty'; ty.textContent = node.className.toUpperCase(); lab.appendChild(ty);
   const wd = document.createElement('span'); wd.className = 'bp-rwd'; wd.textContent = node.cols.L >= 6 ? 'full' : `${node.cols.L} col`; lab.appendChild(wd);

@@ -15,7 +15,7 @@ import { cloneModel } from '../model';
 import {
   addFlowChild, reorderFlowChild, removeFlowAdd, setActionFlag, addActionButton,
   effectiveFlowChildren, findFlowContainer, flowDiff, flowSignature, trayButtons,
-  stageNewFlowContainer, wireFlowRef, unwireFlowRef, effectiveRef, flowChangeCount,
+  stageNewFlowContainer, wireFlowRef, unwireFlowRef, effectiveRef, flowChangeCount, renameFlowObject,
 } from '../flow';
 import { FLOW_REF_MARKER, FLOW_META_MARKER, FLOW_CHILD_MARKER, FLOW_CPROP_MARKER, FLOW_TR_MARKER } from '../../layout-wire';
 
@@ -579,5 +579,69 @@ describe('flowChangeCount (drives Apply/Discard/tray enablement)', () => {
     expect(flowChangeCount(m2)).toBe(1);
     m2 = addFlowChild(m2, '50865', 'EditField', 'C').model;
     expect(flowChangeCount(m2)).toBe(2);
+  });
+});
+
+// ── rename a flow object (inline rename, shared machinery) ───────────────────
+describe('renameFlowObject', () => {
+  it('renames an EXISTING child: stages a per-object rename, overlays the display, compiles a change()', () => {
+    const base = flowModel();
+    const m1 = renameFlowObject(base, '50851', 'Renamed field')!;
+    expect(m1.flowEdits?.['50851']?.rename).toBe('Renamed field');
+    // the effective children show the new name (renderer + reorder-id source both read this)
+    expect(effectiveFlowChildren(m1, '50850').find(c => c.id === '50851')?.name).toBe('Renamed field');
+    // layout diff stays empty; the flow diff carries exactly one rename → change(name := …)
+    expect(diff(base, m1)).toEqual([]);
+    const plan = flowDiff(base, m1);
+    // rid threaded from the child projection (lookup() fallback for a businessId-less row)
+    expect(plan).toEqual([{ kind: 'flowRename', id: '50851', name: 'Renamed field', rid: 'r_ti' }]);
+    expect(compile(plan, m1).script).toBe('t.50851.change(name := "Renamed field")');
+    expect(flowChangeCount(m1)).toBe(1); // a rename-only edit unlocks Apply
+  });
+
+  it('dedupes repeated renames of one object, and clears when renamed back to the original', () => {
+    const base = flowModel();
+    let m = renameFlowObject(base, '50851', 'First')!;
+    m = renameFlowObject(m, '50851', 'Second')!;
+    expect(Object.keys(m.flowEdits ?? {})).toEqual(['50851']); // one key, not two
+    expect(flowDiff(base, m).filter(s => s.kind === 'flowRename')).toHaveLength(1);
+    const back = renameFlowObject(m, '50851', 'Text input')!; // the fixture's original name
+    expect(back.flowEdits?.['50851']).toBeUndefined();
+  });
+
+  it('renames a STAGED-ADD child in place (name rides the create — no separate rename step)', () => {
+    const base = flowModel();
+    const { model: m1, id } = addFlowChild(base, '50850', 'TextInput', 'Auto');
+    const m2 = renameFlowObject(m1, id, 'Chosen name')!;
+    // the add node itself carries the new name; there is NO flowRename step, just the create
+    const plan = flowDiff(base, m2);
+    expect(plan.filter(s => s.kind === 'flowRename')).toHaveLength(0);
+    const create = plan.find(s => s.kind === 'flowCreate')!;
+    expect(create.kind === 'flowCreate' && create.node.name).toBe('Chosen name');
+    expect(compile(plan, m2).script).toContain('.add(TextInput, name := "Chosen name")');
+  });
+
+  it('renames a STAGED-NEW container: updates its name + the wiring label; no rename step', () => {
+    const base = flowModel();
+    const { model: m1, id } = stageNewFlowContainer(base, '50844', 'inputSet', 'Auto set');
+    const m2 = renameFlowObject(m1, id, 'Owner input set')!;
+    expect(m2.flowEdits?.[id]?.newContainer?.name).toBe('Owner input set');
+    expect(m2.flowEdits?.['50844']?.wireRef?.targetName).toBe('Owner input set'); // band label follows
+    expect(effectiveRef(m2, '50844')?.name).toBe('Owner input set');
+    const plan = flowDiff(base, m2);
+    expect(plan.filter(s => s.kind === 'flowRename')).toHaveLength(0); // name rides the create
+    expect(compile(plan, m2).script).toContain('.add(InputSet, name := "Owner input set")');
+  });
+
+  it('renames an EXISTING reference (InputSet), and escapes a hostile name', () => {
+    const base = flowModel();
+    const m = renameFlowObject(base, '50850', 'Danger" set')!;
+    const plan = flowDiff(base, m);
+    expect(plan).toHaveLength(1);
+    expect(compile(plan, m).script).toBe('t.50850.change(name := "Danger\\" set")');
+  });
+
+  it('is a no-op for an empty name', () => {
+    expect(renameFlowObject(flowModel(), '50851', '   ')).toBeNull();
   });
 });

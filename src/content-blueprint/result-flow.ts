@@ -30,11 +30,21 @@ function hexInk(hex: string): string {
   const r = parseInt(v.slice(0, 2), 16), g = parseInt(v.slice(2, 4), 16), b = parseInt(v.slice(4, 6), 16);
   return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#1c1b16' : '#fff';
 }
-import { ICON_PLUS, ICON_LIGHTNING, ICON_ARROW_RIGHT } from '../lib/icons';
+import { ICON_PLUS, ICON_LIGHTNING, ICON_ARROW_RIGHT, ICON_PENCIL } from '../lib/icons';
 import { setIcon } from './geometry';
 import { bp } from './state';
-import { openFlowPicker, toggleFlowFold, toggleTrayCard, setActionButtonFlag, openPicker, cancelFlowAdd, stageNewRef, openWireExisting, doUnwire } from './actions';
+import { openFlowPicker, toggleFlowFold, toggleTrayCard, setActionButtonFlag, openPicker, cancelFlowAdd, stageNewRef, openWireExisting, doUnwire, beginRename } from './actions';
 import { armFlowRow } from './gestures';
+
+/** A small rename pencil for a flow object (row / reference band / staged-new container). Reuses the
+ *  SHARED inline-rename machinery: beginRename flags `bp.renameId`, openPendingRename then makes the
+ *  matching `[data-bprename]` span editable — identical Enter-commit / Escape-cancel / outside-commit
+ *  behaviour to cells and tabs. mousedown + preventDefault so it doesn't steal focus / start a drag. */
+function renamePencil(id: string, title: string): HTMLElement {
+  const b = document.createElement('button'); b.className = 'bp-fedit'; setIcon(b, ICON_PENCIL); b.title = title;
+  b.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); beginRename(id); });
+  return b;
+}
 
 /** The 34×17 mono type chip that leads every flow row / band (v6 "badge"). Dashed = staged (NEW). */
 function flowBadge(className: string, staged = false, small = false): HTMLElement {
@@ -70,10 +80,12 @@ function flowRow(node: FlowNode, key: string, opts: { grid?: boolean; nested?: b
   armFlowRow(drag, row, key, node.id, !!opts.grid);
   const lead = document.createElement('span'); lead.className = 'bp-flead';
   lead.appendChild(flowBadge(node.className, staged));
-  const nm = document.createElement('span'); nm.className = 'bp-fname'; nm.textContent = node.name;
+  const nm = document.createElement('span'); nm.className = 'bp-fname'; nm.textContent = node.name; nm.dataset.bprename = node.id;
   const prop = document.createElement('span'); prop.className = 'bp-fprop';
   if (node.prop) { const t = document.createElement('span'); t.textContent = node.prop; prop.appendChild(t); }
   if (node.required) { const r = document.createElement('i'); r.className = 'bp-freq'; r.title = 'required'; prop.appendChild(r); }
+  // Rename affordance (not on structural breaks — they carry no meaningful name).
+  if (!node.isBreak) prop.appendChild(renamePencil(node.id, `Rename "${node.name}"`));
   if (staged) {
     const tag = document.createElement('button'); tag.className = 'bp-ftag new'; tag.textContent = 'NEW';
     tag.title = 'Staged — created on Apply. Click to cancel this add.';
@@ -181,11 +193,15 @@ function placementControl(buttonId: string, onMenu: boolean): HTMLElement {
 }
 
 /** Reference band: INS/EPG badge + name + SHARED tag + fold chevron. */
-function refBand(p: FlowProjection, folded: boolean): HTMLElement {
+function refBand(m: LModel, p: FlowProjection, folded: boolean): HTMLElement {
   const band = document.createElement('div'); band.className = 'bp-fband';
   band.appendChild(flowBadge(p.refClass ?? 'InputSet'));
-  const nm = document.createElement('span'); nm.className = 'mono'; nm.textContent = p.refName ?? p.refId ?? ''; band.appendChild(nm);
+  const staged = p.refId ? m.flowEdits?.[p.refId]?.rename : undefined; // staged rename overrides the label
+  const nm = document.createElement('span'); nm.className = 'mono'; nm.textContent = staged ?? p.refName ?? p.refId ?? '';
+  if (p.refId) nm.dataset.bprename = p.refId;
+  band.appendChild(nm);
   const end = document.createElement('span'); end.className = 'end';
+  if (p.refId) end.appendChild(renamePencil(p.refId, `Rename ${p.refClass ?? 'reference'} "${staged ?? p.refName ?? p.refId}"`));
   if (p.shared) {
     const sh = document.createElement('span'); sh.className = 'bp-fshared'; sh.textContent = 'SHARED';
     sh.title = 'Referenced by more than one widget on this page — changes here appear everywhere it is used.';
@@ -234,11 +250,14 @@ function noRefBand(widgetId: string, prop: 'inputSet' | 'editPage'): HTMLElement
 
 /** Reference band for a STAGED reference (wired-to-existing or staged-new): dashed badge for a new
  *  container, WIRED/NEW tag, and a cancel ✕ (drops the wire + the staged-new container behind it). */
-function stagedRefBand(widgetId: string, ref: { id: string; className: string; name?: string; isNew: boolean }): HTMLElement {
+function stagedRefBand(m: LModel, widgetId: string, ref: { id: string; className: string; name?: string; isNew: boolean }): HTMLElement {
   const band = document.createElement('div'); band.className = 'bp-fband';
   band.appendChild(flowBadge(ref.className, ref.isNew));
-  const nm = document.createElement('span'); nm.className = 'mono'; nm.textContent = ref.name ?? ref.id; band.appendChild(nm);
+  const staged = m.flowEdits?.[ref.id]?.rename; // a wired-existing ref can carry a staged rename
+  const nm = document.createElement('span'); nm.className = 'mono'; nm.textContent = staged ?? ref.name ?? ref.id;
+  nm.dataset.bprename = ref.id; band.appendChild(nm);
   const end = document.createElement('span'); end.className = 'end';
+  end.appendChild(renamePencil(ref.id, ref.isNew ? 'Rename the new reference' : `Rename ${ref.className} "${staged ?? ref.name ?? ref.id}"`));
   const tag = document.createElement('span'); tag.className = 'bp-ftag ' + (ref.isNew ? 'new' : 'mv');
   tag.textContent = ref.isNew ? 'NEW' : 'WIRED';
   tag.title = ref.isNew
@@ -268,8 +287,8 @@ export function flowPanel(m: LModel, node: LNode): HTMLElement | null {
   const prop = refPropOf(node.className);
   if (ref) {
     const folded = bp.flowFolds.has(node.id);
-    if (ref.staged) wrap.appendChild(stagedRefBand(node.id, ref));
-    else if (p) wrap.appendChild(refBand(p, folded)); // live reference — the normal band (SHARED, fold)
+    if (ref.staged) wrap.appendChild(stagedRefBand(m, node.id, ref));
+    else if (p) wrap.appendChild(refBand(m, p, folded)); // live reference — the normal band (SHARED, fold)
     if (!folded || ref.staged) {
       // A staged-new container and a live/on-page reference both resolve children through the ONE
       // effective-children engine. A wired EXISTING off-page set/page gets its real children fetched on

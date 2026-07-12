@@ -11,7 +11,7 @@ import { findNode, isTempId, isResultTab } from '../lib/layout/model';
 import { bandInsertIndex } from '../lib/layout/placement';
 import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, createTabset, findTabOf, toggleReset, setStyle } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
-import { addFlowChild, reorderFlowChild, removeFlowAdd, setActionFlag, addActionButton, flowDiff, flowChangeCount, stageNewFlowContainer, wireFlowRef, unwireFlowRef } from '../lib/layout/flow';
+import { addFlowChild, reorderFlowChild, removeFlowAdd, setActionFlag, addActionButton, flowDiff, flowChangeCount, stageNewFlowContainer, wireFlowRef, unwireFlowRef, renameFlowObject } from '../lib/layout/flow';
 import { compile } from '../lib/layout/ec';
 import { History } from '../lib/layout/history';
 import { maskStyle, type LModel, type PlanStep, type NodeStyle } from '../lib/layout/types';
@@ -154,10 +154,16 @@ export function doRename(id: string, name: string): void {
   const m = model(); if (!m) return;
   const cur = findNode(m, id)?.node;
   const next = name.trim();
-  // Trim, reject an empty name, and skip a no-op (same name, or opened-then-closed) so neither commits
-  // a phantom edit / pushes a history entry you'd have to undo through — just re-render to close the field.
-  if (!cur || next === '' || next === cur.name) { render(); return; }
-  mutate(rename(m, id, next));
+  if (cur) {
+    // Trim, reject an empty name, and skip a no-op (same name, or opened-then-closed) so neither commits
+    // a phantom edit / pushes a history entry you'd have to undo through — just re-render to close the field.
+    if (next === '' || next === cur.name) { render(); return; }
+    mutate(rename(m, id, next)); return;
+  }
+  // Not in the layout tree → a FLOW object (child / container / reference / staged-new): reuse the SAME
+  // inline-rename machinery, routed to the flow rename staging. null = no-op (empty / unchanged).
+  const r = renameFlowObject(m, id, next);
+  if (r) mutate(r); else render();
 }
 export function doDelete(id: string): void { const m = model(); if (m) { bp.selectedId = null; mutate(remove(m, id)); } }
 
@@ -435,7 +441,7 @@ function touchedContainers(plan: PlanStep[], m: LModel): { id: string; rid?: str
   const out = new Map<string, { id: string; rid?: string }>();
   for (const s of plan) {
     // creates aren't shared yet; flow steps touch InputSets/EditPages, not layout containers
-    if (s.kind === 'create' || s.kind === 'flowCreate' || s.kind === 'flowReorder' || s.kind === 'flowFlag') continue;
+    if (s.kind === 'create' || s.kind === 'flowCreate' || s.kind === 'flowReorder' || s.kind === 'flowFlag' || s.kind === 'flowRename') continue;
     const node = findNode(m, s.id)?.node;
     const kind = s.kind === 'reparent' || s.kind === 'delete' ? s.nodeKind : node?.kind;
     if (kind === 'container' && !isTempId(s.id)) out.set(s.id, { id: s.id, rid: node?.rid });
