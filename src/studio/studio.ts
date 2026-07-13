@@ -391,7 +391,7 @@ function renderShell() {
       previewPresent()
         ? h('div', { class: 'studio-preview' },
             h('div', { class: 'studio-strip', id: 'studio-strip' }),
-            h('div', { class: `studio-canvas-outer${previewWidth ? ' studio-canvas-outer--framed' : ''}`, id: 'studio-canvas-outer' },
+            h('div', { class: `studio-canvas-outer${mode.hasSandbox ? ' studio-canvas-outer--live' : ''}${previewWidth ? ' studio-canvas-outer--framed' : ''}`, id: 'studio-canvas-outer' },
               h('div', { class: 'studio-canvas', id: 'studio-canvas', style: previewWidth ? `max-width:${previewWidth}px` : '' }),
             ),
             h('div', { class: 'studio-ptabs', id: 'studio-ptabs' }),
@@ -1052,6 +1052,9 @@ window.addEventListener('message', ev => {
   if (msg.runId !== runCounter) return
   if (msg.type === 'CVO_CONSOLE') logConsole(msg.level, msg.text)
   else if (msg.type === 'CVO_ERROR') logConsole('error', msg.message || 'Error')
+  // Size the iframe to the CVO's real content height so tall content isn't clipped; the CSS min-height
+  // floors it so a short CVO still gets a reasonable preview box, and the pane scrolls when it overflows.
+  else if (msg.type === 'CVO_HEIGHT' && sandboxFrame) sandboxFrame.style.height = `${msg.height}px`
 })
 
 // ── Save / discard / preview toggle ──────────────────────────────

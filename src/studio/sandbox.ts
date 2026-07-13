@@ -91,6 +91,40 @@ export function freshRoot(doc: Document): HTMLElement {
   return root
 }
 
+/** Message tag an injected inner-iframe height reporter posts up to the sandbox. */
+export const CVO_INNER_FRAME_HEIGHT = '__cvoInnerFrameHeight'
+
+/** A common CVO pattern wraps its content in a self-sizing `<iframe srcdoc>` that
+ *  grows itself with `window.frameElement.style.height = documentElement.scrollHeight`.
+ *  In the portal that works (the CVO iframe is same-origin with the page); in OUR
+ *  sandbox it can't — the sandbox is an opaque origin (manifest `sandbox`, no
+ *  `allow-same-origin`), so the inner document's `frameElement` access is cross-origin
+ *  and throws. The CVO's own `try/catch` swallows it and the inner iframe stays stuck
+ *  at its `min-height`, clipping everything below.
+ *
+ *  We can't measure the inner (cross-origin) document from here, and we must NOT add
+ *  `allow-same-origin` (that would hand arbitrary CVO code the extension origin). So
+ *  instead we inject a tiny reporter into each inner srcdoc — the one thing an
+ *  opaque-origin child CAN do across the boundary is `postMessage` up — and size the
+ *  inner iframe from the height it reports. The body ResizeObserver then propagates the
+ *  new size out to the studio via CVO_HEIGHT. Idempotent with the CVO's own (failing)
+ *  fit: ours simply wins because it actually sets the height. */
+export function wireSelfSizingIframes(root: HTMLElement): void {
+  const frames = root.querySelectorAll('iframe[srcdoc]')
+  frames.forEach((el, i) => {
+    const iframe = el as HTMLIFrameElement
+    iframe.dataset.cvoFrame = String(i)
+    const reporter =
+      `<script>(function(){var p=function(){try{parent.postMessage(` +
+      `{t:'${CVO_INNER_FRAME_HEIGHT}',i:${i},h:document.documentElement.scrollHeight},'*')}catch(e){}};` +
+      `if(window.ResizeObserver){new ResizeObserver(p).observe(document.documentElement)}` +
+      `addEventListener('load',p);setTimeout(p,50);setTimeout(p,400)})()</script>`
+    // Append after the CVO's own markup so the reporter runs last (its ResizeObserver
+    // then tracks any later reflow). Re-setting srcdoc reloads the inner document.
+    iframe.setAttribute('srcdoc', (iframe.getAttribute('srcdoc') || '') + reporter)
+  })
+}
+
 /** Run one CVO into `root`: reproduce the `_data` contract (`.element` = root),
  *  inject the html, then run the javascript with `_data` in scope. Reports a
  *  thrown error (the silent-blank-widget failure, surfaced) and the terminal
@@ -113,6 +147,10 @@ export function runCvo(root: HTMLElement, req: RenderRequest, emit: Emit): void 
   } catch (e) {
     emit({ type: 'CVO_ERROR', runId, message: `Failed to set html: ${(e as Error).message}` })
   }
+
+  // Let self-sizing `<iframe srcdoc>` CVOs report their height across the sandbox's
+  // opaque-origin boundary (see wireSelfSizingIframes) instead of clipping at min-height.
+  wireSelfSizingIframes(root)
 
   if (req.javascript.trim()) {
     try {
@@ -153,6 +191,32 @@ if (typeof window !== 'undefined' && window.parent !== window) {
   const post: Emit = msg => parent.postMessage(msg, '*')
 
   installConsoleCapture(post, () => currentRunId)
+
+  // Report the rendered content height so the studio grows the iframe to fit instead of clipping it.
+  // `document.body.scrollHeight` is the true content height (NOT clamped to the iframe viewport the way
+  // documentElement.scrollHeight is), so it both grows and SHRINKS correctly. rAF-coalesced. A
+  // ResizeObserver on the body catches async growth — a chart library that lays out a frame after the
+  // synchronous run, which was the main cause of the vertical cut-off.
+  let heightRaf = 0
+  const reportHeight = () => {
+    if (heightRaf) return
+    heightRaf = requestAnimationFrame(() => {
+      heightRaf = 0
+      post({ type: 'CVO_HEIGHT', runId: currentRunId, height: Math.ceil(document.body.scrollHeight) })
+    })
+  }
+  new ResizeObserver(reportHeight).observe(document.body)
+
+  // Self-sizing inner `<iframe srcdoc>` CVOs report their content height here (see
+  // wireSelfSizingIframes). Size the matching inner iframe; the body ResizeObserver
+  // above then propagates the change out to the studio. A separate listener from the
+  // render one below because these come from a CHILD frame, not the parent embedder.
+  window.addEventListener('message', ev => {
+    const d = ev.data as { t?: unknown; i?: unknown; h?: unknown } | undefined
+    if (!d || d.t !== CVO_INNER_FRAME_HEIGHT || typeof d.i !== 'number' || typeof d.h !== 'number') return
+    const inner = document.querySelector<HTMLElement>(`iframe[data-cvo-frame="${d.i}"]`)
+    if (inner) inner.style.height = `${Math.ceil(d.h)}px`
+  })
 
   window.addEventListener('error', ev => {
     post({ type: 'CVO_ERROR', runId: currentRunId, message: ev.message || 'Uncaught error', stack: ev.error?.stack, line: ev.lineno, column: ev.colno })
@@ -204,6 +268,7 @@ if (typeof window !== 'undefined' && window.parent !== window) {
         javascript: rewriteDownloadUrls(msg.javascript, sandboxLibs),
       }
       runCvo(freshRoot(document), req, post)
+      reportHeight() // sync height right after the run; the ResizeObserver then tracks async growth
     }
   })
 

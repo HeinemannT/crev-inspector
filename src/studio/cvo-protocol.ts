@@ -66,16 +66,26 @@ export interface CvoSandboxReady {
   type: 'CVO_SANDBOX_READY'
 }
 
+/** sandbox → studio: the rendered content height (px), so the studio grows the iframe to fit instead
+ *  of clipping it to the pane. Sent after each render AND on later growth (a chart that lays out a tick
+ *  later) via a ResizeObserver, so async content isn't cut off. */
+export interface CvoHeightMessage {
+  type: 'CVO_HEIGHT'
+  runId: number
+  height: number
+}
+
 /** Everything the studio can receive from the sandbox. */
 export type CvoSandboxOutbound =
   | CvoConsoleMessage
   | CvoErrorMessage
   | CvoRenderedMessage
   | CvoSandboxReady
+  | CvoHeightMessage
 
 /** Narrow an untrusted postMessage payload to a sandbox-outbound message. */
 export function isCvoSandboxOutbound(v: unknown): v is CvoSandboxOutbound {
   if (typeof v !== 'object' || v === null) return false
   const t = (v as { type?: unknown }).type
-  return t === 'CVO_CONSOLE' || t === 'CVO_ERROR' || t === 'CVO_RENDERED' || t === 'CVO_SANDBOX_READY'
+  return t === 'CVO_CONSOLE' || t === 'CVO_ERROR' || t === 'CVO_RENDERED' || t === 'CVO_SANDBOX_READY' || t === 'CVO_HEIGHT'
 }

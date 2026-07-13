@@ -178,17 +178,29 @@ html, body { height: 100%; margin: 0; }
   background: var(--surface-0); border: 1px solid var(--surface-4); border-radius: var(--radius-sm);
 }
 
-/* ── Canvas (the CVO render) — owns the pane by default ─────────── */
+/* ── Canvas (the preview render) — owns the pane ─────────────────── */
+/* Scroll container: centres the white canvas horizontally. Two modes:
+   - static (TextElement srcdoc, no height reporting): the canvas STRETCHES to fill the pane, the
+     iframe fills it, and an over-tall doc scrolls INSIDE the iframe. `align-items:stretch` (default).
+   - live (CVO sandbox): `--live` switches to content-height — the canvas top-aligns, the iframe's
+     height is driven by the sandbox's reported content height (CVO_HEIGHT), and the OUTER scrolls
+     when the render is taller than the pane. This is what stopped the vertical cut-off. */
 .studio-canvas-outer {
-  flex: 1; min-height: 0; display: flex; justify-content: center;
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; justify-content: center;
   background: var(--surface-3);
 }
+.studio-canvas-outer--live { align-items: flex-start; }
 /* Frame only when a width preset centers the canvas (shows the device edges);
  * at full width the render fills the pane edge-to-edge, no wasted whitespace. */
 .studio-canvas-outer--framed { padding: var(--space-2); }
-/* Canvas is ALWAYS white regardless of theme: it previews content as BMP renders it. */
-.studio-canvas { flex: 1; min-width: 0; display: flex; background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25); }
-.studio-sandbox { flex: 1; width: 100%; border: 0; background: #fff; }
+/* Canvas is ALWAYS white regardless of theme: it previews content as BMP renders it. The inline
+   max-width (a preset device width) caps it; else it fills the pane width. */
+.studio-canvas { width: 100%; min-width: 0; display: flex; background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25); }
+.studio-canvas-outer--live .studio-canvas { display: block; }
+.studio-sandbox { flex: 1; width: 100%; min-height: 200px; border: 0; background: #fff; }
+/* Live: the iframe is content-sized (studio sets its height from CVO_HEIGHT), not flex-stretched. */
+.studio-canvas-outer--live .studio-sandbox { flex: none; display: block; }
 
 /* ── Bottom panel (Console · Inputs · Deps) — one toggleable area ─ */
 .studio-ptabs { display: flex; flex-shrink: 0; border-top: 1px solid var(--surface-4); background: var(--surface-1); }

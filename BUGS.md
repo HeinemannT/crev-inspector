@@ -35,6 +35,17 @@ fixed on main). These are the deferred remainder — legitimate but lower-severi
   `display` around `elementFromPoint` + 2× `findNode` per move — a forced reflow per drag frame on
   large models. Cache the model lookups; avoid the display toggle where possible.
 
+## CVO Studio preview
+
+- **BMP portal globals (e.g. `window.Highcharts`) are not provided.** The sandbox injects only the
+  CVO's own declared FileResource dependency libs (`ensureLibs` → `detectFileResourceRids`); it does
+  NOT reproduce the globals the live portal loads for every page. A CVO that calls `window.Highcharts`
+  (loaded globally by BMP, not declared as a dep) throws `Highcharts is not defined` in the preview
+  and renders blank — even though it works in the portal. Fix would be to bundle/stub the common
+  portal globals, or fetch+inject Highcharts into the sandbox. Deferred: needs a source for the exact
+  portal Highcharts build. (The self-sizing-`<iframe srcdoc>` and outer-height clips were fixed in the
+  beta.4 CVO preview work — `wireSelfSizingIframes` + `CVO_HEIGHT`.)
+
 ## Inspect-side / other
 
 _None open._
