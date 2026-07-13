@@ -115,7 +115,7 @@ import {
 import { renderChip, modeSwitch, scopeClass, previewModal, trayPanel, hintBar } from './view-panels';
 import { paintStation, paintPopup } from './view-paint';
 import { renderResult, typeIcon } from './result';
-import { actionMenuTrigger, actionMenuPanel } from './result-flow';
+import { actionMenuTrigger, actionMenuPanel, flowBadge } from './result-flow';
 import { flowChildPalette } from '../lib/layout/constraints';
 import { flowChangeCount } from '../lib/layout/flow';
 
@@ -688,7 +688,17 @@ function flowPickerPanel(): HTMLElement {
     const ql = q.trim().toLowerCase();
     for (const it of items) {
       if (ql && !it.name.toLowerCase().includes(ql) && !it.key.toLowerCase().includes(ql)) continue;
-      list.appendChild(pickRow(it.name, it.key, () => addFlowFromPicker(it.key), typeIcon(it.key)));
+      // Lead each item with the SAME type badge it gets as a canvas row (colour + abbreviation). Covers
+      // every type, unlike typeIcon which returned null for Label / Action / Validation / EditField /
+      // breaks and used one generic pencil for all inputs.
+      const row = document.createElement('button'); row.className = 'bp-pick-it';
+      const left = document.createElement('span'); left.className = 'bp-pick-l';
+      const nm = document.createElement('span'); nm.textContent = it.name;
+      left.append(flowBadge(it.key), nm);
+      const k = document.createElement('span'); k.className = 'k'; k.textContent = it.key;
+      row.append(left, k);
+      row.addEventListener('mousedown', (e) => { e.stopPropagation(); addFlowFromPicker(it.key); });
+      list.appendChild(row);
     }
     if (!list.children.length) { const e = document.createElement('div'); e.className = 'bp-pick-grp'; e.textContent = 'no match'; list.appendChild(e); }
   };

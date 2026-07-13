@@ -62,8 +62,9 @@ function renamePencil(id: string, title: string): HTMLElement {
   return b;
 }
 
-/** The 34×17 mono type chip that leads every flow row / band (v6 "badge"). Dashed = staged (NEW). */
-function flowBadge(className: string, staged = false, small = false): HTMLElement {
+/** The 34×17 mono type chip that leads every flow row / band (v6 "badge"). Dashed = staged (NEW).
+ *  Exported so the add-element picker leads each item with the SAME badge it'll get as a row. */
+export function flowBadge(className: string, staged = false, small = false): HTMLElement {
   const b = document.createElement('span');
   b.className = 'bp-fbadge' + (staged ? ' newb' : '') + (small ? ' sm' : '');
   b.textContent = getTypeAbbr(className);
