@@ -586,12 +586,9 @@ export class ConnectTab implements Tab {
 
     const spark = h('span', { class: 'ai-card-spark', 'aria-hidden': 'true' }, svg(ICON_SPARKLE));
 
+    // No READY/UNTESTED pill — the green keyline + connection dot + latency already say "ready"; an
+    // untested-but-configured card simply shows neither (a plain card), so absence carries the state.
     const name = h('div', { class: 'ai-card-nm' }, 'AI Assistant');
-    if (configured) {
-      name.appendChild(verified
-        ? h('span', { class: 'ai-pill ai-pill--ok' }, 'READY')
-        : h('span', { class: 'ai-pill ai-pill--warn' }, 'UNTESTED'));
-    }
 
     const ln2 = configured
       ? `${providerLabel} · ${model} · key saved`

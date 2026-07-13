@@ -1191,7 +1191,8 @@ body {
 }
 .prof:hover { background: var(--surface-2); }
 /* Connected/active profile gets a green keyline (connection = green). */
-.prof.cur { box-shadow: inset 3px 0 0 var(--success); }
+.prof.cur { box-shadow: inset 3px 0 0 var(--success); }               /* green keyline = connected */
+.prof.cur .prof-av { border-color: transparent; box-shadow: 0 0 0 1.5px var(--accent); color: var(--accent); } /* accent ring = the active profile */
 
 .prof-av {
   flex-shrink: 0;
@@ -1230,18 +1231,15 @@ body {
 }
 
 /* "Current" pill — green, matches the keyline. */
+/* "Current" is now a quiet accent WORD, not a green pill — active-ness (accent) reads apart from
+   connection health (the green keyline). */
 .prof-curtag {
   flex-shrink: 0;
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semi);
+  font-size: 10px;
+  font-weight: var(--weight-bold, 700);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--success);
-  background: color-mix(in srgb, var(--success) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--success) 40%, transparent);
-  border-radius: var(--radius-sm);
-  padding: 0 5px;
-  line-height: 15px;
+  letter-spacing: 0.06em;
+  color: var(--accent);
 }
 
 .prof-status {
@@ -4114,15 +4112,6 @@ body.crev-divider-dragging * { user-select: none; }
   font-weight: var(--weight-semi);
   color: var(--text-1);
 }
-.ai-pill {
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-size: var(--text-2xs);
-  font-weight: var(--weight-semi);
-  letter-spacing: 0.05em;
-}
-.ai-pill--ok { background: color-mix(in srgb, var(--success) 18%, var(--surface-1)); color: var(--success); }
-.ai-pill--warn { background: color-mix(in srgb, var(--warning) 20%, var(--surface-1)); color: color-mix(in srgb, var(--warning) 70%, var(--text-1)); }
 .ai-card-ln2 {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
