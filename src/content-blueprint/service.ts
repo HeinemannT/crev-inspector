@@ -92,9 +92,8 @@ export async function fetchFlowRefs(refClass: 'InputSet' | 'EditPage'): Promise<
  *  ref businessId), so the pure diff/render see a wired existing off-page reference's real contents.
  *  Not a history push — this is not an edit; future edits carry it forward via cloneModel. */
 function bakeRefChildren(): void {
-  const rec = Object.fromEntries([...bp.flowRefChildren]);
-  if (bp.baseline) bp.baseline.flowRefChildren = rec;
-  const m = model(); if (m) m.flowRefChildren = rec;
+  // model() injects bp.flowRefChildren on every read now, so surfacing the fetched children is just a
+  // re-render — no need to (ineffectively) patch a transient present() clone or the baseline.
   render();
 }
 

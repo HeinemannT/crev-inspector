@@ -52,10 +52,15 @@ const editOf = (m: LModel, key: string): FlowEdit | undefined => m.flowEdits?.[k
  *  the staged `order` when present (ids in `order` first, then any not listed, in their natural order).
  *  Pure — used by BOTH the renderer and the diff, so what the user sees is exactly what compiles. */
 export function effectiveFlowChildren(m: LModel, key: string): FlowNode[] {
+  // No container yet (a just-wired existing ref whose children fetch is still in flight, or a ref that
+  // isn't fetchable) still shows its STAGED adds — they live in flowEdits, independent of the fetch. The
+  // old early `return []` here hid them entirely, so "add element" appeared to do nothing until (if ever)
+  // the fetch landed.
   const container = findFlowContainer(m, key);
-  if (!container) return [];
   const e = editOf(m, key);
-  const natural = [...container.original, ...(e?.adds ?? [])];
+  const original = container?.original ?? [];
+  if (!original.length && !e?.adds?.length) return [];
+  const natural = [...original, ...(e?.adds ?? [])];
   const ordered: FlowNode[] = [];
   if (!e?.order) {
     ordered.push(...natural);

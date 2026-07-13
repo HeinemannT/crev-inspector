@@ -656,7 +656,19 @@ function flowPickerPanel(): HTMLElement {
       const ql = q.trim().toLowerCase();
       for (const it of rows) {
         if (ql && !it.name.toLowerCase().includes(ql) && !it.id.toLowerCase().includes(ql) && !(it.category ?? '').toLowerCase().includes(ql)) continue;
-        list.appendChild(pickRow(it.name, it.category ?? it.id, () => wireExistingFromPicker(it.id, it.className, it.name), typeIcon(it.className)));
+        // Generous two-line row (no type icon — every row is the same class): NAME on top, then
+        // `id · parent`, where the parent (Category) truncates when long.
+        const row = document.createElement('button'); row.className = 'bp-pick-it bp-pick-ref';
+        const nm = document.createElement('span'); nm.className = 'bp-pick-refnm'; nm.textContent = it.name;
+        const meta = document.createElement('span'); meta.className = 'bp-pick-refmeta';
+        const rid = document.createElement('span'); rid.className = 'rid'; rid.textContent = it.id; meta.appendChild(rid);
+        if (it.category) {
+          const par = document.createElement('span'); par.className = 'par'; par.textContent = it.category; par.title = `in ${it.category}`;
+          meta.append(document.createTextNode(' · '), par);
+        }
+        row.append(nm, meta);
+        row.addEventListener('mousedown', (e) => { e.stopPropagation(); wireExistingFromPicker(it.id, it.className, it.name); });
+        list.appendChild(row);
       }
       if (!list.children.length) { const e = document.createElement('div'); e.className = 'bp-pick-grp'; e.textContent = 'no match'; list.appendChild(e); }
     };

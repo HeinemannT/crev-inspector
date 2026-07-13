@@ -147,7 +147,16 @@ export function resetModel(): void {
 export function isBlueprintActive(): boolean { return bp.active; }
 
 /** The edited model = history present (baseline + staged edits). Null until a page is loaded. */
-export const model = (): LModel | null => bp.history?.present() ?? null;
+export const model = (): LModel | null => {
+  const m = bp.history?.present();
+  if (!m) return null;
+  // Inject the session ref-children cache (on-demand-fetched children of wired-existing off-page
+  // InputSets/EditPages) on every read. History.present() clones fresh each call and the stack states
+  // predate the async fetch, so this is the only reliable place to surface the fetched children —
+  // for display (the wired ref's existing children) and for apply (a wired-ref child's rid lookup).
+  if (bp.flowRefChildren.size) m.flowRefChildren = Object.fromEntries(bp.flowRefChildren);
+  return m;
+};
 
 /** Curated add palette — the common, verified-addable widget types grouped for the picker. Display
  *  names are friendly; the key is the BMP className. (A full per-host live-derived palette is a

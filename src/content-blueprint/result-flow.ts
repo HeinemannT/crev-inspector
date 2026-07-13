@@ -206,7 +206,7 @@ function refBand(m: LModel, p: FlowProjection, folded: boolean): HTMLElement {
   const band = document.createElement('div'); band.className = 'bp-fband';
   band.appendChild(flowBadge(p.refClass ?? 'InputSet'));
   const staged = p.refId ? m.flowEdits?.[p.refId]?.rename : undefined; // staged rename overrides the label
-  const nm = document.createElement('span'); nm.className = 'mono'; nm.textContent = staged ?? p.refName ?? p.refId ?? '';
+  const nm = document.createElement('span'); nm.className = 'bp-fname'; nm.textContent = staged ?? p.refName ?? p.refId ?? '';
   if (p.refId) nm.dataset.bprename = p.refId;
   band.appendChild(nm);
   const end = document.createElement('span'); end.className = 'end';
@@ -263,7 +263,7 @@ function stagedRefBand(m: LModel, widgetId: string, ref: { id: string; className
   const band = document.createElement('div'); band.className = 'bp-fband';
   band.appendChild(flowBadge(ref.className, ref.isNew));
   const staged = m.flowEdits?.[ref.id]?.rename; // a wired-existing ref can carry a staged rename
-  const nm = document.createElement('span'); nm.className = 'mono'; nm.textContent = staged ?? ref.name ?? ref.id;
+  const nm = document.createElement('span'); nm.className = 'bp-fname'; nm.textContent = staged ?? ref.name ?? ref.id;
   nm.dataset.bprename = ref.id; band.appendChild(nm);
   const end = document.createElement('span'); end.className = 'end';
   end.appendChild(renamePencil(ref.id, ref.isNew ? 'Rename the new reference' : `Rename ${ref.className} "${staged ?? ref.name ?? ref.id}"`));

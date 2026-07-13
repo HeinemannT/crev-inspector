@@ -225,6 +225,12 @@
 #crev-blueprint-layer .bp-pick-l{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #crev-blueprint-layer .bp-pick-ic{flex:none;display:inline-flex;color:var(--bp-muted)}
 #crev-blueprint-layer .bp-pick-ic svg{width:13px;height:13px;display:block}
+/* Wire-to-existing rows: generous two lines, no icon — name, then id · parent (parent truncates). */
+#crev-blueprint-layer .bp-pick-ref{flex-direction:column;align-items:flex-start;gap:2px;padding:7px 10px}
+#crev-blueprint-layer .bp-pick-refnm{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 12.5px 'BPInter',sans-serif;color:var(--bp-text)}
+#crev-blueprint-layer .bp-pick-refmeta{display:flex;align-items:center;max-width:100%;min-width:0;font:10px var(--bp-mono);color:var(--bp-muted)}
+#crev-blueprint-layer .bp-pick-refmeta .rid{flex:none}
+#crev-blueprint-layer .bp-pick-refmeta .par{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ── apply preview modal ─────────────────────────────── */
 #crev-blueprint-layer .bp-modal-back{position:fixed;inset:0;z-index:60;background:rgba(0,33,71,.4);display:flex;align-items:center;justify-content:center;pointer-events:auto}
@@ -632,6 +638,9 @@
 /* config / reference bands */
 #crev-blueprint-layer .bp-fband{display:flex;align-items:center;gap:8px;padding:8px 14px;background:rgba(0,33,71,.028);border-bottom:var(--bp-div) solid rgba(148,163,184,.28);font:500 11px 'BPInter',sans-serif;color:var(--bp-muted)}
 #crev-blueprint-layer .bp-fband .mono{font:500 10px var(--bp-mono);color:var(--bp-text)}
+/* Reference name (InputSet/EditPage) shares the children's font family — emphasised by WEIGHT, not a
+   different (mono) typeface, so the parent reads as a heading of the same list, not a foreign element. */
+#crev-blueprint-layer .bp-fband .bp-fname{font-weight:600;flex:0 1 auto}
 #crev-blueprint-layer .bp-fband .mono.strong{font-weight:700}
 #crev-blueprint-layer .bp-fband .aic{flex:none;width:10px;height:10px;color:var(--bp-muted);display:inline-flex}
 #crev-blueprint-layer .bp-fband .aic svg{width:100%;height:100%}
