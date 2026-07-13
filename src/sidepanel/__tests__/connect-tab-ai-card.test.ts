@@ -1,8 +1,9 @@
 /**
- * Tests for the Connect tab's AI Assistant card (server-row twin):
- *   - unconfigured → quiet row with a Set up button, no pill, no keyline
- *   - configured + untested → UNTESTED pill, no green keyline, Edit
- *   - configured + last test ok → READY pill, green keyline, latency + dot
+ * Tests for the Connect tab's AI Assistant card (server-row twin). No READY/UNTESTED pills — status is
+ * carried by the green keyline + connection dot + latency (present only when verified):
+ *   - unconfigured → quiet row with a Set up button, no keyline
+ *   - configured + untested → plain card (no keyline, no dot/latency), Edit
+ *   - configured + last test ok → green keyline, latency + dot
  *   - row click expands the existing config form; AI_TEST_RESULT persists
  *     the lastTest into shared settings for the collapsed card.
  *
@@ -69,18 +70,19 @@ describe('AI Assistant card states', () => {
     expect(card.querySelector('.ai-card-spark svg')).toBeTruthy();
   });
 
-  it('configured but untested: UNTESTED pill, mono line, Edit, no keyline', () => {
+  it('configured but untested: plain card (no keyline, no dot/latency), mono line, Edit', () => {
     shared.settings = freshSettings({ provider: 'deepseek', model: 'deepseek-chat', apiKeyEnc: 'set' });
     const { el } = renderTab();
     const card = el.querySelector('.ai-card')!;
     expect(card.classList.contains('ready')).toBe(false);
-    expect(card.querySelector('.ai-pill--warn')?.textContent).toBe('UNTESTED');
+    expect(card.querySelector('.ai-pill')).toBeNull(); // no pill — absence of the keyline/dot carries "untested"
     expect(card.querySelector('.ai-card-ln2')?.textContent).toBe('DeepSeek · deepseek-chat · key saved');
     expect(card.querySelector('.ai-card-edit')?.textContent).toBe('Edit');
     expect(card.querySelector('.ai-card-latency')).toBeNull();
+    expect(card.querySelector('.ai-card-dot')).toBeNull();
   });
 
-  it('configured + verified: READY pill, green keyline, dot + latency', () => {
+  it('configured + verified: green keyline, dot + latency, no pill', () => {
     shared.settings = freshSettings({
       provider: 'anthropic', model: 'claude-sonnet-5', apiKeyEnc: 'set',
       lastTest: { ok: true, ms: 412, at: Date.now() },
@@ -88,12 +90,12 @@ describe('AI Assistant card states', () => {
     const { el } = renderTab();
     const card = el.querySelector('.ai-card')!;
     expect(card.classList.contains('ready')).toBe(true);
-    expect(card.querySelector('.ai-pill--ok')?.textContent).toBe('READY');
+    expect(card.querySelector('.ai-pill')).toBeNull();
     expect(card.querySelector('.ai-card-dot')).toBeTruthy();
     expect(card.querySelector('.ai-card-latency')?.textContent).toBe('412 ms');
   });
 
-  it('a failed last test renders UNTESTED (no green keyline)', () => {
+  it('a failed last test renders a plain card (no green keyline)', () => {
     shared.settings = freshSettings({
       provider: 'openai', model: 'gpt-5.2', apiKeyEnc: 'set',
       lastTest: { ok: false, ms: 900, at: Date.now() },
@@ -101,7 +103,8 @@ describe('AI Assistant card states', () => {
     const { el } = renderTab();
     const card = el.querySelector('.ai-card')!;
     expect(card.classList.contains('ready')).toBe(false);
-    expect(card.querySelector('.ai-pill--warn')?.textContent).toBe('UNTESTED');
+    expect(card.querySelector('.ai-pill')).toBeNull();
+    expect(card.querySelector('.ai-card-dot')).toBeNull();
   });
 
   it('clicking the row expands the existing config form (provider/model/key)', () => {
