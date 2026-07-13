@@ -603,8 +603,12 @@ function bmpContentWidth(byRid: Map<string, Element>, left: number): number {
  *  tab is active. */
 function unionAllVisible(byRid: Map<string, Element>): Rect | null {
   let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity, any = false;
+  // Union EVERY rendered widget (widgetRects already drops zero-size / unrendered ones) — NOT only those
+  // in the viewport. The old on-screen filter anchored the canvas to whatever happened to be scrolled
+  // into view when Blueprint was entered, so entering while scrolled down placed the canvas "down there"
+  // at the scroll position instead of over the page's real top. Viewport-relative rects + docY() in the
+  // caller make this scroll-independent, so the fallback anchor is now the page's full content box.
   for (const rc of widgetRects(byRid)) {
-    if (rc.bottom <= 0 || rc.top >= innerHeight) continue; // on-screen only
     l = Math.min(l, rc.left); t = Math.min(t, rc.top); r = Math.max(r, rc.right); b = Math.max(b, rc.bottom); any = true;
   }
   return any ? { left: l, top: t, width: r - l, height: b - t } : null;
