@@ -648,7 +648,6 @@
 #crev-blueprint-layer .bp-fband .d{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #crev-blueprint-layer .bp-fband .d b{font-weight:600;color:var(--bp-text)}
 #crev-blueprint-layer .bp-fband .d .m{font:500 10px var(--bp-mono)}
-#crev-blueprint-layer .bp-fshared{font:600 7.5px var(--bp-mono);letter-spacing:.08em;color:var(--bp-muted);border:1px solid var(--bp-line-2);border-radius:var(--bp-r);padding:2px 7px;background:var(--bp-ground)}
 #crev-blueprint-layer .bp-ffold{flex:none;border:0;background:transparent;font-size:9px;color:var(--bp-muted);cursor:pointer;padding:2px 4px}
 #crev-blueprint-layer .bp-ffold:hover{color:var(--bp-cyan-hi)}
 /* Rename pencil — hover-revealed on a flow row, always present (dimmed) on a band's end. Reuses the

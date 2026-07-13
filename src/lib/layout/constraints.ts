@@ -143,16 +143,5 @@ export function lint(m: LModel, target: SaveTarget, plan: PlanStep[]): LintMsg[]
     const g = checkStructuralTarget(target, structuralOp);
     if ((g.level === 'warn' || g.level === 'info') && g.reason) out.push({ level: g.level, text: g.reason });
   }
-  // Flow edits staged behind a SHARED reference (an InputSet/EditPage more than one widget on this page
-  // points at): the change lands on the shared object, so it appears in EVERY cell that uses it. A real
-  // warning, once per shared reference, named. (`shared` comes from the fetch's on-page reference count.)
-  const flowKeys = new Set(plan.flatMap(s =>
-    s.kind === 'flowCreate' ? [s.parentId] : s.kind === 'flowReorder' ? [s.parentId] : []));
-  const warned = new Set<string>();
-  for (const p of Object.values(m.flows ?? {})) {
-    if (!p.refId || !p.shared || !flowKeys.has(p.refId) || warned.has(p.refId)) continue;
-    warned.add(p.refId);
-    out.push({ level: 'warn', text: `"${p.refName ?? p.refId}" is shared — changes appear everywhere it is used.` });
-  }
   return out;
 }

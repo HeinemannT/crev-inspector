@@ -233,9 +233,6 @@ export interface FlowProjection {
    *  `refParentName` is that Category's display name — the honest "lands in …" label for a co-located
    *  create (rides the FLOW_META channel, free-text-last). */
   refParentClass?: string; refParentId?: string; refParentName?: string;
-  /** true when more than one flow widget on this page references `refId` (on-page sharing — a cheap,
-   *  honest signal; cross-page sharing is not probed, see sync.ts). */
-  shared?: boolean;
   // config band (CreateObjectView):
   createMode?: string;   // ADD | EDITORADD | EDITOREDIT (normalized enum)
   objectType?: string;   // created object display name

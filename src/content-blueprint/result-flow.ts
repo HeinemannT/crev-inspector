@@ -4,7 +4,7 @@
  *
  *  - `flowPanel`          — a flow-bearing widget's chain inside its result cell: config band
  *                           (createMode / destination / action verb), reference band (badge + name +
- *                           SHARED + fold chevron), children as badge-led rows in the strict grid
+ *                           fold chevron), children as badge-led rows in the strict grid
  *                           `drag 14 · lead 38 · name 1fr · prop 110 · dots 30`, nested ButtonGroup as
  *                           an indented sub-block, a quiet "Add element" row.
  *  - `compositeFlowRows`  — the same row grammar for a composite PLACED IN THE GRID (InputSet /
@@ -201,7 +201,7 @@ function placementControl(buttonId: string, onMenu: boolean): HTMLElement {
   return seg;
 }
 
-/** Reference band: INS/EPG badge + name + SHARED tag + fold chevron. */
+/** Reference band: INS/EPG badge + name + fold chevron. */
 function refBand(m: LModel, p: FlowProjection, folded: boolean): HTMLElement {
   const band = document.createElement('div'); band.className = 'bp-fband';
   band.appendChild(flowBadge(p.refClass ?? 'InputSet'));
@@ -211,11 +211,6 @@ function refBand(m: LModel, p: FlowProjection, folded: boolean): HTMLElement {
   band.appendChild(nm);
   const end = document.createElement('span'); end.className = 'end';
   if (p.refId) end.appendChild(renamePencil(p.refId, `Rename ${p.refClass ?? 'reference'} "${staged ?? p.refName ?? p.refId}"`));
-  if (p.shared) {
-    const sh = document.createElement('span'); sh.className = 'bp-fshared'; sh.textContent = 'SHARED';
-    sh.title = 'Referenced by more than one widget on this page — changes here appear everywhere it is used.';
-    end.appendChild(sh);
-  }
   const fold = document.createElement('button'); fold.className = 'bp-ffold'; fold.textContent = folded ? '▸' : '▾';
   fold.title = folded ? 'Expand the flow chain' : 'Fold the flow chain';
   onTap(fold, () => toggleFlowFold(p.ownerId));
@@ -297,7 +292,7 @@ export function flowPanel(m: LModel, node: LNode): HTMLElement | null {
   if (ref) {
     const folded = bp.flowFolds.has(node.id);
     if (ref.staged) wrap.appendChild(stagedRefBand(m, node.id, ref));
-    else if (p) wrap.appendChild(refBand(m, p, folded)); // live reference — the normal band (SHARED, fold)
+    else if (p) wrap.appendChild(refBand(m, p, folded)); // live reference — the normal band (fold)
     if (!folded || ref.staged) {
       // A staged-new container and a live/on-page reference both resolve children through the ONE
       // effective-children engine. A wired EXISTING off-page set/page gets its real children fetched on

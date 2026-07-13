@@ -9,7 +9,6 @@ import type { LModel, LNode, FlowProjection } from '../types';
 import { diff } from '../diff';
 import { compile } from '../ec';
 import { createTabset } from '../edit';
-import { lint } from '../constraints';
 import { parseFlows, parseFlowRefList, buildFlowRefListEc } from '../sync';
 import { cloneModel } from '../model';
 import {
@@ -54,7 +53,7 @@ function flowModel(): LModel {
     '50848': {
       ownerId: '50848', ownerRid: 'r_cov2', ownerClass: 'CreateObjectView', kind: 'editpage',
       refId: '50865', refRid: 'r_ep', refClass: 'EditPage', refName: 'Create Risk Statement',
-      createMode: 'EDITOREDIT', shared: true, container: 'RESULT',
+      createMode: 'EDITOREDIT', container: 'RESULT',
       children: [
         { id: '50866', rid: 'r_e1', className: 'EditField', name: 'Edit field' },
         { id: '50873', rid: 'r_pb', className: 'EditPageBreak', name: 'Page break', isBreak: true },
@@ -66,8 +65,6 @@ function flowModel(): LModel {
     '50863': { ownerId: '50863', ownerRid: 'r_ab2', ownerClass: 'ActionButton', kind: 'add', actionType: 'ADD', displayOnActionMenu: true, addItem: 'Risk Statement', container: 'tab2', children: [] },
     '50843': { ownerId: '50843', ownerRid: 'r_ab3', ownerClass: 'ActionButton', kind: 'action', actionType: 'ACTION', displayOnActionMenu: false, container: 'RESULT', children: [] },
   };
-  // mark the shared EditPage on both its projections (parseFlows does this from ref counts)
-  flows['50845'].shared = true;
   return {
     pageId: 'template_example_flow', pageRid: 'r_page', pageClass: 'Scorecard', tabsetId: 'default_tabset',
     tabs: [n({ id: 'RESULT', kind: 'tab', className: 'Tab', name: 'Result', children: [
@@ -293,13 +290,6 @@ describe('parseFlows enum normalization + wire parsing (pitfalls 3/4)', () => {
     expect(iv.children[0].children?.[0].dots).toEqual([{ prop: 'expression', set: true }, { prop: 'afterExpression', set: false }]);
   });
 
-  it('marks a reference used by two on-page widgets as SHARED', () => {
-    const flows = parseFlows(log);
-    expect(flows.get('50845')?.shared).toBe(true);
-    expect(flows.get('50848')?.shared).toBe(true);
-    expect(flows.get('50844')?.shared).toBeUndefined(); // single-use InputSet
-  });
-
   it('keeps transports as read-only rows with code presence', () => {
     const flows = parseFlows(log);
     expect(flows.get('50849')?.transports).toEqual([{ className: 'ExtendedTransport', name: 'Extended action', codeSet: true }]);
@@ -332,7 +322,7 @@ describe('trayButtons tab filtering', () => {
 });
 
 // ── signature + lint ─────────────────────────────────────────────────────────
-describe('flowSignature + shared lint', () => {
+describe('flowSignature', () => {
   it('signature is stable across clones and changes on membership/order/flag drift', () => {
     const m = flowModel();
     expect(flowSignature(cloneModel(m))).toBe(flowSignature(m));
@@ -364,17 +354,6 @@ describe('flowSignature + shared lint', () => {
     expect(flowSignature(tricky)).not.toBe(flowSignature(m));
   });
 
-  it('lint warns once per SHARED reference behind staged flow edits, naming it', () => {
-    const base = flowModel();
-    const edited = addFlowChild(base, '50865', 'EditField').model;
-    const msgs = lint(edited, 'instance', flowDiff(base, edited));
-    const warnMsgs = msgs.filter(x => x.level === 'warn');
-    expect(warnMsgs).toHaveLength(1);
-    expect(warnMsgs[0].text).toContain('"Create Risk Statement" is shared');
-    // an edit on the UN-shared InputSet stays quiet
-    const quiet = addFlowChild(base, '50850', 'TextInput').model;
-    expect(lint(quiet, 'instance', flowDiff(base, quiet)).filter(x => x.level === 'warn')).toEqual([]);
-  });
 });
 
 // ── staged-new references (create a NEW InputSet / EditPage from blueprint) ──

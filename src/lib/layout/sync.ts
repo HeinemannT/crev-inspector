@@ -490,9 +490,7 @@ function flowChildNodeFrom(parts: string[]): { owner: string; parentBid: string;
 
 /** Parse the flow channels (FLOW_REF / FLOW_META / FLOW_CHILD / FLOW_CPROP / FLOW_TR) into a
  *  businessId → FlowProjection map, keyed by the flow WIDGET's businessId. Each channel rides the same
- *  fetch log on its own marker (the layout / override / style parsers ignore these lines). `shared` is
- *  computed AFTER parsing, client-side, from on-page reference counts — cheap and honest; cross-page
- *  sharing is not probed (rref does not index editPage/inputSet references — verified 2026-07-11). */
+ *  fetch log on its own marker (the layout / override / style parsers ignore these lines). */
 export function parseFlows(log: string): Map<string, FlowProjection> {
   const map = new Map<string, FlowProjection>();
   // FLOW_REF — one per flow widget. Fields: owner|ownerRid|ownerClass|kind|refId|refRid|refClass|
@@ -549,10 +547,6 @@ export function parseFlows(log: string): Map<string, FlowProjection> {
     if (!p) continue;
     (p.transports ??= []).push({ className: trClass || '', name: trName || trClass || '', codeSet: codeSet === '1' });
   }
-  // On-page sharing: a reference used by more than one flow widget on this page is SHARED.
-  const refCount = new Map<string, number>();
-  for (const p of map.values()) if (p.refId) refCount.set(p.refId, (refCount.get(p.refId) ?? 0) + 1);
-  for (const p of map.values()) if (p.refId && (refCount.get(p.refId) ?? 0) > 1) p.shared = true;
   return map;
 }
 
