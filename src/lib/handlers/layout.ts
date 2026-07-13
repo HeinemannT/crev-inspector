@@ -10,6 +10,23 @@ import { loadPage, applyPage, loadBlastRadius, loadFlowRefs, loadFlowRefChildren
 import { ensureContentScript, ensureBlueprintScript } from '../tab-awareness';
 import { toggleInspect } from './inspect';
 import { errorMessage, log } from '../logger';
+import type { PlanNote } from '../layout/types';
+
+/** One plan note as a human-readable line for the LOG tab detail — mirrors what `planRow` shows in the
+ *  overlay (action · type · object → where · detail) but in plain text, so the persistent record reads
+ *  the same as the live panel without decoding the raw EC below it. */
+function formatNotes(notes: PlanNote[]): string {
+  return notes
+    .map(n => {
+      const act = n.action ?? n.verb;
+      const obj = n.object ?? n.text ?? '';
+      const type = n.objectType ? `${n.objectType} ` : '';
+      const where = n.where ? ` → ${n.where}` : '';
+      const det = n.detail ? `  (${n.detail})` : '';
+      return `• ${act} ${type}${obj}${where}${det}`.replace(/\s+/g, ' ').trim();
+    })
+    .join('\n');
+}
 
 /** Set blueprint mode for a window + broadcast to its panel and content tab. Shared by the
  *  toggle handler and the inspect handler — blueprint and inspect are mutually exclusive (each runs
@@ -123,19 +140,28 @@ register('LAYOUT_APPLY', async (msg, respond) => {
     const res = await applyPage(ctx.client, msg.ctx, msg.baseline, msg.desired, timings);
     respond({
       type: 'LAYOUT_APPLY_RESULT', ok: res.ok, noop: res.noop, stale: res.stale, partial: res.partial,
+      unverified: res.unverified,
       script: res.script, notes: res.notes, model: res.model, baseline: res.baseline, error: res.error,
     });
-    // Audit trail: the applied EC is first-class — record it so a mis-apply is reconstructable. A
-    // partial apply (BMP EC isn't atomic) is logged loudly at 'error' even when ok:true, since some
-    // steps didn't land and the recorded EC no longer matches the page.
+    // Audit trail: the applied EC is first-class — record it so a mis-apply is reconstructable. The
+    // detail leads with the human-readable plan (which widget, where) so the LOG tab scans without
+    // decoding EC, then the raw EC + timings for reconstruction. A partial apply (BMP EC isn't atomic)
+    // is logged loudly at 'error' even when ok:true, since some steps didn't land and the recorded EC
+    // no longer matches the page.
+    const detail = (lead = '') =>
+      `${formatNotes(res.notes)}${lead ? `\n\n${lead}` : ''}\n\nEC calls: ${timings.join(' | ')}\n\n${res.script}`;
     if (res.noop) {
       ctx.logActivity('success', 'Blueprint apply: no changes');
+    } else if (res.unverified) {
+      // Commit ran but the reconcile re-fetch failed — warn (ok) / error (errored partway), never a bare
+      // "apply failed": the write most likely landed and the page reloads to show the truth.
+      ctx.logActivity(res.ok ? 'warn' : 'error', `Blueprint apply UNVERIFIED — ${res.error ?? 'reconcile re-fetch failed'}`, detail());
     } else if (res.partial) {
-      ctx.logActivity('error', `Blueprint apply PARTIAL — ${res.error ?? 'some steps did not land'}`, `EC calls: ${timings.join(' | ')}\n\n${res.script}`);
+      ctx.logActivity('error', `Blueprint apply PARTIAL — ${res.error ?? 'some steps did not land'}`, detail());
     } else if (res.ok) {
-      ctx.logActivity('success', `Blueprint applied ${res.plan.length} step(s) (${Date.now() - t0}ms)`, `EC calls: ${timings.join(' | ')}\n\n${res.script}`);
+      ctx.logActivity('success', `Blueprint applied ${res.plan.length} step(s) (${Date.now() - t0}ms)`, detail());
     } else {
-      ctx.logActivity('error', 'Blueprint apply failed', res.error);
+      ctx.logActivity('error', 'Blueprint apply failed', detail(res.error ?? ''));
     }
   } catch (e) {
     respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: errorMessage(e) });

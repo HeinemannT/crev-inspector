@@ -112,7 +112,7 @@ import {
   openTabMenu, closeTabMenu, reorderTab,
   closeFlowPicker, addFlowFromPicker, addActionFromTray, wireExistingFromPicker,
 } from './actions';
-import { renderChip, modeSwitch, scopeClass, previewModal, trayPanel, hintBar } from './view-panels';
+import { renderChip, modeSwitch, scopeClass, previewModal, outcomePanel, trayPanel, hintBar } from './view-panels';
 import { paintStation, paintPopup } from './view-paint';
 import { renderResult, typeIcon } from './result';
 import { actionMenuTrigger, actionMenuPanel, flowBadge } from './result-flow';
@@ -266,6 +266,7 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
   if (bp.trayOpen) layer.appendChild(trayPanel(base, m));
   if (bp.hint) layer.appendChild(hintBar(bp.hint));
   if (bp.preview) layer.appendChild(previewModal(bp.preview, ctx));
+  if (bp.applyOutcome) layer.appendChild(outcomePanel(bp.applyOutcome, ctx));
   openPendingRename(); // the cell is freshly rendered + selected — safe to make its name editable now
 }
 

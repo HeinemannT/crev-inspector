@@ -74,6 +74,11 @@ export interface ApplyResult {
    *  `model`/`baseline` carry the re-fetched real state; the UI should rebase and ask the user to verify
    *  rather than report full success. Can accompany `ok:false` (hard error partway) or `ok:true` (warnings). */
   partial?: boolean;
+  /** The commit ran, but the post-commit re-fetch (the reconcile source-of-truth) threw, so we can't
+   *  hand back a model or confirm exactly what landed. NOT a failure — the write most likely took. The
+   *  UI should reload the page to re-discover the real state rather than report "apply failed". `ok`
+   *  reflects the commit's own result (true = commit reported success; false = it errored partway). */
+  unverified?: boolean;
   plan: PlanStep[];
   notes: PlanNote[];
   /** The compiled EC (empty string on no-op) — handy for a dry-run preview and for logs. */
@@ -873,7 +878,20 @@ export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel
   // back the fresh model + baseline so the editor rebases onto reality: keeping the stale desired model
   // (with its temp-id creates that DID land) would re-emit those `add()`s and duplicate them on the
   // next apply — the reload-not-rebase invariant, which the old "apply failed" early-return violated.
-  const reloaded = await loadModel(io, ctx);
+  // The commit at exec() above already ran. If THIS reconcile re-fetch throws (a network blip / EC
+  // timeout on the read AFTER a landed write), do NOT let applyModel throw — that would surface as
+  // "apply failed" though the change is real (D4). Hand back an `unverified` outcome with no model, so
+  // the UI reloads the page to re-discover reality instead of claiming failure. `ok` carries the
+  // commit's own result so the message can distinguish "applied, unverified" from "errored, unverified".
+  let reloaded: LoadResult;
+  try {
+    reloaded = await loadModel(io, ctx);
+  } catch (e) {
+    return { ok: res.ok, noop: false, unverified: true, partial: res.hasWarning || !res.ok, plan, notes, script,
+      error: res.ok
+        ? 'Applied, but the result could not be verified (the reload failed). Refreshing the page to show the real state.'
+        : `Apply may have partly failed (${res.error || 'BMP error'}) and the result could not be verified (${e instanceof Error ? e.message : String(e)}). Reload the page and check what landed.` };
+  }
   const landed = diff(baseline, reloaded.model).length > 0
     || flowSignature(reloaded.model) !== flowSignature(baseline);
 

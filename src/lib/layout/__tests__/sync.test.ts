@@ -422,6 +422,40 @@ describe('sync.applyModel', () => {
     expect(res.error).toMatch(/warning/i);
     expect(res.model).toBeDefined();
   });
+  it('flags UNVERIFIED (not failed) when the post-commit re-fetch throws after a good commit (D4)', async () => {
+    const io = fakeIo(LIVE_LOG);
+    const { baseline } = await loadModel(io, CTX);
+    const desired = rename(baseline, '4969', 'Analyst Notes');
+    let fetchCall = 0;
+    io.exec = vi.fn(async (_code: string, commit = false) => {
+      if (commit) return { ok: true, log: LIVE_LOG };  // the write landed
+      fetchCall++;
+      if (fetchCall === 1) return { ok: true, log: LIVE_LOG }; // stale-check passes
+      throw new Error('network blip on the reconcile fetch');   // the post-commit re-fetch dies
+    });
+    const res = await applyModel(io, baseline, desired, CTX);
+    expect(res.unverified).toBe(true);
+    expect(res.ok).toBe(true);              // reflects the commit's own result — NOT a failure
+    expect(res.model).toBeUndefined();      // no re-fetch → nothing to rebase onto; the UI reloads instead
+    expect(res.error).toMatch(/could not be verified/i);
+  });
+  it('UNVERIFIED carries ok:false when the commit errored AND the re-fetch then throws (D4)', async () => {
+    const io = fakeIo(LIVE_LOG);
+    const { baseline } = await loadModel(io, CTX);
+    const desired = rename(baseline, '4969', 'X');
+    let fetchCall = 0;
+    io.exec = vi.fn(async (_code: string, commit = false) => {
+      if (commit) return { ok: false, error: 'boom' };
+      fetchCall++;
+      if (fetchCall === 1) return { ok: true, log: LIVE_LOG };
+      throw new Error('reconcile fetch failed');
+    });
+    const res = await applyModel(io, baseline, desired, CTX);
+    expect(res.unverified).toBe(true);
+    expect(res.ok).toBe(false);
+    expect(res.model).toBeUndefined();
+    expect(res.error).toMatch(/could not be verified/i);
+  });
 });
 
 describe('sync.applyModel — flow steps (blueprint flow editing)', () => {

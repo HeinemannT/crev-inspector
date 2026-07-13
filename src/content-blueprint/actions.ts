@@ -496,6 +496,8 @@ export function openApplyPreview(): void {
   void fetchBlast(seq, bp.ctx.pageId, touchedContainers(plan, m));
 }
 export function closePreview(): void { bp.preview = null; bp.previewScript = ''; bp.blast = null; bp.blastPending = false; render(); }
+/** Dismiss the docked stale/partial/failed outcome panel (the user has acknowledged it). */
+export function dismissApplyOutcome(): void { bp.applyOutcome = null; render(); }
 
 /** Confirmed from the preview modal — fire the guarded SW apply (service owns the round-trip). Blocked
  *  while the impact probe is still running (`blastPending`) so the fan-out / shared-structure warning

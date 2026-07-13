@@ -130,9 +130,23 @@ export async function applyPage(): Promise<void> {
   const res = await sendRequest<ApplyResult>({ type: 'LAYOUT_APPLY', env: bp.env, ctx: bp.ctx, baseline: bp.baseline, desired: m });
   if (!sameSession(g)) return;
   bp.applying = false;
+  bp.applyOutcome = null; // a fresh apply supersedes any prior outcome panel
+  // Non-clean outcomes (stale / partial / failed) keep the overlay up (no reload), so they surface a
+  // persistent, dismissible outcome panel — the structured plan `notes` the user can compare against the
+  // refreshed layout — instead of a 3s toast that scrolls away. The durable copy is in the LOG tab.
+  if (res?.unverified) {
+    // D4: the commit ran but the reconcile re-fetch failed, so there is no model to rebase and no way to
+    // confirm exactly what landed. This is NOT "apply failed" — reload to re-discover the real state
+    // (same resume path as success), and report honestly per the commit's own result.
+    stashResume();
+    showToast(res.error || 'Blueprint: applied, but the result could not be verified — refreshing.', res.ok ? 'success' : 'error');
+    sendToSW({ type: 'BLUEPRINT_TOGGLE' });
+    setTimeout(() => location.reload(), 500);
+    return;
+  }
   if (res?.stale && res.model) {
     rebase(res.model);
-    showToast('Blueprint: the page changed elsewhere, so it was reloaded. Re-apply your edits.', 'error');
+    bp.applyOutcome = { kind: 'stale', message: res.error || 'The page changed elsewhere, so it was reloaded. Re-apply your edits.', notes: res.notes ?? [] };
     render(); return;
   }
   // Partial apply — BMP EC is not atomic (see memory/bmp-ec-nonatomic), so a mid-script error or a
@@ -141,14 +155,14 @@ export async function applyPage(): Promise<void> {
   // warn the user to verify. Covers both ok:false (errored partway) and ok:true+warnings.
   if (res?.partial && res.model) {
     rebase(res.model);
-    showToast(res.error || 'Blueprint: some changes may not have applied. The layout was refreshed — check and re-apply what is missing.', 'error');
+    bp.applyOutcome = { kind: 'partial', message: res.error || 'Some changes may not have applied. The layout was refreshed — check and re-apply what is missing.', notes: res.notes ?? [] };
     render(); return;
   }
   if (!res?.ok) {
     // Hard failure that returned fresh state (e.g. BMP discarded the whole transaction): rebase so the
     // editor reflects reality rather than holding a stale desired model with un-landed temp-id creates.
     if (res?.model) rebase(res.model);
-    showToast(`Blueprint apply failed: ${res?.error || 'unknown'}`, 'error');
+    bp.applyOutcome = { kind: 'failed', message: res?.error || 'Apply failed.', notes: res?.notes ?? [] };
     render(); return;
   }
   if (res.noop) { if (res.model) rebase(res.model); showToast('Blueprint: nothing to apply', 'info'); render(); return; }
@@ -162,12 +176,19 @@ export async function applyPage(): Promise<void> {
   // tells the fresh content script to ask the SW to re-enable blueprint — with the SAME edit target,
   // so applying to "This instance" doesn't dump the user back into template mode (or, before this,
   // into nothing at all: the off-toggle used to end the session and the user had to re-enter by hand).
+  stashResume();
+  showToast('Blueprint: changes applied. Refreshing…', 'success');
+  sendToSW({ type: 'BLUEPRINT_TOGGLE' }); // flips per-window state off; updates the sidebar toggle
+  setTimeout(() => location.reload(), 500);
+}
+
+/** Persist a page-scoped resume flag so the fresh content script re-enables blueprint after a reload,
+ *  keeping the SAME edit target (template vs instance). Best-effort — storage may be disabled. Shared by
+ *  the success reload and the D4 unverified reload. */
+function stashResume(): void {
   try {
     sessionStorage.setItem(BP_RESUME_KEY, JSON.stringify({
       prefer: bp.editingTemplate ? 'template' : 'instance', t: Date.now(),
     }));
   } catch { /* sandboxed / storage disabled — resume is best-effort */ }
-  showToast('Blueprint: changes applied. Refreshing…', 'success');
-  sendToSW({ type: 'BLUEPRINT_TOGGLE' }); // flips per-window state off; updates the sidebar toggle
-  setTimeout(() => location.reload(), 500);
 }

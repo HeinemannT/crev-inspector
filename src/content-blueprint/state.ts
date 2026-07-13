@@ -12,6 +12,17 @@ import { History } from '../lib/layout/history';
 
 export const STYLE_ID = 'crev-blueprint-style';
 
+/** The outcome of an apply that DIDN'T cleanly succeed (stale / partial / failed). Success reloads the
+ *  page, so it needs no in-overlay state; these three keep the overlay up, so we surface a persistent,
+ *  dismissible panel (the structured plan `notes`, the same rows the preview shows) instead of a 3s toast
+ *  the user can miss — the actionable record where their attention already is. The durable copy lives in
+ *  the sidepanel LOG tab. */
+export interface ApplyOutcome {
+  kind: 'partial' | 'failed' | 'stale';
+  message: string;
+  notes: PlanNote[];
+}
+
 export interface BpState {
   active: boolean;
   baseline: LModel | null;     // the loaded page (boxes anchor to its widgets)
@@ -22,6 +33,7 @@ export interface BpState {
   selectedId: string | null;
   applying: boolean;
   preview: PlanNote[] | null;   // non-null → the apply-preview modal is open
+  applyOutcome: ApplyOutcome | null; // non-null → a persistent stale/partial/failed outcome panel is docked (cleared on dismiss / new apply / discard / reset)
   previewScript: string;        // the FULL compiled EC behind the open preview (the modal's "Copy EC")
   blast: { fanout: InstanceFanout | null; blast: ContainerBlast | null } | null; // preview blast radius (async, best-effort)
   blastSeq: number;             // bumped per openApplyPreview; a late blast reply for an older seq is dropped
@@ -100,7 +112,7 @@ export interface BpState {
 function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
-    layer: null, selectedId: null, applying: false, preview: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, discardArm: false, discardTimer: 0, actionMenuOpen: false, picker: null, pickerOpts: null,
+    layer: null, selectedId: null, applying: false, preview: null, applyOutcome: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, discardArm: false, discardTimer: 0, actionMenuOpen: false, picker: null, pickerOpts: null,
     flowPicker: null, flowRefList: null, flowRefChildren: new Map(), flowRefChildrenPending: new Set(), flowFolds: new Set(), trayCardsOpen: new Set(),
     movePicker: null, tabMenu: null, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
@@ -131,6 +143,7 @@ export function resetModel(): void {
   // otherwise leave "Applying…" stuck and Apply/Discard disabled on the fresh page — M5. Clearing it
   // here, the single reload chokepoint, also dismisses a preview modal orphaned by the reload.
   bp.applying = false; bp.preview = null; bp.previewScript = ''; bp.blast = null; bp.blastPending = false;
+  bp.applyOutcome = null; // a stale/partial outcome refers to the page being left
   if (bp.discardTimer) { clearTimeout(bp.discardTimer); bp.discardTimer = 0; }
   bp.discardArm = false;
   // flow view state is page-scoped: fold state / open cards / picker all refer to the old page's ids

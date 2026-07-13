@@ -267,6 +267,22 @@
 #crev-blueprint-layer .bp-prow .whr .wnm{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #crev-blueprint-layer .bp-prow .det{flex:0 1 9%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font:12px 'BPInter',sans-serif;color:var(--bp-muted);text-align:right}
 #crev-blueprint-layer .bp-prow code{flex:0 0 37%;min-width:0;font:10.5px var(--bp-mono);color:var(--bp-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+/* Apply-outcome panel — persistent, dismissible, NON-modal (docks bottom-centre and leaves the canvas
+   interactive so the user can compare against the refreshed layout). Reuses .bp-prow rows so it reads
+   like the preview that staged it. Left accent + header icon are coloured by outcome kind. */
+#crev-blueprint-layer .bp-outcome{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);width:560px;max-width:92vw;max-height:44vh;display:flex;flex-direction:column;z-index:55;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-left:3px solid var(--oc,var(--bp-amber));border-radius:var(--bp-r-ui);box-shadow:var(--bp-shadow);pointer-events:auto}
+#crev-blueprint-layer .bp-outcome.k-partial{--oc:var(--bp-amber)}
+#crev-blueprint-layer .bp-outcome.k-stale{--oc:var(--bp-amber-lt)}
+#crev-blueprint-layer .bp-outcome.k-failed{--oc:var(--bp-red)}
+#crev-blueprint-layer .bp-outcome-h{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:var(--bp-hair) solid var(--bp-line-2)}
+#crev-blueprint-layer .bp-outcome-ic{display:inline-flex;color:var(--oc)}
+#crev-blueprint-layer .bp-outcome-ic svg{width:15px;height:15px}
+#crev-blueprint-layer .bp-outcome-t{font:600 13px 'BPInter',sans-serif;color:var(--bp-text)}
+#crev-blueprint-layer .bp-outcome-x{margin-left:auto}
+#crev-blueprint-layer .bp-outcome-x svg{width:13px;height:13px}
+#crev-blueprint-layer .bp-outcome-msg{padding:10px 12px 0;font:12px/1.5 'BPInter',sans-serif;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-outcome-cap{padding:10px 12px 4px;font:700 10px var(--bp-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-outcome-list{overflow:auto;padding:0 8px 8px;display:flex;flex-direction:column}
 #crev-blueprint-layer .bp-modal-foot .bp-copy-ec{margin-right:auto;display:inline-flex;align-items:center;gap:6px}
 #crev-blueprint-layer .bp-modal-foot .bp-copy-ec svg{width:12px;height:12px;display:block}
 #crev-blueprint-layer .bp-modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 14px;border-top:var(--bp-hair) solid var(--bp-line-2)}

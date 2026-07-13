@@ -16,9 +16,9 @@ import { flowChangeCount } from '../lib/layout/flow';
 import { compile } from '../lib/layout/ec';
 import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_EYE_SLASH, ICON_COPY } from '../lib/icons';
 import { showToast } from '../lib/toast';
-import { bp, model } from './state';
+import { bp, model, type ApplyOutcome } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
-import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, discard, armDiscard, disarmDiscard, openApplyPreview, exitBlueprint, setMode } from './actions';
+import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, discard, armDiscard, disarmDiscard, openApplyPreview, exitBlueprint, setMode, dismissApplyOutcome } from './actions';
 import { setEditTarget } from '../content-blueprint'; // runtime-only (click handler) — no init-time cycle
 
 const VERB_ICON: Record<PlanNote['verb'], string> = { create: ICON_PLUS, update: ICON_PENCIL, move: ICON_ARROW_RIGHT, reorder: ICON_SWAP, delete: ICON_TRASH };
@@ -116,6 +116,40 @@ function planRow(note: PlanNote, full = true): HTMLElement {
     row.appendChild(ec);
   }
   return row;
+}
+
+const OUTCOME_TITLE: Record<ApplyOutcome['kind'], string> = {
+  partial: 'Partial apply — verify the layout',
+  failed: 'Apply failed',
+  stale: 'Page changed — reloaded',
+};
+
+/** The persistent, dismissible outcome panel for a non-clean apply (stale / partial / failed). Unlike
+ *  the preview it is NOT modal — it docks bottom-centre and leaves the canvas interactive so the user can
+ *  compare it against the refreshed layout. It reuses `planRow`, so the actions listed here read exactly
+ *  like the preview that staged them. Success reloads the page and so never lands here. */
+export function outcomePanel(outcome: ApplyOutcome, ctx: BlueprintCtx): HTMLElement {
+  const card = document.createElement('div');
+  card.className = `bp-outcome k-${outcome.kind}` + scopeClass(ctx);
+  const head = document.createElement('div'); head.className = 'bp-outcome-h';
+  const ic = document.createElement('span'); ic.className = 'bp-outcome-ic'; setIcon(ic, ICON_WARNING);
+  const title = document.createElement('span'); title.className = 'bp-outcome-t'; title.textContent = OUTCOME_TITLE[outcome.kind];
+  const x = mkIconBtn(ICON_X, dismissApplyOutcome, 'Dismiss'); x.classList.add('bp-outcome-x');
+  head.append(ic, title, x);
+  card.appendChild(head);
+  const msg = document.createElement('div'); msg.className = 'bp-outcome-msg'; msg.textContent = outcome.message;
+  card.appendChild(msg);
+  if (outcome.notes.length) {
+    const cap = document.createElement('div'); cap.className = 'bp-outcome-cap';
+    cap.textContent = outcome.kind === 'partial'
+      ? `These ${outcome.notes.length} step${outcome.notes.length === 1 ? '' : 's'} were requested — some may not have landed:`
+      : `These ${outcome.notes.length} step${outcome.notes.length === 1 ? '' : 's'} were requested:`;
+    card.appendChild(cap);
+    const list = document.createElement('div'); list.className = 'bp-outcome-list';
+    for (const note of outcome.notes) list.appendChild(planRow(note));
+    card.appendChild(list);
+  }
+  return card;
 }
 
 /** The apply-preview: the exact plan as a scannable log + the blast-radius warnings, behind a confirm. */
