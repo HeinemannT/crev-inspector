@@ -195,6 +195,9 @@ export class ConnectTab implements Tab {
 
     const children: (HTMLElement | false | null)[] = [];
 
+    // ── Connection ── server profiles as status-rail cards under one eyebrow.
+    children.push(this.eyebrow('Connection'));
+
     if (shared.settings.profiles.length === 0 && !this.editing) {
       children.push(h('div', { class: 'empty-state empty-state--padded' },
         'CREV Inspector examines BMP pages. Add a server to get started.'));
@@ -216,18 +219,17 @@ export class ConnectTab implements Tab {
     }
 
     children.push(
-      // ── Settings ───────────────────────────────────────
-      h('div', { class: 'section-header' },
-        h('span', { class: 'section-title section-title--flush' }, 'Settings'),
-      ),
+      // ── AI assistant ── the same status-rail card grammar as a server.
+      this.eyebrow('AI assistant'),
+      this.renderAiSection(),
+
+      // ── Preferences ──
+      this.eyebrow('Preferences'),
       this.settingRow('auto-detect', 'Auto-detect server from page URL',
         null, shared.settings.autoDetect),
       this.settingRow('enrich-all', 'Include non-widget objects',
         'Also labels inline elements (tables, others)',
         shared.settings.enrichMode === 'all'),
-
-      // ── AI assistant ───────────────────────────────────────
-      this.renderAiSection(),
 
       // ── Footer: the low-weight informational + utility bits (keyboard
       //    reference, version, cache, reset). None of these is a group of
@@ -456,6 +458,12 @@ export class ConnectTab implements Tab {
     });
   }
 
+  /** A quiet uppercase section label — gives the tab a spine without the weight
+   *  of a titled header. Used above Connection / AI assistant / Preferences. */
+  private eyebrow(text: string): HTMLElement {
+    return h('div', { class: 'connect-eyebrow' }, text);
+  }
+
   /** Two-letter monogram for the avatar tile. */
   private initials(label: string): string {
     const words = label.trim().split(/\s+/).filter(Boolean);
@@ -486,9 +494,11 @@ export class ConnectTab implements Tab {
     }
   }
 
-  /** A server profile as a Carbon-style row: monogram tile, name + a Current
-   *  pill, url, and inline connection status. The active/connected profile gets
-   *  a green keyline; others read as Idle. Row-click selects; Edit shows on hover. */
+  /** A server profile as a status-rail card: a left rail carries connection
+   *  health (green ok, grey idle, red problem), the active profile gets an
+   *  accent-ringed avatar + a quiet "Current" word, and latency sits on the
+   *  right where a badge would. Row-click selects; Edit shows on hover. Only the
+   *  active profile has live status — others read as idle (grey rail). */
   private renderProfileRow(profile: ServerProfile): HTMLElement {
     const isActive = profile.id === shared.settings.activeProfileId;
     const urlDisplay = profile.bmpUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
@@ -496,29 +506,35 @@ export class ConnectTab implements Tab {
     const origin = originPatternFor(profile.bmpUrl);
     const noAccess = !!origin && this.accessByOrigin.get(origin) === false;
 
-    // Status only when it says something: connection problems / checking.
-    // "Connected" is already told by the green keyline on the current row,
-    // and "Idle" told nothing — both gone so name + url get the full width.
-    let status: HTMLElement | null;
+    const s = isActive ? this.profileStatus() : null;
+    // Rail health: the active profile's live state; every other card is idle.
+    const health = noAccess ? 'err' : (s ? s.cls : 'idle');
+
+    // Right side: a grant-access chip if blocked; else on the active card either
+    // latency (connected — the rail already says "ok") or the problem status
+    // (dot + text). Non-active cards show nothing but their idle rail.
+    let right: HTMLElement | null = null;
     if (noAccess && origin) {
-      status = h('button', {
+      right = h('button', {
         class: 'prof-noaccess',
         'data-action': 'grant-access',
         'data-grant-origin': origin,
         title: 'CREV has no permission for this server’s site. Click to grant it (standard browser prompt).',
       }, 'No access');
-    } else if (isActive) {
-      const s = this.profileStatus();
-      status = s.cls === 'ok' ? null : h('span', { class: 'prof-status', ...(s.title ? { title: s.title } : {}) },
+    } else if (s && s.cls === 'ok') {
+      const ms = shared.connState.responseMs;
+      right = ms != null
+        ? h('span', { class: 'prof-lat', title: s.title || 'Health-check latency' }, `${ms} ms`)
+        : null;
+    } else if (s) {
+      right = h('span', { class: 'prof-status', ...(s.title ? { title: s.title } : {}) },
         h('span', { class: `prof-dot ${s.cls}` }),
         s.text,
       );
-    } else {
-      status = null;
     }
 
     return h('div', {
-      class: `prof${isActive ? ' cur' : ''}`,
+      class: `prof ${health}${isActive ? ' cur' : ''}`,
       'data-action': 'select-profile',
       'data-profile-id': profile.id,
     },
@@ -530,7 +546,7 @@ export class ConnectTab implements Tab {
         ),
         h('div', { class: 'prof-url' }, `${urlDisplay} · ${whoDisplay}`),
       ),
-      status,
+      right,
       h('button', {
         class: 'prof-edit',
         'data-action': 'edit-profile',

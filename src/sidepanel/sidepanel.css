@@ -1179,20 +1179,52 @@ body {
 .cache-quota-banner .btn { flex-shrink: 0; }
 
 /* ── Server profile rows (Connect) ─────────────────── */
+/* Quiet uppercase section label (Connection / AI assistant / Preferences) —
+   gives the tab a spine without the weight of a titled header. */
+.connect-eyebrow {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semi);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin: 16px 2px 8px;
+}
+.connect-eyebrow:first-child { margin-top: 2px; }
+
+/* Status-rail card: a bordered card whose 3px left rail carries connection
+   health (green ok, grey idle, amber checking, red problem). Replaces the old
+   full-bleed row + inset green keyline. The active profile also gets the
+   accent-ringed avatar + a quiet "Current" word. */
 .prof {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 11px;
-  padding: 11px 8px;
-  margin: 0 -8px;
-  border-bottom: 1px solid var(--surface-3);
+  padding: 11px 12px 11px 14px;
+  margin: 0 0 8px;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
   cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-default);
+  transition: background var(--duration-fast) var(--ease-default),
+              border-color var(--duration-fast) var(--ease-default);
 }
 .prof:hover { background: var(--surface-2); }
-/* Connected/active profile gets a green keyline (connection = green). */
-.prof.cur { box-shadow: inset 3px 0 0 var(--success); }               /* green keyline = connected */
+.prof::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--surface-4);   /* idle default */
+}
+.prof.ok::before { background: var(--success); }
+.prof.err::before { background: var(--danger); }
+.prof.checking::before { background: var(--warning); }
+.prof.idle::before { background: var(--surface-4); }
 .prof.cur .prof-av { border-color: transparent; box-shadow: 0 0 0 1.5px var(--accent); color: var(--accent); } /* accent ring = the active profile */
+/* Latency where the badge was — quiet mono, success-tinted (only shown when connected). */
+.prof-lat { flex-shrink: 0; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--success); font-variant-numeric: tabular-nums; }
 
 .prof-av {
   flex-shrink: 0;
@@ -1299,8 +1331,8 @@ body {
   height: 34px;
   margin-top: 12px;
   background: none;
-  border: 1px solid var(--surface-4);
-  border-radius: var(--radius-md);
+  border: 1px dashed var(--surface-4);
+  border-radius: var(--radius-sm);
   font-family: var(--font-body);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
@@ -1310,7 +1342,7 @@ body {
               color var(--duration-fast) var(--ease-default),
               border-color var(--duration-fast) var(--ease-default);
 }
-.addbtn:hover { background: var(--surface-2); color: var(--text-1); border-color: var(--text-3); }
+.addbtn:hover { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 .addbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ── Profile cards (edit form) ─────────────────────── */
@@ -4086,17 +4118,29 @@ body.crev-divider-dragging * { user-select: none; }
    Green inset keyline (same signal as a connected server) when the key
    is saved AND the last test passed. */
 .ai-card {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
   min-height: 48px;
-  padding: 8px 12px;
-  margin: 0 -16px;
+  padding: 8px 12px 8px 14px;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
   cursor: pointer;
-  border-top: 1px solid var(--surface-3);
 }
 .ai-card:hover { background: var(--surface-2); }
-.ai-card.ready { box-shadow: inset 3px 0 0 var(--success); }
+/* Same left health rail as a server card: grey idle by default, green when the
+   key is saved AND the last test passed (.ready). */
+.ai-card::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--surface-4);
+}
+.ai-card.ready::before { background: var(--success); }
 .ai-card-spark {
   display: inline-flex;
   flex: none;
