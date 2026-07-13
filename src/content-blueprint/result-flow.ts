@@ -10,8 +10,9 @@
  *  - `compositeFlowRows`  — the same row grammar for a composite PLACED IN THE GRID (InputSet /
  *                           ButtonContainer / ButtonGroup as an LNode with children); adds/reorders
  *                           there ride the EXISTING layout pipeline (ec.ts composite branch).
- *  - `actionTray`         — the page-top action-menu tray: two-line cards (badge + buttonText + scope,
- *                           verb sentence), ACTION cards expand transports inline, "Add action" card.
+ *  - `actionMenuTrigger` / `actionMenuPanel` — the action menu: a tab-bar trigger pill that opens a
+ *                           floating panel of two-line cards (badge + buttonText + scope, verb sentence),
+ *                           ACTION cards expand transports inline, "Add action" card.
  *
  * Read-only rows: blue dots carry EC presence (hover names the property); NO code editing here — that
  * belongs to Inspect/sidebar (locked decision). Names render as textContent only (pitfall 8).

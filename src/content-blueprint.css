@@ -671,7 +671,10 @@
 #crev-blueprint-layer .bp-amenu-trigger .tn{min-width:15px;text-align:center;padding:0 5px;border-radius:8px;background:var(--bp-line-2);color:var(--bp-muted);font:700 9px var(--bp-mono)}
 #crev-blueprint-layer .bp-amenu-trigger .tc{color:var(--bp-muted);font-size:9px}
 /* Panel — floating overlay under the trigger (position + width set inline). z above the canvas. */
-#crev-blueprint-layer .bp-amenu-panel{z-index:60;max-height:66vh;overflow-y:auto;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);box-shadow:var(--bp-shadow);padding:9px 10px}
+/* pointer-events:auto is REQUIRED — the panel is appended straight to #crev-blueprint-layer, which is
+   pointer-events:none; without this opt-in the panel opens but every control inside it (Add action, the
+   scope/placement icons, transports) is click-through-dead. */
+#crev-blueprint-layer .bp-amenu-panel{pointer-events:auto;z-index:60;max-height:66vh;overflow-y:auto;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);box-shadow:var(--bp-shadow);padding:9px 10px}
 #crev-blueprint-layer .bp-amenu-note{font:500 10px 'BPInter',sans-serif;color:var(--bp-muted);margin-bottom:6px}
 #crev-blueprint-layer .bp-acards{display:flex;flex-direction:column;gap:6px}
 #crev-blueprint-layer .bp-acard{position:relative;display:flex;flex-direction:column;gap:3px;padding:8px 12px;border:var(--bp-div) solid var(--bp-line-2);border-radius:var(--bp-r-ui);background:var(--bp-ground)}

@@ -199,6 +199,7 @@ export function render(): void {
   bp.resultMode = false;
   renderEmptyCanvas(layer);
   renderFloatingChrome(byRid, m);
+  mountActionTray(layer, m, viewedId); // the tab-bar trigger exists here too — let the menu open on a widget-less page
 }
 
 const TRAY_W = 320;

@@ -92,10 +92,6 @@ export interface BpState {
   // pinned; it's recomputed only on a genuine viewport resize (onResize clears it) or a tab/page change
   // (keyed by tabId; cleared in resetModel).
   resultAnchor: { tabId: string; docTop: number; left: number; width: number } | null;
-  // The canvas box computed on the LAST render (docTop/left/width, document space). Unlike resultAnchor
-  // this is set EVERY render — including a synthetic (no-live-widget) frame that resultAnchor deliberately
-  // never freezes — so the floating action-menu tray can anchor even on an action-buttons-only page.
-  canvasBox: { docTop: number; left: number; width: number } | null;
 }
 
 /** Every per-session field at its idle/empty value. Defined ONCE so the initial `bp` and the teardown
@@ -111,7 +107,7 @@ function freshState(): Omit<BpState, 'gen'> {
     onResize: null, onKey: null, onPop: null, onBeforeUnload: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
     observer: null, resizeObs: null, ridSig: '', mutRaf: 0, bodyResizeTimer: 0, flipNext: false, viewTabId: null, unusedTabsOpen: false,
     ghostTrayOpen: false, scrollSpacer: null, peek: false,
-    resultAnchor: null, canvasBox: null,
+    resultAnchor: null,
   };
 }
 
@@ -129,7 +125,7 @@ export function resetState(): void { Object.assign(bp, freshState()); }
 export function resetModel(): void {
   bp.baseline = null; bp.ctx = null; bp.history = null;
   bp.selectedId = null; bp.viewTabId = null; bp.unusedTabsOpen = false; bp.ridSig = ''; bp.peek = false;
-  bp.resultAnchor = null; bp.canvasBox = null;
+  bp.resultAnchor = null; bp.actionMenuOpen = false;
   // In-flight apply / preview state is tied to the page being left. A reload mid-apply (a popstate/
   // link-nav bumps `gen`, so the late apply reply returns early without clearing `applying`) would
   // otherwise leave "Applying…" stuck and Apply/Discard disabled on the fresh page — M5. Clearing it

@@ -525,7 +525,6 @@ export function renderResult(base: LModel, m: LModel, byRid: Map<string, Element
     left = docX(frame.left);
     if (!synthetic) bp.resultAnchor = { tabId: tab.id, docTop, left, width }; // never freeze a guessed frame
   }
-  bp.canvasBox = { docTop, left, width }; // set EVERY render (synthetic too) so the floating tray can anchor
   // Full-bleed grid backdrop BEHIND the panel — fills the whole editor width edge-to-edge (the panel
   // itself stays at content width so the cards keep BMP's column alignment). Height set after layout.
   const bg = document.createElement('div'); bg.className = 'bp-canvas-bg'; bg.style.top = `${docTop}px`;
@@ -599,8 +598,9 @@ function bmpContentWidth(byRid: Map<string, Element>, left: number): number {
   return best;
 }
 
-/** Bounding box of ALL currently ON-SCREEN widgets (any tab/orphan) — the fallback anchor when no model
- *  tab is active. */
+/** Bounding box of ALL rendered widgets (any tab/orphan), whether or not in the viewport — the fallback
+ *  anchor when the viewed tab's rids don't match the live DOM. NOT viewport-filtered: that made the anchor
+ *  depend on the scroll position at enter-time (see 21cbdff). */
 function unionAllVisible(byRid: Map<string, Element>): Rect | null {
   let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity, any = false;
   // Union EVERY rendered widget (widgetRects already drops zero-size / unrendered ones) — NOT only those

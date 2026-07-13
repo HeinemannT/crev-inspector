@@ -27,6 +27,12 @@ function rebase(m: LModel): void {
   bp.baseline = m;
   bp.history = new History(m);
   bp.selectedId = null;
+  // Drop the on-demand wired-ref children cache: after a rebase onto freshly-fetched content (a partial
+  // apply, or a stale-guard reload), the cached children of an off-page InputSet/EditPage may be stale
+  // (e.g. an add that landed under it). model() re-injects this cache every read, and fetchFlowRefChildren
+  // early-returns on a cache hit, so a stale entry would otherwise persist. Clearing forces a re-fetch.
+  bp.flowRefChildren.clear();
+  bp.flowRefChildrenPending.clear();
 }
 
 /** True if the session we started this I/O for is still the live one. A reply that arrives after the
