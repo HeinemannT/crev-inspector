@@ -242,12 +242,12 @@ function noRefBand(widgetId: string, prop: 'inputSet' | 'editPage'): HTMLElement
   const lbl = document.createElement('span'); lbl.textContent = `No ${what.toLowerCase()} linked`; band.appendChild(lbl);
   const end = document.createElement('span'); end.className = 'end';
   const wire = document.createElement('button'); wire.className = 'bp-fwire';
-  wire.textContent = 'wire to existing…';
+  wire.textContent = 'Select existing';
   wire.title = `Link this widget to an existing ${what} from the workspace`;
   onTap(wire, (e) => openWireExisting(widgetId, prop, { x: e.clientX, y: e.clientY }));
   const mk = document.createElement('button'); mk.className = 'bp-fwire new';
-  mk.textContent = `+ new ${what.toLowerCase()}`;
-  mk.title = `Stage a new ${what} (created on Apply in the page's support Category); add its elements right away`;
+  mk.textContent = '+ New';
+  mk.title = `Stage a new ${what} (created on Apply in the page's support Category, without loading the existing list); add its elements right away`;
   onTap(mk, () => stageNewRef(widgetId, prop));
   end.append(wire, mk);
   band.appendChild(end);
