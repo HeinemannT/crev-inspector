@@ -22,6 +22,7 @@ import {
 const PROP_LABEL: Record<string, string> = {
   headerColor: 'Header colour', fontColor: 'Font colour', shadow: 'Shadow',
   headerStyle: 'Header bar', borderStyle: 'Border', transparency: 'Transparency',
+  showToolMenu: 'Tool menu', disableSearch: 'Search',
 };
 
 /** A human-readable preview of a single style prop's value (for the Setup rows). */
@@ -34,6 +35,8 @@ function propValueLabel(style: NodeStyle, prop: string): string {
     case 'headerStyle': return titleCase(String(style.headerStyle ?? 'none'));
     case 'borderStyle': return titleCase(String(style.borderStyle ?? 'none'));
     case 'transparency': return `${Number(s.transparency ?? 0)}%`;
+    case 'showToolMenu': return style.showToolMenu === false ? 'hidden' : 'shown';
+    case 'disableSearch': return style.disableSearch ? 'disabled' : 'enabled';
     default: return '';
   }
 }

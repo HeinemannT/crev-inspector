@@ -113,7 +113,14 @@ export function brushOnCell(id: string): void {
     bp.brush.mode = 'paint'; // sampled → ready to paint
     render();
   } else if (bp.brush.mode === 'paint') {
-    mutate(setStyle(m, id, maskStyle(bp.brush.held!, bp.brushMask))); // mutate re-renders; stays in paint mode
+    const masked = maskStyle(bp.brush.held!, bp.brushMask);
+    // Trait guard: the flag props (tools menu / search) only exist on types that carry the trait — the
+    // target's fetched style omits the key when it doesn't. Don't paint a flag onto a trait-less widget
+    // (BMP would reject the write); silently skip it, matching how the Style toolbar hides the toggle.
+    for (const k of ['showToolMenu', 'disableSearch'] as const) {
+      if (masked[k] !== undefined && node.style?.[k] === undefined) delete masked[k];
+    }
+    mutate(setStyle(m, id, masked)); // mutate re-renders; stays in paint mode
   }
 }
 

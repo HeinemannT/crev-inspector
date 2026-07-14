@@ -55,7 +55,7 @@ async function createPaintHarness(opts?: { withClient?: boolean }): Promise<Pain
       autoDetect: true,
       saveTarget: 'instance' as const,
       enrichMode: 'all' as const,
-      paintProps: ['headerColor', 'fontColor', 'transparency', 'shadow', 'headerStyle', 'borderStyle'],
+      paintProps: ['headerColor', 'fontColor', 'transparency', 'shadow', 'headerStyle', 'borderStyle', 'showToolMenu', 'disableSearch'],
     } satisfies InspectorSettings,
     inspectActive: true,
     technicalOverlay: false,
@@ -245,10 +245,11 @@ describe('paint — apply', () => {
 
 describe('paint — PAINT_STYLE_PROPS contract', () => {
   it('contains exactly the documented style props', () => {
-    // The documented list (paint.ts comment + types.ts export):
-    //   headerColor, fontColor, transparency, shadow, headerStyle, borderStyle
+    // The documented paintable set: appearance props + the two portal-chrome FLAGS (tools menu /
+    // search). Visibility + the shownOn* trio stay non-paintable (painting "hidden" is a footgun).
     expect([...PAINT_STYLE_PROPS]).toEqual([
       'headerColor', 'fontColor', 'transparency', 'shadow', 'headerStyle', 'borderStyle',
+      'showToolMenu', 'disableSearch',
     ]);
   });
 

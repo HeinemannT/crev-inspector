@@ -46,13 +46,16 @@ export const STYLE_PROPS: readonly StylePropDef[] = [
     options: [{ value: 'INSIDE', label: 'In' }, { value: 'OUTSIDE', label: 'Out' }, { value: 'NONE', label: 'None' }] },
   { prop: 'borderStyle',  colorLink: false, reset: '"None"', nodeKey: 'borderStyle',    def: '',
     options: [{ value: 'LINE', label: 'Line' }, { value: 'NONE', label: 'None' }] },
-  // Widget FLAGS — portal chrome toggles that ride the style channel (fetch / stage / apply) but are
-  // NOT paintable. Defaults cited from the decompiled 5.6.10 traits: HasToolsMenu.isShowToolMenu
-  // @DefaultValue(true), HasDisableSearch.isDisableSearch @DefaultValue(false). Trait presence is
-  // detected at fetch time (a type without the trait reads MISSING → empty wire field → the UI simply
-  // doesn't render that flag).
-  { prop: 'showToolMenu',  colorLink: false, reset: 'TRUE',  nodeKey: 'showToolMenu',  def: true,  paint: false },
-  { prop: 'disableSearch', colorLink: false, reset: 'FALSE', nodeKey: 'disableSearch', def: false, paint: false },
+  // Widget FLAGS — portal chrome toggles that ride the style channel (fetch / stage / apply). Defaults
+  // cited from the decompiled 5.6.10 traits: HasToolsMenu.isShowToolMenu @DefaultValue(true),
+  // HasDisableSearch.isDisableSearch @DefaultValue(false). Trait presence is detected at fetch time (a
+  // type without the trait reads MISSING → empty wire field → the UI doesn't render the flag). These two
+  // ARE paintable — hiding the tools menu / search across sibling widgets is a common bulk edit; the
+  // paint apply guards against painting them onto a widget that lacks the trait (see brushWidget). The
+  // visibility enum + shownOn* trio below stay paint:false — painting "hidden" across widgets is a
+  // genuine footgun (a mis-paint makes widgets vanish).
+  { prop: 'showToolMenu',  colorLink: false, reset: 'TRUE',  nodeKey: 'showToolMenu',  def: true  },
+  { prop: 'disableSearch', colorLink: false, reset: 'FALSE', nodeKey: 'disableSearch', def: false },
   // Visibility (live-verified 2026-07-06): the `visible` BOOLEAN is READ-ONLY (Visibillity has no
   // setVisible — isVisible is computed), so the writable knob is the `visibility` ENUM. Members
   // (probed via EC conversion, case-insensitive): visible / noVisible / adminVisibleOnly /
