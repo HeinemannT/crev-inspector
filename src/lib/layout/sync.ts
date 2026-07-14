@@ -23,7 +23,7 @@
  * re-fetch is the new source of truth, which also makes apply idempotent (a second apply of
  * an already-applied model diffs to an empty plan).
  */
-import { reconstruct, walk, RESULT_TAB_ID } from './model';
+import { reconstruct, walk, RESULT_TAB_ID, stripWidgetContent } from './model';
 import type { ReconstructCtx } from './model';
 import { diff } from './diff';
 import { flowDiff, flowSignature } from './flow';
@@ -830,7 +830,7 @@ export async function loadModel(io: LayoutIO, ctx: BlueprintCtx): Promise<LoadRe
   const res = await io.exec(buildFetchEc(ctx));
   if (!res.ok) throw new Error(res.error || 'layout fetch failed');
   const log = res.log ?? '';
-  const nodes = parseFetchLog(log);
+  const nodes = stripWidgetContent(parseFetchLog(log)); // drop content nested inside leaf widgets (e.g. list members)
   const overrides = parseOverrides(log); // F2: per-widget overridden props (instance view → reset arrows)
   const styles = parseStyles(log);       // G3: per-widget current appearance (style mode rendering)
   const flows = parseFlows(log);         // flow projections keyed by flow-widget businessId (read-only)

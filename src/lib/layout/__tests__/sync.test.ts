@@ -198,6 +198,29 @@ describe('sync.loadModel', () => {
     expect(orphans.map(o => o.businessId)).toEqual(['9001']);
     expect(findNode(model, '9001')).toBeNull();
   });
+  it('drops list-widget member content generically (any leaf widget, not a hardcoded class)', async () => {
+    // Mirrors bmw_sharepoint_sc: a list widget sits in the grid, and each member has its container bound
+    // to a real page tab (Overview) with its own detail portal under it. Members are list CONTENT — they
+    // must not appear as standalone cells, nor leak into orphans. Two DIFFERENT list types (IndicatorList
+    // + the RiskList already in LIVE_LOG as '4964') prove the rule is keyed on the layout taxonomy — a
+    // leaf widget that isn't a container/tab/tabset/composite holds content — not on a class allowlist.
+    const memberRows = [
+      `5100|il1|Cases|IndicatorList|${SCRID}|3067221467472413579|6|6|6`,        // list widget, in the Summary container
+      `5101|ind1|CASE-0042|Indicator|5100|2187765926705871955|6|6|6`,           // member — container bound to the Overview TAB
+      `5102|cvo1|Documents|CustomVisualization|5101|2187765926705871955|6|6|6`, // member's own detail portal (deeper)
+      `5200|risk1|R-01|Risk|7838696810607414624|2187765926705871955|6|6|6`,     // member of the existing RiskList 4964
+    ].map(l => SEP + toWire(l)).join('\n');
+    const { model, orphans } = await loadModel(fakeIo(LIVE_LOG + '\n' + memberRows), CTX);
+    expect(findNode(model, 'il1')).not.toBeNull();          // the list widgets themselves stay…
+    expect(findNode(model, 'il1')!.node.children).toEqual([]); // …as atomic leaves — members stripped
+    expect(findNode(model, 'ind1')).toBeNull();  // IndicatorList member not surfaced
+    expect(findNode(model, 'cvo1')).toBeNull();  // …nor its deeper detail CVO
+    expect(findNode(model, 'risk1')).toBeNull(); // RiskList member (different class) also stripped
+    const strayIds = orphans.map(o => o.businessId);
+    for (const id of ['ind1', 'cvo1', 'risk1']) expect(strayIds).not.toContain(id); // and none leak to orphans
+    // Composite children are NOT content — the ButtonContainer's buttons stay nested (regression guard).
+    expect(findNode(model, '5919')!.node.children.map(c => c.name)).toEqual(['Run Audit', 'Export']);
+  });
   it('throws when the fetch EC fails', async () => {
     await expect(loadModel(fakeIo('', false), CTX)).rejects.toThrow(/layout fetch failed/);
   });

@@ -58,6 +58,38 @@ function ownerOf(n: WireNode, byRid: Map<string, WireNode>): string | undefined 
   return n.containerRid ?? n.parentRid;
 }
 
+/** Types that NEST layout beneath them: the portal scaffold (TabSet → Tab → Container) plus the
+ *  composite widgets that own structural children. Every OTHER widget is a LEAF whose children are
+ *  CONTENT, not page layout. */
+function nestsLayoutChildren(type: string): boolean {
+  return type === 'TabSet' || type === 'Tab' || type === 'Container' || COMPOSITE_TYPES.has(type);
+}
+
+/** Drop wire nodes that are CONTENT nested inside a leaf widget rather than page layout. The fetch walks
+ *  `_sc.descendants()` and emits EVERY descendant — including the member objects a list widget owns (the
+ *  Indicators under an IndicatorList, and each member's own detail portal: CVOs, DescriptionViews). BMP
+ *  sometimes binds those members' portal `container` to a real page tab (ModelPages do — bmw_sharepoint_sc
+ *  gives each member Indicator a Tab in the page tabset), which would otherwise place them as standalone
+ *  cells beside the list. A node is content iff walking UP its parent chain reaches a widget that does not
+ *  nest layout — the list widget, or a member, itself. This is derived from the layout taxonomy, NOT a
+ *  list of known list classes: any widget that isn't a container/tab/tabset/composite holds content, so a
+ *  new kind of list is covered for free. Run once at load so reconstruct AND findOrphans see the same node
+ *  set (a dropped member must not resurface as an "orphan"). */
+export function stripWidgetContent(nodes: readonly WireNode[]): WireNode[] {
+  const byRid = new Map(nodes.map(n => [n.rid, n]));
+  const isContent = (n: WireNode): boolean => {
+    const seen = new Set<string>();
+    let p = n.parentRid ? byRid.get(n.parentRid) : undefined;
+    while (p && !seen.has(p.rid)) { // seen-guard: a cyclic parent ref can't wedge the walk
+      seen.add(p.rid);
+      if (!nestsLayoutChildren(p.type)) return true;
+      p = p.parentRid ? byRid.get(p.parentRid) : undefined;
+    }
+    return false;
+  };
+  return nodes.filter(n => !isContent(n));
+}
+
 export interface ReconstructCtx {
   pageId: string;
   pageRid?: string;
