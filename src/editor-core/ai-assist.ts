@@ -86,8 +86,13 @@ const EDIT_HINT = isMac ? '⌘↵' : '⌃↵'
  *  needs a visible editor view; everything else (a hidden view — e.g. the
  *  studio's preview-only layout — or no view at all) falls back to the floating
  *  strip. Pure so the routing is unit-testable. */
-export function pickShell(opts: { hasView: boolean; viewVisible: boolean }): 'inline' | 'floating' {
-  return opts.hasView && opts.viewVisible ? 'inline' : 'floating'
+/** Below this editor width the inline bar (full editor width, verb buttons on the right) gets its
+ *  buttons pushed off the visible pane — the studio split view (code + preview) is the usual culprit.
+ *  A narrower pane routes to the compact, viewport-clamped floating strip instead. */
+export const AI_INLINE_MIN_WIDTH = 560
+
+export function pickShell(opts: { hasView: boolean; viewVisible: boolean; narrow?: boolean }): 'inline' | 'floating' {
+  return opts.hasView && opts.viewVisible && !opts.narrow ? 'inline' : 'floating'
 }
 
 export function createAiAssist(host: AiAssistHost): AiAssist {
@@ -138,7 +143,11 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
     if (isBarOpen()) { barInput?.focus(); return }
     void fetchAiConfig().then(c => { model = c.model ?? ''; refreshModelTitle() })
     const view = host.surface()?.view
-    const shell = pickShell({ hasView: !!view, viewVisible: !!view && isViewVisible(view) })
+    // A narrow pane (split view) can't fit the full-width inline bar without hiding its verb buttons —
+    // measure the visible editor width and fall back to the floating strip when it's too tight.
+    const paneWidth = view?.scrollDOM.clientWidth ?? 0
+    const narrow = paneWidth > 0 && paneWidth < AI_INLINE_MIN_WIDTH
+    const shell = pickShell({ hasView: !!view, viewVisible: !!view && isViewVisible(view), narrow })
     if (shell === 'inline' && view) openInline(view)
     else openFloating()
   }

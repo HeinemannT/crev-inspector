@@ -57,6 +57,10 @@ describe('pickShell', () => {
     expect(pickShell({ hasView: true, viewVisible: false })).toBe('floating')
     expect(pickShell({ hasView: false, viewVisible: false })).toBe('floating')
   })
+  it('falls back to the floating strip when the pane is too narrow (split view)', () => {
+    expect(pickShell({ hasView: true, viewVisible: true, narrow: true })).toBe('floating')
+    expect(pickShell({ hasView: true, viewVisible: true, narrow: false })).toBe('inline')
+  })
 })
 
 describe('verb routing', () => {
