@@ -147,7 +147,9 @@ export function enableBlueprint(): void {
   // when there are actually unsaved edits, so a clean session never nags. Soft in-portal navs route
   // through handlePageNav instead (they can't be vetoed); this covers real unloads.
   bp.onBeforeUnload = (e: BeforeUnloadEvent) => {
-    if (hasPendingEdits()) { e.preventDefault(); e.returnValue = ''; }
+    // Skip the nag for our OWN post-apply reload (edits were just committed, nothing is lost) — the
+    // `reloading` flag is set at the reload chokepoint. Only a real accidental Ctrl+R/close should warn.
+    if (!bp.reloading && hasPendingEdits()) { e.preventDefault(); e.returnValue = ''; }
   };
   window.addEventListener('beforeunload', bp.onBeforeUnload);
   layer.addEventListener('mousedown', (e) => { if (e.target === layer) select(null); }); // empty space deselects

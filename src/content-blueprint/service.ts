@@ -186,6 +186,7 @@ export async function applyPage(): Promise<void> {
  *  keeping the SAME edit target (template vs instance). Best-effort — storage may be disabled. Shared by
  *  the success reload and the D4 unverified reload. */
 function stashResume(): void {
+  bp.reloading = true; // both reload paths call this first — tells onBeforeUnload the imminent reload is intentional
   try {
     sessionStorage.setItem(BP_RESUME_KEY, JSON.stringify({
       prefer: bp.editingTemplate ? 'template' : 'instance', t: Date.now(),

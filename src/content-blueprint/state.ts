@@ -75,6 +75,7 @@ export interface BpState {
   onKey: ((e: KeyboardEvent) => void) | null;
   onPop: (() => void) | null;    // 'popstate' handler — reloads the overlay when back/forward changes the page rid
   onBeforeUnload: ((e: BeforeUnloadEvent) => void) | null; // 'beforeunload' — warns before a reload/close discards staged edits
+  reloading: boolean;            // set just before an INTENTIONAL post-apply reload so onBeforeUnload doesn't nag about "lost work"
   loadedRid: string;             // the URL ?rid= the current model was loaded for (detects a page change on back/forward)
   editingTemplate: boolean;      // F: editing the shared template (vs this instance) — drives the [Template|This instance] toggle
   mode: 'layout' | 'style';      // G3: layout editing (cols/move/rename) vs style editing (colours/shadow/border) — pure render switch, same loaded model
@@ -116,7 +117,7 @@ function freshState(): Omit<BpState, 'gen'> {
     flowPicker: null, flowRefList: null, flowRefChildren: new Map(), flowRefChildrenPending: new Set(), flowFolds: new Set(), trayCardsOpen: new Set(),
     movePicker: null, tabMenu: null, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
-    onResize: null, onKey: null, onPop: null, onBeforeUnload: null, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
+    onResize: null, onKey: null, onPop: null, onBeforeUnload: null, reloading: false, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
     observer: null, resizeObs: null, ridSig: '', mutRaf: 0, bodyResizeTimer: 0, flipNext: false, viewTabId: null, unusedTabsOpen: false,
     ghostTrayOpen: false, scrollSpacer: null, peek: false,
     resultAnchor: null,
