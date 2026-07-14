@@ -53,7 +53,8 @@ SILENT traps — no error, just a wrong result plus a "Missing value" warning:
 Also nonexistent: `return`, `print()`, `log()`, `console.log()`,
 `try/catch`, `switch/case`, `else if`, `for x in y`, template literals
 `` `x ${y}` ``, semicolons as separators, `x.append()`, `x.type`,
-`x.getClass()` (use `x.className`), `parseInt`/`parseFloat` (use `num()`).
+`x.getClass()` (use `x.className`), `parseInt`/`parseFloat` (use `num()`),
+`WHILE` / `ENDWHILE`. The only loop is `.forEach(_item: ...)`.
 
 ## Non-negotiables
 
@@ -127,6 +128,10 @@ Exists (nothing else does):
 | `str(x)` / `num(s)` | to-string / to-number conversions |
 | `s = "*pat*"` | wildcard compare — see below |
 
+Strings are not iterable: `_s.forEach(...)` does not walk characters. Remove
+outside whitespace with `_s.strip()`; for parsing, combine `indexOf()` and
+two-argument `substring(start, end)` with intermediate variables.
+
 **Case-insensitive matching — the ONLY idiom.** There is no case conversion,
 but wildcard `=` comparison with `*` is CASE-INSENSITIVE (verified:
 `"Risk Management" = "*risk*"` → true, `"ABC" = "*abc*"` → true, `= "*xyz*"`
@@ -179,6 +184,127 @@ _r.size()
 WHERE supports `=` (with wildcards) `!=` `<` `>` `AND` `OR` `IN` `CONTAINS`.
 Model roots: `root.organisation`, `root.node`, `root.portal`,
 `root.expression`, `root.property`, `root.user`, `root.group`, ...
+
+## JSON — constructor, wrappers, mutation
+
+The ONLY parser is uppercase `JSON(string)`. There is no `json()`,
+`jsonDecode()`, `json_set(...)` function, JS object literal `{key: value}`, or
+array indexing with `[]`.
+
+JSON object properties are clean native values: `_o.name`, `_o.score`, nested
+`_o.meta.version`. Object arrays support `size`, `item`, `forEach`, `filter`,
+`sort`, `as`, `calculate`, `union`, and `merge`. But primitive-array items
+are wrapped NodeValues:
+
+```
+_numbers := JSON("[7, 11, 13]")
+_total := 0
+_numbers.forEach(_wrapped:
+     _raw := str(_wrapped)
+     _total := _total + num(_raw)
+)
+_total
+```
+
+- Never call `sum/avg/min/max` directly on a JSON primitive-number array.
+- `str()` on a JSON primitive-string item still includes its surrounding `"`;
+  clean it with `_raw.substring(1, _raw.size() - 1)` before joining.
+- `list.map(...)` does NOT work on JSON objects; use `forEach` accumulation.
+- After filtering a JSON object array, `.table()` renders empty. Reparse first:
+  `_safe := JSON(str(_filtered))`, then `_safe.table()` (sorting may precede it).
+
+When the workspace exposes the stored utilities, call them as expressions with
+scope variables — never as functions. These verified helpers return correctly:
+
+```
+_x := JSON("{\"id\":\"B\",\"score\":20}")
+_k := "status"
+_v := "review"
+_updated := t.json_set.expression
+
+_arr := JSON("[{\"id\":\"A\"}]")
+_new := _updated
+_result := t.json_append.expression
+```
+
+Do NOT use the current stored `str_split`, `str_slugify`, `str_join`,
+`json_escape`, or `json_update_item` as return-value helpers: their bodies end
+in `forEach`/`IF` instead of bare `_z`, so live calls return a wrong shape. For
+JSON escaping, iterate characters and finish with the accumulator. Obtain a
+backslash and double quote safely (literal `"\\"` is a lexical trap):
+
+```
+_BS := JSON("{\"c\":\"\\\\\"}").c
+_DQ := JSON("{\"c\":\"\\\"\"}").c
+```
+
+For a bounded character loop, build a sufficiently large duplicate-preserving
+range with `LIST("")`, repeated `.union(_range)`, then `_range.first(_n)`:
+
+```
+_n := _raw.size()
+_range := LIST("")
+_range := _range.union(_range)
+_range := _range.union(_range)
+_range := _range.union(_range)
+_range := _range.union(_range)
+_range := _range.union(_range)
+_range := _range.first(_n)
+_escaped := ""
+_pos := 0
+_range.forEach(_:
+     _ch := _raw.substring(_pos, _pos + 1)
+     IF _ch = _DQ THEN
+          _escaped := _escaped + _BS + _DQ
+     ELSE
+          IF _ch = _BS THEN
+               _escaped := _escaped + _BS + _BS
+          ELSE
+               IF _ch = "\n" THEN
+                    _escaped := _escaped + _BS + "n"
+               ELSE
+                    _escaped := _escaped + _ch
+               ENDIF
+          ENDIF
+     ENDIF
+     _pos := _pos + 1
+)
+_escaped
+```
+
+## MAPs and tables
+
+MAP syntax uses `;` between each key and value, comma between pairs. MAPs are
+immutable; there is no `{...}` literal, `.keys()`, useful per-key `forEach`, or
+`.filter()`. Aggregate methods work on LIST-valued entries:
+
+```
+_m := MAP("Q1"; LIST(10, 20, 30), "Q2"; LIST(15, 25))
+_m.sum().table("Quarter", "Total")
+```
+
+Real table constructors are lowercase `createtable(...)`, list/JSON `.table(...)`,
+and `.addRow(...)`. There is no `TABLE`, `ROW`, `ROWS`, or `COLUMNS`, and a nested
+LIST is not a rendered table. Table property arguments are BARE properties:
+`.table(id, score, active)`, never quoted strings. Use `.table()` for all JSON
+object fields.
+
+```
+_rows := JSON("[{\"id\":\"A\",\"amount\":12.5},{\"id\":\"B\",\"amount\":7.25}]")
+_table := createtable("ID", "Amount")
+_rows.forEach(_row:
+     _table.addRow(str(_row.id), _row.amount)
+)
+_table
+```
+
+For a heterogeneous BMP-object list, avoid `.table().addColumn(prop)`: it binds
+the first row's concrete property getter and throws on another class. Use the
+class-safe positional form:
+
+```
+_mixed.table(className, id, name, parent.name)
+```
 
 ## Canonical recipes (all run clean on live BMP)
 

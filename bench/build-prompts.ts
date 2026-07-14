@@ -46,6 +46,26 @@ const emptyEnvelope: AiContextEnvelope = {
   sources: [],
 };
 
+/** Fully synthetic selection context for provider evals. It exercises the same
+ *  pack-selection and context-rendering path without disclosing a customer
+ *  object identity or workspace URL to the external model. */
+const syntheticEnvelope: AiContextEnvelope = {
+  v: 1,
+  server: { id: 'synthetic', url: 'https://example.invalid/' },
+  sources: [
+    {
+      kind: 'selection',
+      object: {
+        rid: '1000000000000000001',
+        businessId: 'sc_synthetic',
+        name: 'Synthetic Scorecard',
+        type: 'Scorecard',
+        templateBusinessId: 'sc_synthetic_template',
+      },
+    },
+  ],
+};
+
 /** Workspace primer captured live via ec_preview of PRIMER_EC
  *  (src/lib/handlers/ai-primer.ts) against the same workspace. Optional. */
 const primerPath = join(here, 'out', 'primer.txt');
@@ -58,6 +78,9 @@ const configs: Record<string, { system: string; packs: string[] }> = {
   'selection-scorecard': buildChatSystem(selectionEnvelope),
   // Chat with no chips: bmp-core + ec, no <context> block.
   'no-context': buildChatSystem(emptyEnvelope),
+  // Preferred for external-provider evaluation: byte-real prompt assembly,
+  // production-shaped context, and no private workspace identity.
+  'synthetic-scorecard': buildChatSystem(syntheticEnvelope),
 };
 if (primer) configs['no-context-primer'] = buildChatSystem(emptyEnvelope, primer);
 

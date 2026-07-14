@@ -13,7 +13,7 @@
  * usage/latency per call).
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TASKS } from './tasks.mjs';
 
@@ -27,8 +27,8 @@ if (!API_KEY) {
   process.exit(1);
 }
 const API_URL = 'https://api.deepseek.com/v1/chat/completions';
-const MODEL = 'deepseek-chat';
-const CONCURRENCY = 4;
+const MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
+const CONCURRENCY = Number(process.env.BENCH_CONCURRENCY || 4);
 
 const prompts = JSON.parse(readFileSync(join(outDir, 'prompts.json'), 'utf8'));
 
@@ -41,21 +41,36 @@ function argVal(name) {
   const hit = process.argv.slice(2).find(a => a.startsWith(`${name}=`));
   return hit ? hit.slice(name.length + 1).split(',').map(s => s.trim()).filter(Boolean) : null;
 }
+function argString(name) {
+  const hit = process.argv.slice(2).find(a => a.startsWith(`${name}=`));
+  return hit ? hit.slice(name.length + 1).trim() : null;
+}
 const onlyConfigs = argVal('--config');
 const onlyTasks = argVal('--tasks');
+const advancedOnly = process.argv.includes('--advanced');
+const repeats = Math.max(1, Number(argString('--repeats') || 1));
+const outputArg = argString('--output');
+const thinking = argString('--thinking') || 'default';
+if (!['default', 'enabled', 'disabled'].includes(thinking)) {
+  throw new Error('--thinking must be default, enabled, or disabled');
+}
 const wantConfig = c => !onlyConfigs || onlyConfigs.includes(c);
-const wantTask = t => !onlyTasks || onlyTasks.includes(t.id);
+const wantTask = t => (!onlyTasks || onlyTasks.includes(t.id)) && (!advancedOnly || t.advanced === true);
 
 /** (config, task) pairs to run. Full task set on the two primary configs;
  *  the primer config re-runs only the primer-sensitive subset. */
 const jobs = [];
-for (const config of ['selection-scorecard', 'no-context']) {
+for (const config of ['selection-scorecard', 'synthetic-scorecard', 'no-context']) {
   if (!prompts[config] || !wantConfig(config)) continue;
-  for (const t of TASKS) if (wantTask(t)) jobs.push({ config, task: t });
+  for (const t of TASKS) {
+    if (!wantTask(t)) continue;
+    for (let sample = 1; sample <= repeats; sample++) jobs.push({ config, task: t, sample });
+  }
 }
 if (prompts['no-context-primer'] && wantConfig('no-context-primer')) {
   for (const t of TASKS.filter(t => t.primer)) {
-    if (wantTask(t)) jobs.push({ config: 'no-context-primer', task: t });
+    if (!wantTask(t)) continue;
+    for (let sample = 1; sample <= repeats; sample++) jobs.push({ config: 'no-context-primer', task: t, sample });
   }
 }
 
@@ -81,11 +96,12 @@ async function callOnce(system, user) {
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
+      ...(thinking === 'default' ? {} : { thinking: { type: thinking } }),
     }),
   });
-  const ms = Date.now() - t0;
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const body = await res.json();
+  const ms = Date.now() - t0;
   return { ms, usage: body.usage, reply: body.choices?.[0]?.message?.content ?? '' };
 }
 
@@ -97,6 +113,7 @@ async function runJob(job) {
       return {
         config: job.config,
         taskId: job.task.id,
+        sample: job.sample,
         category: job.task.category,
         kind: job.task.kind,
         ms: r.ms,
@@ -124,8 +141,12 @@ async function worker() {
 }
 await Promise.all(Array.from({ length: CONCURRENCY }, worker));
 
-results.sort((a, b) => a.config.localeCompare(b.config) || a.taskId.localeCompare(b.taskId));
-writeFileSync(join(outDir, 'results.json'), JSON.stringify(results, null, 2));
+results.sort((a, b) => a.config.localeCompare(b.config) || a.taskId.localeCompare(b.taskId) || a.sample - b.sample);
+const outputPath = outputArg
+  ? (isAbsolute(outputArg) ? outputArg : join(process.cwd(), outputArg))
+  : join(outDir, 'results.json');
+mkdirSync(dirname(outputPath), { recursive: true });
+writeFileSync(outputPath, JSON.stringify(results, null, 2));
 
 const ok = results.filter(r => !r.error);
 const totIn = ok.reduce((s, r) => s + (r.usage?.prompt_tokens ?? 0), 0);
@@ -133,5 +154,6 @@ const totOut = ok.reduce((s, r) => s + (r.usage?.completion_tokens ?? 0), 0);
 const cacheHit = ok.reduce((s, r) => s + (r.usage?.prompt_cache_hit_tokens ?? 0), 0);
 const msArr = ok.map(r => r.ms).sort((a, b) => a - b);
 console.log(`\ncalls=${ok.length} errors=${results.length - ok.length}`);
+console.log(`model=${MODEL} thinking=${thinking} repeats=${repeats} output=${outputPath}`);
 console.log(`tokens: in=${totIn} (cacheHit=${cacheHit}) out=${totOut}`);
 console.log(`latency ms: min=${msArr[0]} median=${msArr[Math.floor(msArr.length / 2)]} max=${msArr[msArr.length - 1]}`);

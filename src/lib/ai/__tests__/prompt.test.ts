@@ -83,6 +83,12 @@ describe('buildPrompt', () => {
     expect(user).toContain('What does this do?');
   });
 
+  it('requires the model to implement supplied inputs instead of assuming variables', () => {
+    const { system } = buildPrompt(payload());
+    expect(system).toContain('Implement every input and initialization stated by the user');
+    expect(system).toContain('never silently assume that a variable or parsed object already exists');
+  });
+
   it('for edit intent, instructs a single fenced code block only', () => {
     const { user } = buildPrompt(payload({ intent: 'edit', instruction: 'Add a fallback' }));
     expect(user).toContain('Return ONLY the revised replacement');
@@ -183,6 +189,15 @@ describe('buildChatSystem workspace primer', () => {
     const { system } = buildChatSystem(withCtx, primer);
     expect(system).toContain('NEVER use search_objects to rediscover that source');
     expect(system).toContain('call query_context first');
+  });
+
+  it('answers self-contained EC tasks directly and ships the advanced EC rules', () => {
+    const { system } = buildChatSystem(env);
+    expect(system).toContain('For a self-contained coding task');
+    expect(system).toContain('The ONLY parser is uppercase `JSON(string)`');
+    expect(system).toContain('wrapped NodeValues');
+    expect(system).toContain('Table property arguments are BARE properties');
+    expect(system).toContain('`WHILE` / `ENDWHILE`');
   });
 
   it('ignores an empty / whitespace primer', () => {

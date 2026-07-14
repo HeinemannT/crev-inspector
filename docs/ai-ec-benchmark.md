@@ -298,3 +298,59 @@ regressions:
   forEach; this is sampling variance.
 
 Re-run cost: 22 calls, ~2,716 completion tokens, median 425 ms, ~$0.005.
+
+## Advanced executable benchmark (2026-07-14)
+
+A second slice now targets the areas the original suite barely covered: string
+parsing, primitive and nested JSON arrays, JSON mutation and escaping, LIST
+union/merge semantics, list-valued MAP aggregation, explicit tables, filtered
+JSON tables, heterogeneous BMP-object tables, and scalar IF results. The 12
+cases use synthetic inputs and store their live-verified reference programs in
+`bench/tasks.mjs`; all 12 references passed `ec_preview` on Steadfast.
+
+The provider run uses the real `buildChatSystem` output with a fake server URL,
+RID, and scorecard identity (`synthetic-scorecard`). No private workspace data is
+sent externally. Grading is execution-first: `bench/verify-bench.mjs` previews
+the returned EC and checks observable results, with narrow static requirements
+only where the result cannot prove intent (for example, parsing the supplied
+JSON instead of replacing it with a native LIST).
+
+### Measured result
+
+| Configuration | Score | Output tokens | Latency |
+|---|---:|---:|---:|
+| Pre-change prompt, provider-default thinking, 2 samples | **4/24 (17%)** | 58,987 total / 2,458 per answer | old harness measured headers only; invalid |
+| JSON/MAP/table prompt added, provider-default thinking | **10/12 (83%)** | 14,371 total / 1,198 per answer | 8.3 s median, 47.8 s max |
+| Final prompt, thinking disabled | **9/12 (75%)** | 2,249 total / 187 per answer | 2.0 s median, 4.3 s max |
+
+The baseline score is recalculated with the final intent checks: two apparent
+passes had replaced the requested JSON input with a native LIST/string and no
+longer count. The improved default-thinking run's two genuine failures were the
+JSON filter→table column syntax and character escaping; both later passed
+targeted live reruns after the pack gained bare table-property arguments and a
+bounded character-loop recipe. A subsequent full non-thinking run still varied:
+JSON escaping regressed, one mutation omitted the status field, and one case
+emitted a tool request instead of code.
+
+### Changes driven by the failures
+
+- Added compact JSON rules: uppercase `JSON()`, primitive wrapper conversion,
+  quote stripping, filter→table reparsing, and verified `json_set`/`json_append`
+  scope calls.
+- Added MAP/table rules: semicolon MAP pairs, list-valued aggregation,
+  `createtable`/`addRow`, bare table properties, and heterogeneous positional
+  tables.
+- Added explicit no-go guidance for `WHILE`, string iteration, JS table/object
+  constructors, and stored helpers whose live bodies return the wrong value.
+- Told the assistant to implement supplied initialization and answer fully
+  self-contained tasks without redundant workspace discovery.
+- Fixed the harness's latency timer and added model/thinking/repeat/output
+  controls plus a privacy-safe synthetic context.
+
+### Decision
+
+Do **not** disable DeepSeek thinking in production yet. It reduced output tokens
+by about 84% and median latency by about 76%, but the full executable pass rate
+fell from 83% to 75% and showed higher format/tool-call variance. Keep the
+provider default for correctness; revisit fast routing only with a larger,
+repeated suite or a narrowly classified set of simple questions.
