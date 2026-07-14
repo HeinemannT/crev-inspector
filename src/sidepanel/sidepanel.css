@@ -4100,6 +4100,34 @@ body.crev-divider-dragging * { user-select: none; }
 .ai-select { width: 100%; }
 .ai-key-row { align-items: center; }
 .ai-key-row .field-input { flex: 1; min-width: 0; }
+
+/* Model field: free-text input + an UNFILTERED "browse all models" menu (a native datalist would
+   filter by the typed value and hide the rest). */
+.ai-model-combo { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }
+.ai-model-combo .field-input { width: 100%; padding-right: 24px; }
+.ai-model-caret {
+  position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
+  border: 0; background: transparent; color: var(--text-3);
+  cursor: pointer; font-size: 11px; line-height: 1; padding: 4px 5px; border-radius: var(--radius-sm);
+  transition: color .12s, transform .12s;
+}
+.ai-model-caret:hover { color: var(--text-1); }
+.ai-model-caret.open { color: var(--accent); transform: translateY(-50%) rotate(180deg); }
+.ai-model-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  max-height: 200px; overflow-y: auto;
+  background: var(--surface-1); border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md); box-shadow: 0 6px 20px rgba(0, 0, 0, .22);
+  padding: 4px; display: flex; flex-direction: column; gap: 1px;
+}
+.ai-model-opt {
+  text-align: left; border: 0; background: transparent; color: var(--text-1);
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  padding: 5px 8px; border-radius: var(--radius-sm); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ai-model-opt:hover { background: var(--surface-3); }
+.ai-model-opt.sel { color: var(--accent); font-weight: 600; }
 .ai-key-saved {
   flex: 1;
   min-width: 0;

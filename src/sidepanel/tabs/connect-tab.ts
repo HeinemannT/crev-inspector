@@ -61,6 +61,8 @@ export class ConnectTab implements Tab {
   private aiTestStatus: { ok: boolean; text: string } | null = null;
   private aiTesting = false;
   private aiModelOptions: string[] = [];
+  private aiModelsLoading = false;   // "Load list" is in flight — button shows a spinner label
+  private aiModelMenuOpen = false;   // the unfiltered "browse all models" menu is open
   /** Collapsed server-row card vs the expanded config form. */
   private aiExpanded = false;
 
@@ -173,7 +175,8 @@ export class ConnectTab implements Tab {
         }
         return !this.editing;
       case 'AI_MODELS_RESULT':
-        if (msg.ok && msg.models) this.aiModelOptions = msg.models;
+        this.aiModelsLoading = false;
+        if (msg.ok && msg.models) { this.aiModelOptions = msg.models; this.aiModelMenuOpen = true; } // reveal the list on arrival
         else this.aiTestStatus = { ok: false, text: msg.error ?? 'Could not load models' };
         return !this.editing;
       case 'CACHE_BYTES':
@@ -259,6 +262,8 @@ export class ConnectTab implements Tab {
       this.aiProviderDraft = provider;
       this.aiModelDraft = PROVIDERS[provider].defaultModel;
       this.aiModelOptions = [];
+      this.aiModelsLoading = false;
+      this.aiModelMenuOpen = false;
       this.aiTestStatus = null;
       rerender();
     });
@@ -434,8 +439,18 @@ export class ConnectTab implements Tab {
         rerender();
       },
       'ai-load-models': () => {
+        if (this.aiModelsLoading) return;
         const provider = (this.aiProviderDraft ?? shared.settings.ai?.provider ?? 'anthropic');
+        this.aiModelsLoading = true;
         this.send({ type: 'AI_LIST_MODELS', provider });
+        rerender(); // show the "Loading…" state immediately (cleared on AI_MODELS_RESULT)
+      },
+      'ai-model-browse': () => { this.aiModelMenuOpen = !this.aiModelMenuOpen; rerender(); },
+      'ai-model-pick': (el) => {
+        const m = el.dataset.model;
+        if (m) this.aiModelDraft = m;
+        this.aiModelMenuOpen = false;
+        rerender();
       },
       'reset-all': () => {
         void (async () => {
@@ -652,11 +667,17 @@ export class ConnectTab implements Tab {
       }, PROVIDERS[id].label)),
     );
 
-    // Model datalist — provider suggestions plus any live-loaded ids.
+    // Model list — provider suggestions plus any live-loaded ids. A native <datalist> FILTERS its
+    // options by the input's current value, so once a model is typed you can't see the others; this
+    // custom menu (toggled by the caret) always lists them ALL, unfiltered.
     const modelOptions = [...new Set([...meta.suggestedModels, ...this.aiModelOptions])];
-    const dataList = h('datalist', { id: 'ai-models' },
-      ...modelOptions.map(m => h('option', { value: m })),
-    );
+    const modelMenu = (this.aiModelMenuOpen && modelOptions.length)
+      ? h('div', { class: 'ai-model-menu' },
+          ...modelOptions.map(m => h('button', {
+            class: 'ai-model-opt' + (m === model ? ' sel' : ''), type: 'button',
+            'data-action': 'ai-model-pick', 'data-model': m,
+          }, m)))
+      : null;
 
     const statusEl = this.aiTestStatus
       ? h('span', { class: `ai-conn-status ${this.aiTestStatus.ok ? 'ok' : 'err'}` }, this.aiTestStatus.text)
@@ -691,10 +712,17 @@ export class ConnectTab implements Tab {
       h('div', { class: 'field-group' },
         h('label', { class: 'field-label' }, 'Model'),
         h('div', { class: 'field-row ai-key-row' },
-          h('input', { class: 'field-input', id: 'ai-model', value: model, list: 'ai-models', autocomplete: 'off', placeholder: meta.defaultModel }),
-          meta.openAiCompat ? h('button', { class: 'footer-action', 'data-action': 'ai-load-models', title: 'Load the provider model list' }, 'Load list') : null,
+          h('div', { class: 'ai-model-combo' },
+            h('input', { class: 'field-input', id: 'ai-model', value: model, autocomplete: 'off', placeholder: meta.defaultModel }),
+            modelOptions.length
+              ? h('button', { class: 'ai-model-caret' + (this.aiModelMenuOpen ? ' open' : ''), type: 'button', 'data-action': 'ai-model-browse', title: 'Browse all models', 'aria-label': 'Browse all models' }, '▾')
+              : null,
+            modelMenu,
+          ),
+          meta.openAiCompat
+            ? h('button', { class: 'footer-action', 'data-action': 'ai-load-models', title: 'Load the provider model list', ...(this.aiModelsLoading ? { disabled: 'disabled' } : {}) }, this.aiModelsLoading ? 'Loading…' : 'Load list')
+            : null,
         ),
-        dataList,
       ),
       keyRow,
       // Save provider/model without re-entering the key (only when configured
