@@ -727,4 +727,7 @@
 #crev-blueprint-layer .bp-fwire:hover{color:var(--bp-cyan-hi);border-color:var(--bp-cyan);background:rgba(6,182,212,.06)}
 #crev-blueprint-layer .bp-fwire.new{color:var(--bp-green)}
 #crev-blueprint-layer .bp-fwire.new:hover{background:rgba(22,163,74,.08);border-color:var(--bp-green)}
+/* Cancel ✕: a single-glyph square, not a full "Select existing / + New" pill. */
+#crev-blueprint-layer .bp-fwire.x{padding:4px 6px;color:var(--bp-text-dim)}
+#crev-blueprint-layer .bp-fwire.x:hover{color:var(--bp-red);border-color:var(--bp-red);background:rgba(220,38,38,.08)}
 #crev-blueprint-layer .bp-fnote{padding:6px 14px;font:500 10.5px 'BPInter',sans-serif;color:var(--bp-muted);font-style:italic;border-top:var(--bp-div) solid rgba(148,163,184,.28)}

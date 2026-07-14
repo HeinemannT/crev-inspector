@@ -270,7 +270,7 @@ function stagedRefBand(m: LModel, widgetId: string, ref: { id: string; className
     ? 'Staged: created on Apply in the page\'s support Category, then linked to this widget.'
     : 'Staged: linked to this widget on Apply.';
   end.appendChild(tag);
-  const x = document.createElement('button'); x.className = 'bp-fwire';
+  const x = document.createElement('button'); x.className = 'bp-fwire x';
   x.textContent = '✕';
   x.title = ref.isNew ? 'Cancel the new reference (and its staged elements)' : 'Cancel the staged link';
   onTap(x, () => doUnwire(widgetId));

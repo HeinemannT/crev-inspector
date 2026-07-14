@@ -21,6 +21,7 @@ import { buildRowEc, identityRow, parseDelimitedLines, parseDelimitedRow } from 
 import { validateEcIdentifier } from './ec-guards';
 import { ecResolveTemplate } from './template-link';
 import { LAYOUT_SEP, parseLayoutNodes } from './layout-wire';
+import { stripWidgetContent } from './layout/model';
 import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessSubject, LayoutNode } from './types';
 import {
   parsePipeRow, parsePipeRowWithKey, parseAbRow, makeCodeField, splitNamedRow,
@@ -526,7 +527,11 @@ export class EcQueryService {
     const ref = await this.resolveRef(rid);
     const result = await this.executeEc(buildLayoutTreeEc(ref));
     if (!result.ok || !result.log) return [];
-    return parseLayoutNodes(result.log);
+    // Drop content nodes (children of leaf widgets — e.g. indicators inside an
+    // IndicatorList) generically, the same taxonomy strip loadModel applies, so
+    // the Inspect Layout view + AI read_layout show layout structure, not list
+    // members. See stripWidgetContent in layout/model.ts.
+    return stripWidgetContent(parseLayoutNodes(result.log));
   }
 
   /** Fetch direct children of an object via EC */

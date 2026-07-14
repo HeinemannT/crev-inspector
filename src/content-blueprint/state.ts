@@ -145,6 +145,10 @@ export function resetModel(): void {
   // here, the single reload chokepoint, also dismisses a preview modal orphaned by the reload.
   bp.applying = false; bp.preview = null; bp.previewScript = ''; bp.blast = null; bp.blastPending = false;
   bp.applyOutcome = null; // a stale/partial outcome refers to the page being left
+  // The intentional-reload flag is nav-scoped: a real post-apply reload replaces the document (→ fresh
+  // false), so if `reloading` is still set here the reload never happened (apply aborted after stashResume).
+  // Leaving it true would silently mute the unsaved-work beforeunload guard, so clear it at the chokepoint.
+  bp.reloading = false;
   if (bp.discardTimer) { clearTimeout(bp.discardTimer); bp.discardTimer = 0; }
   bp.discardArm = false;
   // flow view state is page-scoped: fold state / open cards / picker all refer to the old page's ids

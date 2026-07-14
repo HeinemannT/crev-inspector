@@ -12,6 +12,8 @@ import {
   buildLayoutTreeEc,
 } from '../bmp-client';
 import { LAYOUT_SEP } from '../layout-wire';
+import { EcQueryService } from '../ec-query-service';
+import type { EcResult } from '../bmp-client';
 
 describe('buildAccessSubjectsEc (golden)', () => {
   it('emits the exact user+role EC as before the codec migration', () => {
@@ -110,5 +112,30 @@ describe('buildLayoutTreeEc (golden)', () => {
     const ec = buildLayoutTreeEc('lookup(123)');
     expect(ec.split('\n')[0]).toBe('_root := lookup(123)');
     expect(ec.trim().split('\n').pop()).toBe('_r');
+  });
+});
+
+describe('EcQueryService.fetchLayoutTree (content strip)', () => {
+  // rid|bid|type|parentRid|containerRid|L|M|S|chartHeight|name — the wire row parseLayoutNodes reads.
+  const row = (rid: string, type: string, parentRid: string, name: string) =>
+    `${LAYOUT_SEP}${rid}|${rid.toLowerCase()}|${type}|${parentRid}|||||| ${name}`;
+  // Tab → IndicatorList (a LEAF widget) → Indicator member. The member is CONTENT, not layout.
+  const log = [
+    row('t1', 'Tab', 'r0', 'Cases'),
+    row('il1', 'IndicatorList', 't1', 'Docs'),
+    row('ind1', 'Indicator', 'il1', 'Doc count'),
+  ].join('\n');
+
+  it('drops leaf-widget member content the same way loadModel does (parallel surface to the blueprint strip)', async () => {
+    const svc = new EcQueryService(
+      async () => ({ ok: true, log }) as unknown as EcResult,
+      async (rid: string) => `lookup(${rid})`,
+      [],
+    );
+    const nodes = await svc.fetchLayoutTree('123');
+    const types = nodes.map(n => n.type);
+    expect(types).toContain('Tab');
+    expect(types).toContain('IndicatorList'); // the list widget itself stays — it nests under the Tab
+    expect(types).not.toContain('Indicator'); // its member is content, stripped
   });
 });

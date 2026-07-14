@@ -427,6 +427,8 @@ export class ConnectTab implements Tab {
           this.aiModelDraft = null;
           this.aiKeyDraft = '';
           this.aiModelOptions = [];
+          this.aiModelsLoading = false;
+          this.aiModelMenuOpen = false;
           this.aiTestStatus = null;
           this.aiExpanded = false;
           this.send({ type: 'AI_REMOVE_CONFIG' });
