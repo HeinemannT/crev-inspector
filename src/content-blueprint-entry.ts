@@ -21,12 +21,13 @@
  */
 import { enableBlueprint, disableBlueprint, setBlueprintRidResolver, setBlueprintResumePrefer } from './content-blueprint';
 import { resetColorSets } from './content-blueprint/colors';
+import { resetFlowRefsCache } from './content-blueprint/service';
 import { log } from './lib/logger';
 
 type BlueprintCmd =
   | { cmd: 'enable' }
   | { cmd: 'disable' }
-  | { cmd: 'resetColors' }
+  | { cmd: 'resetOverlayCaches' }
   | { cmd: 'setResumePrefer'; prefer: 'template' | 'instance' };
 
 declare global {
@@ -70,7 +71,7 @@ const cmdLifetime = new AbortController();
 function parseBlueprintCmd(detail: unknown): BlueprintCmd | null {
   if (typeof detail !== 'object' || detail === null) return null;
   const d = detail as Record<string, unknown>;
-  if (d.cmd === 'enable' || d.cmd === 'disable' || d.cmd === 'resetColors') {
+  if (d.cmd === 'enable' || d.cmd === 'disable' || d.cmd === 'resetOverlayCaches') {
     return { cmd: d.cmd };
   }
   if (d.cmd === 'setResumePrefer' && (d.prefer === 'template' || d.prefer === 'instance')) {
@@ -83,7 +84,7 @@ function handleCmd(detail: BlueprintCmd): void {
   switch (detail.cmd) {
     case 'enable': enableBlueprint(); break;
     case 'disable': disableBlueprint(); break;
-    case 'resetColors': resetColorSets(); break;
+    case 'resetOverlayCaches': resetColorSets(); resetFlowRefsCache(); break;
     case 'setResumePrefer': setBlueprintResumePrefer(detail.prefer); break;
   }
 }

@@ -8,7 +8,7 @@
  *   - it drains the one-shot `window.__crevBpResumePrefer` flag, then drains the
  *     `window.__crevBpPendingCmds` queue (commands content.ts buffered before this listener
  *     existed) IN ORDER and flips `window.__crevBpEntryReady`,
- *   - and it routes `crev-bp-cmd` CustomEvents to enable/disable/resetColors/setResumePrefer.
+ *   - and it routes `crev-bp-cmd` CustomEvents to enable/disable/resetOverlayCaches/setResumePrefer.
  *
  * Each case re-imports the module (vi.resetModules) so the once-per-load init logic runs against the
  * window state set up for that case.
@@ -20,6 +20,7 @@ const disableBlueprint = vi.fn();
 const setBlueprintRidResolver = vi.fn();
 const setBlueprintResumePrefer = vi.fn();
 const resetColorSets = vi.fn();
+const resetFlowRefsCache = vi.fn();
 
 vi.mock('../content-blueprint', () => ({
   enableBlueprint: (...a: unknown[]) => enableBlueprint(...a),
@@ -29,6 +30,9 @@ vi.mock('../content-blueprint', () => ({
 }));
 vi.mock('../content-blueprint/colors', () => ({
   resetColorSets: (...a: unknown[]) => resetColorSets(...a),
+}));
+vi.mock('../content-blueprint/service', () => ({
+  resetFlowRefsCache: (...a: unknown[]) => resetFlowRefsCache(...a),
 }));
 
 async function loadEntry(): Promise<void> {
@@ -142,10 +146,11 @@ describe('crev-bp-cmd routing', () => {
     expect(disableBlueprint).toHaveBeenCalledTimes(1);
   });
 
-  it('resetColors → resetColorSets', async () => {
+  it('resetOverlayCaches → resetColorSets + resetFlowRefsCache', async () => {
     await loadEntry();
-    dispatch({ cmd: 'resetColors' });
+    dispatch({ cmd: 'resetOverlayCaches' });
     expect(resetColorSets).toHaveBeenCalledTimes(1);
+    expect(resetFlowRefsCache).toHaveBeenCalledTimes(1);
   });
 
   it('setResumePrefer → setBlueprintResumePrefer with the target', async () => {

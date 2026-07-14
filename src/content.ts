@@ -57,7 +57,7 @@ declare global {
 type BlueprintCmd =
   | { cmd: 'enable' }
   | { cmd: 'disable' }
-  | { cmd: 'resetColors' }
+  | { cmd: 'resetOverlayCaches' }
   | { cmd: 'setResumePrefer'; prefer: 'template' | 'instance' };
 
 /** Send a command to the (lazily-injected) Blueprint editor.
@@ -238,7 +238,7 @@ function handleConnectionState(state: ConnectionState) {
 function handleProfileSwitched(label: string) {
   showToast(`Switched to ${label}`, 'info');
   sendBlueprintCmd({ cmd: 'disable' }); // any blueprint overlay is bound to the previous env's page — tear it down
-  sendBlueprintCmd({ cmd: 'resetColors' }); // colours are per-workspace — drop the overlay's cached bid→rgb map
+  sendBlueprintCmd({ cmd: 'resetOverlayCaches' }); // colours + InputSet lists are per-workspace — drop the overlay's caches
   s.overlayProps.clear();
   renderOverlayCards(s);
   if (s.technicalOverlay) applyTechnicalOverlay(s);
@@ -345,6 +345,12 @@ onPortMessage((msg: InspectorMessage) => {
     case 'RE_ENRICH':
       s.requestedRids.clear();
       if (s.inspectActive) syncOverlays(s);
+      break;
+    case 'RESET_OVERLAY_CACHES':
+      // A manual sidebar Reset — drop the blueprint overlay's per-workspace caches (colours + InputSet
+      // lists) so the next style-mode / picker open re-fetches. (RE_ENRICH is NOT a safe hook — it also
+      // fires on reconnect/enrichment, which would defeat the caches.)
+      sendBlueprintCmd({ cmd: 'resetOverlayCaches' });
       break;
     case 'CONNECTION_STATE':
       handleConnectionState(msg.state);

@@ -225,6 +225,7 @@ export type EnrichMessage =
   | { type: 'BADGE_ENRICHMENT'; enrichments: Record<string, { businessId?: string; type?: string; name?: string; templateBusinessId?: string; cascade?: { rid: string; businessId?: string; type?: string; name?: string } }> }
   | { type: 'ENRICH_MODE'; mode: EnrichMode }
   | { type: 'RE_ENRICH' }
+  | { type: 'RESET_OVERLAY_CACHES' } // SW → content on a manual Reset: drop the blueprint overlay's per-workspace caches
   | { type: 'REFRESH_ENRICHMENT' };
 
 // ── Paint Format ─────────────────────────────────────────────────

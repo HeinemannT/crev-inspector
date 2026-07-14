@@ -631,6 +631,7 @@ register('RESET_ALL', (msg, respond) => {
   ctx.logActivity('warn', 'State reset (object cache, enrichment, activity, context)');
   respond({ type: 'CACHE_STATS', count: 0 });
   ctx.broadcastToContent({ type: 'RE_ENRICH' });
+  ctx.broadcastToContent({ type: 'RESET_OVERLAY_CACHES' }); // also drop the blueprint overlay's colour + InputSet caches
 
   // Snap the panel to a clean slate. Without these, the user clicks Reset
   // and the status-bar chips + Page tab + Log tab still show stale state

@@ -11,6 +11,7 @@ import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import type { InspectorMessage } from '../lib/types';
 import type { LModel } from '../lib/layout/types';
+import type { FlowRefListItem } from '../lib/layout/sync';
 import { BP_RESUME_KEY } from '../lib/blueprint-resume';
 import { bp, model } from './state';
 import { render } from './view';
@@ -80,13 +81,28 @@ export async function fetchBlast(seq: number, pageId: string, containers: { id: 
 
 /** Fetch the flow "wire to existing" list for the OPEN flow picker (lean, at picker-open). Stores the
  *  rows on `bp.flowRefList` and re-renders; a reply for a closed/changed picker is dropped. */
+/** Session cache of the wire-to-existing lists, keyed by refClass. The InputSet/EditPage sets only
+ *  change when one is CREATED — which happens on Apply → page reload → fresh content script (this cache
+ *  is gone) — so caching for the session is safe and skips re-running the SELECT on every picker open.
+ *  Mirrors the colour-set cache (colors.ts). Cleared on a profile switch and on a manual sidebar Reset
+ *  (resetFlowRefsCache, driven by RESET_OVERLAY_CACHES). */
+const flowRefsCache = new Map<'InputSet' | 'EditPage', FlowRefListItem[]>();
+
+/** Drop the cached wire-to-existing lists so the next picker-open re-fetches. Called on profile switch
+ *  and on a manual sidebar Reset — the two points where the workspace's InputSets may have changed. */
+export function resetFlowRefsCache(): void { flowRefsCache.clear(); }
+
 export async function fetchFlowRefs(refClass: 'InputSet' | 'EditPage'): Promise<void> {
+  const cached = flowRefsCache.get(refClass);
+  if (cached) { bp.flowRefList = cached; render(); return; } // served from the session cache
   const g = bp.gen;
   bp.flowRefList = null; // loading state
   try {
     const res = await sendRequest<FlowRefsResult>({ type: 'LAYOUT_FLOW_REFS', refClass });
     if (!sameSession(g) || !bp.flowPicker?.wireExisting) return;
-    bp.flowRefList = res?.ok ? (res.refs ?? []) : [];
+    const refs = res?.ok ? (res.refs ?? []) : [];
+    if (res?.ok) flowRefsCache.set(refClass, refs); // cache only a successful list
+    bp.flowRefList = refs;
     if (!res?.ok) showToast(`Blueprint: could not list existing ${refClass}s: ${res?.error || 'unknown'}`, 'error');
     render();
   } catch {
