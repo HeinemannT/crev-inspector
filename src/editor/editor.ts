@@ -10,6 +10,7 @@ import { openSearchPanel } from '@codemirror/search'
 import { lintGutter } from '@codemirror/lint'
 import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppuccinMocha, type CodeLang } from '../editor-core/cm-scaffold'
 import { CodeSurface, isProgrammaticSwap, type CodeSlot } from '../editor-core/code-surface'
+import { reconcileLostSave } from '../editor-core/save-reconcile'
 import { KBD_MOD } from '../editor-core/platform'
 import { closeOverlayKeyBinding, installDirtyGuards } from '../editor-core/overlay'
 
@@ -1048,15 +1049,21 @@ async function doDiscard(): Promise<void> {
 
 async function doSave() {
   if (!surface || !ctx) return
-  const code = surface.getDoc()
+  const saveSurface = surface
+  const saveContext = ctx
+  const property = activeProperty
+  const slotKey = activeKey()
+  const code = saveSurface.getDoc()
+  const savedCodeMap = getActiveCode(saveContext)
+  const storageRid = location.hash.slice(1)
 
-  const target = getSaveTarget(ctx)
-  const targetLabel = ctx.saveTarget === 'template' && ctx.template
+  const target = getSaveTarget(saveContext)
+  const targetLabel = saveContext.saveTarget === 'template' && saveContext.template
     ? `template "${formatLabel(target.identity, 'full')}"`
     : `instance "${formatLabel(target.identity, 'full')}"`
 
   const confirmed = await confirmModal({
-    title: `Save ${activeProperty}`,
+    title: `Save ${property}`,
     body: `Write to ${targetLabel}?`,
     confirmLabel: 'Save',
     confirmVariant: 'success',
@@ -1074,48 +1081,72 @@ async function doSave() {
       type: 'SAVE_PROPERTY',
       rid: target.rid,
       objectType: target.type,
-      property: activeProperty,
+      property,
       value: code,
     })
     if (response?.type === 'SAVE_RESULT' && response.ok) {
-      showOutput(`Saved to ${targetLabel}`, true)
-      // Move the active slot's baseline to the saved value (clears dirty +
-      // makes Discard revert to what just landed on the server). markSaved is
-      // a baseline-move only — fine here: a property string write is
-      // authoritative, BMP doesn't transform it.
-      surface.markSaved(activeKey())
-      lastSavedAt = Date.now()
-      // Fade the Save → Saved → Save label back after ~4s. Re-render
-      // the action toolbar so the button reverts to its default look
-      // without flashing the user's eyes mid-edit.
-      if (saveLabelTimer) clearTimeout(saveLabelTimer)
-      saveLabelTimer = setTimeout(() => { refreshActions() }, 4200)
-      const activeCodeMap = getActiveCode(ctx)
-      activeCodeMap[activeProperty] = code
-      const rid = location.hash.slice(1)
-      if (rid) {
-        await chrome.storage.local.set({ [`crev_editor_ctx_${rid}`]: ctx })
-      }
+      const newerEdits = saveSurface.textFor(slotKey) !== code
+      await acceptSavedValue(saveSurface, slotKey, savedCodeMap, saveContext, property, code, storageRid)
+      showOutput(newerEdits
+        ? `Saved ${property} to ${targetLabel}. Newer edits remain unsaved.`
+        : `Saved to ${targetLabel}`, true)
     } else if (response?.type === 'SAVE_RESULT') {
       // Explicit failure — the SW returned a SAVE_RESULT with ok=false. The
       // error string is what BMP / the bridge reported; surface it verbatim.
       const detail = response.error ?? '(no error message)'
       // eslint-disable-next-line no-console
-      console.error('[CREV] SAVE_PROPERTY failed', { rid: target.rid, property: activeProperty, response })
+      console.error('[CREV] SAVE_PROPERTY failed', { rid: target.rid, property, response })
       showOutput(`Save failed: ${detail}`, false)
     } else {
       // No SAVE_RESULT came back. In MV3 this almost always means the SW was
       // unloaded mid-request and the message port closed before the response
-      // could be sent. BMP may or may not have written the value. Surface
-      // that ambiguity so the user knows to verify rather than blindly retry.
+      // could be sent. BMP may or may not have written the value, so re-read
+      // the exact property before deciding whether the save succeeded.
       // eslint-disable-next-line no-console
-      console.warn('[CREV] SAVE_PROPERTY: no response (likely SW unloaded). BMP may have saved successfully — verify before retrying.', { rid: target.rid, property: activeProperty, response })
-      showOutput('No response from service worker. BMP may have saved. Refresh the object pane to verify before retrying.', false)
+      console.warn('[CREV] SAVE_PROPERTY: no response; verifying the stored value before reporting failure.', { rid: target.rid, property, response })
+      const verify = await sendRequest({ type: 'STUDIO_FETCH_CODE', rid: target.rid, props: [property] })
+      const stored = verify?.type === 'STUDIO_CODE_DATA'
+        && verify.ok
+        && verify.code
+        && Object.prototype.hasOwnProperty.call(verify.code, property)
+        ? verify.code[property]
+        : undefined
+      const state = reconcileLostSave(code, saveSurface.textFor(slotKey), stored)
+      if (state === 'confirmed' || state === 'confirmed-with-newer-edits') {
+        await acceptSavedValue(saveSurface, slotKey, savedCodeMap, saveContext, property, code, storageRid)
+        showOutput(state === 'confirmed'
+          ? `Saved to ${targetLabel} (confirmed after the response was lost).`
+          : `Saved ${property} to ${targetLabel} (confirmed after the response was lost). Newer edits remain unsaved.`, true)
+      } else if (state === 'mismatch') {
+        showOutput('The save response was lost and BMP stores a different value. Your current edit remains unsaved.', false)
+      } else {
+        showOutput('No save response, and the stored value could not be verified. Your current edit remains unsaved.', false)
+      }
     }
   } finally {
     if (btn) { delete btn.dataset.saving }
     refreshActions()
   }
+}
+
+async function acceptSavedValue(
+  saveSurface: CodeSurface,
+  slotKey: string,
+  savedCodeMap: Record<string, string>,
+  saveContext: EditorContext,
+  property: string,
+  code: string,
+  storageRid: string,
+): Promise<void> {
+  // Move only the server baseline. If the user typed while save/verification
+  // was in flight, CodeSurface keeps that newer document dirty and Discard
+  // returns to this confirmed value.
+  saveSurface.markValueSaved(slotKey, code)
+  savedCodeMap[property] = code
+  lastSavedAt = Date.now()
+  if (saveLabelTimer) clearTimeout(saveLabelTimer)
+  saveLabelTimer = setTimeout(() => { refreshActions() }, 4200)
+  if (storageRid) await chrome.storage.local.set({ [`crev_editor_ctx_${storageRid}`]: saveContext })
 }
 
 /** Copy text to clipboard and briefly flash a button's content with a check icon. */

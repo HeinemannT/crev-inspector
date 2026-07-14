@@ -76,6 +76,21 @@ describe('CodeSurface', () => {
     expect(surface.isDirty('html')).toBe(false)
   })
 
+  it('records a completed save without clearing edits typed while it was in flight', () => {
+    const { surface } = mount()
+    surface.activate('html')
+    surface.insertAtCursor('saved-')
+    const sent = surface.getDoc()
+    surface.insertAtCursor('newer-')
+
+    surface.markValueSaved('html', sent)
+
+    expect(surface.getDoc()).toBe('newer-saved-<p>a</p>')
+    expect(surface.isDirty('html')).toBe(true)
+    surface.discard()
+    expect(surface.getDoc()).toBe('saved-<p>a</p>')
+  })
+
   it('getRunCode returns the whole doc with no selection', () => {
     const { surface } = mount()
     surface.activate('javascript')

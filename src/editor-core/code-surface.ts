@@ -255,11 +255,24 @@ export class CodeSurface {
    *  baseline. */
   markSaved(key = this.activeKey): void {
     if (!key) return
+    this.markValueSaved(key, this.textFor(key))
+  }
+
+  /** Move a slot's server baseline to a specific value while preserving edits
+   *  typed after the save began. This is the safe completion path for an
+   *  awaited save: the server may have stored `savedCode` while the live
+   *  document has already moved on. */
+  markValueSaved(key: string, savedCode: string): void {
     const st = this.slots.get(key)
     if (!st) return
-    st.loaded = key === this.activeKey && this._view ? this._view.state.doc.toString() : st.text
-    st.text = st.loaded
-    if (st.dirty) { st.dirty = false; if (key === this.activeKey) this.cb.onDirtyChange?.(false) }
+    const current = this.textFor(key)
+    st.loaded = savedCode
+    st.text = current
+    const dirty = current !== savedCode
+    if (st.dirty !== dirty) {
+      st.dirty = dirty
+      if (key === this.activeKey) this.cb.onDirtyChange?.(dirty)
+    }
   }
 
   /** Revert the active slot to its loaded (BMP) value. */
