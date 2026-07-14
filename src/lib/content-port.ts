@@ -104,6 +104,9 @@ export function connectPort(): void {
 const ONE_SHOT_FALLBACKS: ReadonlySet<InspectorMessage['type']> = new Set([
   'DETECTION_RESULT',
   'BMP_URL_CHANGED',
+  // The Blueprint X must work while the long-lived content port is reconnecting. Unlike routine
+  // overlay traffic this is a user command, so dropping it leaves a full-page editor stuck open.
+  'BLUEPRINT_CLOSE',
 ]);
 
 /** Send a message to the service worker. If the port is down and the message

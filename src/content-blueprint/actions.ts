@@ -517,7 +517,9 @@ export function confirmApply(): void {
   void applyPage();
 }
 
-export function exitBlueprint(): void { sendToSW({ type: 'BLUEPRINT_TOGGLE' }); }
+/** Exit is an explicit close, never a toggle. MV3 can restart the worker or briefly disconnect the
+ * content port; either event must not turn a close click into a no-op (or, worse, re-enable Blueprint). */
+export function exitBlueprint(): void { sendToSW({ type: 'BLUEPRINT_CLOSE' }); }
 
 /** "+ Create tabset" on a RESULT-only page: STAGE a virtual tabset with a "Main" tab and rehome the
  *  page's widgets onto it. Nothing is written yet — the tabset + tabs are created together in the Apply

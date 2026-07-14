@@ -372,6 +372,9 @@ export type LayoutMessage =
   // Blueprint overlay toggle: panel → SW (BLUEPRINT_TOGGLE) flips per-window state; SW → content/panel
   // (BLUEPRINT_STATE) drives the overlay on/off. Mirrors the inspect/paint toggle convention.
   | { type: 'BLUEPRINT_TOGGLE' }
+  // Overlay X → SW: an explicit, idempotent close for the sender tab. This is deliberately not a
+  // toggle: a stale/restoring MV3 worker must never interpret "close" as "turn Blueprint back on".
+  | { type: 'BLUEPRINT_CLOSE' }
   | { type: 'BLUEPRINT_STATE'; active: boolean }
   // Content → SW after the post-apply reload: turn blueprint back ON for the sender tab's window so
   // the editing session survives the refresh (apply toggles it off before reloading — see applyPage).

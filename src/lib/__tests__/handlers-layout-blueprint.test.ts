@@ -8,6 +8,7 @@
  *     pinned to that tab.
  *   - toggleBlueprint / setBlueprintActive: the BLUEPRINT_TOGGLE / Ctrl+Shift+B path — same
  *     exclusivity when turning blueprint on, plus the blueprintActiveByWindow bookkeeping.
+ *   - BLUEPRINT_CLOSE: the overlay X explicitly closes the sender tab even when worker state drifted.
  *
  * ensureBlueprintScript and toggleInspect are exercised by their own test suites
  * (content-script-injection.test.ts; toggleInspect's own exclusivity in handlers/inspect.ts is out
@@ -153,6 +154,38 @@ describe('BLUEPRINT_RESUME handler', () => {
 
     expect(toggleInspect).not.toHaveBeenCalled();
     expect((globalThis as any).chrome.tabs.get).not.toHaveBeenCalled();
+  });
+});
+
+describe('BLUEPRINT_CLOSE handler', () => {
+  it('closes Blueprint in the sender tab\'s window and sends OFF back to that exact tab', async () => {
+    const h = makeHarness();
+    h.ctx.blueprintActiveByWindow.set(1, true);
+    const { getHandler } = await import('../handler-registry');
+    await import('../handlers/layout');
+    const entry = getHandler('BLUEPRINT_CLOSE');
+    expect(entry).toBeDefined();
+
+    await entry!({ type: 'BLUEPRINT_CLOSE' } as any, () => {}, { senderTabId: 55, isOneShot: false });
+
+    expect((globalThis as any).chrome.tabs.get).toHaveBeenCalledWith(55);
+    expect((globalThis as any).chrome.tabs.query).not.toHaveBeenCalled();
+    expect(h.ctx.blueprintActiveByWindow.get(1)).toBe(false);
+    expect(h.tabMessagesSent).toContainEqual({ tabId: 55, msg: { type: 'BLUEPRINT_STATE', active: false } });
+    expect(h.panelMsgs).toContainEqual({ type: 'BLUEPRINT_STATE', active: false });
+  });
+
+  it('force-broadcasts OFF when the worker already thinks Blueprint is off', async () => {
+    const h = makeHarness();
+    h.ctx.blueprintActiveByWindow.set(1, false);
+    const { getHandler } = await import('../handler-registry');
+    await import('../handlers/layout');
+    const entry = getHandler('BLUEPRINT_CLOSE');
+
+    await entry!({ type: 'BLUEPRINT_CLOSE' } as any, () => {}, { senderTabId: 55, isOneShot: true });
+
+    expect(h.tabMessagesSent).toContainEqual({ tabId: 55, msg: { type: 'BLUEPRINT_STATE', active: false } });
+    expect(h.ctx.persistBlueprintState).toHaveBeenCalledTimes(1);
   });
 });
 

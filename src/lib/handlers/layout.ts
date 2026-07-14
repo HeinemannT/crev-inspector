@@ -33,11 +33,12 @@ function formatNotes(notes: PlanNote[]): string {
  *  its own document-wide overlay + observer, so only one should paint at a time). `tabId` pins the
  *  content tab explicitly (the post-apply resume targets the tab that reloaded, which may no longer
  *  be the window's active tab); default is the window's active tab. */
-export async function setBlueprintActive(windowId: number, active: boolean, tabId?: number): Promise<void> {
+export async function setBlueprintActive(windowId: number, active: boolean, tabId?: number, force = false): Promise<void> {
   const ctx = getCtx();
-  if (ctx.blueprintActiveByWindow.get(windowId) === active) return;
+  const unchanged = ctx.blueprintActiveByWindow.get(windowId) === active;
+  if (unchanged && !force) return;
   ctx.blueprintActiveByWindow.set(windowId, active);
-  ctx.logActivity('info', active ? 'Blueprint mode ON' : 'Blueprint mode OFF');
+  if (!unchanged) ctx.logActivity('info', active ? 'Blueprint mode ON' : 'Blueprint mode OFF');
   const state = { type: 'BLUEPRINT_STATE' as const, active };
   ctx.sendToPanelByWindow(windowId, state);
   try {
@@ -68,6 +69,20 @@ export async function toggleBlueprint(windowId?: number): Promise<void> {
 
 register('BLUEPRINT_TOGGLE', async (_msg, _respond, meta) => {
   await toggleBlueprint(meta.panelWindowId ?? undefined);
+});
+
+// The overlay X is tied to a concrete content tab, so derive the window from that sender and pin the
+// OFF broadcast back to the same tab. `force` heals any stale worker map as well: even if the MV3
+// worker restored "off" while an old overlay is visibly alive, the explicit close still tears it down.
+register('BLUEPRINT_CLOSE', async (_msg, _respond, meta) => {
+  if (meta.senderTabId != null) {
+    try {
+      const tab = await chrome.tabs.get(meta.senderTabId);
+      await setBlueprintActive(tab.windowId, false, meta.senderTabId, true);
+      return;
+    } catch (e) { log.swallow('blueprint:closeTab', e); }
+  }
+  if (meta.panelWindowId != null) await setBlueprintActive(meta.panelWindowId, false, undefined, true);
 });
 
 // Content → SW: the tab is activating Blueprint for the first time and needs the editor's
