@@ -15,15 +15,23 @@ import { getCtx } from '../sw-context';
 import type { BmpClient } from '../bmp-client';
 import type { ToolCall, ToolResult } from '../ai/tools';
 import { TOOL_NAMES, truncateToolResult } from '../ai/tools';
+import type { AiContextEnvelope, AiContextSource } from '../ai/types';
 import { loadSchemaProps } from './objects';
 import { collectCodeSearch } from '../code-search';
 import { codeFieldsFor, referencesFor, contextFieldsFor, typeAffordances } from '../widget-metadata';
 import { errorMessage, log } from '../logger';
+import { formatEcLiteral, validateEcIdentifier } from '../ec-guards';
 
 /** Inline a code slot body only when it's this small; otherwise report size. */
 const SLOT_INLINE_LIMIT = 1200;
 /** Cap on search / layout rows folded into one tool result. */
 const SEARCH_CAP = 25;
+/** Context queries stay compact enough for both BMP and the model. */
+const CONTEXT_FIELD_CAP = 5;
+/** Identity columns are unconditional in query_context output. Silently drop
+ *  them from `fields` so a model cannot waste EC work asking for aliases such
+ *  as businessId (the actual EC property is `id`). */
+const CONTEXT_IDENTITY_FIELDS = new Set(['name', 'type', 'className', 'businessId', 'id', 'rid']);
 
 /** A tool result that always ends up truncated to the shared byte cap. */
 function ok(content: string): ToolResult {
@@ -34,12 +42,17 @@ function err(message: string): ToolResult {
 }
 
 /** Execute one read-only tool call. Returns a readable result; never throws. */
-export async function executeAiTool(call: ToolCall, signal?: AbortSignal): Promise<ToolResult> {
+export async function executeAiTool(
+  call: ToolCall,
+  signal?: AbortSignal,
+  envelope?: AiContextEnvelope,
+): Promise<ToolResult> {
   const ctx = getCtx();
   if (!TOOL_NAMES.has(call.name)) return err(`Unknown tool: ${call.name}`);
   if (!ctx.client) return err('Not connected to a BMP server. Ask the user to connect first.');
   try {
     switch (call.name) {
+      case 'query_context': return await queryContext(ctx.client, call.input, envelope, signal);
       case 'read_object': return await readObject(ctx.client, call.input, signal);
       case 'read_type': return await readType(call.input);
       case 'search_objects': return await searchObjects(ctx.client, call.input, signal);
@@ -51,6 +64,112 @@ export async function executeAiTool(call: ToolCall, signal?: AbortSignal): Promi
   } catch (e) {
     log.swallow(`ai-tool:${call.name}`, e);
     return err(`Tool ${call.name} failed: ${errorMessage(e)}`);
+  }
+}
+
+// ── query_context ───────────────────────────────────────────────
+
+/** “Here” follows the explicit Inspect selection when both a selection and an
+ *  editor chip are attached; otherwise the first source is the only sensible
+ *  scope. This rule mirrors the visible context rather than trusting a model to
+ *  copy a RID back into its call. */
+function contextSource(envelope?: AiContextEnvelope): AiContextSource | null {
+  if (!envelope?.sources.length) return null;
+  return envelope.sources.find(source => source.kind === 'selection') ?? envelope.sources[0];
+}
+
+function stringArray(value: unknown): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) return null;
+  return value.map(item => item.trim()).filter(Boolean);
+}
+
+/** Pure EC builder exported for byte-level tests. Every identifier slot is
+ *  validated and every value slot escaped before interpolation. */
+export function buildContextQueryEc(
+  contextRef: string,
+  type: string,
+  fields: string[],
+  filterField?: string,
+  filterValue?: string,
+): string {
+  const safeType = validateEcIdentifier(type);
+  const safeFields = fields.map(validateEcIdentifier);
+  const safeFilterField = filterField ? validateEcIdentifier(filterField) : undefined;
+  const lines = [
+    `_context := ${contextRef}`,
+    `_items := _context.descendants(${safeType})`,
+  ];
+  if (safeFilterField && filterValue !== undefined) {
+    lines.push(`_items := _items.filter(${safeFilterField} = "*${formatEcLiteral(filterValue)}*")`);
+  }
+  lines.push(
+    '_count := _items.size()',
+    '_rows := ""',
+    '_shown := 0',
+    '_items.forEach(_item:',
+    `     IF _shown < ${SEARCH_CAP} THEN`,
+    '          _name := _item.name.whenMissing("(unnamed)")',
+    '          _bid := _item.id.whenMissing("(missing)")',
+    '          _line := "  " + _name + " (" + _item.className + ") bid=" + _bid + " rid=" + _item.rid',
+  );
+  safeFields.forEach((field, index) => {
+    lines.push(
+      `          _field${index} := _item.${field}.whenMissing("(missing)")`,
+      `          _line := _line + "\\t${field}=" + _field${index}`,
+    );
+  });
+  lines.push(
+    '          _rows := _rows + _line + "\\n"',
+    '          _shown := _shown + 1',
+    '     ENDIF',
+    ')',
+    `_out := "Context: " + _context.name + " (" + _context.className + ") bid=" + _context.id + " rid=" + _context.rid + "\\nMatched ${safeType}: " + _count + "\\n" + _rows`,
+    `IF _count > ${SEARCH_CAP} THEN`,
+    `     _out := _out + "… rows capped at ${SEARCH_CAP}; narrow the filter"`,
+    'ENDIF',
+    '_out',
+  );
+  return lines.join('\n');
+}
+
+async function queryContext(
+  client: BmpClient,
+  input: Record<string, unknown>,
+  envelope?: AiContextEnvelope,
+  signal?: AbortSignal,
+): Promise<ToolResult> {
+  const source = contextSource(envelope);
+  if (!source) return err('query_context needs an attached selection or editor context.');
+  const type = typeof input.type === 'string' ? input.type.trim() : '';
+  if (!type) return err('query_context needs a descendant "type" such as "Indicator".');
+  const requestedFields = stringArray(input.fields);
+  if (requestedFields === null) return err('query_context "fields" must be an array of property names.');
+  const fields = [...new Set(requestedFields.filter(field => !CONTEXT_IDENTITY_FIELDS.has(field)))];
+  if (fields.length > CONTEXT_FIELD_CAP) return err(`query_context accepts at most ${CONTEXT_FIELD_CAP} additional fields.`);
+  const filterField = typeof input.filterField === 'string' ? input.filterField.trim() : '';
+  const filterValue = typeof input.filterValue === 'string' ? input.filterValue.trim() : '';
+  if (!!filterField !== !!filterValue) return err('query_context filterField and filterValue must be provided together.');
+
+  try {
+    const contextRef = await client.resolveRef(source.object.rid);
+    const code = buildContextQueryEc(
+      contextRef,
+      type,
+      fields,
+      filterField || undefined,
+      filterValue || undefined,
+    );
+    const res = await client.executeEc(code, undefined, false, signal);
+    if (!res.ok) return err(`Context query failed:\n${res.error ?? res.log ?? 'unknown EC error'}`);
+    const guidance = res.hasWarning
+      ? 'Scope was resolved from the attached context, but warnings mean the requested property may be missing on some descendants. Retry query_context with the correct field; do not rediscover these objects with search_objects.'
+      : 'Scope was resolved from the attached context and the count/filter evaluation is complete; rows may be capped as stated. Do not call search_objects or read_object for them unless the user requested additional properties not shown here.';
+    return ok(
+      `${res.log ?? '(no output)'}\n${guidance}`,
+    );
+  } catch (e) {
+    return err(`Invalid context query: ${errorMessage(e)}`);
   }
 }
 

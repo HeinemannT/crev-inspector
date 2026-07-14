@@ -48,8 +48,8 @@ export const PROVIDERS: Record<AiProviderId, ProviderMeta> = {
     label: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com/v1',
     origin: 'https://api.deepseek.com/*',
-    defaultModel: 'deepseek-chat',
-    suggestedModels: ['deepseek-chat', 'deepseek-reasoner'],
+    defaultModel: 'deepseek-v4-flash',
+    suggestedModels: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat'],
     openAiCompat: true,
   },
   grok: {

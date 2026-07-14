@@ -7,6 +7,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { mockChromeStorage } from '../../__tests__/chrome-mock';
 import { setSwContext } from '../../sw-context';
 import type { ToolCall } from '../../ai/tools';
+import type { AiContextEnvelope } from '../../ai/types';
 
 // The AI_OPEN_IN_EDITOR handler launches the free-script editor; stub the
 // window launcher so we can assert routing without a real editor frame.
@@ -28,6 +29,14 @@ function makeCtx(overrides: any = {}): any {
 }
 
 const call = (name: string, input: Record<string, unknown> = {}): ToolCall => ({ id: 'c', name, input });
+const scorecardContext: AiContextEnvelope = {
+  v: 1,
+  server: { id: 'test', url: 'https://example.test/' },
+  sources: [{
+    kind: 'selection',
+    object: { rid: '5238328459709259649', businessId: 'sc_case_docs', name: 'Case Documents', type: 'Scorecard' },
+  }],
+};
 
 describe('AI chat handler routing', () => {
   it('registers every Phase 1 chat message handler', async () => {
@@ -101,6 +110,77 @@ describe('executeAiTool — defensive', () => {
     const res = await executeAiTool(call('preview_ec', { code: 'bad(' }));
     expect(res.isError).toBe(true);
     expect(res.content).toContain('parse error');
+  });
+
+  it('query_context binds to the attached RID and returns one filtered descendant probe', async () => {
+    mockChromeStorage();
+    const resolveRef = vi.fn(async () => 'lookup(5238328459709259649)');
+    const executeEc = vi.fn(async (
+      _code: string,
+      _objectRid?: string,
+      _transactional?: boolean,
+      _signal?: AbortSignal,
+    ) => ({ ok: true, log: 'Matched Indicator: 0' }));
+    setSwContext(makeCtx({ client: { resolveRef, executeEc } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('query_context', {
+      type: 'Indicator',
+      fields: ['description', 'businessId', 'rid'],
+      filterField: 'description',
+      filterValue: 'Status: Resolved',
+    }), undefined, scorecardContext);
+
+    expect(res.isError).toBe(false);
+    expect(res.content).toContain('Matched Indicator: 0');
+    expect(resolveRef).toHaveBeenCalledWith('5238328459709259649');
+    expect(executeEc).toHaveBeenCalledTimes(1);
+    const [code, objectRid, transactional] = executeEc.mock.calls[0];
+    expect(objectRid).toBeUndefined();
+    expect(transactional).toBe(false);
+    expect(code).toContain('_context := lookup(5238328459709259649)');
+    expect(code).toContain('_context.descendants(Indicator)');
+    expect(code).toContain('.filter(description = "*Status: Resolved*")');
+    expect(code).toContain('_item.description.whenMissing("(missing)")');
+    expect(code).not.toContain('_item.businessId');
+    expect(code).not.toContain('_item.rid.whenMissing');
+  });
+
+  it('query_context rejects missing context and invalid EC identifiers before execution', async () => {
+    mockChromeStorage();
+    const resolveRef = vi.fn(async () => 'lookup(9)');
+    const executeEc = vi.fn();
+    setSwContext(makeCtx({ client: { resolveRef, executeEc } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const missing = await executeAiTool(call('query_context', { type: 'Indicator' }));
+    const injected = await executeAiTool(call('query_context', { type: 'Indicator); output(root.user)', fields: [] }), undefined, scorecardContext);
+
+    expect(missing.isError).toBe(true);
+    expect(missing.content).toContain('attached');
+    expect(injected.isError).toBe(true);
+    expect(injected.content).toContain('Invalid EC identifier');
+    expect(executeEc).not.toHaveBeenCalled();
+  });
+
+  it('query_context makes missing-property warnings visible to the model', async () => {
+    mockChromeStorage();
+    const resolveRef = vi.fn(async () => 'lookup(9)');
+    const executeEc = vi.fn(async (
+      _code: string,
+      _objectRid?: string,
+      _transactional?: boolean,
+      _signal?: AbortSignal,
+    ) => ({ ok: true, log: 'Matched Indicator: 0', hasWarning: true }));
+    setSwContext(makeCtx({ client: { resolveRef, executeEc } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('query_context', {
+      type: 'Indicator', filterField: 'status', filterValue: 'Resolved',
+    }), undefined, scorecardContext);
+
+    expect(res.isError).toBe(false);
+    expect(res.content).toContain('warnings mean the requested property may be missing');
   });
 
   it('search_objects formats quick-search hits', async () => {

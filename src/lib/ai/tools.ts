@@ -12,12 +12,11 @@
 /** Max tool calls the orchestrator will execute in one user turn. On the cap
  *  it makes one final turn with NO tools offered, forcing a text answer.
  *
- *  Raised 8 → 12: search_objects now returns each hit's businessId + template
- *  (see handlers/ai-tools.ts), so the model no longer burns a read_object per
- *  hit just to learn ids. Each search is materially cheaper, so a modestly
- *  higher budget buys multi-step exploration without the runaway dereferencing
- *  that used to hit the old cap and trigger the DSML-leak (see ai/scrub.ts). */
-export const MAX_TOOL_CALLS = 12;
+ *  Six is enough for genuine multi-step inspection while still forcing a
+ *  concise answer when a model starts rediscovering identifiers or repeating
+ *  probes. Straightforward attached-context questions should normally use
+ *  query_context once. */
+export const MAX_TOOL_CALLS = 6;
 
 /** Appended (in the dialect's best role) on the forced final turn so the model
  *  knows WHY tools vanished and answers instead of re-emitting tool syntax as
@@ -35,9 +34,16 @@ export const TOOL_RESULT_CAP = 9000;
 export const TRUNCATION_MARKER = '\n… [truncated: result exceeded the size cap; narrow the query]';
 
 /** A minimal JSON-Schema object shape — the subset both dialects accept. */
+export interface ToolPropertySchema {
+  type: 'string' | 'array';
+  description: string;
+  enum?: string[];
+  items?: { type: 'string' };
+}
+
 export interface ToolParamSchema {
   type: 'object';
-  properties: Record<string, { type: string; description: string; enum?: string[] }>;
+  properties: Record<string, ToolPropertySchema>;
   required: string[];
   additionalProperties: false;
 }
@@ -70,6 +76,39 @@ export interface ToolResult {
 export type ExecuteTool = (call: ToolCall, signal?: AbortSignal) => Promise<ToolResult>;
 
 export const TOOL_DEFS: ToolDef[] = [
+  {
+    name: 'query_context',
+    description:
+      'Count, filter and list descendants of the object already attached as chat context. ' +
+      'Use this for questions containing “here”, “this”, “on this page” or “selected”; the tool binds the scope itself, so NEVER search for the context object by name, business id or rid first. ' +
+      'It returns the total match count plus up to 25 rows with stable name, type, businessId and rid, and can include a few requested properties. ' +
+      'For “which X are Y?” put the inferred filter in the FIRST call; do not fetch an unfiltered list first. ' +
+      'Examples: “How many indicators here?” → {"type":"Indicator"}; “Which indicators are resolved?” → {"type":"Indicator","fields":["description"],"filterField":"description","filterValue":"Status: Resolved"}.',
+    parameters: {
+      type: 'object',
+      properties: {
+        type: {
+          type: 'string',
+          description: 'PascalCase BMP descendant class to query, e.g. "Indicator", "Task" or "CustomVisualization".',
+        },
+        fields: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional additional property accessors, e.g. ["description", "statusClassification"]. Maximum 5. Never request name, type, businessId, id or rid because every row already includes them.',
+        },
+        filterField: {
+          type: 'string',
+          description: 'Optional property accessor to filter, e.g. "description". Must be paired with filterValue.',
+        },
+        filterValue: {
+          type: 'string',
+          description: 'Optional case-insensitive substring required in filterField. Must be paired with filterField.',
+        },
+      },
+      required: ['type'],
+      additionalProperties: false,
+    },
+  },
   {
     name: 'read_object',
     description:

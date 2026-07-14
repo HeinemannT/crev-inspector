@@ -188,7 +188,7 @@ register('AI_CHAT_SEND', async (msg) => {
       history: msg.history,
       text: msg.text,
       onEvent: emit,
-      executeTool: executeAiTool,
+      executeTool: (call, signal) => executeAiTool(call, signal, msg.envelope),
       signal: controller.signal,
     });
     ctx.logActivity('info', `AI chat (${ai.model})`);

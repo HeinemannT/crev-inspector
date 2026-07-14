@@ -5,9 +5,9 @@ import {
 } from '../tools';
 
 describe('tool schemas', () => {
-  it('exposes the six read-only tools', () => {
+  it('exposes the seven read-only tools', () => {
     expect(TOOL_DEFS.map(t => t.name).sort()).toEqual(
-      ['code_search', 'preview_ec', 'read_layout', 'read_object', 'read_type', 'search_objects'],
+      ['code_search', 'preview_ec', 'query_context', 'read_layout', 'read_object', 'read_type', 'search_objects'],
     );
   });
 
@@ -23,6 +23,7 @@ describe('tool schemas', () => {
       for (const [, spec] of Object.entries(t.parameters.properties)) {
         expect(typeof spec.type).toBe('string');
         expect(typeof spec.description).toBe('string');
+        if (spec.type === 'array') expect(spec.items).toEqual({ type: 'string' });
       }
     }
   });
@@ -49,8 +50,8 @@ describe('tool schemas', () => {
     }
   });
 
-  it('caps the tool call budget at 12', () => {
-    expect(MAX_TOOL_CALLS).toBe(12);
+  it('caps the tool call budget at 6', () => {
+    expect(MAX_TOOL_CALLS).toBe(6);
   });
 });
 

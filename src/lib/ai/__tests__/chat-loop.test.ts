@@ -18,6 +18,26 @@ const TOOL_TURN = [
   'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"tool_use"}}\n\n',
   'event: message_stop\ndata: {"type":"message_stop"}\n\n',
 ];
+function toolTurn(type: string, id: string): string[] {
+  return TOOL_TURN.map(frame => frame
+    .replace('"id":"t"', `"id":"${id}"`)
+    .replace('ButtonInput', type));
+}
+function multiToolTurn(count: number): string[] {
+  const frames: string[] = [];
+  for (let i = 0; i < count; i++) {
+    frames.push(
+      `event: content_block_start\ndata: {"type":"content_block_start","index":${i},"content_block":{"type":"tool_use","id":"t${i}","name":"read_type"}}\n\n`,
+      `event: content_block_delta\ndata: {"type":"content_block_delta","index":${i},"delta":{"type":"input_json_delta","partial_json":"{\\"type\\":\\"Type${i}\\"}"}}\n\n`,
+      `event: content_block_stop\ndata: {"type":"content_block_stop","index":${i}}\n\n`,
+    );
+  }
+  frames.push(
+    'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"tool_use"}}\n\n',
+    'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+  );
+  return frames;
+}
 const TEXT_TURN = [
   'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Final"}}\n\n',
   'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
@@ -27,10 +47,12 @@ const settings: AiSettings = { provider: 'anthropic', model: 'claude-opus-4-8', 
 
 /** fetch mock: tool_use whenever tools are offered, text otherwise. */
 function toolThenText() {
+  let turn = 0;
   return vi.fn((_u: string, init: any) => {
     const body = JSON.parse(init.body);
     const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
-    return Promise.resolve(okStream(hasTools ? TOOL_TURN : TEXT_TURN));
+    turn++;
+    return Promise.resolve(okStream(hasTools ? toolTurn(`ButtonInput${turn}`, `t${turn}`) : TEXT_TURN));
   });
 }
 
@@ -56,12 +78,14 @@ describe('streamChat tool loop', () => {
   });
 
   it('appends the tool-budget note on the forced final turn (and only then)', async () => {
+    let turn = 0;
     const bodies: any[] = [];
     const fetchMock = vi.fn((_u: string, init: any) => {
       const body = JSON.parse(init.body);
       bodies.push(body);
       const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
-      return Promise.resolve(okStream(hasTools ? TOOL_TURN : TEXT_TURN));
+      turn++;
+      return Promise.resolve(okStream(hasTools ? toolTurn(`ButtonInput${turn}`, `t${turn}`) : TEXT_TURN));
     });
     vi.stubGlobal('fetch', fetchMock);
     const executeTool = vi.fn(async (): Promise<ToolResult> => ({ content: 'ok', isError: false }));
@@ -78,12 +102,42 @@ describe('streamChat tool loop', () => {
     for (const b of withTools) expect(JSON.stringify(b.messages)).not.toContain(TOOL_BUDGET_EXHAUSTED_NOTE);
   });
 
+  it('never executes more than the budget when one provider turn requests a large batch', async () => {
+    vi.stubGlobal('fetch', vi.fn((_u: string, init: any) => {
+      const body = JSON.parse(init.body);
+      const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
+      return Promise.resolve(okStream(hasTools ? multiToolTurn(MAX_TOOL_CALLS + 3) : TEXT_TURN));
+    }));
+    const executeTool = vi.fn(async (): Promise<ToolResult> => ({ content: 'ok', isError: false }));
+
+    await streamChat({ settings, apiKey: 'k', system: 'S', history: [], text: 'go', onEvent: () => {}, executeTool });
+
+    expect(executeTool).toHaveBeenCalledTimes(MAX_TOOL_CALLS);
+  });
+
   it('stops immediately when the model answers with no tools', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(okStream(TEXT_TURN))));
     const events: AiChatEvent[] = [];
     const executeTool = vi.fn(async (): Promise<ToolResult> => ({ content: 'ok', isError: false }));
     await streamChat({ settings, apiKey: 'k', system: 'S', history: [], text: 'go', onEvent: e => events.push(e), executeTool });
     expect(executeTool).not.toHaveBeenCalled();
+    expect(events.at(-1)).toEqual({ kind: 'done' });
+  });
+
+  it('suppresses identical backend calls while returning a result for every model request', async () => {
+    vi.stubGlobal('fetch', vi.fn((_u: string, init: any) => {
+      const body = JSON.parse(init.body);
+      const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
+      return Promise.resolve(okStream(hasTools ? TOOL_TURN : TEXT_TURN));
+    }));
+    const events: AiChatEvent[] = [];
+    const executeTool = vi.fn(async (): Promise<ToolResult> => ({ content: 'same result', isError: false }));
+
+    await streamChat({ settings, apiKey: 'k', system: 'S', history: [], text: 'go', onEvent: e => events.push(e), executeTool });
+
+    expect(executeTool).toHaveBeenCalledTimes(1);
+    expect(events.filter(e => e.kind === 'tool-start')).toHaveLength(MAX_TOOL_CALLS);
+    expect(events.filter(e => e.kind === 'tool-end')).toHaveLength(MAX_TOOL_CALLS);
     expect(events.at(-1)).toEqual({ kind: 'done' });
   });
 

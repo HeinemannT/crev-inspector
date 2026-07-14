@@ -13,6 +13,11 @@ describe('providers', () => {
     expect(PROVIDERS.grok.openAiCompat).toBe(true);
   });
 
+  it('uses DeepSeek V4 Flash for new configurations while retaining the legacy alias as a suggestion', () => {
+    expect(PROVIDERS.deepseek.defaultModel).toBe('deepseek-v4-flash');
+    expect(PROVIDERS.deepseek.suggestedModels).toContain('deepseek-chat');
+  });
+
   it('exposes each provider API origin so site-access never revokes it', () => {
     expect(AI_API_ORIGINS).toEqual([
       'https://api.anthropic.com/*',

@@ -172,7 +172,17 @@ describe('buildChatSystem workspace primer', () => {
       sources: [{ kind: 'selection', object: { rid: '9', businessId: 'sc_x', name: 'X', type: 'Scorecard' } }],
     };
     const { system } = buildChatSystem(withCtx, primer);
-    expect(system.indexOf('</workspace>')).toBeLessThan(system.indexOf('<context'));
+    expect(system.indexOf('</workspace>')).toBeLessThan(system.indexOf('<context server='));
+  });
+
+  it('makes attached context authoritative and routes scoped queries to query_context', () => {
+    const withCtx: AiContextEnvelope = {
+      v: 1, server: { id: 's1', url: 'u' },
+      sources: [{ kind: 'selection', object: { rid: '9', businessId: 'sc_x', name: 'X', type: 'Scorecard' } }],
+    };
+    const { system } = buildChatSystem(withCtx, primer);
+    expect(system).toContain('NEVER use search_objects to rediscover that source');
+    expect(system).toContain('call query_context first');
   });
 
   it('ignores an empty / whitespace primer', () => {

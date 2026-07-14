@@ -12,7 +12,7 @@ import type { AnthropicContentBlock, AnthropicMessage } from './anthropic';
 import { streamOpenAiCompat, streamOpenAiTurn, openAiTools, listModels as listOpenAiModels } from './openai-compat';
 import type { OpenAiMessage } from './openai-compat';
 import type { ExecuteTool, ToolCall, ToolResult } from './tools';
-import { MAX_TOOL_CALLS, TOOL_BUDGET_EXHAUSTED_NOTE } from './tools';
+import { MAX_TOOL_CALLS, TOOL_BUDGET_EXHAUSTED_NOTE, truncateToolResult } from './tools';
 import { ToolMarkupScrubber } from './scrub';
 
 export interface StreamCompletionOpts {
@@ -89,6 +89,7 @@ function summarizeCall(call: ToolCall): string {
   };
   switch (call.name) {
     case 'read_object': return `read_object ${arg('ref') ?? ''}`.trim();
+    case 'query_context': return `query_context ${arg('type') ?? ''}`.trim();
     case 'read_type': return `read_type ${arg('type') ?? ''}`.trim();
     case 'search_objects': return `search_objects "${arg('query') ?? ''}"`;
     case 'code_search': return `code_search "${arg('pattern') ?? ''}"`;
@@ -114,6 +115,7 @@ async function runToolLoop(
 ): Promise<void> {
   let used = 0;
   let notedFinal = false;
+  const priorResults = new Map<string, ToolResult>();
   for (;;) {
     if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const allowTools = used < MAX_TOOL_CALLS;
@@ -128,13 +130,46 @@ async function runToolLoop(
       if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       const summary = summarizeCall(call);
       opts.onEvent({ kind: 'tool-start', name: call.name, summary });
-      const result = await opts.executeTool(call, opts.signal);
+      let result: ToolResult;
+      if (used >= MAX_TOOL_CALLS) {
+        result = { content: TOOL_BUDGET_EXHAUSTED_NOTE, isError: true };
+      } else {
+        used++;
+        const fingerprint = toolCallFingerprint(call);
+        const prior = priorResults.get(fingerprint);
+        if (prior) {
+          result = {
+            content: truncateToolResult(
+              'Duplicate tool call suppressed. Reuse the result already returned for these exact arguments and answer now if it is sufficient.\n\n' + prior.content,
+            ),
+            isError: prior.isError,
+          };
+        } else {
+          result = await opts.executeTool(call, opts.signal);
+          priorResults.set(fingerprint, result);
+        }
+      }
       opts.onEvent({ kind: 'tool-end', name: call.name, summary, ok: !result.isError });
       results.push({ call, result });
-      used++;
     }
     appendResults(results);
   }
+}
+
+/** Stable across provider key ordering so semantically identical calls share
+ *  one backend result. Tool call ids are deliberately excluded. */
+function toolCallFingerprint(call: ToolCall): string {
+  const stable = (value: unknown): string => {
+    if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+    if (value && typeof value === 'object') {
+      return `{${Object.entries(value as Record<string, unknown>)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, item]) => `${JSON.stringify(key)}:${stable(item)}`)
+        .join(',')}}`;
+    }
+    return JSON.stringify(value);
+  };
+  return `${call.name}:${stable(call.input)}`;
 }
 
 async function runAnthropicChat(opts: StreamChatOpts): Promise<void> {
