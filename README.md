@@ -1,6 +1,6 @@
 # CREV Inspector
 
-A Chrome side-panel extension for working with **Corporater BMP** the way developers want to, not the way the stock UI allows. Every BMP widget on the page gets a coloured pill showing its real ID. Click it to open a typed property editor, an Extended Code workbench, or a layout reorder tool. No round-trip through Config Studio.
+A Chrome side-panel extension for working with **Corporater BMP** the way developers want to, not the way the stock UI allows. Every BMP widget on the page gets a coloured pill showing its real ID. Click it to inspect the object, edit its code, or reshape the page in Blueprint. No round-trip through Config Studio.
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/a12828c4-97be-4d9d-94e4-505e6f05067c" width="540" alt="Type-pill overlay on a BMP scorecard">
@@ -11,9 +11,12 @@ A Chrome side-panel extension for working with **Corporater BMP** the way develo
 ## Features
 
 - **Type-pill overlay.** Every widget on the BMP page gets a coloured ID badge. Click to open it in the side panel, double-click for a quick inspector, right-click to set context.
-- **Object inspector.** Type-aware detail view covering identity, properties, references, code fields, and flow chain. Edits flow back to BMP via Extended Code.
+- **Object inspector.** Type-aware detail view covering identity, references, code fields, siblings, access, and flow chains, with direct jumps into the right editor.
 - **Extended Code editor.** Floating CodeMirror window for any EC-bearing property, with preview / execute, run history, tracked variables, hover docs, inline runtime errors, and syntax help. The Vars + Properties panel infers the type of every `_v := SELECT X` and lets you click to insert any property.
-- **Layout editor.** Drag tabs and containers to reorder, resize by dragging, preview the grid at L/M/S breakpoints, and jump from a preview cell to its tree row and back.
+- **Blueprint.** Edit the live page visually: add, move, swap, resize, rename, and style tabs, containers, widgets, and supported flow objects. Changes stay staged until an impact preview and explicit Apply.
+- **CVO + text studio.** Edit HTML and JavaScript side by side, preview in a sandbox with live CVO data, manage inputs and hosted resources, and see the exact BMP-stored result after save.
+- **Optional AI assistant.** Bring an Anthropic, OpenAI, DeepSeek, or Grok key for workspace-grounded chat and context-aware code edits. With no key configured, the AI UI is absent.
+- **Code search.** Search Extended Code across the workspace and jump from results straight to the source object and property.
 - **Diff & compare.** Pick any two objects (RID vs RID, instance vs template, or `ns.bid` references) and see exactly which properties changed.
 - **Multi-window + profiles.** Per-window inspect state, panel routing, and per-server profiles that auto-switch on the BMP URL prefix.
 
@@ -44,6 +47,7 @@ with nothing to manage twice:
 | `Ctrl+Shift+Y` | Toggle side panel (this window) |
 | `Ctrl+Shift+X` | Toggle inspect overlays (this window) |
 | `Ctrl+Shift+E` | Open Extended Code editor |
+| `Ctrl+Shift+B` | Toggle Blueprint for the current BMP page |
 
 Rebind at `chrome://extensions/shortcuts`.
 
@@ -108,4 +112,4 @@ npm run lint
 npm test
 ```
 
-Every push and pull request triggers `.github/workflows/ci.yml`, which runs typecheck, lint, test, and build. Pushing a `v*.*.*` tag additionally triggers `.github/workflows/release.yml`, which runs test, build, package, and release.
+Every push and pull request triggers `.github/workflows/ci.yml`, which runs typecheck, lint, test, and build. Pushing a `v*.*.*` tag additionally triggers `.github/workflows/release.yml`, which repeats all four gates before packaging and publishing the release.

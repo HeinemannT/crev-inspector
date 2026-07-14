@@ -68,8 +68,8 @@
 
 <header>
   <span class="badge">Walkthrough &amp; Demo</span>
-  <h1>CREV Inspector <span class="v">v0.3</span></h1>
-  <p class="lede">A Chrome side-panel extension for working with <b>Corporater BMP</b> the way developers want to, not the way the stock UI allows. It overlays every widget on a BMP page with its real identity and gives you a typed editor, an Extended Code workbench, and a layout tool, with no round-trip through Configuration Studio.</p>
+  <h1>CREV Inspector <span class="v">v0.7</span></h1>
+  <p class="lede">A Chrome side-panel extension for working with <b>Corporater BMP</b> the way developers want to, not the way the stock UI allows. It overlays every widget with its real identity and adds object inspection, code editors, Blueprint, CVO tooling, and optional AI, with no round-trip through Configuration Studio.</p>
 </header>
 
 <h2>What it is</h2>
@@ -79,7 +79,7 @@
 
 <h2>Install</h2>
 <ol>
-  <li>Download <code>crev-inspector-0.3.0.zip</code> from the <a href="https://github.com/HeinemannT/crev-inspector/releases">Releases page</a> and unzip it.</li>
+  <li>Download the latest <code>crev-inspector-x.y.z.zip</code> from the <a href="https://github.com/HeinemannT/crev-inspector/releases">Releases page</a> and unzip it.</li>
   <li>Open <code>chrome://extensions/</code> and turn on <b>Developer mode</b> (top-right).</li>
   <li>Click <b>Load unpacked</b> and select the unzipped folder.</li>
   <li>Pin the extension to the toolbar so the side panel is one click away.</li>
@@ -89,10 +89,10 @@
 <h3>First run: connect a profile</h3>
 <ol>
   <li>Open the side panel and go to the <b>Connect</b> tab.</li>
-  <li>Add a server <b>profile</b>: the BMP base URL, your username, and password.</li>
-  <li>Profiles auto-switch based on the BMP URL prefix, so one browser can drive several environments (sbx / dev / prod) and the right credentials are used automatically.</li>
+  <li>Add a server <b>profile</b> with the BMP base URL. Username and password are optional when you are already logged into BMP in the browser.</li>
+  <li>Approve Chrome's site-access prompt for that server. Profiles auto-switch based on the BMP URL prefix, so one browser can drive several environments.</li>
 </ol>
-<div class="note"><b>Credentials are kept safely.</b> Passwords are AES-GCM encrypted at rest in <code>chrome.storage.local</code>. An <code>http://</code> profile URL raises an inline warning. "Reset all state" wipes cache, log, and history but keeps your profiles and favourites.</div>
+<div class="note"><b>Session-first authentication.</b> CREV borrows your existing BMP session and mints its own short-lived token. If you add credentials, they are an automatic fallback and are AES-GCM encrypted at rest. An <code>http://</code> profile URL raises an inline warning.</div>
 
 <h2>How it works in the background</h2>
 <p>Three pieces cooperate, and the side panel never talks to BMP directly:</p>
@@ -101,14 +101,14 @@
   <span class="arr">→</span>
   <span class="box">Service worker</span>
   <span class="arr">→</span>
-  <span class="box">BMP server (Extended Code)</span>
+  <span class="box">BMP server (binary commands + EC)</span>
   <span class="arr">→</span>
   <span class="box">Side panel UI</span>
 </div>
 <ul>
   <li><b>Content script (isolated world).</b> Injected into the BMP page, it detects whether the page is BMP, scans the DOM for objects that carry a real ID (<code>data-rid</code> attributes and <code>?rid=</code> / <code>?tabrid=</code> links), and paints the type-pill overlay. It also reads which tab is currently selected and can scroll-and-highlight a widget on request.</li>
-  <li><b>Service worker.</b> The brain. It owns the connection and auth (encrypted password → JWT), routes messages between the page and the panel, caches object identities, and runs <b>enrichment</b>: batching many IDs into a single Extended Code round-trip so the pills can show real names and types instead of bare numbers.</li>
-  <li><b>Extended Code (EC) is the wire.</b> Everything CREV reads or writes from BMP goes through EC executed against the server. Reads are framed as <b>preview</b> (a dry-run that never commits); writes are an explicit <b>execute</b>. This is why edits in the inspector show up in BMP without a Config Studio deploy.</li>
+  <li><b>Service worker.</b> The brain. It owns session-first authentication, routes messages between the page and panel, caches object identities, and batches enrichment so pills can show names and types instead of bare numbers.</li>
+  <li><b>Binary commands and Extended Code.</b> CREV uses BMP's Configuration Studio command protocol plus Extended Code for the operations each handles best. EC reads run as non-transactional previews; writes require an explicit save, execute, or Blueprint Apply.</li>
   <li><b>Per-window state.</b> Inspect mode, the active profile, and panel routing are tracked per browser window, so inspecting in one window never paints pills onto another.</li>
 </ul>
 <div class="note"><b>RIDs are 64-bit.</b> BMP object IDs exceed JavaScript's safe integer range, so CREV handles them as strings everywhere. The friendlier <code>businessId</code> (e.g. <code>sc_risk_register</code>) is what you usually copy and reference.</div>
@@ -130,7 +130,7 @@
 <div class="feat">
   <h3><span class="chip" style="background:var(--green)">OBJ</span> Object inspector</h3>
   <p class="what">A type-aware detail view for any object.</p>
-  <p>Shows identity, properties, references, code fields, and the flow chain (for inputs, buttons, and labels). Property edits are written back to BMP via Extended Code, targeting either the instance or its template. The header tells you exactly what you're editing with the same coloured type chip used across the UI.</p>
+  <p>Shows identity, references, siblings, code fields, access, and the flow chain for inputs and actions. From there you can jump directly into the correct code editor, CVO studio, Blueprint location, or source object.</p>
 </div>
 
 <div class="feat">
@@ -145,9 +145,21 @@
 </div>
 
 <div class="feat">
-  <h3><span class="chip" style="background:var(--indigo)">LAY</span> Layout editor (Workshop)</h3>
-  <p class="what">See and rearrange a scorecard's structure.</p>
-  <p>The Workshop tab opens on a context object and shows its layout tree: scorecard → tabs → containers → widgets, each row with a coloured type chip and a six-bar mini-grid showing its column width. Drag tabs and containers to reorder them; drag the size bars to resize at the L/M/S breakpoints. A Preview section renders the grid so you can check the result before saving. The tab leads with a clear "what am I working on" identity header.</p>
+  <h3><span class="chip" style="background:var(--indigo)">BP</span> Blueprint</h3>
+  <p class="what">Edit page structure and appearance directly over the live portal.</p>
+  <p>Blueprint renders the page as an editable grid of tabs, containers, widgets, and supported input/action flows. Drag to move, swap, reorder, and resize; add or rename elements; switch to Style for colours, visibility, borders, and paintbrush presets. Every change is staged with undo/redo. Apply first shows the generated plan and blast radius, then commits only after confirmation.</p>
+</div>
+
+<div class="feat">
+  <h3><span class="chip" style="background:var(--teal);color:#16352f">CVO</span> CVO + text studio</h3>
+  <p class="what">Author HTML and JavaScript with a live, isolated preview.</p>
+  <p>Edit CVO source side by side, load real render data and hosted resources into the sandbox, manage CVO inputs, and re-read the saved properties from BMP to catch sanitization or silent rollback. TextElement mode uses the same studio and adopts BMP's stored, sanitized result.</p>
+</div>
+
+<div class="feat">
+  <h3><span class="chip" style="background:var(--accent)">AI</span> Optional AI assistant</h3>
+  <p class="what">Workspace-grounded chat and code edits, using your own provider key.</p>
+  <p>Configure Anthropic, OpenAI, DeepSeek, or Grok to add an AI tab plus inline assistance in the code editors. It can inspect selected objects and layouts through read tools, preview proposed EC, and hand edits back to the active editor. With no key configured, none of the AI controls render.</p>
 </div>
 
 <div class="feat">
@@ -174,19 +186,20 @@
   <tr><td><span class="kbd">Ctrl+Shift+Y</span></td><td>Toggle the side panel (this window)</td></tr>
   <tr><td><span class="kbd">Ctrl+Shift+X</span></td><td>Toggle inspect overlays (this window)</td></tr>
   <tr><td><span class="kbd">Ctrl+Shift+E</span></td><td>Open the Extended Code editor</td></tr>
+  <tr><td><span class="kbd">Ctrl+Shift+B</span></td><td>Toggle Blueprint for the current BMP page</td></tr>
 </table>
 <p>Rebind any of them at <code>chrome://extensions/shortcuts</code>.</p>
 
 <h2>A typical session</h2>
 <ol>
   <li>Open a BMP scorecard. CREV detects the page and paints type pills on every widget.</li>
-  <li>Open the side panel (<span class="kbd">Ctrl+Shift+Y</span>). The Workshop tab auto-detects the scorecard as context and shows its layout tree.</li>
+  <li>Open the side panel (<span class="kbd">Ctrl+Shift+Y</span>). The Inspect tab auto-detects the scorecard and lists its visible widgets.</li>
   <li>Spot a table that's misbehaving. Click its pill → the object inspector opens with its properties and code fields.</li>
-  <li>Open the Extended Code editor on the table's expression, tweak it, <b>Preview</b> to dry-run, then <b>Execute</b> to commit. The change is live in BMP immediately.</li>
+  <li>Open the Extended Code editor on the table's expression, tweak it, <b>Preview</b> to dry-run, then save the property. Use Blueprint for layout or style changes and inspect its impact preview before Apply.</li>
 </ol>
 
 <footer>
-  CREV Inspector v0.3 — generated walkthrough. The extension is an unpacked developer tool for Corporater BMP; load it via <code>chrome://extensions</code> → Load unpacked. Source and releases: github.com/HeinemannT/crev-inspector.
+  CREV Inspector v0.7. The extension is an unpacked developer tool for Corporater BMP; load it via <code>chrome://extensions</code> → Load unpacked. Source and releases: github.com/HeinemannT/crev-inspector.
 </footer>
 
 </div>
