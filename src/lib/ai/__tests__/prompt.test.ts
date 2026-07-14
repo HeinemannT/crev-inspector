@@ -198,6 +198,9 @@ describe('buildChatSystem workspace primer', () => {
     expect(system).toContain('wrapped NodeValues');
     expect(system).toContain('Table property arguments are BARE properties');
     expect(system).toContain('`WHILE` / `ENDWHILE`');
+    expect(system).toContain('Stored ExtendedExpression utilities are workspace-authored configuration');
+    expect(system).not.toContain('t.json_set.expression');
+    expect(system).not.toContain('str_split');
   });
 
   it('ignores an empty / whitespace primer', () => {

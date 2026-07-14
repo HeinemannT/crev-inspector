@@ -11,6 +11,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildChatSystem } from '../src/lib/ai/prompt';
+import { PROVIDERS } from '../src/lib/ai/providers';
 import type { AiContextEnvelope } from '../src/lib/ai/types';
 
 // When bundled, import.meta.url points at bench/out/ — bundle.mjs passes the
@@ -72,19 +73,19 @@ const primerPath = join(here, 'out', 'primer.txt');
 const primer = existsSync(primerPath) ? readFileSync(primerPath, 'utf8').trim() : null;
 
 const configs: Record<string, { system: string; packs: string[] }> = {
-  // Exactly the envelope the task spec asked for. NOTE the pack selection
-  // outcome — a selection-kind source has no slot, so selectChatPacks drops
-  // the ec pack (langs empty, sources.length > 0).
+  // Historical Steadfast fixture retained for the original workspace-count
+  // suite. Do not use it for external-provider comparisons.
   'selection-scorecard': buildChatSystem(selectionEnvelope),
   // Chat with no chips: bmp-core + ec, no <context> block.
   'no-context': buildChatSystem(emptyEnvelope),
-  // Preferred for external-provider evaluation: byte-real prompt assembly,
-  // production-shaped context, and no private workspace identity.
+  // External-provider fixture: byte-real prompt assembly, production-shaped
+  // context, and no private workspace identity or stored utility contract.
   'synthetic-scorecard': buildChatSystem(syntheticEnvelope),
 };
 if (primer) configs['no-context-primer'] = buildChatSystem(emptyEnvelope, primer);
 
 writeFileSync(join(outDir, 'prompts.json'), JSON.stringify(configs, null, 2));
+writeFileSync(join(outDir, 'providers.json'), JSON.stringify(PROVIDERS, null, 2));
 for (const [name, c] of Object.entries(configs)) {
   console.log(`${name}: packs=[${c.packs.join(', ')}] systemChars=${c.system.length}`);
 }

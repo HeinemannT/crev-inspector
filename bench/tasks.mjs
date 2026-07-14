@@ -201,18 +201,18 @@ _summary.join("; ")`,
   },
   {
     id: 'advanced-json-mutation', category: 'json', kind: 'write', advanced: true,
-    prompt: 'Write Extended Code that starts with JSON object {"id":"B","score":20}, adds status="review" without losing the existing fields, appends the updated object to [{"id":"A","score":10}], and outputs the final JSON array. The Steadfast utility expressions json_set and json_append are available and may be used with their documented scope variables.',
-    expect: '[{"id":"A","score":10}, {"id":"B","score":20,"status":"review"}] — json_set scope _x/_k/_v, then json_append scope _arr/_new',
-    resultIncludes: ['{"id":"A","score":10}', '{"id":"B","score":20,"status":"review"}'],
-    forbidCode: ['.push(', ':+', '.set('],
-    requireCode: ['JSON(', 't.json_set.expression', 't.json_append.expression'],
+    prompt: 'Write self-contained Extended Code that starts with JSON object {"id":"B","score":20}, adds status="review" without losing the existing fields, appends the updated object to [{"id":"A","score":10}], and outputs the final JSON array. Use platform-native EC only; do not assume any stored workspace utility exists.',
+    expect: '[{"id":"A","score":10}, {"id":"B","score":20,"status":"review"}] — reconstruct and parse the updated object, then append with union(LIST(...))',
+    resultIncludes: ['"id":"A","score":10', '"id":"B"', '"score":20', '"status":"review"'],
+    forbidCode: ['.push(', ':+', '.set(', 't.json_'],
+    requireCode: ['JSON(', '.union(LIST('],
     referenceCode: `_x := JSON("{\\"id\\":\\"B\\",\\"score\\":20}")
-_k := "status"
-_v := "review"
-_updated := t.json_set.expression
+_status := "review"
+_score := str(_x.score)
+_updatedText := "{\\"id\\":\\"" + _x.id + "\\",\\"score\\":" + _score + ",\\"status\\":\\"" + _status + "\\"}"
+_updated := JSON(_updatedText)
 _arr := JSON("[{\\"id\\":\\"A\\",\\"score\\":10}]")
-_new := _updated
-_result := t.json_append.expression
+_result := _arr.union(LIST(_updated))
 str(_result)`,
   },
   {
@@ -266,13 +266,13 @@ _table`,
   },
   {
     id: 'advanced-table-heterogeneous', category: 'table', kind: 'write', advanced: true,
-    prompt: 'On Steadfast, build one heterogeneous list containing t.json_size (ExtendedExpression) and t.cat_exp_json (Category), then return a table showing className, id, name, and parent.name for both. Avoid the typed addColumn path that fails across concrete classes.',
-    expect: 'LIST(...).table(className, id, name, parent.name) — two rows, ExtendedExpression/json_size and Category/cat_exp_json',
-    resultIncludes: ['ClassName ID Name Parent', 'ExtendedExpression json_size', 'Category cat_exp_json'],
+    prompt: 'Write workspace-agnostic Extended Code that builds one heterogeneous list from the BMP organisation and portal category roots, then returns a positional table showing className, id, and name for both. Do not reference customer objects or use the typed addColumn path.',
+    expect: 'LIST(root.organisation, root.portal).table(className, id, name) — two different platform-root classes rendered without typed addColumn',
+    resultIncludes: ['ClassName', 'Name', 'OrganisationRoot ORGANISATION Organization', 'PortalRoot PORTAL Portal'],
     forbidCode: ['.addColumn('],
-    requireCode: ['.table(className, id, name,'],
-    referenceCode: `_all := LIST(t.json_size, t.cat_exp_json)
-_all.table(className, id, name, parent.name)`,
+    requireCode: ['LIST(root.organisation, root.portal)', '.table(className, id, name)'],
+    referenceCode: `_all := LIST(root.organisation, root.portal)
+_all.table(className, id, name)`,
   },
   {
     id: 'advanced-flow-scalar-result', category: 'flow', kind: 'write', advanced: true,

@@ -1,18 +1,19 @@
 /**
- * Run the EC-correctness benchmark against DeepSeek using the extension's
- * real chat system prompts (bench/out/prompts.json, produced by bundle.mjs).
+ * Run the EC-correctness benchmark against any provider supported by the
+ * extension, using its real chat system prompts (bench/out/prompts.json,
+ * produced by bundle.mjs).
  *
  * One plain chat completion per (config, task) — no tools, default
  * temperature — mirroring the pure-knowledge path of the chat pipeline.
  *
  * Usage:
- *   DEEPSEEK_API_KEY=... node bench/run-bench.mjs
+ *   BENCH_PROVIDER=deepseek BENCH_API_KEY=... node bench/run-bench.mjs
  *
  * The API key is read from the environment only; it is never written to disk.
  * Output: bench/out/results.json (replies + extracted fenced snippets +
  * usage/latency per call).
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TASKS } from './tasks.mjs';
@@ -21,13 +22,30 @@ const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, 'out');
 mkdirSync(outDir, { recursive: true });
 
-const API_KEY = process.env.DEEPSEEK_API_KEY;
-if (!API_KEY) {
-  console.error('Set DEEPSEEK_API_KEY in the environment.');
+const PROVIDERS = JSON.parse(readFileSync(join(outDir, 'providers.json'), 'utf8'));
+const KEY_ENVS = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  deepseek: 'DEEPSEEK_API_KEY',
+  grok: 'XAI_API_KEY',
+};
+
+const PROVIDER = (process.env.BENCH_PROVIDER || 'deepseek').toLowerCase();
+const provider = PROVIDERS[PROVIDER];
+if (!provider) {
+  console.error(`Unknown BENCH_PROVIDER=${PROVIDER}. Choose: ${Object.keys(PROVIDERS).join(', ')}`);
   process.exit(1);
 }
-const API_URL = 'https://api.deepseek.com/v1/chat/completions';
-const MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
+const keyEnv = KEY_ENVS[PROVIDER];
+const API_KEY = process.env.BENCH_API_KEY || process.env[keyEnv];
+if (!API_KEY) {
+  console.error(`Set BENCH_API_KEY or ${keyEnv} in the environment.`);
+  process.exit(1);
+}
+const BASE_URL = (process.env.BENCH_BASE_URL || provider.baseUrl).replace(/\/$/, '');
+const MODEL = process.env.BENCH_MODEL
+  || (PROVIDER === 'deepseek' ? process.env.DEEPSEEK_MODEL : null)
+  || provider.defaultModel;
 const CONCURRENCY = Number(process.env.BENCH_CONCURRENCY || 4);
 
 const prompts = JSON.parse(readFileSync(join(outDir, 'prompts.json'), 'utf8'));
@@ -53,6 +71,9 @@ const outputArg = argString('--output');
 const thinking = argString('--thinking') || 'default';
 if (!['default', 'enabled', 'disabled'].includes(thinking)) {
   throw new Error('--thinking must be default, enabled, or disabled');
+}
+if (thinking !== 'default' && PROVIDER !== 'deepseek') {
+  throw new Error('--thinking is a DeepSeek-only benchmark control');
 }
 const wantConfig = c => !onlyConfigs || onlyConfigs.includes(c);
 const wantTask = t => (!onlyTasks || onlyTasks.includes(t.id)) && (!advancedOnly || t.advanced === true);
@@ -85,9 +106,18 @@ function fences(reply) {
   return out;
 }
 
-async function callOnce(system, user) {
+function normalizeAnthropicUsage(usage) {
+  return {
+    prompt_tokens: usage?.input_tokens ?? 0,
+    completion_tokens: usage?.output_tokens ?? 0,
+    prompt_cache_hit_tokens: usage?.cache_read_input_tokens ?? 0,
+    prompt_cache_creation_tokens: usage?.cache_creation_input_tokens ?? 0,
+  };
+}
+
+async function callOpenAiCompat(system, user) {
   const t0 = Date.now();
-  const res = await fetch(API_URL, {
+  const res = await fetch(`${BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${API_KEY}` },
     body: JSON.stringify({
@@ -105,12 +135,46 @@ async function callOnce(system, user) {
   return { ms, usage: body.usage, reply: body.choices?.[0]?.message?.content ?? '' };
 }
 
+async function callAnthropic(system, user) {
+  const t0 = Date.now();
+  const res = await fetch(`${BASE_URL}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 8192,
+      ...(system ? { system } : {}),
+      messages: [{ role: 'user', content: user }],
+    }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const body = await res.json();
+  const ms = Date.now() - t0;
+  const reply = (body.content ?? [])
+    .filter(block => block?.type === 'text')
+    .map(block => block.text ?? '')
+    .join('');
+  return { ms, usage: normalizeAnthropicUsage(body.usage), reply };
+}
+
+function callOnce(system, user) {
+  return provider.openAiCompat
+    ? callOpenAiCompat(system, user)
+    : callAnthropic(system, user);
+}
+
 async function runJob(job) {
   const system = prompts[job.config].system;
   for (let attempt = 1; ; attempt++) {
     try {
       const r = await callOnce(system, job.task.prompt);
       return {
+        provider: PROVIDER,
+        model: MODEL,
         config: job.config,
         taskId: job.task.id,
         sample: job.sample,
@@ -122,7 +186,9 @@ async function runJob(job) {
         snippets: fences(r.reply),
       };
     } catch (e) {
-      if (attempt >= 3) return { config: job.config, taskId: job.task.id, error: String(e) };
+      if (attempt >= 3) {
+        return { provider: PROVIDER, model: MODEL, config: job.config, taskId: job.task.id, error: String(e) };
+      }
       await new Promise(r => setTimeout(r, 2000 * attempt));
     }
   }
@@ -154,6 +220,6 @@ const totOut = ok.reduce((s, r) => s + (r.usage?.completion_tokens ?? 0), 0);
 const cacheHit = ok.reduce((s, r) => s + (r.usage?.prompt_cache_hit_tokens ?? 0), 0);
 const msArr = ok.map(r => r.ms).sort((a, b) => a - b);
 console.log(`\ncalls=${ok.length} errors=${results.length - ok.length}`);
-console.log(`model=${MODEL} thinking=${thinking} repeats=${repeats} output=${outputPath}`);
+console.log(`provider=${PROVIDER} model=${MODEL} thinking=${thinking} repeats=${repeats} output=${outputPath}`);
 console.log(`tokens: in=${totIn} (cacheHit=${cacheHit}) out=${totOut}`);
 console.log(`latency ms: min=${msArr[0]} median=${msArr[Math.floor(msArr.length / 2)]} max=${msArr[msArr.length - 1]}`);

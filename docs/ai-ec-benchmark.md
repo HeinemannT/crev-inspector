@@ -8,7 +8,8 @@ The benchmark drives the model with the **extension's real system prompts**, pro
 
 ```bash
 node bench/bundle.mjs                      # build real system prompts -> bench/out/prompts.json
-DEEPSEEK_API_KEY=... node bench/run-bench.mjs   # 49 calls -> bench/out/results.json
+BENCH_PROVIDER=deepseek BENCH_API_KEY=... node bench/run-bench.mjs
+                                                   # 49 calls -> bench/out/results.json
 ```
 
 The API key is read from the environment only and never written to disk. `bench/tasks.mjs` holds the task set with live-computed reference answers; `bench/out/primer.txt` is the `<workspace>` block captured by running the actual `PRIMER_EC` from `src/lib/handlers/ai-primer.ts` via `ec_preview`.
@@ -301,7 +302,7 @@ Re-run cost: 22 calls, ~2,716 completion tokens, median 425 ms, ~$0.005.
 
 ## Advanced executable benchmark (2026-07-14)
 
-A second slice now targets the areas the original suite barely covered: string
+A second, workspace-agnostic slice now targets the areas the original suite barely covered: string
 parsing, primitive and nested JSON arrays, JSON mutation and escaping, LIST
 union/merge semantics, list-valued MAP aggregation, explicit tables, filtered
 JSON tables, heterogeneous BMP-object tables, and scalar IF results. The 12
@@ -335,13 +336,13 @@ emitted a tool request instead of code.
 ### Changes driven by the failures
 
 - Added compact JSON rules: uppercase `JSON()`, primitive wrapper conversion,
-  quote stripping, filter→table reparsing, and verified `json_set`/`json_append`
-  scope calls.
+  quote stripping, filter→table reparsing, and platform-native reconstruction.
 - Added MAP/table rules: semicolon MAP pairs, list-valued aggregation,
   `createtable`/`addRow`, bare table properties, and heterogeneous positional
   tables.
-- Added explicit no-go guidance for `WHILE`, string iteration, JS table/object
-  constructors, and stored helpers whose live bodies return the wrong value.
+- Added explicit no-go guidance for `WHILE`, string iteration, and JS
+  table/object constructors. Stored helpers are now treated correctly as
+  discoverable workspace configuration, never as universal EC vocabulary.
 - Told the assistant to implement supplied initialization and answer fully
   self-contained tasks without redundant workspace discovery.
 - Fixed the harness's latency timer and added model/thinking/repeat/output
@@ -349,8 +350,10 @@ emitted a tool request instead of code.
 
 ### Decision
 
-Do **not** disable DeepSeek thinking in production yet. It reduced output tokens
-by about 84% and median latency by about 76%, but the full executable pass rate
-fell from 83% to 75% and showed higher format/tool-call variance. Keep the
-provider default for correctness; revisit fast routing only with a larger,
-repeated suite or a narrowly classified set of simple questions.
+For DeepSeek, do **not** disable thinking in production yet. It reduced output
+tokens by about 84% and median latency by about 76%, but the full executable
+pass rate fell from 83% to 75% and showed higher format/tool-call variance.
+This is a provider-specific measurement, not a product contract: the assistant
+and benchmark support Anthropic, OpenAI, DeepSeek, and Grok through the same
+shared prompt. Keep each provider's default behavior until repeated comparative
+runs justify provider-specific routing.

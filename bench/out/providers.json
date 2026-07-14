@@ -1,0 +1,51 @@
+{
+  "anthropic": {
+    "id": "anthropic",
+    "label": "Anthropic",
+    "baseUrl": "https://api.anthropic.com",
+    "origin": "https://api.anthropic.com/*",
+    "defaultModel": "claude-opus-4-8",
+    "suggestedModels": [
+      "claude-opus-4-8",
+      "claude-sonnet-5",
+      "claude-haiku-4-5"
+    ],
+    "openAiCompat": false
+  },
+  "openai": {
+    "id": "openai",
+    "label": "OpenAI",
+    "baseUrl": "https://api.openai.com/v1",
+    "origin": "https://api.openai.com/*",
+    "defaultModel": "gpt-5.2",
+    "suggestedModels": [
+      "gpt-5.2",
+      "gpt-5-mini"
+    ],
+    "openAiCompat": true
+  },
+  "deepseek": {
+    "id": "deepseek",
+    "label": "DeepSeek",
+    "baseUrl": "https://api.deepseek.com/v1",
+    "origin": "https://api.deepseek.com/*",
+    "defaultModel": "deepseek-v4-flash",
+    "suggestedModels": [
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "deepseek-chat"
+    ],
+    "openAiCompat": true
+  },
+  "grok": {
+    "id": "grok",
+    "label": "Grok",
+    "baseUrl": "https://api.x.ai/v1",
+    "origin": "https://api.x.ai/*",
+    "defaultModel": "grok-4",
+    "suggestedModels": [
+      "grok-4"
+    ],
+    "openAiCompat": true
+  }
+}

@@ -213,24 +213,14 @@ _total
 - After filtering a JSON object array, `.table()` renders empty. Reparse first:
   `_safe := JSON(str(_filtered))`, then `_safe.table()` (sorting may precede it).
 
-When the workspace exposes the stored utilities, call them as expressions with
-scope variables — never as functions. These verified helpers return correctly:
+Stored ExtendedExpression utilities are workspace-authored configuration, not
+EC built-ins. Never assume that a `t.<id>` helper exists or that its scope
+variables and return contract match another workspace. If the user or live
+context explicitly identifies a stored helper, inspect its raw source with
+`output(t.<id>.expression)`, verify its final expression and scope variables,
+then preview the call. Otherwise write platform-native EC.
 
-```
-_x := JSON("{\"id\":\"B\",\"score\":20}")
-_k := "status"
-_v := "review"
-_updated := t.json_set.expression
-
-_arr := JSON("[{\"id\":\"A\"}]")
-_new := _updated
-_result := t.json_append.expression
-```
-
-Do NOT use the current stored `str_split`, `str_slugify`, `str_join`,
-`json_escape`, or `json_update_item` as return-value helpers: their bodies end
-in `forEach`/`IF` instead of bare `_z`, so live calls return a wrong shape. For
-JSON escaping, iterate characters and finish with the accumulator. Obtain a
+For JSON escaping, iterate characters and finish with the accumulator. Obtain a
 backslash and double quote safely (literal `"\\"` is a lexical trap):
 
 ```
