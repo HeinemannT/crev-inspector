@@ -908,6 +908,8 @@ const PAINT_PROP_LABELS: Record<string, string> = {
   shadow: 'Shadow',
   headerStyle: 'Header style',
   borderStyle: 'Border style',
+  showToolMenu: 'Tool menu',
+  disableSearch: 'Disable search',
 };
 
 /** Right-click menu on the paint button: toggle which style props Paint
