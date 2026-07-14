@@ -9,7 +9,7 @@
  */
 import { findNode } from '../lib/layout/model';
 import { resolveGapPlacement } from '../lib/layout/placement';
-import type { LNode } from '../lib/layout/types';
+import type { LModel, LNode } from '../lib/layout/types';
 import { ICON_ARROW_RIGHT } from '../lib/icons';
 import { bp, model } from './state';
 import { mutate, select, setHint, doSwap, doInsert, doMoveInto, doFlowReorder, brushOnCell } from './actions';
@@ -54,7 +54,7 @@ function unbindGesture(): void {
 export function cancelGesture(): void {
   unbindGesture();
   document.querySelectorAll('.bp-ghost,.bp-dropline,.bp-rzghost').forEach(el => el.remove());
-  dragId = null; action = null; ghost = null; dropline = null;
+  dragId = null; dragModel = null; action = null; ghost = null; dropline = null;
   bp.dragging = false;
 }
 
@@ -66,6 +66,10 @@ type DragAction =
   | { type: 'into'; targetId: string; fitCols?: number }; // fitCols: resize to fill a sized empty slot
 
 let dragId: string | null = null;
+/** One immutable history snapshot per gesture. `model()` clones the full tree,
+ *  so rebuilding it on every mousemove made drag cost scale with both pointer
+ *  frequency and page size. */
+let dragModel: LModel | null = null;
 let ghost: HTMLElement | null = null;
 let dropline: HTMLElement | null = null;
 let action: DragAction | null = null;
@@ -108,7 +112,8 @@ function dragOrSelect(e: MouseEvent, id: string): void {
 
 function beginDrag(id: string): void {
   dragId = id; action = null; bp.dragging = true;
-  const m = model(); const name = m ? findNode(m, id)?.node.name ?? id : id;
+  dragModel = model();
+  const name = dragModel ? findNode(dragModel, id)?.node.name ?? id : id;
   ghost = document.createElement('div'); ghost.className = 'bp-ghost';
   const nm = document.createElement('span'); nm.className = 'nm';
   const ic = document.createElement('span'); ic.className = 'bp-ic'; ic.innerHTML = ICON_ARROW_RIGHT; // trusted icon constant
@@ -131,10 +136,10 @@ function clearTargets(): void {
 
 function markTarget(ev: MouseEvent): void {
   clearTargets(); action = null;
-  const m = model(); if (!m || !dragId) return;
-  if (ghost) ghost.style.display = 'none';
+  const m = dragModel; if (!m || !dragId) return;
+  // The ghost is `pointer-events:none`, so elementFromPoint naturally reaches
+  // the overlay underneath without a display toggle and forced style work.
   const under = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
-  if (ghost) ghost.style.display = '';
   const hit = under?.closest('[data-bpid]') as HTMLElement | null;
   if (!hit) { setAct(''); return; }
   const targetId = hit.dataset.bpid!;
@@ -234,7 +239,7 @@ function endDrag(): void {
   clearTargets(); setHint(null);
   bp.dragging = false;
   const A = action, id = dragId;
-  dragId = null; action = null;
+  dragId = null; dragModel = null; action = null;
   if (A && id) {
     if (A.type === 'swap') doSwap(id, A.targetId);
     else if (A.type === 'insert') doInsert(id, A.targetId, A.before, A.fitCols);
@@ -242,7 +247,7 @@ function endDrag(): void {
   } else { render(); }
 }
 
-const nameOf = (m: ReturnType<typeof model>, id: string): string => (m ? findNode(m, id)?.node.name ?? id : id);
+const nameOf = (m: LModel | null, id: string): string => (m ? findNode(m, id)?.node.name ?? id : id);
 const cssEsc = (s: string): string => CSS.escape(s);
 
 // ── flow-row drag (reorder within ONE flow parent) ─────────────────────────────
