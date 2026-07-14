@@ -7,6 +7,7 @@ import type { InspectorMessage, InspectorSettings, ConnectionState, FavoriteEntr
 import { DEFAULT_SETTINGS } from '../lib/types';
 import { log } from '../lib/logger';
 import { createReconnectingPort, type ReconnectingPort } from '../lib/reconnecting-port';
+import type { PanelObjectContext } from './context-state';
 
 // ── Shared state (readable by tabs, header, status bar) ──────────
 
@@ -32,7 +33,7 @@ export const S = {
   // Latest BMP-tab context — populated by CONTEXT_RID_DATA broadcasts (from
   // right-click or the Page-tab picker). Status bar chip surfaces this so
   // the user always sees "what am I working on" across tabs.
-  context: null as { rid: string; name?: string; type?: string; businessId?: string } | null,
+  context: null as PanelObjectContext | null,
   // EC round-trip latency from the last execute or preview. Health-poll
   // latency lives on connState.responseMs; this is the user-action signal
   // (real EC against the live workspace) which matters more for "is BMP

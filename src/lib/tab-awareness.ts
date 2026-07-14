@@ -12,6 +12,7 @@ import { cancelPaintForTab } from './paint';
 import { checkBmpCookie } from './cookie-gate';
 import { deleteContextRid } from './context-rid';
 import { sendPageInfoToPanel } from './content-script-injection';
+import { sendPanelContextForTab } from './panel-context-sync';
 
 // Re-export for backward compatibility with existing importers
 export { ensureContentScript, ensureBlueprintScript, sendPageInfoToPanel, handleGetDetection } from './content-script-injection';
@@ -42,7 +43,15 @@ export function registerTabListeners() {
 
     chrome.tabs.get(activeInfo.tabId, (tab) => {
       if (chrome.runtime.lastError) return;
-      if (tab?.url) void autoDetectProfile(tab.url);
+      const profileReady = tab?.url ? autoDetectProfile(tab.url) : Promise.resolve();
+      // Context identity is workspace-scoped. Wait for auto-detection to swap
+      // the active client before looking up the RID, otherwise a cross-server
+      // browser-tab switch can briefly query the previous workspace.
+      void profileReady.then(() => {
+        if (ctx.panelPortByWindow.has(activeInfo.windowId)) {
+          return sendPanelContextForTab(activeInfo.tabId);
+        }
+      });
     });
     // Push detection + page info only to the panel in THIS window —
     // a tab switch in window B shouldn't refresh window A's panel.
@@ -55,9 +64,10 @@ export function registerTabListeners() {
           ...(det ?? { phase: 'checking' as DetectionPhase, confidence: 0, signals: [] }),
         } satisfies InspectorMessage);
       } catch (e) { log.swallow('tabs:onActivatedPanelPush', e); }
-      if (!det) {
-        sendPageInfoToPanel(activeInfo.tabId);
-      }
+      // Detection may already be cached, but page/context state is per tab and
+      // must always follow activation. Skipping this when `det` existed was the
+      // reason the side panel could keep the previous browser tab's context.
+      sendPageInfoToPanel(activeInfo.tabId);
     }
 
     // Re-enrich only if inspect is on for THIS window. Per-window
@@ -73,6 +83,7 @@ export function registerTabListeners() {
     const ctx = getCtx();
     const windowId = tab?.windowId;
     const isActiveTab = windowId != null && isActiveInItsWindow(tabId, windowId);
+    let profileReady: Promise<void> = Promise.resolve();
 
     // Cancel paint when the PAINTED tab navigates or refreshes. Keyed on the
     // tab paint is armed for (not the active-tab map, which is empty until the
@@ -109,7 +120,7 @@ export function registerTabListeners() {
       deleteContextRid(tabId); // Clear stale context on navigation
 
       if (isActiveTab) {
-        void autoDetectProfile(changeInfo.url!);
+        profileReady = autoDetectProfile(changeInfo.url!);
         ctx.sendToPanelByWindow(windowId!, { type: 'DETECTION_STATE', phase: 'checking' as DetectionPhase, confidence: 0, signals: [] });
       }
     }
@@ -119,6 +130,7 @@ export function registerTabListeners() {
 
     if (isActiveTab) {
       sendPageInfoToPanel(tabId);
+      void profileReady.then(() => sendPanelContextForTab(tabId));
       const det = getTabDetection(tabId);
       if (det) {
         ctx.sendToPanelByWindow(windowId!, { type: 'DETECTION_STATE', ...det });

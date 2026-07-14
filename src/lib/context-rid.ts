@@ -20,6 +20,13 @@ export function getContextRid(tabId: number): ContextRidEntry | undefined {
   return contextRidMap.get(tabId);
 }
 
+/** Drop only the user's explicit object selection for a tab. Page navigation
+ *  uses this before adopting the newly rendered page context; the tab-lifecycle
+ *  delete below intentionally clears both stores. */
+export function clearContextRid(tabId: number): void {
+  contextRidMap.delete(tabId);
+}
+
 export function deleteContextRid(tabId: number): void {
   contextRidMap.delete(tabId);
   pageContextMap.delete(tabId);

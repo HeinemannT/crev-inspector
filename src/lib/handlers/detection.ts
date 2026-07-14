@@ -6,8 +6,8 @@ import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import { getTabDetection, setTabDetection, updateBadge } from '../detection';
 import { sendPageInfoToPanel, handleGetDetection } from '../tab-awareness';
-import { getContextRid, getPageContext, setPageContext, deletePageContext } from '../context-rid';
-import { resolveTabPageContext } from '../page-context-resolver';
+import { clearContextRid, getPageContext, setPageContext, deleteContextRid } from '../context-rid';
+import { resolvePanelContextForTab, sendPanelContextForTab } from '../panel-context-sync';
 import type { DetectionPhase } from '../types';
 
 register('DETECTION_RESULT', (msg, respond, meta) => {
@@ -66,13 +66,17 @@ register('BMP_URL_CHANGED', (_msg, _respond, meta) => {
   // window A's tab id was the global "active". sendPageInfoToPanel
   // routes the response to the panel in the navigating tab's window
   // via sendToPanelByTab, so other windows' panels stay quiet.
-  // SPA navigation changed the bound object — drop the stale fiber page
-  // context (the content script re-posts PAGE_CONTEXT for the new page).
-  deletePageContext(tabId);
+  // SPA navigation changed the bound object. Drop BOTH the old page cache and
+  // any object the user selected on that page; the new page becomes context as
+  // soon as its URL/fiber signal resolves.
+  deleteContextRid(tabId);
   chrome.tabs.get(tabId, (tab) => {
     if (chrome.runtime.lastError || !tab?.windowId) return;
     chrome.tabs.query({ active: true, windowId: tab.windowId }, (actives) => {
-      if (actives[0]?.id === tabId) sendPageInfoToPanel(tabId);
+      if (actives[0]?.id === tabId) {
+        sendPageInfoToPanel(tabId);
+        void sendPanelContextForTab(tabId);
+      }
     });
   });
 });
@@ -85,22 +89,18 @@ register('PAGE_CONTEXT', (msg, _respond, meta) => {
   if (tabId == null) return;
   const prev = getPageContext(tabId);
   if (prev?.rid === msg.rid && prev?.tabRid === msg.tabRid) return; // no change
+  // A fiber-only route can change pages without changing the URL. An explicit
+  // object selection belongs to the old page and must not survive that switch.
+  if (prev?.rid && prev.rid !== msg.rid) clearContextRid(tabId);
   setPageContext(tabId, { rid: msg.rid, tabRid: msg.tabRid });
-  const ctx = getCtx();
   chrome.tabs.get(tabId, (tab) => {
     if (chrome.runtime.lastError || !tab?.windowId) return;
     chrome.tabs.query({ active: true, windowId: tab.windowId }, (actives) => {
       if (actives[0]?.id !== tabId) return; // only the active tab's panel
       sendPageInfoToPanel(tabId); // Page tab + Workshop
-      // Footer/status chip — only when the user hasn't pinned a right-click
-      // context (higher-priority intent). Push the RESOLVED rid (not the raw
-      // fiber one) so this proactive update matches what GET_CONTEXT_RID would
-      // return for the same tab.
-      if (getContextRid(tabId)) return;
-      void (async () => {
-        const pc = await resolveTabPageContext(tabId);
-        if (pc.rid) ctx.sendToPanelByTab(tabId, { type: 'CONTEXT_RID_DATA', rid: pc.rid });
-      })();
+      // Footer + AI chip use the same cache-first/live-fallback identity as the
+      // Extended window, with a post-lookup race check inside the helper.
+      void sendPanelContextForTab(tabId);
     });
   });
 });
@@ -123,11 +123,7 @@ register('GET_CONTEXT_RID', async (_msg, respond, meta) => {
   //   2. The resolved page context (shared resolver: URL `?rid=` ⊕ the fiber
   //      page context), so a freshly-opened panel shows the bound object even
   //      on BMP's custom-routed pages where the URL is blank.
-  let entry = tabId != null ? getContextRid(tabId) : undefined;
-  if (!entry && tabId != null) {
-    const pc = await resolveTabPageContext(tabId);
-    entry = pc.rid ? { rid: pc.rid } : undefined;
-  }
+  const entry = tabId != null ? await resolvePanelContextForTab(tabId) : undefined;
   // The object type is carried via 'objectType' to avoid collision with the
   // 'type' message discriminant (duplicate key would overwrite the discriminant).
   const payload = {
@@ -138,5 +134,6 @@ register('GET_CONTEXT_RID', async (_msg, respond, meta) => {
     businessId: entry?.businessId,
   };
   respond(payload);
-  ctx.sendToPanel(payload);
+  if (meta.panelWindowId != null) ctx.sendToPanelByWindow(meta.panelWindowId, payload);
+  else ctx.sendToPanel(payload);
 });

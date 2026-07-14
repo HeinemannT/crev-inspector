@@ -28,6 +28,7 @@ import { LogTab } from './tabs/log-tab';
 import { WorkshopTab } from './tabs/workshop-tab';
 import { AiTab } from './tabs/ai-tab';
 import { showToast } from '../lib/toast';
+import { contextFromData } from './context-state';
 
 // ── Tab instances ────────────────────────────────────────────────
 
@@ -203,6 +204,13 @@ onPortMessage((msg: InspectorMessage) => {
     case 'PAGE_INFO':
       // PAGE_INFO carries the same detection verdict; keep the header's page-state in sync on every refresh.
       if (msg.detection) { S.bmpDetected = msg.detection.isBmp; headerChanged = true; }
+      break;
+    case 'CONTEXT_RID_DATA':
+      // Canonical page/selection context from the SW. This is global panel
+      // state, not a Workshop-only concern: the status chip and AI envelope
+      // must update even when the AI or Connect tab is currently active.
+      S.context = contextFromData(S.context, msg);
+      updateContextPill();
       break;
     case 'OBJECT_PANE_DATA':
       // The footer context chip tracks the object currently open in the

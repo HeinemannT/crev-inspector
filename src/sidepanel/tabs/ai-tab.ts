@@ -12,8 +12,8 @@
  *   - block Apply: AI_APPLY_PROPOSAL { code, target:{rid, slot} } (fire-forget)
  *   - handoff: sidepanel calls submitHandoff() with the strip's message.
  *
- * Context chips = envelope.sources, 1:1. The 'selection' chip follows the
- * Inspect selection (S.context) unless pinned; the 'editor' chip mirrors the
+ * Context chips = envelope.sources, 1:1. The object chip follows the current
+ * page / Inspect selection (S.context) unless pinned; the editor chip mirrors the
  * last AI_EDITOR_CONTEXT broadcast (an editor/studio open on an object).
  */
 
@@ -760,12 +760,12 @@ export class AiTab implements Tab {
     const name = src.object.businessId || src.object.name || src.object.rid;
     const sourceWord = src.kind === 'editor'
       ? (src.slot ? `editor · ${src.slot.lang}` : 'editor')
-      : 'selection';
+      : null;
 
     const chip = h('span', { class: `ai-cchip${following ? ' ai-cchip--follow' : ''}` },
       typeBadge(src.object.type, { size: 'xs' }),
       h('span', { class: 'ai-cchip-name' }, name),
-      h('span', { class: 'ai-cchip-src' }, sourceWord),
+      sourceWord ? h('span', { class: 'ai-cchip-src' }, sourceWord) : null,
     );
 
     if (isSelection) {

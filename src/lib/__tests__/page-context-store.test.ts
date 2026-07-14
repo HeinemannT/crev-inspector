@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   setPageContext, getPageContext, deletePageContext,
-  setContextRid, getContextRid, deleteContextRid, clearAllContextRids,
+  setContextRid, getContextRid, clearContextRid, deleteContextRid, clearAllContextRids,
 } from '../context-rid';
 
 describe('page-context store', () => {
@@ -37,6 +37,14 @@ describe('page-context store', () => {
     deleteContextRid(7);
     expect(getContextRid(7)).toBeUndefined();
     expect(getPageContext(7)).toBeUndefined();
+  });
+
+  it('clearContextRid drops a page-local selection but preserves the page cache', () => {
+    setContextRid(7, { rid: 'selected' });
+    setPageContext(7, { rid: 'page' });
+    clearContextRid(7);
+    expect(getContextRid(7)).toBeUndefined();
+    expect(getPageContext(7)).toEqual({ rid: 'page' });
   });
 
   it('clearAllContextRids wipes page contexts too', () => {
