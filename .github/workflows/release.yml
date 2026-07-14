@@ -34,11 +34,11 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          # `node-version: 20` controls the BUILD environment (npm ci,
+          # `node-version: 24` controls the BUILD environment (npm ci,
           # npm run build, npm test), not the action runtime above.
-          # Node 20 is still LTS through 2026-04 — separate decision
-          # from the action-runtime bump.
-          node-version: 20
+          # Keep it aligned with CI so a tag never changes runtime underneath
+          # an already-verified commit.
+          node-version: 24
           cache: npm
 
       - name: Install
@@ -68,6 +68,12 @@ jobs:
           else
             echo "PRERELEASE=false" >> "$GITHUB_ENV"
           fi
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
 
       - name: Test
         # Gate the release on the test suite. A broken test must never

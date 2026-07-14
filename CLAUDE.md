@@ -17,12 +17,13 @@ Studio. See `ARCHITECTURE.md` for the component map and message-passing details.
 - `npm test` — `vitest run`. Fast, no live BMP needed. **Excludes integration tests**
   (`vitest.config.ts` has `exclude: ['src/**/integration/**']`).
 - `npm run test:integration` — separate suite (`vitest.integration.config.ts`) covering the
-  wire-protocol round-trip against a **live BMP**. Not run by `npm test` or CI's default gate;
-  don't assume the binary protocol is exercised unless this was run explicitly.
+  bridge and TypeScript binary-protocol round-trip against a **live BMP**. It fails when no live
+  target is configured instead of silently skipping. Set either `CREV_BMP_URL` + `CREV_BMP_USER`
+  + `CREV_BMP_PASS`, or `CREV_SERVERS_FILE` with optional `CREV_SERVER_ID`/`CREV_SERVER_ACTOR`.
+  It is not run by `npm test` or CI's default gate.
 - `npx tsc --noEmit` — typecheck. `tsconfig.json` is `strict: true`, `noUnusedLocals: true`.
 - `npm run lint` — `eslint src` (flat config, `eslint.config.js`). Async-safety rules
-  (`no-floating-promises`, `no-misused-promises`) are `warn`-only pending a ratchet to `error`
-  with `--max-warnings 0`. CI runs this step (`.github/workflows/ci.yml`).
+  (`no-floating-promises`, `no-misused-promises`) are errors and CI runs with zero warnings.
 
 ## Invariants that bite
 
@@ -39,8 +40,8 @@ Studio. See `ARCHITECTURE.md` for the component map and message-passing details.
 - **Release tag must match `manifest.json` version.** Pushing `v*.*.*` triggers
   `.github/workflows/release.yml`, which hard-fails if the tag's base version (suffix stripped)
   doesn't equal `manifest.json.version`. Bump the manifest and tag together.
-- **Integration tests are the only check on the wire-protocol contract** and require
-  `CREV_INTEGRATION=1` + a live BMP — `npm test` alone gives no signal on that path.
+- **Integration tests are the only live check on the wire-protocol contract** and require a
+  configured live target — `npm test` alone gives no signal on that path.
 - **Credential-at-rest is obfuscation, not confidentiality.** Stored passwords are AES-GCM
   encrypted (`src/lib/crypto.ts`), but the key is derived from `chrome.runtime.id` — the
   extension's public ID — so it stops casual disk inspection, not someone with the storage

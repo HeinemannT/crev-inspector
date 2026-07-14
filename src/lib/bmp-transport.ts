@@ -7,9 +7,10 @@ import { BmpAuth } from './bmp-auth';
 import { AUTH_TIMEOUT, EC_TIMEOUT } from './constants';
 
 export class BmpTransport {
-  /** When true, all commands use LOGIN_TICKET instead of JWT Bearer.
-   *  Set by the connection layer when BMP version < 5.6.3 is detected. */
-  useTicketAuth = false;
+  /** Binary commands use a LoginTicket on every supported BMP version.
+   *  The JWT remains the source credential and is exchanged once per auth
+   *  chain; current 5.6.10 deployments reject Bearer auth on /cs/command. */
+  useTicketAuth = true;
 
   constructor(
     private bmpUrl: string,
@@ -27,7 +28,7 @@ export class BmpTransport {
 
     if (this.useTicketAuth) {
       const makeTicketReq = async (ticket: string) => {
-        const url = `${this.bmpUrl}cs/command?LOGIN_TICKET=${encodeURIComponent(ticket)}`;
+        const url = `${this.bmpUrl}cs/command?LOGIN_TICKET=${encodeURIComponent(ticket)}&async=false&_noctx=true`;
         return fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-java-serialized-object' },
@@ -53,7 +54,7 @@ export class BmpTransport {
     }
 
     const jwt = await this.auth.ensureAuth();
-    const url = `${this.bmpUrl}cs/command`;
+    const url = `${this.bmpUrl}cs/command?async=false&_noctx=true`;
 
     const makeOpts = (token: string): RequestInit => ({
       method: 'POST',

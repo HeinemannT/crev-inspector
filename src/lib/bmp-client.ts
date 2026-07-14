@@ -288,7 +288,10 @@ export class BmpClient {
   applyVersionFlags(version: string) {
     const v = version.replace(/^v\.?/i, '');
     const isOld = compareVersions(v, '5.6.3.0') < 0;
-    this.transport.useTicketAuth = isOld;
+    // Ticket authentication is accepted across BMP versions and is required
+    // by current 5.6.10 /cs/command deployments. Version still determines
+    // whether EC lookup() is available.
+    this.transport.useTicketAuth = true;
     this.supportsLookup = !isOld;
   }
 
@@ -770,4 +773,3 @@ export class BmpClient {
   }
 
 }
-

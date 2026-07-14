@@ -162,11 +162,11 @@ describe('BmpClient.resolveRef — version branches', () => {
 });
 
 describe('BmpClient.applyVersionFlags', () => {
-  it('5.6.3+ → useTicketAuth=false, supportsLookup=true', async () => {
+  it('5.6.3+ → keeps compatible ticket auth and enables lookup', async () => {
     const { client } = await createClientHarness();
     client.applyVersionFlags('5.6.3.0');
     expect(client.supportsLookup).toBe(true);
-    expect((client as any).transport.useTicketAuth).toBe(false);
+    expect((client as any).transport.useTicketAuth).toBe(true);
   });
 
   it('pre-5.6.3 → useTicketAuth=true, supportsLookup=false', async () => {
