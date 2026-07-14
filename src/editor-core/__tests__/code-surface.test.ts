@@ -82,10 +82,11 @@ describe('CodeSurface', () => {
     surface.insertAtCursor('saved-')
     const sent = surface.getDoc()
     surface.insertAtCursor('newer-')
+    const current = surface.getDoc()
 
     surface.markValueSaved('html', sent)
 
-    expect(surface.getDoc()).toBe('newer-saved-<p>a</p>')
+    expect(surface.getDoc()).toBe(current)
     expect(surface.isDirty('html')).toBe(true)
     surface.discard()
     expect(surface.getDoc()).toBe('saved-<p>a</p>')

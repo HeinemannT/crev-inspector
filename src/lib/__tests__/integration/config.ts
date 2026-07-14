@@ -96,20 +96,32 @@ interface BridgeResponse {
 }
 
 export async function bridgePreview(target: IntegrationTarget, code: string): Promise<string> {
-  const res = await fetch(`${target.bridgeUrl}/extended`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      code,
-      bmp_url: target.bmpUrl,
-      bmp_user: target.bmpUser,
-      bmp_pass: target.bmpPass,
-      transactional: false,
-    }),
-  })
-  const data = await res.json() as BridgeResponse
-  if (!res.ok || !data.ok || data.result?.has_error) {
-    throw new Error(data.error || (Array.isArray(data.result?.log) ? data.result.log.join('\n') : data.result?.log) || `Bridge HTTP ${res.status}`)
+  let lastError = 'Bridge preview failed'
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${target.bridgeUrl}/extended`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code,
+          bmp_url: target.bmpUrl,
+          bmp_user: target.bmpUser,
+          bmp_pass: target.bmpPass,
+          transactional: false,
+        }),
+      })
+      const data = await res.json() as BridgeResponse
+      if (res.ok && data.ok && !data.result?.has_error) {
+        return Array.isArray(data.result?.log) ? data.result.log.join('\n') : data.result?.log ?? ''
+      }
+      lastError = data.error || (Array.isArray(data.result?.log) ? data.result.log.join('\n') : data.result?.log) || `Bridge HTTP ${res.status}`
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+    }
+    // Live previews are read-only, so one retry is safe. Keep it restricted to
+    // transport interruptions; BMP/EC contract errors must fail immediately.
+    if (attempt === 0 && /premature eof|connection reset|timed? out|fetch failed/i.test(lastError)) continue
+    throw new Error(lastError)
   }
-  return Array.isArray(data.result?.log) ? data.result.log.join('\n') : data.result?.log ?? ''
+  throw new Error(lastError)
 }
