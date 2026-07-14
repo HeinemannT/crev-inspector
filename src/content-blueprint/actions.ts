@@ -9,7 +9,7 @@
  */
 import { findNode, isTempId, isResultTab } from '../lib/layout/model';
 import { bandInsertIndex } from '../lib/layout/placement';
-import { resize, setHeight, rename, remove, addWidget, addContainer, moveInto, swap, insertRelative, addTab, createTabset, findTabOf, toggleReset, setStyle } from '../lib/layout/edit';
+import { resize, setHeight, rename, remove, restoreNode, addWidget, addContainer, moveInto, swap, insertRelative, addTab, createTabset, toggleReset, setStyle } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { addFlowChild, reorderFlowChild, removeFlowAdd, setActionFlag, addActionButton, flowDiff, flowChangeCount, stageNewFlowContainer, wireFlowRef, unwireFlowRef, renameFlowObject } from '../lib/layout/flow';
 import { compile } from '../lib/layout/ec';
@@ -346,16 +346,8 @@ export function doInsert(id: string, targetId: string, before: boolean, fitCols?
   mutate(next);
 }
 
-/** The parent id that owns `id` in `mm` — its container/tab, or the enclosing tab for a tab-level node. */
-function parentIdOf(mm: LModel, id: string): string | null {
-  const f = findNode(mm, id);
-  return f?.parent?.id ?? findTabOf(mm, id)?.id ?? null;
-}
-
-/** Revert a single node's staged changes back to baseline — the tray's per-node undo. A staged ADD
- *  (temp id, absent from baseline) is removed outright; an edited node is reset field-wise, and its
- *  position is restored ONLY if its parent or index actually moved (so reverting a pure field change
- *  never reorders it, and we never anchor to a baseline neighbour that has itself moved away). */
+/** Revert a single tray subject. Flow edits are removed from their staging entry; a staged layout ADD
+ * is removed outright; an existing layout object is restored from the exact baseline snapshot. */
 export function revertNode(id: string): void {
   const m = model(); if (!m || !bp.baseline) return;
   // Flow edits first: the id may be a flow-edit KEY (an InputSet/EditPage/button whose staged edit is
@@ -378,24 +370,7 @@ export function revertNode(id: string): void {
   }
   const base = findNode(bp.baseline, id);
   if (!base) { if (bp.selectedId === id) bp.selectedId = null; mutate(remove(m, id)); return; }
-  let next = rename(m, id, base.node.name);
-  next = resize(next, id, 'L', base.node.cols.L);
-  if (base.node.height != null) next = setHeight(next, id, base.node.height);
-
-  const baseSibs = base.parent ? base.parent.children : bp.baseline.tabs;
-  const baseIndex = baseSibs.findIndex(n => n.id === id);
-  const baseParentId = base.parent?.id ?? findTabOf(bp.baseline, id)?.id ?? null;
-  const live = findNode(next, id);
-  const liveParentId = live?.parent?.id ?? findTabOf(next, id)?.id ?? null;
-  if (liveParentId !== baseParentId || (live && live.index !== baseIndex)) {
-    const pred = baseIndex > 0 ? baseSibs[baseIndex - 1].id : null;
-    const succ = baseIndex >= 0 && baseIndex < baseSibs.length - 1 ? baseSibs[baseIndex + 1].id : null;
-    // anchor to a baseline neighbour only if it's still under the baseline parent; else reparent plain
-    if (pred && parentIdOf(next, pred) === baseParentId) next = insertRelative(next, id, pred, false);
-    else if (succ && parentIdOf(next, succ) === baseParentId) next = insertRelative(next, id, succ, true);
-    else if (baseParentId && baseParentId !== id) next = moveInto(next, id, baseParentId);
-  }
-  mutate(next);
+  mutate(restoreNode(m, bp.baseline, id));
 }
 
 export function setHint(text: string | null): void { if (bp.hint !== text) { bp.hint = text; render(); } }

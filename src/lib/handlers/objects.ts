@@ -250,6 +250,7 @@ register('FETCH_COLOR_SETS', async (msg, respond) => {
   // This is the speed win: a panel reopen or SW idle-reset no longer re-runs
   // the BMP round-trip — the colours come straight from storage.session.
   let sets: import('../types').ColorSetData[] = [];
+  let fetchError: string | undefined;
   if (!msg.force) {
     const cached = await getColorSets(serverId);
     if (cached) sets = cached;
@@ -260,13 +261,17 @@ register('FETCH_COLOR_SETS', async (msg, respond) => {
       if (sets.length > 0) await setColorSets(serverId, sets);
     } catch (e) {
       log.swallow('handler:fetchColorSets', e);
+      fetchError = errorMessage(e);
       sets = [];
     }
+  } else if (sets.length === 0 && !ctx.client) {
+    fetchError = 'Not connected';
   }
   // Broadcast to the panel (its colour picker listens for the broadcast) AND respond to the sender, so
   // the blueprint overlay can `sendRequest` the same data over the one-shot channel (style-mode tinting).
-  ctx.sendToPanel({ type: 'COLOR_SETS_DATA', sets });
-  respond({ type: 'COLOR_SETS_DATA', sets });
+  const result = { type: 'COLOR_SETS_DATA' as const, sets, ...(fetchError ? { error: fetchError } : {}) };
+  ctx.sendToPanel(result);
+  respond(result);
 });
 
 /**

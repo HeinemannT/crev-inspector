@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { LayoutNode as WireNode } from '../../types';
 import { maskStyle, type LModel, type LNode, type NodeStyle } from '../types';
 import { reconstruct, findNode, descendantWidgets, isChart, isResultTab } from '../model';
-import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, isAncestorOf, toggleReset, setStyle } from '../edit';
+import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, restoreNode, isAncestorOf, toggleReset, setStyle } from '../edit';
 import { diff, summarizeChanges } from '../diff';
 import { compile } from '../ec';
 import { lint } from '../constraints';
@@ -290,6 +290,31 @@ describe('edit engine (pure, returns new model)', () => {
     const w1 = findNode(b, 'w1');
     expect(w1).not.toBeNull();
     expect(w1!.parent!.id).toBe('tab1'); // re-homed to the tab
+  });
+  it('restoreNode restores a deleted container subtree without duplicate re-homed widgets', () => {
+    const base = demo();
+    const restored = restoreNode(remove(base, 'box1'), base, 'box1');
+    const box = findNode(restored, 'box1')!;
+    expect(box.parent!.id).toBe('tab1');
+    expect(box.node.children.map(child => child.id)).toEqual(['w1']);
+    expect(restored.tabs[0].children.flatMap(child => child.id === 'w1' ? [child.id] : child.children.map(grandchild => grandchild.id)))
+      .toEqual(['w1']);
+  });
+  it('restoreNode restores all editable fields while preserving independent child edits', () => {
+    const base = demo();
+    const editedChild = rename(base, 'w1', 'Edited child');
+    let desired = rename(editedChild, 'box1', 'Changed box');
+    desired = resize(desired, 'box1', 'L', 5);
+    desired = setStyle(desired, 'box1', { shadow: true });
+    const restored = restoreNode(desired, base, 'box1');
+    expect(findNode(restored, 'box1')!.node).toMatchObject({ name: 'KPIs', cols: { L: 3 } });
+    expect(findNode(restored, 'box1')!.node.style).toBeUndefined();
+    expect(findNode(restored, 'w1')!.node.name).toBe('Edited child');
+  });
+  it('restoreNode is a no-op when the node\'s baseline parent is also deleted', () => {
+    const base = demo();
+    const withoutParent = remove(base, 'box1');
+    expect(restoreNode(withoutParent, base, 'w1')).toEqual(withoutParent);
   });
   it('addWidget / addContainer / addTab mint temp ids', () => {
     const { model: m1, id } = addWidget(demo(), 'tab1', 1, 'PieChart');

@@ -12,7 +12,7 @@ import { findNode, isResultTab, eachInSubtree } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
 import { diff, summarizeChanges } from '../lib/layout/diff';
-import { flowChangeCount } from '../lib/layout/flow';
+import { flowChangeCount, flowDiff } from '../lib/layout/flow';
 import { compile } from '../lib/layout/ec';
 import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_EYE_SLASH, ICON_COPY } from '../lib/icons';
 import { showToast } from '../lib/toast';
@@ -265,7 +265,8 @@ function stepNote(base: LModel, m: LModel, s: PlanStep): PlanNote {
  *  Rows are the apply log's own rows (same compiler notes, same planRow builder, deduped to the first
  *  note per node) minus the detail/ec columns — a strict subset, so the two logs read the same. */
 export function trayPanel(base: LModel, m: LModel): HTMLElement {
-  const plan = diff(base, m);
+  // The tray is the pre-apply plan, so it must use the same layout+flow composition as Apply.
+  const plan = [...diff(base, m), ...flowDiff(base, m)];
   const { changes, actions } = summarizeChanges(plan, m);
   const wrap = document.createElement('div'); wrap.className = 'bp-tray';
   // Headline = logical changes; the "· N actions" exposes the underlying EC steps without hiding them
@@ -278,6 +279,12 @@ export function trayPanel(base: LModel, m: LModel): HTMLElement {
   let notes: PlanNote[];
   try { notes = compile(plan, m).notes; }
   catch { notes = plan.map(s => stepNote(base, m, s)); }
+  // A flow reorder step names the moved child, while the staged order belongs to its parent flow
+  // entry. Revert that entry; other flow/layout steps already use their own subject id.
+  const revertTarget = new Map(plan.map(step => [
+    planStepId(step),
+    step.kind === 'flowReorder' ? step.parentId : planStepId(step),
+  ]));
   const seen = new Set<string>();
   for (const note of notes) {
     const id = note.id;
@@ -285,7 +292,7 @@ export function trayPanel(base: LModel, m: LModel): HTMLElement {
     seen.add(id);
     const row = planRow(note, false);
     const x = document.createElement('button'); x.className = 'bp-pop-x'; setIcon(x, ICON_X); x.title = 'Revert this change';
-    x.addEventListener('mousedown', (e) => { e.stopPropagation(); revertNode(id); });
+    x.addEventListener('mousedown', (e) => { e.stopPropagation(); revertNode(revertTarget.get(id) ?? id); });
     row.appendChild(x);
     wrap.appendChild(row);
   }

@@ -18,7 +18,7 @@ import { colorLinkBid } from '../lib/color-util';
 import { styleOptions } from '../lib/style-props';
 import { renderSwatchGrid } from '../lib/swatch-grid';
 import { bp, model, PALETTE, MOST_USED } from './state';
-import { colorRgb, colorInfo, colorSets } from './colors';
+import { colorRgb, colorInfo, colorSets, colorSetsStatus, ensureColorSets } from './colors';
 import { type Rect, ridElementMap, unionRect, anchorRect, setIcon, mkBtn, mkIconBtn, docX, docY } from './geometry';
 
 /** Hairline divider inside a toolbar row. */
@@ -540,6 +540,12 @@ function swatchPopup(byRid: Map<string, Element>): HTMLElement {
   let q = '';
   const paint = (): void => {
     host.textContent = '';
+    if (colorSetsStatus() === 'error') {
+      const error = document.createElement('div'); error.className = 'sw-empty'; error.textContent = 'Couldn’t load workspace colours.';
+      const retry = document.createElement('button'); retry.className = 'bp-paint-btn'; retry.textContent = 'Retry';
+      retry.addEventListener('click', () => { void ensureColorSets(true); });
+      error.appendChild(retry); host.appendChild(error); return;
+    }
     host.appendChild(renderSwatchGrid({
       sets: colorSets(), q, currentBid: curBid, includeBasics: true,
       expanded: bp.swatchExpanded,

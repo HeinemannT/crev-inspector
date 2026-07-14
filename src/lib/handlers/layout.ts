@@ -37,12 +37,16 @@ export async function setBlueprintActive(windowId: number, active: boolean, tabI
   const ctx = getCtx();
   const unchanged = ctx.blueprintActiveByWindow.get(windowId) === active;
   if (unchanged && !force) return;
+  // Capture the owner before changing either map. Turning Blueprint OFF must follow the session back
+  // to the tab it was opened in — the window's currently-active tab may have changed since then.
+  const pinnedTabId = ctx.blueprintTabByWindow.get(windowId);
   ctx.blueprintActiveByWindow.set(windowId, active);
   if (!unchanged) ctx.logActivity('info', active ? 'Blueprint mode ON' : 'Blueprint mode OFF');
   const state = { type: 'BLUEPRINT_STATE' as const, active };
   ctx.sendToPanelByWindow(windowId, state);
   try {
-    const target = tabId ?? (await chrome.tabs.query({ active: true, windowId }))[0]?.id;
+    const target = tabId ?? (!active ? pinnedTabId : undefined)
+      ?? (await chrome.tabs.query({ active: true, windowId }))[0]?.id;
     if (target != null) {
       if (active) ctx.blueprintTabByWindow.set(windowId, target); else ctx.blueprintTabByWindow.delete(windowId);
       await ensureContentScript(target);

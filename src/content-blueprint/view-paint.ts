@@ -183,7 +183,14 @@ function libraryPopup(): HTMLElement {
   panel.appendChild(saveRow);
 
   const list = document.createElement('div'); list.className = 'bp-paint-lib';
-  if (bp.presets.length === 0) {
+  if (bp.presetStatus === 'loading' && bp.presets.length === 0) {
+    const e = document.createElement('div'); e.className = 'bp-paint-empty'; e.textContent = 'Loading saved styles…';
+    list.appendChild(e);
+  } else if (bp.presetStatus === 'error' && bp.presets.length === 0) {
+    const e = document.createElement('div'); e.className = 'bp-paint-empty'; e.textContent = 'Couldn’t load saved styles.';
+    const retry = miniTextBtn('Retry', () => openPaintPanel('library'));
+    e.appendChild(retry); list.appendChild(e);
+  } else if (bp.presets.length === 0) {
     const e = document.createElement('div'); e.className = 'bp-paint-empty'; e.textContent = 'No saved styles yet.';
     list.appendChild(e);
   } else {

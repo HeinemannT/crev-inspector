@@ -8,7 +8,7 @@
  * doMoveInto/doSwap/doInsert controllers). `move` is the shared reparent+position primitive.
  * findNode/findTabOf are shared tree helpers used throughout.
  */
-import { cloneModel, findNode, descendantWidgets, tempId, isChart, hasHeight, normalizeModel } from './model';
+import { cloneModel, cloneNode, findNode, descendantWidgets, tempId, isChart, hasHeight, normalizeModel } from './model';
 import type { Breakpoint, LModel, LNode, NodeStyle } from './types';
 
 const clampCol = (n: number): number => Math.max(0, Math.min(6, Math.round(n)));
@@ -231,6 +231,47 @@ export function remove(m: LModel, id: string): LModel {
       if (widgets.length && tab) tab.children.push(...widgets.map(w => ({ ...w })));
     }
     f.siblings.splice(f.index, 1);
+  });
+}
+
+/** Restore one existing layout object to its baseline state for the pending-changes tray.
+ *
+ * Scalar/style/reset fields and baseline placement are restored exactly. Existing children keep their
+ * own staged edits; when the object itself was deleted, its baseline subtree is restored and any widget
+ * leaves that `remove()` re-homed elsewhere are detached first so no duplicate ids are introduced. */
+export function restoreNode(m: LModel, baseline: LModel, id: string): LModel {
+  const base = findNode(baseline, id);
+  if (!base) return m;
+  return edit(m, c => {
+    const dest = base.parent ? findNode(c, base.parent.id)?.node.children : c.tabs;
+    if (!dest) return; // its baseline parent is also staged for deletion; restore that parent instead
+    const live = findNode(c, id);
+    const restored = cloneNode(base.node);
+    if (live) {
+      // A row-level revert owns this node's fields/placement, not independent edits below it.
+      restored.children = live.node.children;
+      live.siblings.splice(live.index, 1);
+    } else {
+      // Container deletion re-homes its widget leaves. Remove any surviving subtree members before
+      // re-inserting the baseline subtree so a restore cannot produce duplicate object ids.
+      const descendantIds: string[] = [];
+      const collect = (node: LNode): void => {
+        for (const child of node.children) { descendantIds.push(child.id); collect(child); }
+      };
+      collect(base.node);
+      for (const childId of descendantIds) {
+        const found = findNode(c, childId);
+        if (found) found.siblings.splice(found.index, 1);
+      }
+    }
+
+    const baseSiblings = base.parent ? base.parent.children : baseline.tabs;
+    const baseIndex = baseSiblings.findIndex(node => node.id === id);
+    const successor = baseSiblings.slice(baseIndex + 1).find(node => dest.some(candidate => candidate.id === node.id));
+    const predecessor = [...baseSiblings.slice(0, baseIndex)].reverse().find(node => dest.some(candidate => candidate.id === node.id));
+    if (successor) dest.splice(dest.findIndex(node => node.id === successor.id), 0, restored);
+    else if (predecessor) dest.splice(dest.findIndex(node => node.id === predecessor.id) + 1, 0, restored);
+    else dest.splice(Math.max(0, Math.min(baseIndex, dest.length)), 0, restored);
   });
 }
 

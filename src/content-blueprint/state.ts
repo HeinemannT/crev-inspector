@@ -70,6 +70,7 @@ export interface BpState {
   brushMask: Set<string>;
   paintPanel: 'setup' | 'library' | null;
   presets: StylePreset[]; // saved-style library cache (loaded from the SW per profile)
+  presetStatus: 'idle' | 'loading' | 'ready' | 'error'; // distinguishes an empty library from failed I/O
   renameId: string | null;      // node whose inline-rename should OPEN on the next render (dbl-click / toolbar pencil)
   onResize: (() => void) | null; // window 'resize' handler (re-anchors the canvas; scroll is native)
   onKey: ((e: KeyboardEvent) => void) | null;
@@ -116,7 +117,7 @@ function freshState(): Omit<BpState, 'gen'> {
     layer: null, selectedId: null, applying: false, preview: null, applyOutcome: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, discardArm: false, discardTimer: 0, actionMenuOpen: false, picker: null, pickerOpts: null,
     flowPicker: null, flowRefList: null, flowRefChildren: new Map(), flowRefChildrenPending: new Set(), flowFolds: new Set(), trayCardsOpen: new Set(),
     movePicker: null, tabMenu: null, swatch: null, swatchExpanded: new Set(['Basics']),
-    brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], renameId: null,
+    brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], presetStatus: 'idle', renameId: null,
     onResize: null, onKey: null, onPop: null, onBeforeUnload: null, reloading: false, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
     observer: null, resizeObs: null, ridSig: '', mutRaf: 0, bodyResizeTimer: 0, flipNext: false, viewTabId: null, unusedTabsOpen: false,
     ghostTrayOpen: false, scrollSpacer: null, peek: false,

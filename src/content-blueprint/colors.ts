@@ -15,6 +15,8 @@ type ColorSetsResult = Extract<InspectorMessage, { type: 'COLOR_SETS_DATA' }>;
 
 let sets: ColorSetData[] | null = null;
 let loading = false;
+let status: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
+let requestSeq = 0;
 const index = new ColorSetIndex();
 
 /** Resolve a CorpoColor businessId → its rgb (e.g. "rgb(255,0,0)"), or null if unknown/unloaded. */
@@ -29,11 +31,15 @@ export function colorInfo(bid: string | undefined | null): { name: string; rgb: 
 
 /** The loaded colour sets (folders of swatches) — null until first fetched. For the Stage B popup. */
 export function colorSets(): ColorSetData[] | null { return sets; }
+export function colorSetsStatus(): typeof status { return status; }
 
 /** Drop the overlay's cached colours — call on a profile switch / teardown so the next session can't
  *  tint with the previous workspace's bid→rgb map. */
 export function resetColorSets(): void {
+  requestSeq += 1; // invalidate a response still in flight from the previous session/profile
   sets = null;
+  status = 'idle';
+  loading = false;
   index.clear();
 }
 
@@ -42,15 +48,25 @@ export function resetColorSets(): void {
 export async function ensureColorSets(force = false): Promise<void> {
   if ((sets !== null && !force) || loading) return;
   const g = bp.gen;
+  const seq = ++requestSeq;
   loading = true;
+  status = 'loading';
   try {
     const res = await sendRequest<ColorSetsResult>({ type: 'FETCH_COLOR_SETS', force });
-    sets = res?.sets ?? [];
+    if (seq !== requestSeq) return;
+    if (!res) throw new Error('No response from the extension');
+    if (res.error) throw new Error(res.error);
+    sets = res.sets;
+    status = 'ready';
     index.load(sets);
-    if (bp.active && bp.gen === g) render(); // session guard — don't render into a torn-down/newer session
   } catch {
-    sets = sets ?? [];
+    if (seq !== requestSeq) return;
+    // Keep a previous successful cache usable, but never turn a failed first load into a valid empty set.
+    status = 'error';
   } finally {
-    loading = false;
+    if (seq === requestSeq) {
+      loading = false;
+      if (bp.active && bp.gen === g) render(); // session guard — don't render into a torn-down/newer session
+    }
   }
 }

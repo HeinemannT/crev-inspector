@@ -347,7 +347,7 @@ export type ScriptHistoryMessage =
 export type ColorMessage =
   // `force` bypasses the persistent colour cache (manual refresh in the picker).
   | { type: 'FETCH_COLOR_SETS'; force?: boolean }
-  | { type: 'COLOR_SETS_DATA'; sets: ColorSetData[] };
+  | { type: 'COLOR_SETS_DATA'; sets: ColorSetData[]; error?: string };
 
 // ── Notifications (ephemeral panel toasts) ───────────────────────
 // SW fires `TOAST` to surface user-action failures that are otherwise

@@ -225,6 +225,19 @@ describe('toggleBlueprint', () => {
     expect(toggleInspect).not.toHaveBeenCalled();
   });
 
+  it('turning blueprint off targets its pinned tab after the user switches browser tabs', async () => {
+    const h = makeHarness();
+    const { setBlueprintActive } = await import('../handlers/layout');
+
+    await setBlueprintActive(1, true, 55);
+    // The active-tab query would now resolve tab 100, but OFF must return to the session owner (55).
+    await setBlueprintActive(1, false);
+
+    expect(h.tabMessagesSent.at(-1)).toEqual({ tabId: 55, msg: { type: 'BLUEPRINT_STATE', active: false } });
+    expect((globalThis as any).chrome.tabs.query).not.toHaveBeenCalled();
+    expect(h.ctx.blueprintTabByWindow.has(1)).toBe(false);
+  });
+
   it('with no windowId argument, resolves the last-focused window', async () => {
     const h = makeHarness();
     const { toggleBlueprint } = await import('../handlers/layout');

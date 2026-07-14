@@ -17,6 +17,7 @@ import { render } from './content-blueprint/view';
 import { select, onKeydown, clearHintTimer, hasPendingEdits } from './content-blueprint/actions';
 import { cancelGesture } from './content-blueprint/gestures';
 import { loadPage } from './content-blueprint/service';
+import { resetColorSets } from './content-blueprint/colors';
 
 export { isBlueprintActive };
 
@@ -248,6 +249,7 @@ export function disableBlueprint(): void {
   bp.layer?.remove();
   bp.scrollSpacer?.remove(); // drop the page-scroll-extension spacer (it lives on body, outside the layer)
   document.getElementById(STYLE_ID)?.remove(); // don't leak the injected stylesheet past teardown
+  resetColorSets(); // colour ids are workspace-scoped; never carry a cache into the next session/profile
   resetState(); // every per-session field back to idle (one source of truth — see state.ts)
 }
 // Load/apply results are handled by content-blueprint/service.ts (the sendRequest promises), not by

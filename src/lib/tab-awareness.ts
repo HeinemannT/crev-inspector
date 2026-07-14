@@ -94,7 +94,10 @@ export function registerTabListeners() {
       // recorded blueprint tab, not the active-tab map, which is empty until the first tab switch). The
       // content re-injects fresh (overlay gone), so without this the SW state + sidebar toggle would
       // stay 'on' over a now-gone overlay. (Apply's own reload already toggled off → no-op there.)
-      if (windowId != null && ctx.blueprintTabByWindow.get(windowId) === tabId) {
+      // A URL-only update is a same-document History API navigation in BMP. The Blueprint content
+      // controller deliberately survives it and reloads the model for the new RID, so keep the worker's
+      // owner/state aligned. A real document load destroys the overlay and ends the session here.
+      if (changeInfo.status === 'loading' && windowId != null && ctx.blueprintTabByWindow.get(windowId) === tabId) {
         ctx.blueprintActiveByWindow.set(windowId, false);
         ctx.blueprintTabByWindow.delete(windowId);
         ctx.persistBlueprintState(); // keep the session-persisted copy in step with the ended session
