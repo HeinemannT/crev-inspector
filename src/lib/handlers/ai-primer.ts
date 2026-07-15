@@ -2,17 +2,16 @@
  * Workspace primer for the chat system prompt (Issue C).
  *
  * On the first chat turn per server, one cheap EC round trip builds a compact
- * map of the live workspace's SHAPE — object counts by class, the top-level
- * organisation units, and the most-used templates. Injected into the cached
+ * map of the live organisation tree's SHAPE — object counts by class, the
+ * top-level organisation units, and the most-used templates. Injected into the cached
  * prefix of the chat system prompt so the model stops guessing class names
- * (e.g. `descendants(Risk)` — there is no Risk class; risks are template-built
- * Task / Scorecard objects) and confusing one object kind for another.
+ * and confusing a semantic label with a BMP class.
  *
- * Every EC expression here was battle-tested with ec_preview against the live
- * Steadfast workspace before shipping. It uses only the pack's verified
+ * The EC expression was verified with ec_preview before shipping. It uses only
+ * the pack's verified
  * vocabulary (no lambda filters, no JS methods): `.map(prop)` group-by,
  * `.as(prop)`, `.distinct()`, `.sortReverse()`, `.substring()`, `.indexOf()`,
- * and the linkedTo→template resolution. Degrades gracefully: any failure
+ * and linkedTo/template resolution. Degrades gracefully: any failure
  * returns null and the caller simply omits the <workspace> block.
  */
 
@@ -86,7 +85,9 @@ export async function buildWorkspacePrimer(client: BmpClient, signal?: AbortSign
     if (!res.ok || !res.log) return null;
     const body = res.log.replace(/^\s*Result\s*:\s*/i, '').trim();
     if (!body || !body.includes('objects=')) return null;
-    return body.length > PRIMER_CAP ? body.slice(0, PRIMER_CAP) + '\n…(trimmed)' : body;
+    const scope = '\nscope: counts above cover root.organisation only; Ce* enterprise families use class-specific roots and BPMN uses root.Processmanagement';
+    const primer = body + scope;
+    return primer.length > PRIMER_CAP ? primer.slice(0, PRIMER_CAP) + '\n…(trimmed)' : primer;
   } catch (e) {
     log.swallow('ai:primer', e);
     return null;

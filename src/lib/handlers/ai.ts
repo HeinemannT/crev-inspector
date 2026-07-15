@@ -23,8 +23,9 @@ import { buildChatSystem } from '../ai/prompt';
 import { executeAiTool } from './ai-tools';
 import { buildWorkspacePrimer } from './ai-primer';
 import { openExtendedWindow } from '../editor';
-import { PROVIDERS } from '../ai/providers';
+import { parseCustomProviderJson, resolveProvider } from '../ai/providers';
 import { errorMessage, log } from '../logger';
+import { reconcileProfileOrigins } from '../site-access';
 
 /** In-flight completions, keyed by requestId — AI_CANCEL aborts them. */
 const inflight = new Map<string, AbortController>();
@@ -35,7 +36,7 @@ function aiConfig(): AiSettings | undefined {
 
 register('AI_GET_CONFIG', (_msg, respond) => {
   const ai = aiConfig();
-  respond({ type: 'AI_CONFIG_DATA', configured: !!ai?.apiKeyEnc, provider: ai?.provider, model: ai?.model });
+  respond({ type: 'AI_CONFIG_DATA', configured: !!ai?.apiKeyEnc, provider: ai?.provider, model: ai?.model, customProvider: ai?.customProvider });
 });
 
 register('AI_SAVE_CONFIG', async (msg, respond) => {
@@ -45,13 +46,41 @@ register('AI_SAVE_CONFIG', async (msg, respond) => {
     // Keep the existing key when the panel only changes provider/model.
     let apiKeyEnc = prev?.apiKeyEnc ?? '';
     if (msg.apiKey) apiKeyEnc = await encrypt(msg.apiKey);
-    const ai: AiSettings = { provider: msg.provider, model: msg.model, apiKeyEnc };
+    if (msg.provider === 'custom' && !prev?.customProvider) throw new Error('Import custom provider JSON first');
+    const ai: AiSettings = {
+      provider: msg.provider,
+      model: msg.model,
+      apiKeyEnc,
+      ...(prev?.customProvider ? { customProvider: prev.customProvider } : {}),
+    };
+    resolveProvider(ai); // validate provider/model before persisting
     ctx.settings = { ...ctx.settings, ai };
     await saveSettings();
     snapshotSettings();
-    respond({ type: 'AI_CONFIG_SAVED', ok: true, configured: !!apiKeyEnc, provider: ai.provider, model: ai.model });
+    respond({ type: 'AI_CONFIG_SAVED', ok: true, configured: !!apiKeyEnc, provider: ai.provider, model: ai.model, customProvider: ai.customProvider });
     // Notify open editor / studio surfaces so the assistant appears live.
-    sendFireForget({ type: 'AI_CONFIG_CHANGED', configured: !!apiKeyEnc, provider: ai.provider, model: ai.model });
+    sendFireForget({ type: 'AI_CONFIG_CHANGED', configured: !!apiKeyEnc, provider: ai.provider, model: ai.model, customProvider: ai.customProvider });
+  } catch (e) {
+    respond({ type: 'AI_CONFIG_SAVED', ok: false, configured: !!aiConfig()?.apiKeyEnc, error: errorMessage(e) });
+  }
+});
+
+register('AI_SAVE_CUSTOM_PROVIDER', async (msg, respond) => {
+  const ctx = getCtx();
+  try {
+    const parsed = parseCustomProviderJson(msg.json);
+    const prev = ctx.settings.ai;
+    let apiKeyEnc = prev?.provider === 'custom' ? prev.apiKeyEnc : '';
+    if (parsed.apiKey) apiKeyEnc = await encrypt(parsed.apiKey);
+    if (!apiKeyEnc) throw new Error('apiKey is required when adding a custom provider');
+    const model = parsed.provider.models.find(item => item.toolCalling)?.id ?? parsed.provider.models[0].id;
+    const ai: AiSettings = { provider: 'custom', model, apiKeyEnc, customProvider: parsed.provider };
+    resolveProvider(ai);
+    ctx.settings = { ...ctx.settings, ai };
+    await saveSettings();
+    snapshotSettings();
+    respond({ type: 'AI_CONFIG_SAVED', ok: true, configured: true, provider: 'custom', model, customProvider: parsed.provider });
+    sendFireForget({ type: 'AI_CONFIG_CHANGED', configured: true, provider: 'custom', model, customProvider: parsed.provider });
   } catch (e) {
     respond({ type: 'AI_CONFIG_SAVED', ok: false, configured: !!aiConfig()?.apiKeyEnc, error: errorMessage(e) });
   }
@@ -64,6 +93,7 @@ register('AI_REMOVE_CONFIG', async (_msg, respond) => {
   ctx.settings = next;
   await saveSettings();
   snapshotSettings();
+  void reconcileProfileOrigins(ctx.settings.profiles.map(p => p.bmpUrl), undefined);
   respond({ type: 'AI_CONFIG_SAVED', ok: true, configured: false });
   // Notify open editor / studio surfaces so the assistant disappears live.
   sendFireForget({ type: 'AI_CONFIG_CHANGED', configured: false });
@@ -92,7 +122,10 @@ register('AI_TEST', async (_msg, respond) => {
 register('AI_LIST_MODELS', async (msg, respond) => {
   const ai = aiConfig();
   if (!ai?.apiKeyEnc) { respond({ type: 'AI_MODELS_RESULT', ok: false, error: 'No API key configured' }); return; }
-  if (!PROVIDERS[msg.provider].openAiCompat) {
+  let meta;
+  try { meta = resolveProvider({ ...ai, provider: msg.provider }); }
+  catch (e) { respond({ type: 'AI_MODELS_RESULT', ok: false, error: errorMessage(e) }); return; }
+  if (!meta.openAiCompat) {
     respond({ type: 'AI_MODELS_RESULT', ok: false, error: 'Model listing is not available for this provider' });
     return;
   }

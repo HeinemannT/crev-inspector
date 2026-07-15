@@ -381,7 +381,14 @@ chrome.runtime.onMessage.addListener((msg: InspectorMessage) => {
       S.settings = {
         ...S.settings,
         ai: msg.configured
-          ? { provider: msg.provider ?? S.settings.ai?.provider ?? 'anthropic', model: msg.model ?? '', apiKeyEnc: 'set' }
+          ? {
+              provider: msg.provider ?? S.settings.ai?.provider ?? 'anthropic',
+              model: msg.model ?? '',
+              apiKeyEnc: 'set',
+              ...(msg.customProvider
+                ? { customProvider: msg.customProvider }
+                : S.settings.ai?.customProvider ? { customProvider: S.settings.ai.customProvider } : {}),
+            }
           : undefined,
       };
       syncAiTab();

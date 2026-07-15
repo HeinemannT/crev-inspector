@@ -16,10 +16,15 @@
  * first-time injection into the already-open tab that was just granted.
  */
 import { log } from './logger';
-import { AI_API_ORIGINS } from './ai/providers';
+import { AI_API_ORIGINS, customProviderOrigins } from './ai/providers';
+import type { AiCustomProvider } from './ai/types';
 
 const CONTENT_ID = 'crev-content';
 const INTERCEPTOR_ID = 'crev-interceptor';
+/** Origins on which CREV may inspect the page. Provider API permissions are
+ *  fetch-only and must never enter this set. Populated from saved profiles by
+ *  reconcileProfileOrigins once settings are ready. */
+const pageOrigins = new Set<string>();
 
 /** `https://host/*` match pattern for a page URL — null for non-http(s) schemes. */
 export function originPatternFor(url: string | undefined): string | null {
@@ -43,7 +48,8 @@ export async function grantedOrigins(): Promise<string[]> {
  *  called at SW boot and on every permission grant/revoke. Unregister-then-register keeps the
  *  logic trivially correct (the set is tiny; churn is a no-op for the running pages). */
 export async function syncRegisteredScripts(): Promise<void> {
-  const origins = await grantedOrigins();
+  const granted = new Set(await grantedOrigins());
+  const origins = [...pageOrigins].filter(origin => granted.has(origin));
   try {
     const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [CONTENT_ID, INTERCEPTOR_ID] });
     if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: existing.map(s => s.id) });
@@ -83,12 +89,16 @@ export function initSiteAccess(): void {
  *  boot-time runs double as the migration that revokes the legacy `<all_urls>` carry-over from
  *  pre-0.5.3 installs (it's not a profile origin, so it's dropped). Granting itself stays in the
  *  panel (permissions.request needs the user gesture); removal needs none. */
-export async function reconcileProfileOrigins(profileUrls: Array<string | undefined>): Promise<void> {
-  const keep = new Set(profileUrls.map(originPatternFor).filter((p): p is string => !!p));
+export async function reconcileProfileOrigins(profileUrls: Array<string | undefined>, customProvider?: AiCustomProvider): Promise<void> {
+  const configuredPages = profileUrls.map(originPatternFor).filter((p): p is string => !!p);
+  pageOrigins.clear();
+  for (const origin of configuredPages) pageOrigins.add(origin);
+  const keep = new Set(configuredPages);
   // Never drop the AI provider API origins — a saved AI key needs its host
   // permission to survive every profile save/delete/boot reconcile. They're
   // harmless when no key is configured (nothing calls them).
   for (const o of AI_API_ORIGINS) keep.add(o);
+  for (const o of customProviderOrigins(customProvider)) keep.add(o);
   const granted = await grantedOrigins();
   const drop = granted.filter(o => !keep.has(o));
   if (drop.length) {

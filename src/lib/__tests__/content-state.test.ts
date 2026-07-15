@@ -30,6 +30,7 @@ describe('ContentState', () => {
     expect(s.observer).toBeNull();
     expect(s.tooltipHideTimer).toBeNull();
     expect(s.debounceTimer).toBeNull();
+    expect(s.renderRefreshTimer).toBeNull();
     expect(s.hoveredLabelEl).toBeNull();
   });
 
@@ -101,11 +102,13 @@ describe('ContentState', () => {
     it('clears all timers', () => {
       vi.useFakeTimers();
       s.debounceTimer = setTimeout(() => {}, 1000);
+      s.renderRefreshTimer = setTimeout(() => {}, 1000);
       s.tooltipHideTimer = setTimeout(() => {}, 1000);
 
       s.resetAll();
 
       expect(s.debounceTimer).toBeNull();
+      expect(s.renderRefreshTimer).toBeNull();
       expect(s.tooltipHideTimer).toBeNull();
         vi.useRealTimers();
     });

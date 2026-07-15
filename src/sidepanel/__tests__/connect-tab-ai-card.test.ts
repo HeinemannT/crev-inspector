@@ -120,6 +120,46 @@ describe('AI Assistant card states', () => {
     expect(el.querySelector('.ai-card-edit')?.textContent).toBe('Close');
   });
 
+  it('renders a saved custom provider in the picker and redacts its key JSON', () => {
+    shared.settings = freshSettings({
+      provider: 'custom', model: 'agent', apiKeyEnc: 'set',
+      customProvider: {
+        name: 'Company Gateway', vendor: 'company', apiType: 'openai',
+        models: [{ id: 'agent', name: 'Agent', url: 'https://ai.example.test/v1', toolCalling: true }],
+      },
+    });
+    const { el } = renderTab();
+    (el.querySelector('.ai-card') as HTMLElement).click();
+    expect(el.querySelector('.ai-card-ln2')?.textContent).toContain('Company Gateway');
+    expect((el.querySelector('#ai-provider') as HTMLSelectElement).value).toBe('custom');
+    const json = (el.querySelector('#ai-provider-json') as HTMLTextAreaElement).value;
+    expect(json).toContain('"Company Gateway"');
+    expect(json).toContain('"apiKey": ""');
+    expect(json).not.toContain('set');
+    expect(el.querySelector('.ai-json-help')?.textContent).toContain('openai or anthropic');
+    expect(el.querySelector('.ai-json-help')?.textContent).toContain('/chat/completions');
+    (el.querySelector('.ai-model-caret') as HTMLElement).click();
+    expect(el.querySelector('.ai-model-opt-name')?.textContent).toBe('Agent');
+    expect(el.querySelector('.ai-model-opt-id')?.textContent).toBe('agent');
+  });
+
+  it('keeps invalid JSON visible and shows its error beside the editor', () => {
+    shared.settings = freshSettings();
+    const { el } = renderTab();
+    (el.querySelector('.ai-card') as HTMLElement).click();
+    const details = el.querySelector('.ai-json') as HTMLDetailsElement;
+    details.open = true;
+    details.dispatchEvent(new Event('toggle'));
+    const textarea = el.querySelector('#ai-provider-json') as HTMLTextAreaElement;
+    textarea.value = '{bad';
+    textarea.dispatchEvent(new Event('input'));
+    (el.querySelector('[data-action="ai-save-json"]') as HTMLElement).click();
+
+    expect((el.querySelector('.ai-json') as HTMLDetailsElement).open).toBe(true);
+    expect(el.querySelector('.ai-json-error')?.textContent).toContain('Invalid JSON');
+    expect((el.querySelector('#ai-provider-json') as HTMLTextAreaElement).value).toBe('{bad');
+  });
+
   it('AI_TEST_RESULT persists lastTest into shared settings for the card', () => {
     shared.settings = freshSettings({ provider: 'deepseek', model: 'deepseek-chat', apiKeyEnc: 'set' });
     const { tab, el } = renderTab();

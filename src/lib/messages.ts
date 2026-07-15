@@ -34,7 +34,7 @@ import type {
   TypeSchemaProp,
   WidgetInfo,
 } from './types';
-import type { AiProviderId, AiRequestPayload, AiChatTurn, AiChatEvent, AiChatQuote, AiContextEnvelope, AiContextSource } from './ai/types';
+import type { AiCustomProvider, AiProviderId, AiRequestPayload, AiChatTurn, AiChatEvent, AiChatQuote, AiContextEnvelope, AiContextSource } from './ai/types';
 import type { LModel, PlanNote, NodeStyle, FlowNode } from './layout/types';
 import type { StylePreset } from './style-presets';
 import type { BlueprintCtx, FlowRefListItem } from './layout/sync';
@@ -56,6 +56,10 @@ export type PageMessage =
   // list refreshes — without this, post-route widgets show grey "?" until
   // the user clicks Refresh or switches panel tabs.
   | { type: 'BMP_URL_CHANGED' }
+  // The rendered page changed without changing its owner/route (React mounted,
+  // widgets were replaced, or an in-page tab switched). Refresh visible page
+  // information, but preserve the user's explicit object selection.
+  | { type: 'BMP_PAGE_RENDER_CHANGED' }
   | { type: 'GET_CONTEXT_RID' }
   | { type: 'CONTEXT_RID_DATA'; rid?: string; name?: string; objectType?: string; businessId?: string }
   | { type: 'SELECT_OBJECT'; rid: string; openPanel?: boolean }
@@ -426,14 +430,15 @@ export type StylePresetMessage =
 // encrypted and decrypted only on the way to a provider.
 export type AiMessage =
   | { type: 'AI_GET_CONFIG' }
-  | { type: 'AI_CONFIG_DATA'; configured: boolean; provider?: AiProviderId; model?: string }
+  | { type: 'AI_CONFIG_DATA'; configured: boolean; provider?: AiProviderId; model?: string; customProvider?: AiCustomProvider }
   | { type: 'AI_SAVE_CONFIG'; provider: AiProviderId; model: string; apiKey?: string }
+  | { type: 'AI_SAVE_CUSTOM_PROVIDER'; json: string }
   | { type: 'AI_REMOVE_CONFIG' }
-  | { type: 'AI_CONFIG_SAVED'; ok: boolean; configured: boolean; provider?: AiProviderId; model?: string; error?: string }
+  | { type: 'AI_CONFIG_SAVED'; ok: boolean; configured: boolean; provider?: AiProviderId; model?: string; customProvider?: AiCustomProvider; error?: string }
   // Broadcast (SW → all pages) whenever the stored AI config changes, so
   // already-open editor / studio surfaces can show or hide the assistant live
   // (zero-footprint: removing the key must disable it without a reload).
-  | { type: 'AI_CONFIG_CHANGED'; configured: boolean; provider?: AiProviderId; model?: string }
+  | { type: 'AI_CONFIG_CHANGED'; configured: boolean; provider?: AiProviderId; model?: string; customProvider?: AiCustomProvider }
   | { type: 'AI_TEST' }
   | { type: 'AI_TEST_RESULT'; ok: boolean; model?: string; ms?: number; error?: string }
   | { type: 'AI_LIST_MODELS'; provider: AiProviderId }

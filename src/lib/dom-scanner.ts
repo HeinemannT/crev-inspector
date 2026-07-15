@@ -284,10 +284,10 @@ export function detectBmpPage(): DetectionResult {
   const signals: Array<{ name: string; weight: number }> = [];
 
   if (document.getElementById('epmapp'))
-    signals.push({ name: '#epmapp container', weight: 0.35 });
+    signals.push({ name: '#epmapp container', weight: 0.55 });
 
   if (document.getElementById('corpo-app'))
-    signals.push({ name: '#corpo-app root', weight: 0.35 });
+    signals.push({ name: '#corpo-app root', weight: 0.55 });
 
   if (document.querySelector('[data-rid]'))
     signals.push({ name: 'data-rid attributes', weight: 0.25 });

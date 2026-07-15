@@ -5,7 +5,7 @@
  */
 
 import type { AiChatEvent, AiChatTurn, AiRequestPayload, AiSettings } from './types';
-import { PROVIDERS } from './providers';
+import { resolveProvider } from './providers';
 import { buildPrompt } from './prompt';
 import { streamAnthropic, streamAnthropicTurn, anthropicTools } from './anthropic';
 import type { AnthropicContentBlock, AnthropicMessage } from './anthropic';
@@ -25,12 +25,13 @@ export interface StreamCompletionOpts {
 }
 
 export async function streamCompletion(opts: StreamCompletionOpts): Promise<{ text: string }> {
-  const meta = PROVIDERS[opts.settings.provider];
+  const meta = resolveProvider(opts.settings);
   const { system, user } = buildPrompt(opts.payload);
   if (meta.openAiCompat) {
     return streamOpenAiCompat({
       baseUrl: meta.baseUrl,
       model: opts.settings.model,
+      maxTokens: meta.maxOutputTokens,
       apiKey: opts.apiKey,
       system,
       user,
@@ -39,7 +40,9 @@ export async function streamCompletion(opts: StreamCompletionOpts): Promise<{ te
     });
   }
   return streamAnthropic({
+    baseUrl: meta.baseUrl,
     model: opts.settings.model,
+    maxTokens: meta.maxOutputTokens,
     apiKey: opts.apiKey,
     system,
     user,
@@ -70,10 +73,10 @@ export interface StreamChatOpts {
  *  the model answers. Emits the AiChatEvent stream via onEvent. On cancellation
  *  it returns quietly (no done/error); on a real failure it emits `error`. */
 export async function streamChat(opts: StreamChatOpts): Promise<void> {
-  const meta = PROVIDERS[opts.settings.provider];
+  const meta = resolveProvider(opts.settings);
   try {
-    if (meta.openAiCompat) await runOpenAiChat(opts, meta.baseUrl);
-    else await runAnthropicChat(opts);
+    if (meta.openAiCompat) await runOpenAiChat(opts, meta.baseUrl, meta.maxOutputTokens);
+    else await runAnthropicChat(opts, meta.baseUrl, meta.maxOutputTokens);
     opts.onEvent({ kind: 'done' });
   } catch (e) {
     if (opts.signal?.aborted) return; // caller cancelled — UI already reset
@@ -89,7 +92,8 @@ function summarizeCall(call: ToolCall): string {
   };
   switch (call.name) {
     case 'read_object': return `read_object ${arg('ref') ?? ''}`.trim();
-    case 'query_context': return `query_context ${arg('type') ?? ''}`.trim();
+    case 'read_code': return `read_code ${arg('ref') ?? ''}.${arg('property') ?? ''}`.trim();
+    case 'query_context': return `query_context ${arg('type') ?? arg('templateQuery') ?? ''}`.trim();
     case 'read_type': return `read_type ${arg('type') ?? ''}`.trim();
     case 'search_objects': return `search_objects "${arg('query') ?? ''}"`;
     case 'code_search': return `code_search "${arg('pattern') ?? ''}"`;
@@ -172,7 +176,7 @@ function toolCallFingerprint(call: ToolCall): string {
   return `${call.name}:${stable(call.input)}`;
 }
 
-async function runAnthropicChat(opts: StreamChatOpts): Promise<void> {
+async function runAnthropicChat(opts: StreamChatOpts, baseUrl: string, maxTokens?: number): Promise<void> {
   const messages: AnthropicMessage[] = [];
   for (const turn of opts.history) messages.push({ role: turn.role, content: turn.text });
   messages.push({ role: 'user', content: opts.text });
@@ -183,7 +187,9 @@ async function runAnthropicChat(opts: StreamChatOpts): Promise<void> {
     // split a marker across chunks — the scrubber buffers a suspicious tail.
     const scrub = new ToolMarkupScrubber();
     const turn = await streamAnthropicTurn({
+      baseUrl,
       model: opts.settings.model,
+      maxTokens,
       apiKey: opts.apiKey,
       system: opts.system,
       messages,
@@ -221,7 +227,7 @@ async function runAnthropicChat(opts: StreamChatOpts): Promise<void> {
   await runToolLoop(runTurn, appendResults, appendFinalNote, opts);
 }
 
-async function runOpenAiChat(opts: StreamChatOpts, baseUrl: string): Promise<void> {
+async function runOpenAiChat(opts: StreamChatOpts, baseUrl: string, maxTokens?: number): Promise<void> {
   const messages: OpenAiMessage[] = [];
   if (opts.system) messages.push({ role: 'system', content: opts.system });
   for (const turn of opts.history) messages.push({ role: turn.role, content: turn.text });
@@ -234,6 +240,7 @@ async function runOpenAiChat(opts: StreamChatOpts, baseUrl: string): Promise<voi
     const turn = await streamOpenAiTurn({
       baseUrl,
       model: opts.settings.model,
+      maxTokens,
       apiKey: opts.apiKey,
       messages,
       tools: allowTools ? openAiTools() : [],
@@ -262,15 +269,15 @@ async function runOpenAiChat(opts: StreamChatOpts, baseUrl: string): Promise<voi
 /** One-shot "does this key work" probe. Sends a tiny request and reports
  *  success/failure with the provider's error message. */
 export async function testConnection(settings: AiSettings, apiKey: string, signal?: AbortSignal): Promise<{ ok: boolean; error?: string }> {
-  const meta = PROVIDERS[settings.provider];
+  const meta = resolveProvider(settings);
   const user = 'Reply with the single word: OK';
   try {
     let got = '';
     const onChunk = (d: string) => { got += d; };
     if (meta.openAiCompat) {
-      await streamOpenAiCompat({ baseUrl: meta.baseUrl, model: settings.model, apiKey, system: '', user, signal, onChunk });
+      await streamOpenAiCompat({ baseUrl: meta.baseUrl, model: settings.model, maxTokens: meta.maxOutputTokens, apiKey, system: '', user, signal, onChunk });
     } else {
-      await streamAnthropic({ model: settings.model, apiKey, system: '', user, signal, onChunk });
+      await streamAnthropic({ baseUrl: meta.baseUrl, model: settings.model, maxTokens: meta.maxOutputTokens, apiKey, system: '', user, signal, onChunk });
     }
     return { ok: got.length > 0 };
   } catch (e) {
@@ -281,7 +288,7 @@ export async function testConnection(settings: AiSettings, apiKey: string, signa
 /** List models for an OpenAI-compatible provider. Throws for Anthropic (no
  *  listing endpoint — callers use the static suggestion list). */
 export async function listModels(settings: AiSettings, apiKey: string, signal?: AbortSignal): Promise<string[]> {
-  const meta = PROVIDERS[settings.provider];
+  const meta = resolveProvider(settings);
   if (!meta.openAiCompat) throw new Error('Model listing is not available for this provider');
   return listOpenAiModels(meta.baseUrl, apiKey, signal);
 }

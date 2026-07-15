@@ -5,10 +5,25 @@ import {
 } from '../tools';
 
 describe('tool schemas', () => {
-  it('exposes the seven read-only tools', () => {
+  it('exposes the eight read-only tools', () => {
     expect(TOOL_DEFS.map(t => t.name).sort()).toEqual(
-      ['code_search', 'preview_ec', 'query_context', 'read_layout', 'read_object', 'read_type', 'search_objects'],
+      ['code_search', 'preview_ec', 'query_context', 'read_code', 'read_layout', 'read_object', 'read_type', 'search_objects'],
     );
+  });
+
+  it('does not encode workspace-specific semantic class or status guesses', () => {
+    const context = TOOL_DEFS.find(tool => tool.name === 'query_context');
+    const schema = JSON.stringify(context);
+    expect(schema).not.toContain('Indicator');
+    expect(schema).not.toContain('Resolved');
+    expect(schema).not.toContain('Task');
+    expect(schema).toContain('templateQuery');
+    expect(context?.description).toContain('do not query again or inspect an exemplar');
+    expect(context?.description).toContain('those questions start with read_layout');
+    const readCode = TOOL_DEFS.find(tool => tool.name === 'read_code');
+    expect(readCode?.description).toContain('do not preview/re-run the stored code');
+    const readLayout = TOOL_DEFS.find(tool => tool.name === 'read_layout');
+    expect(readLayout?.description).toContain('do not call query_context first');
   });
 
   it('every tool has a valid object schema with required ⊆ properties', () => {

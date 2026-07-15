@@ -6,19 +6,23 @@ import * as esbuild from 'esbuild';
 const BUILD_TARGET = 'esnext' as const;
 const contentEntry = resolve(__dirname, 'src/content.ts');
 const blueprintEntry = resolve(__dirname, 'src/content-blueprint-entry.ts');
+const interceptorEntry = resolve(__dirname, 'src/interceptor.ts');
 
 /**
  * Content scripts run as classic scripts (not ES modules), so they
  * cannot use `import` statements. Use esbuild to bundle each content
  * entry into a self-contained IIFE that replaces the Vite-generated output.
  *
- * Two entries share one esbuild pass config:
+ * Three classic-script entries share one esbuild pass config:
  *   - content.js            — the always-on inspector bundle (src/content.ts)
  *   - content-blueprint.js  — the lazily-injected Blueprint editor (~150 KB:
  *     content-blueprint/* + lib/layout/* + the ~63 KB CSS via the text loader),
  *     injected on demand on first Ctrl+Shift+B activation (plans/009), NOT
  *     registered for every page load. Keeping it out of content.js is the whole
  *     point of the split — see src/content-blueprint-entry.ts.
+ *   - interceptor.js        — registered in Chrome's MAIN world. Registered
+ *     content scripts are classic scripts too; leaving Rollup's shared-chunk
+ *     import here silently prevents the interceptor from starting.
  */
 async function bundleOne(entryPoint: string): Promise<string> {
   const result = await esbuild.build({
@@ -40,6 +44,10 @@ function bundleContentScript(): Plugin {
       const contentEntryChunk = bundle['content.js'];
       if (contentEntryChunk && contentEntryChunk.type === 'chunk') {
         contentEntryChunk.code = await bundleOne(contentEntry);
+      }
+      const interceptorEntryChunk = bundle['interceptor.js'];
+      if (interceptorEntryChunk && interceptorEntryChunk.type === 'chunk') {
+        interceptorEntryChunk.code = await bundleOne(interceptorEntry);
       }
       // content-blueprint.js has no Rollup input (it's content-only, never imported by an ES-module
       // page), so emit it directly as an asset rather than patching an existing chunk.

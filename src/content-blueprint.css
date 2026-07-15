@@ -211,7 +211,9 @@
 #crev-blueprint-layer .bp-tabs>button.bp-tabs-fold:hover{background:transparent;border-color:var(--bp-muted);color:var(--bp-text)}
 
 /* ── add / move picker ───────────────────────────────── */
-#crev-blueprint-layer .bp-pick-back{position:fixed;inset:0;z-index:55;pointer-events:auto}
+/* Pickers are modal to every floating Blueprint panel. In particular the Add
+   action picker must sit ABOVE its action-menu panel (z 60), not underneath it. */
+#crev-blueprint-layer .bp-pick-back{position:fixed;inset:0;z-index:65;pointer-events:auto}
 #crev-blueprint-layer .bp-pick{position:absolute;width:300px;max-height:400px;display:flex;flex-direction:column;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);overflow:hidden}
 #crev-blueprint-layer .bp-pick-h{padding:10px 12px;font:600 12px 'BPInter',sans-serif;color:var(--bp-text);border-bottom:var(--bp-hair) solid var(--bp-line-2)}
 #crev-blueprint-layer .bp-pick-s{margin:8px 10px;padding:6px 9px;background:transparent;border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r);color:var(--bp-text);font:12px 'BPInter',sans-serif;outline:none}
@@ -706,6 +708,10 @@
 #crev-blueprint-layer .bp-fic svg{width:13px;height:13px}
 #crev-blueprint-layer .bp-fic:hover{color:var(--bp-cyan-hi);background:rgba(21,101,192,.09)}
 #crev-blueprint-layer .bp-fic.on{color:var(--bp-cyan-hi);background:rgba(21,101,192,.12);border-color:var(--bp-cyan-hi)}
+/* Scope state is encoded in the glyph itself, not only by tint:
+   slashed tabs = this tab only; plain tabs = all tabs. */
+#crev-blueprint-layer .bp-fic-scope{position:relative}
+#crev-blueprint-layer .bp-fic-scope.single-tab::after{content:"";position:absolute;left:3px;top:9px;width:15px;height:1.5px;border-radius:1px;background:currentColor;transform:rotate(-45deg);transform-origin:center;pointer-events:none}
 #crev-blueprint-layer .bp-ficseg{display:inline-flex;border:1px solid var(--bp-line-2);border-radius:var(--bp-r);overflow:hidden}
 #crev-blueprint-layer .bp-ficseg .bp-fic{border:0;border-radius:0;width:24px}
 #crev-blueprint-layer .bp-ficseg .bp-fic+.bp-fic{border-left:1px solid var(--bp-line-2)}

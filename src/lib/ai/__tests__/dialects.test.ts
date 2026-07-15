@@ -93,7 +93,7 @@ describe('streamOpenAiCompat', () => {
     ])); }));
 
     const chunks: string[] = [];
-    const { text } = await streamOpenAiCompat({ baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', apiKey: 'sk-d', system: 'S', user: 'U', onChunk: d => chunks.push(d) });
+    const { text } = await streamOpenAiCompat({ baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', maxTokens: 4096, apiKey: 'sk-d', system: 'S', user: 'U', onChunk: d => chunks.push(d) });
 
     expect(text).toBe('Hello');
     expect(chunks).toEqual(['Hel', 'lo']);
@@ -103,6 +103,7 @@ describe('streamOpenAiCompat', () => {
     const body = JSON.parse(init.body);
     expect(body.stream).toBe(true);
     expect(body.model).toBe('deepseek-chat');
+    expect(body.max_tokens).toBe(4096);
     expect(body.messages).toEqual([{ role: 'system', content: 'S' }, { role: 'user', content: 'U' }]);
   });
 
@@ -122,6 +123,7 @@ describe('streamOpenAiCompat', () => {
     vi.stubGlobal('fetch', vi.fn((url: string, init: any) => { calls.push(init); return Promise.resolve(okStream(['data: [DONE]\n\n'])); }));
     await streamOpenAiCompat({ baseUrl: 'https://api.x.ai/v1', model: 'grok-4', apiKey: 'k', system: '', user: 'u', onChunk: () => {} });
     expect(JSON.parse(calls[0].body).messages).toEqual([{ role: 'user', content: 'u' }]);
+    expect(JSON.parse(calls[0].body).max_tokens).toBeUndefined();
   });
 
   it('rejects on a non-2xx', async () => {

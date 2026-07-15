@@ -15,7 +15,30 @@ import type { InspectorMessage } from './lib/types';
 const RID_COUNT_REFRESH_DEBOUNCE = 250;
 
 /** Start the MutationObserver that triggers overlay sync and URL change detection. */
-export function startObserver(s: ContentState, onUrlChange: () => void) {
+function renderedRidFingerprint(): string {
+  let count = 0;
+  let hash = 2166136261;
+  for (const el of document.querySelectorAll('[data-rid],[data-object-rid],[data-container-rid]')) {
+    const rid = el.getAttribute('data-rid') ?? el.getAttribute('data-object-rid') ?? el.getAttribute('data-container-rid') ?? '';
+    count++;
+    for (let i = 0; i < rid.length; i++) {
+      hash ^= rid.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+  }
+  return `${count}:${hash >>> 0}`;
+}
+
+function bmpRootFingerprint(): string {
+  return `${document.getElementById('epmapp') ? 1 : 0}:${document.getElementById('corpo-app') ? 1 : 0}`;
+}
+
+function pageOwnerRid(href: string): string | null {
+  try { return new URL(href).searchParams.get('rid'); }
+  catch { return null; }
+}
+
+export function startObserver(s: ContentState, refreshDetection: () => void) {
   if (s.observer) return;
 
   // Track the last [data-rid] count we saw so we can detect "BMP just rendered
@@ -24,9 +47,8 @@ export function startObserver(s: ContentState, onUrlChange: () => void) {
   // showing widgets:[] for a few hundred ms after the user opened a fresh
   // BMP tab. The Page tab's activate() race against React's first paint
   // was the most common cause of the "Page tab empty" complaint.
-  let lastRidCount = document.querySelectorAll('[data-rid]').length;
-  let ridDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-
+  let lastRidFingerprint = renderedRidFingerprint();
+  let lastRootFingerprint = bmpRootFingerprint();
   // Snapshot of the active tab's tabrid. Tab clicks in BMP don't
   // change the URL, but they usually re-render the widget list — if
   // two tabs happen to expose the same widget count, the ridCount diff
@@ -54,15 +76,22 @@ export function startObserver(s: ContentState, onUrlChange: () => void) {
     // because the panel's PAGE_INFO is one-shot per panel-activate and stale
     // after a BMP tab switch.
     if (window.location.href !== s.lastUrl) {
+      const ownerChanged = pageOwnerRid(window.location.href) !== pageOwnerRid(s.lastUrl);
       s.lastUrl = window.location.href;
       s.resetOverlays();
       s.resetDiscovery();
-      // The bound object changed — drop the stale fiber page context so the
-      // resolver falls back to the (new) URL until the interceptor re-posts
-      // PAGE_CONTEXT for the new page.
-      s.fiberPageContext = null;
-      onUrlChange();
-      sendToSW({ type: 'BMP_URL_CHANGED' } as InspectorMessage);
+      refreshDetection();
+      if (ownerChanged) {
+        // The page owner changed — drop the stale fiber context and tell the
+        // worker this is navigation (which also clears explicit selection).
+        s.fiberPageContext = null;
+        sendToSW({ type: 'BMP_URL_CHANGED' } as InspectorMessage);
+      } else {
+        // BMP may write tabrid, period, ytd, and other presentation state into
+        // the URL. Those are renders within the same page owner and must not
+        // erase an object the user explicitly selected.
+        sendToSW({ type: 'BMP_PAGE_RENDER_CHANGED' } as InspectorMessage);
+      }
     }
 
     // Did the data-rid population change meaningfully? If the count flipped from
@@ -73,14 +102,24 @@ export function startObserver(s: ContentState, onUrlChange: () => void) {
     // animation/typing burst that's one measurement after things settle instead
     // of one per batch. Re-uses the BMP_URL_CHANGED signal (SW handler = "scan
     // the active tab again").
-    if (ridDebounceTimer) clearTimeout(ridDebounceTimer);
-    ridDebounceTimer = setTimeout(() => {
-      const ridCount = document.querySelectorAll('[data-rid]').length;
+    // Coalesce to at most one scan per window. Unlike a trailing debounce this
+    // cannot starve forever on a live dashboard that mutates continuously.
+    if (!s.renderRefreshTimer) s.renderRefreshTimer = setTimeout(() => {
+      s.renderRefreshTimer = null;
+      const ridFingerprint = renderedRidFingerprint();
+      const rootFingerprint = bmpRootFingerprint();
       const tabRid = findActiveTabAnchor()?.rid ?? null;
-      if (ridCount !== lastRidCount || tabRid !== lastTabRid) {
-        lastRidCount = ridCount;
+      if (ridFingerprint !== lastRidFingerprint || rootFingerprint !== lastRootFingerprint || tabRid !== lastTabRid) {
+        lastRidFingerprint = ridFingerprint;
+        lastRootFingerprint = rootFingerprint;
         lastTabRid = tabRid;
-        sendToSW({ type: 'BMP_URL_CHANGED' } as InspectorMessage);
+        // The content script can boot before BMP's React tree has mounted. In
+        // that case the initial DOM scan caches `isBmp: false`; merely asking
+        // the panel to refresh cannot recover because fiber extraction is
+        // gated on that cached result. Re-run detection first, then notify the
+        // panel (runtime port messages preserve this order).
+        refreshDetection();
+        sendToSW({ type: 'BMP_PAGE_RENDER_CHANGED' } as InspectorMessage);
       }
     }, RID_COUNT_REFRESH_DEBOUNCE);
 
@@ -91,6 +130,11 @@ export function startObserver(s: ContentState, onUrlChange: () => void) {
     }
   });
 
-  s.observer.observe(document.body, { childList: true, subtree: true });
+  s.observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class', 'data-rid', 'data-object-rid', 'data-container-rid'],
+  });
   window.__crev_observer = s.observer;
 }

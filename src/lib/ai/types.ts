@@ -4,7 +4,28 @@
  * a couple of literal unions — so any surface can depend on it cheaply.
  */
 
-export type AiProviderId = 'anthropic' | 'openai' | 'deepseek' | 'grok';
+export type AiProviderId = 'anthropic' | 'openai' | 'deepseek' | 'grok' | 'custom';
+export type AiApiType = 'openai' | 'anthropic';
+
+export interface AiCustomModel {
+  id: string;
+  name: string;
+  /** API base URL. The selected dialect appends its standard endpoint path. */
+  url: string;
+  toolCalling: boolean;
+  vision?: boolean;
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+}
+
+/** Sanitized custom-provider catalogue. The imported plaintext apiKey is
+ *  deliberately not part of this persisted shape. */
+export interface AiCustomProvider {
+  name: string;
+  vendor: string;
+  apiType: AiApiType;
+  models: AiCustomModel[];
+}
 
 /** Editor language family the request targets. */
 export type AiLang = 'extended' | 'html' | 'javascript';
@@ -19,6 +40,9 @@ export interface AiSettings {
   model: string;
   /** Encrypted API key (never plaintext at rest, never sent to a UI surface). */
   apiKeyEnc: string;
+  /** One optional user-authored provider catalogue. Its key lives in
+   *  apiKeyEnc, never in this JSON-shaped metadata. */
+  customProvider?: AiCustomProvider;
   /** Last connection-test outcome — persisted (key-free) so the Connect tab's
    *  AI card can render READY + latency after a reload. Cleared on any config
    *  save (a new provider/model/key invalidates a prior test). */

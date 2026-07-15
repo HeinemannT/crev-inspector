@@ -138,12 +138,30 @@ describe('executeAiTool — defensive', () => {
     const [code, objectRid, transactional] = executeEc.mock.calls[0];
     expect(objectRid).toBeUndefined();
     expect(transactional).toBe(false);
-    expect(code).toContain('_context := lookup(5238328459709259649)');
+    expect(code).toContain('_view := lookup(5238328459709259649)');
+    expect(code).toContain('_effective := _view.template');
     expect(code).toContain('_context.descendants(Indicator)');
     expect(code).toContain('.filter(description = "*Status: Resolved*")');
     expect(code).toContain('_item.description.whenMissing("(missing)")');
     expect(code).not.toContain('_item.businessId');
     expect(code).not.toContain('_item.rid.whenMissing');
+  });
+
+  it('query_context discovers semantic template matches without guessing a class', async () => {
+    mockChromeStorage();
+    const resolveRef = vi.fn(async () => 'lookup(9)');
+    const executeEc = vi.fn(async (_code: string) => ({ ok: true, log: 'Matched: 3\nClasses: CeProcess=3' }));
+    setSwContext(makeCtx({ client: { resolveRef, executeEc } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('query_context', { templateQuery: 'process' }), undefined, scorecardContext);
+
+    expect(res.isError).toBe(false);
+    const code = executeEc.mock.calls[0][0];
+    expect(code).toContain('_context.descendants()');
+    expect(code).toContain('linkedTo.name = "*process*"');
+    expect(code).toContain('template.name = "*process*"');
+    expect(code).toContain('_byClass.get(_class).size()');
   });
 
   it('query_context rejects missing context and invalid EC identifiers before execution', async () => {
@@ -180,7 +198,8 @@ describe('executeAiTool — defensive', () => {
     }), undefined, scorecardContext);
 
     expect(res.isError).toBe(false);
-    expect(res.content).toContain('warnings mean the requested property may be missing');
+    expect(res.content).toContain('Missing-value warnings are expected');
+    expect(res.content).toContain('Retry only if a specifically requested field is absent');
   });
 
   it('search_objects formats quick-search hits', async () => {
@@ -236,5 +255,51 @@ describe('executeAiTool — defensive', () => {
     const res = await executeAiTool(call('read_object', { ref: 'nope' }));
     expect(res.isError).toBe(true);
     expect(res.content).toContain('No object found');
+  });
+
+  it('read_object uses a supplied numeric rid directly', async () => {
+    mockChromeStorage();
+    const executeEc = vi.fn();
+    const fetchObjectPane = vi.fn(async () => ({
+      instance: { rid: '42', businessId: 'tbl_42', name: 'Processes', type: 'ExtendedTable' },
+      template: null, parent: null, instanceProps: {}, templateProps: {}, contextValues: {}, references: {}, codeFields: {},
+    }));
+    setSwContext(makeCtx({ client: { executeEc, fetchObjectPane } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('read_object', { ref: '42' }));
+
+    expect(res.isError).toBe(false);
+    expect(fetchObjectPane).toHaveBeenCalledWith('42', undefined);
+    expect(executeEc).not.toHaveBeenCalled();
+  });
+
+  it('read_code returns raw ExtendedTable expression by rid without resolving it again', async () => {
+    mockChromeStorage();
+    const executeEc = vi.fn();
+    const fetchCodeViaEc = vi.fn(async () => ({ expression: 'rows := LIST()\nrows' }));
+    setSwContext(makeCtx({ client: { executeEc, fetchCodeViaEc } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('read_code', { ref: '42', property: 'expression' }));
+
+    expect(res.isError).toBe(false);
+    expect(fetchCodeViaEc).toHaveBeenCalledWith('42', ['expression']);
+    expect(executeEc).not.toHaveBeenCalled();
+    expect(res.content).toContain('```extended\nrows := LIST()');
+    expect(res.content).toContain('answer from this source now');
+    expect(res.content).toContain('do not call query_context');
+  });
+
+  it('formats Blueprint layout as portal structure plus page-owned code-bearing widgets', async () => {
+    const { formatAiLayout } = await import('../ai-tools');
+    const table = { id: 'tbl_process', rid: '44', kind: 'widget', className: 'ExtendedTable', name: 'Processes', cols: { L: 6 }, children: [] } as any;
+    const tab = { id: 'tab_main', rid: '43', kind: 'tab', className: 'Tab', name: 'Main', cols: { L: 6 }, children: [table] } as any;
+    const model = { pageId: 'ent_process', pageRid: '99', pageName: 'Process template', pageClass: 'EnterpriseTemplate', tabsetId: 'default_tabset', tabs: [tab], target: 'instance', hasTemplate: false } as any;
+    const out = formatAiLayout('12', { kind: 'page', ctx: { pageId: 'ent_process', pageRid: '99', tabsetId: 'default_tabset' }, load: { model, baseline: model, orphans: [] } } as any);
+
+    expect(out).toContain('viewed enterprise instance → .template page owner');
+    expect(out).toContain('Tab "Main" bid=tab_main rid=43 span=6 model=portal-shared');
+    expect(out).toContain('ExtendedTable "Processes" bid=tbl_process rid=44 span=6 model=page-child code=expression,html,javascript');
   });
 });

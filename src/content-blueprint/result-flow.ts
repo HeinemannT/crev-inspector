@@ -53,6 +53,21 @@ function iconCtl(icon: string, title: string, active: boolean, fn: (e: MouseEven
   return b;
 }
 
+/** One-icon scope toggle with a literal visual contract: slashed tabs = this
+ *  tab only; plain tabs = all tabs. The tooltip states both the current state
+ *  and what clicking will do, so it never reads like a one-way command. */
+function tabScopeControl(buttonId: string, allTabs: boolean): HTMLButtonElement {
+  const title = allTabs
+    ? 'All tabs — this action is shown on every tab. Click for this tab only.'
+    : 'This tab only — the slash means this action is limited to its assigned tab. Click to show on all tabs.';
+  const b = iconCtl(ICON_TABS, title, allTabs,
+    () => setActionButtonFlag(buttonId, 'displayOnAllTabs', !allTabs));
+  b.classList.add('bp-fic-scope', allTabs ? 'all-tabs' : 'single-tab');
+  b.setAttribute('aria-label', title);
+  b.setAttribute('aria-pressed', String(allTabs));
+  return b;
+}
+
 /** A small rename pencil for a flow object (row / reference band / staged-new container). Reuses the
  *  SHARED inline-rename machinery: beginRename flags `bp.renameId`, openPendingRename then makes the
  *  matching `[data-bprename]` span editable — identical Enter-commit / Escape-cancel / outside-commit
@@ -356,8 +371,7 @@ function trayCard(m: LModel, p: FlowProjection, leaving = false): HTMLElement {
   } else {
     const allTabs = m.flowEdits?.[p.ownerId]?.displayOnAllTabs ?? p.displayOnAllTabs ?? false;
     ctl.append(
-      iconCtl(ICON_TABS, allTabs ? 'Shown on every tab — click to show only on the tab it belongs to' : 'Shown only on the tab it belongs to — click to show on every tab', allTabs,
-        () => setActionButtonFlag(p.ownerId, 'displayOnAllTabs', !allTabs)),
+      tabScopeControl(p.ownerId, allTabs),
       iconCtl(ICON_LAYOUT, 'Move to the canvas grid instead of the action menu', false,
         () => setActionButtonFlag(p.ownerId, 'displayOnActionMenu', false)),
     );

@@ -20,7 +20,9 @@ import { loadSchemaProps } from './objects';
 import { collectCodeSearch } from '../code-search';
 import { codeFieldsFor, referencesFor, contextFieldsFor, typeAffordances } from '../widget-metadata';
 import { errorMessage, log } from '../logger';
-import { formatEcLiteral, validateEcIdentifier } from '../ec-guards';
+import { formatEcLiteral, validateEcIdentifier, validateRid } from '../ec-guards';
+import { loadPage, type LoadPageResult } from '../layout-service';
+import type { LNode } from '../layout/types';
 
 /** Inline a code slot body only when it's this small; otherwise report size. */
 const SLOT_INLINE_LIMIT = 1200;
@@ -54,6 +56,7 @@ export async function executeAiTool(
     switch (call.name) {
       case 'query_context': return await queryContext(ctx.client, call.input, envelope, signal);
       case 'read_object': return await readObject(ctx.client, call.input, signal);
+      case 'read_code': return await readCode(ctx.client, call.input);
       case 'read_type': return await readType(call.input);
       case 'search_objects': return await searchObjects(ctx.client, call.input, signal);
       case 'code_search': return await codeSearch(call.input);
@@ -88,30 +91,57 @@ function stringArray(value: unknown): string[] | null {
  *  validated and every value slot escaped before interpolation. */
 export function buildContextQueryEc(
   contextRef: string,
-  type: string,
+  type: string | undefined,
+  templateQuery: string | undefined,
   fields: string[],
   filterField?: string,
   filterValue?: string,
 ): string {
-  const safeType = validateEcIdentifier(type);
+  const safeType = type ? validateEcIdentifier(type) : undefined;
   const safeFields = fields.map(validateEcIdentifier);
   const safeFilterField = filterField ? validateEcIdentifier(filterField) : undefined;
   const lines = [
-    `_context := ${contextRef}`,
-    `_items := _context.descendants(${safeType})`,
+    `_view := ${contextRef}`,
+    '_context := _view',
+    '_effective := _view.template',
+    'IF _effective != MISSING THEN',
+    '     _context := _effective',
+    'ELSE',
+    '     _context := _context',
+    'ENDIF',
+    `_all := _context.descendants(${safeType ?? ''})`,
   ];
+  if (templateQuery) {
+    const query = formatEcLiteral(templateQuery);
+    lines.push(
+      `_linked := _all.filter(linkedTo.name = "*${query}*")`,
+      `_templated := _all.filter(template.name = "*${query}*")`,
+      '_items := _linked.union(_templated).distinct()',
+    );
+  } else {
+    lines.push('_items := _all');
+  }
   if (safeFilterField && filterValue !== undefined) {
     lines.push(`_items := _items.filter(${safeFilterField} = "*${formatEcLiteral(filterValue)}*")`);
   }
   lines.push(
     '_count := _items.size()',
+    '_byClass := _items.map(className)',
+    '_classes := ""',
+    '_items.as(className).distinct().forEach(_class:',
+    '     _classes := _classes + _class + "=" + _byClass.get(_class).size() + ", "',
+    ')',
     '_rows := ""',
     '_shown := 0',
     '_items.forEach(_item:',
     `     IF _shown < ${SEARCH_CAP} THEN`,
     '          _name := _item.name.whenMissing("(unnamed)")',
     '          _bid := _item.id.whenMissing("(missing)")',
-    '          _line := "  " + _name + " (" + _item.className + ") bid=" + _bid + " rid=" + _item.rid',
+    '          _template := _item.linkedTo',
+    '          IF _template = MISSING THEN _template := _item.template ELSE _template := _template ENDIF',
+    '          _templateName := "(none)"',
+    '          IF _template != MISSING THEN _templateName := _template.name.whenMissing("(unnamed)") ELSE _templateName := _templateName ENDIF',
+    '          _line := "  " + _name + " (" + _item.className + ") bid=" + _bid + " rid=" + _item.rid + " template=" + _templateName',
   );
   safeFields.forEach((field, index) => {
     lines.push(
@@ -124,7 +154,7 @@ export function buildContextQueryEc(
     '          _shown := _shown + 1',
     '     ENDIF',
     ')',
-    `_out := "Context: " + _context.name + " (" + _context.className + ") bid=" + _context.id + " rid=" + _context.rid + "\\nMatched ${safeType}: " + _count + "\\n" + _rows`,
+    '_out := "Viewed: " + _view.name + " (" + _view.className + ") bid=" + _view.id + " rid=" + _view.rid + "\\nEffective owner: " + _context.name + " (" + _context.className + ") bid=" + _context.id + " rid=" + _context.rid + "\\nMatched: " + _count + "\\nClasses: " + _classes + "\\n" + _rows',
     `IF _count > ${SEARCH_CAP} THEN`,
     `     _out := _out + "… rows capped at ${SEARCH_CAP}; narrow the filter"`,
     'ENDIF',
@@ -142,7 +172,8 @@ async function queryContext(
   const source = contextSource(envelope);
   if (!source) return err('query_context needs an attached selection or editor context.');
   const type = typeof input.type === 'string' ? input.type.trim() : '';
-  if (!type) return err('query_context needs a descendant "type" such as "Indicator".');
+  const templateQuery = typeof input.templateQuery === 'string' ? input.templateQuery.trim() : '';
+  if (!type && !templateQuery) return err('query_context needs either a real BMP descendant "type" or a semantic "templateQuery".');
   const requestedFields = stringArray(input.fields);
   if (requestedFields === null) return err('query_context "fields" must be an array of property names.');
   const fields = [...new Set(requestedFields.filter(field => !CONTEXT_IDENTITY_FIELDS.has(field)))];
@@ -155,7 +186,8 @@ async function queryContext(
     const contextRef = await client.resolveRef(source.object.rid);
     const code = buildContextQueryEc(
       contextRef,
-      type,
+      type || undefined,
+      templateQuery || undefined,
       fields,
       filterField || undefined,
       filterValue || undefined,
@@ -163,8 +195,8 @@ async function queryContext(
     const res = await client.executeEc(code, undefined, false, signal);
     if (!res.ok) return err(`Context query failed:\n${res.error ?? res.log ?? 'unknown EC error'}`);
     const guidance = res.hasWarning
-      ? 'Scope was resolved from the attached context, but warnings mean the requested property may be missing on some descendants. Retry query_context with the correct field; do not rediscover these objects with search_objects.'
-      : 'Scope was resolved from the attached context and the count/filter evaluation is complete; rows may be capped as stated. Do not call search_objects or read_object for them unless the user requested additional properties not shown here.';
+      ? 'Scope was resolved from the attached context. Missing-value warnings are expected when mixed linkedTo/template models are inspected; use the returned matches and class distribution. For an object/class question this result is final: answer now without another query or exemplar read. Retry only if a specifically requested field is absent, and do not rediscover these objects with search_objects.'
+      : 'Scope was resolved from the attached context and the count/filter evaluation is complete; rows may be capped as stated. For an object/class question this result is final: answer now without another query or exemplar read. Do not call search_objects or read_object for them unless the user requested additional properties not shown here.';
     return ok(
       `${res.log ?? '(no output)'}\n${guidance}`,
     );
@@ -198,7 +230,8 @@ async function resolveRefToRid(client: BmpClient, ref: string): Promise<string |
 async function readObject(client: BmpClient, input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
   const ref = typeof input.ref === 'string' ? input.ref : '';
   if (!ref.trim()) return err('read_object needs a "ref" (business id or rid).');
-  const rid = await resolveRefToRid(client, ref);
+  const trimmed = ref.trim();
+  const rid = /^-?\d+$/.test(trimmed) ? validateRid(trimmed) : await resolveRefToRid(client, trimmed);
   if (!rid) return err(`No object found for "${ref}". Check the business id / rid, or use search_objects.`);
   const pane = await client.fetchObjectPane(rid, signal);
   if (!pane) return err(`Could not read object ${rid}.`);
@@ -243,6 +276,27 @@ async function readObject(client: BmpClient, input: Record<string, unknown>, sig
     }
   }
   return ok(lines.join('\n'));
+}
+
+// ── read_code ───────────────────────────────────────────────────
+
+async function readCode(client: BmpClient, input: Record<string, unknown>): Promise<ToolResult> {
+  const ref = typeof input.ref === 'string' ? input.ref.trim() : '';
+  const property = typeof input.property === 'string' ? input.property.trim() : '';
+  if (!ref) return err('read_code needs a "ref" (prefer a numeric rid returned by another tool).');
+  if (!property) return err('read_code needs a code "property", such as "expression", "html" or "javascript".');
+  let safeProperty: string;
+  try { safeProperty = validateEcIdentifier(property); }
+  catch (e) { return err(errorMessage(e)); }
+  const rid = /^-?\d+$/.test(ref) ? validateRid(ref) : await resolveRefToRid(client, ref);
+  if (!rid) return err(`No object found for "${ref}".`);
+  const values = await client.fetchCodeViaEc(rid, [safeProperty]);
+  const code = values[safeProperty] ?? '';
+  const language = safeProperty === 'html' ? 'html' : safeProperty === 'css' ? 'css' : safeProperty === 'javascript' ? 'javascript' : 'extended';
+  const guidance = safeProperty === 'expression'
+    ? '\nRaw expression read is complete. If SELECT or table(...) directly names the requested class or properties, answer from this source now; do not call query_context, read_object or preview_ec merely to confirm those literals.'
+    : '';
+  return ok(`Code: rid=${rid} property=${safeProperty} (${code.length} chars)\n\`\`\`${language}\n${code}\n\`\`\`${guidance}`);
 }
 
 // ── read_type ────────────────────────────────────────────────────
@@ -334,29 +388,32 @@ async function codeSearch(input: Record<string, unknown>): Promise<ToolResult> {
 async function readLayout(client: BmpClient, input: Record<string, unknown>): Promise<ToolResult> {
   const pageRid = typeof input.pageRid === 'string' ? input.pageRid.trim() : '';
   if (!/^-?\d+$/.test(pageRid)) return err('read_layout needs a numeric "pageRid".');
-  const nodes = await client.fetchLayoutTree(pageRid);
-  if (!nodes.length) return err(`No layout tree for page ${pageRid} (not an editable page?).`);
-  // Build a parent->children index and print a trimmed tree (types/names/spans),
-  // not style channels.
-  const byParent = new Map<string, typeof nodes>();
-  const roots: typeof nodes = [];
-  for (const n of nodes) {
-    const p = n.parentRid;
-    if (p && nodes.some(x => x.rid === p)) {
-      const list = byParent.get(p) ?? [];
-      list.push(n); byParent.set(p, list);
-    } else {
-      roots.push(n);
-    }
-  }
-  const lines: string[] = [`Layout of page ${pageRid} (${nodes.length} nodes):`];
-  const span = (n: typeof nodes[number]) => n.columnsLargeScreen != null ? ` span=${n.columnsLargeScreen}` : '';
-  const walk = (n: typeof nodes[number], depth: number) => {
-    lines.push(`${'  '.repeat(depth + 1)}${n.type}${n.name ? ` "${n.name}"` : ''}${n.businessId ? ` bid=${n.businessId}` : ''}${span(n)}`);
-    for (const c of byParent.get(n.rid) ?? []) walk(c, depth + 1);
+  const page = await loadPage(client, pageRid, 'instance');
+  if (!page) return err(`No web layout for viewed object ${pageRid} (not a supported page host?).`);
+  return ok(formatAiLayout(pageRid, page));
+}
+
+/** Compact AI projection of Blueprint's proven dual-model page loader. Portal
+ *  Tabs/Containers and page-owned widgets remain visibly distinct. */
+export function formatAiLayout(viewedRid: string, page: NonNullable<LoadPageResult>): string {
+  const { ctx, load } = page;
+  const model = load.model;
+  const count = (nodes: LNode[]): number => nodes.reduce((n, node) => n + 1 + count(node.children), 0);
+  const lines = [
+    `Viewed rid=${viewedRid}`,
+    `Effective page owner: ${model.pageName || model.pageId} (${model.pageClass}) bid=${model.pageId} rid=${ctx.pageRid}`,
+    `Layout: ${count(model.tabs)} nodes${model.resultOnly ? ' (shared Result tab)' : ''}`,
+  ];
+  if (ctx.pageRid !== viewedRid) lines.push('Resolution: viewed enterprise instance → .template page owner');
+  const walk = (node: LNode, depth: number) => {
+    const storage = node.kind === 'widget' ? 'page-child' : 'portal-shared';
+    const slots = node.kind === 'widget' ? codeFieldsFor(node.className).map(field => field.prop) : [];
+    lines.push(`${'  '.repeat(depth + 1)}${node.className} "${node.name}" bid=${node.id}${node.rid ? ` rid=${node.rid}` : ''} span=${node.cols.L} model=${storage}${slots.length ? ` code=${slots.join(',')}` : ''}`);
+    node.children.forEach(child => walk(child, depth + 1));
   };
-  for (const r of roots) walk(r, 0);
-  return ok(lines.join('\n'));
+  model.tabs.forEach(tab => walk(tab, 0));
+  if (load.orphans.length) lines.push(`Orphan widgets without a container: ${load.orphans.length}`);
+  return lines.join('\n');
 }
 
 // ── preview_ec ───────────────────────────────────────────────────

@@ -79,33 +79,40 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'query_context',
     description:
-      'Count, filter and list descendants of the object already attached as chat context. ' +
+      'Count, filter and list descendants of the effective page behind the object already attached as chat context. Enterprise instances are resolved through .template automatically. ' +
       'Use this for questions containing “here”, “this”, “on this page” or “selected”; the tool binds the scope itself, so NEVER search for the context object by name, business id or rid first. ' +
-      'It returns the total match count plus up to 25 rows with stable name, type, businessId and rid, and can include a few requested properties. ' +
-      'For “which X are Y?” put the inferred filter in the FIRST call; do not fetch an unfiltered list first. ' +
-      'Examples: “How many indicators here?” → {"type":"Indicator"}; “Which indicators are resolved?” → {"type":"Indicator","fields":["description"],"filterField":"description","filterValue":"Status: Resolved"}.',
+      'EXCEPTION: do not use this to find or inspect tabs, containers, widgets, tables, or rows displayed by a table; those questions start with read_layout. ' +
+      'Use type only when a prior live result or the user supplied the real BMP class. For any semantic noun whose class is unknown, use templateQuery instead; the result includes the discovered class distribution. ' +
+      'For a question asking what object/class the semantic matches are, that first successful class distribution is the complete answer: do not query again or inspect an exemplar. ' +
+      'It returns the total match count plus up to 25 rows with stable name, class, template, businessId and rid, and can include a few requested properties. ' +
+      'For “which X are Y?” include a filter in the first call only when the live schema or user established the filter property; never invent a status field or encoding. ' +
+      'Examples after the class/property is known: {"type":"ExtendedTable"}; {"type":"CustomVisualization","filterField":"name","filterValue":"Summary"}.',
     parameters: {
       type: 'object',
       properties: {
         type: {
           type: 'string',
-          description: 'PascalCase BMP descendant class to query, e.g. "Indicator", "Task" or "CustomVisualization".',
+          description: 'Optional known PascalCase BMP descendant class, e.g. "ExtendedTable" or "CustomVisualization". Supply it only after live output or the user established the class.',
+        },
+        templateQuery: {
+          type: 'string',
+          description: 'Optional user-supplied semantic/template-name substring. Use when the real descendant class is unknown. At least one of type or templateQuery is required.',
         },
         fields: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Optional additional property accessors, e.g. ["description", "statusClassification"]. Maximum 5. Never request name, type, businessId, id or rid because every row already includes them.',
+          description: 'Optional additional property accessors confirmed by the user, live schema, or a prior tool result. Maximum 5. Never request name, type, businessId, id or rid because every row already includes them.',
         },
         filterField: {
           type: 'string',
-          description: 'Optional property accessor to filter, e.g. "description". Must be paired with filterValue.',
+          description: 'Optional live-confirmed property accessor to filter. Must be paired with filterValue; never infer a semantic status property.',
         },
         filterValue: {
           type: 'string',
           description: 'Optional case-insensitive substring required in filterField. Must be paired with filterField.',
         },
       },
-      required: ['type'],
+      required: [],
       additionalProperties: false,
     },
   },
@@ -115,7 +122,7 @@ export const TOOL_DEFS: ToolDef[] = [
       'Read one BMP object by business id or rid. Returns its identity ' +
       '(name, type, businessId, rid, template), its property values, and the ' +
       'names + sizes of its code slots (full code inlined only when small). ' +
-      'Prefer this over guessing what an object contains.',
+      'Prefer a numeric rid already returned by context/layout/search tools; it avoids another lookup. Prefer this over guessing what an object contains.',
     parameters: {
       type: 'object',
       properties: {
@@ -125,6 +132,22 @@ export const TOOL_DEFS: ToolDef[] = [
         },
       },
       required: ['ref'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'read_code',
+    description:
+      'Read one raw code-bearing property from an object with output(), so BMP does not evaluate it. ' +
+      'Use after read_layout exposes a widget and its code slots. ExtendedTable rows come from its expression property: call read_code with that table rid and property="expression" instead of inspecting descendants. ' +
+      'If the returned expression directly names its SELECT class or table(...) properties, answer from the source; do not preview/re-run the stored code merely to verify it.',
+    parameters: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'Numeric rid (preferred) or business id of the code-bearing object.' },
+        property: { type: 'string', description: 'Raw code property, e.g. "expression", "html", "javascript", "css", "text" or "longText".' },
+      },
+      required: ['ref', 'property'],
       additionalProperties: false,
     },
   },
@@ -185,7 +208,7 @@ export const TOOL_DEFS: ToolDef[] = [
     description:
       'Read a page\'s layout tree by page rid — a trimmed structure of tabs, ' +
       'containers and widgets (types, names, column spans), NOT their styling. ' +
-      'Use to understand how a page is composed.',
+      'This is the FIRST tool for questions about a page, tab, container, widget, table, or rows displayed by a table. For an ExtendedTable, follow it with read_code on the returned table rid and expression slot; do not call query_context first.',
     parameters: {
       type: 'object',
       properties: {

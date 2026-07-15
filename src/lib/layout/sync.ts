@@ -651,14 +651,15 @@ function findOrphans(nodes: readonly WireNode[], model: LModel): WireNode[] {
 /**
  * Build the context probe. Classifies a viewed object into the blueprint root + tabset:
  *  - ENTERPRISE: the object carries a `.template` ref to an EnterpriseTemplate. The instance owns
- *    no widgets (layout is `resolveTemplate().getCard()`), so the page root is the TEMPLATE and the
- *    tabset is the shared `default_tabset`. We key on `.template` ONLY — a Scorecard *instance* has
+ *    no widgets (layout is `resolveTemplate().getCard()`), so the page root is the TEMPLATE. Its
+ *    tabset is discovered from a placed template widget, with `default_tabset` as a fallback. We key
+ *    on `.template` ONLY — a Scorecard *instance* has
  *    a `.linkedTo` template too (SharedWebItems reuse) but still owns its own widgets, so `.linkedTo`
  *    must NOT trigger the enterprise path.
  *  - DIRECT: a WebParent that owns its widgets (Scorecard/ModelPage/GRC object). The page root is the
  *    object itself; its tabset is DISCOVERED by walking a widget's cell up to the first TabSet
  *    ancestor (the page exposes no direct `.tabSet`).
- * Emits one line: `<CTX>enterprise|<rid>|<id>|<class>|default_tabset`  OR
+ * Emits one line: `<CTX>enterprise|<rid>|<id>|<class>|<tabsetId>`  OR
  *                 `<CTX>direct|<rid>|<id>|<class>|<tabsetId>`.  (Validated live 2026-06-26.)
  */
 /** EC that walks `_a` up its parent chain looking for the first TabSet (recording its id in `_tsid`).
@@ -709,7 +710,33 @@ export function buildContextEc(rid: string): string {
     `_tr := _tmpl.rid.whenMissing("")`,
     `_out := "${CTX}"`,
     `IF _tr <> "" THEN`,
-    `     _out := _out + "enterprise|" + _tmpl.rid + "|" + _tmpl.id.whenMissing("") + "|" + _tmpl.className.whenMissing("") + "|${DEFAULT_TABSET}"`,
+    // Enterprise templates commonly use the shared default_tabset, but may own widgets placed in a
+    // dedicated TabSet. Discover the real scaffold from the template's own placed children so the
+    // Blueprint mirrors what BMP renders for the enterprise instance.
+    `     _cellFound := "no"`,
+    `     _cell := _tmpl`,
+    `     _tmpl.children().forEach(_ch:`,
+    `          IF _cellFound = "no" THEN`,
+    `               _cc := _ch.container.id.whenMissing("")`,
+    `               IF _cc <> "" THEN`,
+    `                    IF _cc <> "RESULT" THEN`,
+    `                         _cell := _ch.container`,
+    `                         _cellFound := "yes"`,
+    `                    ELSE`,
+    `                         _cellFound := _cellFound`,
+    `                    ENDIF`,
+    `               ELSE`,
+    `                    _cellFound := _cellFound`,
+    `               ENDIF`,
+    `          ELSE`,
+    `               _cellFound := _cellFound`,
+    `          ENDIF`,
+    `     )`,
+    `     _tsid := ""`,
+    `     _a := _cell`,
+    ...buildTabsetWalkEc(),
+    `     IF _tsid = "" THEN _tsid := "${DEFAULT_TABSET}" ELSE _tsid := _tsid ENDIF`,
+    `     _out := _out + "enterprise|" + _tmpl.rid + "|" + _tmpl.id.whenMissing("") + "|" + _tmpl.className.whenMissing("") + "|" + _tsid`,
     `ELSE`,
     `     _cellFound := "no"`,
     `     _cell := _probe`,
@@ -747,7 +774,11 @@ export function buildContextEc(rid: string): string {
     `     _probe.children().forEach(_ch:`,
     `          _wn := _wn + 1`,
     `     )`,
-    `     _out := _out + "direct|" + _probe.rid + "|" + _probe.id.whenMissing("") + "|" + _probe.className.whenMissing("") + "|" + _tsid + "|" + _hasLink + "|" + output(_wn) + "|" + _link + "|" + _ltid`,
+    // A truly empty WebParent is still an editable page. `card` is the structural marker that avoids
+    // confusing an arbitrary childless object with an empty page host (verified on an empty Scorecard).
+    `     _hasCard := "n"`,
+    `     IF _probe.card.rid.whenMissing("") <> "" THEN _hasCard := "y" ELSE _hasCard := _hasCard ENDIF`,
+    `     _out := _out + "direct|" + _probe.rid + "|" + _probe.id.whenMissing("") + "|" + _probe.className.whenMissing("") + "|" + _tsid + "|" + _hasLink + "|" + output(_wn) + "|" + _link + "|" + _ltid + "|" + _hasCard`,
     `ENDIF`,
     `_out`,
   ].join('\n');
@@ -758,18 +789,18 @@ export function buildContextEc(rid: string): string {
 interface ContextProbe {
   kind: 'enterprise' | 'direct';
   pageRid: string; pageId: string; pageClass: string; tabsetId: string;
-  hasLink: boolean; widgetCount: number;
+  hasLink: boolean; widgetCount: number; isPageHost: boolean;
   templateRid?: string; templateId?: string; // linked template (SharedWebItems), direct branch only
 }
 
 /** Decode the single `<CTX>` probe line. Both branches share the leading fields; `direct` carries the
  *  trailing link/template fields (absent → undefined). Returns null when the structural fields are blank. */
 function parseContextProbe(line: string): ContextProbe | null {
-  const [kind, pRid, pId, pClass, tabsetId, hasLink, wcount, tplRid, tplId] = line.split('|');
+  const [kind, pRid, pId, pClass, tabsetId, hasLink, wcount, tplRid, tplId, pageHost] = line.split('|');
   if ((kind !== 'enterprise' && kind !== 'direct') || !pRid || !pId) return null;
   return {
     kind, pageRid: pRid, pageId: pId, pageClass: pClass || '', tabsetId: tabsetId || '',
-    hasLink: hasLink === 'y', widgetCount: Number(wcount ?? '0'),
+    hasLink: hasLink === 'y', widgetCount: Number(wcount ?? '0'), isPageHost: pageHost === 'y',
     ...(tplRid ? { templateRid: tplRid } : {}), ...(tplId ? { templateId: tplId } : {}),
   };
 }
@@ -778,7 +809,7 @@ function parseContextProbe(line: string): ContextProbe | null {
  *   - a BlueprintCtx with a discovered tabset (a normal page), or
  *   - a BlueprintCtx flagged `resultOnly` for a direct page that owns widgets but has no dedicated
  *     tabset (loaded through default_tabset + withContent — its widgets sit on the shared Result tab),
- *   - null when it's not an editable page (no tabset AND no widgets, or the probe failed).
+ *   - null when it's not an editable page (no tabset, widgets, or page-host Card; or the probe failed).
  *  The template/instance blast-radius distinction (`.linkedTo`) is recorded via hasTemplate. */
 export async function resolvePageContext(io: LayoutIO, rid: string): Promise<BlueprintCtx | null> {
   const res = await io.exec(buildContextEc(rid));
@@ -805,8 +836,9 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
     // No dedicated tabset. If the object still owns widgets (they sit on the shared Result tab), load it
     // through default_tabset — withContent keeps only the Result tab — and flag it `resultOnly` so the UI
     // offers a "+ Create tabset" affordance (which stages a virtual tabset — see edit.createTabset).
-    // An object with no widgets isn't a page.
-    return p.widgetCount > 0
+    // A Card marks a real page host even when it is completely empty; it must still reach the existing
+    // "+ Create tabset" flow. Objects with neither widgets nor a Card are not Blueprint targets.
+    return p.widgetCount > 0 || p.isPageHost
       ? {
           pageId: p.pageId, pageRid: p.pageRid, pageClass: (p.pageClass || 'Scorecard') as BlueprintCtx['pageClass'],
           tabsetId: DEFAULT_TABSET, target: 'instance', hasTemplate: p.hasLink,

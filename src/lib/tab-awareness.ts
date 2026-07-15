@@ -23,6 +23,18 @@ export { ensureContentScript, ensureBlueprintScript, sendPageInfoToPanel, handle
  *  (paint cancel on navigation, BMP_URL_CHANGED gating) to fire on
  *  the wrong window. */
 const activeTabIdByWindow = new Map<number, number>();
+const lastUrlByTab = new Map<number, string>();
+
+/** Page-owner identity for browser URL transitions. Presentation query params
+ *  (`tabrid`, period, ytd, filters) deliberately do not participate. Fiber-only
+ *  owner changes are handled by PAGE_CONTEXT in handlers/detection.ts. */
+export function urlPageOwnerKey(raw?: string): string | null {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    return `${url.origin}${url.pathname}?rid=${url.searchParams.get('rid') ?? ''}`;
+  } catch { return null; }
+}
 
 function isActiveInItsWindow(tabId: number, windowId: number): boolean {
   return activeTabIdByWindow.get(windowId) === tabId;
@@ -43,6 +55,7 @@ export function registerTabListeners() {
 
     chrome.tabs.get(activeInfo.tabId, (tab) => {
       if (chrome.runtime.lastError) return;
+      if (tab?.url && !lastUrlByTab.has(activeInfo.tabId)) lastUrlByTab.set(activeInfo.tabId, tab.url);
       const profileReady = tab?.url ? autoDetectProfile(tab.url) : Promise.resolve();
       // Context identity is workspace-scoped. Wait for auto-detection to swap
       // the active client before looking up the RID, otherwise a cross-server
@@ -119,14 +132,21 @@ export function registerTabListeners() {
       }
     }
     if (changeInfo.url) {
-      deleteTabDetection(tabId);
-      deleteContextRid(tabId); // Clear stale context on navigation
+      const previousUrl = lastUrlByTab.get(tabId);
+      const ownerChanged = previousUrl == null
+        || urlPageOwnerKey(previousUrl) !== urlPageOwnerKey(changeInfo.url);
+      lastUrlByTab.set(tabId, changeInfo.url);
+      if (ownerChanged) {
+        deleteTabDetection(tabId);
+        deleteContextRid(tabId); // Clear stale explicit selection only for a real page-owner transition
+      }
 
       if (isActiveTab) {
         profileReady = autoDetectProfile(changeInfo.url!);
         ctx.sendToPanelByWindow(windowId!, { type: 'DETECTION_STATE', phase: 'checking' as DetectionPhase, confidence: 0, signals: [] });
       }
     }
+    if (changeInfo.status === 'complete' && tab?.url) lastUrlByTab.set(tabId, tab.url);
 
     if (!ctx.hasPanel) return;
     if (changeInfo.status !== 'complete' && !changeInfo.url) return;
@@ -146,6 +166,7 @@ export function registerTabListeners() {
       activeTabIdByWindow.delete(removeInfo.windowId);
     }
     deleteTabDetection(tabId);
+    lastUrlByTab.delete(tabId);
     getCtx().contentPorts.delete(tabId);
   });
 

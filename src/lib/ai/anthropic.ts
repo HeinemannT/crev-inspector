@@ -21,7 +21,10 @@ const ANTHROPIC_VERSION = '2023-06-01';
 const MAX_TOKENS = 8192;
 
 export interface AnthropicStreamOpts {
+  /** API base URL; defaults to Anthropic for legacy/direct callers. */
+  baseUrl?: string;
   model: string;
+  maxTokens?: number;
   apiKey: string;
   /** Stable persona + knowledge prefix (empty string = no system block). */
   system: string;
@@ -83,13 +86,13 @@ function withHistoryCacheBreakpoint(messages: AnthropicMessage[]): WireMessage[]
 }
 
 export async function streamAnthropic(opts: AnthropicStreamOpts): Promise<{ text: string }> {
-  const url = `${PROVIDERS.anthropic.baseUrl}/v1/messages`;
+  const url = `${opts.baseUrl ?? PROVIDERS.anthropic.baseUrl}/v1/messages`;
   const system = opts.system
     ? [{ type: 'text', text: opts.system, cache_control: CACHE_CONTROL }]
     : undefined;
   const body = {
     model: opts.model,
-    max_tokens: MAX_TOKENS,
+    max_tokens: opts.maxTokens ?? MAX_TOKENS,
     stream: true,
     ...(system ? { system } : {}),
     messages: [{ role: 'user', content: opts.user }],
@@ -130,7 +133,9 @@ export async function streamAnthropic(opts: AnthropicStreamOpts): Promise<{ text
 // ── Tool-aware turn (chat orchestrator) ──────────────────────────
 
 export interface AnthropicTurnOpts {
+  baseUrl?: string;
   model: string;
+  maxTokens?: number;
   apiKey: string;
   /** Cached persona + knowledge + tool guidance + rendered context. */
   system: string;
@@ -165,7 +170,7 @@ interface BlockAcc {
  *  ToolCalls. Returns the stop reason + the assistant content blocks so the
  *  caller can drive the tool loop. */
 export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<AnthropicTurnResult> {
-  const url = `${PROVIDERS.anthropic.baseUrl}/v1/messages`;
+  const url = `${opts.baseUrl ?? PROVIDERS.anthropic.baseUrl}/v1/messages`;
   // Prompt-cache breakpoints (max 4 per request; Anthropic reads = 0.1x input).
   // The stable prefix serializes as tools → system → messages, so we place at
   // most THREE ephemeral breakpoints, one per prefix segment:
@@ -184,7 +189,7 @@ export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<Anth
   const messages = withHistoryCacheBreakpoint(opts.messages);
   const body = {
     model: opts.model,
-    max_tokens: MAX_TOKENS,
+    max_tokens: opts.maxTokens ?? MAX_TOKENS,
     stream: true,
     ...(system ? { system } : {}),
     ...(tools ? { tools } : {}),

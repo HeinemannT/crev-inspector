@@ -61,6 +61,9 @@ export class ContentState {
   // Timers
   tooltipHideTimer: ReturnType<typeof setTimeout> | null = null;
   debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Coalesced BMP render/context refresh owned by content-observer. It lives
+   *  here (rather than in the observer closure) so reinjection can cancel it. */
+  renderRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Transient DOM state — the badge pill the cursor is currently over
   // (hover-tooltip dedup guard).
@@ -103,6 +106,7 @@ export class ContentState {
     this.resetDiscovery();
     this.favoriteRids.clear();
     if (this.debounceTimer) { clearTimeout(this.debounceTimer); this.debounceTimer = null; }
+    if (this.renderRefreshTimer) { clearTimeout(this.renderRefreshTimer); this.renderRefreshTimer = null; }
     if (this.tooltipHideTimer) { clearTimeout(this.tooltipHideTimer); this.tooltipHideTimer = null; }
     this.observer?.disconnect();
     this.observer = null;

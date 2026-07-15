@@ -81,6 +81,23 @@ register('BMP_URL_CHANGED', (_msg, _respond, meta) => {
   });
 });
 
+// React render/tab change without a page-owner change. Refresh the visible
+// widget/context snapshot, but deliberately keep contextRid: a render is not
+// navigation and must not erase the object the user explicitly selected.
+register('BMP_PAGE_RENDER_CHANGED', (_msg, _respond, meta) => {
+  const tabId = meta.senderTabId;
+  if (tabId == null) return;
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab?.windowId) return;
+    chrome.tabs.query({ active: true, windowId: tab.windowId }, (actives) => {
+      if (actives[0]?.id === tabId) {
+        sendPageInfoToPanel(tabId);
+        void sendPanelContextForTab(tabId);
+      }
+    });
+  });
+});
+
 // Fiber-derived page context from the content script (the bound object + active
 // tab). Cache it per tab for the footer (GET_CONTEXT_RID) and the editor's EC
 // `this` (getCurrentPageRid), then refresh the panel that represents this tab.

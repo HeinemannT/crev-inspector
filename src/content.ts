@@ -246,18 +246,32 @@ function handleProfileSwitched(label: string) {
 
 // ── BMP Detection ────────────────────────────────────────────────
 
-function runDetection() {
-  const result = detectBmpPage();
+function publishDetection(result: ReturnType<typeof detectBmpPage>) {
+  const previous = s.lastDetection;
   s.lastDetection = result;
-  sendToSW({ type: 'DETECTION_RESULT', confidence: result.confidence, signals: result.signals, isBmp: result.isBmp });
-  document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'CHECK_BMP_SIGNALS' } }));
+  const changed = !previous
+    || previous.isBmp !== result.isBmp
+    || previous.confidence !== result.confidence
+    || previous.signals.join('\u0000') !== result.signals.join('\u0000');
+  if (changed) {
+    sendToSW({ type: 'DETECTION_RESULT', confidence: result.confidence, signals: result.signals, isBmp: result.isBmp });
+    document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'CHECK_BMP_SIGNALS' } }));
+  }
+  return result;
+}
+
+function runDetection() {
+  return publishDetection(detectBmpPage());
 }
 
 // ── Page info for side panel ─────────────────────────────────────
 
 function handlePageInfoRequest(): { url: string; rid?: string; tabRid?: string; tabName?: string; contextSource?: PageContext['source']; widgets: WidgetInfo[]; detection?: { confidence: number; signals: string[]; isBmp: boolean } } {
   const urlRids = extractUrlRids();
-  const det = s.lastDetection ?? detectBmpPage();
+  // Detection is a cheap snapshot, not a boot-time truth. BMP's React root may
+  // mount after this content script, so every explicit page-info request reads
+  // the current DOM instead of trusting a stale negative cache.
+  const det = runDetection();
   // Always scan widgets when there ARE data-rid elements, regardless of the
   // detection confidence score. The score is informational; a low-confidence
   // page that still has data-rid elements is worth listing rather than
@@ -265,9 +279,9 @@ function handlePageInfoRequest(): { url: string; rid?: string; tabRid?: string; 
   // truly non-BMP pages because scanPageWidgets returns [] in that case.
   const widgets = scanPageWidgets();
 
-  if (det.isBmp) {
-    document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'EXTRACT_FIBERS' } }));
-  }
+  // Context is core page identity, whereas detection is only a confidence/UI
+  // signal. Never gate the fiber provider on the heuristic detector.
+  document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'EXTRACT_FIBERS' } }));
 
   // Single resolution — URL ⊕ fiber. On a custom-routed page (no `?rid=`) the
   // bound object comes from the fiber context the interceptor posted; the
@@ -480,7 +494,7 @@ document.addEventListener('crev-interceptor', ((event: CustomEvent) => {
       const extraWeight = mainSignals.length * 0.15;
       const confidence = Math.min(1, s.lastDetection.confidence + extraWeight);
       const isBmp = confidence >= 0.5;
-      sendToSW({ type: 'DETECTION_RESULT', confidence, signals: allSignals, isBmp });
+      publishDetection({ confidence, signals: allSignals, isBmp });
     }
   }
 }) as EventListener, { signal: s.listenerLifetime.signal });

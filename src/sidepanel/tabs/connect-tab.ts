@@ -14,11 +14,40 @@ import { confirmModal } from '../../lib/modal';
 import { getUpdateStatus, refresh as refreshUpdate, type UpdateStatus } from '../../lib/version-check';
 import { originPatternFor } from '../../lib/site-access';
 import { requestOriginsInGesture } from '../site-access-strip';
-import { PROVIDERS, AI_PROVIDER_IDS } from '../../lib/ai/providers';
-import type { AiProviderId } from '../../lib/ai/types';
+import { PROVIDERS, AI_PROVIDER_IDS, customProviderOrigins, parseCustomProviderJson, resolveProvider } from '../../lib/ai/providers';
+import type { AiCustomProvider, AiProviderId } from '../../lib/ai/types';
 import type { Tab, SendFn } from './tab-types';
 
 type EditingProfile = { id: string | null; label: string; bmpUrl: string; bmpUser: string; bmpPass: string; authMode?: AuthMode };
+
+const CUSTOM_PROVIDER_TEMPLATE = `{
+  "name": "OpenRouter",
+  "vendor": "openrouter",
+  "apiKey": "",
+  "apiType": "openai",
+  "models": [
+    {
+      "id": "anthropic/claude-sonnet-4",
+      "name": "Claude Sonnet 4",
+      "url": "https://openrouter.ai/api/v1",
+      "toolCalling": true,
+      "vision": true,
+      "maxInputTokens": 200000,
+      "maxOutputTokens": 64000
+    }
+  ]
+}`;
+
+function customProviderJson(provider?: AiCustomProvider): string {
+  if (!provider) return CUSTOM_PROVIDER_TEMPLATE;
+  return JSON.stringify({
+    name: provider.name,
+    vendor: provider.vendor,
+    apiKey: '',
+    apiType: provider.apiType,
+    models: provider.models,
+  }, null, 2);
+}
 
 export class ConnectTab implements Tab {
   private editing: EditingProfile | null = null;
@@ -52,6 +81,11 @@ export class ConnectTab implements Tab {
    *  derive from the stored config (or the provider default). */
   private aiProviderDraft: AiProviderId | null = null;
   private aiModelDraft: string | null = null;
+  /** Unsaved custom-provider JSON. Plaintext keys live here only until Save. */
+  private aiJsonDraft: string | null = null;
+  private aiJsonOpen = false;
+  private aiJsonError: string | null = null;
+  private aiJsonSaving = false;
   /** Draft of the unsaved API key, carried across re-renders so an async
    *  repaint (provider change, a status/model-list tick) can't wipe a key the
    *  user typed but hasn't Saved yet. Cleared once the key is saved/removed. */
@@ -153,14 +187,32 @@ export class ConnectTab implements Tab {
       case 'AI_CONFIG_SAVED':
         this.aiConfigured = msg.configured;
         if (msg.ok) {
+          if (this.aiJsonSaving) this.aiJsonError = null;
           this.aiReplacingKey = false;
           this.aiTestStatus = null;
           this.aiKeyDraft = '';   // key is stored now — drop the unsaved draft
-          if (msg.provider) shared.settings = { ...shared.settings, ai: { provider: msg.provider, model: msg.model ?? '', apiKeyEnc: msg.configured ? 'set' : '' } };
+          this.aiProviderDraft = msg.provider ?? null;
+          this.aiModelDraft = msg.model ?? null;
+          if (msg.provider) shared.settings = {
+            ...shared.settings,
+            ai: {
+              provider: msg.provider,
+              model: msg.model ?? '',
+              apiKeyEnc: msg.configured ? 'set' : '',
+              ...(msg.customProvider ? { customProvider: msg.customProvider } : shared.settings.ai?.customProvider ? { customProvider: shared.settings.ai.customProvider } : {}),
+            },
+          };
+          if (msg.customProvider) this.aiJsonDraft = customProviderJson(msg.customProvider);
           if (!msg.configured) shared.settings = { ...shared.settings, ai: undefined };
         } else {
-          this.aiTestStatus = { ok: false, text: msg.error ?? 'Could not save' };
+          if (this.aiJsonSaving) {
+            this.aiJsonError = msg.error ?? 'Could not save provider JSON';
+            this.aiJsonOpen = true;
+          } else {
+            this.aiTestStatus = { ok: false, text: msg.error ?? 'Could not save' };
+          }
         }
+        this.aiJsonSaving = false;
         return !this.editing;
       case 'AI_TEST_RESULT':
         this.aiTesting = false;
@@ -260,7 +312,9 @@ export class ConnectTab implements Tab {
     container.querySelector('#ai-provider')?.addEventListener('change', (e) => {
       const provider = (e.target as HTMLSelectElement).value as AiProviderId;
       this.aiProviderDraft = provider;
-      this.aiModelDraft = PROVIDERS[provider].defaultModel;
+      this.aiModelDraft = provider === 'custom'
+        ? shared.settings.ai?.customProvider?.models.find(model => model.toolCalling)?.id ?? null
+        : PROVIDERS[provider].defaultModel;
       this.aiModelOptions = [];
       this.aiModelsLoading = false;
       this.aiModelMenuOpen = false;
@@ -277,6 +331,13 @@ export class ConnectTab implements Tab {
     // can't recreate the input empty before the user hits Save.
     container.querySelector('#ai-key')?.addEventListener('input', (e) => {
       this.aiKeyDraft = (e.target as HTMLInputElement).value;
+    });
+    container.querySelector('#ai-provider-json')?.addEventListener('input', (e) => {
+      this.aiJsonDraft = (e.target as HTMLTextAreaElement).value;
+      this.aiJsonError = null;
+    });
+    container.querySelector('.ai-json')?.addEventListener('toggle', (e) => {
+      this.aiJsonOpen = (e.currentTarget as HTMLDetailsElement).open;
     });
 
     // Live update for the HTTP-downgrade warning while editing the URL. We
@@ -400,7 +461,17 @@ export class ConnectTab implements Tab {
         // the SW's cross-origin fetch needs it, and the browser prompt requires
         // a user gesture. Already-granted origins resolve silently; a denial
         // surfaces as an inline status so the user knows why calls will fail.
-        void requestOriginsInGesture([PROVIDERS[provider].origin]).then((granted) => {
+        let origin: string;
+        try {
+          origin = provider === 'custom'
+            ? resolveProvider({ provider, model, customProvider: shared.settings.ai?.customProvider }).origin
+            : PROVIDERS[provider].origin;
+        } catch (e) {
+          this.aiTestStatus = { ok: false, text: e instanceof Error ? e.message : String(e) };
+          rerender();
+          return;
+        }
+        void requestOriginsInGesture([origin]).then((granted) => {
           if (!granted) {
             this.aiTestStatus = { ok: false, text: 'Site access to the provider was declined' };
             const panel = getTabPanel('connect');
@@ -410,6 +481,34 @@ export class ConnectTab implements Tab {
         this.send({ type: 'AI_SAVE_CONFIG', provider, model, ...(apiKey.trim() ? { apiKey } : {}) });
         this.aiModelDraft = model;
         this.aiProviderDraft = provider;
+      },
+      'ai-save-json': () => {
+        const textarea = container.querySelector('#ai-provider-json') as HTMLTextAreaElement | null;
+        const json = textarea?.value ?? this.aiJsonDraft ?? '';
+        try {
+          const parsed = parseCustomProviderJson(json);
+          if (!parsed.apiKey && shared.settings.ai?.provider !== 'custom') {
+            throw new Error('Add apiKey the first time you save this provider');
+          }
+          this.aiJsonOpen = true;
+          this.aiJsonError = null;
+          this.aiJsonSaving = true;
+          this.aiTestStatus = null;
+          void requestOriginsInGesture(customProviderOrigins(parsed.provider)).then((granted) => {
+            if (!granted) {
+              this.aiJsonError = 'Site access to the custom endpoint was declined';
+              this.aiJsonOpen = true;
+              rerender();
+            }
+          });
+          this.send({ type: 'AI_SAVE_CUSTOM_PROVIDER', json });
+        } catch (e) {
+          this.aiJsonError = e instanceof Error ? e.message : String(e);
+          this.aiJsonOpen = true;
+          this.aiJsonSaving = false;
+          if (textarea) flashInvalid(textarea);
+          rerender();
+        }
       },
       'ai-expand': () => { this.aiExpanded = !this.aiExpanded; this.aiTestStatus = null; rerender(); },
       'ai-replace': () => { this.aiReplacingKey = true; this.aiTestStatus = null; this.aiKeyDraft = ''; rerender(); },
@@ -614,7 +713,9 @@ export class ConnectTab implements Tab {
     const configured = this.aiConfigured;
     const lastTest = stored?.lastTest;
     const verified = configured && !!lastTest?.ok;
-    const providerLabel = stored ? PROVIDERS[stored.provider].label : '';
+    const providerLabel = stored
+      ? (stored.provider === 'custom' ? stored.customProvider?.name ?? 'Custom' : PROVIDERS[stored.provider].label)
+      : '';
     const model = stored?.model ?? '';
 
     const spark = h('span', { class: 'ai-card-spark', 'aria-hidden': 'true' }, svg(ICON_SPARKLE));
@@ -658,16 +759,23 @@ export class ConnectTab implements Tab {
   private renderAiForm(): HTMLElement {
     const stored = shared.settings.ai;
     const provider: AiProviderId = this.aiProviderDraft ?? stored?.provider ?? 'anthropic';
-    const meta = PROVIDERS[provider];
-    const model = this.aiModelDraft ?? stored?.model ?? meta.defaultModel;
+    const custom = stored?.customProvider;
+    const fallbackModel = provider === 'custom'
+      ? custom?.models.find(item => item.toolCalling)?.id ?? ''
+      : PROVIDERS[provider].defaultModel;
+    const model = this.aiModelDraft ?? stored?.model ?? fallbackModel;
+    const meta = provider === 'custom'
+      ? resolveProvider({ provider, model: custom?.models.some(item => item.id === model) ? model : fallbackModel, customProvider: custom })
+      : PROVIDERS[provider];
     const showKeyInput = !this.aiConfigured || this.aiReplacingKey;
 
     const providerSelect = h('select', { class: 'field-input ai-select', id: 'ai-provider' },
-      ...AI_PROVIDER_IDS.map(id => h('option', {
+      ...([...AI_PROVIDER_IDS, ...(custom ? ['custom' as const] : [])]).map(id => h('option', {
         value: id,
         ...(id === provider ? { selected: 'selected' } : {}),
-      }, PROVIDERS[id].label)),
+      }, id === 'custom' ? custom?.name ?? 'Custom' : PROVIDERS[id].label)),
     );
+    (providerSelect as HTMLSelectElement).value = provider;
 
     // Model list — provider suggestions plus any live-loaded ids. A native <datalist> FILTERS its
     // options by the input's current value, so once a model is typed you can't see the others; this
@@ -675,10 +783,16 @@ export class ConnectTab implements Tab {
     const modelOptions = [...new Set([...meta.suggestedModels, ...this.aiModelOptions])];
     const modelMenu = (this.aiModelMenuOpen && modelOptions.length)
       ? h('div', { class: 'ai-model-menu' },
-          ...modelOptions.map(m => h('button', {
-            class: 'ai-model-opt' + (m === model ? ' sel' : ''), type: 'button',
-            'data-action': 'ai-model-pick', 'data-model': m,
-          }, m)))
+          ...modelOptions.map(m => {
+            const displayName = provider === 'custom' ? custom?.models.find(item => item.id === m)?.name : undefined;
+            return h('button', {
+              class: 'ai-model-opt' + (m === model ? ' sel' : ''), type: 'button',
+              'data-action': 'ai-model-pick', 'data-model': m,
+            },
+              displayName ? h('span', { class: 'ai-model-opt-name' }, displayName) : null,
+              displayName ? h('span', { class: 'ai-model-opt-id' }, m) : m,
+            );
+          }))
       : null;
 
     const statusEl = this.aiTestStatus
@@ -721,7 +835,7 @@ export class ConnectTab implements Tab {
               : null,
             modelMenu,
           ),
-          meta.openAiCompat
+          meta.openAiCompat && provider !== 'custom'
             ? h('button', { class: 'footer-action', 'data-action': 'ai-load-models', title: 'Load the provider model list', ...(this.aiModelsLoading ? { disabled: 'disabled' } : {}) }, this.aiModelsLoading ? 'Loading…' : 'Load list')
             : null,
         ),
@@ -736,6 +850,25 @@ export class ConnectTab implements Tab {
             statusEl,
           )
         : (statusEl ? h('div', { class: 'field-row ai-conn-row' }, statusEl) : null),
+      h('details', { class: 'ai-json', ...(this.aiJsonOpen ? { open: true } : {}) },
+        h('summary', {}, custom ? 'Custom provider JSON' : 'Add custom provider'),
+        h('div', { class: 'ai-json-help' },
+          h('span', {}, h('code', {}, 'apiType'), ': ', h('code', {}, 'openai'), ' or ', h('code', {}, 'anthropic')),
+          h('span', {}, h('code', {}, 'url'), ': API base URL; CREV appends ', h('code', {}, '/chat/completions'), ' or ', h('code', {}, '/v1/messages')),
+          h('span', {}, 'At least one model must set ', h('code', {}, '"toolCalling": true'), ' for the assistant.'),
+        ),
+        h('textarea', {
+          class: 'field-input ai-json-input',
+          id: 'ai-provider-json',
+          spellcheck: 'false',
+          value: this.aiJsonDraft ?? customProviderJson(custom),
+        }),
+        this.aiJsonError ? h('div', { class: 'ai-json-error', role: 'alert' }, this.aiJsonError) : null,
+        h('div', { class: 'field-row ai-json-actions' },
+          h('button', { class: 'btn btn-small', 'data-action': 'ai-save-json', ...(this.aiJsonSaving ? { disabled: true } : {}) }, this.aiJsonSaving ? 'Saving…' : custom ? 'Update provider' : 'Save provider'),
+          h('span', { class: 'field-hint' }, 'The key is encrypted and removed from this JSON after saving.'),
+        ),
+      ),
     );
   }
 
@@ -1022,7 +1155,7 @@ export class ConnectTab implements Tab {
   }
 }
 
-function flashInvalid(input: HTMLInputElement) {
+function flashInvalid(input: HTMLElement) {
   input.classList.add('field-input--invalid');
   setTimeout(() => { input.classList.remove('field-input--invalid'); }, FLASH_INVALID_DURATION);
   input.focus();

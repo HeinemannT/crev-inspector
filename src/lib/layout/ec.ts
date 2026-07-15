@@ -20,7 +20,7 @@ import { COMPOSITE_TYPES } from './constraints';
 import { formatEcLiteral, validateEcIdentifier as ecClass, validateBusinessId as ecBid, validateRid as ecRid } from '../ec-guards';
 import { styleAssignRhs, INVALID_COLOR_BID } from '../style-ec';
 import { OVERRIDABLE_PROPS, styleAssignments } from './types';
-import type { Breakpoint, LModel, LNode, PlanNote, PlanStep } from './types';
+import type { Breakpoint, FlowNode, LModel, LNode, PlanNote, PlanStep } from './types';
 
 const ecStr = (s: string): string => `"${formatEcLiteral(s)}"`;
 /** Scalar EC literal — booleans → TRUE/FALSE, numbers as-is, strings quoted + escaped. Mirrors
@@ -54,7 +54,20 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
   if (!plan.length) return { script: '', notes: [] };
 
   const byId = new Map<string, LNode>();
-  walk(m, n => byId.set(n.id, n));
+  const parentById = new Map<string, string>();
+  walk(m, (n, parent) => { byId.set(n.id, n); if (parent) parentById.set(n.id, parent.id); });
+  const flowById = new Map<string, { name: string; className: string }>();
+  const addFlowNodes = (nodes: FlowNode[]) => nodes.forEach(n => {
+    flowById.set(n.id, n);
+    if (n.children) addFlowNodes(n.children);
+  });
+  Object.values(m.flows ?? {}).forEach(p => addFlowNodes(p.children));
+  Object.values(m.flowEdits ?? {}).forEach(e => { if (e.adds) addFlowNodes(e.adds); });
+  const flowOwner = (id: string) => byId.get(id)
+    ?? (m.flows?.[id]?.ownerName ? { name: m.flows[id].ownerName!, className: m.flows[id].ownerClass } : undefined);
+  // Reorders in a group that also receives a newly-created object are EC placement mechanics, not a
+  // separate user change. Keep the EC, but omit that implementation detail from the human log.
+  const createParents = new Set(plan.flatMap(s => s.kind === 'create' || s.kind === 'flowCreate' ? [s.parentId] : []));
 
   const vars = new Map<string, string>();
   // Reference an object in EC. New nodes from this batch → their `_n<k>` var. Existing nodes →
@@ -95,7 +108,7 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
   const notes: PlanNote[] = [];
   let k = 0;
   let fk = 0; // flow-create var counter (`_ff<fk>`) — distinct namespace from layout's `_n<k>`
-  const emit = (note: PlanNote) => { lines.push(note.ec!); notes.push(note); };
+  const emit = (note: PlanNote, visible = true) => { lines.push(note.ec!); if (visible) notes.push(note); };
 
   // The ONE support Category for this apply — shared by the virtual-tabset create AND every new
   // InputSet/EditPage. Reuse an on-page reference's existing Category (co-locate) rather than making a
@@ -222,7 +235,8 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         emit({ verb: 'reorder', id: s.id, text: `Reorder "${label}"`,
           action: 'Reorder', object: label, objectType: byId.get(s.id)?.className,
           detail: `${s.beforeId ? 'before' : 'after'} "${byId.get(anchor)?.name ?? anchor}"`,
-          ec: `${ref(s.id)}.${s.beforeId ? 'moveBefore' : 'moveAfter'}(${ref(anchor)})` });
+          ec: `${ref(s.id)}.${s.beforeId ? 'moveBefore' : 'moveAfter'}(${ref(anchor)})` },
+          !createParents.has(parentById.get(s.id) ?? ''));
         break;
       }
       case 'delete': {
@@ -263,8 +277,10 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         // change(createMode := "EDITORADD") round-trip execute-verified on t.50842, 2026-07-12).
         const mode = s.setCreateMode ? `, createMode := "EDITORADD"` : '';
         const tgt = s.targetName ?? s.targetId;
+        const owner = flowOwner(s.id);
         emit({ verb: 'update', id: s.id, text: `Wire ${s.prop} to "${tgt}"`,
-          action: 'Change', object: s.id, detail: `${s.prop} → "${tgt}"${s.setCreateMode ? ' · createMode → EDITOR ADD' : ''}`,
+          action: 'Change', object: owner?.name ?? s.id, objectType: owner?.className,
+          detail: `${s.prop} → "${tgt}"${s.setCreateMode ? ' · createMode → EDITOR ADD' : ''}`,
           ec: `${fref(s.id, s.rid)}.change(${s.prop} := ${fref(s.targetId)}${mode})` });
         break;
       }
@@ -278,15 +294,20 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
       }
       case 'flowReorder': {
         const anchor = s.beforeId ?? s.afterId!;
+        const node = flowById.get(s.id);
+        const anchorNode = flowById.get(anchor);
         emit({ verb: 'reorder', id: s.id, text: `Reorder flow element`,
-          action: 'Reorder', object: s.id, detail: `${s.beforeId ? 'before' : 'after'} ${anchor}`,
-          ec: `${fref(s.id, s.rid)}.${s.beforeId ? 'moveBefore' : 'moveAfter'}(${fref(anchor)})` });
+          action: 'Reorder', object: node?.name ?? s.id, objectType: node?.className,
+          detail: `${s.beforeId ? 'before' : 'after'} "${anchorNode?.name ?? anchor}"`,
+          ec: `${fref(s.id, s.rid)}.${s.beforeId ? 'moveBefore' : 'moveAfter'}(${fref(anchor)})` },
+          !createParents.has(s.parentId));
         break;
       }
       case 'flowFlag': {
         const label = s.prop === 'displayOnActionMenu' ? (s.value ? 'move to action bar' : 'move to grid') : (s.value ? 'show on all tabs' : 'show on this tab only');
+        const owner = flowOwner(s.id);
         emit({ verb: 'update', id: s.id, text: `Action button: ${label}`,
-          action: 'Change', object: s.id, objectType: s.className, detail: `${s.prop} := ${s.value ? 'TRUE' : 'FALSE'}`,
+          action: 'Change', object: owner?.name ?? s.id, objectType: owner?.className ?? s.className, detail: `${s.prop} := ${s.value ? 'TRUE' : 'FALSE'}`,
           ec: `${fref(s.id, s.rid)}.change(${s.prop} := ${s.value ? 'TRUE' : 'FALSE'})` });
         break;
       }

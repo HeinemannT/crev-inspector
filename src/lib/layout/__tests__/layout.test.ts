@@ -441,8 +441,8 @@ describe('gesture edit ops (drag-to-move / reorder / cross-tab)', () => {
   });
 });
 
-describe('summarizeChanges (logical changes vs raw actions)', () => {
-  it('counts a mid-list insert as ONE change even when it emits a moveAfter chain', () => {
+describe('summarizeChanges (logical changes vs readable actions)', () => {
+  it('counts a mid-list insert as one change/action while keeping placement EC internal', () => {
     // tab with three widgets; insert a 4th between the 1st and 2nd → create + reorder side-effects
     const base = model(n({ id: 't', kind: 'tab', className: 'Tab', name: 'T', children: [
       n({ id: 'a', kind: 'widget', className: 'SimpleStatus', name: 'A' }),
@@ -453,8 +453,8 @@ describe('summarizeChanges (logical changes vs raw actions)', () => {
     const plan = diff(base, desired);
     const { changes, actions } = summarizeChanges(plan, desired);
     expect(plan.some(s => s.kind === 'create')).toBe(true);
-    expect(actions).toBeGreaterThan(1);     // the create + its reorder chain
-    expect(changes).toBe(1);                // ...but ONE logical change (the inserted widget)
+    expect(actions).toBe(1);                // placement reorders are not user-facing log actions
+    expect(changes).toBe(1);
   });
   it('counts a pure reorder gesture as one change', () => {
     const base = model(n({ id: 't', kind: 'tab', className: 'Tab', name: 'T', children: [

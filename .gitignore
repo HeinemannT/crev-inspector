@@ -1,5 +1,6 @@
 node_modules/
 dist/
+bench/out/
 .playwright-mcp/
 
 # Built extension artefacts. The Vite build mirrors dist/ to the repo

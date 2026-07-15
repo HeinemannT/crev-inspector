@@ -8,7 +8,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --max-warnings 0",
-    "clean": "rm -rf dist content.js interceptor.js service-worker.js assets/ chunks/ codesearch/ diff/ editor/ objectview/ sidepanel/ studio/",
+    "clean": "rm -rf dist content.js content-blueprint.js interceptor.js service-worker.js assets/ chunks/ codesearch/ diff/ editor/ objectview/ sidepanel/ studio/",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts"

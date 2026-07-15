@@ -14,7 +14,8 @@ import { log } from '../logger';
 /** Keep granted host permissions ≡ profile origins after any profile change (revokes orphans from
  *  deletes/URL edits + re-syncs the content-script registrations). Fire-and-forget. */
 const reconcileAccess = (): void => {
-  void reconcileProfileOrigins(getCtx().settings.profiles.map(p => p.bmpUrl));
+  const ctx = getCtx();
+  void reconcileProfileOrigins(ctx.settings.profiles.map(p => p.bmpUrl), ctx.settings.ai?.customProvider);
 };
 
 register('GET_SETTINGS', (msg, respond) => {

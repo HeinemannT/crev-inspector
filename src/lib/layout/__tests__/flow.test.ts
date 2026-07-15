@@ -208,13 +208,14 @@ describe('flow compiler shapes', () => {
   it('a staged mid-list add emits its create + ONE minimal reorder (no follower cascade)', () => {
     const base = flowModel();
     const m2 = addFlowChild(base, '50850', 'NumberInput', 'Severity', '50851').model;
-    const { script } = compile(flowDiff(base, m2), m2);
+    const { script, notes } = compile(flowDiff(base, m2), m2);
     const lines = script.split('\n');
     expect(lines[0]).toBe('_ff0 := t.50850.add(NumberInput, name := "Severity") // BMP assigns id');
     // the new node (appended by the create) is the ONLY displaced item — one moveAfter, addressed by var
     expect(lines).toContain('_ff0.moveAfter(t.50851)');
     expect(lines).toHaveLength(2);                        // create + one move — no redundant follower move
     expect(script).not.toContain('t.50852.moveAfter');   // the follower stays put (minimal)
+    expect(notes.map(n => n.object)).toEqual(['Severity']); // placement reorder stays out of the human log
   });
 
   it('flowFlag compiles to change(prop := TRUE/FALSE)', () => {
@@ -403,12 +404,13 @@ describe('staged-new InputSet / EditPage + reference wiring', () => {
     const base = flowModel();
     const { model: m2, id } = stageNewFlowContainer(base, '50844', 'inputSet', 'Owner input set');
     const m3 = addFlowChild(m2, id, 'TextInput', 'Name').model;
-    const { script } = compile(flowDiff(base, m3), m3);
+    const { script, notes } = compile(flowDiff(base, m3), m3);
     const lines = script.split('\n');
     // Category 50675 hosts the fixture's set+page (refParentClass) → co-locate there
     expect(lines[0]).toBe('_ff0 := t.50675.add(InputSet, name := "Owner input set") // BMP assigns id');
     expect(lines[1]).toBe('_ff1 := _ff0.add(TextInput, name := "Name") // BMP assigns id');
     expect(lines[lines.length - 1]).toBe('t.50844.change(inputSet := _ff0)');
+    expect(notes.at(-1)).toMatchObject({ action: 'Change', object: 'Input view', objectType: 'InputView', detail: 'inputSet → "Owner input set"' });
   });
 
   it('compiles: with NO on-page Category, ONE support Category is created and REUSED for a set + a page', () => {

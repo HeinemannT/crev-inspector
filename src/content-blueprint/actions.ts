@@ -236,12 +236,11 @@ export function setActionButtonFlag(id: string, prop: 'displayOnActionMenu' | 'd
   const m = model(); if (!m) return;
   mutate(setActionFlag(m, id, prop, value));
 }
-/** "+ new": stage a NEW InputSet/EditPage for a reference-less flow widget, auto-named after it.
+/** "+ new": stage a NEW InputSet/EditPage for a reference-less flow widget with a predictable name.
  *  Children stage underneath immediately (the empty row list renders with its Add-element row). */
 export function stageNewRef(widgetId: string, prop: 'inputSet' | 'editPage'): void {
   const m = model(); if (!m) return;
-  const widgetName = findNode(m, widgetId)?.node.name ?? m.flows?.[widgetId]?.ownerName ?? widgetId;
-  const name = prop === 'inputSet' ? `${widgetName} input set` : `${widgetName} edit page`;
+  const name = prop === 'inputSet' ? 'New InputSet' : 'New EditPage';
   mutate(stageNewFlowContainer(m, widgetId, prop, name).model);
 }
 /** Open the "wire to existing" picker for a reference-less flow widget; the workspace list fetches at

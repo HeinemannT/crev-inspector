@@ -86,6 +86,23 @@ describe('handlers/ai', () => {
     expect(ctx.settings.ai).toEqual({ provider: 'anthropic', model: 'claude-sonnet-5', apiKeyEnc: 'enc:keep' });
   });
 
+  it('AI_SAVE_CUSTOM_PROVIDER encrypts the imported key and stores only sanitized metadata', async () => {
+    const json = JSON.stringify({
+      name: 'Gateway', vendor: 'gateway', apiKey: 'plain-secret', apiType: 'openai',
+      models: [
+        { id: 'no-tools', name: 'No tools', url: 'https://gateway.test/v1', toolCalling: false },
+        { id: 'agent', name: 'Agent', url: 'https://gateway.test/v1', toolCalling: true, maxOutputTokens: 8000 },
+      ],
+    });
+    const { responses, done } = call({ type: 'AI_SAVE_CUSTOM_PROVIDER', json });
+    await done;
+    expect(ctx.settings.ai).toMatchObject({ provider: 'custom', model: 'agent', apiKeyEnc: 'enc:plain-secret' });
+    expect(ctx.settings.ai.customProvider).toMatchObject({ name: 'Gateway', vendor: 'gateway', apiType: 'openai' });
+    expect(JSON.stringify(ctx.settings.ai.customProvider)).not.toContain('plain-secret');
+    expect(responses[0]).toMatchObject({ type: 'AI_CONFIG_SAVED', ok: true, provider: 'custom', model: 'agent' });
+    expect(sentBroadcasts).toContainEqual(expect.objectContaining({ type: 'AI_CONFIG_CHANGED', provider: 'custom', model: 'agent' }));
+  });
+
   it('AI_REMOVE_CONFIG clears the config', async () => {
     ctx.settings.ai = { provider: 'openai', model: 'gpt-5.2', apiKeyEnc: 'enc:x' };
     const { responses, done } = call({ type: 'AI_REMOVE_CONFIG' });

@@ -15,7 +15,7 @@ A Chrome side-panel extension for working with **Corporater BMP** the way develo
 - **Extended Code editor.** Floating CodeMirror window for any EC-bearing property, with preview / execute, run history, tracked variables, hover docs, inline runtime errors, and syntax help. The Vars + Properties panel infers the type of every `_v := SELECT X` and lets you click to insert any property.
 - **Blueprint.** Edit the live page visually: add, move, swap, resize, rename, and style tabs, containers, widgets, and supported flow objects. Changes stay staged until an impact preview and explicit Apply.
 - **CVO + text studio.** Edit HTML and JavaScript side by side, preview in a sandbox with live CVO data, manage inputs and hosted resources, and see the exact BMP-stored result after save.
-- **Optional AI assistant.** Bring an Anthropic, OpenAI, DeepSeek, or Grok key for workspace-grounded chat and context-aware code edits. With no key configured, the AI UI is absent.
+- **Optional AI assistant.** Bring an Anthropic, OpenAI, DeepSeek, or Grok key—or add one OpenAI-compatible/Anthropic-compatible provider as JSON—for workspace-grounded chat and context-aware code edits. With no key configured, the AI UI is absent.
 - **Code search.** Search Extended Code across the workspace and jump from results straight to the source object and property.
 - **Diff & compare.** Pick any two objects (RID vs RID, instance vs template, or `ns.bid` references) and see exactly which properties changed.
 - **Multi-window + profiles.** Per-window inspect state, panel routing, and per-server profiles that auto-switch on the BMP URL prefix.

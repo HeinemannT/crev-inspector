@@ -24,6 +24,8 @@ import { BP_RESUME_KEY } from '../lib/blueprint-resume';
 type OneShotListener = (msg: any, sender: any, sendResponse: (r?: unknown) => void) => boolean;
 
 const sendFireForget = vi.fn();
+const sendToSW = vi.fn();
+const detectBmpPage = vi.fn(() => ({ confidence: 0, signals: [] as string[], isBmp: false }));
 vi.mock('../lib/messaging', () => ({
   sendFireForget: (...a: unknown[]) => sendFireForget(...a),
 }));
@@ -34,9 +36,16 @@ vi.mock('../lib/messaging', () => ({
 vi.mock('../lib/content-port', () => ({
   connectPort: vi.fn(),
   disconnectPort: vi.fn(),
-  sendToSW: vi.fn(),
+  sendToSW: (...a: unknown[]) => sendToSW(...a),
   onPortMessage: vi.fn(),
   onReconnect: vi.fn(),
+}));
+vi.mock('../lib/dom-scanner', () => ({
+  extractUrlRids: vi.fn(() => ({})),
+  scanPageWidgets: vi.fn(() => []),
+  detectBmpPage: () => detectBmpPage(),
+  findTabButton: vi.fn(() => null),
+  isTabActive: vi.fn(() => false),
 }));
 vi.mock('../content-overlays', () => ({
   syncOverlays: vi.fn(),
@@ -94,6 +103,9 @@ function captureBpCmdEvents(): unknown[] {
 
 beforeEach(() => {
   sendFireForget.mockReset();
+  sendToSW.mockReset();
+  detectBmpPage.mockReset();
+  detectBmpPage.mockReturnValue({ confidence: 0, signals: [], isBmp: false });
   sessionStorage.clear();
   document.body.innerHTML = '';
   const w = window as unknown as Record<string, unknown>;
@@ -166,6 +178,22 @@ describe('activateBlueprint — first-activation race + injection-once guard', (
     expect(sendFireForget).not.toHaveBeenCalled();
     expect(bpCmdEvents).toEqual([]);
     expect((window as any).__crevBpPendingCmds).toEqual([{ cmd: 'disable' }]);
+  });
+});
+
+describe('fresh page-info detection', () => {
+  it('publishes a BMP transition discovered by GET_PAGE_INFO before observer refresh', async () => {
+    detectBmpPage
+      .mockReturnValueOnce({ confidence: 0, signals: [], isBmp: false })
+      .mockReturnValueOnce({ confidence: 0.55, signals: ['#epmapp root'], isBmp: true });
+    await loadContent();
+    sendToSW.mockClear();
+
+    messageListener!({ type: 'GET_PAGE_INFO' }, {}, () => {});
+
+    expect(sendToSW).toHaveBeenCalledWith({
+      type: 'DETECTION_RESULT', confidence: 0.55, signals: ['#epmapp root'], isBmp: true,
+    });
   });
 });
 

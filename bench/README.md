@@ -58,3 +58,24 @@ Neither script persists credentials.
 identity, so the provider run never receives private workspace context.
 Use `--thinking=enabled|disabled` only for DeepSeek mode comparisons; omitting
 it mirrors the production request and accepts the provider default.
+
+## Agent routing benchmark
+
+This suite runs the extension's real `buildChatSystem` + `streamChat` pipeline
+and provider tool schemas against topology-preserving synthetic fixtures based
+on patterns verified in Steadfast. No tenant names, IDs, rows, or source code
+are sent to the provider. Tool execution is fixture-backed, so repeated runs are read-only and stable. It
+checks attached page hierarchy, enterprise template resolution, ExtendedTable
+layout→expression inspection, conversational “the table”, and semantic process
+discovery without guessing `Task`.
+
+```bash
+BENCH_PROVIDER=deepseek \
+BENCH_MODEL=deepseek-chat \
+BENCH_API_KEY=... \
+node bench/bundle-agent.mjs
+```
+
+The key is read from the environment only. Results go to
+`bench/out/agent-results.json`, or the path in `BENCH_OUTPUT`.
+Use comma-separated `BENCH_SCENARIOS` ids for a cheap targeted rerun.

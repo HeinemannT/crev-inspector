@@ -16,6 +16,7 @@ import { toOpenAiTools, TOOL_DEFS } from './tools';
 export interface OpenAiStreamOpts {
   baseUrl: string;
   model: string;
+  maxTokens?: number;
   apiKey: string;
   system: string;
   user: string;
@@ -50,7 +51,7 @@ export async function streamOpenAiCompat(opts: OpenAiStreamOpts): Promise<{ text
       'Authorization': `Bearer ${opts.apiKey}`,
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ model: opts.model, stream: true, messages }),
+    body: JSON.stringify({ model: opts.model, stream: true, messages, ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}) }),
     signal: opts.signal,
   });
 
@@ -80,6 +81,7 @@ export type OpenAiMessage =
 export interface OpenAiTurnOpts {
   baseUrl: string;
   model: string;
+  maxTokens?: number;
   apiKey: string;
   messages: OpenAiMessage[];
   /** Omit / empty to force a tools-off final answer. */
@@ -114,6 +116,7 @@ export async function streamOpenAiTurn(opts: OpenAiTurnOpts): Promise<OpenAiTurn
       model: opts.model,
       stream: true,
       messages: opts.messages,
+      ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
       ...(useTools ? { tools: opts.tools } : {}),
     }),
     signal: opts.signal,

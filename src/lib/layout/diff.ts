@@ -150,7 +150,8 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
  *
  * `changes` = distinct nodes the user actually acted on: every create/update/reparent/delete subject,
  * plus any sibling-group that has reorders WITHOUT a create/reparent to explain them (a genuine
- * drag-to-reorder). `actions` = plan.length (every EC step), still surfaced so the work isn't hidden.
+ * drag-to-reorder). `actions` = user-meaningful log rows. Placement reorders caused by a create/move
+ * remain in the EC but are intentionally omitted; they are implementation detail, not another choice.
  */
 export function summarizeChanges(plan: PlanStep[], desired: LModel): { changes: number; actions: number } {
   const idx = index(desired);
@@ -174,5 +175,13 @@ export function summarizeChanges(plan: PlanStep[], desired: LModel): { changes: 
       if (!causeParents.has(s.parentId)) reorderGroups.add(s.parentId); // flow parent key, same rule
     }
   }
-  return { changes: subjects.size + reorderGroups.size, actions: plan.length };
+  const actions = plan.filter(s => {
+    if (s.kind === 'reorder') {
+      const p = idx.get(s.id)?.parentId;
+      return !p || !causeParents.has(p);
+    }
+    if (s.kind === 'flowReorder') return !causeParents.has(s.parentId);
+    return true;
+  }).length;
+  return { changes: subjects.size + reorderGroups.size, actions };
 }

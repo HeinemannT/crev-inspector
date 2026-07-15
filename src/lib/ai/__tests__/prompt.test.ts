@@ -189,6 +189,11 @@ describe('buildChatSystem workspace primer', () => {
     const { system } = buildChatSystem(withCtx, primer);
     expect(system).toContain('NEVER use search_objects to rediscover that source');
     expect(system).toContain('call query_context first');
+    expect(system).toContain('“process” does not imply `Task`');
+    expect(system).toContain('Enterprise Ce*');
+    expect(system).toContain('read_code on its numeric rid with property="expression"');
+    expect(system).toContain('successful semantic query_context is');
+    expect(system).toContain('Do not preview/re-run stored table code');
   });
 
   it('answers self-contained EC tasks directly and ships the advanced EC rules', () => {
