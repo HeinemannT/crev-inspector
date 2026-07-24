@@ -110,6 +110,7 @@ export function applyTechnicalOverlay(s: ContentState) {
   if (s.technicalOverlay) {
     const visibleRids: string[] = [];
     for (const label of document.querySelectorAll<HTMLElement>('[data-crev-label]')) {
+      if (label.classList.contains('crev-page-label')) continue;
       const rid = label.getAttribute('data-crev-label');
       if (rid && !s.overlayProps.has(rid)) visibleRids.push(rid);
     }
@@ -129,6 +130,7 @@ export function applyTechnicalOverlay(s: ContentState) {
 
 export function renderOverlayCards(s: ContentState) {
   for (const label of document.querySelectorAll<HTMLElement>('[data-crev-label]')) {
+    if (label.classList.contains('crev-page-label')) continue;
     const rid = label.getAttribute('data-crev-label');
     if (!rid) continue;
     const enrichment = s.enrichments.get(rid);

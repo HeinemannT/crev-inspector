@@ -32,6 +32,9 @@ describe('ContentState', () => {
     expect(s.debounceTimer).toBeNull();
     expect(s.renderRefreshTimer).toBeNull();
     expect(s.hoveredLabelEl).toBeNull();
+    expect(s.pageHeaderElement).toBeNull();
+    expect(s.pageHeaderLabel).toBeNull();
+    expect(s.pageHeaderRid).toBeNull();
   });
 
   describe('resetOverlays', () => {
@@ -53,6 +56,18 @@ describe('ContentState', () => {
       s.resetOverlays();
       expect(s.enrichments.size).toBe(1);
       expect(s.discoveredRids.size).toBe(1);
+    });
+
+    it('keeps the mounted page header so navigation can remove it cleanly', () => {
+      s.pageHeaderElement = {} as HTMLElement;
+      s.pageHeaderLabel = {} as HTMLElement;
+      s.pageHeaderRid = '111';
+
+      s.resetOverlays();
+
+      expect(s.pageHeaderElement).not.toBeNull();
+      expect(s.pageHeaderLabel).not.toBeNull();
+      expect(s.pageHeaderRid).toBe('111');
     });
   });
 
@@ -81,6 +96,9 @@ describe('ContentState', () => {
       s.requestedRids.add('rid1');
       s.discoveredRids.add('rid1');
       s.favoriteRids.add('rid1');
+      s.pageHeaderElement = {} as HTMLElement;
+      s.pageHeaderLabel = {} as HTMLElement;
+      s.pageHeaderRid = '111';
 
       s.resetAll();
 
@@ -97,6 +115,9 @@ describe('ContentState', () => {
       expect(s.requestedRids.size).toBe(0);
       expect(s.discoveredRids.size).toBe(0);
       expect(s.favoriteRids.size).toBe(0);
+      expect(s.pageHeaderElement).toBeNull();
+      expect(s.pageHeaderLabel).toBeNull();
+      expect(s.pageHeaderRid).toBeNull();
     });
 
     it('clears all timers', () => {

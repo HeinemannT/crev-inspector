@@ -162,6 +162,118 @@ function applyCompactMode(label: HTMLElement, host: HTMLElement): void {
   }
 }
 
+/**
+ * Build one interactive identity label. Widget overlays and the synthetic page
+ * header identity share this exact renderer and gesture contract; placement is
+ * deliberately left to the caller.
+ */
+export function createIdentityLabel(s: ContentState, rid: string, className?: string): HTMLElement {
+  const enrichment = s.enrichments.get(rid);
+  const label = document.createElement('span');
+  label.className = ['crev-label', className].filter(Boolean).join(' ');
+  if (!enrichment) label.classList.add('crev-label-loading');
+  label.setAttribute('data-crev-label', rid);
+
+  const labelText = document.createElement('span');
+  labelText.className = 'crev-label-text';
+  // The click-modifier hints live in the hover info card. A native title
+  // paints over that card, so the label intentionally has none.
+  label.appendChild(labelText);
+
+  renderLabelContent(label, rid, enrichment);
+  const stubEl = label.querySelector<HTMLElement>('.crev-stub')!;
+  stubEl.setAttribute('role', 'button');
+  stubEl.tabIndex = 0;
+  stubEl.setAttribute('aria-label', 'Inspect this BMP object');
+
+  // The stub is the affordance for "open this in the sidebar". Modifiers keep
+  // the copy paths (Alt = RID, Shift = template, Ctrl = ref); paint mode owns
+  // clicks first.
+  stubEl.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (s.paintPhase === 'picking') {
+      sendToSW({ type: 'PAINT_PICK', rid });
+      label.classList.add('crev-label-flash-pick');
+      setTimeout(() => { label.classList.remove('crev-label-flash-pick'); }, 400);
+      return;
+    }
+
+    if (s.paintPhase === 'applying') {
+      sendToSW({ type: 'PAINT_APPLY', rid });
+      return;
+    }
+
+    const mod = getModifier(e as MouseEvent);
+
+    // Plain click copies the business ID and selects the object. Sparse/loading
+    // identities still select immediately and simply skip the clipboard write.
+    if (mod === 'plain') {
+      const enriched = s.enrichments.get(rid);
+      const bid = enriched?.businessId;
+      if (bid && !label.classList.contains('crev-label-flash-ok')) {
+        navigator.clipboard.writeText(bid).then(() => {
+          const originalText = labelText.textContent;
+          labelText.textContent = '';
+          labelText.append(svg(ICON_CHECK), ` ${bid}`);
+          label.classList.add('crev-label-flash-ok');
+          setTimeout(() => {
+            labelText.textContent = originalText;
+            label.classList.remove('crev-label-flash-ok');
+          }, 600);
+        }).catch(e => log.swallow('content:clipboard', e));
+      }
+      sendToSW({ type: 'SELECT_OBJECT', rid } as InspectorMessage);
+      return;
+    }
+
+    const enriched = s.enrichments.get(rid);
+    const { text, label: copyLabel } = resolveCopyText({ rid, ...enriched }, mod);
+    if (!text) {
+      const original = labelText.textContent;
+      labelText.textContent = copyLabel;
+      label.style.opacity = '0.5';
+      setTimeout(() => { labelText.textContent = original; label.style.opacity = ''; }, 800);
+      return;
+    }
+    const flashText = copyLabel === 'ID' ? '\u2713' : `\u2713 ${copyLabel}`;
+    const originalText = labelText.textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      labelText.textContent = flashText;
+      label.classList.add('crev-label-flash-ok');
+      setTimeout(() => {
+        labelText.textContent = originalText;
+        label.classList.remove('crev-label-flash-ok');
+      }, 600);
+    }).catch(e => {
+      log.swallow('content:clipboard', e);
+      labelText.textContent = 'copy failed';
+      label.classList.add('crev-label-flash-error');
+      setTimeout(() => {
+        labelText.textContent = originalText;
+        label.classList.remove('crev-label-flash-error');
+      }, 800);
+    });
+  });
+
+  stubEl.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    stubEl.click();
+  });
+
+  // Double-click upgrades the cheap single-click selection to full object view.
+  label.addEventListener('dblclick', (e) => {
+    if ((e.target as HTMLElement).closest('.crev-meta')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid });
+  });
+
+  return label;
+}
+
 /** Incremental overlay sync: clean stale, add new badges, request enrichment. */
 export function syncOverlays(s: ContentState) {
   // 1. Clean stale labels (detached parents or elements no longer in DOM)
@@ -188,22 +300,7 @@ export function syncOverlays(s: ContentState) {
     element.classList.add('crev-outline');
     (element as HTMLElement).style.setProperty('--crev-color', color);
 
-    // Create corner label (flex container: text + optional code button)
-    const label = document.createElement('span');
-    label.className = 'crev-label';
-    if (!enrichment) label.classList.add('crev-label-loading');
-    label.setAttribute('data-crev-label', rid);
-
-    const labelText = document.createElement('span');
-    labelText.className = 'crev-label-text';
-    // The click-modifier hints moved into the hover info card (content-tooltip)
-    // \u2014 a native `title` here painted a browser tooltip over that very card.
-    label.appendChild(labelText);
-
-    // Stub (colour tile + identity text) + meta squares underneath. One helper
-    // shared with updateLabels() so late enrichment fills them identically.
-    renderLabelContent(label, rid, enrichment);
-    const stubEl = label.querySelector<HTMLElement>('.crev-stub')!;
+    const label = createIdentityLabel(s, rid);
 
     // Short, inline targets (breadcrumbs, nav links) are mostly text, so the
     // top-right corner pill lands on top of that text. Tag those to overhang
@@ -220,105 +317,6 @@ export function syncOverlays(s: ContentState) {
       label.classList.add(hasRoomAbove(element) ? 'crev-label--edge' : 'crev-label--edge-inside');
     }
 
-    // The stub is the affordance for "open this in the sidebar" (bound on the
-    // stub, not the text, so the compact tile-only form stays clickable).
-    // Modifiers keep the copy paths (Alt = ID, Shift = template, Ctrl = ref).
-    // Paint mode owns clicks first. (The old double-click quick-inspector is
-    // gone — the hover card carries that job — so clicks fire instantly.)
-    stubEl.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (s.paintPhase === 'picking') {
-        sendToSW({ type: 'PAINT_PICK', rid });
-        label.classList.add('crev-label-flash-pick');
-        setTimeout(() => { label.classList.remove('crev-label-flash-pick'); }, 400);
-        return;
-      }
-
-      if (s.paintPhase === 'applying') {
-        sendToSW({ type: 'PAINT_APPLY', rid });
-        return;
-      }
-
-      const me = e as MouseEvent;
-      const mod = getModifier(me);
-
-      // No modifier → copy business ID AND open in sidebar. Per user
-      // feedback: a plain click is the configurator's "I want this
-      // object" gesture, so doing both saves the round-trip to the
-      // copy modifier path. Falls back gracefully when the BID isn't
-      // enriched yet (still opens the sidebar, just no clipboard write).
-      if (mod === 'plain') {
-        const enriched = s.enrichments.get(rid);
-        const bid = enriched?.businessId;
-        // Re-entrancy guard: a second click during the 600ms flash would read
-        // the flashed "✓ bid" as the original text and restore THAT, leaving the
-        // badge permanently mangled. While flashing, just select and bail.
-        if (bid && !label.classList.contains('crev-label-flash-ok')) {
-          navigator.clipboard.writeText(bid).then(() => {
-            const originalText = labelText.textContent;
-            labelText.textContent = '';
-            labelText.append(svg(ICON_CHECK), ` ${bid}`);
-            label.classList.add('crev-label-flash-ok');
-            setTimeout(() => {
-              labelText.textContent = originalText;
-              label.classList.remove('crev-label-flash-ok');
-            }, 600);
-          }).catch(e => log.swallow('content:clipboard', e));
-        }
-        sendToSW({ type: 'SELECT_OBJECT', rid } as InspectorMessage);
-        return;
-      }
-
-      // Modifier-click → copy. Alt = RID, Shift = template, Ctrl = ref.
-      // Plain Click (no modifier) opens the sidebar. The modifier set lives
-      // in src/lib/namespace.ts (resolveCopyText + getModifier).
-      {
-        const enriched = s.enrichments.get(rid);
-        const { text, label: copyLabel } = resolveCopyText({ rid, ...enriched }, mod);
-        if (!text) {
-          const original = labelText.textContent;
-          labelText.textContent = copyLabel;
-          label.style.opacity = '0.5';
-          setTimeout(() => { labelText.textContent = original; label.style.opacity = ''; }, 800);
-          return;
-        }
-        const flashText = copyLabel === 'ID' ? '\u2713' : `\u2713 ${copyLabel}`;
-        const originalText = labelText.textContent;
-        navigator.clipboard.writeText(text).then(() => {
-          labelText.textContent = flashText;
-          label.classList.add('crev-label-flash-ok');
-          setTimeout(() => {
-            labelText.textContent = originalText;
-            label.classList.remove('crev-label-flash-ok');
-          }, 600);
-        }).catch(e => {
-          log.swallow('content:clipboard', e);
-          // Visible feedback: flash red with "copy failed" text
-          labelText.textContent = 'copy failed';
-          label.classList.add('crev-label-flash-error');
-          setTimeout(() => {
-            labelText.textContent = originalText;
-            label.classList.remove('crev-label-flash-error');
-          }, 800);
-        });
-      }
-    });
-
-    // Double-click on the pill opens the FULL object view (popup surface).
-    // Deliberately NOT gated on a dblclick-detection delay: the single-click
-    // behaviour (copy + select in the panel) is cheap and idempotent, so it
-    // simply fires first and the second click upgrades to the full view.
-    label.addEventListener('dblclick', (e) => {
-      // Only the pill body opens the full view. A dblclick that lands on a
-      // sub-badge (flow ⇢, code, cascade) bubbles here too, and those run their
-      // own action per click — without this guard, double-clicking a sub-badge
-      // would fire its action twice AND open the object view.
-      if ((e.target as HTMLElement).closest('.crev-meta')) return;
-      e.preventDefault(); e.stopPropagation();
-      sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid });
-    });
     element.appendChild(label);
     applyCompactMode(label, element as HTMLElement);
     s.badgedElements.add(element);
@@ -396,9 +394,8 @@ export function updateLabels(s: ContentState) {
         const color = getTypeColor(enrichment.type);
         parent.style.setProperty('--crev-color', color);
         // The identity text just changed width — re-check the tiny-host fit.
-        applyCompactMode(label, parent);
+        if (!label.classList.contains('crev-page-label')) applyCompactMode(label, parent);
       }
     }
   }
 }
-

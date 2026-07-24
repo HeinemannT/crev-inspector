@@ -69,6 +69,13 @@ export class ContentState {
   // (hover-tooltip dedup guard).
   hoveredLabelEl: Element | null = null;
 
+  // Synthetic identity attached to BMP's normal page heading. It is cached
+  // until the heading detaches or the resolved page RID changes, so a busy
+  // dashboard does not repeatedly run header detection.
+  pageHeaderElement: HTMLElement | null = null;
+  pageHeaderLabel: HTMLElement | null = null;
+  pageHeaderRid: string | null = null;
+
   /** AbortController whose signal is passed to every page-lifetime
    *  event listener (document.body mouseover, paint banner clicks, etc.).
    *  Aborted by resetAll() so a re-injection or double-load doesn't
@@ -103,6 +110,9 @@ export class ContentState {
     this.fiberPageContext = null;
     this.enrichments.clear();
     this.resetOverlays();
+    this.pageHeaderElement = null;
+    this.pageHeaderLabel = null;
+    this.pageHeaderRid = null;
     this.resetDiscovery();
     this.favoriteRids.clear();
     if (this.debounceTimer) { clearTimeout(this.debounceTimer); this.debounceTimer = null; }

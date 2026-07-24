@@ -38,7 +38,11 @@ function pageOwnerRid(href: string): string | null {
   catch { return null; }
 }
 
-export function startObserver(s: ContentState, refreshDetection: () => void) {
+export function startObserver(
+  s: ContentState,
+  refreshDetection: () => void,
+  syncInspect: () => void = () => syncOverlays(s),
+) {
   if (s.observer) return;
 
   // Track the last [data-rid] count we saw so we can detect "BMP just rendered
@@ -126,7 +130,7 @@ export function startObserver(s: ContentState, refreshDetection: () => void) {
     // Overlay sync (debounced, only when inspect active)
     if (s.inspectActive) {
       if (s.debounceTimer) clearTimeout(s.debounceTimer);
-      s.debounceTimer = setTimeout(() => syncOverlays(s), OVERLAY_SYNC_DEBOUNCE);
+      s.debounceTimer = setTimeout(syncInspect, OVERLAY_SYNC_DEBOUNCE);
     }
   });
 

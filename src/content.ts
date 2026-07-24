@@ -17,6 +17,7 @@ import { ensureOverlayStyle, OVERLAY_STYLE_ID } from './content-overlay-style';
 
 import { ContentState } from './content-state';
 import { syncOverlays, removeOverlays, updateLabels } from './content-overlays';
+import { removePageHeaderIdentity, syncPageHeaderIdentity } from './content-page-header';
 import { updatePaintCursors, flashApplyResult } from './content-paint';
 import { showTooltipForElement, hideTooltip, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
@@ -93,14 +94,21 @@ const s = new ContentState();
 // a closure over ContentState (`s.fiberPageContext`) that content-blueprint-entry.ts (a SEPARATE
 // content-script injection, see plans/009) reads by reference. All content scripts injected into one
 // tab share one ISOLATED-world `window`, so this is a live bridge, not a snapshot.
-window.__crevBpResolver = () => {
+function getResolvedPageRid(): string | undefined {
   const url = extractUrlRids();
   if (url.rid) return url.rid;
   if (!s.fiberPageContext?.rid) {
     document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'EXTRACT_FIBERS' } }));
   }
   return resolvePageContext(url, s.fiberPageContext).rid;
-};
+}
+
+window.__crevBpResolver = getResolvedPageRid;
+
+function syncInspectSurface(): void {
+  syncOverlays(s);
+  syncPageHeaderIdentity(s, getResolvedPageRid());
+}
 
 // Whether this content.ts instance has already asked the SW to inject content-blueprint.js. Reset on
 // every fresh content.ts instance (a new page load or SW idle→reinject cycle) — a re-injection into a
@@ -146,9 +154,10 @@ function setInspectMode(active: boolean) {
   if (!s.fromSync) persistInspect(active);
   if (active) {
     injectStyles();
-    syncOverlays(s);
+    syncInspectSurface();
   } else {
     if (s.debounceTimer) { clearTimeout(s.debounceTimer); s.debounceTimer = null; }
+    removePageHeaderIdentity(s);
     removeOverlays(s);
     s.requestedRids.clear();
   }
@@ -309,6 +318,9 @@ function handleFiberPageContext(rid?: string, tabRid?: string) {
   if (prev?.rid === rid && prev?.tabRid === tabRid) return;
   s.fiberPageContext = (rid || tabRid) ? { rid, tabRid } : null;
   sendToSW({ type: 'PAGE_CONTEXT', rid, tabRid });
+  if (s.inspectActive) {
+    syncPageHeaderIdentity(s, resolvePageContext(extractUrlRids(), s.fiberPageContext).rid);
+  }
 }
 
 // ── Service worker message handling ──────────────────────────────
@@ -332,7 +344,10 @@ onPortMessage((msg: InspectorMessage) => {
         s.enrichments.set(rid, data);
         s.requestedRids.delete(rid);
       }
-      if (s.inspectActive) updateLabels(s);
+      if (s.inspectActive) {
+        updateLabels(s);
+        syncPageHeaderIdentity(s, getResolvedPageRid());
+      }
       break;
     case 'PAINT_STATE':
       s.paintPhase = msg.phase;
@@ -351,14 +366,15 @@ onPortMessage((msg: InspectorMessage) => {
         s.enrichMode = msg.mode;
         if (s.inspectActive) {
           s.requestedRids.clear();
+          removePageHeaderIdentity(s);
           removeOverlays(s);
-          syncOverlays(s);
+          syncInspectSurface();
         }
       }
       break;
     case 'RE_ENRICH':
       s.requestedRids.clear();
-      if (s.inspectActive) syncOverlays(s);
+      if (s.inspectActive) syncInspectSurface();
       break;
     case 'RESET_OVERLAY_CACHES':
       // A manual sidebar Reset — drop the blueprint overlay's per-workspace caches (colours + InputSet
@@ -602,6 +618,7 @@ function flashContext(el: HTMLElement): void {
 // ── Init ─────────────────────────────────────────────────────────
 
 function resetContentState() {
+  removePageHeaderIdentity(s);
   removeOverlays(s);
   teardownFrameOverlayModule();
   sendBlueprintCmd({ cmd: 'disable' });
@@ -654,7 +671,7 @@ try { runDetection(); } catch (e) { log.swallow('content:init:detection', e); }
 if (wasInspecting()) {
   try { setInspectMode(true); } catch (e) { log.swallow('content:init:restoreInspect', e); }
 }
-try { startObserver(s, runDetection); } catch (e) { log.swallow('content:init:observer', e); }
+try { startObserver(s, runDetection, syncInspectSurface); } catch (e) { log.swallow('content:init:observer', e); }
 
 // Post-apply blueprint resume. applyPage turns blueprint off + reloads the page (the live grid only
 // reflows on a real load) and leaves a short-lived sessionStorage flag; consume it and ask the SW to

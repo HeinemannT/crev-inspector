@@ -33,6 +33,20 @@
   user-select: none;
   white-space: nowrap;
 }
+/* Normal BMP page titles have no RID-bearing element. Their Inspect identity
+   sits inline after the title rather than pretending the heading is a widget. */
+.crev-label.crev-page-label {
+  position: static !important;
+  display: inline-flex;
+  width: auto;
+  margin-inline-start: 8px;
+  vertical-align: middle;
+  transform: none;
+  font-size: 10px;
+  line-height: 1;
+}
+.crev-page-label .crev-stub { vertical-align: middle; }
+.crev-page-label .crev-meta { display: none; }
 .crev-stub {
   display: inline-flex;
   align-items: stretch;
@@ -44,6 +58,10 @@
   box-shadow: 0 1px 4px rgba(0,0,0,0.28);
   cursor: pointer;
   transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.crev-stub:focus-visible {
+  outline: 2px solid #8a3ffc;
+  outline-offset: 2px;
 }
 .crev-stub:hover {
   transform: translateY(-1px);
