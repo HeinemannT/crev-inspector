@@ -21,6 +21,11 @@ Studio. See `ARCHITECTURE.md` for the component map and message-passing details.
   target is configured instead of silently skipping. Set either `CREV_BMP_URL` + `CREV_BMP_USER`
   + `CREV_BMP_PASS`, or `CREV_SERVERS_FILE` with optional `CREV_SERVER_ID`/`CREV_SERVER_ACTOR`.
   It is not run by `npm test` or CI's default gate.
+- `npm run test:extension-load` — launches Playwright's bundled Chromium with a temporary profile,
+  loads the unpacked extension, and verifies its side-panel page. Use this after a production build.
+- `npm run browser:open -- <url>` — opens a persistent Playwright Chromium profile with the unpacked
+  extension already loaded. Set `CREV_BROWSER_PORT=9229` when CDP access is needed. Keep this process
+  running while testing; rebuilds are picked up on the next extension/browser reload.
 - `npx tsc --noEmit` — typecheck. `tsconfig.json` is `strict: true`, `noUnusedLocals: true`.
 - `npm run lint` — `eslint src` (flat config, `eslint.config.js`). Async-safety rules
   (`no-floating-promises`, `no-misused-promises`) are errors and CI runs with zero warnings.
