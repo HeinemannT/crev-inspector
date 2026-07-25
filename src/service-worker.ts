@@ -17,7 +17,7 @@ import { log } from './lib/logger';
 
 // Modules
 import { loadTabDetection, getTabDetection } from './lib/detection';
-import { startHealthPolling, runAuthTest, stopHealthPolling, pollHealth } from './lib/connection';
+import { ensureConnectionMonitoring, stopHealthPolling, pollHealth } from './lib/connection';
 import { restoreActivity, logActivity } from './lib/activity';
 import { createSettingsReady, loadSettingsFrom, onProfileSwitch, handleSessionCookieRemoved } from './lib/settings';
 import { registerTabListeners, sendPageInfoToPanel } from './lib/tab-awareness';
@@ -479,17 +479,24 @@ function initPanelPort(port: chrome.runtime.Port) {
   port.onMessage.addListener((msg: InspectorMessage) => {
     if (msg.type === 'PANEL_HELLO') {
       const { windowId } = msg;
-      // De-dup: if a panel for this window already exists (shouldn't
-      // happen but defensive), drop the previous one.
+      // A second document can exist for one window (for example a stale
+      // extension page beside Chrome's real side panel). Force-disconnecting
+      // the previous port is unsafe: its reconnecting client returns after
+      // 200 ms, steals the slot, and disconnects this port in turn. Retire the
+      // old client explicitly and let it disconnect itself without retrying.
       const prev = panelPortByWindow.get(windowId);
       if (prev && prev !== port) {
         portToWindowId.delete(prev);
-        try { prev.disconnect(); } catch { /* already gone */ }
+        safeSend(prev, { type: 'PANEL_SUPERSEDED' });
       }
       panelPortByWindow.set(windowId, port);
       portToWindowId.set(port, windowId);
 
       void settingsReady.then(() => {
+        // The port may have been superseded while settings were still
+        // restoring. Never let its delayed startup consume queued state or
+        // initialize monitoring on behalf of a retired document.
+        if (panelPortByWindow.get(windowId) !== port) return;
         // Per-window inspect + blueprint — this panel only cares about its own window. Re-pushed on
         // connect so a reopened sidebar reflects the current toggle state (mirrors INSPECT_STATE).
         safeSend(port, { type: 'INSPECT_STATE', active: inspectActiveByWindow.get(windowId) === true });
@@ -503,6 +510,10 @@ function initPanelPort(port: chrome.runtime.Port) {
         // activity entries.
         for (const queued of pendingPanelMessages) safeSend(port, queued);
         pendingPanelMessages.length = 0;
+        // loadSettingsFrom() may already have started monitoring when this
+        // panel connected during worker boot. The helper is idempotent and
+        // won't turn a verified connection back into "Reconnecting".
+        ensureConnectionMonitoring();
       });
       pushPaintState();
       return;
@@ -510,8 +521,6 @@ function initPanelPort(port: chrome.runtime.Port) {
     void handlePanelMessage(msg, port);
   });
 
-  startHealthPolling();
-  void runAuthTest();
 }
 
 chrome.runtime.onConnect.addListener((port) => {

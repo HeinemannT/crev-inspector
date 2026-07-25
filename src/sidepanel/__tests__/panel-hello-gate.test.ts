@@ -135,4 +135,31 @@ describe('PANEL_HELLO is always first on the wire', () => {
     h.state.sendMessage({ type: 'GET_PAGE_INFO' } as InspectorMessage);
     expect(h.sentMessages).toHaveLength(0);
   });
+
+  it('retires a superseded panel without entering the reconnect loop', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = await setupHarness({ windowIdResolver: async () => ({ id: 42 }) });
+      h.state.connectPanel();
+      await flushMicrotasks();
+
+      const messageListener = h.fakePort.onMessage.addListener.mock.calls[0]?.[0] as
+        ((msg: InspectorMessage) => void) | undefined;
+      expect(messageListener).toBeDefined();
+      messageListener!({ type: 'PANEL_SUPERSEDED' });
+      expect(h.fakePort.disconnect).toHaveBeenCalledTimes(1);
+
+      // Chrome reports the destroy-triggered disconnect asynchronously. A
+      // normal disconnect schedules reconnect after 200 ms; a retired panel
+      // must stay dead even after well beyond that delay.
+      const disconnectListeners = h.fakePort.onDisconnect.addListener.mock.calls
+        .map((c: any[]) => c[0] as () => void);
+      for (const listener of disconnectListeners) listener();
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(chrome.runtime.connect).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

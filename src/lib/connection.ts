@@ -381,6 +381,19 @@ export function startHealthPolling() {
   }, 500);
 }
 
+/** Start the panel-owned connection monitor without disturbing a monitor or
+ *  verified command channel that is already live. A newly opened second panel
+ *  and a replacement panel both use the existing state; only the first panel
+ *  after an idle/no-panel period needs to resume monitoring. */
+export function ensureConnectionMonitoring() {
+  if (!healthTimer) startHealthPolling();
+  if (computeConnectionState().display === 'connected') {
+    pushConnectionState();
+    return;
+  }
+  void runAuthTest();
+}
+
 export function stopHealthPolling() {
   if (healthTimer) {
     clearTimeout(healthTimer);

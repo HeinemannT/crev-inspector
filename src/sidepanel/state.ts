@@ -90,7 +90,20 @@ export function connectPanel(): void {
   if (portInstance) return; // idempotent
   portInstance = createReconnectingPort({
     name: 'panel',
-    onMessage: (msg) => messageHandler?.(msg),
+    onMessage: (msg) => {
+      if (msg.type === 'PANEL_SUPERSEDED') {
+        // A second panel document claimed this Chrome window. Permanently
+        // retire this document's port: a normal disconnect would invoke the
+        // 200 ms reconnect path, reclaim the window, disconnect the other
+        // panel, and make both documents ping-pong forever.
+        portInstance?.destroy();
+        portInstance = null;
+        helloSent = false;
+        preHelloQueue.length = 0;
+        return;
+      }
+      messageHandler?.(msg);
+    },
     onReconnect: () => {
       // Each (re)connect needs a fresh PANEL_HELLO. Reset the gate and
       // queue any sendMessage calls the reconnect handler issues

@@ -382,6 +382,10 @@ export type ColorMessage =
 export type NotificationMessage =
   | { type: 'TOAST'; text: string; kind: 'success' | 'error' | 'info' }
   | { type: 'CLOSE_PANEL' }
+  /** A newer panel document claimed this browser window. The superseded
+   *  document must retire its reconnecting port instead of reconnecting and
+   *  stealing ownership back in a tight loop. */
+  | { type: 'PANEL_SUPERSEDED' }
   /** First message sent by every side-panel instance on connect — tells
    *  the SW which window the panel is attached to. Without this the SW
    *  has to guess via lastFocusedWindow, which breaks when the user has
