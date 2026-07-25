@@ -13,24 +13,24 @@ import { log } from './lib/logger';
 import { ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_X } from './lib/icons';
 import { ensureOverlayStyle } from './content-overlay-style';
 import type { FrameKind } from './lib/types';
-
-const MIN_W = 360;
-const MIN_H = 240;
-const MARGIN = 16;
-/** Keep at least this many pixels of the overlay on-screen when dragging. */
-const MIN_VISIBLE = 80;
+import {
+  centeredFrameBounds,
+  detectFrameSnapZone,
+  fitFrameBounds,
+  maximizedFrameBounds,
+  moveFrameBounds,
+  resizeFrameBounds,
+  snapFrameBounds,
+  type FrameBounds as Bounds,
+  type FrameResizeDirection as ResizeDir,
+  type FrameSnapZone as SnapZone,
+  type FrameViewport,
+} from './lib/frame-geometry';
 /** Just below max signed 32-bit; lets us reliably sit on top of page content. */
 const MAX_Z = 2_147_483_000;
 
 const BOUNDS_KEY_PREFIX = 'crev_overlay_bounds_';
 const HOST_ID_PREFIX = 'crev-frame-overlay-';
-
-interface Bounds {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
 
 interface FrameState {
   kind: FrameKind;
@@ -340,10 +340,15 @@ function createFrame(opts: MountFrameOptions, bounds: Bounds): FrameState {
     }
   };
   state.onViewportResize = () => {
-    state.bounds.left = clamp(state.bounds.left, MARGIN - state.bounds.width + MIN_VISIBLE, window.innerWidth - MIN_VISIBLE);
-    state.bounds.top = clamp(state.bounds.top, 0, Math.max(0, window.innerHeight - 40));
-    state.host.style.left = `${state.bounds.left}px`;
-    state.host.style.top = `${state.bounds.top}px`;
+    const viewport = currentViewport();
+    if (state.restoreBounds) {
+      state.restoreBounds = fitFrameBounds(state.restoreBounds, viewport);
+      state.bounds = maximizedFrameBounds(viewport);
+    } else {
+      state.bounds = fitFrameBounds(state.bounds, viewport);
+      persistBounds(state.kind, state.bounds);
+    }
+    applyBounds(state);
     updateOverlayBlockState();
   };
 
@@ -434,26 +439,16 @@ function requestClose(kind: FrameKind): void {
 
 // ── Drag / resize ─────────────────────────────────────────────
 
-/** Distance from the viewport edge at which snap-to-half kicks in. */
-const SNAP_TRIGGER_PX = 24;
-
-type SnapZone = null | 'left' | 'right' | 'top';
+function currentViewport(): FrameViewport {
+  return { width: window.innerWidth, height: window.innerHeight };
+}
 
 function detectSnapZone(clientX: number, clientY: number): SnapZone {
-  if (clientY <= SNAP_TRIGGER_PX) return 'top';
-  if (clientX <= SNAP_TRIGGER_PX) return 'left';
-  if (clientX >= window.innerWidth - SNAP_TRIGGER_PX) return 'right';
-  return null;
+  return detectFrameSnapZone(clientX, clientY, window.innerWidth);
 }
 
 function snapBoundsFor(zone: SnapZone): Bounds | null {
-  if (!zone) return null;
-  const h = Math.max(MIN_H, window.innerHeight - MARGIN * 2);
-  const halfW = Math.max(MIN_W, Math.floor((window.innerWidth - MARGIN * 3) / 2));
-  if (zone === 'left') return { left: MARGIN, top: MARGIN, width: halfW, height: h };
-  if (zone === 'right') return { left: window.innerWidth - halfW - MARGIN, top: MARGIN, width: halfW, height: h };
-  // top → full-width maximised
-  return { left: MARGIN, top: MARGIN, width: Math.max(MIN_W, window.innerWidth - MARGIN * 2), height: h };
+  return snapFrameBounds(zone, currentViewport());
 }
 
 function wireDrag(state: FrameState, handle: HTMLElement): () => void {
@@ -490,10 +485,13 @@ function wireDrag(state: FrameState, handle: HTMLElement): () => void {
 
   const onMove = (e: PointerEvent) => {
     if (!dragging) return;
-    state.bounds.left = clamp(startLeft + (e.clientX - startX), MARGIN - state.bounds.width + MIN_VISIBLE, window.innerWidth - MIN_VISIBLE);
-    state.bounds.top = clamp(startTop + (e.clientY - startY), 0, window.innerHeight - 40);
-    state.host.style.left = `${state.bounds.left}px`;
-    state.host.style.top = `${state.bounds.top}px`;
+    state.bounds = moveFrameBounds(
+      { ...state.bounds, left: startLeft, top: startTop },
+      e.clientX - startX,
+      e.clientY - startY,
+      currentViewport(),
+    );
+    applyBounds(state);
     updateSnapPreview(detectSnapZone(e.clientX, e.clientY));
     updateOverlayBlockState();
   };
@@ -551,8 +549,6 @@ function wireDrag(state: FrameState, handle: HTMLElement): () => void {
   return finish;
 }
 
-type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
-
 function wireResize(state: FrameState, handle: HTMLElement, dir: ResizeDir): () => void {
   let startX = 0, startY = 0;
   let startW = 0, startH = 0, startLeft = 0, startTop = 0;
@@ -561,43 +557,14 @@ function wireResize(state: FrameState, handle: HTMLElement, dir: ResizeDir): () 
 
   const onMove = (e: PointerEvent) => {
     if (!resizing) return;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    let { width, height, left, top } = state.bounds;
-    // East / West affect width (and left for west).
-    if (dir.includes('e')) {
-      width = Math.max(MIN_W, startW + dx);
-    } else if (dir.includes('w')) {
-      // Width grows by -dx, left moves by dx. Clamp so the host can't
-      // shrink past MIN_W (which would otherwise drag `left` past the
-      // right edge).
-      const proposedWidth = Math.max(MIN_W, startW - dx);
-      width = proposedWidth;
-      left = startLeft + (startW - proposedWidth);
-    }
-    // North / South affect height (and top for north).
-    if (dir.includes('s')) {
-      height = Math.max(MIN_H, startH + dy);
-    } else if (dir.includes('n')) {
-      const proposedHeight = Math.max(MIN_H, startH - dy);
-      height = proposedHeight;
-      top = Math.max(0, startTop + (startH - proposedHeight));
-    }
-    // Viewport clamp — keep at least MIN_VISIBLE of the frame inside
-    // the viewport on every side. Same rule onViewportResize already
-    // applies; doing it here too means a user can't drag the frame
-    // mostly off-screen during a resize, only to have it jerk back
-    // when the viewport size changes.
-    left = clamp(left, MARGIN - width + MIN_VISIBLE, window.innerWidth - MIN_VISIBLE);
-    top = clamp(top, 0, Math.max(0, window.innerHeight - 40));
-    state.bounds.width = width;
-    state.bounds.height = height;
-    state.bounds.left = left;
-    state.bounds.top = top;
-    state.host.style.width = `${width}px`;
-    state.host.style.height = `${height}px`;
-    state.host.style.left = `${left}px`;
-    state.host.style.top = `${top}px`;
+    state.bounds = resizeFrameBounds(
+      { left: startLeft, top: startTop, width: startW, height: startH },
+      dir,
+      e.clientX - startX,
+      e.clientY - startY,
+      currentViewport(),
+    );
+    applyBounds(state);
     updateOverlayBlockState();
   };
 
@@ -638,10 +605,6 @@ function wireResize(state: FrameState, handle: HTMLElement, dir: ResizeDir): () 
   return finish;
 }
 
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.min(Math.max(v, lo), hi);
-}
-
 // ── Maximize / restore ────────────────────────────────────────
 
 /** Push the frame's bounds to its host's style. */
@@ -660,12 +623,12 @@ function toggleMaximize(kind: FrameKind): void {
   if (!state) return;
   const btn = state.host.querySelector<HTMLElement>('.crev-eo-max');
   if (state.restoreBounds) {
-    state.bounds = state.restoreBounds;
+    state.bounds = fitFrameBounds(state.restoreBounds, currentViewport());
     state.restoreBounds = undefined;
     if (btn) { btn.innerHTML = ICON_ARROWS_OUT_SIMPLE; btn.title = 'Maximize'; btn.setAttribute('aria-label', `Maximize ${state.kind}`); }
   } else {
     state.restoreBounds = { ...state.bounds };
-    state.bounds = { left: MARGIN, top: MARGIN, width: window.innerWidth - 2 * MARGIN, height: window.innerHeight - 2 * MARGIN };
+    state.bounds = maximizedFrameBounds(currentViewport());
     if (btn) { btn.innerHTML = ICON_ARROWS_IN_SIMPLE; btn.title = 'Restore'; btn.setAttribute('aria-label', `Restore ${state.kind}`); }
   }
   applyBounds(state);
@@ -680,28 +643,21 @@ async function readBounds(opts: MountFrameOptions): Promise<Bounds> {
     const b = stored[key] as Partial<Bounds> | undefined;
     if (b && typeof b.left === 'number' && typeof b.top === 'number'
         && typeof b.width === 'number' && typeof b.height === 'number') {
-      return {
-        left: clamp(b.left, 0, Math.max(0, window.innerWidth - MIN_W)),
-        top: clamp(b.top, 0, Math.max(0, window.innerHeight - MIN_H)),
-        width: clamp(b.width, MIN_W, window.innerWidth),
-        height: clamp(b.height, MIN_H, window.innerHeight),
-      };
+      const restored = fitFrameBounds(b as Bounds, currentViewport());
+      if (restored.left !== b.left || restored.top !== b.top
+          || restored.width !== b.width || restored.height !== b.height) {
+        persistBounds(opts.kind, restored);
+      }
+      return restored;
     }
   } catch (e) {
     log.swallow('overlay:readBounds', e);
   }
-  const width = Math.min(opts.defaultWidth, window.innerWidth - 80);
-  const height = Math.min(opts.defaultHeight, window.innerHeight - 80);
   // Stagger when multiple frames are already open so a second/third overlay
   // doesn't land exactly on top of the first one. Persisted bounds take over
   // on subsequent opens — this only matters the very first time per kind.
   const offset = frames.size * 28;
-  return {
-    left: clamp(Math.max(MARGIN, (window.innerWidth - width) / 2) + offset, MARGIN, Math.max(MARGIN, window.innerWidth - width - MARGIN)),
-    top: clamp(Math.max(MARGIN, (window.innerHeight - height) / 2) + offset, MARGIN, Math.max(MARGIN, window.innerHeight - height - MARGIN)),
-    width,
-    height,
-  };
+  return centeredFrameBounds(opts.defaultWidth, opts.defaultHeight, currentViewport(), offset);
 }
 
 const persistTimers = new Map<FrameKind, ReturnType<typeof setTimeout>>();

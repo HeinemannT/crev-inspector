@@ -1,98 +1,128 @@
-/**
- * Tests for the snap-to-edges logic in content-frame-overlay.ts.
- *
- * The detect + bounds helpers aren't exported (they're module-private
- * because they touch `window.innerWidth/Height`), so we replicate the
- * rules here as a contract test. If the production logic drifts from
- * these expectations the spec is being broken intentionally and the
- * test needs to be updated.
- */
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import {
+  FRAME_MARGIN,
+  FRAME_MIN_HEIGHT,
+  FRAME_MIN_WIDTH,
+  FRAME_SNAP_TRIGGER,
+  centeredFrameBounds,
+  detectFrameSnapZone,
+  fitFrameBounds,
+  maximizedFrameBounds,
+  moveFrameBounds,
+  resizeFrameBounds,
+  snapFrameBounds,
+  type FrameBounds,
+  type FrameViewport,
+} from '../lib/frame-geometry';
 
-// Re-declare the constants from the production file so the test stays
-// honest about the trigger zone.
-const SNAP_TRIGGER_PX = 24;
-const MARGIN = 16;
-const MIN_W = 360;
-const MIN_H = 240;
-
-type SnapZone = null | 'left' | 'right' | 'top';
-
-function detectSnapZone(clientX: number, clientY: number, w: number): SnapZone {
-  if (clientY <= SNAP_TRIGGER_PX) return 'top';
-  if (clientX <= SNAP_TRIGGER_PX) return 'left';
-  if (clientX >= w - SNAP_TRIGGER_PX) return 'right';
-  return null;
+function expectInside(bounds: FrameBounds, viewport: FrameViewport): void {
+  expect(bounds.left).toBeGreaterThanOrEqual(0);
+  expect(bounds.top).toBeGreaterThanOrEqual(0);
+  expect(bounds.left + bounds.width).toBeLessThanOrEqual(viewport.width);
+  expect(bounds.top + bounds.height).toBeLessThanOrEqual(viewport.height);
 }
 
-interface Bounds { left: number; top: number; width: number; height: number }
+describe('detectFrameSnapZone', () => {
+  const width = 1600;
 
-function snapBoundsFor(zone: SnapZone, w: number, hViewport: number): Bounds | null {
-  if (!zone) return null;
-  const h = Math.max(MIN_H, hViewport - MARGIN * 2);
-  const halfW = Math.max(MIN_W, Math.floor((w - MARGIN * 3) / 2));
-  if (zone === 'left') return { left: MARGIN, top: MARGIN, width: halfW, height: h };
-  if (zone === 'right') return { left: w - halfW - MARGIN, top: MARGIN, width: halfW, height: h };
-  return { left: MARGIN, top: MARGIN, width: Math.max(MIN_W, w - MARGIN * 2), height: h };
-}
-
-describe('detectSnapZone', () => {
-  const W = 1600;
-  it('returns null in the middle of the viewport', () => {
-    expect(detectSnapZone(800, 400, W)).toBeNull();
-  });
-  it('returns "left" when the pointer is within the left gutter', () => {
-    expect(detectSnapZone(10, 400, W)).toBe('left');
-    expect(detectSnapZone(SNAP_TRIGGER_PX, 400, W)).toBe('left');
-    expect(detectSnapZone(SNAP_TRIGGER_PX + 1, 400, W)).toBeNull();
-  });
-  it('returns "right" when the pointer is within the right gutter', () => {
-    expect(detectSnapZone(W - 10, 400, W)).toBe('right');
-    expect(detectSnapZone(W - SNAP_TRIGGER_PX, 400, W)).toBe('right');
-    expect(detectSnapZone(W - SNAP_TRIGGER_PX - 1, 400, W)).toBeNull();
-  });
-  it('returns "top" with priority over left/right when in the corner', () => {
-    // Top corner — top wins so corner-drag → full-width maximise.
-    expect(detectSnapZone(10, 10, W)).toBe('top');
-    expect(detectSnapZone(W - 10, 10, W)).toBe('top');
+  it('recognises the three edge zones and gives top priority at corners', () => {
+    expect(detectFrameSnapZone(800, 400, width)).toBeNull();
+    expect(detectFrameSnapZone(FRAME_SNAP_TRIGGER, 400, width)).toBe('left');
+    expect(detectFrameSnapZone(width - FRAME_SNAP_TRIGGER, 400, width)).toBe('right');
+    expect(detectFrameSnapZone(10, 10, width)).toBe('top');
+    expect(detectFrameSnapZone(width - 10, 10, width)).toBe('top');
   });
 });
 
-describe('snapBoundsFor', () => {
-  const W = 1600, H = 900;
-  it('returns null for no-zone', () => {
-    expect(snapBoundsFor(null, W, H)).toBeNull();
+describe('frame geometry', () => {
+  it('centres a fresh editor at its preferred size', () => {
+    expect(centeredFrameBounds(960, 640, { width: 1600, height: 900 })).toEqual({
+      left: 320,
+      top: 130,
+      width: 960,
+      height: 640,
+    });
   });
-  it('left zone → flush to left margin, half width', () => {
-    const b = snapBoundsFor('left', W, H)!;
-    expect(b.left).toBe(MARGIN);
-    expect(b.top).toBe(MARGIN);
-    expect(b.height).toBe(H - MARGIN * 2);
-    // halfWidth = floor((W - MARGIN*3) / 2) — leaves one MARGIN gap in
-    // the middle and a MARGIN on each side.
-    expect(b.width).toBe(Math.floor((W - MARGIN * 3) / 2));
+
+  it('repairs large-screen saved bounds for a smaller viewport as one rectangle', () => {
+    const viewport = { width: 1024, height: 700 };
+    const restored = fitFrameBounds({
+      left: 1100,
+      top: 500,
+      width: 1200,
+      height: 800,
+    }, viewport);
+
+    expect(restored).toEqual({
+      left: FRAME_MARGIN,
+      top: FRAME_MARGIN,
+      width: viewport.width - FRAME_MARGIN * 2,
+      height: viewport.height - FRAME_MARGIN * 2,
+    });
+    expectInside(restored, viewport);
   });
-  it('right zone → flush to right margin, half width', () => {
-    const b = snapBoundsFor('right', W, H)!;
-    expect(b.left + b.width + MARGIN).toBe(W);
-    expect(b.top).toBe(MARGIN);
+
+  it('keeps the entire frame visible when dragged beyond every edge', () => {
+    const viewport = { width: 1366, height: 768 };
+    const start = centeredFrameBounds(960, 640, viewport);
+
+    for (const [dx, dy] of [[-5000, 0], [5000, 0], [0, -5000], [0, 5000]] as const) {
+      expectInside(moveFrameBounds(start, dx, dy, viewport), viewport);
+    }
   });
-  it('top zone → full-width maximise', () => {
-    const b = snapBoundsFor('top', W, H)!;
-    expect(b.left).toBe(MARGIN);
-    expect(b.width).toBe(W - MARGIN * 2);
+
+  it('anchors the opposite edge and caps every resize direction', () => {
+    const viewport = { width: 1200, height: 800 };
+    const start = { left: 200, top: 120, width: 700, height: 500 };
+
+    const east = resizeFrameBounds(start, 'e', 5000, 0, viewport);
+    expect(east.left).toBe(start.left);
+    expect(east.left + east.width).toBe(viewport.width - FRAME_MARGIN);
+
+    const west = resizeFrameBounds(start, 'w', -5000, 0, viewport);
+    expect(west.left).toBe(FRAME_MARGIN);
+    expect(west.left + west.width).toBe(start.left + start.width);
+
+    const south = resizeFrameBounds(start, 's', 0, 5000, viewport);
+    expect(south.top).toBe(start.top);
+    expect(south.top + south.height).toBe(viewport.height - FRAME_MARGIN);
+
+    const north = resizeFrameBounds(start, 'n', 0, -5000, viewport);
+    expect(north.top).toBe(FRAME_MARGIN);
+    expect(north.top + north.height).toBe(start.top + start.height);
+
+    for (const bounds of [east, west, south, north]) expectInside(bounds, viewport);
   });
-  it('respects MIN_W on narrow viewports', () => {
-    // Narrow viewport where half-width would be below MIN_W — bounds
-    // clamp to MIN_W (will overlap the centerline visually, but the
-    // host won't collapse to unusable).
-    const narrow = 600;
-    const b = snapBoundsFor('left', narrow, H)!;
-    expect(b.width).toBeGreaterThanOrEqual(MIN_W);
+
+  it('uses normal minimums when possible and shrinks fully inside tiny viewports', () => {
+    const normal = fitFrameBounds({ left: 0, top: 0, width: 10, height: 10 }, { width: 800, height: 600 });
+    expect(normal.width).toBe(FRAME_MIN_WIDTH);
+    expect(normal.height).toBe(FRAME_MIN_HEIGHT);
+
+    const tinyViewport = { width: 280, height: 180 };
+    const tiny = fitFrameBounds({ left: 900, top: 900, width: 960, height: 640 }, tinyViewport);
+    expect(tiny.width).toBeLessThan(FRAME_MIN_WIDTH);
+    expect(tiny.height).toBeLessThan(FRAME_MIN_HEIGHT);
+    expectInside(tiny, tinyViewport);
   });
-  it('respects MIN_H on short viewports', () => {
-    const shortViewport = 100;
-    const b = snapBoundsFor('top', W, shortViewport)!;
-    expect(b.height).toBeGreaterThanOrEqual(MIN_H);
+
+  it('produces fully visible left, right, and maximized snap bounds', () => {
+    const viewport = { width: 1600, height: 900 };
+    const left = snapFrameBounds('left', viewport)!;
+    const right = snapFrameBounds('right', viewport)!;
+    const top = snapFrameBounds('top', viewport)!;
+
+    expect(left.left).toBe(FRAME_MARGIN);
+    expect(right.left + right.width).toBe(viewport.width - FRAME_MARGIN);
+    expect(top).toEqual(maximizedFrameBounds(viewport));
+    for (const bounds of [left, right, top]) expectInside(bounds, viewport);
+  });
+
+  it('keeps snap bounds inside narrow and short viewports', () => {
+    for (const viewport of [{ width: 600, height: 100 }, { width: 300, height: 180 }]) {
+      for (const zone of ['left', 'right', 'top'] as const) {
+        expectInside(snapFrameBounds(zone, viewport)!, viewport);
+      }
+    }
   });
 });
