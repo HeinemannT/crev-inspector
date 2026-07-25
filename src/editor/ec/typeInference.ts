@@ -30,10 +30,17 @@ import { sendRequest } from '../../lib/messaging';
 import type { InspectorMessage, TypeSchemaProp, TypeOptionSet } from '../../lib/types';
 import { ID_SPACE_PREFIXES } from '../../lib/ec-grammar';
 import { intersectTypeSchemas } from '../../lib/type-schema-utils';
+import {
+  type JsonLocator,
+  isCompleteExpression,
+  resolveJsonCall,
+  resolveJsonChain,
+} from './json-source';
 
 export type TypeInference =
   | { kind: 'list'; types: string[]; line: number }     // List<T> or List<T1|T2|...> for multi-type
   | { kind: 'scalar'; type: string; line: number; loopVar?: boolean }  // single object; loopVar → bound by a lambda (foreach/map/…)
+  | { kind: 'json'; locator: JsonLocator; line: number; loopVar?: boolean }
   | { kind: 'primitive'; primitive: 'string' | 'number' | 'date' | 'bool'; line: number }
   | { kind: 'unknown'; reason: string; line: number; ref?: string };
 
@@ -261,7 +268,12 @@ export function canonicalType(name: string): string {
  *  inference reads from it so that `_b := _a.first()` (line 2) can
  *  resolve `_a` declared on line 1 of the same scan, not the last
  *  scan's stale value. */
-function parseRhs(rhs: string, line: number, seenVars: Map<string, TypeInference>): TypeInference {
+function parseRhs(
+  rhs: string,
+  line: number,
+  seenVars: Map<string, TypeInference>,
+  seenRhs: ReadonlyMap<string, string>,
+): TypeInference {
   // Strip every layer of balanced outer parens so `((SELECT Foo))` and
   // `(((SELECT Foo)))` work the same as the unwrapped form. Live-verified
   // that EC accepts arbitrary paren depth around an expression. We don't
@@ -290,7 +302,7 @@ function parseRhs(rhs: string, line: number, seenVars: Map<string, TypeInference
     const thenBranch = ifMatch[2].trim();
     // Recurse on the THEN branch with the same seenVars; the inner
     // expression gets full type-inference treatment.
-    return parseRhs(thenBranch, line, seenVars);
+    return parseRhs(thenBranch, line, seenVars, seenRhs);
   }
 
   // SELECT X[, Y, ...] [WHERE … FROM … ORDER BY …]
@@ -325,6 +337,22 @@ function parseRhs(rhs: string, line: number, seenVars: Map<string, TypeInference
     requestRootCategory(cat);
     return { kind: 'unknown', reason: `resolving root.${cat}…`, line };
   }
+
+  if (/^JSON\s*\(/.test(s)) {
+    const source = resolveJsonCall(s, seenRhs, name => {
+      const inference = seenVars.get(name);
+      return inference?.kind === 'json' ? inference.locator : undefined;
+    });
+    return source.ok
+      ? { kind: 'json', locator: source.locator, line }
+      : { kind: 'unknown', reason: source.reason, line };
+  }
+
+  const jsonChain = resolveJsonChain(s, name => {
+    const inference = seenVars.get(name);
+    return inference?.kind === 'json' ? inference.locator : undefined;
+  });
+  if (jsonChain) return { kind: 'json', locator: jsonChain, line };
 
   // <ident>.children(T) / .descendants(T) / .ancestor(T)
   // Same canonicalisation as SELECT — `_x.children(ceIssue)` should
@@ -461,7 +489,6 @@ function parseRhs(rhs: string, line: number, seenVars: Map<string, TypeInference
   // schema instead of the generic "unrecognised assignment shape"
   // (which reads like a parser bug). User can then act: write a
   // typed assignment if they need a schema view.
-  if (/^JSON\s*\(/.test(s)) return { kind: 'unknown', reason: 'JSON literal: no static schema', line };
   if (/^MAP\s*\(/.test(s)) return { kind: 'unknown', reason: 'MAP literal: no static schema', line };
   if (/^LIST\s*\(/.test(s)) return { kind: 'unknown', reason: 'LIST literal: element types not statically derivable', line };
   if (/^when\s*\(/.test(s)) return { kind: 'unknown', reason: 'when(...): branches not statically resolvable', line };
@@ -867,17 +894,30 @@ export function scanDocForInferences(doc: { lines: number; line(n: number): { te
   // when its answer lands.
   lastDoc = doc;
   const next = new Map<string, TypeInference>();
+  const rhsByVariable = new Map<string, string>();
   for (let i = 1; i <= doc.lines; i++) {
+    const assignmentLine = i;
     const t = doc.line(i).text;
     const m = ASSIGN_RE.exec(t);
     if (!m) continue;
     const name = m[1];
     if (RESERVED.has(name.toLowerCase())) continue;
     if (!next.has(name)) {
+      let rhs = m[2];
+      // Raw JSON is often formatted over physical editor lines. Extend only
+      // JSON(...) and quoted-literal assignments; broad multiline expression
+      // folding would change the established line-oriented EC heuristics.
+      if ((/^JSON\s*\(/.test(rhs.trim()) || /^["']/.test(rhs.trim())) && !isCompleteExpression(rhs)) {
+        while (i < doc.lines) {
+          rhs += `\n${doc.line(++i).text}`;
+          if (isCompleteExpression(rhs)) break;
+        }
+      }
+      rhsByVariable.set(name, rhs);
       // Pass `next` so chain inference on this line can resolve
       // vars declared on prior lines of the SAME scan, not stale
       // state from the previous scan.
-      next.set(name, parseRhs(m[2], i, next));
+      next.set(name, parseRhs(rhs, assignmentLine, next, rhsByVariable));
     }
   }
   // Second pass — named lambda params (`coll.forEach(_x: …)`). These aren't
@@ -894,9 +934,16 @@ export function scanDocForInferences(doc: { lines: number; line(n: number): { te
       const [, receiver, method, param] = lm;
       if (!isElementContext(method)) continue;
       if (next.has(param) || RESERVED.has(param.toLowerCase())) continue;
-      const recv = parseRhs(receiver, i, next);
+      const recv = parseRhs(receiver, i, next, rhsByVariable);
       if (recv.kind === 'list' && recv.types.length > 0) {
         next.set(param, { kind: 'scalar', type: recv.types[0], line: i, loopVar: true });
+      } else if (recv.kind === 'json') {
+        next.set(param, {
+          kind: 'json',
+          locator: { root: recv.locator.root, steps: [...recv.locator.steps, { kind: 'element' }] },
+          line: i,
+          loopVar: true,
+        });
       }
     }
   }

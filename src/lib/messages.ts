@@ -37,6 +37,7 @@ import type {
   WidgetInfo,
 } from './types';
 import type { EcOutputEntry } from './bmp-types';
+import type { JsonShape } from './json-shape';
 import type { AiCustomProvider, AiProviderId, AiRequestPayload, AiChatTurn, AiChatEvent, AiChatQuote, AiContextEnvelope, AiContextSource } from './ai/types';
 import type { LModel, PlanNote, NodeStyle, FlowNode } from './layout/types';
 import type { StylePreset } from './style-presets';
@@ -181,6 +182,8 @@ export type EcMessage =
   | { type: 'OPEN_EDITOR'; rid: string; property?: string; scrollToLine?: number; scrollToText?: string }
   | { type: 'FETCH_EDITOR_CONTEXT'; rid: string; property?: string }
   | { type: 'EDITOR_CONTEXT_DATA'; rid: string; context: import('../editor/editor-types').EditorContext }
+  | { type: 'JSON_SHAPE_READ'; source: string; objectRid?: string }
+  | { type: 'JSON_SHAPE_RESULT'; ok: boolean; shape?: JsonShape; error?: string }
   | { type: 'OPEN_EXTENDED' };
 
 // ── CVO Studio ───────────────────────────────────────────────────

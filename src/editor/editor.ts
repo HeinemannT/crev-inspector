@@ -57,6 +57,9 @@ import {
 } from './ec/typeInference'
 import { starExpansionCompletions } from './ec/starExpansion'
 import { propertyCompletions, valueCompletions } from './ec/propertyCompletions'
+import { jsonCompletions, setJsonCompletionContext } from './ec/jsonCompletions'
+import { jsonShapeStore } from './ec/json-shape-store'
+import { renderJsonVars } from './json-vars'
 import { extendedLinter } from './ec/diagnostics'
 import { runtimeErrorLinter, setRuntimeError, parseEcErrorLocation, clearRuntimeErrors } from './ec/runtimeErrors'
 import { ecBlockMatching } from './ec/blockMatching'
@@ -213,6 +216,7 @@ async function init() {
     }
   }
   await setupAiAssist()
+  setJsonCompletionContext(getExecutionRid(ctx))
   updateWindowTitle()
   renderShell()
   ensureSurface()
@@ -223,6 +227,9 @@ async function init() {
   // different tab is cheap (renderBottomContent early-exits if
   // bottomMode !== 'vars').
   subscribeInference(() => {
+    if (bottomPanelOpen && bottomMode === 'vars') renderBottomContent()
+  })
+  jsonShapeStore.subscribe(() => {
     if (bottomPanelOpen && bottomMode === 'vars') renderBottomContent()
   })
 
@@ -702,7 +709,7 @@ function buildExtensions(slot: CodeSlot): Extension[] {
     // ~100ms after WHERE␣ / `(` / `=` / `CONTAINS` / a typed name, and each
     // source's validFor keeps the popup open as the user types. Do NOT set
     // activateOnTyping:false or the property/value popups stop auto-appearing.
-    autocompletion({ override: isEc ? [starExpansionCompletions, propertyCompletions, valueCompletions, extendedCompletions] : undefined }),
+    autocompletion({ override: isEc ? [starExpansionCompletions, jsonCompletions, propertyCompletions, valueCompletions, extendedCompletions] : undefined }),
     // `*` isn't an identifier char, so kick autocomplete explicitly so the
     // `*`-expansion snippet surfaces immediately on type.
     isEc ? EditorView.updateListener.of((update) => {
@@ -836,6 +843,7 @@ function updateStatusBar(): void {
 async function setupAiAssist(): Promise<void> {
   chrome.runtime.onMessage.addListener((msg: InspectorMessage) => {
     if (msg.type === 'AI_CONFIG_CHANGED') void applyAiConfig(msg.configured)
+    if (msg.type === 'PROFILE_SWITCHED') jsonShapeStore.clear()
     // Chat-tab Apply: when the proposal targets the object + slot this editor
     // has open, raise the standard merge-diff Accept/Reject on the live doc.
     if ((msg.type === 'AI_APPLY_PROPOSAL' || msg.type === 'AI_INSERT_AT_CURSOR') && aiAssist && ctx) {
@@ -1584,7 +1592,7 @@ function renderVarsPanel(container: HTMLElement): void {
   if (!selected) {
     const interesting = vars.filter(v => {
       const inf = inferences.get(v.name)
-      return inf?.kind === 'list' || inf?.kind === 'scalar'
+      return inf?.kind === 'list' || inf?.kind === 'scalar' || inf?.kind === 'json'
     })
     const pickFrom = interesting.length > 0 ? interesting : vars
     selected = pickFrom.reduce((best, v) => (!best || v.line > best.line ? v : best), null as { name: string; line: number } | null)?.name ?? null
@@ -1652,7 +1660,7 @@ function renderVarsList(
           : `${v.name} := ${v.rhs} (line ${v.line}). Double-click to jump`,
       },
         h('span', { class: 'editor-vars-name' }, v.name),
-        inf?.kind === 'scalar' && inf.loopVar
+        (inf?.kind === 'scalar' || inf?.kind === 'json') && inf.loopVar
           ? h('span', { class: 'editor-vars-loopbadge', title: 'Loop variable (bound by forEach/map/…)' }, 'loop')
           : null,
         typeChip,
@@ -1678,6 +1686,20 @@ function renderTypeChip(inf: TypeInference | undefined): HTMLElement {
         class: 'editor-vars-typechip editor-vars-typechip--scalar',
         title: `Single ${canonicalType(inf.type)}`,
       }, canonicalType(inf.type))
+    case 'json': {
+      const root = jsonShapeStore.peek(inf.locator, ctx ? getExecutionRid(ctx) : undefined)
+      const label = root.status !== 'ready'
+        ? '{JSON}'
+        : root.shape.kind === 'array'
+          ? '[JSON]'
+          : root.shape.kind === 'object'
+            ? '{JSON}'
+            : root.shape.kind
+      return h('span', {
+        class: 'editor-vars-typechip editor-vars-typechip--json',
+        title: inf.locator.root.kind === 'runtime' ? inf.locator.root.expression : 'Inline JSON',
+      }, label)
+    }
     case 'primitive':
       return h('span', {
         class: 'editor-vars-typechip editor-vars-typechip--primitive',
@@ -1700,6 +1722,15 @@ function renderVarsProps(selected: string | null, inferences: Map<string, TypeIn
     return h('div', { class: 'editor-vars-props-pane' },
       h('div', { class: 'editor-vars-props-empty' }, 'No type inferred for this variable yet.'),
     )
+  }
+  if (inf.kind === 'json') {
+    return renderJsonVars({
+      name: selected,
+      locator: inf.locator,
+      objectRid: ctx ? getExecutionRid(ctx) : undefined,
+      insert: insertAtCursor,
+      rerender: renderBottomContent,
+    })
   }
   if (inf.kind === 'primitive') {
     return h('div', { class: 'editor-vars-props-pane' },

@@ -1617,3 +1617,90 @@ body {
  * via lib/modal — editor.html loads components.css. */
 
 /* Scrollbars defined in base.css */
+.editor-vars-typechip--json {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+.editor-json-source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-json-list {
+  padding-block: 2px;
+}
+
+.editor-json-group {
+  display: contents;
+}
+
+.editor-json-row {
+  min-height: 27px;
+  display: grid;
+  grid-template-columns: 18px minmax(80px, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+}
+
+.editor-json-row:hover {
+  background: var(--surface-2);
+}
+
+.editor-json-row--invalid,
+.editor-json-row--array {
+  cursor: default;
+}
+
+.editor-json-expand {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  color: var(--text-3);
+  background: transparent;
+}
+
+.editor-json-expand svg {
+  width: 11px;
+  height: 11px;
+  transition: transform 120ms ease;
+}
+
+.editor-json-expand.expanded svg {
+  transform: rotate(90deg);
+}
+
+.editor-json-expand-spacer {
+  width: 18px;
+}
+
+.editor-json-key {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  color: var(--text-1);
+}
+
+.editor-json-row--invalid .editor-json-key {
+  color: var(--text-3);
+}
+
+.editor-json-kind,
+.editor-json-note {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.editor-json-note {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}

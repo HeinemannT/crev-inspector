@@ -20,6 +20,7 @@ import './handlers/inspect';
 import './handlers/profiles';
 import './handlers/objects';
 import './handlers/ec';
+import './handlers/json-shape';
 import './handlers/studio';
 import './handlers/access';
 import './handlers/enrichment';

@@ -372,11 +372,48 @@ describe('RHS parser — real-world coding shapes', () => {
     expect(getInference('_prop')).toMatchObject({ kind: 'scalar', type: 'ReferenceMethodConfig' });
   });
 
-  it('JSON(...) → unknown with descriptive reason', () => {
+  it('JSON(raw literal) → local JSON locator', () => {
     infer('_arr := JSON(\'[{"id":1}]\')');
-    const inf = getInference('_arr');
-    expect(inf?.kind).toBe('unknown');
-    if (inf?.kind === 'unknown') expect(inf.reason).toMatch(/JSON literal/);
+    expect(getInference('_arr')).toMatchObject({
+      kind: 'json',
+      locator: { root: { kind: 'literal', text: '[{"id":1}]' }, steps: [] },
+    });
+  });
+
+  it('JSON(raw alias) and nested array chains retain the same locator', () => {
+    infer([
+      `_raw := '{"rows":[{"name":"A"}]}'`,
+      '_cfg := JSON(_raw)',
+      '_name := _cfg.rows.first().name',
+    ].join('\n'));
+    expect(getInference('_name')).toMatchObject({
+      kind: 'json',
+      locator: {
+        root: { kind: 'literal' },
+        steps: [
+          { kind: 'property', key: 'rows' },
+          { kind: 'element' },
+          { kind: 'property', key: 'name' },
+        ],
+      },
+    });
+  });
+
+  it('JSON(property) → safe runtime locator', () => {
+    infer('_cfg := JSON(this.object.description.strip())');
+    expect(getInference('_cfg')).toMatchObject({
+      kind: 'json',
+      locator: { root: { kind: 'runtime', expression: 'this.object.description.strip()' } },
+    });
+  });
+
+  it('multiline raw JSON is scanned as one assignment', () => {
+    infer(`_cfg := JSON(
+      '{
+        "rows": [{"name": "A"}]
+      }'
+    )`);
+    expect(getInference('_cfg')).toMatchObject({ kind: 'json' });
   });
 
   it('MAP(...) → unknown with descriptive reason', () => {
