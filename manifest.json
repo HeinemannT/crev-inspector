@@ -37,12 +37,11 @@
     "default_path": "sidepanel/sidepanel.html"
   },
   "commands": {
-    "open-sidebar": {
+    "_execute_action": {
       "suggested_key": {
         "default": "Ctrl+Shift+Y",
         "mac": "Command+Shift+Y"
-      },
-      "description": "Open / focus the CREV side panel"
+      }
     },
     "toggle-inspect": {
       "suggested_key": {

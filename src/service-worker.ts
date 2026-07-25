@@ -561,23 +561,6 @@ chrome.runtime.onConnect.addListener((port) => {
 
 chrome.commands.onCommand.addListener((command) => {
   log.info('sw:command', command);
-  if (command === 'open-sidebar') {
-    // Per-window toggle: close the panel if it's open in the user's
-    // current window; otherwise open it there. chrome.sidePanel has no
-    // close API so closing routes through CLOSE_PANEL → window.close().
-    // We target THIS window only — the panel in another window is the
-    // user's other context and shouldn't be disturbed.
-    chrome.windows.getCurrent({ populate: false }, (win) => {
-      if (win?.id == null) return;
-      const existing = panelPortByWindow.get(win.id);
-      if (existing) {
-        try { existing.postMessage({ type: 'CLOSE_PANEL' } as InspectorMessage); }
-        catch (e) { log.swallow('sw:closeSidebar', e); }
-        return;
-      }
-      chrome.sidePanel.open({ windowId: win.id }).catch(e => log.swallow('sw:openSidebar', e));
-    });
-  }
   if (command === 'toggle-inspect') {
     void toggleInspect();
   }

@@ -1016,7 +1016,7 @@ export class ConnectTab implements Tab {
       {
         title: 'Keyboard',
         rows: [
-          { kind: 'cmd', action: 'Toggle side panel', command: 'open-sidebar', defaultKey: 'Ctrl+Shift+Y' },
+          { kind: 'cmd', action: 'Toggle side panel', command: '_execute_action', defaultKey: 'Ctrl+Shift+Y' },
           { kind: 'cmd', action: 'Toggle inspect on page', command: 'toggle-inspect', defaultKey: 'Ctrl+Shift+X' },
           { kind: 'cmd', action: 'Toggle blueprint mode', command: 'toggle-blueprint', defaultKey: 'Ctrl+Shift+B' },
           { kind: 'cmd', action: 'Open Extended Code', command: 'open-extended', defaultKey: 'Ctrl+Shift+E' },

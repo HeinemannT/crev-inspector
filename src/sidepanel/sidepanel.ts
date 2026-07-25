@@ -147,14 +147,6 @@ onPortMessage((msg: InspectorMessage) => {
     return;
   }
 
-  // Ctrl+Shift+Y close half: the SW has no API to close the side panel,
-  // so when the shortcut fires while the panel is already open it
-  // sends CLOSE_PANEL — we close ourselves via window.close().
-  if (msg.type === 'CLOSE_PANEL') {
-    window.close();
-    return;
-  }
-
   // Command-strip handoff (arrives on the port via ctx.sendToPanel, surviving
   // panel startup via pendingPanelMessages — same path as SELECT_OBJECT). Make
   // sure the AI tab exists, switch to it, and submit the strip's message as a

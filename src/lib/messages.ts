@@ -381,7 +381,6 @@ export type ColorMessage =
 // can stay quiet while the user still sees what failed.
 export type NotificationMessage =
   | { type: 'TOAST'; text: string; kind: 'success' | 'error' | 'info' }
-  | { type: 'CLOSE_PANEL' }
   /** A newer panel document claimed this browser window. The superseded
    *  document must retire its reconnecting port instead of reconnecting and
    *  stealing ownership back in a tight loop. */
