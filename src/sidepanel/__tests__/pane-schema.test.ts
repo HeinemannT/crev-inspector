@@ -95,3 +95,13 @@ describe('style-prop catalog is the single source (locks pane-schema ⇄ style-p
     expect(PAINT_PROP_RESET.borderStyle).toBe('"None"'); // enum
   });
 });
+
+describe('EditField property mapping', () => {
+  it('uses the specialized property picker and is allowlisted for saving', () => {
+    const def = findPropDef('propertyMapping');
+    expect(def?.kind).toBe('property');
+    expect(def?.availableOn?.has('EditField')).toBe(true);
+    expect(def?.availableOn?.has('EditPage')).toBe(false);
+    expect(PANE_PROPS).toContain('propertyMapping');
+  });
+});

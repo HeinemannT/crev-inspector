@@ -29,6 +29,7 @@ import type { ViewUpdate } from '@codemirror/view';
 import { sendRequest } from '../../lib/messaging';
 import type { InspectorMessage, TypeSchemaProp, TypeOptionSet } from '../../lib/types';
 import { ID_SPACE_PREFIXES } from '../../lib/ec-grammar';
+import { intersectTypeSchemas } from '../../lib/type-schema-utils';
 
 export type TypeInference =
   | { kind: 'list'; types: string[]; line: number }     // List<T> or List<T1|T2|...> for multi-type
@@ -169,14 +170,9 @@ export function getSchema(className: string): TypeSchemaProp[] | undefined {
 export function intersectionSchema(types: string[]): TypeSchemaProp[] | undefined {
   if (types.length === 0) return [];
   if (types.length === 1) return state.schemas.get(lc(types[0]));
-  const first = state.schemas.get(lc(types[0]));
-  if (!first) return undefined;
-  const accessorSets = types.slice(1).map(t => {
-    const s = state.schemas.get(lc(t));
-    return s ? new Set(s.map(p => p.accessor)) : null;
-  });
-  if (accessorSets.some(s => s === null)) return undefined;
-  return first.filter(p => accessorSets.every(s => s!.has(p.accessor)));
+  const schemas = types.map(type => state.schemas.get(lc(type)));
+  if (schemas.some(schema => !schema)) return undefined;
+  return intersectTypeSchemas(schemas as TypeSchemaProp[][]);
 }
 
 // ── EC identifier shapes ──────────────────────────────────────────

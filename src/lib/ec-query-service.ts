@@ -846,6 +846,10 @@ export class EcQueryService {
       if (items.length > 0) lists[ctx.prop] = items;
     }
 
+    const editFieldClassNames = [...new Set(
+      (data.editFieldTypes ?? '').split(',').map(v => v.trim()).filter(Boolean),
+    )];
+
     const siblings: ObjectPaneSibling[] = [];
     const sibBlock = data.siblings ?? '';
     for (const line of sibBlock.split('\n')) {
@@ -874,6 +878,7 @@ export class EcQueryService {
       instanceProps, templateProps, siblings, siblingTotal,
       codeFields, references,
       indirectCode, indirectCodeRids, contextValues, gateValues, lists,
+      ...(editFieldClassNames.length > 0 ? { editFieldClassNames } : {}),
     };
   }
 

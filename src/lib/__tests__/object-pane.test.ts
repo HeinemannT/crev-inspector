@@ -32,6 +32,8 @@ function buildPaneLog(opts: {
   siblingRows?: string[];
   /** Emitted `sibTotal` value; omit to simulate an EC without the block. */
   sibTotal?: number;
+  /** Comma-delimited owning CreateObjectView class names for EditField. */
+  editFieldTypes?: string;
 }) {
   const props: string[] = [
     `${SEP}instRid${SEP}${opts.instRid}`,
@@ -56,6 +58,7 @@ function buildPaneLog(opts: {
     props.push(`${SEP}inst_${p}${SEP}`);
     props.push(`${SEP}tmpl_${p}${SEP}`);
   }
+  if (opts.editFieldTypes) props.push(`${SEP}editFieldTypes${SEP}${opts.editFieldTypes}`);
   // Code fields the panel may surface
   const codeFields = ['expression', 'afterExpression', 'defaultExpression', 'html', 'javascript', 'css'];
   for (const cf of codeFields) {
@@ -155,6 +158,16 @@ describe('fetchObjectPane — reference parsing', () => {
     expect(data!.codeFields.css).toBeUndefined();
     expect(data!.codeFields.expression).toBeUndefined();
   });
+
+  it('deduplicates owning object types for EditField property mapping', async () => {
+    const log = buildPaneLog({
+      instRid: '5611', instId: 'service_name', instName: 'Name', instType: 'EditField',
+      editFieldTypes: 'CeService,CeService,CeAsset,',
+    });
+    const { c } = makeClient(log);
+    const data = await c.fetchObjectPane('5611');
+    expect(data!.editFieldClassNames).toEqual(['CeService', 'CeAsset']);
+  });
 });
 
 describe('fetchObjectPane — sibling cap', () => {
@@ -190,6 +203,15 @@ describe('buildObjectPaneEc — sibling cap', () => {
     expect(ec).toContain('_sibN := _sibN + 1');
     expect(ec).toContain(`IF _sibN <= ${SIBLING_CAP} THEN`);
     expect(ec).toContain('"sibTotal"');
+  });
+
+  it('discovers EditField owner types through the parent EditPage', async () => {
+    const { buildObjectPaneEc } = await import('../ec-codegen');
+    const ec = buildObjectPaneEc('lookup(5611)', PANE_PROPS);
+    expect(ec).toContain('_o.parent.rref(editPage).forEach(_view:');
+    expect(ec).toContain('_view.objectType.className.whenMissing("")');
+    expect(ec).toContain('"editFieldTypes"');
+    expect(PANE_PROPS).toContain('propertyMapping');
   });
 });
 
@@ -231,6 +253,16 @@ describe('applyObjectChanges — PANE_PROPS_SET allowlist', () => {
     expect(ec).toContain('id := "renamed_object_2"');
     expect(PANE_PROPS).not.toContain('name');
     expect(PANE_PROPS).not.toContain('id');
+  });
+
+  it('saves EditField propertyMapping as an escaped string literal', async () => {
+    const { c, exec } = makeClient('Result : 0');
+    const result = await c.applyObjectChanges('5611', 'instance', {
+      propertyMapping: 'domain_owner',
+    });
+    expect(result.ok).toBe(true);
+    const ec = (exec.mock.calls[0] as unknown as [string])[0];
+    expect(ec).toContain('propertyMapping := "domain_owner"');
   });
 
   it('rejects a malformed colour id (no EC sent)', async () => {

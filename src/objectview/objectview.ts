@@ -16,8 +16,9 @@
  * (set by openObjectViewWindow).
  */
 
-import type { ObjectPaneIdentity, ObjectPaneSiblingMsg } from '../lib/types';
+import type { ObjectPaneIdentity, ObjectPaneSiblingMsg, TypeSchemaProp } from '../lib/types';
 import { getTypeColor } from '../lib/types';
+import { intersectTypeSchemas } from '../lib/type-schema-utils';
 import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
 import { h, render, svg } from '../lib/dom';
 import { ICON_ARROW_LINE_UP, ICON_PENCIL } from '../lib/icons';
@@ -78,6 +79,12 @@ interface PaneState {
   flow: import('../lib/types').FlowChainMsg | null;
   flowLoading: boolean;
   flowError: string | null;
+  /** EditField propertyMapping choices, resolved from the class(es) configured
+   *  on CreateObjectViews that point at the owning EditPage. */
+  editFieldClassNames: string[];
+  editFieldProperties: TypeSchemaProp[] | null;
+  editFieldPropertiesLoading: boolean;
+  editFieldPropertiesError: string | null;
 }
 
 type SaveTarget = 'instance' | 'template';
@@ -167,6 +174,12 @@ async function reloadPane(): Promise<void> {
     flow: null,
     flowLoading: false,
     flowError: null,
+    editFieldClassNames: msg.editFieldClassNames ?? [],
+    editFieldProperties: null,
+    editFieldPropertiesLoading: (msg.editFieldClassNames?.length ?? 0) > 0,
+    editFieldPropertiesError: msg.instance.type === 'EditField' && !msg.editFieldClassNames?.length
+      ? 'No owning CreateObjectView type found'
+      : null,
     references: msg.references ?? {},
     loaded: true,
     error: (msg as any).error ?? null,
@@ -175,10 +188,53 @@ async function reloadPane(): Promise<void> {
   if (!state.template) target = 'instance';
   document.title = `${msg.instance.name || msg.instance.businessId || rid} - CREV Object View`;
   renderPane();
+  if (state.editFieldPropertiesLoading) void loadEditFieldProperties();
 
   // Flow chain — the Inspect tab's anatomy view, fetched separately so the
   // pane paints first. Only for flow-bearing types (InputView, ActionButton…).
   if (msg.instance.type && hasFlow(msg.instance.type)) void loadFlow();
+}
+
+async function loadEditFieldProperties(): Promise<void> {
+  const current = state;
+  if (!current || current.identity.type !== 'EditField' || current.editFieldClassNames.length === 0) return;
+  const expectedRid = current.rid;
+  let responses: Awaited<ReturnType<typeof sendRequestBounded>>[];
+  try {
+    responses = await Promise.all(current.editFieldClassNames.map(className =>
+      sendRequestBounded({ type: 'FETCH_TYPE_SCHEMA', className }, { timeoutMs: 10_000 }),
+    ));
+  } catch {
+    if (!state || state.rid !== expectedRid) return;
+    state.editFieldPropertiesLoading = false;
+    state.editFieldPropertiesError = 'Could not load the object property schema';
+    state.editFieldProperties = null;
+    renderPane();
+    return;
+  }
+  if (!state || state.rid !== expectedRid) return;
+
+  const schemas = responses.flatMap(response =>
+    response?.type === 'FETCH_TYPE_SCHEMA_RESULT' && response.ok && response.props
+      ? [response.props]
+      : [],
+  );
+  state.editFieldPropertiesLoading = false;
+  if (schemas.length !== current.editFieldClassNames.length) {
+    state.editFieldPropertiesError = 'Could not load the object property schema';
+    state.editFieldProperties = null;
+    renderPane();
+    return;
+  }
+
+  const shared = intersectTypeSchemas(schemas);
+  shared.sort((a, b) =>
+    Number(a.systemobject) - Number(b.systemobject)
+      || (a.label || a.accessor).localeCompare(b.label || b.accessor),
+  );
+  state.editFieldProperties = shared;
+  state.editFieldPropertiesError = shared.length === 0 ? 'No shared properties found' : null;
+  renderPane();
 }
 
 function clearLoadTimers(): void {
@@ -657,6 +713,19 @@ function makeGroupsCtx(): PaneGroupsCtx {
     serverValue: (prop) => currentServerValue(prop),
     isDirty: (prop) => draft[prop] != null,
     setDraft: (prop, value) => setDraft(prop, value),
+    propertyChoices: (prop) => {
+      if (prop !== 'propertyMapping') return {};
+      const classes = state!.editFieldClassNames;
+      return {
+        options: state!.editFieldProperties?.map(p => ({
+          value: p.accessor,
+          label: p.label && p.label !== p.accessor ? `${p.label} — ${p.accessor}` : p.accessor,
+        })),
+        loading: state!.editFieldPropertiesLoading,
+        source: classes.join(' + '),
+        error: state!.editFieldPropertiesError ?? undefined,
+      };
+    },
     openColorPicker: (def, anchor, currentBid) => openColorPicker({
       anchor,
       currentBid,

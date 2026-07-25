@@ -130,6 +130,10 @@ export interface ObjectPaneData {
   gateValues: Record<string, string>;
   /** List-typed refs (e.g. addableItems). */
   lists: Record<string, ObjectPaneRef[]>;
+  /** For an EditField, the distinct business-object classes of every
+   *  CreateObjectView that points at its owning EditPage. Usually one class;
+   *  multiple classes are supported by intersecting their property schemas. */
+  editFieldClassNames?: string[];
 }
 
 // Flow walker types + parsing helpers live in lib/flow-parser.ts.
@@ -163,6 +167,10 @@ export const PANE_PROPS = [
   // to a readable summary. Editing is deferred — the constructor takes
   // a structured per-column map that we don't yet have a UI for.
   'columnWidths',
+  // EditField → property accessor on the business object created/edited by
+  // the owning CreateObjectView. Full Object View renders a live class-schema
+  // picker for this rather than a free-text box.
+  'propertyMapping',
 ] as const;
 export type PaneProp = typeof PANE_PROPS[number];
 export const PANE_PROPS_SET: ReadonlySet<string> = new Set(PANE_PROPS);

@@ -550,6 +550,19 @@ export function buildObjectPaneEc(ref: string, paneProps: readonly string[]): st
     lines.push(...condEcBlock(`"inst_${prop}"`, `output(_o.${prop}.whenMissing(""))`));
     lines.push(...condEcBlock(`"tmpl_${prop}"`, `output(_t.${prop}.whenMissing(""))`));
   }
+  // EditField.propertyMapping targets a property on the business-object type
+  // configured by the CreateObjectView(s) that reference the parent EditPage.
+  // Emit the owning classes once with the pane payload so the UI can reuse the
+  // normal FETCH_TYPE_SCHEMA cache. A shared EditPage can have more than one
+  // view, so keep every class; the picker intersects them client-side.
+  lines.push('_editFieldTypes := ""');
+  lines.push('IF _o.className.whenMissing("") = "EditField" THEN');
+  lines.push('  _o.parent.rref(editPage).forEach(_view:');
+  lines.push('    _editFieldType := _view.objectType.className.whenMissing("")');
+  lines.push('    IF _editFieldType <> "" THEN _editFieldTypes := _editFieldTypes + _editFieldType + "," ELSE _editFieldTypes := _editFieldTypes ENDIF');
+  lines.push('  )');
+  lines.push('ENDIF');
+  lines.push(...condEcBlock('"editFieldTypes"', 'output(_editFieldTypes)'));
   // Code fields — union across all known types.
   for (const cf of ALL_CODE_FIELDS) {
     validateEcIdentifier(cf);

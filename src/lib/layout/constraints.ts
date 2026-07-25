@@ -79,7 +79,8 @@ export const COMPOSITE_CHILDREN: Record<string, { key: string; name: string }[]>
 
 /** EditPage element palette — EditPage is NOT a grid composite (it lives outside the page, referenced by
  *  a CreateObjectView), so it gets its own map rather than joining COMPOSITE_CHILDREN. All six verbs
- *  execute-verified on t.50865 (2026-07-11). No propertyMapping picker — a new EditField gets name only;
+ *  execute-verified on t.50865 (2026-07-11). propertyMapping is configured after creation
+ *  through Inspect's live object-schema picker; a new EditField gets name only;
  *  mapping is configured in Inspect (locked decision). */
 export const EDITPAGE_CHILDREN: { key: string; name: string }[] = [
   { key: 'EditField', name: 'Edit Field' }, { key: 'EditPageInfo', name: 'Information' },

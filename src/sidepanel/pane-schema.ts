@@ -16,7 +16,7 @@
 import type { PANE_PROPS } from '../lib/bmp-client';
 import { styleOptions } from '../lib/style-props';
 
-export type EditorKind = 'color' | 'number' | 'enum' | 'boolean' | 'slider' | 'text';
+export type EditorKind = 'color' | 'number' | 'enum' | 'boolean' | 'slider' | 'text' | 'property';
 
 export interface PropDef {
   prop: typeof PANE_PROPS[number];
@@ -153,6 +153,7 @@ export const HAS_COLUMN_WIDTHS_TYPES: ReadonlySet<string> = new Set([
   ...LIST_WIDGET_TYPES,
   'StrategicObjective', 'Perspective',
 ]);
+const EDIT_FIELD_TYPES: ReadonlySet<string> = new Set(['EditField']);
 
 export const PROP_GROUPS: Array<{ title: string; props: PropDef[] }> = [
   {
@@ -213,6 +214,12 @@ export const PROP_GROUPS: Array<{ title: string; props: PropDef[] }> = [
       { prop: 'shownOnLargeDisplay', label: 'Show on large',    kind: 'boolean', availableOn: HAS_RESPONSIVE_VIS_TYPES, compact: true },
       { prop: 'shownOnMediumDisplay', label: 'Show on medium',  kind: 'boolean', availableOn: HAS_RESPONSIVE_VIS_TYPES, compact: true },
       { prop: 'shownOnSmallDisplay', label: 'Show on small',    kind: 'boolean', availableOn: HAS_RESPONSIVE_VIS_TYPES, compact: true },
+    ],
+  },
+  {
+    title: 'Field',
+    props: [
+      { prop: 'propertyMapping', label: 'Property', kind: 'property', availableOn: EDIT_FIELD_TYPES },
     ],
   },
   {

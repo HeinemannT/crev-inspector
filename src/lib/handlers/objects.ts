@@ -826,6 +826,7 @@ register('FETCH_OBJECT_PANE', async (msg, respond) => {
       contextValues: data.contextValues,
       gateValues: data.gateValues,
       lists: data.lists,
+      editFieldClassNames: data.editFieldClassNames,
     });
   } catch (e) {
     if (controller.signal.aborted) return; // caller cancelled — sidepanel already moved on

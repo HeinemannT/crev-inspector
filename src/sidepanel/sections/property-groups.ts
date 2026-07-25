@@ -20,7 +20,7 @@ import { ICON_REFRESH } from '../../lib/icons';
 import { PROP_GROUPS, type PropDef } from '../pane-schema';
 import {
   colorLinkEditor, numberEditor, enumEditor, booleanEditor, sliderEditor,
-  displayValue, type PropEditorContext,
+  propertyAccessorEditor, displayValue, type EnumOption, type PropEditorContext,
 } from '../property-editors';
 import { colorLinkBid } from '../../lib/color-util';
 import { lookupColor } from '../color-picker';
@@ -37,6 +37,13 @@ export interface PaneGroupsCtx {
   serverValue(prop: string): string;
   isDirty(prop: string): boolean;
   setDraft(prop: string, value: string): void;
+  /** Live business-object properties for specialized mapping editors. */
+  propertyChoices?(prop: string): {
+    options?: EnumOption[];
+    loading?: boolean;
+    source?: string;
+    error?: string;
+  };
   /** Open the colour-link picker for a colour prop (host wires its own messaging). */
   openColorPicker(def: PropDef, anchor: HTMLElement, currentBid: string | null): void;
 }
@@ -63,7 +70,8 @@ export function renderPropertyGroups(ctx: PaneGroupsCtx): HTMLElement {
         const n = Number(serverVal);
         if (!serverHas || (Number.isFinite(n) && n <= 1)) continue;
       }
-      const isAlwaysShown = def.kind === 'boolean' || def.kind === 'enum' || def.kind === 'slider';
+      const isAlwaysShown = def.kind === 'boolean' || def.kind === 'enum'
+        || def.kind === 'slider' || def.kind === 'property';
       if (!serverHas && !draftPresent && !isAlwaysShown) continue;
       if (draftPresent) dirtyInGroup++;
       visibleDefs.push(def);
@@ -201,6 +209,11 @@ export function renderPropRow(ctx: PaneGroupsCtx, def: PropDef): HTMLElement {
     case 'enum':    editor = enumEditor(editorCtx, def.options ?? []); break;
     case 'boolean': editor = booleanEditor(editorCtx); break;
     case 'slider':  editor = sliderEditor(editorCtx, def.range!); break;
+    case 'property': {
+      const choices = ctx.propertyChoices?.(def.prop);
+      editor = propertyAccessorEditor(editorCtx, choices?.options, choices);
+      break;
+    }
     case 'text':
       editor = h('span', { class: 'prop-text-value' }, value || h('span', { class: 'prop-text-empty' }, '—'));
       break;

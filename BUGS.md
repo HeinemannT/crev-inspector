@@ -53,9 +53,6 @@ _None open._
 Deliberately kept OUT of Blueprint flow editing (decision 2026-07-11): Blueprint creates/arranges
 flow objects; configuring them stays in Inspect. These are the Inspect-side follow-ups:
 
-- **EditField property picker**: `propertyMapping` edited as a dropdown/autocomplete populated live
-  from the owning CreateObjectView's `objectType` template (fields of `ceras.default_riskstatement`
-  etc.), not a free-text string. Same pattern as the PBAC Architect property autocomplete.
 - **HTML-first editing for advanced-mode fields**: `Label.defaultExpression` / `EditPageInfo.expression`
   with `advancedDefault`/`advancedMode` hold an EC expression *returning* an HTML string. Offer an
   "edit as HTML" mode that unwraps the string literal into the editor as HTML (with highlighting)
@@ -68,6 +65,15 @@ flow objects; configuring them stays in Inspect. These are the Inspect-side foll
   ButtonInput `key` cross-reference check (does any sibling field use it).
 
 ## Fixed
+
+### EditField property picker — FIXED 2026-07-25
+- Full Object View now surfaces `propertyMapping` as one compact, searchable property control rather
+  than free text. It resolves the owning type through EditField → EditPage → CreateObjectView and
+  reuses the normal cached type-schema request.
+- Shared EditPages are handled safely: every distinct owning object type is resolved and only accessors
+  present on all of them are offered. Existing stale mappings remain visible, arbitrary new strings
+  are rejected, clearing is supported, and saving still goes through the standard confirmation flow.
+- The owner lookup was preview-verified on Steadfast (`t.5611`, two CreateObjectViews) at 8 ms.
 
 ### D5 read-path marker-string injection — FIXED 2026-07-25
 - Customer-controlled names, captions, and expression text are guarded before entering any Blueprint

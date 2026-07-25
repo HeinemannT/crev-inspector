@@ -320,6 +320,8 @@ export type ObjectPaneMessage =
       contextValues: Record<string, string>;
       gateValues: Record<string, string>;
       lists: Record<string, ObjectPaneIdentity[]>;
+      /** Owning CreateObjectView object classes for an EditField. */
+      editFieldClassNames?: string[];
       error?: string }
   | { type: 'APPLY_OBJECT_CHANGES'; rid: string; target: 'instance' | 'template'; changes: Record<string, string | number | boolean> }
   | { type: 'APPLY_CHANGES_RESULT'; rid: string; ok: boolean; error?: string }

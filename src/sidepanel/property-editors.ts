@@ -68,6 +68,7 @@ export function numberEditor(ctx: PropEditorContext, opts: { unit?: string; min?
 }
 
 export interface EnumOption { value: string; label?: string }
+let propertyListId = 0;
 
 // BMP returns enum values qualified ("HeaderStyle.INSIDE") while the schema lists bare tokens ("INSIDE"),
 // which is what `_o.change(headerStyle := "INSIDE")` accepts on save. enumMember (shared, color-util)
@@ -98,6 +99,52 @@ export function enumEditor(ctx: PropEditorContext, options: EnumOption[]): HTMLE
   // qualified "HeaderStyle.INSIDE" form.
   select.addEventListener('change', () => ctx.onChange(select.value));
   return h('div', { class: `prop-cell prop-cell--enum${ctx.dirty ? ' prop-cell--dirty' : ''}` }, select);
+}
+
+/** EditField propertyMapping picker. A native datalist keeps the control compact
+ *  and keyboard-searchable; validation prevents arbitrary free text from being
+ *  staged. Empty remains valid so an existing mapping can be cleared. */
+export function propertyAccessorEditor(
+  ctx: PropEditorContext,
+  options: EnumOption[] | undefined,
+  opts: { loading?: boolean; source?: string; error?: string } = {},
+): HTMLElement {
+  const listId = `crev-property-options-${++propertyListId}`;
+  const effectiveOptions = [...(options ?? [])];
+  if (ctx.value && !effectiveOptions.some(opt => opt.value === ctx.value)) {
+    effectiveOptions.unshift({ value: ctx.value, label: `${ctx.value} (current)` });
+  }
+  const ready = options !== undefined && effectiveOptions.length > 0;
+  const input = h('input', {
+    class: `prop-property-input${ctx.dirty ? ' prop-cell--dirty' : ''}`,
+    type: 'text',
+    value: ctx.value,
+    list: listId,
+    autocomplete: 'off',
+    spellcheck: 'false',
+    disabled: !ready,
+    placeholder: opts.loading ? 'Loading properties…' : opts.error ? 'Properties unavailable' : 'Select property',
+    title: opts.source ? `Properties shared by ${opts.source}` : 'Business-object property',
+  }) as HTMLInputElement;
+  const datalist = h('datalist', { id: listId });
+  for (const opt of effectiveOptions) {
+    const option = document.createElement('option');
+    option.value = opt.value;
+    option.label = opt.label ?? opt.value;
+    datalist.appendChild(option);
+  }
+  input.addEventListener('change', () => {
+    const next = input.value.trim();
+    if (next === '' || effectiveOptions.some(opt => opt.value === next)) {
+      input.setCustomValidity('');
+      ctx.onChange(next);
+      return;
+    }
+    input.setCustomValidity('Choose a property from the list.');
+    input.reportValidity();
+    input.value = ctx.value;
+  });
+  return h('div', { class: `prop-cell prop-cell--property${ctx.dirty ? ' prop-cell--dirty' : ''}` }, input, datalist);
 }
 
 export function sliderEditor(
