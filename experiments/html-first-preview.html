@@ -1,0 +1,785 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Extended HTML preview — interaction draft</title>
+<style>
+  :root {
+    --bg: #fff;
+    --canvas: #f7f7f8;
+    --layer: #f4f4f4;
+    --line: #dedee3;
+    --line-strong: #c8c8cf;
+    --text: #171719;
+    --muted: #66666f;
+    --quiet: #85858f;
+    --accent: #8a3ffc;
+    --accent-soft: #f3ebff;
+    --warn: #8a6100;
+    --warn-bg: #fff8df;
+    --warn-line: #e3c86b;
+    --mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    color: var(--text);
+    background: var(--canvas);
+    font: 13px/1.45 Inter, ui-sans-serif, system-ui, sans-serif;
+  }
+  button, select, textarea { font: inherit; }
+  button { cursor: pointer; }
+
+  .app {
+    height: 100%;
+    min-height: 620px;
+    display: grid;
+    grid-template-rows: 44px 1fr 34px;
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 14px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+  }
+  .title { font-weight: 650; white-space: nowrap; }
+  .draft {
+    padding: 1px 6px;
+    color: var(--muted);
+    background: var(--layer);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: .04em;
+  }
+  .bar .spacer { flex: 1; }
+  .bar label { color: var(--muted); font-size: 11px; }
+  select {
+    height: 28px;
+    min-width: 230px;
+    padding: 0 28px 0 8px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 2px;
+  }
+  select:focus-visible, textarea:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .work {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(390px, 46%) minmax(420px, 54%);
+  }
+  .source, .result { min-width: 0; min-height: 0; }
+  .source {
+    display: grid;
+    grid-template-rows: 37px minmax(220px, 1fr) auto;
+    background: #202027;
+    border-right: 1px solid #111115;
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .source .panel-head {
+    color: #d7d7dd;
+    background: #292930;
+    border-color: #3c3c45;
+  }
+  .panel-head strong { font-size: 11px; font-weight: 650; }
+  .panel-head .meta {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--quiet);
+    font: 10.5px var(--mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .source .panel-head .meta { color: #8e8e9b; }
+  .panel-head .spacer { flex: 1; }
+
+  #ecSource {
+    width: 100%;
+    height: 100%;
+    resize: none;
+    padding: 14px 16px 22px;
+    color: #e8e8ec;
+    caret-color: #fff;
+    background: #202027;
+    border: 0;
+    outline: 0;
+    font: 12.5px/1.65 var(--mono);
+    tab-size: 2;
+    white-space: pre;
+    overflow: auto;
+  }
+  .decode {
+    max-height: 225px;
+    overflow: auto;
+    color: #d7d7dd;
+    background: #292930;
+    border-top: 1px solid #3c3c45;
+  }
+  .decode-head {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    color: #a9a9b3;
+    border-bottom: 1px solid #3c3c45;
+    font-size: 11px;
+  }
+  .tag {
+    padding: 1px 6px;
+    border: 1px solid #50505b;
+    border-radius: 8px;
+    color: #bdbdc7;
+    font: 10px var(--mono);
+  }
+  .variants { display: flex; gap: 4px; margin-left: auto; }
+  .variant {
+    height: 23px;
+    padding: 0 8px;
+    color: #bdbdc7;
+    background: transparent;
+    border: 1px solid #50505b;
+    border-radius: 2px;
+    font-size: 10.5px;
+  }
+  .variant.active {
+    color: #fff;
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  #decoded {
+    min-height: 54px;
+    margin: 0;
+    padding: 10px 12px;
+    color: #d7d7dd;
+    font: 11.5px/1.5 var(--mono);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .warning {
+    display: none;
+    margin: 0 10px 10px;
+    padding: 7px 9px;
+    color: #ffe39a;
+    background: #403717;
+    border-left: 2px solid #d6a800;
+    font-size: 11px;
+  }
+  .warning.show { display: block; }
+
+  .result {
+    display: grid;
+    grid-template-rows: 37px minmax(230px, 1fr) minmax(158px, 32%);
+    background: var(--canvas);
+  }
+  .segmented {
+    display: inline-flex;
+    border: 1px solid var(--line-strong);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .segmented button {
+    height: 24px;
+    padding: 0 9px;
+    color: var(--muted);
+    background: var(--bg);
+    border: 0;
+    border-right: 1px solid var(--line-strong);
+    font-size: 10.5px;
+  }
+  .segmented button:last-child { border-right: 0; }
+  .segmented button.active {
+    color: var(--text);
+    background: var(--layer);
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  .help {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    font-size: 11px;
+  }
+  .preview-wrap {
+    min-height: 0;
+    padding: 16px;
+    background: #f7f7f8;
+  }
+  #preview {
+    width: 100%;
+    height: 100%;
+    min-height: 190px;
+    background: #fff;
+    border: 1px solid var(--line-strong);
+    box-shadow: 0 2px 7px rgba(20, 20, 25, .08);
+  }
+
+  .html-editor {
+    min-height: 0;
+    display: grid;
+    grid-template-rows: 33px 1fr;
+    background: var(--bg);
+    border-top: 1px solid var(--line);
+  }
+  .html-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px 0 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .html-tools strong { font-size: 11px; }
+  .html-tools .hint {
+    color: var(--quiet);
+    font-size: 10.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .html-tools .spacer { flex: 1; }
+  .line-style {
+    height: 24px;
+    min-width: 118px;
+    font-size: 10.5px;
+  }
+  .apply {
+    height: 24px;
+    padding: 0 9px;
+    color: #fff;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    font-size: 10.5px;
+  }
+  .apply:disabled {
+    color: var(--quiet);
+    background: var(--layer);
+    border-color: var(--line);
+    cursor: not-allowed;
+  }
+  #htmlSource {
+    width: 100%;
+    height: 100%;
+    min-height: 110px;
+    resize: none;
+    padding: 10px 12px;
+    color: #2a2a2e;
+    background: #fff;
+    border: 0;
+    outline: 0;
+    font: 11.5px/1.55 var(--mono);
+  }
+  #htmlSource:disabled {
+    color: var(--quiet);
+    background: #fafafa;
+  }
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 0 12px;
+    color: var(--muted);
+    background: var(--bg);
+    border-top: 1px solid var(--line);
+    font-size: 10.5px;
+  }
+  .status .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #24a148;
+  }
+  .status .spacer { flex: 1; }
+  #contextLabel {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #contextSelect { min-width: 150px; height: 23px; font-size: 10.5px; }
+  .hidden { display: none !important; }
+
+  .popover {
+    position: fixed;
+    top: 40px;
+    right: 12px;
+    z-index: 5;
+    width: 310px;
+    padding: 10px 12px;
+    color: var(--text);
+    background: #fff;
+    border: 1px solid var(--line-strong);
+    box-shadow: 0 8px 22px rgba(20, 20, 25, .14);
+    font-size: 11px;
+  }
+  .popover strong { display: block; margin-bottom: 5px; }
+  .popover p { margin: 0 0 7px; color: var(--muted); }
+  .popover code { font-family: var(--mono); color: var(--text); }
+
+  @media (max-width: 900px) {
+    .app { height: auto; min-height: 100%; }
+    .work { grid-template-columns: 1fr; }
+    .source { min-height: 520px; border-right: 0; }
+    .result { min-height: 620px; }
+    .bar label { display: none; }
+    select { min-width: 150px; }
+  }
+</style>
+</head>
+<body>
+<main class="app">
+  <header class="bar">
+    <span class="title">Extended HTML preview</span>
+    <span class="draft">DRAFT</span>
+    <span class="spacer"></span>
+    <label for="example">Example</label>
+    <select id="example" aria-label="Load an example"></select>
+  </header>
+
+  <section class="work">
+    <section class="source">
+      <header class="panel-head">
+        <strong>Extended Code</strong>
+        <span class="meta" id="sourceMeta">source is authoritative</span>
+      </header>
+      <textarea id="ecSource" spellcheck="false" aria-label="Extended Code source"></textarea>
+      <section class="decode">
+        <div class="decode-head">
+          <span>Decoded output</span>
+          <span class="tag" id="literalTag">0 strings</span>
+          <div class="variants" id="variants"></div>
+        </div>
+        <pre id="decoded"></pre>
+        <div class="warning" id="warning"></div>
+      </section>
+    </section>
+
+    <section class="result">
+      <header class="panel-head">
+        <strong>Preview</strong>
+        <span class="meta" id="previewMeta">sandboxed · no scripts or network</span>
+        <span class="spacer"></span>
+        <div class="segmented" aria-label="Newline rendering">
+          <button type="button" class="active" data-render="html">HTML source</button>
+          <button type="button" data-render="breaks">BMP string breaks</button>
+        </div>
+        <button type="button" class="help" id="help" aria-label="Explain preview modes">?</button>
+      </header>
+      <div class="preview-wrap">
+        <iframe id="preview" sandbox="" title="Sandboxed HTML preview"></iframe>
+      </div>
+      <section class="html-editor">
+        <div class="html-tools">
+          <strong>HTML value</strong>
+          <span class="hint" id="editHint">Edit the decoded literal</span>
+          <span class="spacer"></span>
+          <select class="line-style" id="lineStyle" aria-label="Line break source style">
+            <option value="escaped">Write breaks as \n</option>
+            <option value="literal">Keep real line breaks</option>
+          </select>
+          <button type="button" class="apply" id="apply">Apply to EC</button>
+        </div>
+        <textarea id="htmlSource" spellcheck="false" aria-label="Decoded HTML value"></textarea>
+      </section>
+    </section>
+  </section>
+
+  <footer class="status">
+    <span class="dot"></span>
+    <span id="statusText">Local approximation ready</span>
+    <span class="spacer"></span>
+    <span id="contextLabel">No runtime context required</span>
+    <select id="contextSelect" class="hidden" aria-label="Sample row"></select>
+  </footer>
+</main>
+
+<aside class="popover hidden" id="helpPopover">
+  <strong>Two useful views of the same value</strong>
+  <p><b>HTML source</b> passes the decoded string to the browser. Ordinary real line breaks collapse, as they do in HTML.</p>
+  <p><b>BMP string breaks</b> turns decoded line breaks into <code>&lt;br&gt;</code>. This is a local approximation of rich string rendering.</p>
+  <p>The frame blocks scripts and network access. Dynamic EC still needs a live BMP evaluation for an authoritative result.</p>
+</aside>
+
+<script>
+(() => {
+  const examples = [
+    {
+      id: "single",
+      name: "Static HTML · single-quoted EC",
+      code: `_html := '<div class="notice"><strong>Ready</strong><br>Review the process.</div>'\noutput(_html)`
+    },
+    {
+      id: "double",
+      name: "Static HTML · escaped double quotes",
+      code: `_html := "<div class=\\"notice\\" title=\\"hello\\"><strong>Ready</strong></div>"\noutput(_html)`
+    },
+    {
+      id: "escaped-break",
+      name: "Line break · escaped \\n",
+      code: `_html := '<div><strong>Summary</strong>\nLine one\\nLine two</div>'\noutput(_html)`
+    },
+    {
+      id: "real-break",
+      name: "Line break · real editor line break",
+      code: `_html := '<div><strong>Summary</strong>\nLine one\nLine two</div>'\noutput(_html)`
+    },
+    {
+      id: "wrong-break",
+      name: "Warning · uppercase \\N",
+      code: `_html := '<div>Line one\\NLine two</div>'\noutput(_html)`
+    },
+    {
+      id: "dynamic",
+      name: "Dynamic HTML · concatenated properties",
+      code: `_html := '<span class="risk">' + this.name + '</span><small>' + this.owner + '</small>'\noutput(_html)`,
+      rows: [
+        { name: "Supplier continuity", owner: "Operations", status: "Open" },
+        { name: "Currency exposure", owner: "Finance", status: "Monitoring" }
+      ]
+    },
+    {
+      id: "conditional",
+      name: "Conditional · TRUE / FALSE variants",
+      code: `IF this.status = "Open" THEN\n  _html := '<span class="state open">Open</span>'\nELSE\n  _html := '<span class="state closed">Closed</span>'\nENDIF\noutput(_html)`,
+      labels: ["THEN", "ELSE"],
+      rows: [
+        { name: "Supplier continuity", owner: "Operations", status: "Open" },
+        { name: "Policy review", owner: "Legal", status: "Closed" }
+      ]
+    },
+    {
+      id: "table",
+      name: "Table column · sample row context",
+      code: `_label := '<strong>' + this.name + '</strong>'\n_meta := '<span class="meta">' + this.owner + ' · ' + this.status + '</span>'\noutput('<div class="cell">' + _label + _meta + '</div>')`,
+      rows: [
+        { name: "Supplier continuity", owner: "Operations", status: "Open" },
+        { name: "Currency exposure", owner: "Finance", status: "Monitoring" },
+        { name: "Policy review", owner: "Legal", status: "Closed" }
+      ]
+    }
+  ];
+
+  const $ = id => document.getElementById(id);
+  const ui = {
+    example: $("example"),
+    ec: $("ecSource"),
+    decoded: $("decoded"),
+    html: $("htmlSource"),
+    tag: $("literalTag"),
+    warning: $("warning"),
+    variants: $("variants"),
+    apply: $("apply"),
+    lineStyle: $("lineStyle"),
+    editHint: $("editHint"),
+    status: $("statusText"),
+    context: $("contextSelect"),
+    contextLabel: $("contextLabel"),
+    preview: $("preview"),
+    previewMeta: $("previewMeta"),
+    help: $("help"),
+    helpPopover: $("helpPopover")
+  };
+
+  const state = {
+    example: examples[0],
+    strings: [],
+    selected: 0,
+    renderMode: "html",
+    row: 0,
+    editedHtml: null
+  };
+
+  function decodeEscape(next) {
+    if (next === "n") return "\n";
+    if (next === "r") return "\r";
+    if (next === "t") return "\t";
+    return next;
+  }
+
+  // Conservative EC string scanner. It does not attempt to parse the whole EC grammar.
+  function scanStrings(source) {
+    const strings = [];
+    const warnings = [];
+    let index = 0;
+
+    while (index < source.length) {
+      const delimiter = source[index];
+      if (delimiter !== "'" && delimiter !== '"') {
+        index += 1;
+        continue;
+      }
+
+      const start = index;
+      let value = "";
+      let closed = false;
+      index += 1;
+
+      while (index < source.length) {
+        const char = source[index];
+        if (char === delimiter) {
+          index += 1;
+          closed = true;
+          break;
+        }
+        if (char === "\\") {
+          const next = source[index + 1];
+          if (next === undefined) {
+            value += "\\";
+            index += 1;
+            continue;
+          }
+          if (next === "N") {
+            warnings.push("Uppercase \\\\N is not a newline in Extended Code. It evaluates as N. Use lowercase \\\\n or a real line break.");
+          }
+          value += decodeEscape(next);
+          index += 2;
+          continue;
+        }
+        value += char;
+        index += 1;
+      }
+
+      strings.push({ start, end: index, delimiter, value, closed });
+      if (!closed) warnings.push("The final string literal is not closed.");
+    }
+    return { strings, warnings };
+  }
+
+  function currentRow() {
+    return state.example.rows?.[state.row] || {};
+  }
+
+  function replaceProperties(value) {
+    const row = currentRow();
+    return value.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => row[key] ?? `{{${key}}}`);
+  }
+
+  function evaluateApproximation(source, strings) {
+    const conditional = /\bIF\b[\s\S]*\bTHEN\b[\s\S]*\bELSE\b[\s\S]*\bENDIF\b/i.test(source);
+    if (conditional && strings.length) {
+      const htmlLike = strings.filter(item => /<[^>]+>/.test(item.value));
+      return replaceProperties((htmlLike[state.selected] || htmlLike[0] || strings[state.selected] || strings[0]).value);
+    }
+
+    const variables = {};
+    const row = currentRow();
+    const assignment = /([A-Za-z_]\w*)\s*:=\s*([\s\S]*?)(?=\n[A-Za-z_]\w*\s*:=|\noutput\s*\(|$)/g;
+    let match;
+    while ((match = assignment.exec(source))) {
+      variables[match[1]] = evaluateExpression(match[2], row, variables);
+    }
+    const output = source.match(/output\s*\(([\s\S]*)\)\s*$/i);
+    if (output) return evaluateExpression(output[1], row, variables);
+    if (variables._html !== undefined) return variables._html;
+    return strings.map(item => item.value).join("");
+  }
+
+  function evaluateExpression(expression, row, variables) {
+    const scanned = scanStrings(expression);
+    let cursor = 0;
+    let result = "";
+    for (const literal of scanned.strings) {
+      result += evaluateBare(expression.slice(cursor, literal.start), row, variables);
+      result += literal.value;
+      cursor = literal.end;
+    }
+    result += evaluateBare(expression.slice(cursor), row, variables);
+    return result;
+  }
+
+  function evaluateBare(fragment, row, variables) {
+    return fragment
+      .split("+")
+      .map(token => token.trim().replace(/^[(),]+|[(),]+$/g, ""))
+      .filter(Boolean)
+      .map(token => {
+        const prop = token.match(/^this\.([A-Za-z_]\w*)$/);
+        if (prop) return row[prop[1]] ?? `{{this.${prop[1]}}}`;
+        if (Object.prototype.hasOwnProperty.call(variables, token)) return variables[token];
+        if (/^(output|str)$/i.test(token)) return "";
+        if (/^(IF|THEN|ELSE|ENDIF)\b/i.test(token)) return "";
+        return "";
+      })
+      .join("");
+  }
+
+  function encodeValue(value, delimiter, breakStyle) {
+    let encoded = value.replace(/\\/g, "\\\\");
+    encoded = delimiter === '"'
+      ? encoded.replace(/"/g, '\\"')
+      : encoded.replace(/'/g, "\\'");
+    encoded = encoded.replace(/\r\n|\r|\n/g, breakStyle === "escaped" ? "\\n" : "\n");
+    return delimiter + encoded + delimiter;
+  }
+
+  function renderFrame(html) {
+    const rendered = state.renderMode === "breaks"
+      ? html.replace(/\r\n|\r|\n/g, "<br>")
+      : html;
+    const doc = `<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 14px; color: #343536; background: #fff; font: 12px/1.45 Lato, Arial, sans-serif; }
+  .notice { padding: 9px 10px; background: #f2faff; border-left: 3px solid #8a3ffc; }
+  .risk { display: block; font-weight: 700; }
+  small, .meta { display: block; margin-top: 2px; color: #6f6f73; font-size: 11px; }
+  .state { display: inline-block; padding: 2px 7px; border-radius: 9px; font-size: 11px; }
+  .state.open { color: #0e6027; background: #defbe6; }
+  .state.closed { color: #525252; background: #e8e8e8; }
+  .cell { min-width: 220px; padding: 8px 10px; border-bottom: 1px solid #e2e2e2; }
+  a { color: #5f2bbf; }
+</style>
+</head><body>${rendered}</body></html>`;
+    ui.preview.srcdoc = doc;
+  }
+
+  function setWarning(messages, isApproximation) {
+    const notes = [...messages];
+    if (isApproximation) notes.push("Dynamic values are approximated from the selected sample row. Live BMP evaluation remains authoritative.");
+    ui.warning.textContent = notes.join(" ");
+    ui.warning.classList.toggle("show", notes.length > 0);
+  }
+
+  function render({ preserveHtmlEdit = false } = {}) {
+    const source = ui.ec.value;
+    const scanned = scanStrings(source);
+    state.strings = scanned.strings;
+    state.selected = Math.min(state.selected, Math.max(0, scanned.strings.length - 1));
+    const isDynamic = /\bthis\.[A-Za-z_]\w*/.test(source) || scanned.strings.length > 1;
+    const conditional = /\bIF\b[\s\S]*\bTHEN\b[\s\S]*\bELSE\b[\s\S]*\bENDIF\b/i.test(source);
+    const value = evaluateApproximation(source, scanned.strings);
+
+    ui.tag.textContent = `${scanned.strings.length} string${scanned.strings.length === 1 ? "" : "s"}`;
+    ui.decoded.textContent = value || "No output-like string found.";
+    setWarning(scanned.warnings, isDynamic);
+
+    ui.variants.innerHTML = "";
+    if (conditional) {
+      const candidates = scanned.strings.filter(item => /<[^>]+>/.test(item.value));
+      candidates.forEach((_, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `variant${index === state.selected ? " active" : ""}`;
+        button.textContent = state.example.labels?.[index] || `Variant ${index + 1}`;
+        button.addEventListener("click", () => {
+          state.selected = index;
+          state.editedHtml = null;
+          render();
+        });
+        ui.variants.append(button);
+      });
+    }
+
+    const canRoundTrip = scanned.strings.length === 1 && scanned.strings[0].closed;
+    ui.html.disabled = !canRoundTrip;
+    ui.apply.disabled = !canRoundTrip;
+    ui.lineStyle.disabled = !canRoundTrip;
+    ui.editHint.textContent = canRoundTrip
+      ? `Round-trips the ${scanned.strings[0].delimiter === "'" ? "single" : "double"}-quoted literal`
+      : "Read-only: source has multiple or dynamic fragments";
+    if (!preserveHtmlEdit) ui.html.value = value;
+
+    renderFrame(value);
+    ui.previewMeta.textContent = state.renderMode === "html"
+      ? "sandboxed · browser HTML rules"
+      : "sandboxed · line breaks converted to <br>";
+    ui.status.textContent = isDynamic ? "Local approximation — live preview still required" : "Static value decoded locally";
+  }
+
+  function loadExample(index) {
+    state.example = examples[index];
+    state.selected = 0;
+    state.row = 0;
+    state.editedHtml = null;
+    ui.ec.value = state.example.code;
+
+    const hasRows = Boolean(state.example.rows?.length);
+    ui.context.classList.toggle("hidden", !hasRows);
+    ui.contextLabel.textContent = hasRows ? "Sample row" : "No runtime context required";
+    ui.context.innerHTML = "";
+    state.example.rows?.forEach((row, rowIndex) => {
+      const option = document.createElement("option");
+      option.value = String(rowIndex);
+      option.textContent = `${rowIndex + 1} · ${row.name}`;
+      ui.context.append(option);
+    });
+    render();
+  }
+
+  examples.forEach((example, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = example.name;
+    ui.example.append(option);
+  });
+
+  ui.example.addEventListener("change", () => loadExample(Number(ui.example.value)));
+  ui.ec.addEventListener("input", () => {
+    state.editedHtml = null;
+    render();
+  });
+  ui.context.addEventListener("change", () => {
+    state.row = Number(ui.context.value);
+    render();
+  });
+  ui.html.addEventListener("input", () => {
+    state.editedHtml = ui.html.value;
+    renderFrame(state.editedHtml);
+  });
+  ui.apply.addEventListener("click", () => {
+    const literal = state.strings[0];
+    if (!literal) return;
+    const replacement = encodeValue(ui.html.value, literal.delimiter, ui.lineStyle.value);
+    ui.ec.value = ui.ec.value.slice(0, literal.start) + replacement + ui.ec.value.slice(literal.end);
+    state.editedHtml = null;
+    render();
+    ui.status.textContent = "HTML value written back to the EC literal";
+  });
+  document.querySelectorAll("[data-render]").forEach(button => {
+    button.addEventListener("click", () => {
+      state.renderMode = button.dataset.render;
+      document.querySelectorAll("[data-render]").forEach(item => item.classList.toggle("active", item === button));
+      renderFrame(state.editedHtml ?? evaluateApproximation(ui.ec.value, state.strings));
+      ui.previewMeta.textContent = state.renderMode === "html"
+        ? "sandboxed · browser HTML rules"
+        : "sandboxed · line breaks converted to <br>";
+    });
+  });
+  ui.help.addEventListener("click", event => {
+    event.stopPropagation();
+    ui.helpPopover.classList.toggle("hidden");
+  });
+  document.addEventListener("click", event => {
+    if (!ui.helpPopover.contains(event.target)) ui.helpPopover.classList.add("hidden");
+  });
+
+  loadExample(0);
+})();
+</script>
+</body>
+</html>
