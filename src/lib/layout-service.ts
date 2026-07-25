@@ -15,7 +15,7 @@
 import type { BmpClient } from './bmp-client';
 import { AI_LAYOUT_EC_TIMEOUT, LAYOUT_EC_TIMEOUT } from './constants';
 import type { LayoutIO, BlueprintCtx, LoadResult, StructureLoadResult, ApplyResult, FlowRefListItem } from './layout/sync';
-import { loadModel, loadStructureModel, applyModel, resolvePageContext, loadFlowRefList, loadFlowRefChildren as loadFlowRefChildrenCore } from './layout/sync';
+import { loadModel, loadEditPageModel, loadStructureModel, applyModel, resolvePageContext, loadFlowRefList, loadFlowRefChildren as loadFlowRefChildrenCore } from './layout/sync';
 import type { LModel, FlowNode } from './layout/types';
 import { validateBusinessId, validateRid } from './ec-guards';
 import { log } from './logger';
@@ -76,6 +76,10 @@ export async function loadPage(client: BmpClient, rid: string, prefer: 'template
   const io = makeLayoutIO(client, timings);
   const ctx = await resolvePageContext(io, rid);
   if (!ctx) return null;
+  if (ctx.surface === 'edit-page') {
+    const direct: BlueprintCtx = { ...ctx, editingTemplate: false, instanceId: ctx.pageId };
+    return { kind: 'page', ctx: direct, load: await loadEditPageModel(io, direct) };
+  }
   if (prefer === 'template' && ctx.templateRid && ctx.templateId) {
     // Redirect to the shared template's own layout, remembering the instance for the toggle + labels.
     const tctx = await resolvePageContext(io, ctx.templateRid);
@@ -107,6 +111,10 @@ export async function loadPageStructure(
   const ctx = await resolvePageContext(io, rid);
   if (!ctx) return null;
   const instCtx: BlueprintCtx = { ...ctx, editingTemplate: false, instanceId: ctx.pageId };
+  if (instCtx.surface === 'edit-page') {
+    const direct = await loadEditPageModel(io, instCtx);
+    return { kind: 'page', ctx: instCtx, load: { model: direct.model, orphans: [], truncated: false } };
+  }
   return { kind: 'page', ctx: instCtx, load: await loadStructureModel(io, instCtx) };
 }
 

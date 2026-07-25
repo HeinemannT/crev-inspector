@@ -50,6 +50,8 @@ export interface LayoutIO {
 export interface BlueprintCtx extends ReconstructCtx {
   /** org-model root rid — resolved with `lookup(rid)` (always present from page context). */
   pageRid: string;
+  /** A standalone EditPage uses its ordered child stream, not the WebParent tab/container model. */
+  surface?: 'edit-page';
 }
 
 export interface LoadResult {
@@ -101,6 +103,7 @@ const CTX = CTX_MARKER;   // page-context probe marker
 const OVER = OVER_MARKER; // F2 per-widget override channel marker
 const STYLE = STYLE_MARKER; // G3 per-widget style channel marker
 const STRUCTURE_LIMIT = '<<<CREV_LAYOUT_LIMIT>>>';
+const EDIT_PAGE_TITLE = '<<<CREV_EDIT_PAGE_TITLE>>>';
 export const STRUCTURE_FETCH_NODE_CAP = 600;
 // Shared EC id/rid sanitisation (the same guards the other EC generators use).
 const ecBid = validateBusinessId;
@@ -688,6 +691,23 @@ export function buildFlowRefChildrenEc(refId: string): string {
   ].join('\n');
 }
 
+/** One bounded read for a standalone EditPage: its two headings and flat ordered child stream.
+ * PageBreak/ColumnBreak remain siblings here; the view projects them into pages and columns. */
+export function buildEditPageFetchEc(refId: string): string {
+  return [
+    `_ref := t.${ecBid(refId)}`,
+    `_owner := _ref.id.whenMissing("")`,
+    `_r := "${PAGE}" + ${safeWireTextEc('_ref.name.whenMissing("")')} + "\\n"`,
+    `_r := _r + "${EDIT_PAGE_TITLE}" + ${safeWireTextEc('_ref.pageTitle.whenMissing("")')} + "\\n"`,
+    `_l := ""`,
+    `_ref.children().forEach(_fc:`,
+    ...flowChildEmit('_fc', '_owner', '""'),
+    `)`,
+    `_r := _r + _l`,
+    `_r`,
+  ].join('\n');
+}
+
 /** Parse a `buildFlowRefChildrenEc` log into the ref's ordered children (nesting + captions stitched),
  *  reusing the shared `flowChildNodeFrom` record decoder. Owner-agnostic — every FLOW_CHILD row here
  *  belongs to the one fetched reference. */
@@ -898,6 +918,13 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
       tabsetId: p.tabsetId, target: 'template', hasTemplate: true, tabScope: 'withContent',
     };
   }
+  if (p.pageClass === 'EditPage') {
+    return {
+      pageId: p.pageId, pageRid: p.pageRid, pageClass: 'EditPage',
+      tabsetId: '', target: 'instance', hasTemplate: false, tabScope: 'all',
+      surface: 'edit-page',
+    };
+  }
   // direct: an object that owns its own widgets. Linked template (if any) surfaced so the UI can toggle.
   const tpl = p.hasLink && p.templateRid ? { templateRid: p.templateRid, templateId: p.templateId ?? '' } : {};
   if (!p.tabsetId) {
@@ -939,6 +966,46 @@ export async function loadModel(io: LayoutIO, ctx: BlueprintCtx): Promise<LoadRe
   const pageName = parsePageName(log);   // names the ONE support Category new sets/pages/tabset land in
   if (pageName) { model.pageName = pageName; baseline.pageName = pageName; }
   return { model, baseline, orphans: findOrphans(nodes, model) };
+}
+
+/** Load a direct EditPage without walking a tabset or the surrounding page hierarchy. */
+export async function loadEditPageModel(io: LayoutIO, ctx: BlueprintCtx): Promise<LoadResult> {
+  const res = await io.exec(buildEditPageFetchEc(ctx.pageId));
+  if (!res.ok) throw new Error(res.error || 'edit page fetch failed');
+  const log = res.log ?? '';
+  const pageName = parsePageName(log) || ctx.pageId;
+  const pageTitle = markerLines(log, EDIT_PAGE_TITLE)[0] || '';
+  const children = parseFlowRefChildren(log);
+  const projection: FlowProjection = {
+    ownerId: ctx.pageId,
+    ownerRid: ctx.pageRid,
+    ownerClass: 'EditPage',
+    ownerName: pageName,
+    kind: 'editpage',
+    refId: ctx.pageId,
+    refRid: ctx.pageRid,
+    refClass: 'EditPage',
+    refName: pageName,
+    children,
+  };
+  const make = (): LModel => ({
+    pageId: ctx.pageId,
+    pageRid: ctx.pageRid,
+    pageName,
+    editPageTitle: pageTitle,
+    pageClass: 'EditPage',
+    tabsetId: '',
+    tabs: [],
+    target: 'instance',
+    hasTemplate: false,
+    flows: { [ctx.pageId]: projection },
+    flowEdits: {},
+  });
+  return { model: make(), baseline: make(), orphans: [] };
+}
+
+async function loadBlueprintModel(io: LayoutIO, ctx: BlueprintCtx): Promise<LoadResult> {
+  return ctx.surface === 'edit-page' ? loadEditPageModel(io, ctx) : loadModel(io, ctx);
 }
 
 /** Lean read-only layout projection. It preserves the exact structural model
@@ -984,7 +1051,7 @@ export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel
   // This narrows but can't close the window: a concurrent edit landing between this fetch and the
   // exec below isn't caught — BMP gives us no cross-call transaction, so the check is best-effort.
   // Flow drift is checked via the projection signature (flow rows live outside the layout diff).
-  const live = await loadModel(io, ctx);
+  const live = await loadBlueprintModel(io, ctx);
   if (diff(baseline, live.model).length > 0 || flowSignature(live.model) !== flowSignature(baseline)) {
     return { ok: false, noop: false, stale: true, plan, notes, script, model: live.model, baseline: live.baseline,
       error: 'The page changed since you started editing. Review the refreshed layout and reapply.' };
@@ -1007,7 +1074,7 @@ export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel
   // commit's own result so the message can distinguish "applied, unverified" from "errored, unverified".
   let reloaded: LoadResult;
   try {
-    reloaded = await loadModel(io, ctx);
+    reloaded = await loadBlueprintModel(io, ctx);
   } catch (e) {
     return { ok: res.ok, noop: false, unverified: true, partial: res.hasWarning || !res.ok, plan, notes, script,
       error: res.ok

@@ -140,6 +140,8 @@ export interface LModel {
   /** the page's display name (from the main fetch). Names the ONE support Category that new
    *  InputSets/EditPages and a virtual tabset land in (falls back to `pageId` when empty). */
   pageName?: string;
+  /** Standalone EditPage only: the heading BMP renders above the form. */
+  editPageTitle?: string;
   /** the page's BMP class — only consumed by the apply `SELECT <class>`; fetch uses `lookup(rid)`. */
   pageClass: PageClass;
   /** portal-model root that owns tabs (`<tabset>.add(Tab)`). */

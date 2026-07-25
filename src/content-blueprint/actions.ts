@@ -33,6 +33,7 @@ export function select(id: string | null): void { bp.selectedId = id; bp.swatch 
 /** Begin renaming a node: select it and flag the next render to open its inline-rename field. The one
  *  entry point — used by BOTH double-click on a cell name and the toolbar pencil. */
 export function beginRename(id: string): void { bp.selectedId = id; bp.renameId = id; render(); }
+export function viewEditPage(id: string): void { bp.viewTabId = id; render(); }
 /** Header tab-bar click = switch the REAL tab, same as BMP's own tab strip (not a separate "peek").
  *  Click BMP's matching native tab so it navigates; our MutationObserver then follows it. Falls back to
  *  a canvas-only view (viewTabId) when there's no live BMP tab to drive (e.g. an unmodeled page). */

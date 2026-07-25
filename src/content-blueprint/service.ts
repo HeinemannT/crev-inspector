@@ -53,6 +53,7 @@ export async function loadPage(rid: string, prefer: 'template' | 'instance' = 't
   }
   rebase(res.model);
   bp.ctx = res.ctx;
+  if (res.ctx.surface === 'edit-page') bp.mode = 'layout';
   bp.editingTemplate = res.ctx.editingTemplate ?? false;
   bp.env = res.env ?? null;
   const orphans = res.orphans?.length ?? 0;

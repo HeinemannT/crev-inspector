@@ -115,6 +115,7 @@ import {
 import { renderChip, modeSwitch, scopeClass, previewModal, outcomePanel, trayPanel, hintBar } from './view-panels';
 import { paintStation, paintPopup } from './view-paint';
 import { renderResult, typeIcon } from './result';
+import { renderEditPage } from './edit-page-result';
 import { actionMenuTrigger, actionMenuPanel, flowBadge } from './result-flow';
 import { flowChildPalette } from '../lib/layout/constraints';
 import { flowChangeCount } from '../lib/layout/flow';
@@ -167,6 +168,20 @@ export function render(): void {
   layer.textContent = '';
   const byRid = ridElementMap();
   const pending = pendingCount(base, m); // headline = logical changes; memoised so pure scroll/observer renders skip diff()
+  if (ctx.surface === 'edit-page') {
+    const header = document.createElement('div');
+    header.className = 'bp-header bp-editpage-header inst';
+    const main = document.createElement('div');
+    main.className = 'bp-header-main';
+    main.appendChild(renderChip(ctx, pending));
+    header.appendChild(main);
+    layer.appendChild(header);
+    bp.resultMode = renderEditPage(m, layer);
+    renderFloatingChrome(byRid, m);
+    if (oldRects) flipFrom(layer, oldRects);
+    ensureScrollRoom(layer.querySelector('.bp-editpage'));
+    return;
+  }
   // Command chip + the tab bar (tab manager AND canvas switcher — the canvas shows one tab at a time,
   // these pills pick which). BMP's live tab is marked so you can tell the on-screen tab from a peeked one.
   const liveId = liveModelTabId(base, byRid);

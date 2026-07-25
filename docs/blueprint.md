@@ -14,6 +14,11 @@ are mutually exclusive — turning one on turns the other off.
 
 ## Architecture — functional core / imperative shell / UI
 
+Standalone Edit Pages use the same safety and apply pipeline but a different projection. On a BMP
+create/edit route, Blueprint targets the exact rendered `EditPage`, reads only its direct ordered
+children, and projects the flat `EditPageBreak` / `EditPageColumnBreak` stream into the step
+navigation and responsive form columns BMP actually shows. No nested hierarchy is invented.
+
 ```
 src/lib/layout/            PURE CORE (no I/O, no DOM) — unit-tested
   types.ts                 LNode / LModel / PlanStep / PageClass
@@ -66,6 +71,8 @@ result.ts              renderResult() — THE canvas: the edited model as a CSS-
                        row engine, live-verified 2026-07-02), ONE tab (the caller-resolved `viewedId`).
                        cellState() colours cells; a full-bleed .bp-canvas-bg backdrop sized to cover
                        every widget on the page.
+edit-page-model.ts     one-pass flat stream → rendered page/column projection.
+edit-page-result.ts    standalone EditPage form canvas, step navigation, fields, and add/reorder controls.
 actions.ts             the controller: each gesture → a pure edit op → bp.history.push → render().
                        mutate() is the one write path. viewTab() drives BMP's real tab. togglePeek().
                        Add flows place via lib/layout/placement.bandInsertIndex (band-legal, toast on remap).

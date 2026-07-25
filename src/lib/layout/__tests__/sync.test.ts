@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   buildFetchEc, parseFetchLog, parseOverrides, parseStyles, loadModel, loadStructureModel, applyModel,
   resolvePageContext, buildContextEc, DEFAULT_TABSET, parsePageName,
-  buildFlowRefChildrenEc, parseFlowRefChildren, type LayoutIO, type BlueprintCtx,
+  buildFlowRefChildrenEc, parseFlowRefChildren, buildEditPageFetchEc, loadEditPageModel,
+  type LayoutIO, type BlueprintCtx,
 } from '../sync';
 import { addContainer, rename } from '../edit';
 import { addFlowChild } from '../flow';
@@ -266,6 +267,40 @@ describe('sync.loadModel', () => {
   });
 });
 
+describe('sync.loadEditPageModel', () => {
+  const ctx: BlueprintCtx = {
+    pageId: 'crev_ep', pageRid: '4081032302720082045', pageClass: 'EditPage',
+    tabsetId: '', target: 'instance', hasTemplate: false, surface: 'edit-page',
+  };
+  const log = [
+    '<<<CREV_PAGE>>>Risk Workshop',
+    '<<<CREV_EDIT_PAGE_TITLE>>>Create a risk statement',
+    '<<<CREV_FCHD>>>crev_ep||page_1|1|EditPageBreak|0|1||Details',
+    '<<<CREV_FCHD>>>crev_ep||field_1|2|EditField|1|0||Risk code',
+    '<<<CREV_FCPR>>>crev_ep|field_1|code',
+  ].join('\n');
+
+  it('loads a direct self-referencing flow model with independent baseline', async () => {
+    const { model, baseline, orphans } = await loadEditPageModel(fakeIo(log), ctx);
+    expect(model).toMatchObject({
+      pageId: 'crev_ep', pageName: 'Risk Workshop',
+      editPageTitle: 'Create a risk statement', tabs: [],
+    });
+    expect(model.flows?.crev_ep.children[1]).toMatchObject({
+      id: 'field_1', name: 'Risk code', prop: 'code', required: true,
+    });
+    expect(baseline).not.toBe(model);
+    expect(orphans).toEqual([]);
+  });
+
+  it('generates one bounded child-stream read', () => {
+    const ec = buildEditPageFetchEc('crev_ep');
+    expect(ec).toContain('t.crev_ep');
+    expect(ec).toContain('_ref.children().forEach(_fc:');
+    expect(ec).not.toContain('descendants()');
+  });
+});
+
 /** Enterprise page: a CeIssue (102) links to EnterpriseTemplate 5923; the template's widgets are
  *  bound to a Tab/Container in the SHARED default_tabset. These ids are the real live objects
  *  (created + verified on 2026-06-26), plus one decoy tab ("My KPIs", a real default_tabset tab)
@@ -317,6 +352,13 @@ describe('sync.resolvePageContext', () => {
     expect(ctx.tabScope).toBe('all');           // dedicated tabset → keep all tabs
     expect(ctx.resultOnly).toBeFalsy();
     expect(ctx.templateRid).toBeUndefined();    // hasLink='n' → no template to toggle to
+  });
+  it('direct EditPage resolves to its ordered-stream surface without a tabset', async () => {
+    const probe = '<<<CREV_CTX>>>direct|4081032302720082045|crev_ep|EditPage||n|30|||n';
+    const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '4081032302720082045');
+    expect(ctx).toMatchObject({
+      pageId: 'crev_ep', pageClass: 'EditPage', tabsetId: '', surface: 'edit-page',
+    });
   });
   it('direct + linkedTo: surfaces the template rid + id for the instance/template toggle', async () => {
     const probe = `${'<<<CREV_CTX>>>'}direct|451704949656267090|4957|Scorecard|crev_demo_tabset|y|9|6921053769472535971|crev_demo_complex|y`;

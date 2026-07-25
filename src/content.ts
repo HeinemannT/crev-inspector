@@ -110,7 +110,9 @@ function getPageHeaderRid(): string | undefined {
   return s.editPageContext?.editPageRid ?? getResolvedPageRid();
 }
 
-window.__crevBpResolver = getResolvedPageRid;
+// Blueprint edits the structure visible on screen. On a standalone create/edit route that structure
+// is the exact EditPage definition; the general inspector/execution context remains the bound object.
+window.__crevBpResolver = () => s.editPageContext?.editPageRid ?? getResolvedPageRid();
 
 function syncInspectSurface(): void {
   syncOverlays(s);
