@@ -29,6 +29,8 @@ import { WorkshopTab } from './tabs/workshop-tab';
 import { AiTab } from './tabs/ai-tab';
 import { showToast } from '../lib/toast';
 import { contextFromData } from './context-state';
+import { provisionalConnectionSnapshot } from '../lib/connection-snapshot';
+import { objectChip } from '../lib/object-chip';
 
 // ── Tab instances ────────────────────────────────────────────────
 
@@ -672,9 +674,10 @@ function statusDotClass(): string {
   switch (S.connState.display) {
     case 'connected': return 'ok';
     case 'online': return 'online';
+    case 'reconnecting': return 'warn';
     case 'needs-login': return 'warn';
     case 'unreachable': return S.connState.networkOffline ? 'warn' : 'fail';
-    case 'server-down': case 'auth-failed': case 'no-config-access': return 'fail';
+    case 'server-down': case 'command-failed': case 'auth-failed': case 'no-config-access': return 'fail';
     case 'needs-access': return 'warn';
     case 'not-configured': case 'checking': return '';
     default: { const _e: never = S.connState.display; void _e; return ''; }
@@ -693,8 +696,10 @@ function statusText(): string {
   switch (S.connState.display) {
     case 'not-configured': return 'No server';
     case 'checking': return 'Checking\u2026';
+    case 'reconnecting': return 'Reconnecting\u2026';
     case 'connected': return S.connState.profileLabel ?? 'Connected';
     case 'online': return 'Online';
+    case 'command-failed': return 'Command connection lost';
     case 'needs-login': return 'Log into BMP';
     case 'no-config-access': return 'No config access';
     case 'auth-failed': return 'Auth failed';
@@ -729,9 +734,10 @@ function statusStripClass(): string {
   switch (S.connState.display) {
     case 'connected': return 'ok';
     case 'online': return 'online';
+    case 'reconnecting': return 'offline';
     case 'needs-login': return 'offline';
     case 'unreachable': return S.connState.networkOffline ? 'offline' : 'fail';
-    case 'server-down': case 'auth-failed': case 'no-config-access': return 'fail';
+    case 'server-down': case 'command-failed': case 'auth-failed': case 'no-config-access': return 'fail';
     case 'needs-access': return 'warn';
     case 'not-configured': case 'checking': return '';
     default: { const _e: never = S.connState.display; void _e; return ''; }
@@ -748,6 +754,7 @@ function statusStripText(): string {
   switch (s.display) {
     case 'not-configured': return 'No server configured';
     case 'checking': return 'Checking\u2026';
+    case 'reconnecting': return 'Reconnecting to the BMP command channel\u2026';
     case 'connected': {
       const parts: string[] = ['Connected'];
       if (s.profileLabel) parts[0] = s.profileLabel;
@@ -757,6 +764,7 @@ function statusStripText(): string {
       return parts.join(' \u00b7 ');
     }
     case 'online': return 'Online (not authenticated)';
+    case 'command-failed': return s.authError ?? 'The server is reachable, but BMP commands are not responding.';
     case 'needs-login': return 'Not logged in. Open BMP in a tab, log in, then retry.';
     case 'no-config-access': return 'Logged in, but this user has no Configuration Access role.';
     case 'auth-failed': return 'Sign-in failed. Check the profile username and password.';
@@ -784,7 +792,7 @@ function refreshStatusStrip() {
     // 'auth-failed' (wrong credentials) and 'no-config-access' (missing role)
     // can't be fixed by re-running the same auth — the button would be false
     // comfort, so the status text points at Edit profile / an admin instead.
-    const canRetest = ['unreachable', 'server-down', 'needs-login'].includes(S.connState.display);
+    const canRetest = ['unreachable', 'server-down', 'command-failed', 'needs-login'].includes(S.connState.display);
     reconnect.classList.toggle('hidden', !canRetest);
   }
   const btn = strip.querySelector('.status-strip-btn');
@@ -836,22 +844,17 @@ function renderContextPill(): HTMLElement | null {
   // from a same-named widget at a glance — tabs live alongside scorecards
   // and widgets in the chip slot.
   const prefix = c.type === 'Tab' ? 'Tab: ' : '';
-  return h('button', {
-    class: `status-bar-context${c.type === 'Tab' ? ' status-bar-context--tab' : ''}`,
-    id: 'status-bar-context',
-    title: `Inspecting: ${c.type ?? 'Object'} · ${label} · click to open`,
-    onClick: () => {
-      if (c.rid) {
-        // Re-use the existing SELECT_OBJECT routing path. Wrapping in a
-        // require()-style avoidance: emit through sendMessage to keep the
-        // single source of truth in the orchestrator switch.
-        sendMessage({ type: 'SELECT_OBJECT', rid: c.rid });
-      }
+  const chip = objectChip(c, {
+    size: 'xs',
+    label: prefix + label,
+    className: `status-bar-context${c.type === 'Tab' ? ' status-bar-context--tab' : ''}`,
+    onActivate: () => {
+      if (c.rid) sendMessage({ type: 'SELECT_OBJECT', rid: c.rid });
     },
-  },
-    h('span', { class: 'status-bar-context-dot' }),
-    h('span', { class: 'status-bar-context-name' }, prefix + label),
-  );
+    onOpenFull: () => sendMessage({ type: 'OPEN_OBJECT_VIEW', rid: c.rid }),
+  });
+  chip.id = 'status-bar-context';
+  return chip;
 }
 function updateContextPill(): void {
   // The AI tab mirrors S.context as its selection chip — every context change
@@ -1033,7 +1036,9 @@ chrome.storage.session.get(['crev_active_tab', 'crev_settings_snapshot', 'crev_c
   // chrome.storage.session.get returns Record<string, any>; cast at
   // the slot since we can't constrain the union per-key.
   if (result.crev_settings_snapshot) S.settings = result.crev_settings_snapshot as typeof S.settings;
-  if (result.crev_conn_snapshot) S.connState = result.crev_conn_snapshot as typeof S.connState;
+  if (result.crev_conn_snapshot) {
+    S.connState = provisionalConnectionSnapshot(result.crev_conn_snapshot as typeof S.connState);
+  }
   aiEnabled = computeAiEnabled();
   // A stored 'ai' active tab is only valid once configured.
   if (S.activeTab === 'ai' && !aiEnabled) S.activeTab = 'connect';

@@ -14,7 +14,7 @@ import type { SwContext } from '../sw-context';
 import type { InspectorMessage, InspectorSettings } from '../types';
 import { BmpAuth } from '../bmp-auth';
 import { BmpClient } from '../bmp-client';
-import { runAuthTest } from '../connection';
+import { resetConnectionState, runAuthTest } from '../connection';
 import { rebuildClient } from '../settings';
 
 // ── Mock helpers ──
@@ -145,16 +145,19 @@ describe('rebuildClient does not broadcast RE_ENRICH', () => {
 describe('runAuthTest broadcasts RE_ENRICH after success', () => {
   beforeEach(() => {
     mockChromeStorage();
+    setSwContext(makeCtx());
+    resetConnectionState();
   });
 
-  it('fast-path: broadcasts RE_ENRICH after refreshAuth succeeds', async () => {
+  it('broadcasts RE_ENRICH after the active client command probe succeeds', async () => {
     const ctx = makeCtx();
-
-    const mockRefreshAuth = vi.fn().mockResolvedValue('new-jwt');
+    const testConnection = vi.fn().mockResolvedValue({
+      ok: true, message: 'Authenticated and command channel ready', authenticated: true,
+    });
     ctx.client = {
-      jwt: 'existing-jwt',
-      auth: { refreshAuth: mockRefreshAuth, jwt: 'existing-jwt' },
-      absorbAuth: vi.fn(),
+      jwt: 'new-jwt',
+      authVia: 'password',
+      testConnection,
       applyVersionFlags: vi.fn(),
       supportsLookup: true,
     } as any;
@@ -165,8 +168,7 @@ describe('runAuthTest broadcasts RE_ENRICH after success', () => {
 
     await runAuthTest();
 
-    // refreshAuth should have been called (not checkHealth)
-    expect(mockRefreshAuth).toHaveBeenCalledTimes(1);
+    expect(testConnection).toHaveBeenCalledTimes(1);
 
     // RE_ENRICH should have been broadcast
     const reEnrichMessages = ctx.broadcastedMessages.filter(m => m.type === 'RE_ENRICH');
@@ -176,55 +178,35 @@ describe('runAuthTest broadcasts RE_ENRICH after success', () => {
     expect(ctx.activityLog.some(e => e.level === 'success' && e.message.includes('Connected'))).toBe(true);
   });
 
-  it('fast-path failure falls through to full auth, then broadcasts RE_ENRICH', async () => {
+  it('authenticated command failure does not broadcast RE_ENRICH', async () => {
     const ctx = makeCtx();
-
-    // refreshAuth fails → returns null
-    const mockRefreshAuth = vi.fn().mockResolvedValue(null);
-    const mockAbsorbAuth = vi.fn();
     ctx.client = {
-      jwt: 'stale-jwt',
-      auth: { refreshAuth: mockRefreshAuth, jwt: 'stale-jwt' },
-      absorbAuth: mockAbsorbAuth,
+      jwt: 'valid-jwt',
+      authVia: 'password',
+      testConnection: vi.fn().mockResolvedValue({
+        ok: false, message: 'Cannot reach command socket', authenticated: true,
+      }),
     } as any;
 
     setSwContext(ctx);
-
-    vi.spyOn(BmpClient, 'getBuildNumber').mockResolvedValue('5.6.7.2');
-
-    // Mock the BmpClient constructor-created testClient's testConnection
-    vi.spyOn(BmpClient.prototype, 'testConnection').mockResolvedValue({
-      ok: true, message: 'Authenticated', authenticated: true,
-    });
-
     await runAuthTest();
 
-    // refreshAuth was tried first
-    expect(mockRefreshAuth).toHaveBeenCalledTimes(1);
-
-    // absorbAuth was called on the real client
-    expect(mockAbsorbAuth).toHaveBeenCalledTimes(1);
-
-    // RE_ENRICH was broadcast after success
     const reEnrichMessages = ctx.broadcastedMessages.filter(m => m.type === 'RE_ENRICH');
-    expect(reEnrichMessages).toHaveLength(1);
+    expect(reEnrichMessages).toHaveLength(0);
   });
 
   it('auth failure does NOT broadcast RE_ENRICH', async () => {
     const ctx = makeCtx();
     ctx.client = {
       jwt: null,
-      auth: { refreshAuth: vi.fn() },
-      absorbAuth: vi.fn(),
+      testConnection: vi.fn().mockResolvedValue({
+        ok: false, message: 'Wrong username or password', authenticated: false,
+      }),
       applyVersionFlags: vi.fn(),
       supportsLookup: true,
     } as any;
 
     setSwContext(ctx);
-
-    vi.spyOn(BmpClient.prototype, 'testConnection').mockResolvedValue({
-      ok: false, message: 'Wrong username or password', authenticated: false,
-    });
 
     await runAuthTest();
 
@@ -255,28 +237,55 @@ describe('runAuthTest broadcasts RE_ENRICH after success', () => {
     const reEnrichMessages = ctx.broadcastedMessages.filter(m => m.type === 'RE_ENRICH');
     expect(reEnrichMessages).toHaveLength(0);
   });
+
+  it('ignores a successful probe that completes after the active client changes', async () => {
+    const ctx = makeCtx();
+    let finish!: (value: { ok: boolean; message: string; authenticated: boolean }) => void;
+    const probe = new Promise<{ ok: boolean; message: string; authenticated: boolean }>(
+      resolve => { finish = resolve; },
+    );
+    const oldClient = {
+      jwt: 'old-jwt',
+      authVia: 'password',
+      testConnection: vi.fn(() => probe),
+      applyVersionFlags: vi.fn(),
+    } as any;
+    ctx.client = oldClient;
+    setSwContext(ctx);
+
+    const pending = runAuthTest();
+    await vi.waitFor(() => expect(oldClient.testConnection).toHaveBeenCalledTimes(1));
+    ctx.client = { testConnection: vi.fn() } as any;
+    resetConnectionState();
+    finish({ ok: true, message: 'late success', authenticated: true });
+    await pending;
+
+    expect(ctx.broadcastedMessages.filter(m => m.type === 'RE_ENRICH')).toHaveLength(0);
+  });
 });
 
 describe('no concurrent logins (race condition prevention)', () => {
   beforeEach(() => {
     mockChromeStorage();
+    setSwContext(makeCtx());
+    resetConnectionState();
   });
 
-  it('RE_ENRICH is sequenced after auth, not concurrent', async () => {
+  it('deduplicates concurrent probes and broadcasts only after the probe completes', async () => {
     const ctx = makeCtx();
     const events: string[] = [];
 
-    const mockRefreshAuth = vi.fn(async () => {
-      events.push('refreshAuth:start');
+    const testConnection = vi.fn(async () => {
+      events.push('probe:start');
       await new Promise(r => setTimeout(r, 10));
-      events.push('refreshAuth:done');
-      return 'new-jwt';
+      events.push('probe:done');
+      return { ok: true, message: 'ready', authenticated: true };
     });
 
     ctx.client = {
       jwt: 'old-jwt',
-      auth: { refreshAuth: mockRefreshAuth, jwt: 'old-jwt' },
-      absorbAuth: vi.fn(),
+      authVia: 'password',
+      testConnection,
       applyVersionFlags: vi.fn(),
       supportsLookup: true,
     } as any;
@@ -290,12 +299,12 @@ describe('no concurrent logins (race condition prevention)', () => {
 
     vi.spyOn(BmpClient, 'getBuildNumber').mockResolvedValue('5.6.7.2');
 
-    await runAuthTest();
+    await Promise.all([runAuthTest(), runAuthTest()]);
 
-    // RE_ENRICH must come AFTER refreshAuth completes
+    expect(testConnection).toHaveBeenCalledTimes(1);
     expect(events).toEqual([
-      'refreshAuth:start',
-      'refreshAuth:done',
+      'probe:start',
+      'probe:done',
       'RE_ENRICH:broadcast',
     ]);
   });

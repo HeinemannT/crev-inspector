@@ -2,16 +2,11 @@
  * EC Editor — shared types and context helpers.
  * Single source of truth for identity formatting, code access, and target resolution.
  */
-import { type SaveTarget } from '../lib/types'
+import { type ObjectIdentity, type SaveTarget } from '../lib/types'
+
+export type { ObjectIdentity } from '../lib/types'
 
 // ── Types ────────────────────────────────────────────────────────
-
-export interface ObjectIdentity {
-  rid: string
-  businessId: string
-  type: string
-  name: string
-}
 
 export interface EditorContext {
   instance: ObjectIdentity
@@ -21,6 +16,9 @@ export interface EditorContext {
   overrides: Record<string, boolean>
   saveTarget: SaveTarget
   property: string | null
+  /** Present when identity was recovered from cache but the server code fetch
+   *  failed. An errored context is never mounted as an editable empty file. */
+  loadError?: string
   extended?: boolean
   /** Free-script (extended) mode only: initial document text to preload. Used
    *  by the chat tab's "Open in editor" handoff so a code block lands in a

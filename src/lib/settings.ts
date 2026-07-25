@@ -6,7 +6,7 @@ import type { InspectorSettings, ServerProfile } from './types';
 import { getCtx } from './sw-context';
 import { BmpClient } from './bmp-client';
 import { resolveAuthMode, sessionTokenKey } from './bmp-auth';
-import { normalizeUrl, resetConnectionState, pushConnectionState, runAuthTest, startHealthPolling, stopHealthPolling } from './connection';
+import { bindConnectionClient, normalizeUrl, resetConnectionState, pushConnectionState, runAuthTest, startHealthPolling, stopHealthPolling } from './connection';
 import { incrementGeneration } from './enrichment';
 import { clearAllContextRids } from './context-rid';
 import { log } from './logger';
@@ -260,6 +260,7 @@ async function rebuildClientInternal(clearCache: boolean) {
   if (profile?.bmpUrl) {
     ctx.client = getOrCreateClient(profile);
     ctx.client.cache = ctx.cache;
+    bindConnectionClient(ctx.client, profile.id);
   } else {
     ctx.client = null;
   }

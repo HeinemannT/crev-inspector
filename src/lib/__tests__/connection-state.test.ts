@@ -68,10 +68,13 @@ async function createHarness(opts: { withProfile?: boolean; withClient?: boolean
       ensureAuth: vi.fn(async () => 'mock-jwt'),
       login: vi.fn(async () => 'mock-jwt'),
       logout: vi.fn(),
-      invalidateJwt: vi.fn(),
+      invalidateLoginTicket: vi.fn(),
+      refreshLoginTicket: vi.fn(async () => 'mock-ticket'),
+      recoverAuth: vi.fn(async () => 'mock-jwt'),
       absorbAuth: vi.fn(),
       refreshAuth: vi.fn(async () => null), // default: refresh fails so full login runs
       jwt: null, // default: no JWT yet
+      get via() { return (this as any)._via ?? null; },
     };
     vi.spyOn(bmpModule.BmpClient.prototype, 'testConnection').mockImplementation(async function (this: any) {
       // BmpAuth.jwt/via are getters — write to the backing fields. `this` is the
@@ -166,6 +169,17 @@ describe('computeConnectionState — auth result precedence', () => {
     expect(h.conn.computeConnectionState().display).toBe('connected');
   });
 
+  it('a later unreachable health result overrides an earlier successful command probe', async () => {
+    const h = await createHarness();
+    h.setTestConnection({ ok: true, message: 'OK', authenticated: true });
+    await h.conn.runAuthTest();
+    expect(h.conn.computeConnectionState().display).toBe('connected');
+
+    h.setHealthResult({ up: false, reachable: false });
+    await h.conn.pollHealth();
+    expect(h.conn.computeConnectionState().display).toBe('unreachable');
+  });
+
   it('authResult=failed + healthUp=unreachable: returns unreachable (not auth-failed)', async () => {
     const h = await createHarness();
     h.setTestConnection({ ok: false, message: 'cannot reach', authenticated: false });
@@ -189,15 +203,56 @@ describe('computeConnectionState — auth result precedence', () => {
     expect(state.authError).toBe('bad credentials');
   });
 
-  it('authResult=failed + healthUp=down: returns auth-failed (auth failure trumps server-down)', async () => {
+  it('health down overrides an earlier auth failure', async () => {
     const h = await createHarness();
     h.setTestConnection({ ok: false, message: 'bad credentials', authenticated: false });
     h.setHealthResult({ up: false, reachable: true });
     await h.conn.runAuthTest();
     await h.conn.pollHealth();
 
-    // Per connection.ts:70: failed + (healthUp != unreachable) → auth-failed
-    expect(h.conn.computeConnectionState().display).toBe('auth-failed');
+    expect(h.conn.computeConnectionState().display).toBe('server-down');
+  });
+});
+
+describe('command outcome observation', () => {
+  it('downgrades on an active-client network failure and recovers on command success', async () => {
+    const h = await createHarness();
+    let observer: ((outcome: any) => void) | null = null;
+    vi.spyOn(h.ctx.client, 'setTransportOutcomeObserver').mockImplementation((fn: any) => { observer = fn; });
+    h.conn.bindConnectionClient(h.ctx.client, 'p1');
+
+    h.setTestConnection({ ok: true, message: 'OK', authenticated: true });
+    await h.conn.runAuthTest();
+    expect(h.conn.computeConnectionState().display).toBe('connected');
+    const before = h.ctx.broadcastToContent.mock.calls.filter(([m]: any[]) => m.type === 'RE_ENRICH').length;
+
+    observer!({ ok: false, intent: 'read', error: { kind: 'network', message: 'socket closed' } });
+    expect(h.conn.computeConnectionState().display).toBe('command-failed');
+    expect(h.conn.computeConnectionState().authError).toBe('socket closed');
+
+    observer!({ ok: true, intent: 'read' });
+    expect(h.conn.computeConnectionState().display).toBe('connected');
+    const after = h.ctx.broadcastToContent.mock.calls.filter(([m]: any[]) => m.type === 'RE_ENRICH').length;
+    expect(after).toBe(before + 1);
+  });
+
+  it('does not downgrade for permission denials or outcomes from an inactive client', async () => {
+    const h = await createHarness();
+    let observer: ((outcome: any) => void) | null = null;
+    vi.spyOn(h.ctx.client, 'setTransportOutcomeObserver').mockImplementation((fn: any) => { observer = fn; });
+    h.conn.bindConnectionClient(h.ctx.client, 'p1');
+    h.setTestConnection({ ok: true, message: 'OK', authenticated: true });
+    await h.conn.runAuthTest();
+
+    observer!({ ok: false, intent: 'read', error: { kind: 'permission', message: 'denied', status: 403 } });
+    expect(h.conn.computeConnectionState().display).toBe('connected');
+
+    observer!({ ok: false, intent: 'read', error: { kind: 'cancelled', message: 'caller stopped' } });
+    expect(h.conn.computeConnectionState().display).toBe('connected');
+
+    h.ctx.client = {} as any;
+    observer!({ ok: false, intent: 'read', error: { kind: 'network', message: 'late failure' } });
+    expect(h.conn.computeConnectionState().display).toBe('connected');
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  buildFetchEc, parseFetchLog, parseOverrides, parseStyles, loadModel, applyModel,
+  buildFetchEc, parseFetchLog, parseOverrides, parseStyles, loadModel, loadStructureModel, applyModel,
   resolvePageContext, buildContextEc, DEFAULT_TABSET, parsePageName,
   buildFlowRefChildrenEc, parseFlowRefChildren, type LayoutIO, type BlueprintCtx,
 } from '../sync';
@@ -129,6 +129,28 @@ describe('sync.buildFetchEc', () => {
     expect(ec).toContain('_sc.descendants().forEach'); // the page's own widgets
     expect(ec).not.toContain('_ts.descendants()');     // NOT the shared Row/Column scaffold
     expect(ec).not.toContain('_ts := ');               // no tabset root walk at all
+  });
+
+  it('structure projection preserves layout fields but removes Blueprint-only channels', () => {
+    const ec = buildFetchEc({ ...CTX, target: 'instance' }, {
+      projection: 'structure',
+      chunkSize: 32,
+      includeHeight: false,
+    });
+    expect(ec).toContain('_ts.descendants().forEach');
+    expect(ec).toContain('_layoutNodes := _sc.children()');
+    expect(ec).toContain('_sc.descendants(ButtonContainer)');
+    expect(ec).toContain('_sc.descendants(ButtonGroup)');
+    expect(ec).not.toContain('_sc.descendants().forEach(_w:');
+    expect(ec).toContain('_w.columnsLargeScreen.whenMissing("")');
+    expect(ec).toContain('IF _i > 31 THEN');
+    expect(ec).toContain('_structureEmitted > 599');
+    expect(ec).toContain('<<<CREV_LAYOUT_LIMIT>>>600');
+    expect(ec).not.toContain('chartHeight');
+    expect(ec).not.toContain('<<<CREV_OVER>>>');
+    expect(ec).not.toContain('<<<CREV_STY>>>');
+    expect(ec).not.toContain('<<<CREV_FREF>>>');
+    expect(ec.length).toBeLessThan(buildFetchEc({ ...CTX, target: 'instance' }).length / 3);
   });
 });
 
@@ -592,6 +614,22 @@ describe('sync — page name + on-demand ref children (support-Category + wire-t
     const { model, baseline } = await loadModel(fakeIo(`${PAGE}My Scorecard\n` + LIVE_LOG), CTX);
     expect(model.pageName).toBe('My Scorecard');
     expect(baseline.pageName).toBe('My Scorecard');
+  });
+
+  it('loadStructureModel reconstructs the same tree without a baseline', async () => {
+    const io = fakeIo(`${PAGE}My Scorecard\n` + LIVE_LOG);
+    const full = await loadModel(fakeIo(`${PAGE}My Scorecard\n` + LIVE_LOG), CTX);
+    const lean = await loadStructureModel(io, CTX);
+    expect(lean.model.tabs).toEqual(full.model.tabs);
+    expect(lean.model.pageName).toBe('My Scorecard');
+    expect('baseline' in lean).toBe(false);
+    expect(lean.truncated).toBe(false);
+    expect(io.exec).toHaveBeenCalledWith(expect.not.stringContaining('<<<CREV_STY>>>'));
+  });
+
+  it('loadStructureModel reports when its source projection reached the safety cap', async () => {
+    const lean = await loadStructureModel(fakeIo(`${LIVE_LOG}\n<<<CREV_LAYOUT_LIMIT>>>600`), CTX);
+    expect(lean.truncated).toBe(true);
   });
 
   it('buildFlowRefChildrenEc addresses the ref by business id, one ButtonGroup nesting level', () => {

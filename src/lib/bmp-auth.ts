@@ -79,6 +79,11 @@ export class BmpAuth {
   private _loginTicket: string | null = null;
   private _loginPromise: Promise<string> | null = null;
   private _refreshPromise: Promise<string | null> | null = null;
+  private _recoveryPromise: Promise<string> | null = null;
+  private _ticketPromise: Promise<string> | null = null;
+  private _ticketRecoveryPromise: Promise<string> | null = null;
+  private _restorePromise: Promise<boolean> | null = null;
+  private _sessionLoaded = false;
   private _profileId: string;
   private _authMode: AuthMode;
   private _via: AuthVia | null = null;
@@ -345,7 +350,27 @@ export class BmpAuth {
   /** Ensure valid JWT — restore from session, refresh, or full login */
   async ensureAuth(): Promise<string> {
     if (this._jwt) return this._jwt;
-    if (await this.restoreFromSession()) return this._jwt!;
+    await this.restoreFromSession();
+    if (this._jwt) return this._jwt;
+    return this.recoverAuth();
+  }
+
+  /** Recover a rejected/expired access token. Concurrent command failures share
+   *  one refresh-or-login chain rather than starting parallel browser-session
+   *  exchanges. A retained refresh token wins; full login is the fallback. */
+  async recoverAuth(): Promise<string> {
+    if (this._recoveryPromise) return this._recoveryPromise;
+    this._recoveryPromise = this._doRecoverAuth();
+    try { return await this._recoveryPromise; }
+    finally { this._recoveryPromise = null; }
+  }
+
+  private async _doRecoverAuth(): Promise<string> {
+    await this.restoreFromSession();
+    if (this._refreshToken) {
+      const refreshed = await this.refreshAuth();
+      if (refreshed) return refreshed;
+    }
     return this.login();
   }
 
@@ -356,19 +381,31 @@ export class BmpAuth {
    *  deciding whether to refresh or full-login. */
   async restoreFromSession(): Promise<boolean> {
     if (this._jwt) return true;
+    if (this._sessionLoaded) return false;
+    if (this._restorePromise) return this._restorePromise;
+    this._restorePromise = this._doRestoreFromSession();
+    try { return await this._restorePromise; }
+    finally { this._restorePromise = null; }
+  }
+
+  private async _doRestoreFromSession(): Promise<boolean> {
     try {
       const result = await chrome.storage.session.get(this._sessionKey);
-      const saved = result[this._sessionKey] as { jwt: string; refreshToken: string; via?: AuthVia } | undefined;
-      if (saved?.jwt) {
-        this._jwt = saved.jwt;
+      const saved = result[this._sessionKey] as { jwt?: string | null; refreshToken?: string | null; via?: AuthVia | null } | undefined;
+      if (saved) {
+        this._jwt = saved.jwt ?? null;
         this._refreshToken = saved.refreshToken ?? null;
         this._via = saved.via ?? null;
-        return true;
       }
     } catch (e) {
       log.warn('auth:restoreSession', e, 'session restore failed');
+    } finally {
+      // Once loaded, in-memory state is authoritative. In particular,
+      // expireAccessToken() must not race its async storage write and restore
+      // the just-rejected JWT from an older session blob.
+      this._sessionLoaded = true;
     }
-    return false;
+    return this._jwt != null;
   }
 
   /** Username for this auth instance — exposed so the client pool can
@@ -401,6 +438,7 @@ export class BmpAuth {
     this._refreshToken = other._refreshToken;
     this._via = other._via;
     this._loginTicket = null; // Ticket is derived from JWT — re-derive on demand
+    this._sessionLoaded = true;
     this._persistTokens();
   }
 
@@ -412,29 +450,69 @@ export class BmpAuth {
     this._loginTicket = null;
     this._loginPromise = null;
     this._refreshPromise = null;
+    this._recoveryPromise = null;
+    this._ticketPromise = null;
+    this._ticketRecoveryPromise = null;
+    this._restorePromise = null;
+    this._sessionLoaded = true;
     this._clearPersistedTokens();
   }
 
-  /** Invalidate current JWT and cached ticket (triggers re-auth on next request) */
-  invalidateJwt() {
+  /** Drop only the command LoginTicket. The JWT may still be valid and can
+   *  exchange for a fresh ticket without a full credential recovery. */
+  invalidateLoginTicket(): void {
+    this._loginTicket = null;
+  }
+
+  /** Mark the access token as rejected while retaining its refresh token.
+   *  Persisting jwt:null prevents a future SW/client from restoring it. */
+  expireAccessToken(): void {
     this._jwt = null;
     this._loginTicket = null;
+    this._sessionLoaded = true;
+    this._persistTokens();
   }
 
   /** Exchange JWT for a LoginTicket string (cached — reused until JWT is invalidated).
    *  Needed for binary commands on BMP < 5.6.3 where JWT auth for /cs/command is broken. */
   async getLoginTicket(): Promise<string> {
     if (this._loginTicket) return this._loginTicket;
-    const jwt = await this.ensureAuth();
-    const res = await fetch(`${this.bmpUrl}ticket`, {
-      headers: { 'Authorization': `Bearer ${jwt}` },
-      signal: AbortSignal.timeout(AUTH_TIMEOUT),
-    });
+    if (this._ticketPromise) return this._ticketPromise;
+    this._ticketPromise = this._fetchLoginTicketWithAuthRecovery();
+    try { return await this._ticketPromise; }
+    finally { this._ticketPromise = null; }
+  }
+
+  /** Force a new command ticket after /cs/command rejects the cached one.
+   *  Concurrent rejected commands share the same ticket exchange. */
+  async refreshLoginTicket(): Promise<string> {
+    if (this._ticketRecoveryPromise) return this._ticketRecoveryPromise;
+    this._loginTicket = null;
+    this._ticketRecoveryPromise = this.getLoginTicket();
+    try { return await this._ticketRecoveryPromise; }
+    finally { this._ticketRecoveryPromise = null; }
+  }
+
+  private async _fetchLoginTicketWithAuthRecovery(): Promise<string> {
+    let jwt = await this.ensureAuth();
+    let res = await this._fetchLoginTicket(jwt);
+    if (res.status === 401 || res.status === 403) {
+      this.expireAccessToken();
+      jwt = await this.recoverAuth();
+      res = await this._fetchLoginTicket(jwt);
+    }
     if (!res.ok) throw new Error(`Failed to get login ticket: HTTP ${res.status}`);
     const ticket = await res.text();
     if (!ticket) throw new Error('Empty login ticket');
     this._loginTicket = ticket;
     return ticket;
+  }
+
+  private _fetchLoginTicket(jwt: string): Promise<Response> {
+    return fetch(`${this.bmpUrl}ticket`, {
+      headers: { 'Authorization': `Bearer ${jwt}` },
+      signal: AbortSignal.timeout(AUTH_TIMEOUT),
+    });
   }
 
   private _persistTokens() {

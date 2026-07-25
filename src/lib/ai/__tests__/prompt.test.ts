@@ -208,6 +208,17 @@ describe('buildChatSystem workspace primer', () => {
     expect(system).not.toContain('str_split');
   });
 
+  it('instructs the model to embed object chips as natural prose', () => {
+    const { system } = buildChatSystem(env);
+    const prose = system.replace(/\s+/g, ' ');
+    expect(prose).toContain('The search returned [[object:RID]].');
+    expect(prose).toContain('Do NOT announce a "verified UI object');
+    expect(prose).toContain('The rendered chip already communicates identity');
+    expect(prose).toContain('OBJECT CHIP OUTPUT IS A HARD FINAL-ANSWER FORMAT RULE');
+    expect(prose).toContain('For a simple find/locate request, answer "Found [[object:RID]]." and stop.');
+    expect(prose).toContain('Do not offer follow-up actions after a simple find/locate answer.');
+  });
+
   it('ignores an empty / whitespace primer', () => {
     expect(buildChatSystem(env, '   ').system).not.toContain('</workspace>');
     expect(buildChatSystem(env, null).system).not.toContain('</workspace>');

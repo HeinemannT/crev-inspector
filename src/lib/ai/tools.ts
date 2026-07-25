@@ -8,6 +8,7 @@
  * Every tool is READ-ONLY. No tool writes to BMP; mutation only ever happens
  * through code blocks the user chooses to apply.
  */
+import type { ObjectReference } from '../types';
 
 /** Max tool calls the orchestrator will execute in one user turn. On the cap
  *  it makes one final turn with NO tools offered, forcing a text answer.
@@ -68,6 +69,9 @@ export interface ToolCall {
 export interface ToolResult {
   content: string;
   isError: boolean;
+  /** Verified BMP identities exposed by this result. Kept separate from prose
+   *  so the UI never has to infer objects from model-generated text. */
+  objects?: ObjectReference[];
 }
 
 /** Executes a tool by name. Never throws — a failed call resolves to an
@@ -208,11 +212,16 @@ export const TOOL_DEFS: ToolDef[] = [
     description:
       'Read a page\'s layout tree by page rid — a trimmed structure of tabs, ' +
       'containers and widgets (types, names, column spans), NOT their styling. ' +
+      'Widget-owned data rows are excluded. Large pages return a balanced outline across tabs; use focusRid from a returned node to inspect one subtree. A source safety cutoff is reported explicitly if reached. ' +
       'This is the FIRST tool for questions about a page, tab, container, widget, table, or rows displayed by a table. For an ExtendedTable, follow it with read_code on the returned table rid and expression slot; do not call query_context first.',
     parameters: {
       type: 'object',
       properties: {
         pageRid: { type: 'string', description: 'Numeric rid of the page whose layout to read.' },
+        focusRid: {
+          type: 'string',
+          description: 'Optional rid of a returned tab/container/widget. Limits the answer to that subtree when the page outline was capped.',
+        },
       },
       required: ['pageRid'],
       additionalProperties: false,
@@ -252,5 +261,66 @@ export function toOpenAiTools(defs: ToolDef[] = TOOL_DEFS): Array<{ type: 'funct
  *  cut. Idempotent for already-short strings. */
 export function truncateToolResult(text: string): string {
   if (text.length <= TOOL_RESULT_CAP) return text;
-  return text.slice(0, TOOL_RESULT_CAP) + TRUNCATION_MARKER;
+  return text.slice(0, TOOL_RESULT_CAP - TRUNCATION_MARKER.length) + TRUNCATION_MARKER;
+}
+
+/** Stable inline citation syntax understood by the AI Markdown renderer. */
+export function objectReferenceToken(rid: string): string {
+  return `[[object:${rid}]]`;
+}
+
+/** Fresh regex per render — global RegExp state must never leak across calls. */
+export function objectReferencePattern(): RegExp {
+  return /\[\[object:(-?\d+)\]\]/g;
+}
+
+/** Dedupe by RID while preferring later non-empty enrichment fields. */
+export function mergeObjectReferences(objects: readonly ObjectReference[]): ObjectReference[] {
+  const byRid = new Map<string, ObjectReference>();
+  for (const object of objects) {
+    if (!/^-?\d+$/.test(object.rid)) continue;
+    const prior = byRid.get(object.rid);
+    byRid.set(object.rid, {
+      rid: object.rid,
+      businessId: object.businessId || prior?.businessId,
+      type: object.type || prior?.type,
+      name: object.name || prior?.name,
+      templateBusinessId: object.templateBusinessId || prior?.templateBusinessId,
+    });
+  }
+  return [...byRid.values()];
+}
+
+/** Add a provider-visible registry for the verified objects while preserving
+ *  the total tool-result cap. The system prompt, not this untrusted result,
+ *  defines the instruction to use these exact tokens. */
+export function toolResultWithObjects(
+  content: string,
+  objects: readonly ObjectReference[],
+): ToolResult {
+  const merged = mergeObjectReferences(objects);
+  if (!merged.length) return { content: truncateToolResult(content), isError: false };
+  const oneLine = (value: string | undefined, fallback: string): string =>
+    (value?.replace(/\s+/g, ' ').trim() || fallback).slice(0, 120);
+  const registryCap = 3_600;
+  let registry = '\nUI object references:';
+  let shown = 0;
+  for (const object of merged) {
+    const line = `\n  ${objectReferenceToken(object.rid)} = `
+      + `${oneLine(object.name, '(unnamed)')} (${oneLine(object.type, 'Object')})`
+      + `${object.businessId ? ` bid=${oneLine(object.businessId, '')}` : ''}`;
+    // Keep room for a useful portion of the actual tool result and an
+    // omission note. Structured identities remain available to the UI.
+    if (registry.length + line.length + 64 > registryCap) break;
+    registry += line;
+    shown += 1;
+  }
+  if (shown < merged.length) {
+    registry += `\n  … ${merged.length - shown} more verified object references omitted`;
+  }
+  const bodyCap = Math.max(0, TOOL_RESULT_CAP - registry.length);
+  const body = content.length <= bodyCap
+    ? content
+    : content.slice(0, Math.max(0, bodyCap - TRUNCATION_MARKER.length)) + TRUNCATION_MARKER;
+  return { content: body + registry, isError: false, objects: merged };
 }

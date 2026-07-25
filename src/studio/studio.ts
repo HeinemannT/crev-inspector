@@ -28,6 +28,7 @@ import { closeOverlayKeyBinding, installDirtyGuards } from '../editor-core/overl
 import { detectFileResourceRids, detectCdnUrls } from './dep-detect'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
+import { objectChip } from '../lib/object-chip'
 import { sendRequest, sendFireForget } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
 import { type StudioChild, type StudioChildType, type InspectorMessage } from '../lib/types'
@@ -973,10 +974,18 @@ function renderDepsInto(el: HTMLElement): void {
       const cached = libCache.get(rid)
       const status = cached === undefined ? '…' : cached ? [svg(ICON_CHECK), ' loaded'] : [svg(ICON_X), ' unavailable']
       const ref = refCache.get(rid)
-      const label = ref && ref.id ? (ref.name ? `${ref.id} · ${ref.name}` : ref.id) : rid
       return h('div', { class: 'studio-dep-row' },
-        h('span', { class: 'studio-dep-kind' }, 'FileResource'),
-        h('span', { class: 'studio-dep-id', title: 'rid ' + rid }, label),
+        objectChip({
+          rid,
+          type: 'FileResource',
+          businessId: ref?.id,
+          name: ref?.name,
+        }, {
+          size: 'xs',
+          className: 'studio-dep-object',
+          showId: true,
+          onActivate: () => sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid }),
+        }),
         h('span', { class: `studio-dep-status${cached === null ? ' studio-dep-warn' : ''}` }, status),
       )
     }),

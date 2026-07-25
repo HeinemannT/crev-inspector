@@ -901,59 +901,6 @@ body {
 .bx-dd-clear:hover { text-decoration: underline; }
 
 /* Results */
-/* ── Type badge — full-bleed stub (colour tile + neutral code chip) ──── */
-.bdg {
-  display: inline-flex;
-  align-items: stretch;
-  flex: none;
-  height: 20px;
-  border: 1px solid var(--surface-4);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semi);
-  line-height: 1;
-  color: var(--text-1);
-}
-.bdg .tile {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
-  background: var(--c, var(--surface-4));
-  color: var(--text-on-color);
-}
-.bdg .tile svg { width: 12px; height: 12px; display: block; }
-.bdg .lbl {
-  display: flex;
-  align-items: center;
-  padding: 0 7px;
-  background: var(--surface-2);
-  font-family: var(--font-mono);
-  letter-spacing: 0.02em;
-}
-.bdg.xs { height: 18px; }
-.bdg.xs .tile { padding: 0 4px; }
-.bdg.xs .tile svg { width: 11px; height: 11px; }
-.bdg.xs .lbl { padding: 0 6px; }
-
-/* Sub-badge stack — stub on top, code/reference squares underneath (the
-   inspect corner label + detail header). Right-aligned so the squares hang
-   under the code chip. Code = violet (carries EC), reference = teal (jump
-   target to a linked object). */
-.bdg-stack { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-.bdg-stack .sbrow { display: inline-flex; gap: 2px; }
-.sbrow .sq {
-  width: 15px; height: 15px;
-  display: inline-flex; align-items: center; justify-content: center;
-  color: var(--text-on-color); border-radius: var(--radius-sm);
-}
-.sbrow .sq svg { width: 9px; height: 9px; display: block; }
-.sbrow .sq.code { background: var(--fam-code); }
-.sbrow .sq.ref  { background: #0f9b8e; }
-.bdg-stack.xs .sq { width: 13px; height: 13px; }
-.bdg-stack.xs .sq svg { width: 8px; height: 8px; }
-
 .bx-list { display: flex; flex-direction: column; }
 .bx-row { display: flex; align-items: center; gap: 9px; padding: 8px 4px; cursor: pointer; border-bottom: 1px solid color-mix(in srgb, var(--surface-3) 45%, transparent); }
 .bx-row:hover { background: var(--surface-2); }
@@ -1583,6 +1530,7 @@ body.crev-divider-dragging * { user-select: none; }
 .ref-progress-bar { height: 3px; background: var(--surface-3); border-radius: var(--radius-sm); overflow: hidden; }
 .ref-progress-fill { height: 100%; background: var(--accent-dim); transition: width var(--duration-normal); }
 .ref-progress-text { font-size: var(--text-xs); color: var(--text-2); margin-top: 2px; display: block; }
+.ref-error { margin: 6px 0; padding: 7px 8px; border-left: 2px solid var(--danger); background: color-mix(in srgb, var(--surface-1), var(--danger) 8%); color: var(--text-1); font-size: var(--text-xs); line-height: 1.4; }
 .ref-empty { text-align: center; padding: 20px; color: var(--text-2); font-size: var(--text-sm); font-style: italic; }
 .ref-group { margin: 4px 0; border: 1px solid var(--surface-4); border-radius: var(--radius-md); overflow: hidden; }
 .ref-group-header { display: flex; align-items: center; gap: 6px; padding: 6px 8px; cursor: pointer; font-size: var(--text-sm); }
@@ -1795,57 +1743,24 @@ body.crev-divider-dragging * { user-select: none; }
   font-family: var(--font-mono);
 }
 
-/* Active-context chip — click to open the current BMP context in the
- * detail view. Compact (max 100 px) so it doesn't crowd the activity
- * marquee. Inline-dot uses the accent purple so it reads as "selected". */
+/* Active object context — the shared chip contract, constrained so it
+ * cannot crowd the activity marquee. */
 .status-bar-context {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
   max-width: 140px;
-  padding: 1px 8px 1px 4px;
-  background: transparent;
-  border: 1px solid var(--surface-3);
-  border-radius: 999px;
-  color: var(--text-2);
-  font-family: inherit;
-  font-size: var(--text-xs);
-  cursor: pointer;
   flex-shrink: 0;
-  transition: background var(--duration-fast) var(--ease-default),
-              border-color var(--duration-fast) var(--ease-default),
-              color var(--duration-fast) var(--ease-default);
-}
-.status-bar-context:hover {
-  background: var(--surface-2);
-  border-color: var(--accent);
-  color: var(--text-1);
-}
-.status-bar-context-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-}
-.status-bar-context-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .status-bar-context--empty {
+  padding: 1px 6px;
+  border: 1px dashed var(--surface-3);
+  border-radius: var(--radius-sm);
   color: var(--text-3);
   font-style: italic;
   cursor: default;
-  border-style: dashed;
 }
 .status-bar-context--empty:hover {
   background: transparent;
   border-color: var(--surface-3);
   color: var(--text-3);
-}
-.status-bar-context--empty .status-bar-context-dot {
-  background: var(--surface-4);
 }
 
 /* Latency traffic light — 6-step warm-cool ramp plus a grey ✕ for "no
@@ -2182,46 +2097,9 @@ body.crev-divider-dragging * { user-select: none; }
   color: var(--text-2);
   opacity: 0.75;
 }
-/* The card crumb opens the card OBJECT in the inspector sidebar (like any other
- * object) — so it's a QUIET, muted secondary line, not a special accent link. */
+/* The card object remains a quiet secondary line beneath the identity header. */
 .pane-card-crumb {
-  display: flex;
-  align-items: center;
-  gap: 5px;
   margin: 1px 0 0 18px; /* align under the type pill */
-  padding: 2px 4px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  color: var(--text-3);
-  cursor: pointer;
-  user-select: none;
-  transition: background var(--duration-fast) var(--ease-default),
-              color var(--duration-fast) var(--ease-default);
-}
-.pane-card-crumb:hover,
-.pane-card-crumb:focus-visible { background: var(--surface-2); color: var(--text-1); outline: none; }
-.pane-card-crumb-icon { flex-shrink: 0; opacity: 0.6; }
-.pane-card-crumb-name {
-  min-width: 0;
-  color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pane-card-crumb:hover .pane-card-crumb-name { color: var(--text-1); }
-.pane-card-crumb-tag {
-  flex-shrink: 0;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--surface-3);
-  color: var(--text-3);
-  font-size: var(--text-2xs);
-  letter-spacing: 0.2px;
-}
-.pane-card-crumb-bid {
-  flex-shrink: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
   color: var(--text-3);
 }
 .pane-parent-crumb-name {
@@ -2808,6 +2686,12 @@ body.crev-divider-dragging * { user-select: none; }
 }
 .pane-error { color: var(--danger); }
 
+.pane-error-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
 /* Tree component */
 
 .pane-tree { font-size: var(--text-sm); }
@@ -3191,7 +3075,12 @@ body.crev-divider-dragging * { user-select: none; }
   color: var(--text-3);
   text-align: center;
 }
-.flow-error { color: var(--danger); }
+.flow-error {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  color: var(--danger);
+}
 
 /* ── Detail header — Path-Spine (path bar / identity / sub row) ── */
 .dv-header { border-bottom: 1px solid var(--surface-3); background: var(--bg, #fff); }
@@ -3443,11 +3332,6 @@ body.crev-divider-dragging * { user-select: none; }
 /* Badge = copy affordance. Green confirmation flips the tile + chip. */
 .flow-bdg { cursor: pointer; }
 .flow-bdg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.bdg.bdg-copied .tile { background: var(--success) !important; }
-.bdg.bdg-copied .lbl {
-  background: color-mix(in srgb, var(--success) 14%, transparent);
-  color: var(--success);
-}
 .pane-id-bdg { cursor: pointer; flex: none; }
 .pane-id-bdg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -4093,8 +3977,6 @@ body.crev-divider-dragging * { user-select: none; }
 .status-bar--flash .status-bar-count,
 .status-bar--flash .status-bar-activity { display: none !important; }
 
-.bdg-copy { cursor: pointer; }
-
 /* ── AI assistant settings (Connect tab) ──────────────────────────── */
 .ai-settings { margin-top: 4px; }
 .ai-select { width: 100%; }
@@ -4225,6 +4107,9 @@ body.crev-divider-dragging * { user-select: none; }
 }
 
 .ai-json summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 11px;
@@ -4244,15 +4129,9 @@ body.crev-divider-dragging * { user-select: none; }
 }
 
 .ai-json-help {
-  display: grid;
-  gap: 3px;
-  margin-top: 8px;
-  color: var(--text-2);
-  font-size: var(--text-xs);
-  line-height: 1.4;
+  flex: none;
+  margin: -4px 0;
 }
-
-.ai-json-help code { color: var(--text-1); font-family: var(--font-mono); }
 
 .ai-json-error {
   margin-top: 6px;
@@ -4347,6 +4226,11 @@ body.crev-divider-dragging * { user-select: none; }
 .ai-a { align-self: stretch; max-width: 100%; font-size: var(--text-sm); color: var(--text-1); }
 .ai-a-body { line-height: var(--leading-normal); }
 .ai-a-body .ai-prose { margin: 4px 0; }
+.ai-answer-object {
+  max-width: 220px;
+  margin: 0 2px;
+  vertical-align: middle;
+}
 .ai-a-tag {
   display: flex;
   align-items: center;

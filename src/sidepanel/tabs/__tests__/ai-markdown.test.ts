@@ -8,11 +8,14 @@
 import { describe, it, expect } from 'vitest';
 import { renderMarkdown, splitBlocks, isTableSeparator, splitTableRow } from '../ai-markdown';
 import { h } from '../../../lib/dom';
+import type { ObjectReference } from '../../../lib/types';
 
-function renderInto(text: string): HTMLElement {
+function renderInto(text: string, objects: ObjectReference[] = []): HTMLElement {
   const el = document.createElement('div');
   renderMarkdown(el, text, {
     codeBlock: (lang, code) => h('pre', { class: 'test-code', 'data-lang': lang }, code),
+    objects,
+    objectReference: object => h('button', { class: 'test-object', 'data-rid': object.rid }, object.name || object.rid),
   });
   return el;
 }
@@ -116,5 +119,30 @@ describe('renderMarkdown inline + escaping', () => {
     const pre = el.querySelector('pre.test-code')!;
     expect(pre.getAttribute('data-lang')).toBe('extended');
     expect(pre.textContent).toBe('output(t.x.name)');
+  });
+
+  it('renders only verified object-reference tokens as chips', () => {
+    const objects = [{ rid: '9007199254740993', businessId: 'sc_process', type: 'Scorecard', name: 'Process Register' }];
+    const el = renderInto(
+      'Open [[object:9007199254740993]], but not [[object:42]].',
+      objects,
+    );
+    expect(el.querySelector('.test-object')?.textContent).toBe('Process Register');
+    expect(el.querySelector('.test-object')?.getAttribute('data-rid')).toBe('9007199254740993');
+    expect(el.textContent).toContain('[[object:42]]');
+  });
+
+  it('renders a bold-wrapped verified reference without literal Markdown markers', () => {
+    const objects = [{ rid: '9', businessId: 'x', type: 'Scorecard', name: 'Process Register' }];
+    const el = renderInto('Open **[[object:9]]** now.', objects);
+    expect(el.textContent).toBe('Open Process Register now.');
+    expect(el.querySelector('strong > .test-object')).toBeTruthy();
+  });
+
+  it('keeps object syntax literal inside inline and fenced code', () => {
+    const objects = [{ rid: '9', businessId: 'x', type: 'Scorecard', name: 'X' }];
+    const el = renderInto('`[[object:9]]`\n\n```\n[[object:9]]\n```', objects);
+    expect(el.querySelector('.test-object')).toBeNull();
+    expect(el.textContent).toContain('[[object:9]]');
   });
 });

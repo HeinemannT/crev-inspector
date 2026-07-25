@@ -5,7 +5,7 @@
  * the sidepanel UI alike.
  */
 
-import type { AiApiType, AiCustomProvider, AiProviderId, AiSettings } from './types';
+import type { AiApiType, AiCustomProvider, AiMaxTokensParam, AiProviderId, AiSettings } from './types';
 
 export type BuiltinProviderId = Exclude<AiProviderId, 'custom'>;
 
@@ -26,6 +26,8 @@ export interface ProviderMeta {
   openAiCompat: boolean;
   /** Optional selected-model limits from a custom catalogue. */
   maxOutputTokens?: number;
+  /** OpenAI-compatible output-limit field. Defaults to max_completion_tokens. */
+  maxTokensParam?: AiMaxTokensParam;
 }
 
 export const PROVIDERS: Record<BuiltinProviderId, ProviderMeta> = {
@@ -46,6 +48,7 @@ export const PROVIDERS: Record<BuiltinProviderId, ProviderMeta> = {
     defaultModel: 'gpt-5.2',
     suggestedModels: ['gpt-5.2', 'gpt-5-mini'],
     openAiCompat: true,
+    maxTokensParam: 'max_completion_tokens',
   },
   deepseek: {
     id: 'deepseek',
@@ -55,6 +58,7 @@ export const PROVIDERS: Record<BuiltinProviderId, ProviderMeta> = {
     defaultModel: 'deepseek-v4-flash',
     suggestedModels: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat'],
     openAiCompat: true,
+    maxTokensParam: 'max_tokens',
   },
   grok: {
     id: 'grok',
@@ -64,6 +68,7 @@ export const PROVIDERS: Record<BuiltinProviderId, ProviderMeta> = {
     defaultModel: 'grok-4',
     suggestedModels: ['grok-4'],
     openAiCompat: true,
+    maxTokensParam: 'max_completion_tokens',
   },
 };
 
@@ -86,6 +91,14 @@ function optionalPositiveInteger(value: unknown, field: string): number | undefi
   if (value === undefined) return undefined;
   if (!Number.isInteger(value) || (value as number) <= 0) throw new Error(`${field} must be a positive integer`);
   return value as number;
+}
+
+function optionalMaxTokensParam(value: unknown, field: string): AiMaxTokensParam | undefined {
+  if (value === undefined) return undefined;
+  if (value !== 'max_tokens' && value !== 'max_completion_tokens') {
+    throw new Error(`${field} must be "max_tokens" or "max_completion_tokens"`);
+  }
+  return value;
 }
 
 function apiBaseUrl(value: unknown, field: string): string {
@@ -123,6 +136,8 @@ export function parseCustomProviderJson(json: string): { provider: AiCustomProvi
         ? { maxInputTokens: model.maxInputTokens as number } : {}),
       ...(optionalPositiveInteger(model.maxOutputTokens, `models[${index}].maxOutputTokens`) !== undefined
         ? { maxOutputTokens: model.maxOutputTokens as number } : {}),
+      ...(optionalMaxTokensParam(model.maxTokensParam, `models[${index}].maxTokensParam`) !== undefined
+        ? { maxTokensParam: model.maxTokensParam as AiMaxTokensParam } : {}),
     };
   });
   if (new Set(models.map(model => model.id)).size !== models.length) throw new Error('Model ids must be unique');
@@ -157,6 +172,7 @@ export function resolveProvider(settings: Pick<AiSettings, 'provider' | 'model' 
     suggestedModels: custom.models.filter(item => item.toolCalling).map(item => item.id),
     openAiCompat: custom.apiType === 'openai',
     maxOutputTokens: model.maxOutputTokens,
+    maxTokensParam: model.maxTokensParam,
   };
 }
 

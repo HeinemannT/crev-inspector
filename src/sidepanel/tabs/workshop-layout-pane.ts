@@ -60,12 +60,14 @@ export class WorkshopLayoutPane implements Tab {
   private contextObj: BmpObject | null = null;
   private contextLoading = false;
   private contextAutoDetected = false; // true if contextRid came from PAGE_INFO, not right-click
-  // Layout subtree (TabSet / Tab / Container / Scorecard). Fetched in a
+  // Portal layout subtree (TabSet / Tab / Container). Fetched in a
   // single EC round trip when the context object is one of those types.
   // Folded into a tree client-side and rendered with size pills + inline
   // edits for `columnsLargeScreen`.
   private layoutNodes: LayoutNode[] | null = null;
   private layoutLoadingFor: string | null = null;
+  private layoutError: string | null = null;
+  private layoutTruncated = false;
   /** Active responsive breakpoint for the grid preview. Toggles which
    *  `columns*Screen` field drives the column-spans. Defaults to L
    *  (matches what the user is typically editing). */
@@ -144,6 +146,8 @@ export class WorkshopLayoutPane implements Tab {
     this.contextAutoDetected = false;
     this.layoutNodes = null;
     this.layoutLoadingFor = null;
+    this.layoutError = null;
+    this.layoutTruncated = false;
     this.highlightedNodeRid = null;
     this.expandedNodes.clear();
     this.previewSectionExpanded = false;
@@ -257,6 +261,10 @@ export class WorkshopLayoutPane implements Tab {
           this.contextRid = null;
           this.contextObj = null;
           this.contextLoading = false;
+          this.layoutNodes = null;
+          this.layoutLoadingFor = null;
+          this.layoutError = null;
+          this.layoutTruncated = false;
         }
         return true;
       case 'FULL_LOOKUP_RESULT':
@@ -266,15 +274,19 @@ export class WorkshopLayoutPane implements Tab {
             this.contextObj = msg.object;
             // Kick off layout-tree fetch when the context is a layout
             // container — single EC round-trip returns the whole nested
-            // hierarchy (Tab → Container → Container → Widget refs).
+            // portal hierarchy (Tab → Container → Container).
             const objType = msg.object.type;
             if (objType && LAYOUT_TREE_TYPES.has(objType)) {
               this.layoutLoadingFor = msg.rid;
               this.layoutNodes = null;
+              this.layoutError = null;
+              this.layoutTruncated = false;
               this.send({ type: 'FETCH_LAYOUT_TREE', rid: msg.rid });
             } else {
               this.layoutNodes = null;
               this.layoutLoadingFor = null;
+              this.layoutError = null;
+              this.layoutTruncated = false;
             }
           }
           return true;
@@ -283,7 +295,9 @@ export class WorkshopLayoutPane implements Tab {
       case 'LAYOUT_TREE_RESULT':
         if ('rid' in msg && msg.rid === this.layoutLoadingFor) {
           this.layoutLoadingFor = null;
-          this.layoutNodes = msg.nodes ?? [];
+          this.layoutError = msg.error ?? null;
+          this.layoutTruncated = msg.truncated ?? false;
+          this.layoutNodes = msg.error ? null : (msg.nodes ?? []);
           return true;
         }
         return false;
@@ -395,6 +409,8 @@ export class WorkshopLayoutPane implements Tab {
     // the new one.
     this.layoutNodes = null;
     this.layoutLoadingFor = null;
+    this.layoutError = null;
+    this.layoutTruncated = false;
     this.highlightedNodeRid = null;
     // Reset Preview disclosure so a new scorecard opens with just the
     // primary layout tree visible.
@@ -469,6 +485,21 @@ export class WorkshopLayoutPane implements Tab {
           children.push(this.renderLayout(this.contextRid!, this.layoutNodes));
         } else if (layoutLoading) {
           children.push(h('div', { class: 'empty-state empty-state--compact' }, 'Walking subtree…'));
+        } else if (this.layoutError) {
+          children.push(h('div', { class: 'pane-error' },
+            h('div', {}, this.layoutError),
+            h('div', { class: 'pane-error-actions' },
+              h('button', {
+                class: 'btn btn-small',
+                'data-action': 'refresh-layout',
+              }, 'Retry'),
+            ),
+          ));
+        }
+        if (this.layoutTruncated) {
+          children.push(h('div', { class: 'empty-state empty-state--compact' },
+            'Showing the first 600 structural nodes. Select a nested Tab or Container as context to inspect a narrower subtree.',
+          ));
         }
         // Preview gets its own independent disclosure so users can
         // open one without the other.
@@ -549,6 +580,8 @@ export class WorkshopLayoutPane implements Tab {
         if (this.contextRid) {
           this.layoutLoadingFor = this.contextRid;
           this.layoutNodes = null;
+          this.layoutError = null;
+          this.layoutTruncated = false;
           this.send({ type: 'FETCH_LAYOUT_TREE', rid: this.contextRid });
           this.render(container);
         }

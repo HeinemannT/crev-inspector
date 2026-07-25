@@ -41,4 +41,30 @@ describe('color-set-cache', () => {
     c.invalidateColorSets('p1');
     expect(await c.getColorSets('p1')).toBeNull();
   });
+
+  it('joins concurrent cache misses into one fetch and caches the result', async () => {
+    const c = await import('../color-set-cache');
+    let release!: (sets: ColorSetData[]) => void;
+    const fetcher = vi.fn(() => new Promise<ColorSetData[]>(resolve => { release = resolve; }));
+    const first = c.loadColorSets('p1', fetcher);
+    const second = c.loadColorSets('p1', fetcher);
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    release(SETS);
+    await expect(Promise.all([first, second])).resolves.toEqual([SETS, SETS]);
+    await expect(c.loadColorSets('p1', fetcher)).resolves.toEqual(SETS);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('caches a successful empty workspace but not a failed fetch', async () => {
+    const c = await import('../color-set-cache');
+    const empty = vi.fn(async () => [] as ColorSetData[]);
+    await expect(c.loadColorSets('empty', empty)).resolves.toEqual([]);
+    await expect(c.loadColorSets('empty', empty)).resolves.toEqual([]);
+    expect(empty).toHaveBeenCalledTimes(1);
+
+    const failed = vi.fn(async () => { throw new Error('timeout'); });
+    await expect(c.loadColorSets('failed', failed)).rejects.toThrow('timeout');
+    await expect(c.loadColorSets('failed', failed)).rejects.toThrow('timeout');
+    expect(failed).toHaveBeenCalledTimes(2);
+  });
 });

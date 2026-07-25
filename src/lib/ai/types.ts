@@ -3,9 +3,11 @@
  * message union, and the editor/studio UI. No runtime imports — pure types +
  * a couple of literal unions — so any surface can depend on it cheaply.
  */
+import type { ObjectIdentity, ObjectReference } from '../types';
 
 export type AiProviderId = 'anthropic' | 'openai' | 'deepseek' | 'grok' | 'custom';
 export type AiApiType = 'openai' | 'anthropic';
+export type AiMaxTokensParam = 'max_tokens' | 'max_completion_tokens';
 
 export interface AiCustomModel {
   id: string;
@@ -16,6 +18,9 @@ export interface AiCustomModel {
   vision?: boolean;
   maxInputTokens?: number;
   maxOutputTokens?: number;
+  /** OpenAI-compatible request field used when maxOutputTokens is set.
+   * Defaults to the current Chat Completions field, max_completion_tokens. */
+  maxTokensParam?: AiMaxTokensParam;
 }
 
 /** Sanitized custom-provider catalogue. The imported plaintext apiKey is
@@ -107,13 +112,7 @@ export interface AiContextSource {
   /** `editor` = an open editor/studio slot (carries code). `selection` =
    *  the object currently selected in the Inspect flow (identity only). */
   kind: 'editor' | 'selection';
-  object: {
-    rid: string;
-    businessId: string;
-    name: string;
-    type: string;
-    templateBusinessId?: string;
-  };
+  object: ObjectIdentity & { templateBusinessId?: string };
   /** The open code slot — editor kind only. */
   slot?: {
     name: string;
@@ -162,6 +161,9 @@ export interface AiChatTurn {
   quote?: AiChatQuote;
   /** Display-only trace of tools the assistant ran on this turn. */
   toolTrace?: AiChatToolTrace[];
+  /** Verified identities cited by this answer. Display-only and never inferred
+   *  from the assistant's prose. */
+  objects?: ObjectReference[];
 }
 
 /** Streaming events the chat orchestrator emits as it runs one user turn.
@@ -170,6 +172,6 @@ export interface AiChatTurn {
 export type AiChatEvent =
   | { kind: 'text-delta'; delta: string }
   | { kind: 'tool-start'; name: string; summary: string }
-  | { kind: 'tool-end'; name: string; summary: string; ok: boolean }
+  | { kind: 'tool-end'; name: string; summary: string; ok: boolean; objects?: ObjectReference[] }
   | { kind: 'done' }
   | { kind: 'error'; message: string };

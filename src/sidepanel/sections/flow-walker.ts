@@ -44,6 +44,7 @@ export interface FlowSectionInput {
   chain: FlowChainMsg | null;
   loading: boolean;
   error?: string | null;
+  onRetry?: () => void;
   onNavigate: (rid: string) => void;
   sendMessage: SendFn;
 }
@@ -75,7 +76,12 @@ export function renderFlowSection(input: FlowSectionInput): HTMLElement {
   const body = input.loading
     ? h('div', { class: 'flow-loading' }, 'Loading flow…')
     : input.error
-      ? h('div', { class: 'flow-error' }, input.error)
+      ? h('div', { class: 'flow-error' },
+          h('div', {}, input.error),
+          input.onRetry
+            ? h('button', { class: 'btn btn-small', onClick: input.onRetry }, 'Retry')
+            : null,
+        )
       : input.chain && input.chain.steps.length > 0
         ? renderChain(input.chain, input)
         : h('div', { class: 'flow-empty' },
@@ -128,6 +134,9 @@ function renderTopStep(step: FlowStepMsg, input: FlowSectionInput): HTMLElement 
   // carries its own fields (ActionButton expression / Label default / …).
   if (root.inputKey || (root.codeFields && root.codeFields.length > 0)) {
     frag.appendChild(renderStep(root, input, /* open */ true));
+  }
+  if (root.hint && (!root.codeFields || root.codeFields.length === 0)) {
+    frag.appendChild(h('div', { class: 'flow-hint' }, root.hint));
   }
 
   for (const c of containers) {

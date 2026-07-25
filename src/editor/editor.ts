@@ -12,21 +12,22 @@ import { baseEditingExtensions, baseKeymapBindings, languageExtension, catppucci
 import { CodeSurface, isProgrammaticSwap, type CodeSlot } from '../editor-core/code-surface'
 import { reconcileLostSave } from '../editor-core/save-reconcile'
 import { KBD_MOD } from '../editor-core/platform'
-import { closeOverlayKeyBinding, installDirtyGuards } from '../editor-core/overlay'
+import { closeOverlayKeyBinding, installDirtyGuards, OVERLAY_CLOSE_MESSAGE } from '../editor-core/overlay'
 
 // Shared types + context helpers
 import { type SaveTarget, type ScriptHistoryEntry, type InspectorMessage, getTypeColor } from '../lib/types'
 import { typeBadge, wireBadgeCopy } from '../lib/type-badge'
+import { objectChip } from '../lib/object-chip'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { captureTypingFocus } from '../lib/focus-keep'
-import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_CROSSHAIR, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_CODE, ICON_CHEVRON, ICON_WARNING, ICON_SPARKLE } from '../lib/icons'
+import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_CODE, ICON_CHEVRON, ICON_WARNING, ICON_SPARKLE } from '../lib/icons'
 import { fetchAiConfig } from '../editor-core/ai-config'
 import type { AiAssist } from '../editor-core/ai-assist'
 import type { AiLang, AiObjectContext, AiContextSource } from '../lib/ai/types'
 import { renderEcOutput, ecOutputToText, parseBmpDurationMs, formatRunTiming } from './ec-output'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
-import { sendFireForget, sendRequest } from '../lib/messaging'
+import { sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging'
 import { confirmModal } from '../lib/modal'
 import {
   type EditorContext,
@@ -136,6 +137,7 @@ let staleAfterPreview = false
 /** Timestamp of the last successful save. Drives the temporary
  *  "Saved" label on the Save button (fades back after a few seconds). */
 let lastSavedAt: number | null = null
+let contextRetryGeneration = 0
 let saveLabelTimer: ReturnType<typeof setTimeout> | null = null
 /** CodeSurface slot key for a (target, prop) pair. The scratch window is the
  *  single "extended" slot. (Per-slot cursor/scroll/dirty + the loaded baseline
@@ -187,6 +189,10 @@ async function init() {
     renderDom(root, h('div', { class: 'editor-loading' }, 'No editor context found'))
     return
   }
+  if (ctx.loadError) {
+    renderEditorLoadError(ctx.loadError)
+    return
+  }
 
   if (ctx.extended) {
     activeProperty = ''
@@ -235,6 +241,65 @@ async function init() {
       }
     }
   }, true)
+}
+
+function isConnectionLoadError(message: string): boolean {
+  return /timed out|cannot reach|network|command|connection|service worker|did not respond/i.test(message)
+}
+
+function renderEditorLoadError(message: string, retrying = false): void {
+  const identity = ctx?.instance
+  const label = identity
+    ? (identity.name || identity.businessId || identity.rid)
+    : location.hash.slice(1)
+  renderDom(root, h('div', { class: 'editor-load-error' },
+    h('div', { class: 'editor-load-error-title' }, label || 'Editor context'),
+    h('div', { class: 'editor-load-error-message' }, retrying ? 'Retrying…' : message),
+    h('div', { class: 'editor-load-error-actions' },
+      h('button', {
+        class: 'btn btn-primary',
+        disabled: retrying,
+        onClick: () => { void retryEditorContext(false) },
+      }, retrying ? 'Retrying…' : 'Retry'),
+      isConnectionLoadError(message)
+        ? h('button', {
+          class: 'btn',
+          disabled: retrying,
+          onClick: () => { void retryEditorContext(true) },
+        }, 'Reconnect')
+        : null,
+      h('button', {
+        class: 'btn',
+        onClick: () => window.parent.postMessage({ type: OVERLAY_CLOSE_MESSAGE }, '*'),
+      }, 'Close'),
+    ),
+  ))
+}
+
+async function retryEditorContext(reconnect: boolean): Promise<void> {
+  if (!ctx) return
+  const attempt = ++contextRetryGeneration
+  const originalError = ctx.loadError ?? 'Failed to load editor context'
+  renderEditorLoadError(originalError, true)
+  if (reconnect) sendFireForget({ type: 'CONNECTION_TEST' })
+  try {
+    const msg = await sendRequestBounded({
+      type: 'FETCH_EDITOR_CONTEXT',
+      rid: ctx.instance.rid,
+      property: ctx.property ?? undefined,
+    }, { timeoutMs: 15_000 })
+    if (attempt !== contextRetryGeneration || msg.type !== 'EDITOR_CONTEXT_DATA') return
+    ctx = msg.context
+    if (ctx.loadError) {
+      renderEditorLoadError(ctx.loadError)
+      return
+    }
+    await chrome.storage.local.set({ [`crev_editor_ctx_${ctx.instance.rid}`]: ctx })
+    location.reload()
+  } catch (e) {
+    if (attempt !== contextRetryGeneration) return
+    renderEditorLoadError(e instanceof Error ? e.message : originalError)
+  }
 }
 
 // ── Window title ────────────────────────────────────────────────
@@ -379,10 +444,9 @@ function renderShell() {
       identity.businessId && h('span', { class: 'editor-id-bid' }, identity.businessId),
     )
   } else {
-    // EC execution context (`this`) \u2014 the object the BMP page renders for,
-    // NOT the widget being edited (on an enterprise detail page that's the
-    // enterprise instance, e.g. a CeRiskAssessment). Shown as a crosshair
-    // chip in the identity row; tooltip is just "context".
+    // EC execution context (`this`) — the object the BMP page renders for,
+    // NOT the widget being edited. It uses the shared object contract so the
+    // context can be inspected instead of being a bespoke text-only marker.
     const exec = ctx.executionContext
     headerChildren.push(
       wireBadgeCopy(typeBadge(identity.type, { size: 'xs' }), () => bid),
@@ -396,11 +460,12 @@ function renderShell() {
       }, identity.name || '(unnamed)'),
       h('span', { class: 'editor-id-bid' }, bid),
       exec
-        ? h('span', { class: 'editor-id-context', title: 'context' },
-            h('span', { class: 'editor-ctx-icon' }, svg(ICON_CROSSHAIR)),
-            h('span', { class: 'editor-ctx-target' }, exec.name || exec.businessId || exec.type || exec.rid),
-            exec.type && (exec.name || exec.businessId) ? h('span', { class: 'editor-ctx-type' }, exec.type) : null,
-          )
+        ? objectChip(exec, {
+            size: 'xs',
+            className: 'editor-id-context',
+            annotation: 'context',
+            onActivate: () => sendFireForget({ type: 'SELECT_OBJECT', rid: exec.rid, openPanel: true }),
+          })
         : false,
     )
   }

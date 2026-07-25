@@ -14,6 +14,7 @@
 
 import type { AiContextEnvelope, AiContextSource, AiLang } from './types';
 import { typeAffordances, codeFieldsFor } from '../widget-metadata';
+import { objectReferenceToken } from './tools';
 
 /** How many characters of a single slot body to inline before pointing the
  *  model at the read_object tool instead. Keeps the cached prefix bounded. */
@@ -58,6 +59,7 @@ function renderSource(src: AiContextSource): string {
     `bid="${attr(o.businessId)}"`,
     `name="${attr(o.name)}"`,
     `rid="${attr(o.rid)}"`,
+    `uiRef="${attr(objectReferenceToken(o.rid))}"`,
   ];
   if (o.templateBusinessId) objAttrs.push(`template="${attr(o.templateBusinessId)}"`);
   const affordances = affordanceHint(o.type);

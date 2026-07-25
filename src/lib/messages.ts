@@ -175,6 +175,8 @@ export type EcMessage =
   | { type: 'SAVE_PROPERTY'; rid: string; objectType: string; property: string; value: string }
   | { type: 'SAVE_RESULT'; ok: boolean; error?: string }
   | { type: 'OPEN_EDITOR'; rid: string; property?: string; scrollToLine?: number; scrollToText?: string }
+  | { type: 'FETCH_EDITOR_CONTEXT'; rid: string; property?: string }
+  | { type: 'EDITOR_CONTEXT_DATA'; rid: string; context: import('../editor/editor-types').EditorContext }
   | { type: 'OPEN_EXTENDED' };
 
 // ── CVO Studio ───────────────────────────────────────────────────
@@ -284,7 +286,7 @@ export type ObjectViewMessage =
   | { type: 'FETCH_CHILDREN'; rid: string }
   | { type: 'FETCH_CHILDREN_RESULT'; rid: string; children: Array<{ rid: string; name?: string; type?: string; businessId?: string }>; error?: string }
   | { type: 'FETCH_LAYOUT_TREE'; rid: string }
-  | { type: 'LAYOUT_TREE_RESULT'; rid: string; nodes: LayoutNode[]; error?: string };
+  | { type: 'LAYOUT_TREE_RESULT'; rid: string; nodes: LayoutNode[]; truncated?: boolean; error?: string };
 
 export type ObjectPaneMessage =
   | { type: 'FETCH_OBJECT_PANE'; rid: string }

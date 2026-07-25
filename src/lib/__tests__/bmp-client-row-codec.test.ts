@@ -5,7 +5,7 @@
  * the exact resulting parse behavior) these builders had before migrating to
  * ec-row-codec, so a regression in the codec swap fails loudly here.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildAccessSubjectsEc, parseAccessSubjectsLog,
   parseResolveTemplateLog,
@@ -94,11 +94,14 @@ describe('parseResolveTemplateLog (golden)', () => {
 });
 
 describe('buildLayoutTreeEc (golden)', () => {
-  it('emits the per-node row exactly as before the codec migration', () => {
+  it('emits the lean structural row into a 32-node chunk', () => {
     const ec = buildLayoutTreeEc('lookup(123)');
     expect(ec).toContain(
-      `_r := _r + "${LAYOUT_SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _p.rid.whenMissing("") + "|" + _c.rid.whenMissing("") + "|" + _n.columnsLargeScreen.whenMissing("") + "|" + _n.columnsMediumScreen.whenMissing("") + "|" + _n.columnsSmallScreen.whenMissing("") + "|" + _n.chartHeight.whenMissing("") + "|" + _n.name.whenMissing("") + "\\n"`,
+      `_line := "${LAYOUT_SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _type + "|" + _p.rid.whenMissing("") + "|" + "" + "|" + _n.columnsLargeScreen.whenMissing("") + "|" + _n.columnsMediumScreen.whenMissing("") + "|" + _n.columnsSmallScreen.whenMissing("") + "|" + "" + "|" + _n.name.whenMissing("") + "\\n"`,
     );
+    expect(ec).toContain('IF _i > 31 THEN');
+    expect(ec).not.toContain('_n.container');
+    expect(ec).not.toContain('_n.chartHeight');
   });
 
   it('emits the root row with the same resulting field values as the pre-codec "|||"/"||" literal-compaction form (regrouped, not renumbered)', () => {
@@ -108,34 +111,48 @@ describe('buildLayoutTreeEc (golden)', () => {
     );
   });
 
-  it('inlines the ref and preamble/footer verbatim', () => {
+  it('inlines the ref and enforces the structural source cap', () => {
     const ec = buildLayoutTreeEc('lookup(123)');
     expect(ec.split('\n')[0]).toBe('_root := lookup(123)');
     expect(ec.trim().split('\n').pop()).toBe('_r');
+    expect(ec).toContain('IF _emitted < 600 THEN');
+    expect(ec).toContain('<<<CREV_LAYOUT_TREE_LIMIT>>>600');
+    expect(ec).toContain('IF _type = "Tab"');
+    expect(ec).toContain('IF _type = "Container"');
   });
 });
 
-describe('EcQueryService.fetchLayoutTree (content strip)', () => {
+describe('EcQueryService.fetchLayoutTree (bounded portal structure)', () => {
   // rid|bid|type|parentRid|containerRid|L|M|S|chartHeight|name — the wire row parseLayoutNodes reads.
   const row = (rid: string, type: string, parentRid: string, name: string) =>
     `${LAYOUT_SEP}${rid}|${rid.toLowerCase()}|${type}|${parentRid}|||||| ${name}`;
-  // Tab → IndicatorList (a LEAF widget) → Indicator member. The member is CONTENT, not layout.
   const log = [
     row('t1', 'Tab', 'r0', 'Cases'),
-    row('il1', 'IndicatorList', 't1', 'Docs'),
-    row('ind1', 'Indicator', 'il1', 'Doc count'),
+    row('c1', 'Container', 't1', 'Main'),
   ].join('\n');
 
-  it('drops leaf-widget member content the same way loadModel does (parallel surface to the blueprint strip)', async () => {
+  it('parses structural rows and reports the source-limit marker', async () => {
     const svc = new EcQueryService(
-      async () => ({ ok: true, log }) as unknown as EcResult,
+      async () => ({ ok: true, log: `${log}\n<<<CREV_LAYOUT_TREE_LIMIT>>>600` }) as unknown as EcResult,
       async (rid: string) => `lookup(${rid})`,
       [],
     );
-    const nodes = await svc.fetchLayoutTree('123');
-    const types = nodes.map(n => n.type);
-    expect(types).toContain('Tab');
-    expect(types).toContain('IndicatorList'); // the list widget itself stays — it nests under the Tab
-    expect(types).not.toContain('Indicator'); // its member is content, stripped
+    const result = await svc.fetchLayoutTree('123');
+    expect(result.nodes.map(n => n.type)).toEqual(['Tab', 'Container']);
+    expect(result.truncated).toBe(true);
+  });
+
+  it('uses a bounded timeout and throws instead of turning failure into an empty tree', async () => {
+    const executeEc = vi.fn(async () => ({ ok: false, error: 'timed out' }) as unknown as EcResult);
+    const svc = new EcQueryService(executeEc, async rid => `lookup(${rid})`, []);
+
+    await expect(svc.fetchLayoutTree('123')).rejects.toThrow('timed out');
+    expect(executeEc).toHaveBeenCalledWith(
+      expect.any(String),
+      undefined,
+      false,
+      undefined,
+      10_000,
+    );
   });
 });

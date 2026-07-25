@@ -13,6 +13,12 @@ describe('providers', () => {
     expect(PROVIDERS.grok.openAiCompat).toBe(true);
   });
 
+  it('uses the current token-limit field while retaining DeepSeek compatibility', () => {
+    expect(PROVIDERS.openai.maxTokensParam).toBe('max_completion_tokens');
+    expect(PROVIDERS.grok.maxTokensParam).toBe('max_completion_tokens');
+    expect(PROVIDERS.deepseek.maxTokensParam).toBe('max_tokens');
+  });
+
   it('uses DeepSeek V4 Flash for new configurations while retaining the legacy alias as a suggestion', () => {
     expect(PROVIDERS.deepseek.defaultModel).toBe('deepseek-v4-flash');
     expect(PROVIDERS.deepseek.suggestedModels).toContain('deepseek-chat');
@@ -37,12 +43,12 @@ describe('providers', () => {
   it('parses one custom provider and separates its plaintext key', () => {
     const parsed = parseCustomProviderJson(JSON.stringify({
       name: 'Local Gateway', vendor: 'gateway', apiKey: ' secret ', apiType: 'openai',
-      models: [{ id: 'model-a', name: 'Model A', url: 'https://ai.example.test/v1/', toolCalling: true, vision: false, maxInputTokens: 32000, maxOutputTokens: 4096 }],
+      models: [{ id: 'model-a', name: 'Model A', url: 'https://ai.example.test/v1/', toolCalling: true, vision: false, maxInputTokens: 32000, maxOutputTokens: 4096, maxTokensParam: 'max_completion_tokens' }],
     }));
     expect(parsed.apiKey).toBe('secret');
     expect(parsed.provider).toEqual({
       name: 'Local Gateway', vendor: 'gateway', apiType: 'openai',
-      models: [{ id: 'model-a', name: 'Model A', url: 'https://ai.example.test/v1', toolCalling: true, vision: false, maxInputTokens: 32000, maxOutputTokens: 4096 }],
+      models: [{ id: 'model-a', name: 'Model A', url: 'https://ai.example.test/v1', toolCalling: true, vision: false, maxInputTokens: 32000, maxOutputTokens: 4096, maxTokensParam: 'max_completion_tokens' }],
     });
     expect(JSON.stringify(parsed.provider)).not.toContain('secret');
   });
@@ -50,10 +56,10 @@ describe('providers', () => {
   it('resolves the selected custom model dialect, URL, origin and output limit', () => {
     const customProvider = parseCustomProviderJson(JSON.stringify({
       name: 'Messages Proxy', vendor: 'proxy', apiType: 'anthropic',
-      models: [{ id: 'claude', name: 'Claude', url: 'https://proxy.example.test', toolCalling: true, maxOutputTokens: 12000 }],
+      models: [{ id: 'claude', name: 'Claude', url: 'https://proxy.example.test', toolCalling: true, maxOutputTokens: 12000, maxTokensParam: 'max_completion_tokens' }],
     })).provider;
     expect(resolveProvider({ provider: 'custom', model: 'claude', customProvider })).toMatchObject({
-      label: 'Messages Proxy', baseUrl: 'https://proxy.example.test', origin: 'https://proxy.example.test/*', openAiCompat: false, maxOutputTokens: 12000,
+      label: 'Messages Proxy', baseUrl: 'https://proxy.example.test', origin: 'https://proxy.example.test/*', openAiCompat: false, maxOutputTokens: 12000, maxTokensParam: 'max_completion_tokens',
     });
     expect(customProviderOrigins(customProvider)).toEqual(['https://proxy.example.test/*']);
   });
@@ -65,6 +71,10 @@ describe('providers', () => {
       name: 'X', vendor: 'x', apiType: 'openai',
       models: [{ id: 'm', name: 'M', url: 'https://x.test/v1', toolCalling: false }],
     }))).toThrow('At least one model must support tool calling');
+    expect(() => parseCustomProviderJson(JSON.stringify({
+      name: 'X', vendor: 'x', apiType: 'openai',
+      models: [{ id: 'm', name: 'M', url: 'https://x.test/v1', toolCalling: true, maxTokensParam: 'tokens' }],
+    }))).toThrow('maxTokensParam');
   });
 
   it('refuses to run the assistant with a catalogue model that lacks tool calling', () => {

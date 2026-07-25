@@ -12,6 +12,8 @@
  */
 
 import type { AiChatEvent, AiChatTurn, AiChatToolTrace } from '../../lib/ai/types';
+import type { ObjectReference } from '../../lib/types';
+import { mergeObjectReferences } from '../../lib/ai/tools';
 import { scrubToolMarkup } from '../../lib/ai/scrub';
 
 export type ToolStatus = 'pending' | 'ok' | 'err';
@@ -27,13 +29,14 @@ export type StreamStatus = 'streaming' | 'done' | 'error' | 'cancelled';
 export interface StreamState {
   text: string;
   tools: ToolLine[];
+  objects: ObjectReference[];
   status: StreamStatus;
   /** Present only when status === 'error'. */
   error?: string;
 }
 
-export function initStream(): StreamState {
-  return { text: '', tools: [], status: 'streaming' };
+export function initStream(objects: readonly ObjectReference[] = []): StreamState {
+  return { text: '', tools: [], objects: mergeObjectReferences(objects), status: 'streaming' };
 }
 
 /** Apply one streaming event, returning a NEW state (never mutates the input).
@@ -47,17 +50,18 @@ export function reduceStream(s: StreamState, ev: AiChatEvent): StreamState {
     case 'tool-start':
       return { ...s, tools: [...s.tools, { name: ev.name, summary: ev.summary, status: 'pending' }] };
     case 'tool-end': {
+      const objects = mergeObjectReferences([...s.objects, ...(ev.objects ?? [])]);
       // Resolve the most recent still-pending call with a matching name.
       const tools = [...s.tools];
       for (let i = tools.length - 1; i >= 0; i--) {
         if (tools[i].name === ev.name && tools[i].status === 'pending') {
           tools[i] = { name: ev.name, summary: ev.summary, status: ev.ok ? 'ok' : 'err' };
-          return { ...s, tools };
+          return { ...s, tools, objects };
         }
       }
       // No matching start (shouldn't happen) — record it terminally anyway.
       tools.push({ name: ev.name, summary: ev.summary, status: ev.ok ? 'ok' : 'err' });
-      return { ...s, tools };
+      return { ...s, tools, objects };
     }
     case 'done':
       return { ...s, status: 'done' };
@@ -96,6 +100,7 @@ export function toAssistantTurn(s: StreamState): AiChatTurn {
   const turn: AiChatTurn = { role: 'assistant', text: scrubToolMarkup(s.text) };
   const trace = toolTraceOf(s);
   if (trace.length) turn.toolTrace = trace;
+  if (s.objects.length) turn.objects = s.objects;
   return turn;
 }
 

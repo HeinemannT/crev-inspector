@@ -587,8 +587,8 @@ chrome.commands.onCommand.addListener((command) => {
 
 // ── Network state change → immediate re-poll ────────────────────
 
-self.addEventListener('online', () => { void pollHealth(); });
-self.addEventListener('offline', () => { void pollHealth(); });
+self.addEventListener('online', () => { void pollHealth(true); });
+self.addEventListener('offline', () => { void pollHealth(true); });
 
 // ── One-shot message handler ────────────────────────────────────
 

@@ -71,11 +71,39 @@ export async function openEditorWindow(
   target?: { tabId?: number; windowId?: number },
   opts?: { scrollToLine?: number; scrollToText?: string },
 ) {
+  const ctx = await buildEditorContext(rid, preferredProperty, target, opts);
+  const { instance } = ctx;
+  const storageKey = `crev_editor_ctx_${rid}`;
+  await chrome.storage.local.set({ [storageKey]: ctx });
+
+  const label = instance.name
+    ? `${instance.type || 'Object'} · ${instance.name}`
+    : `Editor · ${instance.businessId || rid}`;
+  await launchFrame({
+    kind: 'editor',
+    path: `editor/editor.html#${rid}`,
+    label,
+    defaultWidth: 960,
+    defaultHeight: 640,
+    tabId: target?.tabId,
+    windowId: target?.windowId,
+  });
+}
+
+/** Fetch and compose the complete editor context without opening a frame.
+ *  Used both for initial launch and the in-window Retry action. */
+export async function buildEditorContext(
+  rid: string,
+  preferredProperty?: string,
+  target?: { tabId?: number; windowId?: number },
+  opts?: { scrollToLine?: number; scrollToText?: string },
+): Promise<EditorContext> {
   const swCtx = getCtx();
   await swCtx.settingsReady;
 
   // Single EC call: identity + template + all code properties
   let editorData: import('../lib/bmp-client').EditorContextData | null = null;
+  let loadError: string | undefined;
   if (swCtx.client) {
     try {
       // Pass the caller's requested property so it's fetched too — otherwise
@@ -84,7 +112,10 @@ export async function openEditorWindow(
       editorData = await swCtx.client.fetchEditorContext(rid, preferredProperty ? [preferredProperty] : []);
     } catch (e) {
       log.swallow('editor:fetchContext', e);
+      loadError = e instanceof Error ? e.message : 'Failed to load code from BMP';
     }
+  } else {
+    loadError = 'No BMP connection is available';
   }
 
   // Fall back to cache for identity if EC failed or threw
@@ -101,6 +132,7 @@ export async function openEditorWindow(
       instanceCode: {},
       templateCode: {},
     };
+    loadError ??= 'BMP returned no editor context';
   }
 
   const { instance, template, instanceCode, templateCode } = editorData;
@@ -130,28 +162,14 @@ export async function openEditorWindow(
     overrides: template ? computeOverrides(instanceCode, templateCode) : {},
     saveTarget: swCtx.settings.saveTarget,
     property,
+    loadError,
     executionContextRid,
     executionContext,
     useLookup: swCtx.client?.supportsLookup !== false,
     scrollToLine: opts?.scrollToLine,
     scrollToText: opts?.scrollToText,
   };
-
-  const storageKey = `crev_editor_ctx_${rid}`;
-  await chrome.storage.local.set({ [storageKey]: ctx });
-
-  const label = instance.name
-    ? `${instance.type || 'Object'} · ${instance.name}`
-    : `Editor · ${instance.businessId || rid}`;
-  await launchFrame({
-    kind: 'editor',
-    path: `editor/editor.html#${rid}`,
-    label,
-    defaultWidth: 960,
-    defaultHeight: 640,
-    tabId: target?.tabId,
-    windowId: target?.windowId,
-  });
+  return ctx;
 }
 
 /** Open a standalone Extended Code overlay bound to the page's execution

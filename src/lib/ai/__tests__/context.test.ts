@@ -35,7 +35,7 @@ describe('renderContext', () => {
       }],
     }));
     // Fixed order: type, bid, name, rid, template, affordances, slots.
-    expect(out).toContain('<object type="ButtonInput" bid="btn_1" name="Go" rid="5" template="tmpl_1" affordances="code" slots="expression,afterExpression,initExpression,showExpression,enableExpression"/>');
+    expect(out).toContain('<object type="ButtonInput" bid="btn_1" name="Go" rid="5" uiRef="[[object:5]]" template="tmpl_1" affordances="code" slots="expression,afterExpression,initExpression,showExpression,enableExpression"/>');
     expect(out.startsWith('<context server="hetzner-prod">')).toBe(true);
   });
 

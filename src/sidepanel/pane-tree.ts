@@ -8,7 +8,7 @@
 
 import { h, svg, statusFlash } from '../lib/dom';
 import { ICON_CHEVRON, ICON_ARROW_ELBOW_UP, ICON_FLOW_ARROW } from '../lib/icons';
-import { typeBadge } from '../lib/type-badge';
+import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
 import type { ObjectPaneIdentity, ObjectPaneSiblingMsg } from '../lib/types';
 import { hasFlow } from '../lib/widget-metadata';
 
@@ -24,6 +24,9 @@ export interface PaneTreeData {
   children?: Array<{ rid: string; businessId?: string; name?: string; type?: string }>;
   /** True while a FETCH_CHILDREN is in flight. */
   loadingChildren?: boolean;
+  /** Fetch failure. Kept separate from an empty list so "no children" stays
+   * truthful and a transient connection failure can be retried. */
+  childrenError?: string | null;
   /** True when the user has expanded the current row at least once. */
   childrenExpanded?: boolean;
 }
@@ -31,26 +34,17 @@ export interface PaneTreeData {
 export interface PaneTreeHandlers {
   onNavigate: (rid: string) => void;
   onToggleChildren: () => void;
+  onRetryChildren: () => void;
 }
 
 
 /** Stub badge with the panel-wide copy gesture: click copies the business id
  *  (green ✓ flash) without triggering the row's navigate. */
 function copyBadge(identity: { rid: string; businessId?: string; type?: string }): HTMLElement {
-  const b = typeBadge(identity.type, { size: 'xs' });
   const id = identity.businessId || identity.rid;
-  b.title = `Copy ${id}`;
-  b.addEventListener('click', (e) => {
-    e.stopPropagation();
-    navigator.clipboard?.writeText(id).catch(() => { /* blocked — silent */ });
-    statusFlash(`Copied ${id} \u2713`);
-    const lbl = b.querySelector<HTMLElement>('.lbl');
-    const original = lbl?.textContent ?? '';
-    if (lbl) lbl.textContent = '\u2713';
-    b.classList.add('bdg-copied');
-    setTimeout(() => { if (lbl) lbl.textContent = original; b.classList.remove('bdg-copied'); }, 700);
+  return wireBadgeCopy(typeBadge(identity.type, { size: 'xs' }), () => id, {
+    onCopied: copied => statusFlash(`Copied ${copied} \u2713`),
   });
-  return b;
 }
 
 export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): HTMLElement {
@@ -116,6 +110,17 @@ export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): 
       if (data.childrenExpanded) {
         if (data.loadingChildren) {
           siblingList.appendChild(h('div', { class: 'pane-tree-children-loading' }, 'Loading children…'));
+        } else if (data.childrenError) {
+          siblingList.appendChild(h('div', { class: 'pane-error' },
+            h('div', {}, data.childrenError),
+            h('button', {
+              class: 'btn btn-small',
+              onClick: (e: MouseEvent) => {
+                e.stopPropagation();
+                handlers.onRetryChildren();
+              },
+            }, 'Retry'),
+          ));
         } else if (data.children && data.children.length > 0) {
           const childList = h('div', { class: 'pane-tree-children' });
           for (const c of data.children) {

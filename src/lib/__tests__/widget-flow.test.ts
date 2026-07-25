@@ -288,6 +288,88 @@ describe('fetchFlowChain — Label', () => {
   });
 });
 
+describe('fetchFlowChain — EditPage / CreateObjectView', () => {
+  it('renders an EditPage as ordered form elements with mappings and EC', async () => {
+    const log = [
+      `${SEP}root${SEP}9000|ep_risk|Create Risk|EditPage`,
+      `${SEP}page_afterExpression${SEP}\nthis.object.refresh()\n`,
+      `${SEP}children${SEP}\n9001|ef_title|Edit field|EditField\n9002|ep_info|Guidance|EditPageInfo\n9003|ep_break|Details|EditPageBreak\n`,
+      `${SEP}childTotal${SEP}3`,
+      `${SEP}child_propertyMapping_9001${SEP}title`,
+      `${SEP}child_defaultExpression_9001${SEP}\n"Untitled"\n`,
+      `${SEP}child_showExpression_9001${SEP}\nthis.object.active\n`,
+      `${SEP}child_useShowExpression_9001${SEP}true`,
+      `${SEP}child_expression_9002${SEP}\n"Complete all required fields"\n`,
+      `${SEP}DONE`,
+    ].join('\n');
+    const c = makeClient(log);
+    const chain = await c.fetchFlowChain('9000', 'EditPage');
+
+    const page = chain!.steps[0];
+    expect(page.identity.type).toBe('EditPage');
+    expect(page.codeFields?.map(f => f.prop)).toEqual(['afterExpression']);
+    expect(page.children).toHaveLength(3);
+    const field = page.children![0];
+    expect(field.inputKey).toBe('title');
+    expect(field.codeFields?.map(f => f.prop)).toEqual([
+      'defaultExpression', 'showExpression',
+    ]);
+    expect(field.codeFields?.find(f => f.prop === 'showExpression')).toMatchObject({
+      gateProp: 'useShowExpression',
+      gateValue: 'true',
+    });
+    expect(page.children![2].identity.type).toBe('EditPageBreak');
+  });
+
+  it('walks CreateObjectView through its linked EditPage', async () => {
+    const log = [
+      `${SEP}root${SEP}8000|cov_add|Add Risk|CreateObjectView`,
+      `${SEP}root_initExpression${SEP}\nthis.input.clear()\n`,
+      `${SEP}page${SEP}9000|ep_risk|Create Risk|EditPage`,
+      `${SEP}children${SEP}\n9001|ef_title|Edit field|EditField\n`,
+      `${SEP}childTotal${SEP}1`,
+      `${SEP}child_propertyMapping_9001${SEP}title`,
+      `${SEP}DONE`,
+    ].join('\n');
+    const c = makeClient(log);
+    const chain = await c.fetchFlowChain('8000', 'CreateObjectView');
+
+    const cov = chain!.steps[0];
+    expect(cov.codeFields?.map(f => f.prop)).toEqual(['initExpression']);
+    expect(cov.children).toHaveLength(1);
+    expect(cov.children![0]).toMatchObject({
+      identity: { type: 'EditPage', businessId: 'ep_risk' },
+      edgeLabel: 'editPage',
+    });
+    expect(cov.children![0].children?.[0].inputKey).toBe('title');
+  });
+
+  it('surfaces EC failure rather than showing an empty flow', async () => {
+    const c = makeClient('');
+    (c as unknown as { executeEc: (..._: unknown[]) => Promise<unknown> }).executeEc =
+      vi.fn(async () => ({ ok: false, log: '', error: 'Connection lost' }));
+
+    await expect(c.fetchFlowChain('9000', 'EditPage')).rejects.toThrow('Connection lost');
+  });
+
+  it('reports an explicit truncation hint for a form over the projection cap', async () => {
+    const rows = Array.from({ length: 200 }, (_, i) =>
+      `${9100 + i}|ef_${i}|Edit field ${i}|EditField`,
+    ).join('\n');
+    const log = [
+      `${SEP}root${SEP}9000|ep_large|Large form|EditPage`,
+      `${SEP}children${SEP}\n${rows}\n`,
+      `${SEP}childTotal${SEP}325`,
+      `${SEP}DONE`,
+    ].join('\n');
+    const c = makeClient(log);
+    const chain = await c.fetchFlowChain('9000', 'EditPage');
+
+    expect(chain!.steps[0].children).toHaveLength(200);
+    expect(chain!.steps[0].hint).toContain('first 200 of 325');
+  });
+});
+
 describe('fetchFlowChain — unsupported type', () => {
   it('returns null for non-flow types', async () => {
     const c = makeClient('');

@@ -12,11 +12,13 @@
 import { readSse } from './sse';
 import type { ToolCall } from './tools';
 import { toOpenAiTools, TOOL_DEFS } from './tools';
+import type { AiMaxTokensParam } from './types';
 
 export interface OpenAiStreamOpts {
   baseUrl: string;
   model: string;
   maxTokens?: number;
+  maxTokensParam?: AiMaxTokensParam;
   apiKey: string;
   system: string;
   user: string;
@@ -51,7 +53,7 @@ export async function streamOpenAiCompat(opts: OpenAiStreamOpts): Promise<{ text
       'Authorization': `Bearer ${opts.apiKey}`,
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ model: opts.model, stream: true, messages, ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}) }),
+    body: JSON.stringify({ model: opts.model, stream: true, messages, ...outputLimit(opts.maxTokens, opts.maxTokensParam) }),
     signal: opts.signal,
   });
 
@@ -82,6 +84,7 @@ export interface OpenAiTurnOpts {
   baseUrl: string;
   model: string;
   maxTokens?: number;
+  maxTokensParam?: AiMaxTokensParam;
   apiKey: string;
   messages: OpenAiMessage[];
   /** Omit / empty to force a tools-off final answer. */
@@ -100,6 +103,10 @@ export interface OpenAiTurnResult {
 
 interface ToolCallAcc { id: string; name: string; args: string; }
 
+function outputLimit(maxTokens?: number, param: AiMaxTokensParam = 'max_completion_tokens'): Partial<Record<AiMaxTokensParam, number>> {
+  return maxTokens ? { [param]: maxTokens } : {};
+}
+
 /** Run ONE OpenAI-compatible turn with optional tools. Streams text via
  *  onText and accumulates streamed `delta.tool_calls` (by index) into parsed
  *  ToolCalls. Returns the finish reason + the assistant message to replay. */
@@ -116,7 +123,7 @@ export async function streamOpenAiTurn(opts: OpenAiTurnOpts): Promise<OpenAiTurn
       model: opts.model,
       stream: true,
       messages: opts.messages,
-      ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+      ...outputLimit(opts.maxTokens, opts.maxTokensParam),
       ...(useTools ? { tools: opts.tools } : {}),
     }),
     signal: opts.signal,

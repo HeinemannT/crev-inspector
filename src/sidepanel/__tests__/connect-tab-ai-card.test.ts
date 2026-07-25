@@ -136,8 +136,9 @@ describe('AI Assistant card states', () => {
     expect(json).toContain('"Company Gateway"');
     expect(json).toContain('"apiKey": ""');
     expect(json).not.toContain('set');
-    expect(el.querySelector('.ai-json-help')?.textContent).toContain('openai or anthropic');
-    expect(el.querySelector('.ai-json-help')?.textContent).toContain('/chat/completions');
+    expect(el.querySelector('.ai-json-help')?.textContent).toBe('?');
+    expect(el.querySelector('.ai-json-help')?.getAttribute('title')).toContain('max_completion_tokens');
+    expect(el.querySelector('.ai-json-help')?.getAttribute('title')).toContain('DeepSeek');
     (el.querySelector('.ai-model-caret') as HTMLElement).click();
     expect(el.querySelector('.ai-model-opt-name')?.textContent).toBe('Agent');
     expect(el.querySelector('.ai-model-opt-id')?.textContent).toBe('agent');

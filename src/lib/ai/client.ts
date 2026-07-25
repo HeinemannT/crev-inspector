@@ -32,6 +32,7 @@ export async function streamCompletion(opts: StreamCompletionOpts): Promise<{ te
       baseUrl: meta.baseUrl,
       model: opts.settings.model,
       maxTokens: meta.maxOutputTokens,
+      maxTokensParam: meta.maxTokensParam,
       apiKey: opts.apiKey,
       system,
       user,
@@ -75,7 +76,7 @@ export interface StreamChatOpts {
 export async function streamChat(opts: StreamChatOpts): Promise<void> {
   const meta = resolveProvider(opts.settings);
   try {
-    if (meta.openAiCompat) await runOpenAiChat(opts, meta.baseUrl, meta.maxOutputTokens);
+    if (meta.openAiCompat) await runOpenAiChat(opts, meta.baseUrl, meta.maxOutputTokens, meta.maxTokensParam);
     else await runAnthropicChat(opts, meta.baseUrl, meta.maxOutputTokens);
     opts.onEvent({ kind: 'done' });
   } catch (e) {
@@ -153,7 +154,13 @@ async function runToolLoop(
           priorResults.set(fingerprint, result);
         }
       }
-      opts.onEvent({ kind: 'tool-end', name: call.name, summary, ok: !result.isError });
+      opts.onEvent({
+        kind: 'tool-end',
+        name: call.name,
+        summary,
+        ok: !result.isError,
+        objects: result.objects,
+      });
       results.push({ call, result });
     }
     appendResults(results);
@@ -227,7 +234,12 @@ async function runAnthropicChat(opts: StreamChatOpts, baseUrl: string, maxTokens
   await runToolLoop(runTurn, appendResults, appendFinalNote, opts);
 }
 
-async function runOpenAiChat(opts: StreamChatOpts, baseUrl: string, maxTokens?: number): Promise<void> {
+async function runOpenAiChat(
+  opts: StreamChatOpts,
+  baseUrl: string,
+  maxTokens?: number,
+  maxTokensParam?: 'max_tokens' | 'max_completion_tokens',
+): Promise<void> {
   const messages: OpenAiMessage[] = [];
   if (opts.system) messages.push({ role: 'system', content: opts.system });
   for (const turn of opts.history) messages.push({ role: turn.role, content: turn.text });
@@ -241,6 +253,7 @@ async function runOpenAiChat(opts: StreamChatOpts, baseUrl: string, maxTokens?: 
       baseUrl,
       model: opts.settings.model,
       maxTokens,
+      maxTokensParam,
       apiKey: opts.apiKey,
       messages,
       tools: allowTools ? openAiTools() : [],
@@ -275,7 +288,17 @@ export async function testConnection(settings: AiSettings, apiKey: string, signa
     let got = '';
     const onChunk = (d: string) => { got += d; };
     if (meta.openAiCompat) {
-      await streamOpenAiCompat({ baseUrl: meta.baseUrl, model: settings.model, maxTokens: meta.maxOutputTokens, apiKey, system: '', user, signal, onChunk });
+      await streamOpenAiCompat({
+        baseUrl: meta.baseUrl,
+        model: settings.model,
+        maxTokens: meta.maxOutputTokens,
+        maxTokensParam: meta.maxTokensParam,
+        apiKey,
+        system: '',
+        user,
+        signal,
+        onChunk,
+      });
     } else {
       await streamAnthropic({ baseUrl: meta.baseUrl, model: settings.model, maxTokens: meta.maxOutputTokens, apiKey, system: '', user, signal, onChunk });
     }

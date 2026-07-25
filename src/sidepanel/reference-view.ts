@@ -18,6 +18,7 @@ const s = {
   searched: 0,
   total: 0,
   done: false,
+  error: null as string | null,
 };
 
 let onBackCb: (() => void) | null = null;
@@ -39,6 +40,7 @@ export function showReferenceView(msg: InspectorMessage & { type: 'SEARCH_REFERE
   s.searched = 0;
   s.total = 0;
   s.done = false;
+  s.error = null;
   renderRefs(panel);
 }
 
@@ -54,6 +56,7 @@ export function handleReferenceMessage(msg: InspectorMessage, panel: HTMLElement
   }
   if (msg.type === 'CODE_SEARCH_DONE') {
     s.done = true;
+    s.error = msg.error ?? null;
     renderRefs(panel);
     return true;
   }
@@ -88,7 +91,11 @@ function renderRefs(panel: HTMLElement) {
     ),
   ];
 
-  if (s.results.length === 0 && s.done) {
+  if (s.error) {
+    children.push(h('div', { class: 'ref-error', role: 'alert' }, s.error));
+  }
+
+  if (s.results.length === 0 && s.done && !s.error) {
     children.push(h('div', { class: 'ref-empty' }, 'No references found'));
   }
 

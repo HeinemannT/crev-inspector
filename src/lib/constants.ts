@@ -9,6 +9,21 @@ export const EC_TIMEOUT = 30_000;
  *  which on a heavy live scorecard legitimately outlives the general EC_TIMEOUT. In-flight fetches
  *  keep the MV3 service worker alive, so the longer window is safe. */
 export const LAYOUT_EC_TIMEOUT = 120_000;
+/** AI layout reads use the lean structural projection and share one short
+ * deadline across context resolution + fetch. They must never occupy a bridge
+ * slot for Blueprint's two-minute authoring window. */
+export const AI_LAYOUT_EC_TIMEOUT = 20_000;
+/** Flat workspace-colour enumeration should be sub-second even on large
+ * workspaces. Bound a pathological/cold server so the picker can show Retry
+ * instead of remaining in an indefinite loading state. */
+export const COLOR_SETS_EC_TIMEOUT = 10_000;
+/** Workshop's read-only portal skeleton should be tiny and fast. A bounded
+ * deadline keeps a pathological shared TabSet from wedging the pane. */
+export const LAYOUT_TREE_EC_TIMEOUT = 10_000;
+/** Small relationship reads (template resolution and immediate children)
+ * should complete quickly. A short bound lets callers distinguish a failed
+ * read from a genuine "no template / no children" result and offer Retry. */
+export const OBJECT_RELATION_EC_TIMEOUT = 10_000;
 
 // ── Enrichment ───────────────────────────────────────────────────
 export const BATCH_CHUNK_SIZE = 25;
@@ -57,6 +72,13 @@ export const COMMON_DIFF_PROPS = [
 
 // ── Code Search ──────────────────────────────────────────────────
 export const CODE_SEARCH_BATCH_SIZE = 25;
+/** Bound the amount of code pulled client-side for one class. A broad search
+ *  that exceeds this limit is reported as incomplete instead of silently
+ *  returning a prefix (or overflowing EC's string accumulator). */
+export const CODE_SEARCH_RID_CAP_PER_TYPE = 500;
+/** Flush small RID groups into the main EC result accumulator. BMP can turn
+ *  long left-associative concatenation chains into MISSING. */
+export const CODE_SEARCH_RID_CHUNK_SIZE = 32;
 
 // ── Script History ───────────────────────────────────────────────
 export const SCRIPT_HISTORY_MAX = 10;

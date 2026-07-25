@@ -139,12 +139,14 @@ async function createHarness(): Promise<TestHarness> {
     formatError: (e: unknown) => e instanceof Error ? e.message : String(e),
   };
 
-  // Also need to mock auth.ensureAuth since transport.sendRequest would call it
+  // Keep the auth surface complete for any client method that reaches transport.
   (client as any).auth = {
     ensureAuth: vi.fn(async () => 'mock-jwt'),
     login: vi.fn(async () => 'mock-jwt'),
     logout: vi.fn(),
-    invalidateJwt: vi.fn(),
+    invalidateLoginTicket: vi.fn(),
+    refreshLoginTicket: vi.fn(async () => 'mock-ticket'),
+    recoverAuth: vi.fn(async () => 'mock-jwt'),
     absorbAuth: vi.fn(),
     refreshAuth: vi.fn(async () => null),
     jwt: 'mock-jwt',
@@ -833,19 +835,17 @@ describe('resolveTemplate Integration — Full Pipeline', () => {
     expect(result.templateRid).toBeNull();
   });
 
-  it('returns null on transport failure', async () => {
+  it('surfaces transport failure instead of reporting no template', async () => {
     harness.transportMock.mockRejectedValueOnce(new Error('Network error'));
 
-    const result = await harness.client.resolveTemplate(RIDS.scorecard);
-    expect(result.templateRid).toBeNull();
+    await expect(harness.client.resolveTemplate(RIDS.scorecard)).rejects.toThrow('Network error');
   });
 
-  it('returns null on EC timeout', async () => {
+  it('surfaces EC timeout instead of reporting no template', async () => {
     const err = new DOMException('Signal timed out', 'AbortError');
     harness.transportMock.mockRejectedValueOnce(err);
 
-    const result = await harness.client.resolveTemplate(RIDS.scorecard);
-    expect(result.templateRid).toBeNull();
+    await expect(harness.client.resolveTemplate(RIDS.scorecard)).rejects.toThrow(/timed out/i);
   });
 });
 
@@ -1411,6 +1411,24 @@ describe('Editor Context — What The Code Popup Shows', () => {
     expect(ctx.executionContext.name).toBe('Operational Risk #4');
     // The widget being EDITED is still the table — context is separate.
     expect(ctx.instance.rid).toBe(RIDS.extTable);
+  });
+
+  it('records a server-load error instead of presenting failed code as a genuine empty context', async () => {
+    harness.client.executeEc = vi.fn(async () => {
+      throw new TypeError('Cannot reach BMP command channel');
+    }) as any;
+
+    const { openEditorWindow } = await import('../editor');
+    await openEditorWindow(RIDS.extTable);
+
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
+    );
+    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
+    const ctx = setCall[0][ctxKey];
+
+    expect(ctx.loadError).toContain('Cannot reach BMP command channel');
+    expect(ctx.instanceCode).toEqual({});
   });
 
   it('falls back to .location when the BMP page has no ?rid=', async () => {

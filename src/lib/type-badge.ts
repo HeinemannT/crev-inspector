@@ -209,25 +209,32 @@ export interface BadgeOpts {
   sub?: { code?: boolean; ref?: boolean };
 }
 
-/**
- * Build a type badge element. Default is the 20px stub; `size: 'xs'` is the
- * compact row variant. Pass `sub` to weld code / reference indicator squares
- * underneath (the inspect-overlay corner label).
- */
+export interface BadgeCopyOpts {
+  /** Optional surface feedback in addition to the badge's built-in check flash. */
+  onCopied?: (id: string) => void;
+}
+
 /**
  * Wire the panel-wide badge gesture onto a stub badge: click copies `id`
  * (business id by convention) with a green \u2713 flash. Host CSS needs the
  * shared `.bdg-copied` rules (sidepanel.css and the window CSS copies).
  */
-export function wireBadgeCopy(badge: HTMLElement, id: () => string): HTMLElement {
+export function wireBadgeCopy(
+  badge: HTMLElement,
+  id: () => string,
+  opts: BadgeCopyOpts = {},
+): HTMLElement {
   badge.classList.add('bdg-copy');
+  badge.setAttribute('role', 'button');
+  badge.tabIndex = 0;
   const current = () => id();
   badge.title = `${badge.title} \u00b7 click to copy ${current()}`;
-  badge.addEventListener('click', (e) => {
+  const copy = (e: Event) => {
     e.stopPropagation();
     const val = current();
     if (!val) return;
     navigator.clipboard?.writeText(val).catch(() => { /* clipboard blocked */ });
+    opts.onCopied?.(val);
     const lbl = badge.querySelector<HTMLElement>('.lbl');
     const orig = lbl?.textContent ?? '';
     if (lbl) lbl.textContent = '\u2713';
@@ -236,10 +243,21 @@ export function wireBadgeCopy(badge: HTMLElement, id: () => string): HTMLElement
       if (lbl) lbl.textContent = orig;
       badge.classList.remove('bdg-copied');
     }, 700);
+  };
+  badge.addEventListener('click', copy);
+  badge.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    copy(e);
   });
   return badge;
 }
 
+/**
+ * Build a type badge element. Default is the 20px stub; `size: 'xs'` is the
+ * compact row variant. Pass `sub` to weld code / reference indicator squares
+ * underneath (the inspect-overlay corner label).
+ */
 export function typeBadge(type?: string, opts: BadgeOpts = {}): HTMLElement {
   const mapped = isMapped(type);
   const badge = h('span', {

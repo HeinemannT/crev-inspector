@@ -5,7 +5,7 @@
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import { SCRIPT_PROPS } from '../types';
-import { openEditorWindow, openExtendedWindow } from '../editor';
+import { buildEditorContext, openEditorWindow, openExtendedWindow } from '../editor';
 import { errorMessage, log } from '../logger';
 import { invalidateRid } from '../enrichment';
 
@@ -102,6 +102,30 @@ register('OPEN_EDITOR', (msg, _respond, meta) => {
   if (cached) {
     ctx.history.record({ rid: msg.rid, name: cached.name, type: cached.type, businessId: cached.businessId, action: 'edited', timestamp: Date.now() });
   }
+});
+
+register('FETCH_EDITOR_CONTEXT', (msg, respond, meta) => {
+  void buildEditorContext(
+    msg.rid,
+    msg.property,
+    { tabId: meta.senderTabId, windowId: meta.panelWindowId },
+  ).then(
+    context => respond({ type: 'EDITOR_CONTEXT_DATA', rid: msg.rid, context }),
+    e => respond({
+      type: 'EDITOR_CONTEXT_DATA',
+      rid: msg.rid,
+      context: {
+        instance: { rid: msg.rid, businessId: '', type: '', name: '' },
+        template: null,
+        instanceCode: {},
+        templateCode: {},
+        overrides: {},
+        saveTarget: 'instance',
+        property: msg.property ?? 'expression',
+        loadError: e instanceof Error ? e.message : 'Failed to load editor context',
+      },
+    }),
+  );
 });
 
 register('OPEN_EXTENDED', (_msg, _respond, meta) => {

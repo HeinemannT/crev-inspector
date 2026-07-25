@@ -93,7 +93,16 @@ describe('streamOpenAiCompat', () => {
     ])); }));
 
     const chunks: string[] = [];
-    const { text } = await streamOpenAiCompat({ baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', maxTokens: 4096, apiKey: 'sk-d', system: 'S', user: 'U', onChunk: d => chunks.push(d) });
+    const { text } = await streamOpenAiCompat({
+      baseUrl: 'https://api.deepseek.com/v1',
+      model: 'deepseek-chat',
+      maxTokens: 4096,
+      maxTokensParam: 'max_tokens',
+      apiKey: 'sk-d',
+      system: 'S',
+      user: 'U',
+      onChunk: d => chunks.push(d),
+    });
 
     expect(text).toBe('Hello');
     expect(chunks).toEqual(['Hel', 'lo']);
@@ -116,6 +125,26 @@ describe('streamOpenAiCompat', () => {
     const { text } = await streamOpenAiCompat({ baseUrl: 'https://api.openai.com/v1', model: 'gpt-5.2', apiKey: 'k', system: '', user: 'u', onChunk: d => chunks.push(d) });
     expect(text).toBe('AB');
     expect(chunks).toEqual(['AB']);
+  });
+
+  it('defaults configured OpenAI-format limits to max_completion_tokens', async () => {
+    const calls: any[] = [];
+    vi.stubGlobal('fetch', vi.fn((url: string, init: any) => {
+      calls.push(init);
+      return Promise.resolve(okStream(['data: [DONE]\n\n']));
+    }));
+    await streamOpenAiCompat({
+      baseUrl: 'https://api.example.test/v1',
+      model: 'reasoning-model',
+      maxTokens: 2048,
+      apiKey: 'k',
+      system: '',
+      user: 'u',
+      onChunk: () => {},
+    });
+    const body = JSON.parse(calls[0].body);
+    expect(body.max_completion_tokens).toBe(2048);
+    expect(body.max_tokens).toBeUndefined();
   });
 
   it('drops the system message when empty', async () => {

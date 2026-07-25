@@ -45,6 +45,23 @@ describe('reduceStream', () => {
     ]);
   });
 
+  it('collects verified tool objects and preserves them on the assistant turn', () => {
+    const s = run([
+      { kind: 'tool-start', name: 'read_layout', summary: 'page' },
+      {
+        kind: 'tool-end',
+        name: 'read_layout',
+        summary: 'page',
+        ok: true,
+        objects: [{ rid: '9007199254740993', businessId: 'sc_process', type: 'Scorecard', name: 'Process Register' }],
+      },
+      { kind: 'text-delta', delta: 'See [[object:9007199254740993]].' },
+      { kind: 'done' },
+    ]);
+    expect(s.objects).toHaveLength(1);
+    expect(toAssistantTurn(s).objects?.[0].name).toBe('Process Register');
+  });
+
   it('resolves the most recent pending call when the same tool runs twice', () => {
     const s = run([
       { kind: 'tool-start', name: 'search', summary: 'a' },

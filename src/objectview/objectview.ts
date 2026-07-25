@@ -18,13 +18,14 @@
 
 import type { ObjectPaneIdentity, ObjectPaneSiblingMsg } from '../lib/types';
 import { getTypeColor } from '../lib/types';
-import { typeBadge } from '../lib/type-badge';
+import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
 import { h, render, svg } from '../lib/dom';
-import { ICON_ARROW_LINE_UP } from '../lib/icons';
+import { ICON_ARROW_LINE_UP, ICON_PENCIL } from '../lib/icons';
+import { validateBusinessId } from '../lib/ec-guards';
 import { resolveCopyText, getModifier } from '../lib/namespace';
 import { appendEcPreview } from '../lib/ec-format';
 import { installCloseHandshake } from '../lib/frame-close-handshake';
-import { sendFireForget, sendRequest } from '../lib/messaging';
+import { RuntimeRequestError, sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging';
 import { resolveLayoutShortcut } from '../lib/layout-target';
 import { findPropDef } from '../sidepanel/pane-schema';
 import { displayValue } from '../sidepanel/property-editors';
@@ -82,10 +83,14 @@ interface PaneState {
 }
 
 type SaveTarget = 'instance' | 'template';
+type IdentityProp = 'name' | 'id';
 
 let state: PaneState | null = null;
 let draft: Record<string, string> = {};
 let target: SaveTarget = 'instance';
+let pendingIdentityEdit: IdentityProp | null = null;
+let loadAttempt = 0;
+let loadTimers: Array<ReturnType<typeof setTimeout>> = [];
 
 if (!rid) {
   render(root, h('div', { class: 'ov-error' }, 'No RID specified'));
@@ -117,26 +122,34 @@ async function init() {
 }
 
 async function reloadPane(): Promise<void> {
-  const msg = await sendRequest({ type: 'FETCH_OBJECT_PANE', rid });
-  if (!msg || msg.type !== 'OBJECT_PANE_DATA' || msg.rid !== rid) {
-    state = {
-      rid,
-      identity: { rid, businessId: '', type: '', name: '' },
-      parent: null,
-      template: null,
-      instanceProps: {},
-      templateProps: {},
-      siblings: [],
-      codeFields: {},
-      references: {},
-      loaded: true,
-      error: 'Failed to load object',
-      saving: false,
-      flow: null,
-      flowLoading: false,
-      flowError: null,
-    };
-    renderPane();
+  const attempt = ++loadAttempt;
+  clearLoadTimers();
+  renderObjectLoading('Loading…', 'normal');
+  loadTimers.push(setTimeout(() => {
+    if (attempt === loadAttempt) renderObjectLoading('Still loading…', 'slow');
+  }, 3_000));
+  loadTimers.push(setTimeout(() => {
+    if (attempt === loadAttempt) {
+      renderObjectLoading('Still loading. BMP is slow. Cancelling in a few seconds if it doesn’t respond.', 'verySlow');
+    }
+  }, 7_000));
+
+  let msg: Awaited<ReturnType<typeof sendRequestBounded>>;
+  try {
+    msg = await sendRequestBounded({ type: 'FETCH_OBJECT_PANE', rid }, { timeoutMs: 15_000 });
+  } catch (e) {
+    if (attempt !== loadAttempt) return;
+    clearLoadTimers();
+    if (e instanceof RuntimeRequestError && e.kind === 'timeout') {
+      sendFireForget({ type: 'CANCEL_FETCH_OBJECT_PANE', rid });
+    }
+    renderObjectLoadError(e instanceof Error ? e.message : 'Failed to load object');
+    return;
+  }
+  if (attempt !== loadAttempt) return;
+  clearLoadTimers();
+  if (msg.type !== 'OBJECT_PANE_DATA' || msg.rid !== rid) {
+    renderObjectLoadError('Failed to load object');
     return;
   }
   state = {
@@ -162,27 +175,67 @@ async function reloadPane(): Promise<void> {
 
   // Flow chain — the Inspect tab's anatomy view, fetched separately so the
   // pane paints first. Only for flow-bearing types (InputView, ActionButton…).
-  if (msg.instance.type && hasFlow(msg.instance.type)) {
-    state.flowLoading = true;
-    renderPane();
-    const flowMsg = await sendRequest({ type: 'FETCH_FLOW_CHAIN', rid, objectType: msg.instance.type });
-    if (state && state.rid === rid) {
-      state.flowLoading = false;
-      if (flowMsg && flowMsg.type === 'FLOW_CHAIN_DATA') {
-        state.flow = flowMsg.chain;
-        state.flowError = flowMsg.error ?? null;
-      } else {
-        state.flowError = 'Flow fetch failed';
-      }
-      renderPane();
-    }
+  if (msg.instance.type && hasFlow(msg.instance.type)) void loadFlow();
+}
+
+function clearLoadTimers(): void {
+  for (const timer of loadTimers) clearTimeout(timer);
+  loadTimers = [];
+}
+
+async function loadFlow(): Promise<void> {
+  if (!state || state.flowLoading || !hasFlow(state.identity.type)) return;
+  const rid = state.rid;
+  const objectType = state.identity.type;
+  state.flowLoading = true;
+  state.flowError = null;
+  renderPane();
+  const flowMsg = await sendRequest({ type: 'FETCH_FLOW_CHAIN', rid, objectType });
+  if (!state || state.rid !== rid) return;
+  state.flowLoading = false;
+  if (flowMsg && flowMsg.type === 'FLOW_CHAIN_DATA') {
+    state.flow = flowMsg.chain;
+    state.flowError = flowMsg.error ?? null;
+  } else {
+    state.flowError = 'Flow fetch failed';
   }
+  renderPane();
+}
+
+function renderObjectLoading(message: string, stage: 'normal' | 'slow' | 'verySlow'): void {
+  render(root, h('div', { class: 'ov-shell' },
+    h('div', { class: `pane-loading pane-loading--${stage}` }, message),
+  ));
+}
+
+function renderObjectLoadError(message: string): void {
+  render(root, h('div', { class: 'ov-shell' },
+    objectLoadErrorContent(message),
+  ));
+}
+
+function objectLoadErrorContent(message: string): HTMLElement {
+  return h('div', { class: 'ov-load-error' },
+    h('div', { class: 'ov-error' }, message),
+    h('div', { class: 'ov-load-actions' },
+      h('button', { class: 'btn', 'data-action': 'retry-load' }, 'Retry'),
+      h('button', { class: 'btn', 'data-action': 'reconnect-load' }, 'Reconnect'),
+    ),
+  );
 }
 
 // ── Draft helpers ─────────────────────────────────────────────────
 
 function currentServerValue(prop: string): string {
   if (!state) return '';
+  if (prop === 'name') {
+    return target === 'template' ? (state.template?.name ?? '') : state.identity.name;
+  }
+  if (prop === 'id') {
+    return target === 'template'
+      ? (state.template?.businessId ?? '')
+      : state.identity.businessId;
+  }
   return target === 'template'
     ? (state.templateProps[prop] ?? '')
     : (state.instanceProps[prop] ?? '');
@@ -202,7 +255,13 @@ function setDraft(prop: string, value: string): void {
 
 async function discardAll(): Promise<void> {
   const n = Object.keys(draft).length;
-  if (n === 0) return;
+  if (n === 0) {
+    if (state?.error) {
+      state.error = null;
+      renderPane();
+    }
+    return;
+  }
   const ok = await confirmModal({
     title: `Discard ${n} change${n === 1 ? '' : 's'}?`,
     body: 'Pending edits will be reset to the server values.',
@@ -211,6 +270,7 @@ async function discardAll(): Promise<void> {
   });
   if (!ok) return;
   draft = {};
+  if (state) state.error = null;
   renderPane();
 }
 
@@ -225,11 +285,19 @@ async function commitSave(): Promise<void> {
     from: displayValue(currentServerValue(p)),
     to: displayValue(draft[p]),
   }));
+  const changesBusinessId = props.includes('id');
 
   const ok = await confirmModal({
-    title: `Save ${props.length} change${props.length === 1 ? '' : 's'}`,
+    title: changesBusinessId
+      ? `Confirm business ID change${props.length === 1 ? '' : 's'}`
+      : `Save ${props.length} change${props.length === 1 ? '' : 's'}`,
     body: [
       `Apply changes to ${target}?`,
+      changesBusinessId
+        ? h('div', { class: 'ov-id-change-warning' },
+          'Changing a business ID can break Extended Code, integrations, or saved references that use the old ID.',
+        )
+        : null,
       h('div', { class: 'crev-modal-diff-list' },
         ...diffRows.map(r =>
           h('div', { class: 'crev-modal-diff-row' },
@@ -241,8 +309,8 @@ async function commitSave(): Promise<void> {
         ),
       ),
     ],
-    confirmLabel: 'Save changes',
-    confirmVariant: 'success',
+    confirmLabel: changesBusinessId ? 'Change ID' : 'Save changes',
+    confirmVariant: changesBusinessId ? 'danger' : 'success',
   });
   if (!ok) return;
 
@@ -279,22 +347,102 @@ async function commitSave(): Promise<void> {
 
 /** The header type badge — click copies the business id (green ✓ flash),
  *  the panel-wide badge gesture. */
-function identityBadge(): HTMLElement {
-  const s = state!;
-  const b = typeBadge(s.identity.type);
-  const id = s.identity.businessId || s.rid;
-  b.title = `Copy ${id}`;
+function identityBadge(identity: ObjectPaneIdentity): HTMLElement {
+  const id = identity.businessId || identity.rid;
+  const b = wireBadgeCopy(typeBadge(identity.type), () => id);
   b.classList.add('pane-id-bdg');
-  b.addEventListener('click', (e) => {
-    e.stopPropagation();
-    navigator.clipboard?.writeText(id).catch(() => { /* blocked — silent */ });
-    const lbl = b.querySelector<HTMLElement>('.lbl');
-    const orig = lbl?.textContent ?? '';
-    if (lbl) lbl.textContent = '\u2713';
-    b.classList.add('bdg-copied');
-    setTimeout(() => { if (lbl) lbl.textContent = orig; b.classList.remove('bdg-copied'); }, 700);
-  });
   return b;
+}
+
+/** Blueprint-style inline rename: pencil → edit in place, Enter or
+ * outside click stages it, Escape cancels. Saving remains a separate confirmed
+ * action so an accidental inline edit never writes to BMP immediately. */
+function renderEditableIdentity(prop: IdentityProp, value: string): HTMLElement {
+  const isName = prop === 'name';
+  const valueEl = h('span', {
+    class: isName ? 'pane-id-name' : 'pane-id-bid',
+    'data-identity-edit': prop,
+  }, value || (isName ? '(unnamed)' : '(no ID)'));
+  const pencil = h('button', {
+    class: 'icon-btn ov-identity-pencil',
+    type: 'button',
+    title: isName ? `Rename ${target}` : `Edit ${target} business ID`,
+    'aria-label': isName ? `Rename ${target}` : `Edit ${target} business ID`,
+    onMousedown: (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      pendingIdentityEdit = prop;
+      renderPane();
+    },
+  }, svg(ICON_PENCIL));
+  return h('span', {
+    class: `ov-identity-field${isName ? ' ov-identity-field-name' : ''}`,
+  }, valueEl, pencil);
+}
+
+function openPendingIdentityEdit(): void {
+  const prop = pendingIdentityEdit;
+  if (!prop) return;
+  pendingIdentityEdit = null;
+  const field = root.querySelector<HTMLElement>(`[data-identity-edit="${prop}"]`);
+  if (!field) return;
+
+  const original = currentDisplayValue(prop);
+  field.textContent = original;
+  field.setAttribute('contenteditable', 'plaintext-only');
+  field.focus();
+  const range = document.createRange();
+  range.selectNodeContents(field);
+  range.collapse(false);
+  const selection = getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+
+  let cancelled = false;
+  const outside = (event: MouseEvent): void => {
+    if (!field.isConnected) {
+      document.removeEventListener('mousedown', outside, true);
+      return;
+    }
+    if (event.target !== field && !field.contains(event.target as Node)) field.blur();
+  };
+  document.addEventListener('mousedown', outside, true);
+
+  field.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      field.blur();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      cancelled = true;
+      field.blur();
+    }
+  });
+  field.addEventListener('blur', () => {
+    document.removeEventListener('mousedown', outside, true);
+    field.removeAttribute('contenteditable');
+    if (cancelled) {
+      renderPane();
+      return;
+    }
+
+    const next = (field.textContent ?? '').trim();
+    if (!next || next === original) {
+      renderPane();
+      return;
+    }
+    if (prop === 'id') {
+      try {
+        validateBusinessId(next);
+      } catch {
+        if (state) state.error = 'Business ID may contain only letters, numbers, and underscores.';
+        renderPane();
+        return;
+      }
+    }
+    if (state) state.error = null;
+    setDraft(prop, next);
+  }, { once: true });
 }
 
 function renderPane(): void {
@@ -302,6 +450,7 @@ function renderPane(): void {
   const s = state;
   const color = getTypeColor(s.identity.type);
   const hasTemplate = !!s.template;
+  const activeIdentity = target === 'template' && s.template ? s.template : s.identity;
   const dirtyCount = Object.keys(draft).length;
 
   const switchTarget = async (next: SaveTarget) => {
@@ -355,9 +504,9 @@ function renderPane(): void {
       ),
     ),
     h('div', { class: 'pane-header-id' },
-      identityBadge(),
-      h('span', { class: 'pane-id-name' }, s.identity.name || '(unnamed)'),
-      s.identity.businessId ? h('span', { class: 'pane-id-bid' }, s.identity.businessId) : null,
+      identityBadge(activeIdentity),
+      renderEditableIdentity('name', currentDisplayValue('name')),
+      renderEditableIdentity('id', currentDisplayValue('id')),
     ),
   );
 
@@ -368,7 +517,7 @@ function renderPane(): void {
     renderTemplateSection(),
   );
 
-  const actionBar = dirtyCount > 0 || s.saving
+  const actionBar = dirtyCount > 0 || s.saving || !!s.error
     ? renderActionBar(dirtyCount)
     : null;
 
@@ -377,6 +526,7 @@ function renderPane(): void {
     h('div', { class: 'ov-body' }, propsArea, treeArea),
     actionBar,
   ));
+  openPendingIdentityEdit();
 }
 
 /** "Layout ↗" button — only for layout-container types (Scorecard / TabSet /
@@ -419,7 +569,7 @@ function renderPropertiesArea(): HTMLElement {
   const s = state!;
   if (!s.loaded) return h('div', { class: 'pane-loading' }, 'Loading…');
   if (s.error && Object.keys(s.instanceProps).length === 0) {
-    return h('div', { class: 'pane-error' }, s.error);
+    return objectLoadErrorContent(s.error);
   }
 
   const wrap = h('div');
@@ -462,6 +612,7 @@ function renderPropertiesArea(): HTMLElement {
       chain: s.flow,
       loading: s.flowLoading,
       error: s.flowError,
+      onRetry: () => { void loadFlow(); },
       onNavigate: (r) => { location.hash = r; },
       sendMessage: sendFireForget,
     }));
@@ -611,7 +762,7 @@ function renderActionBar(dirtyCount: number): HTMLElement {
       : `${dirtyCount} pending change${dirtyCount === 1 ? '' : 's'} · target: ${target}`;
   return h('div', { class: 'pane-actionbar' },
     h('span', { class: 'pane-actionbar-summary' }, summary),
-    h('button', { class: 'btn', disabled: s.saving, onClick: discardAll }, 'Discard'),
+    h('button', { class: 'btn', disabled: s.saving, onClick: discardAll }, dirtyCount === 0 ? 'Dismiss' : 'Discard'),
     h('button', { class: 'btn btn-success', disabled: s.saving || dirtyCount === 0, onClick: commitSave }, s.saving ? 'Saving…' : 'Save'),
   );
 }
@@ -652,6 +803,13 @@ function handleActionClick(e: Event): void {
 
   const actionEl = target.closest<HTMLElement>('[data-action]');
   if (actionEl) {
+    if (actionEl.dataset.action === 'retry-load') {
+      void reloadPane();
+    }
+    if (actionEl.dataset.action === 'reconnect-load') {
+      sendFireForget({ type: 'CONNECTION_TEST' });
+      void reloadPane();
+    }
     if (actionEl.dataset.action === 'diff') {
       sendFireForget({ type: 'OPEN_DIFF', leftRid: rid });
     }

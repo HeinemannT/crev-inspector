@@ -33,7 +33,8 @@ const CUSTOM_PROVIDER_TEMPLATE = `{
       "toolCalling": true,
       "vision": true,
       "maxInputTokens": 200000,
-      "maxOutputTokens": 64000
+      "maxOutputTokens": 64000,
+      "maxTokensParam": "max_completion_tokens"
     }
   ]
 }`;
@@ -599,7 +600,9 @@ export class ConnectTab implements Tab {
         return { text: 'Connected', cls: 'ok', title: bits.join(' · ') };
       }
       case 'checking': return { text: 'Checking…', cls: 'checking', title: '' };
+      case 'reconnecting': return { text: 'Reconnecting…', cls: 'checking', title: 'Testing the BMP command channel' };
       case 'online': return { text: 'Online', cls: 'checking', title: 'Reachable, not authenticated' };
+      case 'command-failed': return { text: 'Commands unavailable', cls: 'err', title: s.authError ?? 'The server is reachable, but BMP commands are not responding' };
       case 'needs-login': return { text: 'Sign-in needed', cls: 'err', title: 'Open BMP in a tab, log in, then retry' };
       case 'no-config-access': return { text: 'No config role', cls: 'err', title: 'Logged in, but no Configuration Access role' };
       case 'auth-failed': return { text: 'Auth failed', cls: 'err', title: 'Check the profile username and password' };
@@ -851,11 +854,15 @@ export class ConnectTab implements Tab {
           )
         : (statusEl ? h('div', { class: 'field-row ai-conn-row' }, statusEl) : null),
       h('details', { class: 'ai-json', ...(this.aiJsonOpen ? { open: true } : {}) },
-        h('summary', {}, custom ? 'Custom provider JSON' : 'Add custom provider'),
-        h('div', { class: 'ai-json-help' },
-          h('span', {}, h('code', {}, 'apiType'), ': ', h('code', {}, 'openai'), ' or ', h('code', {}, 'anthropic')),
-          h('span', {}, h('code', {}, 'url'), ': API base URL; CREV appends ', h('code', {}, '/chat/completions'), ' or ', h('code', {}, '/v1/messages')),
-          h('span', {}, 'At least one model must set ', h('code', {}, '"toolCalling": true'), ' for the assistant.'),
+        h('summary', {},
+          h('span', {}, custom ? 'Custom provider JSON' : 'Add custom provider'),
+          h('button', {
+            class: 'btn-micro help-btn ai-json-help',
+            type: 'button',
+            title: 'apiType selects the API format: openai uses /chat/completions; anthropic uses /v1/messages.\nurl is the API base URL.\nOpenAI-format models default to max_completion_tokens. Set maxTokensParam to max_tokens for DeepSeek or older compatible APIs.\nAt least one model must have toolCalling set to true.',
+            'aria-label': 'Custom provider JSON help',
+            onClick: (event: Event) => event.preventDefault(),
+          }, '?'),
         ),
         h('textarea', {
           class: 'field-input ai-json-input',

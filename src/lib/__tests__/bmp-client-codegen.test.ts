@@ -37,7 +37,9 @@ async function createClientHarness(): Promise<CodegenHarness> {
     ensureAuth: vi.fn(async () => 'mock-jwt'),
     login: vi.fn(async () => 'mock-jwt'),
     logout: vi.fn(),
-    invalidateJwt: vi.fn(),
+    invalidateLoginTicket: vi.fn(),
+    refreshLoginTicket: vi.fn(async () => 'mock-ticket'),
+    recoverAuth: vi.fn(async () => 'mock-jwt'),
     absorbAuth: vi.fn(),
     refreshAuth: vi.fn(async () => null),
     _jwt: 'mock-jwt',
@@ -162,18 +164,16 @@ describe('BmpClient.resolveRef — version branches', () => {
 });
 
 describe('BmpClient.applyVersionFlags', () => {
-  it('5.6.3+ → keeps compatible ticket auth and enables lookup', async () => {
+  it('5.6.3+ enables lookup', async () => {
     const { client } = await createClientHarness();
     client.applyVersionFlags('5.6.3.0');
     expect(client.supportsLookup).toBe(true);
-    expect((client as any).transport.useTicketAuth).toBe(true);
   });
 
-  it('pre-5.6.3 → useTicketAuth=true, supportsLookup=false', async () => {
+  it('pre-5.6.3 disables lookup', async () => {
     const { client } = await createClientHarness();
     client.applyVersionFlags('5.6.2.99');
     expect(client.supportsLookup).toBe(false);
-    expect((client as any).transport.useTicketAuth).toBe(true);
   });
 
   it('strips leading "v." prefix from version string', async () => {
@@ -182,11 +182,10 @@ describe('BmpClient.applyVersionFlags', () => {
     expect(client.supportsLookup).toBe(true);
   });
 
-  it('assumeOldBmp() forces ticket auth + no lookup', async () => {
+  it('assumeOldBmp() disables lookup', async () => {
     const { client } = await createClientHarness();
     client.assumeOldBmp();
     expect(client.supportsLookup).toBe(false);
-    expect((client as any).transport.useTicketAuth).toBe(true);
   });
 });
 

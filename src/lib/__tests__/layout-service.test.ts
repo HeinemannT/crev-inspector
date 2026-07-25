@@ -37,4 +37,18 @@ describe('layout-service.makeLayoutIO', () => {
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/Can't add/);
   });
+
+  it('passes a caller deadline and signal to executeEc', async () => {
+    const client = stubClient(() => ({ ok: true, log: 'ok' }));
+    const controller = new AbortController();
+    const io = makeLayoutIO(client, [], 20_000, controller.signal);
+    await io.exec('lean layout');
+    expect(client.executeEc).toHaveBeenCalledWith(
+      'lean layout',
+      undefined,
+      false,
+      controller.signal,
+      20_000,
+    );
+  });
 });

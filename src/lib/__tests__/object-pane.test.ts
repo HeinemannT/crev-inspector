@@ -219,6 +219,20 @@ describe('applyObjectChanges — PANE_PROPS_SET allowlist', () => {
     expect(ec).toMatch(/width\s*:=\s*200/);
   });
 
+  it('accepts name and business ID identity changes without broadening the pane query', async () => {
+    const { c, exec } = makeClient('Result : 0');
+    const result = await c.applyObjectChanges('100', 'instance', {
+      name: 'Renamed "object"',
+      id: 'renamed_object_2',
+    });
+    expect(result.ok).toBe(true);
+    const ec = (exec.mock.calls[0] as unknown as [string])[0];
+    expect(ec).toContain('name := "Renamed \\"object\\""');
+    expect(ec).toContain('id := "renamed_object_2"');
+    expect(PANE_PROPS).not.toContain('name');
+    expect(PANE_PROPS).not.toContain('id');
+  });
+
   it('rejects a malformed colour id (no EC sent)', async () => {
     const { c, exec } = makeClient('');
     const result = await c.applyObjectChanges('100', 'instance', { headerColor: '#fff' });

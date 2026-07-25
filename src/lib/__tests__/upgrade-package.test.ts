@@ -419,7 +419,7 @@ describe('FETCH_CHILDREN handler', () => {
     expect(responses[0].children).toEqual(mockChildren);
   });
 
-  it('returns empty children when not connected', async () => {
+  it('returns an explicit error when not connected', async () => {
     const ctx = makeHandlerCtx({ client: null });
     setSwContext(ctx);
 
@@ -435,7 +435,7 @@ describe('FETCH_CHILDREN handler', () => {
     );
 
     expect(responses[0].children).toEqual([]);
-    expect(responses[0].error).toBeUndefined();
+    expect(responses[0].error).toBe('Not connected');
   });
 
   it('returns error when fetchChildren throws', async () => {

@@ -36,6 +36,11 @@ export const FLOW_SEP = '<<<CREV_SEP>>>';
  *  this workspace"). We still count ALL children so the UI can show the true
  *  total — see `sibTotal` in buildObjectPaneEc / ObjectPaneData.siblingTotal. */
 export const SIBLING_CAP = 50;
+/** Edit forms are normally small, but generated workspaces can contain
+ * hundreds of fields. Bound the detailed projection so one pathological form
+ * cannot flood the side panel with code bodies. The walker reports the real
+ * total and renders an explicit truncation hint. */
+export const PAGE_FORM_CHILD_CAP = 200;
 
 // ── Atom helpers ─────────────────────────────────────────────────
 
@@ -341,6 +346,68 @@ export function buildInputSetFlowEc(ref: string): string {
     ')',
     ...buttonGroupEc('_o'),
     ...inputActionEc('_o'),
+    ...footer(),
+  ].join('\n');
+}
+
+/** Walk an EditPage directly, or a CreateObjectView through its `.editPage`
+ * reference. EditPage children are EditField / EditPageInfo / Button /
+ * Validation / break elements, not InputSets. The projection includes the
+ * field's propertyMapping plus every EC-bearing slot used by those child
+ * classes. Missing slots are safe through `whenMissing("")`.
+ *
+ * Identity rows and per-child blocks use separate passes so separator blocks
+ * never interrupt the contiguous `children` list. Both passes are bounded to
+ * PAGE_FORM_CHILD_CAP; `childTotal` preserves the honest source count. */
+export function buildPageFormFlowEc(ref: string, sourceType: 'EditPage' | 'CreateObjectView'): string {
+  const pageExpr = sourceType === 'CreateObjectView' ? '_o.editPage' : '_o';
+  const rootCode = sourceType === 'CreateObjectView'
+    ? [
+        ...condEcBlock('"root_parentDestinationExpression"', 'output(_o.parentDestinationExpression.whenMissing(""))'),
+        ...condEcBlock('"root_editExpression"', 'output(_o.editExpression.whenMissing(""))'),
+        ...condEcBlock('"root_initExpression"', 'output(_o.initExpression.whenMissing(""))'),
+        ...condEcBlock('"root_afterExpression"', 'output(_o.afterExpression.whenMissing(""))'),
+      ]
+    : [];
+  const childProps = [
+    'defaultExpression', 'requiredExpression', 'expression',
+    'showExpression', 'enableExpression',
+    'useShowExpression', 'useEnableExpression',
+  ];
+  return [
+    ...preamble(ref),
+    `_page := ${pageExpr}`,
+    pipeRow('_o', 'root'),
+    ...rootCode,
+    'IF _page != MISSING THEN',
+    ...(sourceType === 'CreateObjectView' ? [pipeRow('_page', 'page', '  ')] : []),
+    ...condEcBlock('"page_afterExpression"', 'output(_page.afterExpression.whenMissing(""))', '  '),
+    `  _r := _r + _sep + "children" + _sep + "\\n"`,
+    '  _seen := 0',
+    '  _page.children().forEach(_c:',
+    '    _seen := _seen + 1',
+    `    IF _seen <= ${PAGE_FORM_CHILD_CAP} THEN`,
+    pipeRowNoKey('_c', '      '),
+    '    ELSE',
+    '      _r := _r',
+    '    ENDIF',
+    '  )',
+    scalarBlock('childTotal', 'output(_seen)', '  '),
+    '  _idx := 0',
+    '  _page.children().forEach(_c:',
+    '    _idx := _idx + 1',
+    `    IF _idx <= ${PAGE_FORM_CHILD_CAP} THEN`,
+    ...condEcBlock(
+      '"child_propertyMapping_" + _c.rid.whenMissing("")',
+      'output(_c.propertyMapping.whenMissing(""))',
+      '      ',
+    ),
+    ...childProps.flatMap(prop => childEcEmit(prop, '_c', '      ')),
+    '    ELSE',
+    '      _r := _r',
+    '    ENDIF',
+    '  )',
+    'ENDIF',
     ...footer(),
   ].join('\n');
 }

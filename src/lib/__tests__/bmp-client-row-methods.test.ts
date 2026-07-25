@@ -29,11 +29,31 @@ describe('BmpClient.fetchChildren (golden)', () => {
     expect(captured).toBe([
       '_o := lookup(123)',
       '_r := ""',
+      '_chunk := ""',
+      '_i := 0',
       '_o.children().forEach(_c:',
-      '  _r := _r + _c.rid.whenMissing("SKIP") + "|||" + _c.id.whenMissing("") + "|||" + _c.className.whenMissing("") + "|||" + _c.name.whenMissing("") + "\\n"',
+      '  _chunk := _chunk + _c.rid.whenMissing("SKIP") + "|||" + _c.id.whenMissing("") + "|||" + _c.className.whenMissing("") + "|||" + _c.name.whenMissing("") + "\\n"',
+      '  _i := _i + 1',
+      '  IF _i > 31 THEN',
+      '    _r := _r + _chunk',
+      '    _chunk := ""',
+      '    _i := 0',
+      '  ELSE',
+      '    _r := _r',
+      '  ENDIF',
       ')',
+      '_r := _r + _chunk',
       '_r',
     ].join('\n'));
+  });
+
+  it('keeps a successful empty result distinct from a failed fetch', async () => {
+    const client = await createClient();
+    client.executeEc = vi.fn(async () => ({ ok: true, log: '' }));
+    await expect(client.fetchChildren('123')).resolves.toEqual([]);
+
+    client.executeEc = vi.fn(async () => ({ ok: false, log: '', error: 'Bridge unavailable' }));
+    await expect(client.fetchChildren('123')).rejects.toThrow('Bridge unavailable');
   });
 
   it('parses a representative log into children', async () => {

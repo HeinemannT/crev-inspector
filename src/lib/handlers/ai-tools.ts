@@ -14,14 +14,15 @@
 import { getCtx } from '../sw-context';
 import type { BmpClient } from '../bmp-client';
 import type { ToolCall, ToolResult } from '../ai/tools';
-import { TOOL_NAMES, truncateToolResult } from '../ai/tools';
+import { TOOL_NAMES, toolResultWithObjects, truncateToolResult } from '../ai/tools';
 import type { AiContextEnvelope, AiContextSource } from '../ai/types';
+import type { ObjectReference } from '../types';
 import { loadSchemaProps } from './objects';
 import { collectCodeSearch } from '../code-search';
 import { codeFieldsFor, referencesFor, contextFieldsFor, typeAffordances } from '../widget-metadata';
 import { errorMessage, log } from '../logger';
 import { formatEcLiteral, validateEcIdentifier, validateRid } from '../ec-guards';
-import { loadPage, type LoadPageResult } from '../layout-service';
+import { loadPageStructure, type LoadPageStructureResult } from '../layout-service';
 import type { LNode } from '../layout/types';
 
 /** Inline a code slot body only when it's this small; otherwise report size. */
@@ -34,10 +35,20 @@ const CONTEXT_FIELD_CAP = 5;
  *  them from `fields` so a model cannot waste EC work asking for aliases such
  *  as businessId (the actual EC property is `id`). */
 const CONTEXT_IDENTITY_FIELDS = new Set(['name', 'type', 'className', 'businessId', 'id', 'rid']);
+const AI_LAYOUT_CACHE_MS = 15_000;
+const AI_LAYOUT_CACHE_MAX = 20;
+const AI_LAYOUT_NODE_CAP = 80;
+const AI_LAYOUT_CHAR_BUDGET = 7_500;
+const layoutCache = new WeakMap<BmpClient, Map<string, {
+  expiresAt: number;
+  promise: Promise<LoadPageStructureResult>;
+}>>();
 
 /** A tool result that always ends up truncated to the shared byte cap. */
-function ok(content: string): ToolResult {
-  return { content: truncateToolResult(content), isError: false };
+function ok(content: string, objects: readonly ObjectReference[] = []): ToolResult {
+  return objects.length
+    ? toolResultWithObjects(content, objects)
+    : { content: truncateToolResult(content), isError: false };
 }
 function err(message: string): ToolResult {
   return { content: message, isError: true };
@@ -132,6 +143,7 @@ export function buildContextQueryEc(
     '     _classes := _classes + _class + "=" + _byClass.get(_class).size() + ", "',
     ')',
     '_rows := ""',
+    '_refs := ""',
     '_shown := 0',
     '_items.forEach(_item:',
     `     IF _shown < ${SEARCH_CAP} THEN`,
@@ -151,10 +163,11 @@ export function buildContextQueryEc(
   });
   lines.push(
     '          _rows := _rows + _line + "\\n"',
+    '          _refs := _refs + "rid=" + _item.rid + ","',
     '          _shown := _shown + 1',
     '     ENDIF',
     ')',
-    '_out := "Viewed: " + _view.name + " (" + _view.className + ") bid=" + _view.id + " rid=" + _view.rid + "\\nEffective owner: " + _context.name + " (" + _context.className + ") bid=" + _context.id + " rid=" + _context.rid + "\\nMatched: " + _count + "\\nClasses: " + _classes + "\\n" + _rows',
+    '_out := "Viewed: " + _view.name + " (" + _view.className + ") bid=" + _view.id + " rid=" + _view.rid + "\\nEffective owner: " + _context.name + " (" + _context.className + ") bid=" + _context.id + " rid=" + _context.rid + "\\nMatched: " + _count + "\\nClasses: " + _classes + "\\n" + _rows + "Refs: " + _refs + "\\n"',
     `IF _count > ${SEARCH_CAP} THEN`,
     `     _out := _out + "… rows capped at ${SEARCH_CAP}; narrow the filter"`,
     'ENDIF',
@@ -197,9 +210,21 @@ async function queryContext(
     const guidance = res.hasWarning
       ? 'Scope was resolved from the attached context. Missing-value warnings are expected when mixed linkedTo/template models are inspected; use the returned matches and class distribution. For an object/class question this result is final: answer now without another query or exemplar read. Retry only if a specifically requested field is absent, and do not rediscover these objects with search_objects.'
       : 'Scope was resolved from the attached context and the count/filter evaluation is complete; rows may be capped as stated. For an object/class question this result is final: answer now without another query or exemplar read. Do not call search_objects or read_object for them unless the user requested additional properties not shown here.';
-    return ok(
-      `${res.log ?? '(no output)'}\n${guidance}`,
-    );
+    const objects: ObjectReference[] = [source.object];
+    const refLine = (res.log ?? '').split('\n').filter(line => line.startsWith('Refs: ')).at(-1);
+    const rids = [...(refLine ?? '').matchAll(/rid=(-?\d+),/g)].map(match => match[1]);
+    if (rids.length) {
+      try {
+        const enriched = await client.batchEnrich(rids, signal);
+        for (const rid of rids) objects.push({ rid, ...enriched.results[rid] });
+      } catch (e) {
+        // The EC result still verifies these RIDs. Keep sparse references so
+        // the normal chip can resolve details lazily instead of losing links.
+        log.swallow('ai-tool:query-context-enrich', e);
+        objects.push(...rids.map(rid => ({ rid })));
+      }
+    }
+    return ok(`${res.log ?? '(no output)'}\n${guidance}`, objects);
   } catch (e) {
     return err(`Invalid context query: ${errorMessage(e)}`);
   }
@@ -275,7 +300,12 @@ async function readObject(client: BmpClient, input: Record<string, unknown>, sig
       }
     }
   }
-  return ok(lines.join('\n'));
+  return ok(lines.join('\n'), [
+    pane.instance,
+    ...(pane.template ? [pane.template] : []),
+    ...(pane.parent ? [pane.parent] : []),
+    ...Object.values(pane.references).filter((object): object is NonNullable<typeof object> => !!object),
+  ]);
 }
 
 // ── read_code ───────────────────────────────────────────────────
@@ -362,7 +392,16 @@ async function searchObjects(client: BmpClient, input: Record<string, unknown>, 
     const tpl = e?.templateBusinessId ? `  [tpl bid=${e.templateBusinessId}]` : '';
     lines.push(`  ${o.name ?? '(no name)'} (${o.type ?? '?'}) ${bid}rid=${o.rid}${tpl}`);
   }
-  return ok(lines.join('\n'));
+  return ok(lines.join('\n'), shown.map(object => {
+    const resolved = enrich[object.rid];
+    return {
+      rid: object.rid,
+      name: object.name,
+      type: object.type,
+      businessId: resolved?.businessId,
+      templateBusinessId: resolved?.templateBusinessId,
+    };
+  }));
 }
 
 // ── code_search ──────────────────────────────────────────────────
@@ -372,15 +411,23 @@ async function codeSearch(input: Record<string, unknown>): Promise<ToolResult> {
   if (!pattern.trim()) return err('code_search needs a "pattern".');
   const typeFilter = typeof input.type === 'string' && input.type.trim() ? [input.type.trim()] : undefined;
   const { results, capped, error } = await collectCodeSearch(pattern, { types: typeFilter, cap: 30 });
-  if (error) return err(`code_search failed: ${error}`);
+  if (error && results.length === 0) return err(`code_search failed: ${error}`);
   if (results.length === 0) return ok(`No code matches for "${pattern}".`);
-  const lines = [`${results.length} match(es)${capped ? ' (capped)' : ''} for "${pattern}":`];
+  const lines = [
+    ...(error ? [`WARNING — ${error}`] : []),
+    `${results.length} match(es)${capped ? ' (capped)' : ''} for "${pattern}":`,
+  ];
   for (const r of results) {
     const line = r.matchingLines[0];
     const where = line ? `L${line.lineNum}: ${line.text.trim()}` : '';
     lines.push(`  ${r.name || '(no name)'} (${r.type}) bid=${r.businessId} .${r.property}  ${where}`);
   }
-  return ok(lines.join('\n'));
+  return ok(lines.join('\n'), results.map(result => ({
+    rid: result.rid,
+    name: result.name,
+    type: result.type,
+    businessId: result.businessId,
+  })));
 }
 
 // ── read_layout ──────────────────────────────────────────────────
@@ -388,32 +435,134 @@ async function codeSearch(input: Record<string, unknown>): Promise<ToolResult> {
 async function readLayout(client: BmpClient, input: Record<string, unknown>): Promise<ToolResult> {
   const pageRid = typeof input.pageRid === 'string' ? input.pageRid.trim() : '';
   if (!/^-?\d+$/.test(pageRid)) return err('read_layout needs a numeric "pageRid".');
-  const page = await loadPage(client, pageRid, 'instance');
+  const focusRid = typeof input.focusRid === 'string' ? input.focusRid.trim() : '';
+  if (focusRid && !/^-?\d+$/.test(focusRid)) return err('read_layout "focusRid" must be a numeric rid.');
+  const page = await loadAiLayout(client, pageRid);
   if (!page) return err(`No web layout for viewed object ${pageRid} (not a supported page host?).`);
-  return ok(formatAiLayout(pageRid, page));
+  const projection = projectAiLayout(pageRid, page, focusRid || undefined);
+  return ok(projection.text, projection.objects);
 }
 
-/** Compact AI projection of Blueprint's proven dual-model page loader. Portal
- *  Tabs/Containers and page-owned widgets remain visibly distinct. */
-export function formatAiLayout(viewedRid: string, page: NonNullable<LoadPageResult>): string {
+function loadAiLayout(client: BmpClient, pageRid: string): Promise<LoadPageStructureResult> {
+  let clientCache = layoutCache.get(client);
+  if (!clientCache) {
+    clientCache = new Map();
+    layoutCache.set(client, clientCache);
+  }
+  const cached = clientCache.get(pageRid);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  if (cached) clientCache.delete(pageRid);
+  while (clientCache.size >= AI_LAYOUT_CACHE_MAX) {
+    const oldest = clientCache.keys().next().value;
+    if (oldest === undefined) break;
+    clientCache.delete(oldest);
+  }
+  const promise = loadPageStructure(client, pageRid);
+  const entry = { expiresAt: Date.now() + AI_LAYOUT_CACHE_MS, promise };
+  clientCache.set(pageRid, entry);
+  void promise.catch(() => {
+    if (clientCache?.get(pageRid) === entry) clientCache.delete(pageRid);
+  });
+  return promise;
+}
+
+/** Compact, bounded AI projection of the dual-model page structure. Portal
+ * Tabs/Containers and page-owned widgets remain visibly distinct. */
+export interface AiLayoutProjection {
+  text: string;
+  /** Exact identities represented in `text`, plus the effective page owner. */
+  objects: ObjectReference[];
+}
+
+function findLayoutNode(nodes: LNode[], rid: string): LNode | undefined {
+  for (const node of nodes) {
+    if (node.rid === rid) return node;
+    const nested = findLayoutNode(node.children, rid);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+export function projectAiLayout(
+  viewedRid: string,
+  page: NonNullable<LoadPageStructureResult>,
+  focusRid?: string,
+): AiLayoutProjection {
   const { ctx, load } = page;
   const model = load.model;
   const count = (nodes: LNode[]): number => nodes.reduce((n, node) => n + 1 + count(node.children), 0);
+  const objects: ObjectReference[] = [{
+    rid: ctx.pageRid,
+    businessId: model.pageId,
+    type: model.pageClass,
+    name: model.pageName,
+  }];
+  const focus = focusRid ? findLayoutNode(model.tabs, focusRid) : undefined;
+  if (focusRid && !focus) {
+    return {
+      text: `Layout focus rid=${focusRid} was not found on viewed page rid=${viewedRid}.`,
+      objects,
+    };
+  }
+  const roots = focus ? [focus] : model.tabs;
+  const total = count(roots);
   const lines = [
     `Viewed rid=${viewedRid}`,
     `Effective page owner: ${model.pageName || model.pageId} (${model.pageClass}) bid=${model.pageId} rid=${ctx.pageRid}`,
-    `Layout: ${count(model.tabs)} nodes${model.resultOnly ? ' (shared Result tab)' : ''}`,
+    `Layout: ${count(model.tabs)} total nodes${model.resultOnly ? ' (shared Result tab)' : ''}${focus ? `; focused subtree rid=${focus.rid} has ${total}` : ''}`,
   ];
   if (ctx.pageRid !== viewedRid) lines.push('Resolution: viewed enterprise instance → .template page owner');
-  const walk = (node: LNode, depth: number) => {
+  let emitted = 0;
+  let chars = lines.join('\n').length;
+  const walk = (node: LNode, depth: number, quota: number): number => {
+    if (quota <= 0 || emitted >= AI_LAYOUT_NODE_CAP) return 0;
     const storage = node.kind === 'widget' ? 'page-child' : 'portal-shared';
     const slots = node.kind === 'widget' ? codeFieldsFor(node.className).map(field => field.prop) : [];
-    lines.push(`${'  '.repeat(depth + 1)}${node.className} "${node.name}" bid=${node.id}${node.rid ? ` rid=${node.rid}` : ''} span=${node.cols.L} model=${storage}${slots.length ? ` code=${slots.join(',')}` : ''}`);
-    node.children.forEach(child => walk(child, depth + 1));
+    const line = `${'  '.repeat(depth + 1)}${node.className} "${node.name}" bid=${node.id}${node.rid ? ` rid=${node.rid}` : ''} span=${node.cols.L} model=${storage}${slots.length ? ` code=${slots.join(',')}` : ''}`;
+    if (chars + line.length + 1 > AI_LAYOUT_CHAR_BUDGET) return 0;
+    lines.push(line);
+    chars += line.length + 1;
+    emitted++;
+    if (node.rid) {
+      objects.push({
+        rid: node.rid,
+        businessId: node.id,
+        type: node.className,
+        name: node.name,
+      });
+    }
+    let used = 1;
+    for (const child of node.children) {
+      if (used >= quota) break;
+      used += walk(child, depth + 1, quota - used);
+    }
+    return used;
   };
-  model.tabs.forEach(tab => walk(tab, 0));
+  // Divide the initial outline budget across top-level tabs so one enormous
+  // first tab cannot hide every later tab (and their focus rids). A focused
+  // subtree has one root and therefore receives the full budget.
+  roots.forEach((tab, index) => {
+    const remainingRoots = roots.length - index;
+    const quota = Math.max(1, Math.floor((AI_LAYOUT_NODE_CAP - emitted) / remainingRoots));
+    walk(tab, 0, quota);
+  });
+  if (emitted < total) {
+    lines.push(`Showing ${emitted} of ${total} node(s) in this scope; ${total - emitted} omitted. Call read_layout again with pageRid="${viewedRid}" and focusRid="<returned rid>" to inspect one subtree.`);
+  }
+  if (load.truncated) {
+    lines.push('Safety limit reached while reading the page: the source projection is partial. No widget-owned rows or further page nodes were loaded.');
+  }
   if (load.orphans.length) lines.push(`Orphan widgets without a container: ${load.orphans.length}`);
-  return lines.join('\n');
+  return { text: lines.join('\n'), objects };
+}
+
+/** Text-only compatibility surface used by focused formatting tests. */
+export function formatAiLayout(
+  viewedRid: string,
+  page: NonNullable<LoadPageStructureResult>,
+  focusRid?: string,
+): string {
+  return projectAiLayout(viewedRid, page, focusRid).text;
 }
 
 // ── preview_ec ───────────────────────────────────────────────────

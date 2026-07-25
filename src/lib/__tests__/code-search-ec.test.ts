@@ -5,7 +5,16 @@
  * regression in the codec swap fails loudly here.
  */
 import { describe, it, expect } from 'vitest';
-import { buildScopeResolveEc, parseScopeResolveLog, buildIdentityChunkRowLines } from '../code-search';
+import {
+  buildScopeResolveEc,
+  parseScopeResolveLog,
+  buildIdentityChunkRowLines,
+  buildRidScanEc,
+  parseRidScanLog,
+  summarizeIssues,
+} from '../code-search';
+import { EcQueryService } from '../ec-query-service';
+import type { EcResult } from '../bmp-client';
 
 describe('buildScopeResolveEc (golden)', () => {
   it('emits the identity row exactly as before the codec migration', () => {
@@ -59,5 +68,100 @@ describe('buildIdentityChunkRowLines (golden)', () => {
       // `_r := _r + "<rid>|||" + _bid + "|||" + _name + "\\n"`.
       '_r := _r + "8765432109876543210" + "|||" + _bid + "|||" + _name + "\\n"',
     ]);
+  });
+});
+
+describe('bounded RID scans', () => {
+  it('builds a chunked, capped scan with explicit completion metadata', () => {
+    const ec = buildRidScanEc('ExtendedExpression', null, 'needle');
+    expect(ec).toContain('_list := SELECT ExtendedExpression FROM root');
+    expect(ec).toContain('_total := _list.size()');
+    expect(ec).toContain('_q := "needle"');
+    expect(ec).toContain('IF _emitted < 500 THEN');
+    expect(ec).toContain('IF _chunkCount >= 32 THEN');
+    expect(ec).toContain('<<<CREV_CODE_SEARCH>>>STATS|');
+    expect(ec).toContain('<<<CREV_CODE_SEARCH>>>DONE');
+  });
+
+  it('builds enumeration mode without a server-side string predicate', () => {
+    const ec = buildRidScanEc('ExtendedExpression', 't.scope');
+    expect(ec).toContain('SELECT ExtendedExpression FROM t.scope');
+    expect(ec).not.toContain('_q :=');
+    expect(ec).toContain('_hit := TRUE');
+  });
+
+  it('parses a complete empty scan as a real zero-result', () => {
+    expect(parseRidScanLog([
+      '<<<CREV_CODE_SEARCH>>>START',
+      '<<<CREV_CODE_SEARCH>>>STATS|132|0|0',
+      '<<<CREV_CODE_SEARCH>>>DONE',
+    ].join('\n'))).toEqual({ rids: [], total: 132, truncated: false });
+  });
+
+  it('makes a capped scan explicit', () => {
+    expect(parseRidScanLog([
+      '<<<CREV_CODE_SEARCH>>>START',
+      '101',
+      '102',
+      '<<<CREV_CODE_SEARCH>>>STATS|900|700|2',
+      '<<<CREV_CODE_SEARCH>>>DONE',
+    ].join('\n'))).toEqual({ rids: ['101', '102'], total: 900, truncated: true });
+  });
+
+  it('rejects overflow/truncation that lost the completion marker', () => {
+    expect(() => parseRidScanLog('101\n102')).toThrow(/completion marker/i);
+  });
+
+  it('rejects a row-count mismatch instead of accepting partial data', () => {
+    expect(() => parseRidScanLog([
+      '101',
+      '<<<CREV_CODE_SEARCH>>>STATS|10|2|2',
+      '<<<CREV_CODE_SEARCH>>>DONE',
+    ].join('\n'))).toThrow(/expected 2 row/i);
+  });
+});
+
+describe('strict code-body batches', () => {
+  function service(result: EcResult): EcQueryService {
+    return new EcQueryService(async () => result, async rid => `lookup(${rid})`, []);
+  }
+
+  it('rejects a failed EC result', async () => {
+    await expect(service({ ok: false, error: 'offline' }).batchFetchCode(['101'], ['expression']))
+      .rejects.toThrow('offline');
+  });
+
+  it('rejects warning-bearing and incomplete output', async () => {
+    await expect(service({ ok: true, log: 'partial', hasWarning: true }).batchFetchCode(['101'], ['expression']))
+      .rejects.toThrow(/warnings/i);
+    await expect(service({ ok: true, log: 'partial' }).batchFetchCode(['101'], ['expression']))
+      .rejects.toThrow(/completion marker/i);
+  });
+
+  it('accepts a complete empty-code object', async () => {
+    const sep = '<<<CREV_SEP>>>';
+    const log = `${sep}OBJ${sep}101\n${sep}expression${sep}\n${sep}DONE`;
+    const rows = await service({ ok: true, log }).batchFetchCode(['101'], ['expression']);
+    expect(rows.get('101')).toEqual({});
+  });
+});
+
+describe('search issue summaries', () => {
+  it('collapses a workspace-wide connection failure', () => {
+    expect(summarizeIssues([
+      'ExtendedTable: Authorization failed',
+      'PieChart: Authorization failed',
+      'Label: Authorization failed',
+    ], 3)).toBe('All 3 types: Authorization failed');
+  });
+
+  it('keeps distinct failures and abbreviates long type lists', () => {
+    expect(summarizeIssues([
+      'A: incomplete',
+      'B: incomplete',
+      'C: incomplete',
+      'D: incomplete',
+      'E: warning',
+    ], 6)).toBe('4 types (A, B, C, …): incomplete; E: warning');
   });
 });

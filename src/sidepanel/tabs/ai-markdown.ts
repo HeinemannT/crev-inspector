@@ -12,10 +12,20 @@
  */
 
 import { h } from '../../lib/dom';
+import type { ObjectReference } from '../../lib/types';
+import { objectReferencePattern } from '../../lib/ai/tools';
 
 export interface MarkdownOptions {
   /** Build the element for one fenced code block. `lang` may be ''. */
   codeBlock: (lang: string, code: string) => HTMLElement;
+  /** Verified identity ledger for this answer. */
+  objects?: readonly ObjectReference[];
+  /** Render one verified object citation. */
+  objectReference?: (object: ObjectReference) => HTMLElement;
+}
+
+interface RenderOptions extends MarkdownOptions {
+  objectByRid: ReadonlyMap<string, ObjectReference>;
 }
 
 export type MdBlock =
@@ -77,23 +87,27 @@ function looksLikeRow(line: string): boolean {
 /** Render the full markdown string into `container`, replacing its contents. */
 export function renderMarkdown(container: HTMLElement, text: string, opts: MarkdownOptions): void {
   container.textContent = '';
+  const renderOpts: RenderOptions = {
+    ...opts,
+    objectByRid: new Map((opts.objects ?? []).map(object => [object.rid, object])),
+  };
   for (const block of splitBlocks(text)) {
     if (block.kind === 'code') {
       container.appendChild(opts.codeBlock(block.lang, block.code));
     } else {
-      renderTextBlock(container, block.lines);
+      renderTextBlock(container, block.lines, renderOpts);
     }
   }
 }
 
 /** Render a text block: headings, pipe tables, and paragraphs (with inline
  *  spans). Paragraphs accumulate until a blank line or a structural element. */
-function renderTextBlock(container: HTMLElement, lines: string[]): void {
+function renderTextBlock(container: HTMLElement, lines: string[], opts: RenderOptions): void {
   let para: string[] = [];
   const flushPara = () => {
     if (!para.length) return;
     const div = h('div', { class: 'ai-prose' });
-    renderInline(div, para.join('\n'));
+    renderInline(div, para.join('\n'), opts);
     container.appendChild(div);
     para = [];
   };
@@ -109,7 +123,7 @@ function renderTextBlock(container: HTMLElement, lines: string[]): void {
     if (head) {
       flushPara();
       const el = h('div', { class: `ai-head ai-head--${head[1].length}` });
-      renderInline(el, head[2]);
+      renderInline(el, head[2], opts);
       container.appendChild(el);
       continue;
     }
@@ -124,7 +138,7 @@ function renderTextBlock(container: HTMLElement, lines: string[]): void {
         rows.push(splitTableRow(lines[j]));
         j++;
       }
-      container.appendChild(buildTable(header, rows));
+      container.appendChild(buildTable(header, rows, opts));
       i = j - 1;
       continue;
     }
@@ -135,15 +149,15 @@ function renderTextBlock(container: HTMLElement, lines: string[]): void {
 }
 
 /** Build a zebra-striped markdown table element. */
-function buildTable(header: string[], rows: string[][]): HTMLElement {
+function buildTable(header: string[], rows: string[][], opts: RenderOptions): HTMLElement {
   const thead = h('tr', null, ...header.map(cell => {
     const th = h('th');
-    renderInline(th, cell);
+    renderInline(th, cell, opts);
     return th;
   }));
   const body = rows.map(cells => h('tr', null, ...cells.map(cell => {
     const td = h('td');
-    renderInline(td, cell);
+    renderInline(td, cell, opts);
     return td;
   })));
   return h('table', { class: 'ai-md-table' }, thead, ...body);
@@ -152,22 +166,43 @@ function buildTable(header: string[], rows: string[][]): HTMLElement {
 /** Inline spans: `code` (literal) first, then **bold**. Code is matched first
  *  so bold markers inside a code span stay literal. Everything lands as text
  *  nodes / elements — escaped by construction. */
-function renderInline(el: HTMLElement, text: string): void {
+function renderInline(el: HTMLElement, text: string, opts: RenderOptions): void {
   for (const part of text.split(/(`[^`]+`)/g)) {
     if (part.length > 1 && part.startsWith('`') && part.endsWith('`')) {
       el.appendChild(h('code', { class: 'ai-inline-code' }, part.slice(1, -1)));
     } else if (part) {
-      renderBold(el, part);
+      renderEmphasis(el, part, opts);
     }
   }
 }
 
-function renderBold(el: HTMLElement, text: string): void {
+/** Resolve emphasis before object tokens so a provider wrapping a reference in
+ *  `**…**` does not strand literal Markdown markers around the chip. */
+function renderEmphasis(el: HTMLElement, text: string, opts: RenderOptions): void {
   for (const part of text.split(/(\*\*[^*]+\*\*)/g)) {
     if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) {
-      el.appendChild(h('strong', null, part.slice(2, -2)));
+      const strong = h('strong');
+      renderObjectReferences(strong, part.slice(2, -2), opts);
+      el.appendChild(strong);
     } else if (part) {
-      el.appendChild(document.createTextNode(part));
+      renderObjectReferences(el, part, opts);
     }
   }
+}
+
+function renderObjectReferences(el: HTMLElement, text: string, opts: RenderOptions): void {
+  const pattern = objectReferencePattern();
+  let cursor = 0;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    if (match.index > cursor) el.appendChild(document.createTextNode(text.slice(cursor, match.index)));
+    const object = opts.objectByRid.get(match[1]);
+    if (object && opts.objectReference) {
+      el.appendChild(opts.objectReference(object));
+    } else {
+      // An unknown/forged marker is ordinary text, never a clickable object.
+      el.appendChild(document.createTextNode(match[0]));
+    }
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < text.length) el.appendChild(document.createTextNode(text.slice(cursor)));
 }

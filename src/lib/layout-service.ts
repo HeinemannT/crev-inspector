@@ -13,9 +13,9 @@
  * supersedes the old regex.
  */
 import type { BmpClient } from './bmp-client';
-import { LAYOUT_EC_TIMEOUT } from './constants';
-import type { LayoutIO, BlueprintCtx, LoadResult, ApplyResult, FlowRefListItem } from './layout/sync';
-import { loadModel, applyModel, resolvePageContext, loadFlowRefList, loadFlowRefChildren as loadFlowRefChildrenCore } from './layout/sync';
+import { AI_LAYOUT_EC_TIMEOUT, LAYOUT_EC_TIMEOUT } from './constants';
+import type { LayoutIO, BlueprintCtx, LoadResult, StructureLoadResult, ApplyResult, FlowRefListItem } from './layout/sync';
+import { loadModel, loadStructureModel, applyModel, resolvePageContext, loadFlowRefList, loadFlowRefChildren as loadFlowRefChildrenCore } from './layout/sync';
 import type { LModel, FlowNode } from './layout/types';
 import { validateBusinessId, validateRid } from './ec-guards';
 import { log } from './logger';
@@ -34,11 +34,16 @@ import {
  *  interleaves async handlers at every await, so a shared array would let a
  *  concurrent LOAD/APPLY/BLAST wipe or cross-contaminate another op's timings.
  *  Defaults to a throwaway array for callers that don't report timings. */
-export function makeLayoutIO(client: BmpClient, timings: string[] = []): LayoutIO {
+export function makeLayoutIO(
+  client: BmpClient,
+  timings: string[] = [],
+  timeoutMs = LAYOUT_EC_TIMEOUT,
+  signal?: AbortSignal,
+): LayoutIO {
   return {
     async exec(code: string, commit = false) {
       const t0 = Date.now();
-      const r = await client.executeEc(code, undefined, commit, undefined, LAYOUT_EC_TIMEOUT);
+      const r = await client.executeEc(code, undefined, commit, signal, timeoutMs);
       const line = `${Date.now() - t0}ms (commit=${commit}, ${code.length}ch → ${r.log?.length ?? 0}ch)`;
       timings.push(line);
       log.debug('layout:exec', line);
@@ -53,6 +58,10 @@ export function makeLayoutIO(client: BmpClient, timings: string[] = []): LayoutI
  *  when the page has no dedicated tabset), or null (not an editable page). */
 export type LoadPageResult =
   | { kind: 'page'; ctx: BlueprintCtx; load: LoadResult }
+  | null;
+
+export type LoadPageStructureResult =
+  | { kind: 'page'; ctx: BlueprintCtx; load: StructureLoadResult }
   | null;
 
 /** Resolve context + load the page model for a viewed object rid. A page with no dedicated tabset is
@@ -83,6 +92,22 @@ export async function loadPage(client: BmpClient, rid: string, prefer: 'template
   // still show the toggle and switch to the template.
   const instCtx: BlueprintCtx = { ...ctx, editingTemplate: false, instanceId: ctx.pageId };
   return { kind: 'page', ctx: instCtx, load: await loadModel(io, instCtx) };
+}
+
+/** AI/read-only page structure: same proven context resolver as Blueprint,
+ * but one lean model fetch and one shared 20s deadline. It intentionally reads
+ * the viewed instance, matching read_layout's previous semantics. */
+export async function loadPageStructure(
+  client: BmpClient,
+  rid: string,
+  timings: string[] = [],
+): Promise<LoadPageStructureResult> {
+  const signal = AbortSignal.timeout(AI_LAYOUT_EC_TIMEOUT);
+  const io = makeLayoutIO(client, timings, AI_LAYOUT_EC_TIMEOUT, signal);
+  const ctx = await resolvePageContext(io, rid);
+  if (!ctx) return null;
+  const instCtx: BlueprintCtx = { ...ctx, editingTemplate: false, instanceId: ctx.pageId };
+  return { kind: 'page', ctx: instCtx, load: await loadStructureModel(io, instCtx) };
 }
 
 /** Apply an edit: diff baseline→desired, compile, commit, re-fetch. The ctx must be the one

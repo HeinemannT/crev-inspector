@@ -37,3 +37,71 @@ export async function sendRequest<R extends InspectorMessage = InspectorMessage>
     return undefined;
   }
 }
+
+export type RequestFailureKind = 'timeout' | 'cancelled' | 'runtime' | 'no-response';
+
+export class RuntimeRequestError extends Error {
+  constructor(
+    message: string,
+    readonly kind: RequestFailureKind,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = 'RuntimeRequestError';
+  }
+}
+
+export interface BoundedRequestOptions {
+  timeoutMs: number;
+  signal?: AbortSignal;
+}
+
+/** Bounded one-shot request for user-visible data loads. Chrome does not let
+ *  callers cancel work already running in the service worker, so abort/timeout
+ *  stop waiting locally; callers that own a matching CANCEL_* message should
+ *  send it as well. Late replies are ignored by Promise settlement. */
+export async function sendRequestBounded<R extends InspectorMessage = InspectorMessage>(
+  msg: InspectorMessage,
+  options: BoundedRequestOptions,
+): Promise<R> {
+  if (options.signal?.aborted) {
+    throw new RuntimeRequestError('Request cancelled', 'cancelled');
+  }
+
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let abortHandler: (() => void) | null = null;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new RuntimeRequestError('Request timed out', 'timeout')),
+      options.timeoutMs,
+    );
+    if (options.signal) {
+      abortHandler = () => reject(new RuntimeRequestError('Request cancelled', 'cancelled'));
+      options.signal.addEventListener('abort', abortHandler, { once: true });
+    }
+  });
+
+  try {
+    let response: R | undefined;
+    try {
+      response = await Promise.race([
+        chrome.runtime.sendMessage(msg) as Promise<R | undefined>,
+        deadline,
+      ]);
+    } catch (cause) {
+      if (cause instanceof RuntimeRequestError) throw cause;
+      throw new RuntimeRequestError(
+        cause instanceof Error ? cause.message : 'Extension service worker unavailable',
+        'runtime',
+        { cause },
+      );
+    }
+    if (response === undefined) {
+      throw new RuntimeRequestError('Extension service worker did not respond', 'no-response');
+    }
+    return response;
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (options.signal && abortHandler) options.signal.removeEventListener('abort', abortHandler);
+  }
+}

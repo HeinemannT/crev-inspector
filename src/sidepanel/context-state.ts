@@ -1,11 +1,6 @@
-import type { InspectorMessage } from '../lib/types';
+import type { InspectorMessage, ObjectReference } from '../lib/types';
 
-export interface PanelObjectContext {
-  rid: string;
-  name?: string;
-  type?: string;
-  businessId?: string;
-}
+export type PanelObjectContext = ObjectReference;
 
 /** Apply the service worker's canonical context message. Sparse updates for the
  *  same RID retain identity already learned by the detail pane; a different RID

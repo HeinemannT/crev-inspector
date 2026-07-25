@@ -20,7 +20,8 @@ import { resolveLayoutShortcut } from '../lib/layout-target';
 import { confirmModal } from '../lib/modal';
 import { displayValue } from './property-editors';
 import { renderPaneTree, type PaneTreeData } from './pane-tree';
-import { typeBadge } from '../lib/type-badge';
+import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
+import { objectChip } from '../lib/object-chip';
 import { openAccessTrace } from './access-trace';
 import { renderCodeSection } from './sections/code-fields';
 import { renderLinks, connectionsToLinks, referencesToLinks, type LinkInbound, type LinksModel } from './sections/links';
@@ -75,6 +76,7 @@ interface PaneChildren {
   rid: string;
   expanded: boolean;
   loading: boolean;
+  error: string | null;
   items: Array<{ rid: string; businessId?: string; name?: string; type?: string }>;
 }
 
@@ -398,6 +400,7 @@ export class DetailView {
         rid: c.rid, businessId: c.businessId, name: c.name, type: c.type,
       }));
       this.childrenState.loading = false;
+      this.childrenState.error = msg.error ?? null;
       this.renderDetail(panel);
       return true;
     }
@@ -450,6 +453,19 @@ export class DetailView {
     // timeout, swap-away) so they can't fire against stale state.
     for (const t of this.slowLoadTimers) clearTimeout(t);
     this.slowLoadTimers = [];
+  }
+
+  private retryLoad(panel: HTMLElement, reconnect: boolean): void {
+    if (!this.state) return;
+    const rid = this.state.rid;
+    this.clearLookupWatchdog();
+    this.state.loaded = false;
+    this.state.error = null;
+    this.state.loadingStage = 'normal';
+    if (reconnect) this.sendMessage({ type: 'CONNECTION_TEST' });
+    this.sendMessage({ type: 'FETCH_OBJECT_PANE', rid });
+    this.startLookupWatchdog(rid, panel);
+    this.renderDetail(panel);
   }
 
   // ── Draft helpers ────────────────────────────────────────────────
@@ -542,23 +558,9 @@ export class DetailView {
   /** The header type badge — click copies the business id (green ✓ flash),
    *  the panel-wide badge gesture. */
   private identityBadge(rid: string, businessId: string | undefined, type: string | undefined): HTMLElement {
-    const b = typeBadge(type);
     const id = businessId || rid;
-    b.title = `Copy ${id}`;
-    b.setAttribute('role', 'button');
-    b.setAttribute('tabindex', '0');
-    const copy = () => {
-      navigator.clipboard?.writeText(id).catch(() => { /* blocked — silent */ });
-      statusFlash(`Copied ${id} \u2713`);
-      const lbl = b.querySelector<HTMLElement>('.lbl');
-      const original = lbl?.textContent ?? '';
-      if (lbl) lbl.textContent = '✓';
-      b.classList.add('bdg-copied');
-      setTimeout(() => { if (lbl) lbl.textContent = original; b.classList.remove('bdg-copied'); }, 700);
-    };
-    b.addEventListener('click', (e) => { e.stopPropagation(); copy(); });
-    b.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copy(); }
+    const b = wireBadgeCopy(typeBadge(type), () => id, {
+      onCopied: copied => statusFlash(`Copied ${copied} \u2713`),
     });
     b.classList.add('pane-id-bdg');
     return b;
@@ -731,7 +733,22 @@ export class DetailView {
       // Loaded but no usable data (timeout / fetch error) — show the error.
       // Save errors after a successful load also set s.error but keep the
       // props rendered; those surface in the action bar instead.
-      propsBody = h('div', { class: 'pane-error' }, s.error);
+      const connectionError = /timed out|cannot reach|network|command|connection/i.test(s.error);
+      propsBody = h('div', { class: 'pane-error' },
+        h('div', {}, s.error),
+        h('div', { class: 'pane-error-actions' },
+          h('button', {
+            class: 'btn btn-small',
+            onClick: () => this.retryLoad(panel, false),
+          }, 'Retry'),
+          connectionError
+            ? h('button', {
+              class: 'btn btn-small',
+              onClick: () => this.retryLoad(panel, true),
+            }, 'Reconnect')
+            : null,
+        ),
+      );
     } else {
       propsBody = this.renderPropertiesArea(panel);
     }
@@ -825,20 +842,14 @@ export class DetailView {
       rid: card.rid, name: card.name, type: card.type, businessId: card.businessId,
       source: 'server', discoveredAt: Date.now(), updatedAt: Date.now(),
     }, panel).catch(() => {});
-    return h('div', {
-      class: 'pane-card-crumb',
-      role: 'button',
-      tabindex: '0',
-      onClick: open,
-      onKeydown: (e: KeyboardEvent) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void open(); }
-      },
-    },
-      h('span', { class: 'pane-card-crumb-icon' }, '▦'),
-      h('span', { class: 'pane-card-crumb-name' }, card.name || '(unnamed)'),
-      card.viaTemplate ? h('span', { class: 'pane-card-crumb-tag' }, 'via template') : null,
-      card.businessId ? h('span', { class: 'pane-card-crumb-bid' }, card.businessId) : null,
-    );
+    return objectChip(card, {
+      size: 'xs',
+      className: 'pane-card-crumb',
+      showId: true,
+      annotation: card.viaTemplate ? 'via template' : undefined,
+      onActivate: () => { void open(); },
+      onOpenFull: () => { void open(); },
+    });
   }
 
   /** Pop the history stack and navigate back. Single-source for the Back
@@ -921,6 +932,17 @@ export class DetailView {
         chain: this.state!.flow,
         loading: this.state!.flowLoading,
         error: this.state!.flowError,
+        onRetry: () => {
+          if (!this.state || this.state.flowLoading) return;
+          this.state.flowLoading = true;
+          this.state.flowError = null;
+          this.sendMessage({
+            type: 'FETCH_FLOW_CHAIN',
+            rid: this.state.rid,
+            objectType: this.state.identity.type,
+          });
+          this.renderDetail(panel);
+        },
         onNavigate: (rid) => { this.swapTo(rid, null, panel, true).catch(() => {}); },
         sendMessage: this.sendMessage,
       }));
@@ -1066,6 +1088,7 @@ export class DetailView {
       siblingTotal: s.siblingTotal,
       children: this.childrenState?.items,
       loadingChildren: this.childrenState?.loading,
+      childrenError: this.childrenState?.error,
       childrenExpanded: this.childrenState?.expanded,
     };
     return renderPaneTree(treeData, {
@@ -1080,12 +1103,20 @@ export class DetailView {
             rid: s.rid,
             expanded: true,
             loading: !this.childrenState || this.childrenState.items.length === 0,
+            error: null,
             items: this.childrenState?.items ?? [],
           };
           if (this.childrenState.loading) {
             this.sendMessage({ type: 'FETCH_CHILDREN', rid: s.rid });
           }
         }
+        this.renderDetail(panel);
+      },
+      onRetryChildren: () => {
+        if (!this.childrenState) return;
+        this.childrenState.loading = true;
+        this.childrenState.error = null;
+        this.sendMessage({ type: 'FETCH_CHILDREN', rid: s.rid });
         this.renderDetail(panel);
       },
     });

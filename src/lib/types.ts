@@ -15,7 +15,7 @@ export * from './type-registry';
 
 /** Unified connection state — single source of truth for health + auth */
 export interface ConnectionState {
-  display: 'not-configured' | 'checking' | 'connected' | 'online' | 'auth-failed' | 'server-down' | 'unreachable' | 'needs-login' | 'no-config-access' | 'needs-access';
+  display: 'not-configured' | 'checking' | 'reconnecting' | 'connected' | 'online' | 'command-failed' | 'auth-failed' | 'server-down' | 'unreachable' | 'needs-login' | 'no-config-access' | 'needs-access';
   /** How the live connection was established (only meaningful when connected). */
   authVia: AuthVia | null;
   version: string | null;
@@ -162,10 +162,10 @@ export interface FavoriteEntry {
   addedAt: number;
 }
 
-/** A flat node in the layout subtree for a TabSet / Tab / Container /
- *  Scorecard. Parent linkage is via `parentRid`; the panel folds these
- *  into a tree client-side. Only layout-bearing types are included
- *  (Tab, TabSet, Container, plus widget refs at the leaves). */
+/** A flat node in a layout projection. Parent linkage is via `parentRid`;
+ *  consumers fold these into a tree client-side. Workshop's portal-tree
+ *  fetch returns only TabSet/Tab/Container; Blueprint's dual-model fetch can
+ *  additionally carry page-owned widget nodes via `containerRid`. */
 export interface LayoutNode {
   rid: string;
   parentRid?: string;
@@ -185,13 +185,25 @@ export interface LayoutNode {
   chartHeight?: number;
 }
 
-// ── Object Pane (sidepanel DetailView property editor) ──────────
-export interface ObjectPaneIdentity {
+// ── BMP object identity ─────────────────────────────────────────
+/** Canonical resolved identity shared by every extension surface.
+ *  RIDs remain strings because BMP uses 64-bit Java longs. */
+export interface ObjectIdentity {
   rid: string;
   businessId: string;
   type: string;
   name: string;
 }
+
+/** Sparse identity accepted at UI boundaries while enrichment is pending. */
+export type ObjectReference = Pick<ObjectIdentity, 'rid'> &
+  Partial<Omit<ObjectIdentity, 'rid'>> & {
+    templateBusinessId?: string;
+  };
+
+/** Compatibility name for pane-specific payloads. New shared UI should use
+ *  ObjectIdentity / ObjectReference rather than inventing another shape. */
+export type ObjectPaneIdentity = ObjectIdentity;
 
 /** An object's effective detail card, plus whether it was inherited from the
  *  object's template (enterprise objects carry the card on their template,
@@ -405,4 +417,3 @@ export const CODE_PROPS_FOR_TYPE: Record<string, readonly string[]> = {
 
 /** Types that have viewable/editable code properties */
 export const TYPES_WITH_CODE = new Set(Object.keys(CODE_PROPS_FOR_TYPE));
-

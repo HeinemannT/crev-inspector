@@ -18,12 +18,13 @@
  */
 
 import type { Tab, SendFn } from './tab-types';
-import type { InspectorMessage } from '../../lib/types';
+import type { InspectorMessage, ObjectReference } from '../../lib/types';
 import type {
   AiChatTurn, AiChatQuote, AiContextEnvelope, AiContextSource,
 } from '../../lib/ai/types';
 import { h, svg, statusFlash } from '../../lib/dom';
 import { typeBadge } from '../../lib/type-badge';
+import { objectChip } from '../../lib/object-chip';
 import { ICON_SPARKLE, ICON_X, ICON_COPY, ICON_PIN, ICON_REFRESH, ICON_PENCIL } from '../../lib/icons';
 import { sendFireForget, sendRequest } from '../../lib/messaging';
 import { showToast } from '../../lib/toast';
@@ -252,7 +253,7 @@ export class AiTab implements Tab {
     this.transcript.push({ turn: userTurn });
 
     this.pendingTag = this.tagFor(envelope);
-    this.stream = initStream();
+    this.stream = initStream(envelope.sources.map(source => source.object));
     this.activeRequestId = crypto.randomUUID();
     this.draft = '';
     if (this.textarea) this.textarea.value = '';
@@ -466,7 +467,7 @@ export class AiTab implements Tab {
       el.appendChild(h('div', { class: 'ai-a-tag' }, h('span', { class: 'ai-a-pip' }), d.contextTag));
     }
     const body = h('div', { class: 'ai-a-body' });
-    renderMarkdown(body, d.turn.text, { codeBlock: (lang, code) => this.buildCodeBlock(lang, code) });
+    renderMarkdown(body, d.turn.text, this.markdownOptions(d.turn.objects));
     el.appendChild(body);
     if (retryable) {
       const retry = h('button', {
@@ -487,12 +488,24 @@ export class AiTab implements Tab {
     if (this.pendingTag) el.appendChild(h('div', { class: 'ai-a-tag' }, h('span', { class: 'ai-a-pip' }), this.pendingTag));
     const body = h('div', { class: 'ai-a-body' });
     if (s.text) {
-      renderMarkdown(body, s.text, { codeBlock: (lang, code) => this.buildCodeBlock(lang, code) });
+      renderMarkdown(body, s.text, this.markdownOptions(s.objects));
     } else if (!s.tools.length) {
       body.appendChild(h('div', { class: 'ai-status' }, 'Thinking…'));
     }
     el.appendChild(body);
     return el;
+  }
+
+  private markdownOptions(objects: readonly ObjectReference[] | undefined) {
+    return {
+      codeBlock: (lang: string, code: string) => this.buildCodeBlock(lang, code),
+      objects,
+      objectReference: (object: ObjectReference) => objectChip(object, {
+        size: 'xs',
+        className: 'ai-answer-object',
+        onActivate: () => sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid: object.rid }),
+      }),
+    };
   }
 
   /** Committed tool trace: one collapsed "Ran N tools" summary (✓ all ok / ✕

@@ -14,14 +14,19 @@
 
 import type { EcResult, TemplateResolution, EditorContextData, ObjectPaneSibling, ObjectPaneRef, ObjectPaneData } from './bmp-client';
 import { log } from './logger';
-import { BATCH_CHUNK_SIZE, MAX_PARALLEL } from './constants';
+import {
+  BATCH_CHUNK_SIZE,
+  COLOR_SETS_EC_TIMEOUT,
+  LAYOUT_TREE_EC_TIMEOUT,
+  MAX_PARALLEL,
+  OBJECT_RELATION_EC_TIMEOUT,
+} from './constants';
 import { pMap } from './util';
 import { parsePipeLines, parseSepBlocks, parseSepMultiObject } from './ec-parser';
 import { buildRowEc, identityRow, parseDelimitedLines, parseDelimitedRow } from './ec-row-codec';
 import { validateEcIdentifier } from './ec-guards';
 import { ecResolveTemplate } from './template-link';
 import { LAYOUT_SEP, parseLayoutNodes } from './layout-wire';
-import { stripWidgetContent } from './layout/model';
 import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessSubject, LayoutNode } from './types';
 import {
   parsePipeRow, parsePipeRowWithKey, parseAbRow, makeCodeField, splitNamedRow,
@@ -29,7 +34,8 @@ import {
 import type { FlowChain, FlowStep, FlowIdentity, FlowCodeField } from './flow-parser';
 import {
   buildInputViewFlowEc, buildInputSetFlowEc, buildTransportGroupFlowEc,
-  buildActionButtonFlowEc, buildLabelFlowEc, buildObjectPaneEc, FLOW_SEP,
+  buildActionButtonFlowEc, buildLabelFlowEc, buildObjectPaneEc,
+  buildPageFormFlowEc, FLOW_SEP, PAGE_FORM_CHILD_CAP,
 } from './ec-codegen';
 import {
   ALL_CODE_FIELDS, ALL_REFERENCE_FIELDS,
@@ -278,13 +284,13 @@ export function buildLayoutTreeEc(ref: string): string {
   const nodeRow = buildRowEc([
     { name: 'rid', expr: '_n.rid' },
     { name: 'id', expr: '_n.id.whenMissing("")' },
-    { name: 'className', expr: '_n.className.whenMissing("")' },
+    { name: 'className', expr: '_type' },
     { name: 'parentRid', expr: '_p.rid.whenMissing("")' },
-    { name: 'containerRid', expr: '_c.rid.whenMissing("")' },
+    { name: 'containerRid', expr: '""' },
     { name: 'L', expr: '_n.columnsLargeScreen.whenMissing("")' },
     { name: 'M', expr: '_n.columnsMediumScreen.whenMissing("")' },
     { name: 'S', expr: '_n.columnsSmallScreen.whenMissing("")' },
-    { name: 'chartHeight', expr: '_n.chartHeight.whenMissing("")' },
+    { name: 'chartHeight', expr: '""' },
     { name: 'name', expr: '_n.name.whenMissing("")' },
   ], '|');
   // Root row: same 10-field shape, but the root has no parent/container/
@@ -301,23 +307,116 @@ export function buildLayoutTreeEc(ref: string): string {
     { name: 'chartHeight', expr: '""' },
     { name: 'name', expr: '_root.name.whenMissing("")' },
   ], '|');
-  return `
-_root := ${ref}
-_r := ""
-_root.descendants().forEach(_n:
-     _p := _n.parent
-     _c := _n.container
-     _r := _r + "${LAYOUT_SEP}" + ${nodeRow} + "\\n"
-)
-_r := _r + "${LAYOUT_SEP}" + ${rootRow} + "\\n"
-_r
-`.trim();
+  return [
+    `_root := ${ref}`,
+    '_r := ""',
+    '_chunk := ""',
+    '_i := 0',
+    '_emitted := 0',
+    '_limitHit := "0"',
+    '_root.descendants().forEach(_n:',
+    '     _line := ""',
+    '     _type := _n.className.whenMissing("")',
+    '     _structural := "0"',
+    '     IF _type = "TabSet" THEN _structural := "1" ELSE _structural := _structural ENDIF',
+    '     IF _type = "Tab" THEN _structural := "1" ELSE _structural := _structural ENDIF',
+    '     IF _type = "Container" THEN _structural := "1" ELSE _structural := _structural ENDIF',
+    '     IF _structural = "1" THEN',
+    '          IF _emitted < 600 THEN',
+    '               _p := _n.parent',
+    `               _line := "${LAYOUT_SEP}" + ${nodeRow} + "\\n"`,
+    '               _emitted := _emitted + 1',
+    '          ELSE',
+    '               _limitHit := "1"',
+    '          ENDIF',
+    '     ELSE',
+    '          _line := _line',
+    '     ENDIF',
+    '     _chunk := _chunk + _line',
+    '     IF _line <> "" THEN _i := _i + 1 ELSE _i := _i ENDIF',
+    '     IF _i > 31 THEN',
+    '          _r := _r + _chunk',
+    '          _chunk := ""',
+    '          _i := 0',
+    '     ELSE',
+    '          _r := _r',
+    '     ENDIF',
+    ')',
+    '_r := _r + _chunk',
+    `_r := _r + "${LAYOUT_SEP}" + ${rootRow} + "\\n"`,
+    'IF _limitHit = "1" THEN _r := _r + "<<<CREV_LAYOUT_TREE_LIMIT>>>600\\n" ELSE _r := _r ENDIF',
+    '_r',
+  ].join('\n');
 }
 
 /** Parse `java.awt.Color[r=219,g=132,b=61]` → `rgb(219,132,61)`, else ''. */
 export function parseAwtColor(s: string): string {
   const m = /r=(\d+),\s*g=(\d+),\s*b=(\d+)/.exec(s);
   return m ? `rgb(${m[1]},${m[2]},${m[3]})` : '';
+}
+
+const COLOR_SEP = '<<<CREV_COL>>>';
+
+/** Flat colour projection. Selecting CorpoColor directly is materially faster
+ * than selecting every set and then walking each set's children, especially
+ * in workspaces with many custom palette folders. The parent carries the set
+ * and the grandparent carries its category/folder. Chunking keeps `_r`
+ * appends linear enough for large palettes. */
+export function buildColorSetsEc(): string {
+  return [
+    '_colors := SELECT CorpoColor FROM root.portal',
+    '_r := ""',
+    '_chunk := ""',
+    '_i := 0',
+    '_colors.forEach(_col:',
+    '     _cv := _col.color',
+    '     IF _cv != MISSING THEN',
+    '          _set := _col.parent',
+    '          _folder := _set.parent',
+    `          _line := "${COLOR_SEP}R${COLOR_SEP}" + _set.id.whenMissing("") + "${COLOR_SEP}" + _set.name.whenMissing("") + "${COLOR_SEP}" + _folder.id.whenMissing("") + "${COLOR_SEP}" + _col.id.whenMissing("") + "${COLOR_SEP}" + _col.name.whenMissing("") + "${COLOR_SEP}" + _cv + "\\n"`,
+    '          _chunk := _chunk + _line',
+    '          _i := _i + 1',
+    '          IF _i > 31 THEN',
+    '               _r := _r + _chunk',
+    '               _chunk := ""',
+    '               _i := 0',
+    '          ELSE',
+    '               _r := _r',
+    '          ENDIF',
+    '     ELSE',
+    '          _r := _r',
+    '     ENDIF',
+    ')',
+    '_r := _r + _chunk',
+    '_r',
+  ].join('\n');
+}
+
+/** Group the flat colour rows back into the picker shape, preserving server
+ * order for both folders and swatches. Malformed/non-colour rows are ignored. */
+export function parseColorSetsLog(log: string): ColorSetData[] {
+  const sets: ColorSetData[] = [];
+  const byId = new Map<string, ColorSetData>();
+  for (const line of log.split('\n')) {
+    const parts = line.split(COLOR_SEP);
+    if (parts[1] !== 'R') continue;
+    const setId = (parts[2] ?? '').trim();
+    const setName = (parts[3] ?? '').trim();
+    const folder = (parts[4] ?? '').trim();
+    const bid = (parts[5] ?? '').trim();
+    const name = (parts[6] ?? '').trim();
+    const rgb = parseAwtColor(parts[7] ?? '');
+    if (!setId || !bid || !rgb) continue;
+    let set = byId.get(setId);
+    if (!set) {
+      set = { id: setId, name: setName, colors: [], ...(folder ? { folder } : {}) };
+      byId.set(setId, set);
+      sets.push(set);
+    }
+    set.colors.push({ bid, name, rgb });
+  }
+  const custom = (set: ColorSetData): number => (set.folder && set.folder !== 'ColorRoot' ? 0 : 1);
+  return sets.sort((a, b) => custom(a) - custom(b));
 }
 
 export class EcQueryService {
@@ -357,8 +456,16 @@ export class EcQueryService {
       ...ecResolveTemplate('_o', '_t'),
       buildRowEc(identityRow('_t', { ridDefault: '"MISSING"', order: ['rid', 'name', 'className', 'id'] }), '|||'),
     ].join('\n');
-    const ecResult = await this.executeEc(code, undefined, false);
-    if (!ecResult.ok || !ecResult.log) return { templateRid: null };
+    const ecResult = await this.executeEc(
+      code,
+      undefined,
+      false,
+      undefined,
+      OBJECT_RELATION_EC_TIMEOUT,
+    );
+    if (!ecResult.ok) throw new Error(ecResult.error || ecResult.log || 'Template resolution failed');
+    if (ecResult.hasWarning) throw new Error(ecResult.error || 'Template resolution returned warnings and may be incomplete');
+    if (ecResult.log == null || ecResult.log.trim() === '') throw new Error('Empty template-resolution response');
     return parseResolveTemplateLog(ecResult.log);
   }
 
@@ -511,27 +618,40 @@ export class EcQueryService {
     const code = lines.join('\n');
 
     const ecResult = await this.executeEc(code);
-    if (!ecResult.ok || !ecResult.log) return result;
+    if (!ecResult.ok) throw new Error(ecResult.error || ecResult.log || 'Code batch fetch failed');
+    if (ecResult.hasWarning) throw new Error(ecResult.error || 'Code batch fetch returned warnings and may be incomplete');
+    if (ecResult.log == null) throw new Error('Code batch fetch returned no result');
+    if (!ecResult.log.includes(`${sep}DONE`)) {
+      throw new Error('Code batch fetch returned an incomplete result (completion marker missing)');
+    }
     return parseSepMultiObject(ecResult.log, sep);
   }
 
-  /** Walk the layout subtree of a Scorecard / TabSet / Tab / Container.
+  /** Walk the portal layout subtree of a TabSet / Tab / Container.
    *  Returns flat nodes with parent linkage + responsive sizing — the
-   *  panel folds these into a tree client-side. Single round trip via
-   *  EC `.descendants()` so even deep nests cost one server call.
+   *  panel folds these into a tree client-side. The collection walk is
+   *  structurally safe (portal descendants are Tabs/Containers); output is
+   *  chunked and source-capped so a large shared TabSet stays bounded.
    *
-   *  Returned types: Tab, TabSet, Container, plus widget objects bound to
-   *  any container in the subtree (rendered as leaves with their cell
-   *  reference). */
-  async fetchLayoutTree(rid: string): Promise<LayoutNode[]> {
+   *  Widgets are NOT descendants of a portal TabSet. They live under the
+   *  page/org model and bind back through `.container`; Blueprint owns that
+   *  dual-model view. */
+  async fetchLayoutTree(rid: string): Promise<{ nodes: LayoutNode[]; truncated: boolean }> {
     const ref = await this.resolveRef(rid);
-    const result = await this.executeEc(buildLayoutTreeEc(ref));
-    if (!result.ok || !result.log) return [];
-    // Drop content nodes (children of leaf widgets — e.g. indicators inside an
-    // IndicatorList) generically, the same taxonomy strip loadModel applies, so
-    // the Inspect Layout view + AI read_layout show layout structure, not list
-    // members. See stripWidgetContent in layout/model.ts.
-    return stripWidgetContent(parseLayoutNodes(result.log));
+    const result = await this.executeEc(
+      buildLayoutTreeEc(ref),
+      undefined,
+      false,
+      undefined,
+      LAYOUT_TREE_EC_TIMEOUT,
+    );
+    if (!result.ok) throw new Error(result.error || result.log || 'Layout-tree fetch failed');
+    if (result.hasWarning) throw new Error(result.error || 'Layout-tree fetch returned warnings and may be incomplete');
+    if (!result.log) throw new Error('Empty layout-tree response');
+    return {
+      nodes: parseLayoutNodes(result.log),
+      truncated: result.log.includes('<<<CREV_LAYOUT_TREE_LIMIT>>>'),
+    };
   }
 
   /** Fetch direct children of an object via EC */
@@ -541,13 +661,33 @@ export class EcQueryService {
     const code = [
       `_o := ${ref}`,
       '_r := ""',
+      '_chunk := ""',
+      '_i := 0',
       '_o.children().forEach(_c:',
-      `  _r := _r + ${childRow} + "\\n"`,
+      `  _chunk := _chunk + ${childRow} + "\\n"`,
+      '  _i := _i + 1',
+      '  IF _i > 31 THEN',
+      '    _r := _r + _chunk',
+      '    _chunk := ""',
+      '    _i := 0',
+      '  ELSE',
+      '    _r := _r',
+      '  ENDIF',
       ')',
+      '_r := _r + _chunk',
       '_r',
     ].join('\n');
-    const result = await this.executeEc(code, undefined, false);
-    if (!result.ok || !result.log) return [];
+    const result = await this.executeEc(
+      code,
+      undefined,
+      false,
+      undefined,
+      OBJECT_RELATION_EC_TIMEOUT,
+    );
+    if (!result.ok) throw new Error(result.error || result.log || 'Children fetch failed');
+    if (result.hasWarning) throw new Error(result.error || 'Children fetch returned warnings and may be incomplete');
+    // An empty string is the valid wire representation of zero children.
+    if (result.log == null) throw new Error('Empty children response');
 
     return parsePipeLines(result.log, 4).map(([cRid, bid, typ, ...rest]) => ({
       rid: cRid,
@@ -776,56 +916,59 @@ export class EcQueryService {
   }
 
   /** Walk an EditPage / CreateObjectView for its Add-Object form chain.
-   *  Strategy: scan immediate children, pick the first InputSet (typical
-   *  shape), then walk it via the existing InputSet flow. ButtonInput
-   *  siblings of the InputSet get added as standalone steps at depth 0. */
+   *  EditPage owns its EditField/info/button/validation/break rows directly;
+   *  CreateObjectView reaches that same page through `.editPage`. */
   private async fetchPageFormFlow(rid: string, type: string, signal?: AbortSignal): Promise<FlowChain | null> {
-    try {
-      const ref = await this.resolveRef(rid);
-      // Pull the page identity + a list of (childRid, childType) — we
-      // don't need much, just enough to find the InputSet child.
-      const sep = '<<<CREV_SEP>>>';
-      const ec = [
-        '_p := ' + ref,
-        '_r := ""',
-        `_r := _r + "${sep}page${sep}" + _p.rid.whenMissing("") + "|" + _p.id.whenMissing("") + "|" + _p.name.whenMissing("") + "|" + _p.className.whenMissing("") + "\\n"`,
-        '_p.children().forEach(_c:',
-        `  _r := _r + "${sep}child${sep}" + _c.rid.whenMissing("") + "|" + _c.id.whenMissing("") + "|" + _c.name.whenMissing("") + "|" + _c.className.whenMissing("") + "\\n"`,
-        ')',
-        '_r',
-      ].join('\n');
-      const result = await this.executeEc(ec, undefined, false, signal);
-      if (!result.ok || !result.log) return null;
-      const data = parseSepBlocks(result.log, sep);
+    const sourceType = type === 'CreateObjectView' ? 'CreateObjectView' : 'EditPage';
+    const ref = await this.resolveRef(rid);
+    const data = await this.runFlowEc(buildPageFormFlowEc(ref, sourceType), signal);
+    const root = parsePipeRow(data.root);
+    if (!root) return null;
 
-      const pageRow = parsePipeRow(data.page);
-      if (!pageRow) return null;
-      const pageStep: FlowStep = { identity: pageRow, children: [] };
-
-      const childRows = (data.child ?? '').split('\n')
-        .map(parsePipeRow)
-        .filter((r): r is { rid: string; businessId: string; name: string; type: string } => r !== null);
-
-      // Walk the first InputSet child via the dedicated InputSet flow walker;
-      // attach its result as a sub-step. Other children (ButtonInput etc.) are
-      // added as bare steps so the user sees the whole form layout.
-      for (const c of childRows) {
-        if (c.type === 'InputSet') {
-          const sub = await this.fetchInputSetFlow(c.rid, signal);
-          if (sub && sub.steps.length > 0) {
-            const isStep = sub.steps[0];
-            isStep.edgeLabel = type === 'CreateObjectView' ? 'editPage › inputSet' : 'inputSet';
-            pageStep.children!.push(isStep);
-            continue;
-          }
-        }
-        pageStep.children!.push({ identity: c });
-      }
-
-      return { steps: [pageStep] };
-    } catch {
-      return null;
+    const rootStep: FlowStep = { identity: root };
+    const rootCode: FlowCodeField[] = [];
+    for (const prop of ['parentDestinationExpression', 'editExpression', 'initExpression', 'afterExpression']) {
+      const text = data[`root_${prop}`];
+      if (text) rootCode.push(makeCodeField(prop, text, []));
     }
+    if (rootCode.length > 0) rootStep.codeFields = rootCode;
+
+    const pageIdentity = sourceType === 'CreateObjectView' ? parsePipeRow(data.page) : root;
+    if (!pageIdentity) {
+      rootStep.hint = 'No EditPage linked.';
+      return { steps: [rootStep] };
+    }
+    const pageStep: FlowStep = {
+      identity: pageIdentity,
+      children: [],
+      ...(sourceType === 'CreateObjectView' ? { edgeLabel: 'editPage' } : {}),
+    };
+    const pageAfter = data.page_afterExpression;
+    if (pageAfter) pageStep.codeFields = [makeCodeField('afterExpression', pageAfter, [])];
+
+    const childRows = (data.children ?? '').split('\n')
+      .map(parsePipeRow)
+      .filter((row): row is FlowIdentity => row !== null);
+    for (const childIdentity of childRows) {
+      const child: FlowStep = { identity: childIdentity };
+      const mapping = data[`child_propertyMapping_${childIdentity.rid}`];
+      if (mapping) child.inputKey = mapping;
+      const code = buildChildCodeFields(data, childIdentity.rid, []);
+      const required = data[`child_requiredExpression_${childIdentity.rid}`];
+      if (required) code.splice(1, 0, makeCodeField('requiredExpression', required, []));
+      if (code.length > 0) child.codeFields = code;
+      pageStep.children!.push(child);
+    }
+    const total = Number(data.childTotal ?? childRows.length);
+    if (Number.isFinite(total) && total > PAGE_FORM_CHILD_CAP) {
+      pageStep.hint = `Showing the first ${PAGE_FORM_CHILD_CAP} of ${total} form elements. Open a child directly to inspect it.`;
+    }
+
+    if (sourceType === 'CreateObjectView') {
+      rootStep.children = [pageStep];
+      return { steps: [rootStep] };
+    }
+    return { steps: [pageStep] };
   }
 
   private async fetchInputViewFlow(rid: string, signal?: AbortSignal): Promise<FlowChain | null> {
@@ -976,58 +1119,22 @@ export class EcQueryService {
   // ── Colour sets ────────────────────────────────────────────────
 
   /** Enumerate the workspace's colour sets + colours (for the link picker).
-   *  Walks t.ColorRoot → CorpoColorSet → CorpoColor; each colour carries its
-   *  bid (for linking via `t.<bid>`), name, and rgb (parsed from java.awt.Color). */
+   *  Selects CorpoColor directly; each colour carries its set/folder, bid
+   *  (for linking via `t.<bid>`), name, and rgb (parsed from java.awt.Color). */
   async fetchColorSets(): Promise<ColorSetData[]> {
-    const sep = '<<<CREV_COL>>>';
-    // SELECT finds every CorpoColorSet ANYWHERE in the portal tree — workspaces routinely keep
-    // custom sets in their own Categories (Steadfast: swi_default_colors, cat_q_portal), which the
-    // old `t.ColorRoot.children()` walk never saw (it also missed nesting; ColorRoot itself is a
-    // portal Category, so the stock sets come through this same query — no second source needed).
-    // Live-compared 2026-07-03 on Steadfast: SELECT = 25 sets in 6ms vs 12 sets for ColorRoot and
-    // 171ms for a filtered portal-descendants walk. The set's parent Category id rides on the S
-    // line so custom sets can lead the pickers. Per-node lines build in the small local `_l`
-    // (one `_r` touch per set — the EC accumulator rule).
-    const ec = [
-      '_c := SELECT CorpoColorSet FROM root.portal',
-      '_r := ""',
-      '_c.forEach(_set:',
-      `  _l := "${sep}S${sep}" + _set.id.whenMissing("") + "${sep}" + _set.name.whenMissing("") + "${sep}" + _set.parent.id.whenMissing("") + "\\n"`,
-      '  _set.children().forEach(_col:',
-      // Concatenate _col.color (java.awt.Color → toString) — NOT output(),
-      // which is for expression *text* and is ~600× slower here (8.8s vs ~50ms
-      // for ~100 colours). Guard on MISSING so non-colour children are skipped
-      // and the accumulator stays a text value.
-      '    _cv := _col.color',
-      '    IF _cv != MISSING THEN',
-      `      _l := _l + "${sep}C${sep}" + _col.id.whenMissing("") + "${sep}" + _col.name.whenMissing("") + "${sep}" + _cv + "\\n"`,
-      '    ENDIF',
-      '  )',
-      '  _r := _r + _l',
-      ')',
-      '_r',
-    ].join('\n');
-    const result = await this.executeEc(ec);
-    if (!result.ok || !result.log) return [];
-    const sets: ColorSetData[] = [];
-    let cur: ColorSetData | null = null;
-    for (const line of result.log.split('\n')) {
-      const parts = line.split(sep);
-      if (parts[1] === 'S') {
-        cur = { id: (parts[2] ?? '').trim(), name: (parts[3] ?? '').trim(), colors: [] };
-        const folder = (parts[4] ?? '').trim();
-        if (folder) cur.folder = folder;
-        sets.push(cur);
-      } else if (parts[1] === 'C' && cur) {
-        const bid = (parts[2] ?? '').trim();
-        const rgb = parseAwtColor(parts[4] ?? '');
-        if (bid && rgb) cur.colors.push({ bid, name: (parts[3] ?? '').trim(), rgb });
-      }
+    const result = await this.executeEc(
+      buildColorSetsEc(),
+      undefined,
+      false,
+      undefined,
+      COLOR_SETS_EC_TIMEOUT,
+    );
+    if (!result.ok) {
+      throw new Error(result.error || result.log || 'Colour query failed');
     }
-    // Workspace-custom sets first (any Category other than the stock ColorRoot), stock palette
-    // after — in the pickers you almost always want the workspace's own colours. Stable within
-    // each group (server order).
-    const custom = (s: ColorSetData): number => (s.folder && s.folder !== 'ColorRoot' ? 0 : 1);
-    return sets.filter(s => s.colors.length > 0).sort((a, b) => custom(a) - custom(b));
+    if (result.hasWarning) {
+      throw new Error(result.error || 'Colour query returned warnings and may be incomplete');
+    }
+    return parseColorSetsLog(result.log ?? '');
   }
 }

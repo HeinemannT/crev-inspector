@@ -220,7 +220,7 @@ describe('DetailView — fetch flow', () => {
       return realSetTimeout(cb, ms);
     }) as typeof setTimeout;
     try {
-      const { dv, panel } = makeDetailView();
+      const { dv, panel, sent } = makeDetailView();
       dv.show(makeObj('100'), panel);
       // Initial loading text is short
       expect(panel.querySelector('.pane-loading')?.textContent).toBe('Loading…');
@@ -238,6 +238,14 @@ describe('DetailView — fetch flow', () => {
       const wd = timers.find(t => t.ms >= 10000);
       wd?.cb();
       expect(panel.querySelector('.pane-error')).toBeTruthy();
+      expect(sent.some(m => m.type === 'CANCEL_FETCH_OBJECT_PANE')).toBe(true);
+
+      const reconnect = Array.from(panel.querySelectorAll<HTMLButtonElement>('.pane-error .btn'))
+        .find(button => button.textContent === 'Reconnect')!;
+      reconnect.click();
+      expect(sent.some(m => m.type === 'CONNECTION_TEST')).toBe(true);
+      expect(sent.filter(m => m.type === 'FETCH_OBJECT_PANE')).toHaveLength(2);
+      expect(panel.querySelector('.pane-loading')?.textContent).toBe('Loading…');
     } finally {
       (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = realSetTimeout;
     }

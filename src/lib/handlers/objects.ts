@@ -10,7 +10,7 @@ import { clearActivityLog } from '../activity';
 import { clearAllContextRids, setContextRid } from '../context-rid';
 import { errorMessage, log } from '../logger';
 import { CODE_BEARING_TYPES } from '../namespace';
-import { getColorSets, setColorSets } from '../color-set-cache';
+import { loadColorSets } from '../color-set-cache';
 import type { BmpObject, TypeOptionSet } from '../types';
 import type { TemplateResolution } from '../bmp-client';
 import * as schemaCache from '../type-schema-cache';
@@ -251,20 +251,14 @@ register('FETCH_COLOR_SETS', async (msg, respond) => {
   // the BMP round-trip — the colours come straight from storage.session.
   let sets: import('../types').ColorSetData[] = [];
   let fetchError: string | undefined;
-  if (!msg.force) {
-    const cached = await getColorSets(serverId);
-    if (cached) sets = cached;
-  }
-  if (sets.length === 0 && ctx.client) {
+  if (ctx.client) {
     try {
-      sets = await ctx.client.fetchColorSets();
-      if (sets.length > 0) await setColorSets(serverId, sets);
+      sets = await loadColorSets(serverId, () => ctx.client!.fetchColorSets(), msg.force);
     } catch (e) {
       log.swallow('handler:fetchColorSets', e);
       fetchError = errorMessage(e);
-      sets = [];
     }
-  } else if (sets.length === 0 && !ctx.client) {
+  } else {
     fetchError = 'Not connected';
   }
   // Broadcast to the panel (its colour picker listens for the broadcast) AND respond to the sender, so
@@ -741,7 +735,11 @@ register('FULL_LOOKUP', async (msg, respond) => {
 register('FETCH_CHILDREN', async (msg, respond) => {
   const ctx = getCtx();
   try {
-    const children = ctx.client ? await ctx.client.fetchChildren(msg.rid) : [];
+    if (!ctx.client) {
+      respond({ type: 'FETCH_CHILDREN_RESULT', rid: msg.rid, children: [], error: 'Not connected' });
+      return;
+    }
+    const children = await ctx.client.fetchChildren(msg.rid);
     respond({ type: 'FETCH_CHILDREN_RESULT', rid: msg.rid, children });
   } catch (e) {
     respond({ type: 'FETCH_CHILDREN_RESULT', rid: msg.rid, children: [], error: errorMessage(e) });
@@ -751,8 +749,12 @@ register('FETCH_CHILDREN', async (msg, respond) => {
 register('FETCH_LAYOUT_TREE', async (msg, respond) => {
   const ctx = getCtx();
   try {
-    const nodes = ctx.client ? await ctx.client.fetchLayoutTree(msg.rid) : [];
-    respond({ type: 'LAYOUT_TREE_RESULT', rid: msg.rid, nodes });
+    if (!ctx.client) {
+      respond({ type: 'LAYOUT_TREE_RESULT', rid: msg.rid, nodes: [], error: 'Not connected' });
+      return;
+    }
+    const result = await ctx.client.fetchLayoutTree(msg.rid);
+    respond({ type: 'LAYOUT_TREE_RESULT', rid: msg.rid, nodes: result.nodes, truncated: result.truncated });
   } catch (e) {
     respond({ type: 'LAYOUT_TREE_RESULT', rid: msg.rid, nodes: [], error: errorMessage(e) });
   }

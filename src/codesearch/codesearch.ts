@@ -14,6 +14,7 @@
 import type { InspectorMessage, CodeSearchResult } from '../lib/types';
 import { CHART_TYPES } from '../lib/types';
 import { typeBadge } from '../lib/type-badge';
+import { objectChip } from '../lib/object-chip';
 import { h, render, svg } from '../lib/dom';
 import { ICON_X, ICON_WARNING, ICON_CHECK, ICON_SEARCH, ICON_COPY, ICON_ARROWS_OUT_SIMPLE } from '../lib/icons';
 import { emptyState } from '../lib/empty-state';
@@ -270,11 +271,11 @@ function renderToolbar(): HTMLElement {
     : scopeError
       ? h('span', { class: 'cs-scope-feedback cs-scope-feedback--error', title: scopeError }, svg(ICON_WARNING), h('span', { class: 'cs-scope-feedback-name' }, scopeError))
       : scopeInfo
-        ? h('span', { class: 'cs-scope-feedback cs-scope-feedback--ok', title: `${scopeInfo.type} · ${scopeInfo.businessId || scopeInfo.rid}` },
-            '↳ ',
-            h('span', { class: 'cs-scope-feedback-name' }, scopeInfo.name || '(unnamed)'),
-            scopeInfo.type ? h('span', { class: 'cs-scope-feedback-type' }, scopeInfo.type) : null,
-          )
+        ? objectChip(scopeInfo, {
+            size: 'xs',
+            className: 'cs-scope-feedback cs-scope-feedback--ok',
+            onActivate: () => sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid: scopeInfo!.rid }),
+          })
         : null;
   const scopeRow = h('div', { class: 'cs-scope-row' },
     h('span', { class: 'cs-scope-label' }, 'Scope'),
@@ -701,4 +702,3 @@ function fireSearch(): void {
 
   renderUI();
 }
-

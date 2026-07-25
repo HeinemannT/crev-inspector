@@ -25,6 +25,7 @@ const STORAGE_KEY = 'crev_color_sets_v1';
 type Store = Record<string, ColorSetData[]>;
 
 const mem = new Map<string, ColorSetData[]>();
+const pending = new Map<string, Promise<ColorSetData[]>>();
 let loadPromise: Promise<void> | null = null;
 
 /** Hydrate the in-memory map from session storage. Idempotent + concurrency
@@ -63,6 +64,34 @@ export async function setColorSets(serverId: string, sets: ColorSetData[]): Prom
   await load();
   mem.set(serverId, sets);
   await persist();
+}
+
+/** Cache-through loader shared by every colour consumer. Concurrent panel and
+ * Blueprint requests for one profile join the same BMP round-trip. `force`
+ * bypasses stored data but still joins an already-running refresh. Empty
+ * arrays are valid cache entries; rejected fetches are never cached. */
+export async function loadColorSets(
+  serverId: string,
+  fetcher: () => Promise<ColorSetData[]>,
+  force = false,
+): Promise<ColorSetData[]> {
+  if (!force) {
+    const cached = await getColorSets(serverId);
+    if (cached !== null) return cached;
+  }
+  const existing = pending.get(serverId);
+  if (existing) return existing;
+  const request = (async () => {
+    const sets = await fetcher();
+    await setColorSets(serverId, sets);
+    return sets;
+  })();
+  pending.set(serverId, request);
+  try {
+    return await request;
+  } finally {
+    if (pending.get(serverId) === request) pending.delete(serverId);
+  }
 }
 
 /** Drop one profile's colours (or all). Used by the manual refresh. */

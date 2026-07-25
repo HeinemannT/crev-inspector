@@ -12,7 +12,6 @@ import {
   parseEcResults,
   parseTreeNodeInfo,
 } from './bmp-types';
-import { deserializeStream } from './java-serial';
 import { colorLinkBid } from './color-util';
 import { styleAssignRhs, INVALID_COLOR_BID } from './style-ec';
 import type { ColorSetData, ObjectPaneCard, AccessTraceAction, AccessTraceNode, AccessSubject, BmpObject, LayoutNode } from './types';
@@ -20,7 +19,7 @@ import { log } from './logger';
 import { HEALTH_TIMEOUT, EC_TIMEOUT } from './constants';
 import { BmpAuth, AuthError } from './bmp-auth';
 import type { AuthMode, AuthErrorCode, AuthVia } from './bmp-auth';
-import { BmpTransport } from './bmp-transport';
+import { BmpTransport, type BmpTransportOutcome } from './bmp-transport';
 import { compareVersions } from './util';
 import { validateRid, validateEcIdentifier, formatEcLiteral } from './ec-guards';
 import { resolveNamespace } from './namespace';
@@ -168,6 +167,15 @@ export const PANE_PROPS = [
 export type PaneProp = typeof PANE_PROPS[number];
 export const PANE_PROPS_SET: ReadonlySet<string> = new Set(PANE_PROPS);
 
+/** Identity fields edited from Full Object View. Keep these separate from
+ * PANE_PROPS: they are already returned as ObjectPaneIdentity, so adding them
+ * to the pane-property query would fetch the same values a second time. */
+export const OBJECT_IDENTITY_PROPS = ['name', 'id'] as const;
+export const OBJECT_CHANGE_PROPS_SET: ReadonlySet<string> = new Set([
+  ...PANE_PROPS,
+  ...OBJECT_IDENTITY_PROPS,
+]);
+
 // ── Access-trace parsing ──────────────────────────────────────────
 // The deserialized tree uses boxed java.lang.Boolean ({value}), HashMaps
 // ({$map} / {$entries}), and ArrayLists ({$elements}); java.time.Duration is
@@ -277,6 +285,9 @@ export class BmpClient {
   get authMode(): AuthMode { return this.auth.authMode; }
   /** How the live session was actually obtained (session-borrow vs password). */
   get authVia(): AuthVia | null { return this.auth.via; }
+  setTransportOutcomeObserver(observer: ((outcome: BmpTransportOutcome) => void) | null): void {
+    this.transport.setOutcomeObserver(observer);
+  }
   updateCredentials(user: string, pass: string, authMode?: AuthMode): void {
     this.auth.updateCredentials(user, pass, authMode);
   }
@@ -288,33 +299,36 @@ export class BmpClient {
   applyVersionFlags(version: string) {
     const v = version.replace(/^v\.?/i, '');
     const isOld = compareVersions(v, '5.6.3.0') < 0;
-    // Ticket authentication is accepted across BMP versions and is required
-    // by current 5.6.10 /cs/command deployments. Version still determines
-    // whether EC lookup() is available.
-    this.transport.useTicketAuth = true;
+    // LoginTicket authentication is the transport's single cross-version
+    // command path. Version only determines whether EC lookup() is available.
     this.supportsLookup = !isOld;
   }
 
   /** Safe fallback when version detection fails — assume old BMP.
    *  Binary mode with ticket auth works on all BMP versions. */
   assumeOldBmp() {
-    this.transport.useTicketAuth = true;
     this.supportsLookup = false;
   }
 
   // ── Auth delegation ──────────────────────────────────────────
 
   async testConnection(): Promise<ConnectionResult> {
+    let authenticated = false;
     try {
-      await this.auth.login();
-      return { ok: true, message: 'Authenticated', authenticated: true };
+      await this.auth.ensureAuth();
+      authenticated = true;
+      const probe = await this.executeEc('1', undefined, false);
+      if (!probe.ok) {
+        return { ok: false, message: probe.error ?? probe.log ?? 'BMP command probe failed', authenticated: true };
+      }
+      return { ok: true, message: 'Authenticated and command channel ready', authenticated: true };
     } catch (e) {
       // AuthError carries a precise cause; everything else (network throw,
       // serializer error) is reported via the transport's generic formatter.
       if (e instanceof AuthError) {
         return { ok: false, message: e.message, authenticated: false, code: e.code };
       }
-      return { ok: false, message: this.transport.formatError(e), authenticated: false };
+      return { ok: false, message: this.transport.formatError(e), authenticated };
     }
   }
 
@@ -344,8 +358,8 @@ export class BmpClient {
    *  Response format: ArrayList<IntegrationObjectResponse> where .response = TreeNodeInformationDto. */
   private async fetchTreeItem(rid: string, signal?: AbortSignal): Promise<ReturnType<typeof parseTreeNodeInfo>> {
     const cmd = makeTreeItemCommand(rid);
-    const buffer = await this.transport.sendCommands([cmd], signal);
-    const objects = deserializeStream(buffer);
+    const buffer = await this.transport.sendCommands([cmd], 'read', signal);
+    const objects = this.transport.deserializeStream(buffer);
     for (const obj of objects) {
       const cls = obj?.$class ?? '';
       if (cls.includes('ServerExceptionResponse')) continue;
@@ -372,8 +386,8 @@ export class BmpClient {
   async saveProperty(rid: string, objectType: string, property: string, value: string): Promise<{ ok: boolean; error?: string }> {
     try {
       const cmd = makeUpdateCommand(rid, objectType, { [property]: value });
-      const buffer = await this.transport.sendCommands([cmd]);
-      const raw = this.transport.deserializeResponse(buffer);
+      const buffer = await this.transport.sendCommands([cmd], 'write');
+      const raw = this.transport.deserializeResponse(buffer, 'write');
 
       if (raw?.$class?.includes('ServerExceptionResponse')) {
         return { ok: false, error: raw.message ?? 'Server error' };
@@ -451,8 +465,8 @@ export class BmpClient {
     action: AccessTraceAction = 'READ',
     signal?: AbortSignal,
   ): Promise<AccessTraceNode | null> {
-    const buffer = await this.transport.sendCommands([makeAccessTraceCommand(rid, subjectRid, action)], signal);
-    return extractAccessTrace(deserializeStream(buffer));
+    const buffer = await this.transport.sendCommands([makeAccessTraceCommand(rid, subjectRid, action)], 'read', signal);
+    return extractAccessTrace(this.transport.deserializeStream(buffer));
   }
 
   /** List users + roles (the possible trace subjects) via EC, sorted by name. */
@@ -480,7 +494,7 @@ export class BmpClient {
       // prefix, so a bare number would be indistinguishable from the status/
       // duration log lines. `whenMissing(0)` yields "ORG=0" for no owning org.
       const cmd = makeExtendedExecuteCommand(`"ORG=" + str(lookup(${objectRid}).organisation.rid.whenMissing(0))`, {});
-      const r = parseEcResults(await this.transport.sendStreamingCommand(cmd));
+      const r = parseEcResults(await this.transport.sendStreamingCommand(cmd, 'read'));
       if (!r.ok) return undefined; // transient failure: don't cache, retry next run
       const m = r.log?.match(/ORG=(-?\d+)/);
       const org = m && m[1] !== '0' ? BigInt(m[1]) : undefined;
@@ -498,7 +512,12 @@ export class BmpClient {
         orgRid: objectRid ? await this.resolveOrgRid(objectRid) : undefined,
         transactional,
       });
-      const objects = await this.transport.sendStreamingCommand(cmd, signal, timeoutMs);
+      const objects = await this.transport.sendStreamingCommand(
+        cmd,
+        transactional ? 'write' : 'read',
+        signal,
+        timeoutMs,
+      );
       return parseEcResults(objects);
     } catch (e) {
       // AbortSignal.timeout → TimeoutError; a caller-passed abort → AbortError.
@@ -548,7 +567,7 @@ export class BmpClient {
    *  Returned types: Tab, TabSet, Container, plus widget objects bound to
    *  any container in the subtree (rendered as leaves with their cell
    *  reference). */
-  async fetchLayoutTree(rid: string): Promise<LayoutNode[]> {
+  async fetchLayoutTree(rid: string): Promise<{ nodes: LayoutNode[]; truncated: boolean }> {
     return this.ecQuery.fetchLayoutTree(rid);
   }
 
@@ -599,8 +618,8 @@ export class BmpClient {
     return this.ecQuery.fetchFlowChain(rid, type, signal);
   }
 
-  /** Apply a batched style change to a single object via _o.change(...).
-   *  Property names MUST be in PANE_PROPS_SET; values are escaped client-side.
+  /** Apply a batched pane/identity change to a single object via _o.change(...).
+   *  Property names MUST be in OBJECT_CHANGE_PROPS_SET; values are escaped client-side.
    *  Atomic per the EC change() semantics — partial application is impossible. */
   async applyObjectChanges(
     rid: string,
@@ -610,7 +629,7 @@ export class BmpClient {
     const props = Object.keys(changes);
     if (props.length === 0) return { ok: true };
     for (const p of props) {
-      if (!PANE_PROPS_SET.has(p)) {
+      if (!OBJECT_CHANGE_PROPS_SET.has(p)) {
         // Print enough context to diagnose the cause. We had a report
         // ("Property not allowed: disableSearch") for a prop that's
         // explicitly in PANE_PROPS — the most likely cause is a stale
@@ -620,10 +639,10 @@ export class BmpClient {
         const codepoints = [...p].map(c => c.codePointAt(0)?.toString(16)).join(',');
         return {
           ok: false,
-          error: `Property not allowed: "${p}" (codepoints ${codepoints}; ${PANE_PROPS_SET.size} props in allowlist). If this prop normally works, try Disable + Re-enable the extension to refresh the service worker.`,
+          error: `Property not allowed: "${p}" (codepoints ${codepoints}; ${OBJECT_CHANGE_PROPS_SET.size} props in allowlist). If this prop normally works, try Disable + Re-enable the extension to refresh the service worker.`,
         };
       }
-      // Defense-in-depth: PANE_PROPS_SET is already an allowlist, but valid-
+      // Defense-in-depth: OBJECT_CHANGE_PROPS_SET is already an allowlist, but valid-
       // ating the identifier shape ensures even a corrupted allowlist can't
       // become an injection vector.
       validateEcIdentifier(p);

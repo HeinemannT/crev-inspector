@@ -36,8 +36,9 @@ export interface ObjectCardActions {
 function copyRow(k: string, value: string | undefined, dim = false): HTMLElement | null {
   if (!value) return null
   const v = h('span', { class: `crev-tt-v${dim ? ' crev-tt-v--dim' : ''}` }, value)
-  return h('div', {
+  return h('button', {
     class: 'crev-tt-cprow',
+    type: 'button',
     title: `Copy ${k}`,
     onClick: (e: Event) => {
       e.stopPropagation()

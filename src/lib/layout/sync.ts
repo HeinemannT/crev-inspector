@@ -7,17 +7,16 @@
  * agnostic (same code path in the service worker and in tests).
  *
  * The two-model split is handled in ONE fetch round trip:
- *   - grid   (Tab + Container tree)  ← `t.<tabsetId>.descendants()`        (portal model)
- *   - widgets + composites           ← `lookup(<pageRid>).descendants()` (org model)
+ *   - grid   (Tab + Container tree)  ← `t.<tabsetId>.descendants()` (portal model)
+ *   - widgets + composites           ← page children/composites (org model)
  * Both are emitted into a single pipe-delimited list in the exact 9-field wire shape that
  * `reconstruct` already consumes (rid|bid|name|type|parentRid|containerRid|L|M|S).
  *
- * `descendants()` (not `children()`) on the org side is deliberate: a composite widget like
- * ButtonContainer nests its child buttons one level deeper (the button's `parent` is the
- * ButtonContainer, not the scorecard), and `children()` would miss them. `descendants()` was
- * verified to return ONLY layout objects — no config sub-objects (expressions, table columns)
- * leak in. A widget's phantom RESULT placement is mapped to an empty containerRid so it falls
- * through to its org parent. Verified live against demo scorecard 4957 on 2026-06-26.
+ * The full Blueprint projection walks org descendants because it also needs nested composite
+ * children and rich editing channels, then strips content below leaf widgets client-side. The
+ * lean AI projection never materializes that content: it starts at page children and expands
+ * only ButtonContainer/ButtonGroup children. A widget's phantom RESULT placement is mapped to
+ * an empty containerRid so it falls through to its org parent.
  *
  * Apply is diff → compile → exec → RE-FETCH. We never map temp ids to real rids: the
  * re-fetch is the new source of truth, which also makes apply idempotent (a second apply of
@@ -62,6 +61,13 @@ export interface LoadResult {
   orphans: WireNode[];
 }
 
+export interface StructureLoadResult {
+  model: LModel;
+  orphans: WireNode[];
+  /** True when the read-only AI projection stopped at its source-node safety ceiling. */
+  truncated: boolean;
+}
+
 export interface ApplyResult {
   ok: boolean;
   /** True when the desired model equalled the baseline — nothing was executed. */
@@ -94,6 +100,8 @@ const PAGE = PAGE_MARKER; // page-name marker (support-Category naming)
 const CTX = CTX_MARKER;   // page-context probe marker
 const OVER = OVER_MARKER; // F2 per-widget override channel marker
 const STYLE = STYLE_MARKER; // G3 per-widget style channel marker
+const STRUCTURE_LIMIT = '<<<CREV_LAYOUT_LIMIT>>>';
+export const STRUCTURE_FETCH_NODE_CAP = 600;
 // Shared EC id/rid sanitisation (the same guards the other EC generators use).
 const ecBid = validateBusinessId;
 const ecRid = validateRid;
@@ -231,10 +239,25 @@ function buildFlowEmit(): string[] {
  * the tab list to it. Widgets with no container binding are emitted with an empty containerRid —
  * `parseFetchLog` routes those to `orphans`.
  */
-export function buildFetchEc(ctx: BlueprintCtx): string {
+export interface LayoutFetchOptions {
+  /** `full` powers Blueprint editing; `structure` omits edit-only style,
+   * override, and flow channels for read-only consumers such as AI. */
+  projection?: 'full' | 'structure';
+  /** Number of node rows accumulated before touching the large output string. */
+  chunkSize?: number;
+  /** Chart height is authoring metadata and can be omitted by structural readers. */
+  includeHeight?: boolean;
+}
+
+export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}): string {
+  const projection = options.projection ?? 'full';
+  const chunkSize = Math.max(1, Math.trunc(options.chunkSize ?? 16));
+  const flushAfter = chunkSize - 1;
+  const includeHeight = options.includeHeight ?? true;
   const ts = `t.${ecBid(ctx.tabsetId)}`;
   const sc = `lookup(${ecRid(ctx.pageRid)})`;
   const cols = (v: string) => `${v}.columnsLargeScreen.whenMissing("") + "|" + ${v}.columnsMediumScreen.whenMissing("") + "|" + ${v}.columnsSmallScreen.whenMissing("")`;
+  const height = includeHeight ? '_w.chartHeight.whenMissing("")' : '""';
   // Field order (see layout-wire.ts): rid|bid|type|parent|container|L|M|S|height|name. `name` is LAST
   // and free-text, so a `|` in a name can't shift the structural fields. EVERY emit line ends with the
   // raw name as the final field.
@@ -278,9 +301,33 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
   const orgLoop = [
     `_c := ""`,
     `_i := 0`,
-    `_sc.descendants().forEach(_w:`,
-    `     _cn := _w.className.whenMissing("")`,
+    ...(projection === 'structure' ? [
+      // Do not materialize every descendant for an AI outline. Start with
+      // page-owned children and expand only the two layout-composite classes;
+      // table rows, list members, indicator internals, and detail portals
+      // therefore never enter the working collection.
+      `_layoutNodes := _sc.children()`,
+      `_sc.descendants(ButtonContainer).forEach(_composite:`,
+      `     _layoutNodes := _layoutNodes.union(_composite.children())`,
+      `)`,
+      `_sc.descendants(ButtonGroup).forEach(_composite:`,
+      `     _layoutNodes := _layoutNodes.union(_composite.children())`,
+      `)`,
+      `_layoutNodes.forEach(_w:`,
+    ] : [
+      `_sc.descendants().forEach(_w:`,
+    ]),
     `     _l := ""`,
+    ...(projection === 'structure' ? [
+      `     _layoutNode := "1"`,
+      `     IF _structureEmitted > ${STRUCTURE_FETCH_NODE_CAP - 1} THEN`,
+      `          _layoutNode := "0"`,
+      `          _structureLimitHit := "1"`,
+      `     ELSE`,
+      `          _structureEmitted := _structureEmitted + 1`,
+      `     ENDIF`,
+    ] : []),
+    `     _cn := _w.className.whenMissing("")`,
     // An action-menu ActionButton (displayOnActionMenu) is NOT part of the editable GRID — BMP renders it
     // in the page's action MENU, not a cell — so it gets no SEP widget line (it stays out of the layout
     // model, like a ghost). But we DO still project its flow below (the tray reads that). Every other
@@ -291,26 +338,28 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `     ELSE`,
     `          _isMenuAB := _isMenuAB`,
     `     ENDIF`,
-    `     IF _isMenuAB = "0" THEN`,
-    `          _l := "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _cn + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + _w.chartHeight.whenMissing("") + "|" + _w.name.whenMissing("") + "\\n"`,
+    `     IF _isMenuAB = "0"${projection === 'structure' ? ' AND _layoutNode = "1"' : ''} THEN`,
+    `          _l := "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _cn + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + ${height} + "|" + _w.name.whenMissing("") + "\\n"`,
     // The override channel only means anything for INSTANCE loads (a template's widgets have no
     // linkedTo, so every check would compare a widget against MISSING and emit nothing). Skipping it
     // for template-target loads drops ~2·|OVERRIDABLE_PROPS| property reads per widget — a real win
     // on heavy pages, where the fetch EC is the slow half of opening the blueprint.
-    ...(ctx.target === 'template' ? [] : overEmit),
-    ...styleEmit,
+    ...(projection === 'full' && ctx.target !== 'template' ? overEmit : []),
+    ...(projection === 'full' ? styleEmit : []),
     `     ELSE`,
     `          _l := _l`,
     `     ENDIF`,
     // Flow projection for a flow-bearing widget (both in-grid and action-menu). Rides the same _l.
-    `     IF _cn = "InputView" OR _cn = "CreateObjectView" OR _cn = "ActionButton" THEN`,
-    ...buildFlowEmit(),
-    `     ELSE`,
-    `          _l := _l`,
-    `     ENDIF`,
+    ...(projection === 'full' ? [
+      `     IF _cn = "InputView" OR _cn = "CreateObjectView" OR _cn = "ActionButton" THEN`,
+      ...buildFlowEmit(),
+      `     ELSE`,
+      `          _l := _l`,
+      `     ENDIF`,
+    ] : []),
     `     _c := _c + _l`,
-    `     _i := _i + 1`,
-    `     IF _i > 15 THEN`,
+    `     IF _l <> "" THEN _i := _i + 1 ELSE _i := _i ENDIF`,
+    `     IF _i > ${flushAfter} THEN`,
     `          _r := _r + _c`,
     `          _c := ""`,
     `          _i := 0`,
@@ -328,10 +377,17 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     return [
       `_sc := ${sc}`,
       `_r := ""`,
+      ...(projection === 'structure' ? [
+        `_structureEmitted := 0`,
+        `_structureLimitHit := "0"`,
+      ] : []),
       `_r := _r + "${PAGE}" + _sc.name.whenMissing("") + "\\n"`,
       `_res := t.${RESULT_TAB_ID}`,
       `_r := _r + "${SEP}" + _res.rid + "|${RESULT_TAB_ID}|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + _res.name.whenMissing("Result") + "\\n"`,
       ...orgLoop,
+      ...(projection === 'structure' ? [
+        `IF _structureLimitHit = "1" THEN _r := _r + "${STRUCTURE_LIMIT}${STRUCTURE_FETCH_NODE_CAP}\\n" ELSE _r := _r ENDIF`,
+      ] : []),
       `_r`,
     ].join('\n');
   }
@@ -339,6 +395,10 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `_ts := ${ts}`,
     `_sc := ${sc}`,
     `_r := ""`,
+    ...(projection === 'structure' ? [
+      `_structureEmitted := 0`,
+      `_structureLimitHit := "0"`,
+    ] : []),
     `_r := _r + "${PAGE}" + _sc.name.whenMissing("") + "\\n"`,
     `_r := _r + "${SEP}" + ${root} + "\\n"`,
     // The scorecard's intrinsic "Result" tab lives in the SHARED default_tabset, not this page's tabset,
@@ -360,10 +420,20 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `_c := ""`,
     `_i := 0`,
     `_ts.descendants().forEach(_n:`,
-    `     _l := "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + _n.name.whenMissing("") + "\\n"`,
+    ...(projection === 'structure' ? [
+      `     _l := ""`,
+      `     IF _structureEmitted > ${STRUCTURE_FETCH_NODE_CAP - 1} THEN`,
+      `          _structureLimitHit := "1"`,
+      `     ELSE`,
+      `          _l := "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + _n.name.whenMissing("") + "\\n"`,
+      `          _structureEmitted := _structureEmitted + 1`,
+      `     ENDIF`,
+    ] : [
+      `     _l := "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + _n.name.whenMissing("") + "\\n"`,
+    ]),
     `     _c := _c + _l`,
-    `     _i := _i + 1`,
-    `     IF _i > 15 THEN`,
+    `     IF _l <> "" THEN _i := _i + 1 ELSE _i := _i ENDIF`,
+    `     IF _i > ${flushAfter} THEN`,
     `          _r := _r + _c`,
     `          _c := ""`,
     `          _i := 0`,
@@ -373,6 +443,9 @@ export function buildFetchEc(ctx: BlueprintCtx): string {
     `)`,
     `_r := _r + _c`,
     ...orgLoop,
+    ...(projection === 'structure' ? [
+      `IF _structureLimitHit = "1" THEN _r := _r + "${STRUCTURE_LIMIT}${STRUCTURE_FETCH_NODE_CAP}\\n" ELSE _r := _r ENDIF`,
+    ] : []),
     `_r`,
   ].join('\n');
 }
@@ -871,6 +944,28 @@ export async function loadModel(io: LayoutIO, ctx: BlueprintCtx): Promise<LoadRe
   const pageName = parsePageName(log);   // names the ONE support Category new sets/pages/tabset land in
   if (pageName) { model.pageName = pageName; baseline.pageName = pageName; }
   return { model, baseline, orphans: findOrphans(nodes, model) };
+}
+
+/** Lean read-only layout projection. It preserves the exact structural model
+ * while skipping Blueprint-only style, override, flow, height, and baseline
+ * work. The 32-node chunk won the live Steadfast benchmark (2026-07-24). */
+export async function loadStructureModel(io: LayoutIO, ctx: BlueprintCtx): Promise<StructureLoadResult> {
+  const res = await io.exec(buildFetchEc(ctx, {
+    projection: 'structure',
+    chunkSize: 32,
+    includeHeight: false,
+  }));
+  if (!res.ok) throw new Error(res.error || 'layout structure fetch failed');
+  const log = res.log ?? '';
+  const nodes = stripWidgetContent(parseFetchLog(log));
+  const model = reconstruct(nodes, ctx);
+  const pageName = parsePageName(log);
+  if (pageName) model.pageName = pageName;
+  return {
+    model,
+    orphans: findOrphans(nodes, model),
+    truncated: log.includes(STRUCTURE_LIMIT),
+  };
 }
 
 /**

@@ -44,6 +44,15 @@ describe('renderFlowSection', () => {
     expect(err!.textContent).toBe('bridge unreachable');
   });
 
+  it('retries a failed flow when the caller provides recovery', () => {
+    const onRetry = vi.fn();
+    const el = renderFlowSection(inputs({ error: 'connection lost', onRetry }));
+    const retry = el.querySelector<HTMLButtonElement>('.flow-error button');
+    expect(retry?.textContent).toBe('Retry');
+    retry?.click();
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
   it('renders "No flow data" when chain has no steps', () => {
     const el = renderFlowSection(inputs({ chain: { steps: [] } as FlowChainMsg }));
     expect(el.querySelector('.flow-empty')).toBeTruthy();

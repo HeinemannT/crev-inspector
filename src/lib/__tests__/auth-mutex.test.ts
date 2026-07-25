@@ -46,6 +46,9 @@ beforeEach(() => {
         json: async () => ({ accessToken: 'jwt-token-abc', refreshToken: 'rt-123' }),
       } as any;
     }
+    if (urlStr.includes('/ticket')) {
+      return new Response('ticket-abc', { status: 200 });
+    }
     return { ok: false, status: 404, text: async () => '' } as any;
   });
 });
@@ -161,5 +164,68 @@ describe('BmpAuth login mutex', () => {
     const jwt = await auth.login();
     expect(jwt).toBe('jwt-token-abc');
     expect(fetchCallCount).toBe(2);
+  });
+
+  it('an expired access token cannot be restored from the stale session blob', async () => {
+    const BmpAuth = await getBmpAuth();
+    const auth = new BmpAuth('https://bmp.test/', 'admin', 'pass', 'p1');
+    await chrome.storage.session.set({
+      crev_jwt_p1: { jwt: 'rejected-jwt', refreshToken: 'usable-refresh', via: 'session' },
+    });
+
+    expect(await auth.restoreFromSession()).toBe(true);
+    auth.expireAccessToken();
+
+    // In-memory state is authoritative immediately; the async storage update
+    // cannot race a restore of the token that was just rejected.
+    expect(await auth.restoreFromSession()).toBe(false);
+    expect(auth.jwt).toBeNull();
+    await vi.waitFor(async () => {
+      const saved = (await chrome.storage.session.get('crev_jwt_p1')).crev_jwt_p1;
+      expect(saved).toMatchObject({ jwt: null, refreshToken: 'usable-refresh' });
+    });
+  });
+
+  it('deduplicates concurrent refresh-first credential recovery', async () => {
+    const BmpAuth = await getBmpAuth();
+    const auth = new BmpAuth('https://bmp.test/', 'admin', 'pass', 'p1');
+    await chrome.storage.session.set({
+      crev_jwt_p1: { jwt: 'old-jwt', refreshToken: 'rt-123', via: 'session' },
+    });
+    await auth.restoreFromSession();
+    auth.expireAccessToken();
+    fetchCallCount = 0;
+
+    const results = await Promise.all([
+      auth.recoverAuth(),
+      auth.recoverAuth(),
+      auth.recoverAuth(),
+      auth.recoverAuth(),
+    ]);
+
+    expect(results).toEqual([
+      'jwt-token-abc',
+      'jwt-token-abc',
+      'jwt-token-abc',
+      'jwt-token-abc',
+    ]);
+    expect(fetchCallCount).toBe(1);
+  });
+
+  it('deduplicates concurrent forced LoginTicket refreshes', async () => {
+    const BmpAuth = await getBmpAuth();
+    const auth = new BmpAuth('https://bmp.test/', 'admin', 'pass', 'p1');
+    (auth as any)._jwt = 'jwt-token-abc';
+    fetchCallCount = 0;
+
+    const tickets = await Promise.all([
+      auth.refreshLoginTicket(),
+      auth.refreshLoginTicket(),
+      auth.refreshLoginTicket(),
+      auth.refreshLoginTicket(),
+    ]);
+
+    expect(tickets).toEqual(['ticket-abc', 'ticket-abc', 'ticket-abc', 'ticket-abc']);
+    expect(fetchCallCount).toBe(1);
   });
 });
