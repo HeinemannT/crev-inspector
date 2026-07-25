@@ -39,6 +39,15 @@ function dragHandle(): HTMLElement {
   return handle;
 }
 
+/** Stock BMP EditFields are often all named literally "Edit field". In that case the property
+ * mapping is the only useful label available in this bounded read; configured names still win. */
+export function editPageFieldLabel(node: FlowNode): string {
+  if (node.className === 'EditField' && /^edit field$/i.test(node.name.trim()) && node.prop) {
+    return node.prop.replace(/[_-]+/g, ' ').toUpperCase();
+  }
+  return node.name || node.className;
+}
+
 function field(node: FlowNode, pageId: string): HTMLElement {
   const row = document.createElement('div');
   row.className = `bp-ep-field kind-${node.className}`;
@@ -54,7 +63,7 @@ function field(node: FlowNode, pageId: string): HTMLElement {
   label.className = 'bp-ep-label';
   label.appendChild(flowBadge(node.className, node.id.includes(':'), true));
   const name = document.createElement('span');
-  name.textContent = node.name || node.className;
+  name.textContent = editPageFieldLabel(node);
   name.dataset.bprename = node.id;
   label.appendChild(name);
   if (node.required) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FlowNode } from '../../lib/layout/types';
 import { projectEditPage } from '../edit-page-model';
+import { editPageFieldLabel } from '../edit-page-result';
 
 const node = (id: string, className = 'EditField', name = id): FlowNode => ({
   id, className, name, isBreak: className.includes('Break'),
@@ -35,3 +36,14 @@ describe('projectEditPage', () => {
   });
 });
 
+describe('editPageFieldLabel', () => {
+  it('uses the property mapping when BMP supplies only the generic stock name', () => {
+    expect(editPageFieldLabel({ id: 'a', className: 'EditField', name: 'Edit field', prop: 'rpo_hours' }))
+      .toBe('RPO HOURS');
+  });
+
+  it('keeps a configured field name', () => {
+    expect(editPageFieldLabel({ id: 'a', className: 'EditField', name: 'Risk title', prop: 'name' }))
+      .toBe('Risk title');
+  });
+});
