@@ -2,10 +2,6 @@
 
 CREV Inspector is a Chrome side-panel extension for inspecting and changing Corporater BMP without opening Configuration Studio. It labels the objects rendered on a BMP page, opens their real configuration, edits code, and stages visual layout changes.
 
-<p align="center">
-  <img src="docs/images/inspect-object.png" width="520" alt="CREV Inspector showing the code property of a TextElement">
-</p>
-
 ## Install
 
 1. Download `crev-inspector-x.y.z.zip` from [Releases](https://github.com/HeinemannT/crev-inspector/releases/latest) and unzip it.
@@ -17,21 +13,15 @@ Current Chromium browsers are supported (Chrome or Edge 114+).
 
 ## Connect to BMP
 
-Open **Connect**, add the BMP workspace URL, then approve Chrome's site-access prompt. CREV requests access only to configured BMP origins and revokes it when you delete a profile.
-
-Credentials are optional. With no password, CREV borrows your active browser session, including SSO, VPN, and client-certificate sessions. If you store credentials, CREV tries the browser session first and uses the stored login as a fallback.
-
-The connection strip distinguishes these states:
-
-- **Connected via browser session**
-- **Connected via stored login**
-- **Not logged in**
-- **No Configuration Access**
-- **Authentication failed**
+Sign in to BMP with an account that has Configuration Access (normally an administrator or configurator), then add the workspace URL under **Connect** and approve Chrome's site-access prompt. CREV normally borrows the active browser session; stored credentials are an optional fallback.
 
 ## Inspect objects
 
 Turn on **Inspect** from the header or press `Ctrl+Shift+X`. CREV outlines rendered BMP objects and adds a type-coloured ID pill.
+
+<p align="center">
+  <img src="docs/images/inspect-object.png" width="980" alt="A BMP widget outlined by Inspect with its object pill, flow action, and hover card">
+</p>
 
 | Gesture | Result |
 |---|---|
@@ -71,7 +61,7 @@ Text and CVO properties open in their dedicated studios:
 Press `Ctrl+Shift+B` to place Blueprint over the live page. Choose **Template** or **This instance**, then work with the structure BMP actually renders.
 
 <p align="center">
-  <img src="docs/images/blueprint-page.png" width="980" alt="Blueprint showing a rendered scorecard, a CreateObjectView, and its linked EditPage fields">
+  <img src="docs/images/blueprint-page.png" width="1000" alt="Blueprint showing a three-page EditPage with two columns, information blocks, and multiple field types">
 </p>
 
 Blueprint supports:
@@ -88,10 +78,6 @@ Changes remain staged. The counter, undo, redo, and discard controls operate on 
 
 Edit Page Blueprint follows page navigation, page breaks, columns, field order, and the configured form width. Move fields within or between columns and pages, add supported elements, and edit field properties while seeing the rendered form structure.
 
-<p align="center">
-  <img src="docs/images/blueprint-edit-page.png" width="900" alt="Edit Page Blueprint showing two pages and editable fields at the configured width">
-</p>
-
 A CreateObjectView can select an existing EditPage or stage a new one. New EditPages inherit the object class needed to configure their fields immediately.
 
 ## Find references, code, and differences
@@ -103,34 +89,17 @@ A CreateObjectView can select an existing EditPage or stage a new one. New EditP
 
 ## Use the optional AI assistant
 
-Open **Connect → AI Assistant → Set up**. Built-in presets cover Anthropic, OpenAI, DeepSeek, and Grok. The AI UI stays hidden until you configure a provider.
+Configure a provider under **Connect → AI Assistant → Set up**. CREV supports Anthropic, OpenAI, DeepSeek, Grok, and custom compatible endpoints.
 
-For another endpoint, click **Add custom provider** and edit the JSON:
+Use the assistant to:
 
-```json
-{
-  "name": "OpenRouter",
-  "vendor": "openrouter",
-  "apiKey": "",
-  "apiType": "openai",
-  "models": [
-    {
-      "id": "anthropic/claude-sonnet-4",
-      "name": "Claude Sonnet 4",
-      "url": "https://openrouter.ai/api/v1",
-      "toolCalling": true,
-      "vision": true,
-      "maxInputTokens": 200000,
-      "maxOutputTokens": 64000,
-      "maxTokensParam": "max_completion_tokens"
-    }
-  ]
-}
-```
+- explain the selected object, its properties, references, and place in the page
+- trace supported widget and action flows
+- find workspace objects and return them as hoverable, clickable object chips
+- explain, draft, or revise Extended Code using the current editor context
+- work through HTML, CVO, and JSON transformation problems
 
-`apiType` selects the wire format and accepts `openai` or `anthropic`. OpenAI-format models default to `max_completion_tokens`; set `maxTokensParam` to `max_tokens` for DeepSeek and older compatible APIs. At least one model must enable `toolCalling`. CREV encrypts the key and removes it from the saved JSON.
-
-Chat uses the current object and page context. Object references render as the same hoverable, clickable chips used elsewhere in CREV. Code changes are proposals until you review and save them.
+The assistant can inspect workspace context, but code changes remain proposals until you review and save them.
 
 ## Shortcuts
 
