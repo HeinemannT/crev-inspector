@@ -1,5 +1,5 @@
 /**
- * HTML output detection + inert preview document builder.
+ * HTML output detection for Extended Code results.
  *
  * Detection uses BMP's structured EC log entries, not the editor source. That
  * keeps conditionals, concatenation and `this` resolution authoritative. The
@@ -11,8 +11,6 @@ import { decodeEscapes } from './ec-output'
 const HTML_ELEMENT_RE = /<(?:!doctype|a|abbr|article|aside|b|blockquote|body|br|button|caption|code|col|colgroup|dd|details|div|dl|dt|em|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|html|i|img|input|label|legend|li|main|mark|nav|ol|optgroup|option|p|picture|pre|progress|section|select|small|source|span|strong|style|sub|summary|sup|svg|table|tbody|td|textarea|tfoot|th|thead|time|tr|u|ul|video)\b/i
 const DURATION_RE = /^\s*Duration\s*:/i
 const RESULT_NOISE_RE = /^\s*(?:|0|true|false|missing|none)\s*$/i
-const BLOCKED_ELEMENTS = 'script,iframe,object,embed,link,meta,base,form'
-const URL_ATTRIBUTES = new Set(['href', 'xlink:href', 'action', 'formaction', 'poster', 'data'])
 
 export function looksLikeHtmlOutput(value: string): boolean {
   return HTML_ELEMENT_RE.test(value)
@@ -55,51 +53,4 @@ export function extractHtmlOutput(
     .trim()
   const value = decode ? decodeEscapes(fallback) : fallback
   return value.startsWith('<') && looksLikeHtmlOutput(value) ? value : null
-}
-
-/** Remove active/navigating content before it reaches the locked iframe. */
-export function sanitizeHtmlPreview(value: string): string {
-  const template = document.createElement('template')
-  template.innerHTML = value
-  template.content.querySelectorAll(BLOCKED_ELEMENTS).forEach(node => node.remove())
-  template.content.querySelectorAll('*').forEach(element => {
-    for (const attribute of [...element.attributes]) {
-      const name = attribute.name.toLowerCase()
-      if (name.startsWith('on') || name === 'srcdoc' || URL_ATTRIBUTES.has(name)) {
-        element.removeAttribute(attribute.name)
-        continue
-      }
-      if ((name === 'src' || name === 'srcset') && !attribute.value.trim().toLowerCase().startsWith('data:image/')) {
-        element.removeAttribute(attribute.name)
-      }
-    }
-  })
-  return template.innerHTML
-}
-
-export function buildHtmlPreviewDocument(value: string): string {
-  const safe = sanitizeHtmlPreview(value)
-  return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'">
-<style>
-  * { box-sizing: border-box; }
-  html, body { min-height: 100%; }
-  body {
-    margin: 0;
-    padding: 12px 14px;
-    color: #343536;
-    background: #fff;
-    font: 12px/1.45 Lato, "Helvetica Neue", sans-serif;
-  }
-  table { border-collapse: collapse; }
-  th, td { padding: 5px 8px; border: 1px solid #e2e2e2; text-align: left; }
-  tbody tr:nth-child(even) { background: #f7f7f8; }
-  a { color: #5f2bbf; text-decoration: underline; pointer-events: none; }
-</style>
-</head>
-<body>${safe}</body>
-</html>`
 }

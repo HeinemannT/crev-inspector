@@ -2,11 +2,9 @@
 import { describe, expect, it } from 'vitest'
 import type { EcOutputEntry } from '../../lib/bmp-types'
 import {
-  buildHtmlPreviewDocument,
   extractHtmlOutput,
   looksLikeHtmlOutput,
-  sanitizeHtmlPreview,
-} from '../ec-html-preview'
+} from '../ec-html-output'
 
 const entry = (
   message: string,
@@ -66,34 +64,5 @@ describe('HTML output detection', () => {
     expect(extractHtmlOutput(undefined, '<p>Legacy</p>\nDuration : 2ms', true))
       .toBe('<p>Legacy</p>')
     expect(extractHtmlOutput(undefined, 'debug\n<p>Legacy</p>', true)).toBeNull()
-  })
-})
-
-describe('inert HTML preview', () => {
-  it('removes executable, navigating and remote-loading content', () => {
-    const safe = sanitizeHtmlPreview(`
-      <script>alert(1)</script>
-      <iframe srcdoc="<script>alert(2)</script>"></iframe>
-      <form action="https://example.com"><button onclick="go()">Go</button></form>
-      <a href="https://example.com" onmouseover="go()">Link</a>
-      <img src="https://example.com/a.png" onerror="go()">
-      <img src="data:image/png;base64,AAAA">
-    `)
-    expect(safe).not.toContain('<script')
-    expect(safe).not.toContain('<iframe')
-    expect(safe).not.toContain('<form')
-    expect(safe).not.toContain('onclick')
-    expect(safe).not.toContain('onmouseover')
-    expect(safe).not.toContain('onerror')
-    expect(safe).not.toContain('https://')
-    expect(safe).toContain('data:image/png;base64,AAAA')
-  })
-
-  it('builds a BMP-styled document with a restrictive CSP', () => {
-    const doc = buildHtmlPreviewDocument('<strong>Ready</strong>')
-    expect(doc).toContain("default-src 'none'")
-    expect(doc).toContain("form-action 'none'")
-    expect(doc).toContain('font: 12px/1.45 Lato')
-    expect(doc).toContain('<strong>Ready</strong>')
   })
 })

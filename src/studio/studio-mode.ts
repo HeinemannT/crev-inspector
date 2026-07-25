@@ -19,6 +19,7 @@
  */
 import { ICON_FILE_HTML, ICON_FILE_JS } from '../lib/icons'
 import type { CodeLang } from '../editor-core/cm-scaffold'
+import { buildInertHtmlDocument } from '../preview/inert-html'
 
 export interface StudioFile {
   /** BMP property name (the save target and slot key). */
@@ -59,28 +60,39 @@ export interface StudioMode {
  * Static preview for TextElement: BMP's widget container defaults
  * (Lato 12px #343536 on white — see skills/bmp-platform cvo-design-strategy)
  * with `text` rendered inline and `longText` under a SHOW MORE toggle,
- * exactly how the portal presents the pair. The preview intentionally shows
- * the RAW draft — BMP's sanitizer runs on save, and the save path reports
- * what it stripped.
+ * exactly how the portal presents the pair. The shared inert renderer removes
+ * active content locally; BMP still applies its stricter whitelist on save,
+ * and the save path reports what BMP rewrote.
  */
 function buildTextElementPreview(code: Record<string, string>): string {
   const text = code['text'] ?? ''
   const long = code['longText'] ?? ''
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-  body { margin: 0; padding: 12px 14px; background: #fff;
-         font-family: 'Lato', 'Helvetica Neue', Arial, sans-serif;
-         font-size: 12px; color: #343536; }
-  .te-long { display: none; }
-  .te-long.open { display: block; }
-  .te-toggle { display: inline-block; margin: 10px 0 4px; border: none; background: none;
-               padding: 0; font: 600 11px 'Lato', sans-serif; letter-spacing: .3px;
-               color: #565758; cursor: pointer; text-transform: uppercase; }
-  .te-toggle:hover { color: #343536; }
-  </style></head><body>
-  <div class="te-text">${text}</div>
-  ${long.trim() ? `<button class="te-toggle" onclick="const l=document.querySelector('.te-long');const o=l.classList.toggle('open');this.textContent=o?'SHOW LESS':'SHOW MORE'">SHOW MORE</button>
-  <div class="te-long">${long}</div>` : ''}
-  </body></html>`
+  const details = long.trim()
+    ? `<details class="te-details">
+  <summary><span class="te-more">SHOW MORE</span><span class="te-less">SHOW LESS</span></summary>
+  <div class="te-long">${long}</div>
+</details>`
+    : ''
+  return buildInertHtmlDocument({
+    html: `<div class="te-text">${text}</div>${details}`,
+    contentCss: `
+  .te-details { margin-top: 10px; }
+  .te-details summary {
+    display: inline-block;
+    color: #565758;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .3px;
+    list-style: none;
+  }
+  .te-details summary::-webkit-details-marker { display: none; }
+  .te-details summary:hover { color: #343536; }
+  .te-less { display: none; }
+  .te-details[open] .te-more { display: none; }
+  .te-details[open] .te-less { display: inline; }
+  .te-long { margin-top: 4px; }`,
+  })
 }
 
 const CVO_MODE: StudioMode = {

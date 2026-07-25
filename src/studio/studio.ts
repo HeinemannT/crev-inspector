@@ -470,7 +470,7 @@ function ensureSandboxFrame(): HTMLIFrameElement {
     // purely via srcdoc — no runner, no handshake.
     sandboxFrame = mode.hasSandbox
       ? h('iframe', { id: 'studio-sandbox', class: 'studio-sandbox', src: 'sandbox.html', title: 'Preview' }) as HTMLIFrameElement
-      : h('iframe', { id: 'studio-sandbox', class: 'studio-sandbox', title: 'Preview' }) as HTMLIFrameElement
+      : h('iframe', { id: 'studio-sandbox', class: 'studio-sandbox', sandbox: true, title: 'Preview' }) as HTMLIFrameElement
   }
   return sandboxFrame
 }

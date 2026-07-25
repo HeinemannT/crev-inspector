@@ -26,7 +26,8 @@ import { fetchAiConfig } from '../editor-core/ai-config'
 import type { AiAssist } from '../editor-core/ai-assist'
 import type { AiLang, AiObjectContext, AiContextSource } from '../lib/ai/types'
 import { renderEcOutput, ecOutputToText, parseBmpDurationMs, formatRunTiming } from './ec-output'
-import { buildHtmlPreviewDocument, extractHtmlOutput } from './ec-html-preview'
+import { extractHtmlOutput } from './ec-html-output'
+import { buildInertHtmlDocument } from '../preview/inert-html'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
 import { sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging'
@@ -1391,7 +1392,7 @@ function renderBottomContentInner() {
           class: 'editor-html-preview',
           sandbox: true,
           title: 'Rendered HTML output',
-          srcdoc: buildHtmlPreviewDocument(htmlOutput),
+          srcdoc: buildInertHtmlDocument({ html: htmlOutput }),
         })
       : lastOutputOk
         ? renderEcOutput(lastOutputText, tablePreview, decodePreview)
