@@ -21,6 +21,7 @@
  */
 
 import { buildRowEc } from '../ec-row-codec';
+import { markerLines, safeWireTextEc } from '../layout-wire';
 
 const SEP = '<<<CREV_BLAST>>>';
 
@@ -56,7 +57,7 @@ export function buildInstanceFanoutEc(pageRef: string): string {
   const instRow = buildRowEc([
     { name: 'rid', expr: '_i.rid.whenMissing("")' },
     { name: 'id', expr: '_i.id.whenMissing("")' },
-    { name: 'name', expr: '_i.name.whenMissing("")' },
+    { name: 'name', expr: safeWireTextEc('_i.name.whenMissing("")') },
   ], '|');
   return [
     `_p := ${pageRef}`,
@@ -73,8 +74,7 @@ export function parseInstanceFanout(log: string): InstanceFanout {
   let ownLinkedTo = '';
   const instances: InstanceFanout['instances'] = [];
   const seen = new Set<string>();
-  for (const block of log.split(SEP)) {
-    const line = block.split('\n', 1)[0].trim();
+  for (const line of markerLines(log, SEP)) {
     if (!line) continue;
     const parts = line.split('|');
     if (parts[0] === 'SELF') {
@@ -96,7 +96,7 @@ export function buildContainerBlastEc(containerRefs: string[]): string {
   const scRow = buildRowEc([
     { name: 'rid', expr: '_sc.rid.whenMissing("")' },
     { name: 'linkedTo', expr: '_sc.linkedTo.rid.whenMissing("")' },
-    { name: 'name', expr: '_sc.name.whenMissing("")' },
+    { name: 'name', expr: safeWireTextEc('_sc.name.whenMissing("")') },
   ], '|');
   const lines: string[] = ['_r := ""'];
   containerRefs.forEach((ref, i) => {
@@ -112,8 +112,7 @@ export function buildContainerBlastEc(containerRefs: string[]): string {
 
 export function parseContainerBlast(log: string, ownFamilyKey: string): ContainerBlast {
   const byFamily = new Map<string, SharedFamily>();
-  for (const block of log.split(SEP)) {
-    const line = block.split('\n', 1)[0].trim();
+  for (const line of markerLines(log, SEP)) {
     if (!line) continue;
     const parts = line.split('|');
     const scRid = parts[0];

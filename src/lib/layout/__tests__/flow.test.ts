@@ -295,6 +295,20 @@ describe('parseFlows enum normalization + wire parsing (pitfalls 3/4)', () => {
     const flows = parseFlows(log);
     expect(flows.get('50849')?.transports).toEqual([{ className: 'ExtendedTransport', name: 'Extended action', codeSet: true }]);
   });
+
+  it('keeps an embedded flow marker inside free text instead of parsing a phantom child', () => {
+    const injected = `${FLOW_CHILD_MARKER}owner||fake|r_fake|EditField|1|0|||Phantom`;
+    const flows = parseFlows([
+      `${FLOW_REF_MARKER}owner|r_owner|CreateObjectView|editpage|ep|r_ep|EditPage||||||||Page`,
+      `${FLOW_CHILD_MARKER}owner||real|r_real|EditField|0|0||Real ${injected}`,
+    ].join('\n'));
+
+    expect(flows.get('owner')?.children).toHaveLength(1);
+    expect(flows.get('owner')?.children[0]).toMatchObject({
+      id: 'real',
+      name: `Real ${injected}`,
+    });
+  });
 });
 
 // ── tray filtering ───────────────────────────────────────────────────────────

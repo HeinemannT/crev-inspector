@@ -43,7 +43,7 @@ describe('buildInstanceFanoutEc / buildContainerBlastEc (golden, plan 014)', () 
       '_p := t.crev_demo_complex',
       `_r := "${SEP}SELF|" + _p.rid.whenMissing("") + "|" + _p.linkedTo.rid.whenMissing("") + "\\n"`,
       '_p.rref(linkedTo).forEach(_i:',
-      `     _r := _r + "${SEP}INST|" + _i.rid.whenMissing("") + "|" + _i.id.whenMissing("") + "|" + _i.name.whenMissing("") + "\\n"`,
+      `     _r := _r + "${SEP}INST|" + _i.rid.whenMissing("") + "|" + _i.id.whenMissing("") + "|" + (IF _i.name.whenMissing("") = "*<<<CREV_*" THEN "[reserved CREV marker]" ELSE _i.name.whenMissing("") ENDIF) + "\\n"`,
       ')',
       '_r',
     ].join('\n'));
@@ -55,7 +55,7 @@ describe('buildInstanceFanoutEc / buildContainerBlastEc (golden, plan 014)', () 
       '_c0 := t.cont_a',
       '_c0.rref(container).forEach(_w:',
       '     _sc := _w.scorecard',
-      `     _r := _r + "${SEP}" + _sc.rid.whenMissing("") + "|" + _sc.linkedTo.rid.whenMissing("") + "|" + _sc.name.whenMissing("") + "\\n"`,
+      `     _r := _r + "${SEP}" + _sc.rid.whenMissing("") + "|" + _sc.linkedTo.rid.whenMissing("") + "|" + (IF _sc.name.whenMissing("") = "*<<<CREV_*" THEN "[reserved CREV marker]" ELSE _sc.name.whenMissing("") ENDIF) + "\\n"`,
       ')',
       '_r',
     ].join('\n'));
@@ -101,5 +101,13 @@ describe('shared-structure blast', () => {
     const blast = parseContainerBlast(log, '6921'); // page's own family is 6921 (not present here)
     expect(blast.otherFamilies).toBe(1);             // 500 + its instances = one family
     expect(blast.families[0]).toMatchObject({ rid: '500', isMaster: true });
+  });
+
+  it('does not parse an embedded blast marker in a name as another family', () => {
+    const injected = `${SEP}999||Phantom`;
+    const blast = parseContainerBlast(`${SEP}500||Real ${injected}\n`, '6921');
+    expect(blast.families).toEqual([
+      { rid: '500', name: `Real ${injected}`, isMaster: true },
+    ]);
   });
 });

@@ -30,14 +30,37 @@ export const FLOW_CHILD_MARKER = '<<<CREV_FCHD>>>'; // owner|parentChildBid|chil
 export const FLOW_CPROP_MARKER = '<<<CREV_FCPR>>>'; // owner|childBid|<propCaption> (free text last)
 export const FLOW_TR_MARKER = '<<<CREV_FTR>>>';     // owner|codeSet|trClass|<transportName>
 
+/** All layout channels share this prefix. User-controlled text is guarded
+ *  before it enters the wire so it can never manufacture another record
+ *  marker. EC has no general string-replace primitive; wildcard comparison is
+ *  its supported containment check, so the whole exotic value is replaced
+ *  with an explicit sentinel. Parentheses are required around an IF used as an
+ *  RHS expression. */
+export function safeWireTextEc(expression: string): string {
+  return `(IF ${expression} = "*<<<CREV_*" THEN "[reserved CREV marker]" ELSE ${expression} ENDIF)`;
+}
+
+/** Read records only when the marker begins a wire line. Older parsers split
+ *  the entire log at every marker occurrence, so a marker embedded in a name
+ *  could become a phantom record. The emitter-side sanitizer above prevents
+ *  new collisions; this line framing is the parser-side backstop. */
+export function markerLines(log: string, marker: string): string[] {
+  const lines: string[] = [];
+  for (const raw of (log || '').split(/\r?\n/)) {
+    let line = raw.trimStart();
+    if (line.startsWith('Result :')) line = line.slice('Result :'.length).trimStart();
+    if (line.startsWith(marker)) lines.push(line.slice(marker.length).trim());
+  }
+  return lines;
+}
+
 const numOrUndef = (v: string | undefined): number | undefined => (v && /^-?\d+$/.test(v) ? parseInt(v, 10) : undefined);
 
 /** Parse a SEP-delimited fetch log into the flat wire-node list, de-duped by rid. */
 export function parseLayoutNodes(log: string): LayoutNode[] {
   const nodes: LayoutNode[] = [];
   const seen = new Set<string>();
-  for (const block of log.split(LAYOUT_SEP)) {
-    const line = block.split('\n', 1)[0].trim();
+  for (const line of markerLines(log, LAYOUT_SEP)) {
     if (!line) continue;
     const parts = line.split('|');
     // 9 structural fields (rid..chartHeight) then name. Anything past field 9 is name — joined

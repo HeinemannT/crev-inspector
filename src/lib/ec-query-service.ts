@@ -26,7 +26,7 @@ import { parsePipeLines, parseSepBlocks, parseSepMultiObject } from './ec-parser
 import { buildRowEc, identityRow, parseDelimitedLines, parseDelimitedRow } from './ec-row-codec';
 import { validateEcIdentifier } from './ec-guards';
 import { ecResolveTemplate } from './template-link';
-import { LAYOUT_SEP, parseLayoutNodes } from './layout-wire';
+import { LAYOUT_SEP, parseLayoutNodes, safeWireTextEc } from './layout-wire';
 import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessSubject, LayoutNode } from './types';
 import {
   parsePipeRow, parsePipeRowWithKey, parseAbRow, makeCodeField, splitNamedRow,
@@ -291,7 +291,7 @@ export function buildLayoutTreeEc(ref: string): string {
     { name: 'M', expr: '_n.columnsMediumScreen.whenMissing("")' },
     { name: 'S', expr: '_n.columnsSmallScreen.whenMissing("")' },
     { name: 'chartHeight', expr: '""' },
-    { name: 'name', expr: '_n.name.whenMissing("")' },
+    { name: 'name', expr: safeWireTextEc('_n.name.whenMissing("")') },
   ], '|');
   // Root row: same 10-field shape, but the root has no parent/container/
   // chartHeight of its own — those three columns are literal empties.
@@ -305,7 +305,7 @@ export function buildLayoutTreeEc(ref: string): string {
     { name: 'M', expr: '_root.columnsMediumScreen.whenMissing("")' },
     { name: 'S', expr: '_root.columnsSmallScreen.whenMissing("")' },
     { name: 'chartHeight', expr: '""' },
-    { name: 'name', expr: '_root.name.whenMissing("")' },
+    { name: 'name', expr: safeWireTextEc('_root.name.whenMissing("")') },
   ], '|');
   return [
     `_root := ${ref}`,

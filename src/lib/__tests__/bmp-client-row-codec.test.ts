@@ -97,7 +97,7 @@ describe('buildLayoutTreeEc (golden)', () => {
   it('emits the lean structural row into a 32-node chunk', () => {
     const ec = buildLayoutTreeEc('lookup(123)');
     expect(ec).toContain(
-      `_line := "${LAYOUT_SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _type + "|" + _p.rid.whenMissing("") + "|" + "" + "|" + _n.columnsLargeScreen.whenMissing("") + "|" + _n.columnsMediumScreen.whenMissing("") + "|" + _n.columnsSmallScreen.whenMissing("") + "|" + "" + "|" + _n.name.whenMissing("") + "\\n"`,
+      `_line := "${LAYOUT_SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _type + "|" + _p.rid.whenMissing("") + "|" + "" + "|" + _n.columnsLargeScreen.whenMissing("") + "|" + _n.columnsMediumScreen.whenMissing("") + "|" + _n.columnsSmallScreen.whenMissing("") + "|" + "" + "|" + (IF _n.name.whenMissing("") = "*<<<CREV_*" THEN "[reserved CREV marker]" ELSE _n.name.whenMissing("") ENDIF) + "\\n"`,
     );
     expect(ec).toContain('IF _i > 31 THEN');
     expect(ec).not.toContain('_n.container');
@@ -107,7 +107,7 @@ describe('buildLayoutTreeEc (golden)', () => {
   it('emits the root row with the same resulting field values as the pre-codec "|||"/"||" literal-compaction form (regrouped, not renumbered)', () => {
     const ec = buildLayoutTreeEc('lookup(123)');
     expect(ec).toContain(
-      `_r := _r + "${LAYOUT_SEP}" + _root.rid + "|" + _root.id.whenMissing("") + "|" + _root.className.whenMissing("") + "|" + "" + "|" + "" + "|" + _root.columnsLargeScreen.whenMissing("") + "|" + _root.columnsMediumScreen.whenMissing("") + "|" + _root.columnsSmallScreen.whenMissing("") + "|" + "" + "|" + _root.name.whenMissing("") + "\\n"`,
+      `_r := _r + "${LAYOUT_SEP}" + _root.rid + "|" + _root.id.whenMissing("") + "|" + _root.className.whenMissing("") + "|" + "" + "|" + "" + "|" + _root.columnsLargeScreen.whenMissing("") + "|" + _root.columnsMediumScreen.whenMissing("") + "|" + _root.columnsSmallScreen.whenMissing("") + "|" + "" + "|" + (IF _root.name.whenMissing("") = "*<<<CREV_*" THEN "[reserved CREV marker]" ELSE _root.name.whenMissing("") ENDIF) + "\\n"`,
     );
   });
 

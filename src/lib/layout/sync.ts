@@ -30,7 +30,7 @@ import { compile } from './ec';
 import { validateBusinessId, validateRid } from '../ec-guards';
 import { LAYOUT_SEP, PAGE_MARKER, CTX_MARKER, OVER_MARKER, STYLE_MARKER,
   FLOW_REF_MARKER, FLOW_META_MARKER, FLOW_CHILD_MARKER, FLOW_CPROP_MARKER, FLOW_TR_MARKER,
-  FLOW_LIST_MARKER, parseLayoutNodes } from '../layout-wire';
+  FLOW_LIST_MARKER, markerLines, parseLayoutNodes, safeWireTextEc } from '../layout-wire';
 import { enumMember } from '../color-util';
 import { normalizeBmpEnum, FLOW_DOT_SLOTS, FLOW_DOT_PROPS } from '../widget-metadata';
 import type { LayoutNode as WireNode } from '../types';
@@ -126,11 +126,11 @@ function flowChildEmit(v: string, owner: string, parentBid: string): string[] {
     `          IF output(${v}.required.whenMissing("")) = "true" THEN _creq := "1" ELSE _creq := _creq ENDIF`,
     `          _dots := ""`,
     ...FLOW_DOT_SLOTS.map(s => `          IF output(${v}.${s}.whenMissing("")) <> "" THEN _dots := _dots + "1," ELSE _dots := _dots + "0," ENDIF`),
-    `          _l := _l + "${FLOW_CHILD_MARKER}" + ${owner} + "|" + ${parentBid} + "|" + ${v}.id.whenMissing("") + "|" + ${v}.rid + "|" + _ck + "|" + _creq + "|" + _cbrk + "|" + _dots + "|" + ${v}.name.whenMissing("") + "\\n"`,
+    `          _l := _l + "${FLOW_CHILD_MARKER}" + ${owner} + "|" + ${parentBid} + "|" + ${v}.id.whenMissing("") + "|" + ${v}.rid + "|" + _ck + "|" + _creq + "|" + _cbrk + "|" + _dots + "|" + ${safeWireTextEc(`${v}.name.whenMissing("")`)} + "\\n"`,
     `          _cap := ""`,
     `          IF _ck = "EditField" THEN _cap := ${v}.propertyMapping.whenMissing("") ELSE _cap := _cap ENDIF`,
     `          IF _ck = "Label" THEN IF ${v}.textInputType.whenMissing("") = "RICH" THEN _cap := "rich" ELSE _cap := _cap ENDIF ELSE _cap := _cap ENDIF`,
-    `          IF _cap <> "" THEN _l := _l + "${FLOW_CPROP_MARKER}" + ${owner} + "|" + ${v}.id.whenMissing("") + "|" + _cap + "\\n" ELSE _l := _l ENDIF`,
+    `          IF _cap <> "" THEN _l := _l + "${FLOW_CPROP_MARKER}" + ${owner} + "|" + ${v}.id.whenMissing("") + "|" + ${safeWireTextEc('_cap')} + "\\n" ELSE _l := _l ENDIF`,
   ];
 }
 
@@ -167,22 +167,22 @@ function buildFlowEmit(): string[] {
     `          _fkind := _fkind`,
     `     ENDIF`,
     `     _frefId := _fref.id.whenMissing("")`,
-    `     _l := _l + "${FLOW_REF_MARKER}" + ${owner} + "|" + _w.rid + "|" + _cn + "|" + _fkind + "|" + _frefId + "|" + _fref.rid.whenMissing("") + "|" + _fref.className.whenMissing("") + "|" + _w.createMode.whenMissing("") + "|" + _atype + "|" + _w.displayOnActionMenu.whenMissing("") + "|" + _w.displayOnAllTabs.whenMissing("") + "|" + _w.container.id.whenMissing("") + "|" + _fref.parent.className.whenMissing("") + "|" + _fref.parent.id.whenMissing("") + "|" + _fref.name.whenMissing("") + "\\n"`,
+    `     _l := _l + "${FLOW_REF_MARKER}" + ${owner} + "|" + _w.rid + "|" + _cn + "|" + _fkind + "|" + _frefId + "|" + _fref.rid.whenMissing("") + "|" + _fref.className.whenMissing("") + "|" + _w.createMode.whenMissing("") + "|" + _atype + "|" + _w.displayOnActionMenu.whenMissing("") + "|" + _w.displayOnAllTabs.whenMissing("") + "|" + _w.container.id.whenMissing("") + "|" + _fref.parent.className.whenMissing("") + "|" + _fref.parent.id.whenMissing("") + "|" + ${safeWireTextEc('_fref.name.whenMissing("")')} + "\\n"`,
     // The reference's parent Category NAME — the honest "lands in …" label when a new set/page
     // co-locates there. Rides FLOW_META (owner|refParentName|<name>, free-text last).
     `     IF _frefId <> "" THEN`,
-    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|refParentName|" + _fref.parent.name.whenMissing("") + "\\n"`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|refParentName|" + ${safeWireTextEc('_fref.parent.name.whenMissing("")')} + "\\n"`,
     `     ELSE`,
     `          _l := _l`,
     `     ENDIF`,
     `     IF _cn = "CreateObjectView" THEN`,
-    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|objectType|" + _w.objectType.whenMissing("") + "\\n"`,
-    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|destExpr|" + output(_w.parentDestinationExpression.whenMissing("")) + "\\n"`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|objectType|" + ${safeWireTextEc('_w.objectType.whenMissing("")')} + "\\n"`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|destExpr|" + ${safeWireTextEc('output(_w.parentDestinationExpression.whenMissing(""))')} + "\\n"`,
     `     ELSE`,
     `          _l := _l`,
     `     ENDIF`,
     `     IF _fkind = "navigate" THEN`,
-    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|navExpr|" + output(_w.expression.whenMissing("")) + "\\n"`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|navExpr|" + ${safeWireTextEc('output(_w.expression.whenMissing(""))')} + "\\n"`,
     `     ELSE`,
     `          _l := _l`,
     `     ENDIF`,
@@ -191,24 +191,24 @@ function buildFlowEmit(): string[] {
     `          _w.addableItems.forEach(_a:`,
     `               IF _ai = "" THEN _ai := _a.name.whenMissing("") ELSE _ai := _ai ENDIF`,
     `          )`,
-    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|addItem|" + _ai + "\\n"`,
-    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|destExpr|" + output(_w.parentDestinationExpression.whenMissing("")) + "\\n"`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|addItem|" + ${safeWireTextEc('_ai')} + "\\n"`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|destExpr|" + ${safeWireTextEc('output(_w.parentDestinationExpression.whenMissing(""))')} + "\\n"`,
     `     ELSE`,
     `          _l := _l`,
     `     ENDIF`,
     // The button's own name — a MENU button has no layout node (no SEP line), so the tray card's
     // title must come from the projection.
     `     IF _cn = "ActionButton" THEN`,
-    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|ownerName|" + _w.name.whenMissing("") + "\\n"`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|ownerName|" + ${safeWireTextEc('_w.name.whenMissing("")')} + "\\n"`,
     `     ELSE`,
     `          _l := _l`,
     `     ENDIF`,
     `     IF _fkind = "action" THEN`,
-    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|actionGroup|" + _w.actionObject.name.whenMissing("") + "\\n"`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|actionGroup|" + ${safeWireTextEc('_w.actionObject.name.whenMissing("")')} + "\\n"`,
     `          _w.actionObject.children().forEach(_tr:`,
     `               _tset := "0"`,
     `               IF output(_tr.expression.whenMissing("")) <> "" THEN _tset := "1" ELSE _tset := _tset ENDIF`,
-    `               _l := _l + "${FLOW_TR_MARKER}" + ${owner} + "|" + _tset + "|" + _tr.className.whenMissing("") + "|" + _tr.name.whenMissing("") + "\\n"`,
+    `               _l := _l + "${FLOW_TR_MARKER}" + ${owner} + "|" + _tset + "|" + _tr.className.whenMissing("") + "|" + ${safeWireTextEc('_tr.name.whenMissing("")')} + "\\n"`,
     `          )`,
     `     ELSE`,
     `          _l := _l`,
@@ -262,7 +262,7 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
   // and free-text, so a `|` in a name can't shift the structural fields. EVERY emit line ends with the
   // raw name as the final field.
   // tabset root: no parent, no container, no height (5 empties: parent|container|L|M|S), then height empty, then name.
-  const root = `${ts}.rid + "|" + ${ts}.id.whenMissing("") + "|" + ${ts}.className.whenMissing("") + "|||||" + "|" + "|" + ${ts}.name.whenMissing("")`;
+  const root = `${ts}.rid + "|" + ${ts}.id.whenMissing("") + "|" + ${ts}.className.whenMissing("") + "|||||" + "|" + "|" + ${safeWireTextEc(`${ts}.name.whenMissing("")`)}`;
   // org model: widgets + composites (recursive). Emit BOTH parent (composite nesting) and container
   // (portal placement). A widget bound to the Result tab keeps that binding so it attaches to the Result
   // tab node. Skip ActionButtons flagged displayOnActionMenu — BMP renders those in the page's action
@@ -339,7 +339,7 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
     `          _isMenuAB := _isMenuAB`,
     `     ENDIF`,
     `     IF _isMenuAB = "0"${projection === 'structure' ? ' AND _layoutNode = "1"' : ''} THEN`,
-    `          _l := "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _cn + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + ${height} + "|" + _w.name.whenMissing("") + "\\n"`,
+    `          _l := "${SEP}" + _w.rid + "|" + _w.id.whenMissing("") + "|" + _cn + "|" + _w.parent.rid.whenMissing("") + "|" + _w.container.rid.whenMissing("") + "|" + ${cols('_w')} + "|" + ${height} + "|" + ${safeWireTextEc('_w.name.whenMissing("")')} + "\\n"`,
     // The override channel only means anything for INSTANCE loads (a template's widgets have no
     // linkedTo, so every check would compare a widget against MISSING and emit nothing). Skipping it
     // for template-target loads drops ~2·|OVERRIDABLE_PROPS| property reads per widget — a real win
@@ -381,9 +381,9 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
         `_structureEmitted := 0`,
         `_structureLimitHit := "0"`,
       ] : []),
-      `_r := _r + "${PAGE}" + _sc.name.whenMissing("") + "\\n"`,
+      `_r := _r + "${PAGE}" + ${safeWireTextEc('_sc.name.whenMissing("")')} + "\\n"`,
       `_res := t.${RESULT_TAB_ID}`,
-      `_r := _r + "${SEP}" + _res.rid + "|${RESULT_TAB_ID}|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + _res.name.whenMissing("Result") + "\\n"`,
+      `_r := _r + "${SEP}" + _res.rid + "|${RESULT_TAB_ID}|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + ${safeWireTextEc('_res.name.whenMissing("Result")')} + "\\n"`,
       ...orgLoop,
       ...(projection === 'structure' ? [
         `IF _structureLimitHit = "1" THEN _r := _r + "${STRUCTURE_LIMIT}${STRUCTURE_FETCH_NODE_CAP}\\n" ELSE _r := _r ENDIF`,
@@ -399,7 +399,7 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
       `_structureEmitted := 0`,
       `_structureLimitHit := "0"`,
     ] : []),
-    `_r := _r + "${PAGE}" + _sc.name.whenMissing("") + "\\n"`,
+    `_r := _r + "${PAGE}" + ${safeWireTextEc('_sc.name.whenMissing("")')} + "\\n"`,
     `_r := _r + "${SEP}" + ${root} + "\\n"`,
     // The scorecard's intrinsic "Result" tab lives in the SHARED default_tabset, not this page's tabset,
     // so `_ts.descendants()` below never reaches it. Emit it here (with its REAL parent) when it's a
@@ -411,7 +411,7 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
     // the UI blocks its rename/delete. Don't assume the foreign parent protects it.
     `_res := t.${RESULT_TAB_ID}`,
     `IF _res.className.whenMissing("") = "Tab" AND _res.parent.rid.whenMissing("") != _ts.rid THEN`,
-    `     _r := _r + "${SEP}" + _res.rid + "|${RESULT_TAB_ID}|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + _res.name.whenMissing("Result") + "\\n"`,
+    `     _r := _r + "${SEP}" + _res.rid + "|${RESULT_TAB_ID}|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + ${safeWireTextEc('_res.name.whenMissing("Result")')} + "\\n"`,
     `ELSE`,
     `     _r := _r`,
     `ENDIF`,
@@ -425,11 +425,11 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
       `     IF _structureEmitted > ${STRUCTURE_FETCH_NODE_CAP - 1} THEN`,
       `          _structureLimitHit := "1"`,
       `     ELSE`,
-      `          _l := "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + _n.name.whenMissing("") + "\\n"`,
+      `          _l := "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + ${safeWireTextEc('_n.name.whenMissing("")')} + "\\n"`,
       `          _structureEmitted := _structureEmitted + 1`,
       `     ENDIF`,
     ] : [
-      `     _l := "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + _n.name.whenMissing("") + "\\n"`,
+      `     _l := "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + ${safeWireTextEc('_n.name.whenMissing("")')} + "\\n"`,
     ]),
     `     _c := _c + _l`,
     `     IF _l <> "" THEN _i := _i + 1 ELSE _i := _i ENDIF`,
@@ -457,8 +457,7 @@ export const parseFetchLog = parseLayoutNodes;
  *  InputSets/EditPages + a virtual tabset land in. Empty/absent → undefined (compile falls back to the
  *  pageId). Rides the fetch log on its own marker (every other parser ignores it). */
 export function parsePageName(log: string): string | undefined {
-  const block = (log || '').split(PAGE_MARKER)[1];
-  const name = block ? (block.split('\n', 1)[0] ?? '').trim() : '';
+  const name = markerLines(log, PAGE_MARKER)[0] ?? '';
   return name || undefined;
 }
 
@@ -467,8 +466,8 @@ export function parsePageName(log: string): string | undefined {
  *  independently (parseLayoutNodes only looks at SEP blocks). */
 export function parseOverrides(log: string): Map<string, string[]> {
   const map = new Map<string, string[]>();
-  for (const block of (log || '').split(OVER).slice(1)) {
-    const [bid, props] = (block.split('\n', 1)[0] ?? '').trim().split('|');
+  for (const line of markerLines(log, OVER)) {
+    const [bid, props] = line.split('|');
     const list = (props ?? '').split(',').filter(Boolean);
     if (bid && list.length) map.set(bid, list);
   }
@@ -484,8 +483,8 @@ export function parseStyles(log: string): Map<string, NodeStyle> {
   const map = new Map<string, NodeStyle>();
   const bool = (v: string | undefined): boolean | undefined =>
     v === 'true' || v === 'TRUE' ? true : v === 'false' || v === 'FALSE' ? false : undefined;
-  for (const block of (log || '').split(STYLE).slice(1)) {
-    const [bid, hc, fc, shadow, headerStyle, borderStyle, transp, vis, tools, dSearch, shL, shM, shS] = (block.split('\n', 1)[0] ?? '').trim().split('|');
+  for (const line of markerLines(log, STYLE)) {
+    const [bid, hc, fc, shadow, headerStyle, borderStyle, transp, vis, tools, dSearch, shL, shM, shS] = line.split('|');
     if (!bid) continue;
     const s: NodeStyle = {};
     if (hc) s.headerColorBid = hc;
@@ -508,10 +507,6 @@ export function parseStyles(log: string): Map<string, NodeStyle> {
   return map;
 }
 
-/** First line of a marker block (everything before the first newline), or '' — the shared "one record
- *  per marker occurrence" reader used by every flow channel below. */
-const firstLine = (block: string): string => (block.split('\n', 1)[0] ?? '').trim();
-
 /** Decode ONE FLOW_CHILD record: owner|parentChildBid|childBid|childRid|childClass|required|isBreak|
  *  dotsCsv|<childName> (name last, free text). Returns the owner + nesting parent + a bare FlowNode
  *  (no children/caption yet — those are stitched by the caller). Null for a malformed / empty row.
@@ -526,8 +521,8 @@ type FlowChildRec = NonNullable<ReturnType<typeof flowChildNodeFrom>>;
  *  parseFlowRefChildren so their nesting + caption logic can't drift. */
 function stitchFlowChildren(log: string, rootFor: (rec: FlowChildRec) => FlowNode[] | null): void {
   const byChildBid = new Map<string, FlowNode>();
-  for (const block of (log || '').split(FLOW_CHILD_MARKER).slice(1)) {
-    const rec = flowChildNodeFrom(firstLine(block).split('|'));
+  for (const line of markerLines(log, FLOW_CHILD_MARKER)) {
+    const rec = flowChildNodeFrom(line.split('|'));
     if (!rec) continue;
     const root = rootFor(rec);
     if (!root) continue;
@@ -536,8 +531,8 @@ function stitchFlowChildren(log: string, rootFor: (rec: FlowChildRec) => FlowNod
     (parent ? (parent.children ??= []) : root).push(rec.node);
   }
   // FLOW_CPROP — owner|childBid|<caption> (caption last).
-  for (const block of (log || '').split(FLOW_CPROP_MARKER).slice(1)) {
-    const parts = firstLine(block).split('|');
+  for (const line of markerLines(log, FLOW_CPROP_MARKER)) {
+    const parts = line.split('|');
     if (parts.length < 3) continue;
     const node = byChildBid.get(parts[1]);
     const caption = parts.slice(2).join('|');
@@ -574,8 +569,8 @@ export function parseFlows(log: string): Map<string, FlowProjection> {
   // FLOW_REF — one per flow widget. Fields: owner|ownerRid|ownerClass|kind|refId|refRid|refClass|
   // createMode|actionType|dOAM|dOAT|container|refParentClass|refParentId|<refName> (refName last, free
   // text). refParent* = the reference's parent, feeding the support-Category co-location rule.
-  for (const block of (log || '').split(FLOW_REF_MARKER).slice(1)) {
-    const parts = firstLine(block).split('|');
+  for (const line of markerLines(log, FLOW_REF_MARKER)) {
+    const parts = line.split('|');
     if (parts.length < 14) continue;
     const [owner, ownerRid, ownerClass, kind, refId, refRid, refClass, createMode, actionType, dOAM, dOAT, container, refParentClass, refParentId] = parts;
     if (!owner) continue;
@@ -596,8 +591,8 @@ export function parseFlows(log: string): Map<string, FlowProjection> {
     map.set(owner, proj);
   }
   // FLOW_META — owner|field|<value> (value last). Fills the free-text config fields.
-  for (const block of (log || '').split(FLOW_META_MARKER).slice(1)) {
-    const parts = firstLine(block).split('|');
+  for (const line of markerLines(log, FLOW_META_MARKER)) {
+    const parts = line.split('|');
     if (parts.length < 3) continue;
     const [owner, field] = parts;
     const value = parts.slice(2).join('|');
@@ -616,8 +611,8 @@ export function parseFlows(log: string): Map<string, FlowProjection> {
   // owner projection's list (skipping any FLOW_CHILD whose owner has no FLOW_REF projection).
   stitchFlowChildren(log, rec => map.get(rec.owner)?.children ?? null);
   // FLOW_TR — owner|codeSet|trClass|<transportName>. Read-only transport rows for an ACTION card.
-  for (const block of (log || '').split(FLOW_TR_MARKER).slice(1)) {
-    const parts = firstLine(block).split('|');
+  for (const line of markerLines(log, FLOW_TR_MARKER)) {
+    const parts = line.split('|');
     if (parts.length < 4) continue;
     const [owner, codeSet, trClass] = parts;
     const trName = parts.slice(3).join('|');
@@ -641,7 +636,7 @@ export function buildFlowRefListEc(refClass: 'InputSet' | 'EditPage'): string {
     `_r := ""`,
     `_list := SELECT ${refClass} FROM root.portal`,
     `_list.forEach(_x:`,
-    `     _r := _r + "${FLOW_LIST_MARKER}" + _x.id.whenMissing("") + "|" + _x.rid + "|" + _x.className.whenMissing("") + "|" + _x.parent.name.whenMissing("") + "|" + _x.name.whenMissing("") + "\\n"`,
+    `     _r := _r + "${FLOW_LIST_MARKER}" + _x.id.whenMissing("") + "|" + _x.rid + "|" + _x.className.whenMissing("") + "|" + ${safeWireTextEc('_x.parent.name.whenMissing("")')} + "|" + ${safeWireTextEc('_x.name.whenMissing("")')} + "\\n"`,
     `)`,
     `_r`,
   ].join('\n');
@@ -650,8 +645,8 @@ export function buildFlowRefListEc(refClass: 'InputSet' | 'EditPage'): string {
 /** Parse the FLOW_LIST channel: bid|rid|class|catName|<name> (name last, free text). */
 export function parseFlowRefList(log: string): FlowRefListItem[] {
   const out: FlowRefListItem[] = [];
-  for (const block of (log || '').split(FLOW_LIST_MARKER).slice(1)) {
-    const parts = firstLine(block).split('|');
+  for (const line of markerLines(log, FLOW_LIST_MARKER)) {
+    const parts = line.split('|');
     if (parts.length < 5) continue;
     const [id, rid, className, category] = parts;
     const name = parts.slice(4).join('|');
@@ -887,7 +882,7 @@ function parseContextProbe(line: string): ContextProbe | null {
 export async function resolvePageContext(io: LayoutIO, rid: string): Promise<BlueprintCtx | null> {
   const res = await io.exec(buildContextEc(rid));
   if (!res.ok || !res.log) return null;
-  const line = res.log.split(CTX)[1]?.split('\n', 1)[0]?.trim();
+  const line = markerLines(res.log, CTX)[0];
   const p = line ? parseContextProbe(line) : null;
   if (!p) return null;
   // An Organisation only reaches here when it has NO landing page: buildContextEc redirects an org rid

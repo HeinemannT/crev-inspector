@@ -193,6 +193,24 @@ describe('sync.parseFetchLog', () => {
     expect(n.parentRid).toBe('451');
     expect(n.name).toBe('First');              // truncated at the newline, but the node is kept
   });
+  it('does not turn an embedded layout marker in a name into a phantom node', () => {
+    const injected = `${SEP}999|phantom|Tab||||6|6||Injected`;
+    const nodes = parseFetchLog(
+      `${SEP}900|real|BarChart|451|75384|3|6|6|470|Customer text ${injected}`,
+    );
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]).toMatchObject({
+      rid: '900',
+      businessId: 'real',
+      name: `Customer text ${injected}`,
+    });
+  });
+  it('sanitizes the reserved marker prefix in every emitted layout name', () => {
+    const ec = buildFetchEc(CTX);
+    expect(ec).toContain('(IF _w.name.whenMissing("") = "*<<<CREV_*" THEN "[reserved CREV marker]" ELSE _w.name.whenMissing("") ENDIF)');
+    expect(ec).toContain('(IF _n.name.whenMissing("") = "*<<<CREV_*" THEN "[reserved CREV marker]" ELSE _n.name.whenMissing("") ENDIF)');
+    expect(ec).toContain('(IF _sc.name.whenMissing("") = "*<<<CREV_*" THEN "[reserved CREV marker]" ELSE _sc.name.whenMissing("") ENDIF)');
+  });
 });
 
 describe('sync.loadModel', () => {

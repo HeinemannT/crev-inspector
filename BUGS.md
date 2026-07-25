@@ -8,12 +8,6 @@ Backlog from the 2026-07-12 deep-risk review (the HIGH-severity items D1/D2/P1/P
 fixed on main; **D3 and D4 shipped in beta.5**). These are the deferred remainder — legitimate but
 lower-severity. Ranked. (P3 was closed after audit — see "Closed" below.)
 
-- **D5 — read-path marker-string injection.** Every wire parser does `log.split(MARKER)` with fixed
-  literals (`<<<CREV_LAYOUT>>>` etc.; `sync.ts`, `blast-radius.ts`). An object name/caption that
-  literally contains a marker string produces a phantom node/record → the diff computes against a
-  corrupt baseline → wrong writes (phantom delete/reorder) on Confirm. Exotic, but names are fully
-  customer-controlled. Guard: reject/replace the marker substring in emitted free-text, or length-check
-  the split fields.
 - **P4 — drag `markTarget` deep-clones the whole model every mousemove.** (Re-scoped after audit — the
   original "forced reflow" framing missed the dominant cost.) Per move, `markTarget` (`gestures.ts`)
   calls `model()` → `history.present()` → `cloneModel(...)` — a full deep clone of the layout tree on
@@ -74,6 +68,15 @@ flow objects; configuring them stays in Inspect. These are the Inspect-side foll
   ButtonInput `key` cross-reference check (does any sibling field use it).
 
 ## Fixed
+
+### D5 read-path marker-string injection — FIXED 2026-07-25
+- Customer-controlled names, captions, and expression text are guarded before entering any Blueprint
+  layout/flow/blast wire row. A value containing the reserved `<<<CREV_` prefix is replaced by an
+  explicit sentinel using live-verified EC wildcard syntax.
+- All affected parsers now read markers only at the start of framed output lines instead of splitting
+  on marker text anywhere in the log. Embedded marker text therefore stays data and cannot become a
+  phantom node that influences the apply diff.
+- Adversarial coverage includes layout nodes, flow children, and blast-radius families.
 
 ### Blueprint Exit (X) does nothing after the SW idle-restarts — FIXED 2026-07-10
 - Symptom: open Blueprint, edit for a while, click the ✕ (Exit) in the command chip → nothing happens,
