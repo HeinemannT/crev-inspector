@@ -8,11 +8,8 @@
  *     stubs for every assignment. For SELECT / .children(T) / chains
  *     this is already definitive (the type name is right there).
  *
- *   - ASYNC resolvers fired only when a `root.<lcCategory>.children()`
- *     pattern appears — one EC call per category, cached forever.
- *
- * The scanner is debounced (~500 ms) so a fast typist doesn't trigger
- * a fetch storm. Bridge fetches are capped at 3 in flight.
+ *   - ASYNC resolvers fired on demand by completion/property surfaces.
+ *     Results are cached and bridge fetches are capped at 3 in flight.
  *
  * What this MODULE owns:
  *   - parsing RHS shapes from the doc
@@ -957,35 +954,13 @@ export function scanDocForInferences(doc: { lines: number; line(n: number): { te
   // doesn't fetch 10 schemas when the user only looks at one).
 }
 
-/** Sync doc listener — runs on every docChanged keystroke. Pure
- *  parse with no I/O so we can afford the cost; the Vars panel
- *  (name list + type chips) updates instantly when the user types
- *  a new `_v := SELECT X`. Schemas, which DO cost an EC round-trip,
- *  are warmed in the background via a debounced prefetch so that
- *  `*`-expansion + property pane have data ready when the user
- *  actually opens them — but partial-type-name keystrokes don't
- *  burn N wasted fetches as the user types `CeRiskAss...ment`. */
-let prefetchTimer: ReturnType<typeof setTimeout> | null = null;
-const PREFETCH_DEBOUNCE_MS = 500;
-
-function schedulePrefetch(): void {
-  if (prefetchTimer) clearTimeout(prefetchTimer);
-  prefetchTimer = setTimeout(() => {
-    prefetchTimer = null;
-    // Use ensureSchemaNow here — schedulePrefetch IS itself the
-    // debounce window for warming, so stacking the per-name debounce
-    // inside ensureSchema would just delay the warm by another 500ms.
-    for (const inf of state.vars.values()) {
-      if (inf.kind === 'list') for (const t of inf.types) ensureSchemaNow(t);
-      else if (inf.kind === 'scalar') ensureSchemaNow(inf.type);
-    }
-  }, PREFETCH_DEBOUNCE_MS);
-}
-
+/** Sync doc listener — runs on every docChanged keystroke. It is deliberately
+ * pure parsing: opening a large script must not turn every inferred type into
+ * an automatic BMP request. Completion, star expansion, and the visible Vars
+ * property pane call ensureSchema/ensureSchemaNow when the user needs data. */
 export const typeInferenceListener = EditorView.updateListener.of((update: ViewUpdate) => {
   if (!update.docChanged) return;
   scanDocForInferences(update.state.doc);
-  schedulePrefetch();
 });
 
 /** Clear all inferred state — used when the editor swaps to a non-EC
@@ -1022,7 +997,6 @@ export function _resetForTests(): void {
   // while tasks are still in flight, but a fresh test seeds its own
   // mocks so any "old" task that lands will write to schemas that
   // the next test's reset wipes out anyway.
-  if (prefetchTimer) { clearTimeout(prefetchTimer); prefetchTimer = null; }
   schemaResolver._resetForTests();
   rootResolver._resetForTests();
   lastDoc = null;

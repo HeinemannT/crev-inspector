@@ -27,7 +27,10 @@ export const OBJECT_RELATION_EC_TIMEOUT = 10_000;
 
 // ── Enrichment ───────────────────────────────────────────────────
 export const BATCH_CHUNK_SIZE = 25;
-export const MAX_PARALLEL = 4;
+/** Badge enrichment is automatic page work, so keep it below the browser's
+ * normal per-origin concurrency. Two batches still resolve 50 objects at a
+ * time without letting a very large page occupy four BMP command workers. */
+export const MAX_PARALLEL = 2;
 export const ENRICHMENT_RETRY_DELAY = 15_000;
 export const MAX_PERMANENTLY_FAILED = 500;
 

@@ -2,17 +2,14 @@
  * Workspace primer for the chat system prompt (Issue C).
  *
  * On the first chat turn per server, one cheap EC round trip builds a compact
- * map of the live organisation tree's SHAPE — object counts by class, the
- * top-level organisation units, and the most-used templates. Injected into the cached
- * prefix of the chat system prompt so the model stops guessing class names
- * and confusing a semantic label with a BMP class.
+ * map of the top-level organisation entries. Injected into the cached prefix
+ * of the chat system prompt so the model has real workspace vocabulary without
+ * an automatic whole-workspace scan.
  *
  * The EC expression was verified with ec_preview before shipping. It uses only
  * the pack's verified
- * vocabulary (no lambda filters, no JS methods): `.map(prop)` group-by,
- * `.as(prop)`, `.distinct()`, `.sortReverse()`, `.substring()`, `.indexOf()`,
- * and linkedTo/template resolution. Degrades gracefully: any failure
- * returns null and the caller simply omits the <workspace> block.
+ * vocabulary. Degrades gracefully: any failure returns null and the caller
+ * simply omits the <workspace> block.
  */
 
 import type { BmpClient } from '../bmp-client';
@@ -21,60 +18,22 @@ import { log } from '../logger';
 /** Keep the injected block well under the ~2.5KB budget. */
 const PRIMER_CAP = 2400;
 
-/** One EC round trip returning three labelled lines: class counts, top-level
- *  org units, and most-used templates. Uses a single descendants() scan reused
- *  across all three sections. */
-const PRIMER_EC = `_all := root.organisation.descendants()
-_byClass := _all.map(className)
-_classLines := LIST()
-_all.as(className).distinct().forEach(_c:
-     _classLines := _classLines.union(LIST(str(100000 + _byClass.get(_c).size()) + "|" + _c))
-)
-_cl := ""
-_i := 0
-_classLines.sortReverse().forEach(_ln:
-     IF _i < 12 THEN
-          _bar := _ln.indexOf("|")
-          _cl := _cl + _ln.substring(_bar + 1, _ln.size()) + "=" + (num(_ln.substring(0, _bar)) - 100000) + ", "
-     ELSE
-          _cl := _cl
-     ENDIF
-     _i := _i + 1
-)
+/** One bounded EC round trip over root.organisation's immediate children.
+ *  Do not use descendants() here: chat startup must stay constant-work on a
+ *  workspace with hundreds of thousands of objects. Deeper discovery belongs
+ *  to the explicit, capped query_context tool. */
+const PRIMER_EC = `_top := root.organisation.children()
 _units := ""
-_j := 0
-root.organisation.children().forEach(_u:
-     IF _j < 15 THEN
+_shown := 0
+_top.forEach(_u:
+     IF _shown < 15 THEN
           _units := _units + _u.name + " (" + _u.id + ", " + _u.className + "); "
      ELSE
           _units := _units
      ENDIF
-     _j := _j + 1
+     _shown := _shown + 1
 )
-_templates := LIST()
-_all.forEach(_o:
-     _t := _o.linkedTo
-     IF _t = MISSING THEN _t := _o.template ENDIF
-     IF _t != MISSING THEN _templates := _templates.union(LIST(_t)) ENDIF
-)
-_byId := _templates.map(id)
-_tlines := LIST()
-_templates.as(id).distinct().forEach(_d:
-     _g := _byId.get(_d)
-     _tlines := _tlines.union(LIST(str(100000 + _g.size()) + "|" + _g.first().name + " (" + _d + ")"))
-)
-_tp := ""
-_k := 0
-_tlines.sortReverse().forEach(_ln:
-     IF _k < 12 THEN
-          _bar := _ln.indexOf("|")
-          _tp := _tp + _ln.substring(_bar + 1, _ln.size()) + " x" + (num(_ln.substring(0, _bar)) - 100000) + "; "
-     ELSE
-          _tp := _tp
-     ENDIF
-     _k := _k + 1
-)
-"objects=" + _all.size() + "\\nclasses: " + _cl + "\\nunits: " + _units + "\\ntemplates(" + _templates.as(id).distinct().size() + " distinct): " + _tp`;
+"top-level=" + _top.size() + "\\nunits: " + _units`;
 
 /** Build the workspace primer block, or null if the probe fails / is empty.
  *  Never throws. The returned string is the raw inner text (no wrapper); the
@@ -84,8 +43,8 @@ export async function buildWorkspacePrimer(client: BmpClient, signal?: AbortSign
     const res = await client.executeEc(PRIMER_EC, undefined, false, signal);
     if (!res.ok || !res.log) return null;
     const body = res.log.replace(/^\s*Result\s*:\s*/i, '').trim();
-    if (!body || !body.includes('objects=')) return null;
-    const scope = '\nscope: counts above cover root.organisation only; Ce* enterprise families use class-specific roots and BPMN uses root.Processmanagement';
+    if (!body || !body.includes('top-level=')) return null;
+    const scope = '\nscope: bounded top-level root.organisation preview only; use query_context for deeper live counts and filters';
     const primer = body + scope;
     return primer.length > PRIMER_CAP ? primer.slice(0, PRIMER_CAP) + '\n…(trimmed)' : primer;
   } catch (e) {

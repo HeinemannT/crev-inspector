@@ -187,16 +187,26 @@ register('AI_CANCEL', (msg) => {
  *  different entry so a profile switch never reuses another server's map.
  *  `null` = the probe ran but failed / was empty (don't re-probe every turn). */
 const primerByServer = new Map<string, string | null>();
+const primerInflightByServer = new Map<string, Promise<string | null>>();
 
 /** Get (and lazily build + cache) the workspace primer for a server. Degrades
  *  to null on any failure. Cheap after the first turn (one Map lookup). */
 async function workspacePrimerFor(serverId: string, signal?: AbortSignal): Promise<string | null> {
   if (primerByServer.has(serverId)) return primerByServer.get(serverId) ?? null;
+  const pending = primerInflightByServer.get(serverId);
+  if (pending) return pending;
   const ctx = getCtx();
   if (!ctx.client) return null;
-  const primer = await buildWorkspacePrimer(ctx.client, signal);
-  primerByServer.set(serverId, primer);
-  return primer;
+  const request = buildWorkspacePrimer(ctx.client, signal).then(primer => {
+    primerByServer.set(serverId, primer);
+    return primer;
+  });
+  primerInflightByServer.set(serverId, request);
+  try {
+    return await request;
+  } finally {
+    if (primerInflightByServer.get(serverId) === request) primerInflightByServer.delete(serverId);
+  }
 }
 
 register('AI_CHAT_SEND', async (msg) => {

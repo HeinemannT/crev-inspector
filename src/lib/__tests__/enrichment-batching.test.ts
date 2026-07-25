@@ -149,13 +149,13 @@ describe('enrichBadges pipeline', () => {
     expect(mock.calledWith[0]).toHaveLength(25);
   });
 
-  it('multi-chunk parallel — 100 RIDs = 4 chunks, max concurrency 4', async () => {
+  it('multi-chunk parallel — 100 RIDs = 4 chunks, max concurrency 2', async () => {
     const mock = createMockContext({ batchDelay: 10 });
     setSwContext(mock.ctx);
     await enrichBadges(ALL_RIDS.slice(0, 100));
 
     expect(mock.callCount).toBe(4);
-    expect(mock.maxRunning).toBe(4);
+    expect(mock.maxRunning).toBe(2);
     for (const chunk of mock.calledWith) {
       expect(chunk.length).toBeLessThanOrEqual(25);
     }
