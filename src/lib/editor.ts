@@ -85,6 +85,14 @@ export async function openEditorWindow(
     label,
     defaultWidth: 960,
     defaultHeight: 640,
+    resourceKey: `editor:${rid}`,
+    activation: {
+      type: 'editor',
+      rid,
+      property: preferredProperty,
+      scrollToLine: opts?.scrollToLine,
+      scrollToText: opts?.scrollToText,
+    },
     tabId: target?.tabId,
     windowId: target?.windowId,
   });
@@ -229,6 +237,10 @@ export async function openExtendedWindow(
     label: name ? `Extended Code · ${name}` : 'Extended Code',
     defaultWidth: 960,
     defaultHeight: 640,
+    resourceKey: 'editor:extended',
+    // A code handoff is a new scratch document, not merely a request to focus
+    // the existing one. Replacing it must therefore use the dirty guard.
+    replaceExisting: !!initialCode,
     tabId: target?.tabId,
     windowId: target?.windowId,
   });

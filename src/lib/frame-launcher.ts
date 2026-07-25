@@ -10,7 +10,7 @@
  */
 
 import { log } from './logger';
-import type { FrameKind } from './types';
+import type { FrameActivation, FrameKind } from './types';
 
 export interface LaunchFrameOptions {
   kind: FrameKind;
@@ -20,6 +20,11 @@ export interface LaunchFrameOptions {
   label: string;
   defaultWidth: number;
   defaultHeight: number;
+  /** Stable content identity. Same-key launches activate the live frame;
+   * different keys go through its unsaved-close handshake. */
+  resourceKey?: string;
+  replaceExisting?: boolean;
+  activation?: FrameActivation;
   /** Mount directly on this tab. Highest-priority targeting — used when
    *  the source is a content script (the user just clicked on this tab,
    *  mount where they clicked). */
@@ -64,6 +69,9 @@ export async function launchFrame(opts: LaunchFrameOptions): Promise<void> {
       label: opts.label,
       defaultWidth: opts.defaultWidth,
       defaultHeight: opts.defaultHeight,
+      resourceKey: opts.resourceKey,
+      replaceExisting: opts.replaceExisting,
+      activation: opts.activation,
     });
   } catch (e) {
     log.warn('frame-launcher:mountFailed', `Cannot mount frame overlay (kind=${opts.kind}): ${(e as Error).message}`);

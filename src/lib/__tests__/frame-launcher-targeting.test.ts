@@ -62,6 +62,28 @@ describe('launchFrame target resolution', () => {
     expect((chrome.tabs.query as any).mock.calls).toHaveLength(0);
   });
 
+  it('forwards resource identity and in-place activation to the content frame', async () => {
+    setupChrome([{ id: 1, windowId: 100 }]);
+    const { launchFrame } = await import('../frame-launcher');
+
+    await launchFrame({
+      kind: 'editor',
+      path: 'editor/editor.html#42',
+      label: 'Editor',
+      defaultWidth: 960,
+      defaultHeight: 640,
+      tabId: 1,
+      resourceKey: 'editor:42',
+      activation: { type: 'editor', rid: '42', property: 'expression' },
+    });
+
+    expect((chrome.tabs.sendMessage as any).mock.calls[0][1]).toMatchObject({
+      type: 'MOUNT_FRAME',
+      resourceKey: 'editor:42',
+      activation: { type: 'editor', rid: '42', property: 'expression' },
+    });
+  });
+
   it('mounts on windowId\'s active tab when only windowId is given', async () => {
     setupChrome([
       { id: 1, windowId: 100 },

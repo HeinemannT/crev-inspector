@@ -12,7 +12,7 @@ import { h, svg } from './lib/dom';
 import { log } from './lib/logger';
 import { ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_X } from './lib/icons';
 import { ensureOverlayStyle } from './content-overlay-style';
-import type { FrameKind } from './lib/types';
+import type { FrameActivation, FrameKind } from './lib/types';
 import {
   centeredFrameBounds,
   detectFrameSnapZone,
@@ -35,6 +35,8 @@ const HOST_ID_PREFIX = 'crev-frame-overlay-';
 interface FrameState {
   kind: FrameKind;
   url: string;
+  resourceKey: string;
+  label: string;
   host: HTMLElement;
   iframe: HTMLIFrameElement;
   bounds: Bounds;
@@ -43,6 +45,8 @@ interface FrameState {
   cleanupGestures: () => void;
   onKeydown: (e: KeyboardEvent) => void;
   onViewportResize: () => void;
+  replacementPending: boolean;
+  pendingReplacement?: MountFrameOptions;
 }
 
 const frames = new Map<FrameKind, FrameState>();
@@ -53,6 +57,9 @@ const frames = new Map<FrameKind, FrameState>();
 // and each append a host → two identical overlays. Reserve the slot
 // synchronously here to close that window.
 const mounting = new Set<FrameKind>();
+/** Latest request received while a kind is still reading its saved bounds.
+ * Replayed after the first mount so rapid clicks never disappear. */
+const pendingMounts = new Map<FrameKind, MountFrameOptions>();
 
 // Set by teardownFrameOverlayModule(). A mount that was awaiting readBounds()
 // when re-injection tore the module down must NOT append its host afterwards —
@@ -160,6 +167,9 @@ export interface MountFrameOptions {
   label: string;
   defaultWidth: number;
   defaultHeight: number;
+  resourceKey?: string;
+  replaceExisting?: boolean;
+  activation?: FrameActivation;
 }
 
 // ── Public API ─────────────────────────────────────────────────
@@ -167,20 +177,23 @@ export interface MountFrameOptions {
 export async function mountFrameOverlay(opts: MountFrameOptions): Promise<void> {
   const existing = frames.get(opts.kind);
   if (existing) {
-    if (existing.url === opts.url) {
+    const resourceKey = opts.resourceKey ?? opts.url;
+    if (!opts.replaceExisting && existing.resourceKey === resourceKey) {
+      updateFrameLabel(existing, opts.label);
+      activateFrame(existing, opts.activation);
       focus(existing);
       return;
     }
-    // Same kind, new URL — swap iframe and bring to front
-    existing.url = opts.url;
-    existing.iframe.src = opts.url;
-    focus(existing);
+    requestReplace(existing, opts);
     return;
   }
 
-  // Another mount for this kind is already resolving its bounds — drop the
-  // duplicate rather than racing it to append a second host.
-  if (mounting.has(opts.kind)) return;
+  // Another mount for this kind is already resolving its bounds. Retain only
+  // the latest intent and replay it once the reserved frame exists.
+  if (mounting.has(opts.kind)) {
+    pendingMounts.set(opts.kind, opts);
+    return;
+  }
   mounting.add(opts.kind);
   try {
     const bounds = await readBounds(opts);
@@ -207,6 +220,11 @@ export async function mountFrameOverlay(opts: MountFrameOptions): Promise<void> 
     focus(state);
   } finally {
     mounting.delete(opts.kind);
+    const pending = pendingMounts.get(opts.kind);
+    if (pending) {
+      pendingMounts.delete(opts.kind);
+      if (!moduleTorn) void mountFrameOverlay(pending);
+    }
   }
 }
 
@@ -232,8 +250,8 @@ export function unmountAllFrameOverlays(): void {
 /** Full module teardown for content-script re-injection: unmount every
  *  overlay AND detach the module-level CREV_OVERLAY_CLOSE_PLEASE message
  *  listener. unmountAllFrameOverlays alone leaves that window listener
- *  attached, so each re-injection would stack another (harmless but
- *  accumulating) listener over a fresh module's `frames` Map. */
+ *  attached, so each re-injection would stack another listener over a fresh
+ *  module's `frames` Map. */
 export function teardownFrameOverlayModule(): void {
   moduleTorn = true;
   unmountAllFrameOverlays();
@@ -283,11 +301,7 @@ function createFrame(opts: MountFrameOptions, bounds: Bounds): FrameState {
     }, svg(ICON_X)),
   );
 
-  const iframe = document.createElement('iframe');
-  iframe.className = 'crev-eo-iframe';
-  iframe.src = opts.url;
-  iframe.setAttribute('allow', 'clipboard-read; clipboard-write');
-  iframe.setAttribute('title', opts.label);
+  const iframe = createIframe(opts.url, opts.label);
 
   // Eight directional resize handles — four edge strips + four
   // corner squares. Corners overlap the edges so they win the
@@ -324,10 +338,13 @@ function createFrame(opts: MountFrameOptions, bounds: Bounds): FrameState {
   const state: FrameState = {
     kind: opts.kind,
     url: opts.url,
+    resourceKey: opts.resourceKey ?? opts.url,
+    label: opts.label,
     host, iframe, bounds,
     cleanupGestures: () => {},
     onKeydown: () => {},
     onViewportResize: () => {},
+    replacementPending: false,
   };
   const dragCleanup = wireDrag(state, titlebar);
   const resizeCleanups = resizeHandles.map(({ el, dir }) => wireResize(state, el, dir));
@@ -353,6 +370,65 @@ function createFrame(opts: MountFrameOptions, bounds: Bounds): FrameState {
   };
 
   return state;
+}
+
+function createIframe(url: string, label: string): HTMLIFrameElement {
+  const iframe = document.createElement('iframe');
+  iframe.className = 'crev-eo-iframe';
+  iframe.src = url;
+  iframe.setAttribute('allow', 'clipboard-read; clipboard-write');
+  iframe.setAttribute('title', label);
+  return iframe;
+}
+
+function updateFrameLabel(state: FrameState, label: string): void {
+  state.label = label;
+  state.host.setAttribute('aria-label', label);
+  state.iframe.setAttribute('title', label);
+  const title = state.host.querySelector<HTMLElement>('.crev-eo-titlebar-label');
+  if (title) title.textContent = label;
+  const max = state.host.querySelector<HTMLElement>('.crev-eo-max');
+  if (max) max.setAttribute('aria-label', `${state.restoreBounds ? 'Restore' : 'Maximize'} ${label}`);
+  const close = state.host.querySelector<HTMLElement>('.crev-eo-close');
+  if (close) close.setAttribute('aria-label', `Close ${label}`);
+  for (const handle of state.host.querySelectorAll<HTMLElement>('.crev-eo-resize')) {
+    const direction = [...handle.classList]
+      .find(name => name.startsWith('crev-eo-resize--'))
+      ?.slice('crev-eo-resize--'.length);
+    handle.setAttribute('aria-label', `Resize ${label}${direction ? ` (${direction})` : ''}`);
+  }
+}
+
+function activateFrame(state: FrameState, activation?: FrameActivation): void {
+  if (!activation) return;
+  state.iframe.contentWindow?.postMessage({ type: 'CREV_FRAME_ACTIVATE', activation }, '*');
+}
+
+function replaceFrame(state: FrameState, opts: MountFrameOptions): void {
+  if (frames.get(state.kind) !== state) return;
+  const nextIframe = createIframe(opts.url, opts.label);
+  state.iframe.replaceWith(nextIframe);
+  state.iframe = nextIframe;
+  state.url = opts.url;
+  state.resourceKey = opts.resourceKey ?? opts.url;
+  updateFrameLabel(state, opts.label);
+  focus(state);
+}
+
+function requestReplace(state: FrameState, opts: MountFrameOptions): void {
+  state.pendingReplacement = opts;
+  if (state.replacementPending) return;
+  state.replacementPending = true;
+  requestFramePermission(state, (allowed) => {
+    state.replacementPending = false;
+    if (!allowed || frames.get(state.kind) !== state) {
+      state.pendingReplacement = undefined;
+      return;
+    }
+    const latest = state.pendingReplacement;
+    state.pendingReplacement = undefined;
+    if (latest) replaceFrame(state, latest);
+  });
 }
 
 function focus(state: FrameState): void {
@@ -397,7 +473,7 @@ function onClosePleaseMessage(e: MessageEvent): void {
 }
 window.addEventListener('message', onClosePleaseMessage);
 
-/** Ask the iframe whether it's safe to close.
+/** Ask the iframe whether it is safe to close or replace its content.
  *
  *  Two-phase handshake:
  *   1. We start a 1.5s fallback timeout. If we hear nothing back,
@@ -408,33 +484,42 @@ window.addEventListener('message', onClosePleaseMessage);
  *      The user might take seconds or minutes to decide — we wait.
  *   3. CREV_OVERLAY_CLOSE_RESPONSE carries the final yes/no.
  *
- *  Before the PENDING phase existed the 1.5s timeout would fire
- *  while the iframe's "Discard unsaved changes?" modal was still on
- *  screen and the editor was destroyed mid-confirm.
+ *  Before the PENDING phase existed the fallback could fire while the
+ *  iframe's "Discard unsaved changes?" modal was still open.
  */
-function requestClose(kind: FrameKind): void {
-  const state = frames.get(kind);
-  if (!state) return;
+function requestFramePermission(state: FrameState, done: (allowed: boolean) => void): void {
+  let settled = false;
+  const finish = (allowed: boolean) => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    done(allowed);
+  };
   const onMsg = (e: MessageEvent) => {
     if (e.source !== state.iframe.contentWindow) return;
     const type = (e.data as { type?: string } | undefined)?.type;
     if (type === 'CREV_OVERLAY_CLOSE_PENDING') {
-      // Iframe is alive + awaiting the user — drop the hung-iframe
-      // fallback. Keep listening for the eventual RESPONSE.
       clearTimeout(fallback);
       return;
     }
     if (type !== 'CREV_OVERLAY_CLOSE_RESPONSE') return;
-    cleanup();
-    if ((e.data as { ok?: boolean }).ok) unmountFrameOverlay(kind);
+    finish(!!(e.data as { ok?: boolean }).ok);
   };
-  const fallback = setTimeout(() => { cleanup(); unmountFrameOverlay(kind); }, 1500);
+  const fallback = setTimeout(() => finish(true), 1500);
   const cleanup = () => {
     clearTimeout(fallback);
     window.removeEventListener('message', onMsg);
   };
   window.addEventListener('message', onMsg);
   state.iframe.contentWindow?.postMessage({ type: 'CREV_OVERLAY_CLOSE_REQUEST' }, '*');
+}
+
+function requestClose(kind: FrameKind): void {
+  const state = frames.get(kind);
+  if (!state) return;
+  requestFramePermission(state, (allowed) => {
+    if (allowed) unmountFrameOverlay(kind);
+  });
 }
 
 // ── Drag / resize ─────────────────────────────────────────────
@@ -625,11 +710,11 @@ function toggleMaximize(kind: FrameKind): void {
   if (state.restoreBounds) {
     state.bounds = fitFrameBounds(state.restoreBounds, currentViewport());
     state.restoreBounds = undefined;
-    if (btn) { btn.innerHTML = ICON_ARROWS_OUT_SIMPLE; btn.title = 'Maximize'; btn.setAttribute('aria-label', `Maximize ${state.kind}`); }
+    if (btn) { btn.innerHTML = ICON_ARROWS_OUT_SIMPLE; btn.title = 'Maximize'; btn.setAttribute('aria-label', `Maximize ${state.label}`); }
   } else {
     state.restoreBounds = { ...state.bounds };
     state.bounds = maximizedFrameBounds(currentViewport());
-    if (btn) { btn.innerHTML = ICON_ARROWS_IN_SIMPLE; btn.title = 'Restore'; btn.setAttribute('aria-label', `Restore ${state.kind}`); }
+    if (btn) { btn.innerHTML = ICON_ARROWS_IN_SIMPLE; btn.title = 'Restore'; btn.setAttribute('aria-label', `Restore ${state.label}`); }
   }
   applyBounds(state);
 }

@@ -15,7 +15,7 @@ import { KBD_MOD } from '../editor-core/platform'
 import { closeOverlayKeyBinding, installDirtyGuards, OVERLAY_CLOSE_MESSAGE } from '../editor-core/overlay'
 
 // Shared types + context helpers
-import { type SaveTarget, type ScriptHistoryEntry, type InspectorMessage, getTypeColor } from '../lib/types'
+import { type FrameActivation, type SaveTarget, type ScriptHistoryEntry, type InspectorMessage, getTypeColor } from '../lib/types'
 import { typeBadge, wireBadgeCopy } from '../lib/type-badge'
 import { objectChip } from '../lib/object-chip'
 import { h, svg, render as renderDom } from '../lib/dom'
@@ -242,6 +242,43 @@ async function init() {
     }
   }, true)
 }
+
+/** Apply a same-editor launch without reloading the iframe. CodeSurface keeps
+ * every slot's draft/cursor/history alive while the requested property becomes
+ * active, which is both faster and safer than navigating the frame again. */
+function activateFrameIntent(activation: FrameActivation): void {
+  if (!ctx || ctx.extended || activation.type !== 'editor' || activation.rid !== ctx.instance.rid) return
+  const property = activation.property
+  if (!property) {
+    surface?.focus()
+    return
+  }
+
+  const instanceHas = Object.prototype.hasOwnProperty.call(ctx.instanceCode, property)
+  const templateHas = Object.prototype.hasOwnProperty.call(ctx.templateCode, property)
+  if (!instanceHas && !templateHas) {
+    surface?.focus()
+    return
+  }
+  if (!Object.prototype.hasOwnProperty.call(getActiveCode(ctx), property)) {
+    ctx.saveTarget = instanceHas ? 'instance' : 'template'
+  }
+  activeProperty = property
+  previewDone = false
+  renderShell()
+  surface?.activate(activeKey(), {
+    scrollToLine: activation.scrollToLine,
+    scrollToText: activation.scrollToText,
+  })
+  broadcastEditorContext()
+}
+
+window.addEventListener('message', (event: MessageEvent) => {
+  if (event.source !== window.parent) return
+  const message = event.data as { type?: string; activation?: FrameActivation } | undefined
+  if (message?.type !== 'CREV_FRAME_ACTIVATE' || !message.activation) return
+  activateFrameIntent(message.activation)
+})
 
 function isConnectionLoadError(message: string): boolean {
   return /timed out|cannot reach|network|command|connection|service worker|did not respond/i.test(message)

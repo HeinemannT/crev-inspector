@@ -544,6 +544,9 @@ function oneShotMessageListener(msg: InspectorMessage, _sender: chrome.runtime.M
       label: msg.label,
       defaultWidth: msg.defaultWidth,
       defaultHeight: msg.defaultHeight,
+      resourceKey: msg.resourceKey,
+      replaceExisting: msg.replaceExisting,
+      activation: msg.activation,
     }).catch(e => log.swallow('content:mountFrame', e));
     return false;
   }

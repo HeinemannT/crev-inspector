@@ -17,6 +17,7 @@ import type {
   EnrichMode,
   FavoriteEntry,
   FlowChainMsg,
+  FrameActivation,
   FrameKind,
   HistoryEntry,
   InspectorSettings,
@@ -223,7 +224,17 @@ export type StudioMessage =
 
 // ── Frame Overlay (in-page floating iframes for editor/diff/objectview/codesearch/cvo-studio) ─
 export type FrameOverlayMessage =
-  | { type: 'MOUNT_FRAME'; kind: FrameKind; url: string; label: string; defaultWidth: number; defaultHeight: number };
+  | {
+      type: 'MOUNT_FRAME';
+      kind: FrameKind;
+      url: string;
+      label: string;
+      defaultWidth: number;
+      defaultHeight: number;
+      resourceKey?: string;
+      replaceExisting?: boolean;
+      activation?: FrameActivation;
+    };
 
 // ── Enrichment ───────────────────────────────────────────────────
 export type EnrichMessage =

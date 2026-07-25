@@ -142,6 +142,15 @@ export interface StudioChild {
 
 // Frame kinds are the in-page iframe surfaces.
 export type FrameKind = 'editor' | 'diff' | 'objectview' | 'codesearch' | 'cvo-studio';
+/** Optional in-place intent for an already-open frame. Today the editor uses
+ * this to switch code properties without reloading and losing slot drafts. */
+export interface FrameActivation {
+  type: 'editor';
+  rid: string;
+  property?: string;
+  scrollToLine?: number;
+  scrollToText?: string;
+}
 
 // ── History ──────────────────────────────────────────────────────
 export interface HistoryEntry {

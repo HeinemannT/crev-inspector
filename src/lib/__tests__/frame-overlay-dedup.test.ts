@@ -23,6 +23,14 @@ function hosts() {
   return document.querySelectorAll('.crev-eo-host');
 }
 
+function respondFrom(iframe: HTMLIFrameElement, ok: boolean): void {
+  const event = new MessageEvent('message', {
+    data: { type: 'CREV_OVERLAY_CLOSE_RESPONSE', ok },
+  });
+  Object.defineProperty(event, 'source', { value: iframe.contentWindow });
+  window.dispatchEvent(event);
+}
+
 // about:blank so happy-dom doesn't try to fetch/navigate the overlay iframe
 // (a chrome-extension:// src triggers a noisy unhandled rejection). These
 // tests assert on the host element, not iframe content.
@@ -87,6 +95,120 @@ describe('content-frame-overlay dedup + teardown', () => {
     resolveGet!();
     await Promise.all([p1, p2]);
     expect(hosts()).toHaveLength(1);
+  });
+
+  it('reuses the same resource, updates its label, and sends in-place activation', async () => {
+    const m = await freshModule();
+    const p = m.mountFrameOverlay({ ...OPTS, resourceKey: 'editor:42' });
+    resolveGet!();
+    await p;
+    const host = hosts()[0] as HTMLElement;
+    const iframe = host.querySelector('iframe')!;
+    const postMessage = vi.spyOn(iframe.contentWindow!, 'postMessage');
+
+    await m.mountFrameOverlay({
+      ...OPTS,
+      resourceKey: 'editor:42',
+      label: 'ExtendedTable · Results',
+      activation: { type: 'editor', rid: '42', property: 'afterExpression' },
+    });
+
+    expect(host.querySelector('iframe')).toBe(iframe);
+    expect(host.getAttribute('aria-label')).toBe('ExtendedTable · Results');
+    expect(host.querySelector('.crev-eo-titlebar-label')?.textContent).toBe('ExtendedTable · Results');
+    expect(postMessage).toHaveBeenCalledWith({
+      type: 'CREV_FRAME_ACTIVATE',
+      activation: { type: 'editor', rid: '42', property: 'afterExpression' },
+    }, '*');
+  });
+
+  it('waits for close approval before replacing a different resource', async () => {
+    const m = await freshModule();
+    const p = m.mountFrameOverlay({ ...OPTS, resourceKey: 'editor:42', label: 'First' });
+    resolveGet!();
+    await p;
+    const host = hosts()[0] as HTMLElement;
+    const firstIframe = host.querySelector('iframe')!;
+    const postMessage = vi.spyOn(firstIframe.contentWindow!, 'postMessage');
+
+    await m.mountFrameOverlay({ ...OPTS, resourceKey: 'editor:84', label: 'Second' });
+
+    expect(host.querySelector('iframe')).toBe(firstIframe);
+    expect(host.querySelector('.crev-eo-titlebar-label')?.textContent).toBe('First');
+    expect(postMessage).toHaveBeenCalledWith({ type: 'CREV_OVERLAY_CLOSE_REQUEST' }, '*');
+
+    respondFrom(firstIframe, true);
+
+    expect(host.querySelector('iframe')).not.toBe(firstIframe);
+    expect(host.querySelector('.crev-eo-titlebar-label')?.textContent).toBe('Second');
+    expect(host.getAttribute('aria-label')).toBe('Second');
+  });
+
+  it('keeps the current resource when replacement is declined', async () => {
+    const m = await freshModule();
+    const p = m.mountFrameOverlay({ ...OPTS, resourceKey: 'editor:42', label: 'First' });
+    resolveGet!();
+    await p;
+    const host = hosts()[0] as HTMLElement;
+    const firstIframe = host.querySelector('iframe')!;
+
+    await m.mountFrameOverlay({ ...OPTS, resourceKey: 'editor:84', label: 'Second' });
+    respondFrom(firstIframe, false);
+
+    expect(host.querySelector('iframe')).toBe(firstIframe);
+    expect(host.querySelector('.crev-eo-titlebar-label')?.textContent).toBe('First');
+  });
+
+  it('guards a forced refresh of the same scratch resource', async () => {
+    const m = await freshModule();
+    const p = m.mountFrameOverlay({ ...OPTS, resourceKey: 'editor:extended' });
+    resolveGet!();
+    await p;
+    const host = hosts()[0] as HTMLElement;
+    const firstIframe = host.querySelector('iframe')!;
+    const postMessage = vi.spyOn(firstIframe.contentWindow!, 'postMessage');
+
+    await m.mountFrameOverlay({
+      ...OPTS,
+      resourceKey: 'editor:extended',
+      replaceExisting: true,
+    });
+
+    expect(postMessage).toHaveBeenCalledWith({ type: 'CREV_OVERLAY_CLOSE_REQUEST' }, '*');
+    respondFrom(firstIframe, true);
+    expect(host.querySelector('iframe')).not.toBe(firstIframe);
+  });
+
+  it('replays the latest request received while initial bounds are loading', async () => {
+    const m = await freshModule();
+    const p1 = m.mountFrameOverlay({ ...OPTS, resourceKey: 'editor:42', label: 'First' });
+    const p2 = m.mountFrameOverlay({ ...OPTS, resourceKey: 'editor:84', label: 'Second' });
+    resolveGet!();
+    await Promise.all([p1, p2]);
+    const host = hosts()[0] as HTMLElement;
+    const firstIframe = host.querySelector('iframe')!;
+
+    respondFrom(firstIframe, true);
+
+    expect(host.querySelector('.crev-eo-titlebar-label')?.textContent).toBe('Second');
+  });
+
+  it('keeps the existing close button on the same approval path', async () => {
+    const m = await freshModule();
+    const p = m.mountFrameOverlay(OPTS);
+    resolveGet!();
+    await p;
+    const host = hosts()[0] as HTMLElement;
+    const iframe = host.querySelector('iframe')!;
+    const close = host.querySelector<HTMLButtonElement>('.crev-eo-close')!;
+
+    close.click();
+    respondFrom(iframe, false);
+    expect(hosts()).toHaveLength(1);
+
+    close.click();
+    respondFrom(iframe, true);
+    expect(hosts()).toHaveLength(0);
   });
 
   it('teardown removes the host and the crev-task-open body flag', async () => {

@@ -24,7 +24,7 @@ import { ICON_ARROW_LINE_UP, ICON_PENCIL } from '../lib/icons';
 import { validateBusinessId } from '../lib/ec-guards';
 import { resolveCopyText, getModifier } from '../lib/namespace';
 import { appendEcPreview } from '../lib/ec-format';
-import { installCloseHandshake } from '../lib/frame-close-handshake';
+import { installDirtyGuards } from '../editor-core/overlay';
 import { RuntimeRequestError, sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging';
 import { resolveLayoutShortcut } from '../lib/layout-target';
 import { findPropDef } from '../sidepanel/pane-schema';
@@ -37,8 +37,6 @@ import { hasStudio, modeForType } from '../studio/studio-mode';
 import { openAccessTrace, routeAccessMessage, initAccessTrace } from '../sidepanel/access-trace';
 import { openColorPicker } from '../sidepanel/color-picker';
 import { confirmModal } from '../lib/modal';
-
-installCloseHandshake();
 
 // The Access Trace overlay is shared with the side panel. The SW replies to the
 // sender (respond()), so here we bridge its fire-and-forget sends through
@@ -91,6 +89,11 @@ let target: SaveTarget = 'instance';
 let pendingIdentityEdit: IdentityProp | null = null;
 let loadAttempt = 0;
 let loadTimers: Array<ReturnType<typeof setTimeout>> = [];
+
+installDirtyGuards({
+  isDirty: () => Object.keys(draft).length > 0,
+  bodyText: 'This object view has unsaved changes. Close anyway?',
+});
 
 if (!rid) {
   render(root, h('div', { class: 'ov-error' }, 'No RID specified'));
