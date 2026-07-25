@@ -122,8 +122,8 @@ describe('property autocomplete at a dot-member — end to end', () => {
     expect(await propsAt('ceras.stmt_supplier_failure.owning_org.')).toEqual(['id', 'orgType']);
   });
 
-  it('a ns.bid that resolves to NO class yields no props (giveUp, no hang)', async () => {
-    mockSw({}, {}); // HOVER_RESOLVE returns objectType undefined → null cache
+  it('a ns.bid that does not resolve yields no props within the bounded wait', async () => {
+    mockSw({}, {}); // Empty result stays retryable; awaitCompletion still caps the wait.
     expect(await propsAt('ceras.nonexistent.')).toBeNull();
   });
 

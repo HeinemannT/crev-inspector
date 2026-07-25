@@ -53,6 +53,12 @@ _None open._
 Deliberately kept OUT of Blueprint flow editing (decision 2026-07-11): Blueprint creates/arranges
 flow objects; configuring them stays in Inspect. These are the Inspect-side follow-ups:
 
+- **EC autocomplete for configuration/UI classes**: concrete reference inference resolves
+  `_field := t.5611` to `EditField`, but `FETCH_TYPE_SCHEMA` currently enumerates
+  `c.get(Class.name).children()` and only returns schemas for enterprise/business classes. The editor
+  therefore offers live properties for `ceras.*` objects but only generic methods for configuration
+  objects such as EditField and ExtendedExpression. The correct fix needs BMP's binary type metadata
+  (or an equivalent authoritative source), not a hand-maintained partial property list.
 - **HTML-first editing for advanced-mode fields**: `Label.defaultExpression` / `EditPageInfo.expression`
   with `advancedDefault`/`advancedMode` hold an EC expression *returning* an HTML string. Offer an
   "edit as HTML" mode that unwraps the string literal into the editor as HTML (with highlighting)
@@ -65,6 +71,14 @@ flow objects; configuring them stays in Inspect. These are the Inspect-side foll
   ButtonInput `key` cross-reference check (does any sibling field use it).
 
 ## Fixed
+
+### Concrete-reference autocomplete startup race — FIXED 2026-07-25
+- An editor opened during connection startup could receive an empty `HOVER_RESOLVE_RESULT` and cache
+  it as a permanent “no class” answer. A valid reference then stayed unresolved for that editor's
+  entire lifetime even after the sidebar showed connected.
+- Empty/failed lookups are now retryable; only a successfully resolved class enters the local cache.
+  Browser-verified after reconnect with a live CeRiskAssessment reference and covered by a
+  first-empty/second-success regression test.
 
 ### EditField property picker — FIXED 2026-07-25
 - Full Object View now surfaces `propertyMapping` as one compact, searchable property control rather

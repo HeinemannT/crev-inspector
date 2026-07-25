@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   scanDocForInferences, getInference, clearInferences, ensureSchemaNow,
-  ensureRefType, getSchema, canonicalType, TokenBucket,
+  ensureRefType, getRefType, getSchema, canonicalType, TokenBucket,
 } from '../ec/typeInference';
 
 // Mock chrome.runtime.sendMessage so ensureSchema doesn't blow up
@@ -480,6 +480,31 @@ describe('RHS parser — concrete object references', () => {
       type: 'ExtendedExpression',
     });
     expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a ref lookup that raced connection startup instead of caching a permanent miss', async () => {
+    let attempts = 0;
+    const sendMessage = vi.fn((msg: { type: string; ref?: string }) => {
+      if (msg.type !== 'HOVER_RESOLVE') return Promise.resolve({ ok: false });
+      attempts++;
+      return Promise.resolve(attempts === 1
+        ? { type: 'HOVER_RESOLVE_RESULT', ref: msg.ref }
+        : { type: 'HOVER_RESOLVE_RESULT', ref: msg.ref, objectType: 'EditField' });
+    });
+    (globalThis as unknown as { chrome: { runtime: { sendMessage: typeof sendMessage } } }).chrome = {
+      runtime: { sendMessage },
+    };
+    infer('_field := t.5611');
+
+    ensureRefType('t.5611');
+    for (let i = 0; i < 6; i++) await new Promise(resolve => setTimeout(resolve, 0));
+    expect(getRefType('t.5611')).toBeUndefined();
+    expect(getInference('_field')).toMatchObject({ kind: 'unknown', ref: 't.5611' });
+
+    ensureRefType('t.5611');
+    for (let i = 0; i < 6; i++) await new Promise(resolve => setTimeout(resolve, 0));
+    expect(getInference('_field')).toMatchObject({ kind: 'scalar', type: 'EditField' });
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
   it('does not promote the invalid o.<rid> shorthand to a resolvable EC object ref', () => {

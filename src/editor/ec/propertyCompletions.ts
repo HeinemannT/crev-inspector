@@ -492,8 +492,6 @@ export function propertyCompletions(context: CompletionContext): CompletionResul
       const ts = ctxTypes(ctx);
       if (ts) ts.forEach(ensureSchemaNow);
     },
-    // A ref that BMP resolved to no class will never yield props — stop waiting.
-    () => ctx.ref !== undefined && getRefType(ctx.ref) === null,
   );
 }
 
@@ -628,11 +626,10 @@ export function valueCompletions(context: CompletionContext): CompletionResult |
       const ts = ctxTypes(ctx);
       if (ts) ts.forEach(ensureOptionsNow);
     },
-    // Give up early when we can prove no match: the ref resolved to no class, or
-    // options are loaded for every type and none carries a set for this accessor
-    // (→ not a list/tag property; don't wait out the timeout).
+    // Give up early when options are loaded for every type and none carries a
+    // set for this accessor (→ not a list/tag property; don't wait out the
+    // timeout). Empty ref lookups are not terminal: they may have raced startup.
     () => {
-      if (ctx.ref !== undefined && getRefType(ctx.ref) === null) return true;
       const ts = ctxTypes(ctx);
       return !!ts && ts.every(t => getOptions(t) !== undefined);
     },

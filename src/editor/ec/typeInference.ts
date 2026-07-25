@@ -348,9 +348,6 @@ function parseRhs(rhs: string, line: number, seenVars: Map<string, TypeInference
     const cachedType = getRefType(objectRef);
     if (cachedType) return { kind: 'scalar', type: cachedType, line };
     const refKind = objectRef.startsWith('t.') ? 'template reference' : 'object reference';
-    if (cachedType === null) {
-      return { kind: 'unknown', reason: `${refKind} ${objectRef} resolved to no object class`, line, ref: objectRef };
-    }
     return { kind: 'unknown', reason: `Resolve ${refKind} ${objectRef} to show its properties`, line, ref: objectRef };
   }
 
@@ -745,16 +742,18 @@ export function ensureOptionsNow(className: string): void {
 // tooltip uses — we only read `objectType` here. Same shape as the root-category
 // resolver below: cache forever (an object's class doesn't drift while the editor
 // is open), dedup in-flight, `notify()` on arrival so a pending completion (which
-// rides `subscribe`) wakes. `null` = BMP resolved no class (bad ns/id); `undefined`
-// (absent) = never asked. NOT keyed by serverId — see the typeOptions note; a
-// profile switch without an editor reload could serve a stale class, acceptable
-// for the same reason.
-const refTypeCache = new Map<string, string | null>();
+// rides `subscribe`) wakes. Failed/empty lookups are deliberately NOT cached:
+// an editor can ask during the short connection-startup window, and treating
+// that as a permanent miss leaves valid refs unresolved for the window's whole
+// lifetime. NOT keyed by serverId — see the typeOptions note; a profile switch
+// without an editor reload could serve a stale class, acceptable for the same
+// reason.
+const refTypeCache = new Map<string, string>();
 const refTypeInflight = new Set<string>();
 
-/** Cached class for a `namespace.businessId` ref: a class name, `null` (resolved
- *  to nothing), or `undefined` (not yet resolved). */
-export function getRefType(ref: string): string | null | undefined {
+/** Cached class for a `namespace.businessId` ref, or undefined when it has not
+ *  resolved successfully yet. */
+export function getRefType(ref: string): string | undefined {
   return refTypeCache.get(ref);
 }
 
@@ -768,12 +767,12 @@ export function ensureRefType(ref: string): void {
   enqueue(async () => {
     try {
       const r = await sendRequest({ type: 'HOVER_RESOLVE', ref } as InspectorMessage);
-      if (r?.type === 'HOVER_RESOLVE_RESULT') {
+      if (r?.type === 'HOVER_RESOLVE_RESULT' && r.objectType) {
         // objectType is already BMP's canonical PascalCase; canonicalize is a
         // harmless no-op that also records the casing for the Vars panel.
-        const cls = r.objectType ? canonicalizeTypeName(r.objectType) : null;
+        const cls = canonicalizeTypeName(r.objectType);
         refTypeCache.set(ref, cls);
-        if (cls) rememberCanonical(cls, r.objectType);
+        rememberCanonical(cls, r.objectType);
         // A reference can be the RHS of a tracked variable assignment. Re-scan
         // the immutable last document so `_x := t.foo` upgrades from a pending
         // reference to scalar<Foo> as soon as the shared lookup lands.
