@@ -12,7 +12,7 @@ import { resolveGapPlacement } from '../lib/layout/placement';
 import type { LModel, LNode } from '../lib/layout/types';
 import { ICON_ARROW_RIGHT } from '../lib/icons';
 import { bp, model } from './state';
-import { mutate, select, setHint, doSwap, doInsert, doMoveInto, doFlowReorder, brushOnCell } from './actions';
+import { mutate, select, setHint, doSwap, doInsert, doMoveInto, doFlowReorder, brushOnCell, viewEditPage } from './actions';
 import { insertRelative } from '../lib/layout/edit';
 import { render } from './view';
 
@@ -260,36 +260,88 @@ const cssEsc = (s: string): string => CSS.escape(s);
  *  - grid composite (`grid` true): the row is an LNode child — `insertRelative` rides the existing
  *    layout pipeline (diff reorder → ec moveAfter).
  */
-export function armFlowRow(handle: HTMLElement, row: HTMLElement, key: string, id: string, grid: boolean): void {
+export function armFlowRow(
+  handle: HTMLElement,
+  row: HTMLElement,
+  key: string,
+  id: string,
+  grid: boolean,
+  spatial = false,
+): void {
   handle.addEventListener('mousedown', (e) => {
     e.stopPropagation(); e.preventDefault();
     if (bp.mode === 'style') return; // style mode doesn't reorder
-    startFlowDrag(e, row, key, id, grid);
+    startFlowDrag(e, row, key, id, grid, spatial);
   });
 }
 
-function startFlowDrag(e: MouseEvent, row: HTMLElement, key: string, id: string, grid: boolean): void {
+function startFlowDrag(
+  e: MouseEvent,
+  row: HTMLElement,
+  key: string,
+  id: string,
+  grid: boolean,
+  spatial: boolean,
+): void {
   const sx = e.clientX, sy = e.clientY;
   let started = false;
   // drop target: the row to insert AFTER (null = front). Recomputed on every move.
   let afterId: string | null | undefined; // undefined = no legal drop yet
+  let pageDrop: { key: string; afterId: string | null; title: string; offset: number } | null = null;
+  const allowPageDrop = spatial && row.classList.contains('bp-ep-field');
+  const spatialHint = allowPageDrop ? 'Drag across columns or onto a page' : 'Move the column boundary';
   const rows = (): HTMLElement[] =>
     [...(bp.layer?.querySelectorAll(`[data-flowkey="${cssEsc(key)}"]`) ?? [])] as HTMLElement[];
+  const clearPageDrops = (): void => {
+    bp.layer?.querySelectorAll('.bp-ep-page-drop').forEach(element =>
+      element.classList.remove('bp-ep-page-drop'),
+    );
+  };
   const mv = (ev: MouseEvent): void => {
     if (!started) {
       if (!passedThreshold(ev, sx, sy)) return;
       started = true; bp.dragging = true;
       row.classList.add('bp-dragsrc');
-      setHint('Drag up/down to reorder within this list');
+      setHint(spatial ? spatialHint : 'Drag up/down to reorder within this list');
     }
     ev.preventDefault();
     afterId = undefined;
+    pageDrop = null;
+    clearPageDrops();
     if (dropline) dropline.style.display = 'none';
-    // nearest same-key row by vertical midpoint; above its midpoint = insert before it (after its
-    // predecessor), below = insert after it.
+    if (allowPageDrop) {
+      const pageButtons = [...(bp.layer?.querySelectorAll<HTMLElement>('[data-flowpagekey]') ?? [])];
+      const target = pageButtons.find(button => {
+        const rect = button.getBoundingClientRect();
+        return ev.clientX >= rect.left && ev.clientX <= rect.right
+          && ev.clientY >= rect.top && ev.clientY <= rect.bottom;
+      });
+      if (target) {
+        target.classList.add('bp-ep-page-drop');
+        pageDrop = {
+          key: target.dataset.flowpagekey!,
+          afterId: target.dataset.flowpageafter || null,
+          title: target.dataset.flowpagetitle || target.textContent?.trim() || 'page',
+          offset: Number(target.dataset.flowpageoffset) || 0,
+        };
+        setHint(`Move to ${target.textContent?.trim() || 'page'}`);
+        return;
+      }
+    }
+    if (spatial) setHint(spatialHint);
+    // Normal flows are vertical lists. EditPage columns opt into `spatial`,
+    // which first locks the candidate set to the column under the pointer;
+    // vertical midpoint then decides before/after inside that column.
     const list = rows().filter(r => r.dataset.flowid !== id);
+    const lane = spatial
+      ? list.filter(candidate => {
+          const rect = candidate.getBoundingClientRect();
+          return ev.clientX >= rect.left - 8 && ev.clientX <= rect.right + 8;
+        })
+      : [];
+    const candidates = lane.length ? lane : list;
     let best: { el: HTMLElement; before: boolean; dist: number } | null = null;
-    for (const r of list) {
+    for (const r of candidates) {
       const rect = r.getBoundingClientRect();
       const mid = rect.top + rect.height / 2;
       const dist = Math.abs(ev.clientY - mid);
@@ -308,11 +360,22 @@ function startFlowDrag(e: MouseEvent, row: HTMLElement, key: string, id: string,
   };
   const up = (): void => {
     unbindGesture();
+    clearPageDrops();
     row.classList.remove('bp-dragsrc');
     dropline?.remove(); dropline = null;
     setHint(null);
     bp.dragging = false;
-    if (!started || afterId === undefined) { if (started) render(); return; }
+    if (!started) return;
+    if (pageDrop) {
+      // Keep BMP's real form and the overlay on the same destination page.
+      // The model mutation below re-renders immediately; native React
+      // navigation completes asynchronously and triggers one final measured
+      // render through viewEditPage.
+      viewEditPage(pageDrop.key, pageDrop.offset);
+      doFlowReorder(key, id, pageDrop.afterId);
+      return;
+    }
+    if (afterId === undefined) { render(); return; }
     if (grid) {
       // layout pipeline: same-parent reorder via insertRelative (before the successor / after afterId)
       const m = model(); if (!m) return;

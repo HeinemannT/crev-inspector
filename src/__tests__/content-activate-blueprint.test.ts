@@ -26,6 +26,7 @@ type OneShotListener = (msg: any, sender: any, sendResponse: (r?: unknown) => vo
 const sendFireForget = vi.fn();
 const sendToSW = vi.fn();
 const detectBmpPage = vi.fn(() => ({ confidence: 0, signals: [] as string[], isBmp: false }));
+const extractUrlRids = vi.fn((): { rid?: string } => ({}));
 vi.mock('../lib/messaging', () => ({
   sendFireForget: (...a: unknown[]) => sendFireForget(...a),
 }));
@@ -41,7 +42,7 @@ vi.mock('../lib/content-port', () => ({
   onReconnect: vi.fn(),
 }));
 vi.mock('../lib/dom-scanner', () => ({
-  extractUrlRids: vi.fn(() => ({})),
+  extractUrlRids: () => extractUrlRids(),
   scanPageWidgets: vi.fn(() => []),
   detectBmpPage: () => detectBmpPage(),
   findTabButton: vi.fn(() => null),
@@ -106,6 +107,8 @@ beforeEach(() => {
   sendToSW.mockReset();
   detectBmpPage.mockReset();
   detectBmpPage.mockReturnValue({ confidence: 0, signals: [], isBmp: false });
+  extractUrlRids.mockReset();
+  extractUrlRids.mockReturnValue({});
   sessionStorage.clear();
   document.body.innerHTML = '';
   const w = window as unknown as Record<string, unknown>;
@@ -194,6 +197,29 @@ describe('fresh page-info detection', () => {
     expect(sendToSW).toHaveBeenCalledWith({
       type: 'DETECTION_RESULT', confidence: 0.55, signals: ['#epmapp root'], isBmp: true,
     });
+  });
+});
+
+describe('Blueprint target resolution on standalone edit routes', () => {
+  it('requests editionContext when a rendered edit form has a parent RID in the URL', async () => {
+    extractUrlRids.mockReturnValue({ rid: '7862795079527071941' });
+    document.body.innerHTML = '<div class="edit-page"></div>';
+    await loadContent();
+
+    let scans = 0;
+    document.addEventListener('crev-content', ((event: CustomEvent) => {
+      if (event.detail?.type !== 'EXTRACT_FIBERS') return;
+      scans++;
+      document.dispatchEvent(new CustomEvent('crev-interceptor', {
+        detail: {
+          type: 'EDIT_PAGE_CONTEXT',
+          context: { editPageRid: '4081032302720082045' },
+        },
+      }));
+    }) as EventListener, { once: true });
+
+    expect((window as any).__crevBpResolver()).toBe('4081032302720082045');
+    expect(scans).toBe(1);
   });
 });
 

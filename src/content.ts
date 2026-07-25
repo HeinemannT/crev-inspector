@@ -112,7 +112,18 @@ function getPageHeaderRid(): string | undefined {
 
 // Blueprint edits the structure visible on screen. On a standalone create/edit route that structure
 // is the exact EditPage definition; the general inspector/execution context remains the bound object.
-window.__crevBpResolver = () => s.editPageContext?.editPageRid ?? getResolvedPageRid();
+window.__crevBpResolver = () => {
+  // A create/edit URL normally carries the parent object's `rid`, so
+  // getResolvedPageRid() has no reason to request a fiber scan. The rendered
+  // surface is nevertheless an EditPage and its identity only exists in
+  // editionContext. Ask for that context independently; the MAIN-world
+  // interceptor replies synchronously through `crev-interceptor`, so the
+  // value is available before this resolver returns.
+  if (!s.editPageContext && document.querySelector('.edit-page')) {
+    document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'EXTRACT_FIBERS' } }));
+  }
+  return s.editPageContext?.editPageRid ?? getResolvedPageRid();
+};
 
 function syncInspectSurface(): void {
   syncOverlays(s);

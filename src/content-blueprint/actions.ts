@@ -39,7 +39,26 @@ export function selectEditPageField(id: string, types: readonly string[]): void 
 /** Begin renaming a node: select it and flag the next render to open its inline-rename field. The one
  *  entry point — used by BOTH double-click on a cell name and the toolbar pencil. */
 export function beginRename(id: string): void { bp.selectedId = id; bp.renameId = id; render(); }
-export function viewEditPage(id: string): void { bp.viewTabId = id; render(); }
+export function viewEditPage(id: string, offset = 0): void {
+  bp.viewTabId = id;
+  if (offset !== 0) {
+    const direction = offset > 0 ? 'Next' : 'Previous';
+    const advanceNativeForm = async (): Promise<void> => {
+      for (let index = 0; index < Math.abs(offset); index++) {
+        const button = [...document.querySelectorAll<HTMLButtonElement>('.edit-page button')]
+          .find(candidate => candidate.textContent?.trim() === direction && !candidate.disabled);
+        if (!button) break;
+        button.click();
+        // Each step replaces `.edit-page-content`; let React commit before
+        // looking up the next button when jumping across more than one page.
+        await new Promise(resolve => window.setTimeout(resolve, 90));
+      }
+      if (bp.active && bp.viewTabId === id) render();
+    };
+    void advanceNativeForm();
+  }
+  render();
+}
 /** Header tab-bar click = switch the REAL tab, same as BMP's own tab strip (not a separate "peek").
  *  Click BMP's matching native tab so it navigates; our MutationObserver then follows it. Falls back to
  *  a canvas-only view (viewTabId) when there's no live BMP tab to drive (e.g. an unmodeled page). */

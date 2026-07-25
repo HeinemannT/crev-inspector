@@ -10,6 +10,7 @@ import { armFlowRow } from './gestures';
 import { setIcon, docX, docY } from './geometry';
 import { flowBadge } from './result-flow';
 import { projectEditPage } from './edit-page-model';
+import { readEditPageLiveGeometry, type EditPageLiveGeometry } from './edit-page-geometry';
 
 function tap(el: HTMLElement, fn: (e: MouseEvent) => void): void {
   el.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); fn(e); });
@@ -155,7 +156,7 @@ function field(node: FlowNode, pageId: string, types: readonly string[], schema:
   });
 
   const drag = dragHandle();
-  armFlowRow(drag, row, pageId, node.id, false);
+  armFlowRow(drag, row, pageId, node.id, false, true);
   const body = document.createElement('div');
   body.className = 'bp-ep-field-body';
   const label = document.createElement('div');
@@ -198,10 +199,12 @@ function field(node: FlowNode, pageId: string, types: readonly string[], schema:
     preview.classList.add('validation');
     preview.textContent = 'Validation rule';
   } else {
-    const input = document.createElement('div');
-    input.className = 'bp-ep-input';
-    input.textContent = node.prop ? `Value for ${node.prop}` : 'Value';
-    preview.appendChild(input);
+    // Blueprint shows the rendered control's footprint, not a second fake
+    // form control. Property identity already lives in the header; this quiet
+    // wireframe keeps the real row height legible without duplicating BMP's UI.
+    preview.classList.add('wire');
+    preview.setAttribute('aria-hidden', 'true');
+    preview.appendChild(document.createElement('span'));
   }
   body.appendChild(preview);
   if (selected) {
@@ -219,15 +222,21 @@ function columnGuide(node: FlowNode, pageId: string): HTMLElement {
   divider.dataset.flowid = node.id;
   divider.title = 'Column boundary · drag to move';
   const drag = dragHandle();
-  armFlowRow(drag, divider, pageId, node.id, false);
+  armFlowRow(drag, divider, pageId, node.id, false, true);
   divider.append(drag);
   if (isTempId(node.id)) divider.appendChild(cancelAdd(pageId, node.id));
   return divider;
 }
 
-function insertionPoint(pageId: string, afterId: string | undefined, title: string): HTMLButtonElement {
+function insertionPoint(
+  pageId: string,
+  afterId: string | undefined,
+  title: string,
+  opts: { start?: boolean; height?: number } = {},
+): HTMLButtonElement {
   const button = document.createElement('button');
-  button.className = 'bp-ep-insert';
+  button.className = `bp-ep-insert${opts.start ? ' is-start' : ''}`;
+  if (opts.height !== undefined) button.style.height = `${opts.height}px`;
   button.title = title;
   button.setAttribute('aria-label', title);
   const icon = document.createElement('span');
@@ -240,10 +249,29 @@ function insertionPoint(pageId: string, afterId: string | undefined, title: stri
   return button;
 }
 
-function liveFormRect(): DOMRect | null {
-  const host = document.querySelector('.edit-page, [class*="edit-page"]');
-  const rect = host?.getBoundingClientRect();
-  return rect && rect.width > 120 ? rect : null;
+interface MeasuredRows {
+  geometry: EditPageLiveGeometry;
+  heightById: Map<string, number>;
+}
+
+function measuredRows(stepKey: string): MeasuredRows | null {
+  const geometry = readEditPageLiveGeometry();
+  const baseline = bp.baseline;
+  if (!geometry || !baseline) return null;
+  const baselineSteps = projectEditPage(effectiveFlowChildren(baseline, baseline.pageId));
+  const baselineStep = baselineSteps.find(step => step.key === stepKey);
+  if (!baselineStep || baselineStep.columns.length !== geometry.columns.length) return null;
+  if (baselineStep.columns.some((column, index) =>
+    column.nodes.length !== geometry.columns[index]?.slots.length,
+  )) return null;
+
+  const heightById = new Map<string, number>();
+  baselineStep.columns.forEach((column, columnIndex) => {
+    column.nodes.forEach((node, nodeIndex) => {
+      heightById.set(node.id, geometry.columns[columnIndex].slots[nodeIndex].height);
+    });
+  });
+  return { geometry, heightById };
 }
 
 /** Render a standalone EditPage as BMP presents it, while retaining the flat stream for edits. */
@@ -254,9 +282,10 @@ export function renderEditPage(m: LModel, layer: HTMLElement): boolean {
   if (!selected) return false;
   if (bp.viewTabId !== selected.key) bp.viewTabId = selected.key;
 
-  const live = liveFormRect();
+  const measured = measuredRows(selected.key);
+  const live = measured?.geometry.host ?? null;
   const frame = document.createElement('section');
-  frame.className = 'bp-editpage';
+  frame.className = `bp-editpage${measured ? ' is-measured' : ''}`;
   const width = live?.width ?? Math.min(1100, window.innerWidth - 48);
   frame.style.left = `${live ? docX(live.left) : docX((window.innerWidth - width) / 2)}px`;
   frame.style.top = `${live ? docY(live.top) : docY(110)}px`;
@@ -275,9 +304,16 @@ export function renderEditPage(m: LModel, layer: HTMLElement): boolean {
   const nav = document.createElement('nav');
   nav.className = 'bp-ep-nav';
   nav.setAttribute('aria-label', 'Edit page steps');
+  const selectedIndex = steps.indexOf(selected);
   steps.forEach((step, index) => {
+    const item = document.createElement('div');
+    item.className = `bp-ep-page${step.key === selected.key ? ' on' : ''}`;
+    item.dataset.flowpagekey = step.key;
+    item.dataset.flowpageafter = step.breakNode?.id ?? '';
+    item.dataset.flowpageoffset = String(index - selectedIndex);
+    item.dataset.flowpagetitle = step.title;
     const button = document.createElement('button');
-    button.className = step.key === selected.key ? 'on' : '';
+    button.className = 'bp-ep-view';
     const number = document.createElement('b');
     number.textContent = String(index + 1);
     const name = document.createElement('span');
@@ -285,16 +321,19 @@ export function renderEditPage(m: LModel, layer: HTMLElement): boolean {
     if (step.breakNode) name.dataset.bprename = step.breakNode.id;
     button.append(number, name);
     button.title = `Show ${step.title}`;
-    tap(button, () => viewEditPage(step.key));
-    if (step.breakNode) button.appendChild(pencil(step.breakNode.id, `Rename page "${step.title}"`));
-    if (step.breakNode && isTempId(step.breakNode.id)) button.appendChild(cancelAdd(m.pageId, step.breakNode.id));
-    nav.appendChild(button);
+    tap(button, () => viewEditPage(step.key, index - selectedIndex));
+    item.appendChild(button);
+    if (step.breakNode) item.appendChild(pencil(step.breakNode.id, `Rename page "${step.title}"`));
+    if (step.breakNode && isTempId(step.breakNode.id)) item.appendChild(cancelAdd(m.pageId, step.breakNode.id));
+    nav.appendChild(item);
   });
 
   const form = document.createElement('div');
   form.className = 'bp-ep-columns';
   form.style.setProperty('--ep-cols', String(Math.max(1, selected.columns.length)));
   const schema = schemaView(m.editPageTypes ?? []);
+  const rowGap = measured?.geometry.rowGap ?? 12;
+  const fallbackRowHeight = measured?.geometry.fallbackRowHeight ?? 75;
   selected.columns.forEach((columnModel, columnIndex) => {
     const column = document.createElement('div');
     column.className = `bp-ep-column${columnModel.breakNode ? ' has-guide' : ''}`;
@@ -302,14 +341,26 @@ export function renderEditPage(m: LModel, layer: HTMLElement): boolean {
     const columnStart = columnModel.breakNode?.id
       ?? (columnIndex === 0 ? selected.breakNode?.id : undefined);
     if (columnStart) {
-      column.appendChild(insertionPoint(m.pageId, columnStart, 'Add at the start of this column'));
+      column.appendChild(insertionPoint(
+        m.pageId,
+        columnStart,
+        'Add at the start of this column',
+        { start: true, height: measured ? 0 : undefined },
+      ));
     }
     columnModel.nodes.forEach((node, nodeIndex) => {
-      column.appendChild(field(node, m.pageId, m.editPageTypes ?? [], schema));
+      const row = field(node, m.pageId, m.editPageTypes ?? [], schema);
+      if (measured) row.style.minHeight = `${measured.heightById.get(node.id) ?? fallbackRowHeight}px`;
+      column.appendChild(row);
       const isFinalNode = columnIndex === selected.columns.length - 1
         && nodeIndex === columnModel.nodes.length - 1;
       if (!isFinalNode) {
-        column.appendChild(insertionPoint(m.pageId, node.id, `Add after ${editPageFieldLabel(node)}`));
+        column.appendChild(insertionPoint(
+          m.pageId,
+          node.id,
+          `Add after ${editPageFieldLabel(node)}`,
+          { height: measured ? rowGap : undefined },
+        ));
       }
     });
     form.appendChild(column);
@@ -323,6 +374,47 @@ export function renderEditPage(m: LModel, layer: HTMLElement): boolean {
   const lastColumn = selected.columns.at(-1);
   const afterId = lastColumn?.nodes.at(-1)?.id ?? lastColumn?.breakNode?.id ?? selected.breakNode?.id;
   tap(add, (e) => openFlowPicker(m.pageId, 'EditPage', { afterId, at: { x: e.clientX, y: e.clientY } }));
+
+  if (measured) {
+    const { geometry } = measured;
+    const titleBox = geometry.title;
+    const navBox = geometry.nav;
+    if (titleBox) {
+      Object.assign(title.style, {
+        left: `${titleBox.left - 1}px`, top: `${titleBox.top - 2}px`,
+        width: `${titleBox.width}px`, height: `${titleBox.height}px`,
+      });
+    }
+    if (navBox) {
+      Object.assign(nav.style, {
+        left: `${navBox.left - 1}px`, top: `${navBox.top - 2}px`,
+        width: `${navBox.width}px`, height: `${navBox.height}px`,
+        gridTemplateColumns: `repeat(${steps.length},minmax(0,1fr))`,
+      });
+    }
+    Object.assign(form.style, {
+      left: `${geometry.content.left - 1}px`, top: `${geometry.content.top - 2}px`,
+      width: `${geometry.content.width}px`,
+      gridTemplateColumns: geometry.columns.map(column => `${column.width}px`).join(' '),
+      columnGap: `${geometry.columns.length > 1
+        ? Math.max(0, geometry.columns[1].left - (geometry.columns[0].left + geometry.columns[0].width))
+        : 0}px`,
+    });
+    const columnHeights = selected.columns.map(column =>
+      column.nodes.reduce((sum, node, index) =>
+        sum + (measured.heightById.get(node.id) ?? fallbackRowHeight)
+          + (index < column.nodes.length - 1 ? rowGap : 0), 0),
+    );
+    const formHeight = Math.max(0, ...columnHeights);
+    Object.assign(add.style, {
+      left: `${geometry.content.left + 18}px`,
+      top: `${geometry.content.top + formHeight + 8}px`,
+    });
+    frame.style.height = `${Math.max(
+      live?.height ?? 0,
+      geometry.content.top + formHeight + 52,
+    )}px`;
+  }
 
   frame.append(title, nav, form, add);
   layer.appendChild(frame);
