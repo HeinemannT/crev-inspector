@@ -1,4 +1,0 @@
-objects=1117
-classes: Task=400, ExtendedTable=134, CustomVisualization=120, TextElement=92, InputView=72, CustomVisualizationExpression=60, Scorecard=45, Organisation=38, CreateObjectView=24, Spacer=23, Check=17, ActionButton=14,
-units: Steadfast Group (org_group, Organisation); Steadfast Demo (steadfast_demo, Organisation); configurator (configurator, Organisation); Sandbox (steadfast_sbx, Organisation);
-templates(277 distinct): Demo Case Template (demo_case_template) x3; Case Workspace (cvo_case_dashboard) x3; CVO Reporter tags (cve_dash_name) x3; CVO Reporter tags (cve_dash_desc) x3; § Risk Reports (3230) x2; § Risk Register (3226) x2; § Risk Master (3234) x2; § Draft Risks (3232) x2; § Dashboard (3228) x2; Top 10 Inherent & Residual Risks (3174) x2; Text Element (3195) x2; Text Element (3191) x2;

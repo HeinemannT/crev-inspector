@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * Tests for the PRODUCER half of the Blueprint lazy-load bridge in src/content.ts (plan 018,
- * see plans/009 for the bridge design):
+ * Tests for the producer half of the Blueprint lazy-load bridge in src/content.ts:
  *
  *   - activateBlueprint() (content.ts:95-102) — reachable only through the real one-shot message
  *     path (BLUEPRINT_STATE via chrome.runtime.onMessage), since the function itself is not

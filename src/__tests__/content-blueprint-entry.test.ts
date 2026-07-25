@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 /**
  * Tests for src/content-blueprint-entry.ts — the lazily-injected Blueprint bundle's entry seam
- * (plans/009). The heavy editor (content-blueprint/*, lib/layout/*) is mocked out: what matters here
+ * The heavy editor (content-blueprint/*, lib/layout/*) is mocked out: what matters here
  * is the BRIDGE contract with content.ts, which can't be exercised through the real editor —
  *
  *   - on init it adopts the rid resolver content.ts published on `window.__crevBpResolver`,

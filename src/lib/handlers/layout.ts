@@ -90,7 +90,7 @@ register('BLUEPRINT_CLOSE', async (_msg, _respond, meta) => {
 });
 
 // Content → SW: the tab is activating Blueprint for the first time and needs the editor's
-// content-blueprint.js injected (it's not part of the always-on content bundle — see plans/009).
+// content-blueprint.js injected (it's not part of the always-on content bundle).
 // Fire-and-forget; content.ts follows up by dispatching the `crev-bp-cmd` enable event once this
 // resolves (or the newly-injected script picks up the pending-enable window flag on its own init).
 register('INJECT_BLUEPRINT', async (_msg, _respond, meta) => {

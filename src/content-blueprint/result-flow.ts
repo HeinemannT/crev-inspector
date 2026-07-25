@@ -1,6 +1,5 @@
 /**
- * Flow rendering — the blueprint flow layer's view builders (v6 FINAL visual contract,
- * experiments/blueprint-flow.html):
+ * Flow rendering — the blueprint flow layer's view builders:
  *
  *  - `flowPanel`          — a flow-bearing widget's chain inside its result cell: config band
  *                           (createMode / destination / action verb), reference band (badge + name +

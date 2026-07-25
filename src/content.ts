@@ -38,7 +38,7 @@ declare global {
      *  instance (duplicate MOUNT_FRAME → two editor windows; a stale
      *  observer/port that re-paints overlays after inspect is toggled off). */
     __crev_teardown?: () => void;
-    // Blueprint bridge — the editor lives in a separately-injected content-blueprint.js (plans/009),
+    // Blueprint bridge — the editor lives in a separately-injected content-blueprint.js,
     // not in this always-on bundle. These hooks are how content.ts hands it a live rid resolver and
     // a queued activation without a static import (which would pull the ~150 KB editor back in).
     // Full contract documented in content-blueprint-entry.ts, which is the sole reader of all three.
@@ -92,7 +92,7 @@ const s = new ContentState();
 //
 // Published onto `window` rather than passed to a `setBlueprintRidResolver` import — the resolver is
 // a closure over ContentState (`s.fiberPageContext`) that content-blueprint-entry.ts (a SEPARATE
-// content-script injection, see plans/009) reads by reference. All content scripts injected into one
+// content-script injection) reads by reference. All content scripts injected into one
 // tab share one ISOLATED-world `window`, so this is a live bridge, not a snapshot.
 function getResolvedPageRid(): string | undefined {
   const url = extractUrlRids();

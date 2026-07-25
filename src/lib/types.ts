@@ -8,7 +8,7 @@ import { PAINT_STYLE_PROPS, COLOR_LINK_PROPS, PAINT_PROP_RESET, STYLE_PROPS, sty
 export { PAINT_STYLE_PROPS, COLOR_LINK_PROPS, PAINT_PROP_RESET, STYLE_PROPS, styleResetLiteral };
 // The message union and the type-color/abbreviation registry are single-sourced in
 // messages.ts / type-registry.ts respectively; re-exported below for back-compat with
-// the many `from './types'` import sites (see plans/012).
+// the many `from './types'` import sites.
 import { CHART_TYPES } from './type-registry';
 export * from './messages';
 export * from './type-registry';

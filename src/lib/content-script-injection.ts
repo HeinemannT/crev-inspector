@@ -56,7 +56,7 @@ const inFlightBlueprintInjections = new Map<number, Promise<void>>();
 
 /** Inject content-blueprint.js (the lazily-loaded Blueprint layout editor, ~150 KB) into the given
  *  tab. Called on request — content.ts asks for this on the tab's first blueprint activation rather
- *  than the script being registered for every page load (see plans/009). Gated on host permission
+ *  than the script being registered for every page load. Gated on host permission
  *  like `ensureContentScript`; no-ops silently on a non-granted / non-injectable tab. */
 export function ensureBlueprintScript(tabId: number): Promise<void> {
   const existing = inFlightBlueprintInjections.get(tabId);

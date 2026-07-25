@@ -220,7 +220,7 @@
  * Dormant until an entry point opts in (e.g. sidepanel <html data-theme>).
  * The default :root above (legacy dark) is untouched, so the other six
  * surfaces render exactly as before. Components migrate to these names
- * one surface at a time. See experiments/overhaul/DESIGN.md.
+ * one surface at a time.
  *
  * Rule: purple = action/active/selected · family colour = type
  * (badge tile + code rail only) · amber = unsaved. Else Carbon gray.

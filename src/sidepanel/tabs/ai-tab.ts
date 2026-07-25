@@ -3,7 +3,7 @@
  * (the Inspect selection and any open editor / studio). Session-lived: the
  * transcript lives in this instance and dies when the panel closes.
  *
- * Wiring (see docs/ai-chat-plan.md):
+ * Wiring:
  *   - send:   AI_CHAT_SEND { requestId, text, history, envelope } (fire-forget)
  *   - stream: AI_CHAT_EVENT broadcasts routed here by sidepanel.ts via
  *             chrome.runtime.onMessage (the panel's port does NOT carry these).

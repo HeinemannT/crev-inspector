@@ -1,5 +1,5 @@
 /**
- * Entry point for content-blueprint.js — the lazily-injected Blueprint layout editor (plans/009).
+ * Entry point for content-blueprint.js — the lazily-injected Blueprint layout editor.
  * Split out of the always-on content bundle: Blueprint (~150 KB, 58% of the old content.js — the
  * `content-blueprint/*` modules + the shared `lib/layout/*` they pull in) is a Ctrl+Shift+B tool, not
  * something every page load of a granted BMP origin needs. content.ts requests this file via the SW's
@@ -7,7 +7,7 @@
  * that just talks to the already-injected script.
  *
  * Bridge to content.ts: every content script the extension injects into one tab shares ONE
- * ISOLATED-world `window` (confirmed live — plans/009 Phase 0). content.ts can't hand this script a
+ * ISOLATED-world `window` (confirmed in live browser testing). content.ts can't hand this script a
  * live JS reference any other way (module closures don't cross a separate `chrome.scripting`
  * injection), so:
  *   - the page-rid RESOLVER is a closure content.ts publishes onto `window.__crevBpResolver` — it
@@ -15,9 +15,8 @@
  *     current page context by calling through the reference, not by copying a value.
  *   - ACTIVATION is a `crev-bp-cmd` CustomEvent on `document` (mirrors the existing crev-content /
  *     crev-interceptor CustomEvent convention between the MAIN-world interceptor and this ISOLATED
- *     world), with `window.__crevBpPendingEnable` as the fallback for the very first activation — the
- *     command that triggered this script's injection is fired before this file finishes loading and
- *     attaches its listener, so a bare CustomEvent dispatch would be lost on that first race.
+ *     world). Commands issued before this file attaches its listener are buffered in
+ *     `window.__crevBpPendingCmds`, then drained in order on initialization.
  */
 import { enableBlueprint, disableBlueprint, setBlueprintRidResolver, setBlueprintResumePrefer } from './content-blueprint';
 import { resetColorSets } from './content-blueprint/colors';

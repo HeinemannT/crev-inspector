@@ -4,7 +4,7 @@
  * connection.ts owns module-level state (healthUp, authResult, healthVersion,
  * networkOffline) that's mutated by pollHealth() + runAuthTest() and read
  * by computeConnectionState(). The truth table comes from connection.ts:68-74
- * (the live source of truth — ARCHITECTURE.md is out of date).
+ * (the live source of truth for connection behavior).
  *
  * We exercise the truth table by mocking BmpClient static helpers + per-instance
  * auth, then driving state through the public functions and asserting against

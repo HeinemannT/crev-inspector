@@ -2,7 +2,7 @@
  * Blueprint overlay (content script) — the in-browser layout editor's entry point: lifecycle
  * (enable/disable), the load/apply result handlers the content dispatch calls, and the style inject.
  * The editor itself is split across `content-blueprint/`: state (the `bp` singleton + constants),
- * geometry (DOM measurement), view (render), actions (gestures + keyboard). See docs/blueprint.md.
+ * geometry (DOM measurement), view (render), actions (gestures + keyboard).
  *
  * Edits are STAGED in a client-side model (the same pure `edit`/`diff` core the SW uses for apply),
  * shown as deltas over the live page — the live BMP grid can't reflow client-side, so a resize shows

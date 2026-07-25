@@ -20,7 +20,7 @@ Sign in to BMP with an account that has Configuration Access (normally an admini
 Turn on **Inspect** from the header or press `Ctrl+Shift+X`. CREV outlines rendered BMP objects and adds a type-coloured ID pill.
 
 <p align="center">
-  <img src="docs/images/inspect-object.png" width="980" alt="A BMP widget outlined by Inspect with its object pill, flow action, and hover card">
+  <img src=".github/readme/inspect-object.png" width="980" alt="A BMP widget outlined by Inspect with its object pill, flow action, and hover card">
 </p>
 
 | Gesture | Result |
@@ -46,7 +46,7 @@ Use the pencil beside a supported object name to rename it. CREV asks for confir
 The Extended Code editor opens from a code property or with `Ctrl+Shift+E`. It provides EC syntax highlighting, completion, hover documentation, linting, folding, runtime errors, and object-aware suggestions for `t.<id>` references and inferred variables.
 
 <p align="center">
-  <img src="docs/images/extended-code-properties.png" width="920" alt="Extended Code editor with inferred variables and type-specific properties">
+  <img src=".github/readme/extended-code-properties.png" width="920" alt="Extended Code editor with inferred variables and type-specific properties">
 </p>
 
 Use **Preview** (`Ctrl+Enter`) before **Run** (`Ctrl+Shift+Enter`). Run stays gated until the current code previews successfully. The lower panel shows structured output, tracked variables, run history, timings, and safe HTML or JSON views when the output supports them.
@@ -61,7 +61,7 @@ Text and CVO properties open in their dedicated studios:
 Press `Ctrl+Shift+B` to place Blueprint over the live page. Choose **Template** or **This instance**, then work with the structure BMP actually renders.
 
 <p align="center">
-  <img src="docs/images/blueprint-page.png" width="1000" alt="Blueprint showing a three-page EditPage with two columns, information blocks, and multiple field types">
+  <img src=".github/readme/blueprint-page.png" width="1000" alt="Blueprint showing a three-page EditPage with two columns, information blocks, and multiple field types">
 </p>
 
 Blueprint supports:
@@ -119,8 +119,6 @@ Rebind shortcuts at `chrome://extensions/shortcuts`.
 - A borrowed token is separate from the token used by the BMP tab.
 - HTTP profile URLs show a warning.
 - **Reset all state** clears cache, logs, context, and history while keeping profiles and favourites.
-
-The detailed [feature walkthrough](docs/walkthrough.html) covers the remaining controls and states.
 
 ## Development
 
