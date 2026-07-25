@@ -84,6 +84,9 @@ export function startObserver(
       s.lastUrl = window.location.href;
       s.resetOverlays();
       s.resetDiscovery();
+      // Form definition can change even when BMP keeps the same parent `rid`
+      // and only rewrites create/edit parameters.
+      s.editPageContext = null;
       refreshDetection();
       if (ownerChanged) {
         // The page owner changed — drop the stale fiber context and tell the

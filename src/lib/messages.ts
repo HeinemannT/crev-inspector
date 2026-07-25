@@ -33,6 +33,7 @@ import type {
   StudioChildType,
   TypeOptionSet,
   TypeSchemaProp,
+  EditPageContext,
   WidgetInfo,
 } from './types';
 import type { AiCustomProvider, AiProviderId, AiRequestPayload, AiChatTurn, AiChatEvent, AiChatQuote, AiContextEnvelope, AiContextSource } from './ai/types';
@@ -45,13 +46,14 @@ import type { InstanceFanout, ContainerBlast } from './layout/blast-radius';
 export type PageMessage =
   | { type: 'OBJECTS_DISCOVERED'; objects: BmpObject[] }
   | { type: 'GET_PAGE_INFO' }
-  | { type: 'PAGE_INFO'; url: string; rid?: string; tabRid?: string; tabName?: string; contextSource?: PageContextSource; widgets: WidgetInfo[]; detection?: { confidence: number; signals: string[]; isBmp: boolean } }
+  | { type: 'PAGE_INFO'; url: string; rid?: string; tabRid?: string; tabName?: string; contextSource?: PageContextSource; editContext?: EditPageContext; widgets: WidgetInfo[]; detection?: { confidence: number; signals: string[]; isBmp: boolean } }
   // Page context from the MAIN-world interceptor (React fiber). On BMP's
   // custom-routed pages the bound object lives only in the fiber
   // (`webParentRid` / `selectedTabRid`), never in the URL/DOM. The interceptor
   // posts this to the content script, which both resolves it locally (Page
   // tab) and forwards it to the SW (footer + editor EC `this`).
   | { type: 'PAGE_CONTEXT'; rid?: string; tabRid?: string }
+  | { type: 'EDIT_PAGE_CONTEXT'; context?: EditPageContext }
   // Content-script signal: BMP did an SPA route change (URL param flipped).
   // SW forwards by re-running sendPageInfoToPanel so the Page tab's widget
   // list refreshes — without this, post-route widgets show grey "?" until
@@ -135,7 +137,7 @@ export type ServerLookupMessage =
   // property (system + custom) with its EC accessor, display label,
   // and config-class. Cached in the SW; refresh=true bypasses the
   // cache and re-fetches. See type-schema-cache.ts.
-  | { type: 'FETCH_TYPE_SCHEMA'; className: string; refresh?: boolean }
+  | { type: 'FETCH_TYPE_SCHEMA'; className: string; refresh?: boolean; exampleRef?: string }
   | { type: 'FETCH_TYPE_SCHEMA_RESULT'; className: string; ok: boolean; props?: TypeSchemaProp[]; canonicalClassName?: string; error?: string }
   // Allowed values for a class's list/tag properties — drives value
   // autocomplete (WHERE/filter `<listprop> = t.<id>`) and the Vars panel's

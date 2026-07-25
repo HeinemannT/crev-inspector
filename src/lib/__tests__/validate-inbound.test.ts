@@ -74,6 +74,35 @@ describe('parseInterceptorMessage — PAGE_CONTEXT', () => {
   });
 });
 
+describe('parseInterceptorMessage — EDIT_PAGE_CONTEXT', () => {
+  it('accepts a validated edit context and an explicit clear', () => {
+    expect(parseInterceptorMessage({
+      type: 'EDIT_PAGE_CONTEXT',
+      context: { editPageRid: RID, parentRid: RID2, objectType: 'CeProcedure' },
+    })).toEqual({
+      type: 'EDIT_PAGE_CONTEXT',
+      context: {
+        editPageRid: RID,
+        initializerRid: undefined,
+        templateRid: undefined,
+        webParentRid: undefined,
+        parentRid: RID2,
+        objectRid: undefined,
+        objectName: undefined,
+        objectType: 'CeProcedure',
+      },
+    });
+    expect(parseInterceptorMessage({ type: 'EDIT_PAGE_CONTEXT' })).toEqual({ type: 'EDIT_PAGE_CONTEXT' });
+  });
+
+  it('rejects forged edit-page RIDs', () => {
+    expect(parseInterceptorMessage({
+      type: 'EDIT_PAGE_CONTEXT',
+      context: { editPageRid: RID, initializerRid: 'bad' },
+    })).toBeNull();
+  });
+});
+
 describe('parseInterceptorMessage — BMP_SIGNALS_RESULT', () => {
   it('accepts a well-formed message', () => {
     const msg = parseInterceptorMessage({ type: 'BMP_SIGNALS_RESULT', signals: ['window.Highcharts', '__CORPORATER__ global'] });

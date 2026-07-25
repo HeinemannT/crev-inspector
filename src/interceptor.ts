@@ -6,6 +6,7 @@
 
 import type { BmpObject, InspectorMessage } from './lib/types';
 import { isRidShaped } from './lib/rid-shape';
+import { extractEditPageContext } from './lib/edit-page-context';
 
 function post(payload: InspectorMessage) {
   document.dispatchEvent(new CustomEvent('crev-interceptor', { detail: payload }));
@@ -25,6 +26,7 @@ document.addEventListener('crev-content', ((event: CustomEvent) => {
     // object scan so the content script can resolve "what is this page about".
     const ctx = extractPageContext();
     if (ctx) post({ type: 'PAGE_CONTEXT', rid: ctx.rid, tabRid: ctx.tabRid });
+    post({ type: 'EDIT_PAGE_CONTEXT', context: extractEditPageContext() ?? undefined });
   }
 
   if (msg?.type === 'CHECK_BMP_SIGNALS') {

@@ -3,7 +3,7 @@
  * State lives in ContentState, logic in content-overlays/paint/tooltip/observer.
  */
 
-import type { InspectorMessage, ConnectionState, WidgetInfo, PaintPhase, PageContext } from './lib/types';
+import type { InspectorMessage, ConnectionState, WidgetInfo, PaintPhase, PageContext, EditPageContext } from './lib/types';
 import { extractUrlRids, scanPageWidgets, detectBmpPage, findTabButton, isTabActive } from './lib/dom-scanner';
 import { resolvePageContext } from './lib/page-context';
 import { h } from './lib/dom';
@@ -103,11 +103,18 @@ function getResolvedPageRid(): string | undefined {
   return resolvePageContext(url, s.fiberPageContext).rid;
 }
 
+/** The identity shown beside BMP's visible page heading. An edit route is
+ * visually a form definition, so prefer its exact EditPage RID there while
+ * leaving the normal bound-object resolver untouched everywhere else. */
+function getPageHeaderRid(): string | undefined {
+  return s.editPageContext?.editPageRid ?? getResolvedPageRid();
+}
+
 window.__crevBpResolver = getResolvedPageRid;
 
 function syncInspectSurface(): void {
   syncOverlays(s);
-  syncPageHeaderIdentity(s, getResolvedPageRid());
+  syncPageHeaderIdentity(s, getPageHeaderRid());
 }
 
 // Whether this content.ts instance has already asked the SW to inject content-blueprint.js. Reset on
@@ -275,7 +282,7 @@ function runDetection() {
 
 // ── Page info for side panel ─────────────────────────────────────
 
-function handlePageInfoRequest(): { url: string; rid?: string; tabRid?: string; tabName?: string; contextSource?: PageContext['source']; widgets: WidgetInfo[]; detection?: { confidence: number; signals: string[]; isBmp: boolean } } {
+function handlePageInfoRequest(): { url: string; rid?: string; tabRid?: string; tabName?: string; contextSource?: PageContext['source']; editContext?: EditPageContext; widgets: WidgetInfo[]; detection?: { confidence: number; signals: string[]; isBmp: boolean } } {
   const urlRids = extractUrlRids();
   // Detection is a cheap snapshot, not a boot-time truth. BMP's React root may
   // mount after this content script, so every explicit page-info request reads
@@ -304,6 +311,7 @@ function handlePageInfoRequest(): { url: string; rid?: string; tabRid?: string; 
     tabRid: ctx.tabRid,
     tabName: ctx.tabName,
     contextSource: ctx.source,
+    editContext: s.editPageContext ?? undefined,
     widgets,
     detection: { confidence: det.confidence, signals: det.signals, isBmp: det.isBmp },
   };
@@ -319,7 +327,15 @@ function handleFiberPageContext(rid?: string, tabRid?: string) {
   s.fiberPageContext = (rid || tabRid) ? { rid, tabRid } : null;
   sendToSW({ type: 'PAGE_CONTEXT', rid, tabRid });
   if (s.inspectActive) {
-    syncPageHeaderIdentity(s, resolvePageContext(extractUrlRids(), s.fiberPageContext).rid);
+    syncPageHeaderIdentity(s, getPageHeaderRid());
+  }
+}
+
+function handleEditPageContext(context?: EditPageContext) {
+  const previousRid = s.editPageContext?.editPageRid;
+  s.editPageContext = context ?? null;
+  if (s.inspectActive && previousRid !== context?.editPageRid) {
+    syncPageHeaderIdentity(s, getPageHeaderRid());
   }
 }
 
@@ -346,7 +362,7 @@ onPortMessage((msg: InspectorMessage) => {
       }
       if (s.inspectActive) {
         updateLabels(s);
-        syncPageHeaderIdentity(s, getResolvedPageRid());
+        syncPageHeaderIdentity(s, getPageHeaderRid());
       }
       break;
     case 'PAINT_STATE':
@@ -501,6 +517,10 @@ document.addEventListener('crev-interceptor', ((event: CustomEvent) => {
 
   if (msg.type === 'PAGE_CONTEXT') {
     handleFiberPageContext(msg.rid, msg.tabRid);
+  }
+
+  if (msg.type === 'EDIT_PAGE_CONTEXT') {
+    handleEditPageContext(msg.context);
   }
 
   if (msg.type === 'BMP_SIGNALS_RESULT') {

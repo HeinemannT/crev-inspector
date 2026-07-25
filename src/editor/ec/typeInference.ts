@@ -627,7 +627,11 @@ export function ensureSchemaNow(className: string): void {
   state.inflight.add(lc(className));
   enqueue(async () => {
     try {
-      const r = await sendRequest({ type: 'FETCH_TYPE_SCHEMA', className } as InspectorMessage);
+      const r = await sendRequest({
+        type: 'FETCH_TYPE_SCHEMA',
+        className,
+        exampleRef: schemaExampleRefs.get(lc(className)),
+      } as InspectorMessage);
       if (r?.type === 'FETCH_TYPE_SCHEMA_RESULT') {
         if (r.ok && r.props) {
           state.schemas.set(lc(className), r.props);
@@ -665,7 +669,12 @@ export function refreshSchema(className: string): void {
   notify(); // immediate UI update so the spinner shows
   enqueue(async () => {
     try {
-      const r = await sendRequest({ type: 'FETCH_TYPE_SCHEMA', className, refresh: true } as InspectorMessage);
+      const r = await sendRequest({
+        type: 'FETCH_TYPE_SCHEMA',
+        className,
+        refresh: true,
+        exampleRef: schemaExampleRefs.get(lc(className)),
+      } as InspectorMessage);
       if (r?.type === 'FETCH_TYPE_SCHEMA_RESULT') {
         if (r.ok && r.props) {
           state.schemas.set(lc(className), r.props);
@@ -750,6 +759,9 @@ export function ensureOptionsNow(className: string): void {
 // reason.
 const refTypeCache = new Map<string, string>();
 const refTypeInflight = new Set<string>();
+/** One validated concrete reference per resolved class. Used only when BMP's
+ * class-level config metadata is empty and the worker falls back to help(ref). */
+const schemaExampleRefs = new Map<string, string>();
 
 /** Cached class for a `namespace.businessId` ref, or undefined when it has not
  *  resolved successfully yet. */
@@ -772,6 +784,10 @@ export function ensureRefType(ref: string): void {
         // harmless no-op that also records the casing for the Vars panel.
         const cls = canonicalizeTypeName(r.objectType);
         refTypeCache.set(ref, cls);
+        schemaExampleRefs.set(lc(cls), ref);
+        // A class-only lookup may already have reported an empty schema.
+        // Concrete evidence makes that negative cache obsolete immediately.
+        state.schemaErrors.delete(lc(cls));
         rememberCanonical(cls, r.objectType);
         // A reference can be the RHS of a tracked variable assignment. Re-scan
         // the immutable last document so `_x := t.foo` upgrades from a pending
@@ -948,6 +964,7 @@ export function _resetForTests(): void {
   optionsInflight.clear();
   refTypeCache.clear();
   refTypeInflight.clear();
+  schemaExampleRefs.clear();
   resolveBucket = new TokenBucket(RESOLVE_BUCKET_MAX, RESOLVE_REFILL_PER_SEC, Date.now());
   resolveThrottleLogged = false;
   canonicalByLower.clear();

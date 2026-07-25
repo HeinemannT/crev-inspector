@@ -53,12 +53,6 @@ _None open._
 Deliberately kept OUT of Blueprint flow editing (decision 2026-07-11): Blueprint creates/arranges
 flow objects; configuring them stays in Inspect. These are the Inspect-side follow-ups:
 
-- **EC autocomplete for configuration/UI classes**: concrete reference inference resolves
-  `_field := t.5611` to `EditField`, but `FETCH_TYPE_SCHEMA` currently enumerates
-  `c.get(Class.name).children()` and only returns schemas for enterprise/business classes. The editor
-  therefore offers live properties for `ceras.*` objects but only generic methods for configuration
-  objects such as EditField and ExtendedExpression. The correct fix needs BMP's binary type metadata
-  (or an equivalent authoritative source), not a hand-maintained partial property list.
 - **HTML-first editing for advanced-mode fields**: `Label.defaultExpression` / `EditPageInfo.expression`
   with `advancedDefault`/`advancedMode` hold an EC expression *returning* an HTML string. Offer an
   "edit as HTML" mode that unwraps the string literal into the editor as HTML (with highlighting)
@@ -71,6 +65,18 @@ flow objects; configuring them stays in Inspect. These are the Inspect-side foll
   ButtonInput `key` cross-reference check (does any sibling field use it).
 
 ## Fixed
+
+### Edit-page discovery and configuration-object autocomplete — FIXED 2026-07-25
+- Create/edit routes now read BMP's exact `editionContext.editPageRid` from the mounted React form.
+  Inspect shows the standard clickable object chip beside the form title without replacing the
+  parent business-object context used by Blueprint or EC execution.
+- Configuration/UI references now fall back to BMP's own `help(t.<id>)` property table when
+  `c.get(Class.name).children()` is empty. Only a concrete reference already validated and resolved
+  by the editor can enter the fallback; results are cached by profile/type.
+- Both paths are bounded for large pages/scripts. Browser-verified on Steadfast's “Create new
+  Process” EditPage (`edi_new_process`) and `_field := t.5611`.
+- Binary type metadata remains useful for exact property config kinds, but is no longer required for
+  fast property-name autocomplete.
 
 ### Concrete-reference autocomplete startup race — FIXED 2026-07-25
 - An editor opened during connection startup could receive an empty `HOVER_RESOLVE_RESULT` and cache

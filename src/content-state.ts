@@ -4,7 +4,7 @@
  * Can be reset atomically on page unload or re-injection.
  */
 
-import type { EnrichMode, PaintPhase } from './lib/types';
+import type { EditPageContext, EnrichMode, PaintPhase } from './lib/types';
 import type { DetectionResult } from './lib/dom-scanner';
 
 /** Cascade target on the badge — for flow-bearing widgets we surface the
@@ -36,6 +36,11 @@ export class ContentState {
    *  the URL/DOM are blank. Fed by PAGE_CONTEXT, consumed by resolvePageContext.
    *  Cleared on URL change so a stale page object can't outlive a navigation. */
   fiberPageContext: { rid?: string; tabRid?: string } | null = null;
+
+  /** Form-definition identity on BMP create/edit routes. Kept separate from
+   * fiberPageContext so showing the EditPage chip cannot change execution
+   * context for Blueprint or Extended Code. */
+  editPageContext: EditPageContext | null = null;
 
   // Enrichment data from server (RID → identity)
   enrichments = new Map<string, EnrichmentData>();
@@ -108,6 +113,7 @@ export class ContentState {
     this.lastUrl = typeof window !== 'undefined' ? window.location.href : '';
     this.lastDetection = null;
     this.fiberPageContext = null;
+    this.editPageContext = null;
     this.enrichments.clear();
     this.resetOverlays();
     this.pageHeaderElement = null;

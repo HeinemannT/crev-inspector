@@ -18,6 +18,7 @@ import { refFieldsFromSchema, buildConnectionsEc, parseConnections, buildJunctio
 import type { ConnGroup } from '../types';
 import { buildRowEc } from '../ec-row-codec';
 import { isRidShaped } from '../validate-inbound';
+import { ID_SPACE_PREFIXES } from '../ec-grammar';
 
 // ── EC builders (exported for tests) ─────────────────────────────
 
@@ -289,7 +290,7 @@ function buildSchemaEc(className: string): string {
   ].join('\n');
 }
 
-function parseSchemaPropsLog(log: string): { props: SchemaProp[]; canonical?: string } {
+export function parseSchemaPropsLog(log: string): { props: SchemaProp[]; canonical?: string } {
   const props: SchemaProp[] = [];
   let canonical: string | undefined;
   for (const line of (log || '').split('\n')) {
@@ -309,9 +310,42 @@ function parseSchemaPropsLog(log: string): { props: SchemaProp[]; canonical?: st
   return { props, canonical };
 }
 
+const GENERIC_SYSTEM_PROPERTIES = new Set([
+  'rid', 'id', 'name', 'description', 'parent', 'model', 'self', 'sortIndex',
+  'className', 'available', 'showExpression', 'useShowExpression',
+]);
+
+/** Parse BMP's human-readable `help(reference)` property table. This fallback
+ * cannot expose config-class metadata, so entries are intentionally typed as
+ * generic Property and cannot be mistaken for reference fields downstream. */
+export function parseReferenceHelp(log: string): SchemaProp[] {
+  const props: SchemaProp[] = [];
+  const seen = new Set<string>();
+  for (const line of (log || '').split('\n')) {
+    const match = /^\|\s*\.([A-Za-z_][A-Za-z0-9_]*)\s*\|\s*([^|]*)\|\s*([^|]*)\|?/.exec(line);
+    if (!match || seen.has(match[1])) continue;
+    seen.add(match[1]);
+    props.push({
+      accessor: match[1],
+      label: match[2].trim(),
+      description: match[3].trim() || undefined,
+      configClass: 'Property',
+      systemobject: GENERIC_SYSTEM_PROPERTIES.has(match[1]),
+    });
+  }
+  return props;
+}
+
+function safeConcreteObjectRef(ref: string | undefined): string | null {
+  if (!ref) return null;
+  const match = /^([a-z]{1,6})\.([A-Za-z0-9_]+)$/.exec(ref);
+  if (!match || match[1] === 'o' || !ID_SPACE_PREFIXES.has(match[1])) return null;
+  return ref;
+}
+
 /** Cache-or-fetch a type's schema props. `refresh` bypasses the cache.
  *  Exported for the AI read_type tool, which reuses this exact live path. */
-export async function loadSchemaProps(className: string, refresh = false): Promise<
+export async function loadSchemaProps(className: string, refresh = false, exampleRef?: string): Promise<
   { ok: true; props: SchemaProp[]; canonical?: string } | { ok: false; error: string }
 > {
   const ctx = getCtx();
@@ -326,16 +360,29 @@ export async function loadSchemaProps(className: string, refresh = false): Promi
   // string into EC.
   if (!/^[A-Z][A-Za-z0-9]{0,63}$/.test(className)) return { ok: false, error: `Invalid class name: ${className}` };
   const result = await ctx.client.executeEc(buildSchemaEc(className), undefined, false);
-  if (!result.ok) return { ok: false, error: result.error || result.log || 'EC execution failed' };
-  const { props, canonical } = parseSchemaPropsLog(result.log ?? '');
-  if (props.length === 0) return { ok: false, error: 'No properties returned (unknown class?)' };
+  const parsed = result.ok ? parseSchemaPropsLog(result.log ?? '') : { props: [] as SchemaProp[] };
+  let { props } = parsed;
+  const canonical = parsed.canonical ?? className;
+  const concreteRef = safeConcreteObjectRef(exampleRef);
+  if (props.length === 0 && concreteRef) {
+    const help = await ctx.client.executeEc(`help(${concreteRef})`, undefined, false);
+    if (help.ok) props = parseReferenceHelp(help.log ?? '');
+  }
+  if (props.length === 0) {
+    return {
+      ok: false,
+      error: result.ok
+        ? 'No properties returned (unknown class?)'
+        : result.error || result.log || 'EC execution failed',
+    };
+  }
   schemaCache.set(serverId, className, props, canonical);
   return { ok: true, props, canonical };
 }
 
 register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
   try {
-    const r = await loadSchemaProps(msg.className, msg.refresh);
+    const r = await loadSchemaProps(msg.className, msg.refresh, msg.exampleRef);
     if (r.ok) respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: true, props: r.props, canonicalClassName: r.canonical });
     else respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: r.error });
   } catch (e) {

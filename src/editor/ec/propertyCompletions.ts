@@ -424,6 +424,7 @@ function build(props: TypeSchemaProp[], from: number, method?: string, member?: 
     options: filtered.map(p => ({
       label: p.accessor,
       detail: p.label || (p.systemobject ? 'system' : 'property'),
+      info: p.description,
       type: 'property',
       // Custom props always rank above system ones (id/name/parent/…). In a
       // `obj.` DOT-MEMBER position the user explicitly referenced an object and

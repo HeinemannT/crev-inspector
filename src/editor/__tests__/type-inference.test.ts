@@ -482,6 +482,34 @@ describe('RHS parser — concrete object references', () => {
     expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
   });
 
+  it('passes a resolved concrete ref as the safe schema fallback example', async () => {
+    const sendMessage = vi.fn((msg: { type: string; ref?: string; className?: string }) =>
+      Promise.resolve(msg.type === 'HOVER_RESOLVE'
+        ? { type: 'HOVER_RESOLVE_RESULT', ref: msg.ref, objectType: 'EditField' }
+        : {
+            type: 'FETCH_TYPE_SCHEMA_RESULT',
+            className: msg.className,
+            ok: true,
+            props: [],
+            canonicalClassName: 'EditField',
+          }),
+    );
+    (globalThis as unknown as { chrome: { runtime: { sendMessage: typeof sendMessage } } }).chrome = {
+      runtime: { sendMessage },
+    };
+
+    ensureRefType('t.schema_fallback_field');
+    for (let i = 0; i < 6; i++) await new Promise(resolve => setTimeout(resolve, 0));
+    ensureSchemaNow('EditField');
+    for (let i = 0; i < 6; i++) await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'FETCH_TYPE_SCHEMA',
+      className: 'EditField',
+      exampleRef: 't.schema_fallback_field',
+    }));
+  });
+
   it('retries a ref lookup that raced connection startup instead of caching a permanent miss', async () => {
     let attempts = 0;
     const sendMessage = vi.fn((msg: { type: string; ref?: string }) => {

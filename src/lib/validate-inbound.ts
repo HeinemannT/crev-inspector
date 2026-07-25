@@ -17,7 +17,7 @@
  *
  * Pure function, no I/O — trivially unit-testable.
  */
-import type { BmpObject } from './types';
+import type { BmpObject, EditPageContext } from './types';
 import { isRidShaped } from './rid-shape';
 
 // Re-exported so existing importers (`handlers/objects.ts`) keep a stable path;
@@ -27,6 +27,7 @@ export { isRidShaped };
 export type InterceptorMsg =
   | { type: 'OBJECTS_DISCOVERED'; objects: BmpObject[] }
   | { type: 'PAGE_CONTEXT'; rid?: string; tabRid?: string }
+  | { type: 'EDIT_PAGE_CONTEXT'; context?: EditPageContext }
   | { type: 'BMP_SIGNALS_RESULT'; signals: string[] };
 
 function hasRidShapedRid(v: unknown): v is { rid: string } {
@@ -52,6 +53,31 @@ export function parseInterceptorMessage(detail: unknown): InterceptorMsg | null 
     if (rid !== undefined && !isRidShaped(rid)) return null;
     if (tabRid !== undefined && !isRidShaped(tabRid)) return null;
     return { type: 'PAGE_CONTEXT', rid: rid as string | undefined, tabRid: tabRid as string | undefined };
+  }
+
+  if (d.type === 'EDIT_PAGE_CONTEXT') {
+    if (d.context === undefined) return { type: 'EDIT_PAGE_CONTEXT' };
+    if (typeof d.context !== 'object' || d.context === null) return null;
+    const raw = d.context as Record<string, unknown>;
+    if (!isRidShaped(raw.editPageRid)) return null;
+    for (const field of ['initializerRid', 'templateRid', 'webParentRid', 'parentRid', 'objectRid'] as const) {
+      if (raw[field] !== undefined && !isRidShaped(raw[field])) return null;
+    }
+    if (raw.objectName !== undefined && typeof raw.objectName !== 'string') return null;
+    if (raw.objectType !== undefined && typeof raw.objectType !== 'string') return null;
+    return {
+      type: 'EDIT_PAGE_CONTEXT',
+      context: {
+        editPageRid: raw.editPageRid,
+        initializerRid: raw.initializerRid as string | undefined,
+        templateRid: raw.templateRid as string | undefined,
+        webParentRid: raw.webParentRid as string | undefined,
+        parentRid: raw.parentRid as string | undefined,
+        objectRid: raw.objectRid as string | undefined,
+        objectName: raw.objectName as string | undefined,
+        objectType: raw.objectType as string | undefined,
+      },
+    };
   }
 
   if (d.type === 'BMP_SIGNALS_RESULT') {

@@ -79,6 +79,21 @@ export interface PageContext {
   source: PageContextSource;
 }
 
+/** Identity carried by BMP's create/edit React surface. This is deliberately
+ * separate from PageContext: `editPageRid` identifies the form definition,
+ * while PageContext continues to identify the bound business object used by
+ * Blueprint and EC execution. */
+export interface EditPageContext {
+  editPageRid: string;
+  initializerRid?: string;
+  templateRid?: string;
+  webParentRid?: string;
+  parentRid?: string;
+  objectRid?: string;
+  objectName?: string;
+  objectType?: string;
+}
+
 export interface TypeSchemaProp {
   /** EC accessor (e.g. `domain_tags`). The exact string a script writes
    *  after `_obj.` to read the property. Resolved via the two-step
@@ -94,6 +109,8 @@ export interface TypeSchemaProp {
    *  filters these out by default; toggling the filter is instant
    *  because the data was already fetched. */
   systemobject: boolean;
+  /** Optional help text supplied by BMP's concrete-object `help()` output. */
+  description?: string;
 }
 
 /** One allowed value of a list/tag property — a ListPropertySetItem or Tag,
