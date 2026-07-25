@@ -36,6 +36,7 @@ import type {
   EditPageContext,
   WidgetInfo,
 } from './types';
+import type { EcOutputEntry } from './bmp-types';
 import type { AiCustomProvider, AiProviderId, AiRequestPayload, AiChatTurn, AiChatEvent, AiChatQuote, AiContextEnvelope, AiContextSource } from './ai/types';
 import type { LModel, PlanNote, NodeStyle, FlowNode } from './layout/types';
 import type { StylePreset } from './style-presets';
@@ -174,7 +175,7 @@ export type EcMessage =
   // `durationMs` is the SW-measured EC round-trip. The panel surfaces it in
   // the status bar latency chip — it's the user-perceived signal of how
   // responsive BMP is to actual work (vs health-check pings).
-  | { type: 'EC_RESULT'; ok: boolean; log?: string; hasError?: boolean; hasWarning?: boolean; error?: string; durationMs?: number }
+  | { type: 'EC_RESULT'; ok: boolean; log?: string; outputEntries?: EcOutputEntry[]; hasError?: boolean; hasWarning?: boolean; error?: string; durationMs?: number }
   | { type: 'SAVE_PROPERTY'; rid: string; objectType: string; property: string; value: string }
   | { type: 'SAVE_RESULT'; ok: boolean; error?: string }
   | { type: 'OPEN_EDITOR'; rid: string; property?: string; scrollToLine?: number; scrollToText?: string }

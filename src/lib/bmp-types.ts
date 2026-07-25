@@ -615,9 +615,19 @@ export function parseObjectData(raw: any): ParsedObjectData | null {
   return { rid, type, properties: props };
 }
 
+/** One server-side EC log entry, kept alongside the flattened `log` so UI
+ * consumers can distinguish a returned value from warnings and debug output. */
+export interface EcOutputEntry {
+  logType: string;
+  message: string;
+  /** BMP prefixes the last-expression value with `Result : `. */
+  result: boolean;
+}
+
 interface ParsedEcResult {
   ok: boolean;
   log: string;
+  outputEntries: EcOutputEntry[];
   hasError: boolean;
   hasWarning: boolean;
   error?: string;
@@ -626,6 +636,7 @@ interface ParsedEcResult {
 /** Parse EC streaming response objects */
 export function parseEcResults(objects: any[]): ParsedEcResult {
   const lines: string[] = [];
+  const outputEntries: EcOutputEntry[] = [];
   let hasError = false;
   let hasWarning = false;
   const errors: string[] = [];
@@ -653,12 +664,14 @@ export function parseEcResults(objects: any[]): ParsedEcResult {
           if (!entry) continue;
           const logType = entry.logType instanceof JavaEnum ? entry.logType.name : String(entry.logType ?? '');
           let message = entry.message ?? '';
+          const result = message.startsWith('Result : ');
           // BMP wraps last-expression output with "Result : " prefix
-          if (message.startsWith('Result : ')) {
+          if (result) {
             message = message.slice(9); // 'Result : '.length === 9
           }
           if (logType === 'ERROR') hasError = true;
           if (logType === 'WARNING') hasWarning = true;
+          outputEntries.push({ logType, message, result });
           lines.push(message);
         }
       }
@@ -675,6 +688,7 @@ export function parseEcResults(objects: any[]): ParsedEcResult {
   return {
     ok: !hasError && errors.length === 0,
     log: lines.join('\n'),
+    outputEntries,
     hasError,
     hasWarning,
     error: errors.length > 0 ? errors.join('; ') : undefined,
@@ -907,4 +921,3 @@ function makeHashSet(set: Set<string> | string[]): any {
     $loadFactor: 0.75,
   };
 }
-

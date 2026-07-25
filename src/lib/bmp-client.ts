@@ -11,6 +11,7 @@ import {
   makeAccessTraceCommand,
   parseEcResults,
   parseTreeNodeInfo,
+  type EcOutputEntry,
 } from './bmp-types';
 import { colorLinkBid } from './color-util';
 import { styleAssignRhs, INVALID_COLOR_BID } from './style-ec';
@@ -59,6 +60,7 @@ export interface ConnectionResult {
 export interface EcResult {
   ok: boolean;
   log?: string;
+  outputEntries?: EcOutputEntry[];
   hasError?: boolean;
   hasWarning?: boolean;
   error?: string;

@@ -486,6 +486,12 @@ body {
 
 .editor-output-header-spacer { flex: 1; }
 
+.editor-output-header .btn-micro:disabled {
+  color: var(--text-disabled);
+  background: none;
+  cursor: default;
+}
+
 /* Subtle rule separating the OUTPUT-TEXT controls (\n / table / copy) from the
    PANEL controls (maximize / minimize), both grouped on the right. */
 .editor-output-header-div {
@@ -562,6 +568,23 @@ body {
 
 .editor-output-content.ok { color: var(--success); }
 .editor-output-content.error { color: var(--danger); }
+
+/* Inert rendering of a successful HTML-bearing EC result. This replaces only
+ * the output body; the normal status/timing/stale header and panel sizing stay
+ * untouched. The iframe is sandboxed without permissions in editor.ts. */
+.editor-html-preview {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  flex: 1;
+  border: 0;
+  background: #fff;
+}
+
+.editor-html-toggle-label {
+  font-size: var(--text-2xs);
+  letter-spacing: -0.4px;
+}
 
 /* ── Bottom bar ──────────────────────────────── */
 

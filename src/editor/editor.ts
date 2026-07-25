@@ -16,6 +16,7 @@ import { closeOverlayKeyBinding, installDirtyGuards, OVERLAY_CLOSE_MESSAGE } fro
 
 // Shared types + context helpers
 import { type FrameActivation, type SaveTarget, type ScriptHistoryEntry, type InspectorMessage, getTypeColor } from '../lib/types'
+import type { EcOutputEntry } from '../lib/bmp-types'
 import { typeBadge, wireBadgeCopy } from '../lib/type-badge'
 import { objectChip } from '../lib/object-chip'
 import { h, svg, render as renderDom } from '../lib/dom'
@@ -25,6 +26,7 @@ import { fetchAiConfig } from '../editor-core/ai-config'
 import type { AiAssist } from '../editor-core/ai-assist'
 import type { AiLang, AiObjectContext, AiContextSource } from '../lib/ai/types'
 import { renderEcOutput, ecOutputToText, parseBmpDurationMs, formatRunTiming } from './ec-output'
+import { buildHtmlPreviewDocument, extractHtmlOutput } from './ec-html-preview'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
 import { sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging'
@@ -99,7 +101,13 @@ let lastDuration: number | null = null
  *  + SW overhead apart from BMP's own execution cost. */
 let lastBmpMs: number | null = null
 let lastOutputText = ''
+let lastOutputEntries: EcOutputEntry[] = []
 let lastOutputOk = true
+/** Alternate representation of a successful HTML-bearing Output result.
+ * Raw output remains the initial mode; once chosen, HTML stays selected for
+ * later HTML previews in this editor session. Non-HTML output simply renders
+ * raw without adding any controls. */
+let htmlOutputMode = false
 let historyEntries: ScriptHistoryEntry[] = []
 let wrapLines = false
 let tablePreview = true
@@ -977,7 +985,7 @@ async function executeEc(transactional: boolean) {
   if (response?.type === 'EC_RESULT') {
     ok = response.ok !== false
     if (ok) {
-      showOutput(response.log ?? 'No output', true)
+      showOutput(response.log ?? 'No output', true, response.outputEntries)
       // Successful run wipes any lingering error marker — the line
       // that previously failed now runs fine.
       if (surface.view) clearRuntimeErrors(surface.view)
@@ -1262,8 +1270,9 @@ function flashCopy(btn: HTMLElement, text: string, restore: () => void) {
 
 // ── Bottom panel (output / vars / history) ──────────────────────
 
-function showOutput(text: string, ok: boolean) {
+function showOutput(text: string, ok: boolean, entries: EcOutputEntry[] = []) {
   lastOutputText = text
+  lastOutputEntries = entries
   lastOutputOk = ok
   // Pull BMP's own compute time out of the output so the pill can show it
   // next to the round-trip. Null for the "Previewing…" placeholder (no
@@ -1373,9 +1382,20 @@ function renderBottomContentInner() {
     const modeLabel = lastMode === 'save' ? 'Saved' : lastMode === 'execute' ? 'Executed' : 'Preview'
     const cls = lastOutputOk ? 'ok' : 'error'
     const timing = lastDuration != null ? formatRunTiming(lastDuration, lastBmpMs) : null
-    const outputContent = lastOutputOk
-      ? renderEcOutput(lastOutputText, tablePreview, decodePreview)
-      : h('div', { class: 'editor-output-content error' }, lastOutputText)
+    const htmlOutput = lastOutputOk
+      ? extractHtmlOutput(lastOutputEntries, lastOutputText, decodePreview)
+      : null
+    const showingHtml = htmlOutputMode && htmlOutput !== null
+    const outputContent = showingHtml
+      ? h('iframe', {
+          class: 'editor-html-preview',
+          sandbox: true,
+          title: 'Rendered HTML output',
+          srcdoc: buildHtmlPreviewDocument(htmlOutput),
+        })
+      : lastOutputOk
+        ? renderEcOutput(lastOutputText, tablePreview, decodePreview)
+        : h('div', { class: 'editor-output-content error' }, lastOutputText)
     renderDom(container,
       h('div', { class: 'editor-output-header' },
         h('span', { class: `editor-output-pill ${cls}` },
@@ -1400,22 +1420,38 @@ function renderBottomContentInner() {
           onClick: () => toggleOutputPref('decode'),
         }, h('span', { class: 'btn-micro-label' }, '\\n')),
         h('button', {
-          class: `btn-micro${tablePreview ? ' active' : ''}`,
-          title: 'Toggle table rendering for | -separated rows',
+          class: `btn-micro${tablePreview && !showingHtml ? ' active' : ''}`,
+          disabled: showingHtml,
+          title: showingHtml ? 'Table rendering applies to structured output' : 'Toggle table rendering for | -separated rows',
           onClick: () => toggleOutputPref('table'),
         }, svg(ICON_TABLE)),
+        htmlOutput !== null
+          ? h('button', {
+              class: `btn-micro${showingHtml ? ' active' : ''}`,
+              id: 'btn-html-output',
+              title: showingHtml ? 'Show structured output' : 'Render HTML output',
+              'aria-label': showingHtml ? 'Show structured output' : 'Render HTML output',
+              'aria-pressed': showingHtml ? 'true' : 'false',
+              onClick: () => {
+                htmlOutputMode = !showingHtml
+                renderBottomContent()
+              },
+            }, h('span', { class: 'btn-micro-label editor-html-toggle-label' }, '</>'))
+          : null,
         h('button', {
           class: 'btn-micro',
           id: 'btn-copy-output',
-          title: 'Copy output',
+          title: showingHtml ? 'Copy HTML source' : 'Copy output',
           onClick: (e: Event) => {
             const btn = (e.currentTarget as HTMLElement)
             // Mirror what the panel shows. On OK output that's the parsed
             // view (tables → TSV for spreadsheet-paste, other lines verbatim,
             // honouring the decode + table toggles). On ERROR the panel shows
             // raw text untouched, so copy the raw bytes to match.
-            const copyText = lastOutputOk
-              ? ecOutputToText(lastOutputText, tablePreview, decodePreview)
+            const copyText = showingHtml
+              ? htmlOutput
+              : lastOutputOk
+                ? ecOutputToText(lastOutputText, tablePreview, decodePreview)
               : lastOutputText
             flashCopy(btn, copyText, () => {})
           },
