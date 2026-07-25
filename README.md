@@ -61,7 +61,7 @@ Text and CVO properties open in their dedicated studios:
 Press `Ctrl+Shift+B` to place Blueprint over the live page. Choose **Template** or **This instance**, then work with the structure BMP actually renders.
 
 <p align="center">
-  <img src=".github/readme/blueprint-page.png" width="1000" alt="Blueprint showing a three-page EditPage with two columns, information blocks, and multiple field types">
+  <img src=".github/readme/blueprint-page.png" width="1000" alt="Blueprint Style mode over a page with an input panel, two chart columns, and a full-width table">
 </p>
 
 Blueprint supports:
@@ -75,6 +75,10 @@ Blueprint supports:
 Changes remain staged. The counter, undo, redo, and discard controls operate on the draft. **Apply** first shows the affected objects, then asks for confirmation before it writes to BMP.
 
 ### Edit pages
+
+<p align="center">
+  <img src=".github/readme/blueprint-edit-page.png" width="720" alt="Edit Page Blueprint showing three pages, two columns, information blocks, and multiple field types">
+</p>
 
 Edit Page Blueprint follows page navigation, page breaks, columns, field order, and the configured form width. Move fields within or between columns and pages, add supported elements, and edit field properties while seeing the rendered form structure.
 
