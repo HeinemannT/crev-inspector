@@ -181,6 +181,7 @@ function buildFlowEmit(): string[] {
     `     ENDIF`,
     `     IF _cn = "CreateObjectView" THEN`,
     `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|objectType|" + ${safeWireTextEc('_w.objectType.whenMissing("")')} + "\\n"`,
+    `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|objectTypeClass|" + ${safeWireTextEc('_w.objectType.className.whenMissing("")')} + "\\n"`,
     `          _l := _l + "${FLOW_META_MARKER}" + ${owner} + "|destExpr|" + ${safeWireTextEc('output(_w.parentDestinationExpression.whenMissing(""))')} + "\\n"`,
     `     ELSE`,
     `          _l := _l`,
@@ -603,6 +604,7 @@ export function parseFlows(log: string): Map<string, FlowProjection> {
     const p = map.get(owner);
     if (!p || !value) continue;
     if (field === 'objectType') p.objectType = value;
+    else if (field === 'objectTypeClass') p.objectTypeClass = value;
     else if (field === 'destExpr') p.destExpr = value;
     else if (field === 'addItem') p.addItem = value;
     else if (field === 'navExpr') p.navExpr = value;

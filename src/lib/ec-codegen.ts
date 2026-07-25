@@ -561,6 +561,19 @@ export function buildObjectPaneEc(ref: string, paneProps: readonly string[]): st
   lines.push('    _editFieldType := _view.objectType.className.whenMissing("")');
   lines.push('    IF _editFieldType <> "" THEN _editFieldTypes := _editFieldTypes + _editFieldType + "," ELSE _editFieldTypes := _editFieldTypes ENDIF');
   lines.push('  )');
+  // A newly-created or intentionally standalone EditPage may not yet be
+  // referenced by a CreateObjectView. Its own `types` are still the
+  // authoritative mapping surface, so use them when reverse references yield
+  // no class. This keeps a field configurable immediately after Blueprint
+  // creates the page instead of requiring a circular "wire it before you can
+  // configure it" workflow.
+  lines.push('  IF _editFieldTypes = "" THEN');
+  lines.push('    _o.parent.types.forEach(_type:');
+  lines.push('      _editFieldTypes := _editFieldTypes + output(_type) + ","');
+  lines.push('    )');
+  lines.push('  ELSE');
+  lines.push('    _editFieldTypes := _editFieldTypes');
+  lines.push('  ENDIF');
   lines.push('ENDIF');
   lines.push(...condEcBlock('"editFieldTypes"', 'output(_editFieldTypes)'));
   // Code fields — union across all known types.

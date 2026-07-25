@@ -16,7 +16,7 @@
 import type { PANE_PROPS } from '../lib/bmp-client';
 import { styleOptions } from '../lib/style-props';
 
-export type EditorKind = 'color' | 'number' | 'enum' | 'boolean' | 'slider' | 'text' | 'property';
+export type EditorKind = 'color' | 'number' | 'enum' | 'boolean' | 'slider' | 'text' | 'string' | 'property';
 
 export interface PropDef {
   prop: typeof PANE_PROPS[number];
@@ -220,6 +220,9 @@ export const PROP_GROUPS: Array<{ title: string; props: PropDef[] }> = [
     title: 'Field',
     props: [
       { prop: 'propertyMapping', label: 'Property', kind: 'property', availableOn: EDIT_FIELD_TYPES },
+      { prop: 'required', label: 'Required', kind: 'boolean', availableOn: EDIT_FIELD_TYPES },
+      { prop: 'placeholder', label: 'Placeholder', kind: 'string', availableOn: EDIT_FIELD_TYPES },
+      { prop: 'propertyHint', label: 'Help text', kind: 'string', availableOn: EDIT_FIELD_TYPES },
     ],
   },
   {

@@ -67,6 +67,24 @@ export function numberEditor(ctx: PropEditorContext, opts: { unit?: string; min?
   return h('div', { class: `prop-cell prop-cell--number${ctx.dirty ? ' prop-cell--dirty' : ''}` }, ...children);
 }
 
+/** Plain writable BMP string property. Keep this separate from the `text`
+ * renderer, which deliberately presents structured/opaque values read-only. */
+export function stringEditor(ctx: PropEditorContext, placeholder = ''): HTMLElement {
+  const input = h('input', {
+    class: `prop-string-input${ctx.dirty ? ' prop-cell--dirty' : ''}`,
+    type: 'text',
+    value: ctx.value,
+    placeholder,
+    autocomplete: 'off',
+    spellcheck: 'false',
+  }) as HTMLInputElement;
+  // Commit on change (blur/Enter), not every keystroke. The object panes
+  // rebuild their property tree after a draft changes; an `input` listener
+  // would detach the focused control after the first character.
+  input.addEventListener('change', () => ctx.onChange(input.value));
+  return h('div', { class: `prop-cell prop-cell--string${ctx.dirty ? ' prop-cell--dirty' : ''}` }, input);
+}
+
 export interface EnumOption { value: string; label?: string }
 let propertyListId = 0;
 

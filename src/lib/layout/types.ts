@@ -241,6 +241,7 @@ export interface FlowProjection {
   // config band (CreateObjectView):
   createMode?: string;   // ADD | EDITORADD | EDITOREDIT (normalized enum)
   objectType?: string;   // created object display name
+  objectTypeClass?: string; // class configured by objectType (e.g. CeRiskAssessment)
   destExpr?: string;     // parentDestinationExpression text
   // action button (tray card):
   actionType?: string;   // ACTION | ADD | NAVIGATE (normalized enum)
@@ -275,7 +276,7 @@ export interface FlowEdit {
    *  `newContainer.name`. So `rename` only ever carries an EXISTING object's new name. */
   rename?: string;
   /** This (temp-keyed) entry is a staged-new InputSet/EditPage awaiting creation on Apply. */
-  newContainer?: { className: 'InputSet' | 'EditPage'; name: string };
+  newContainer?: { className: 'InputSet' | 'EditPage'; name: string; editPageType?: string };
   /** Staged reference wire on a flow WIDGET: `<widget>.change(<prop> := <target>)`. `targetId` may be
    *  a staged-new container's temp id (compiled var-to-var) or an existing businessId. `setCreateMode`
    *  also folds `createMode := "EDITORADD"` into the same change() — a COV in ADD mode ignores its
@@ -314,7 +315,7 @@ export type PlanStep =
   // support landing — the new virtual tabset AND all new InputSets/EditPages. The fixture convention
   // for InputSets/EditPages (verified live 2026-07-12; EditPage is REFUSED at portal root: "Can't add
   // an object of type EditPage to Portal").
-  | { kind: 'flowCreate'; node: FlowNode; parentId: string; parentClass: string; parentRid?: string }
+  | { kind: 'flowCreate'; node: FlowNode; parentId: string; parentClass: string; parentRid?: string; editPageType?: string }
   // Minimal reorder within ONE flow parent: `moveAfter(afterId)` (a prior sibling or a just-created
   // `_ff<k>`) or `moveBefore(beforeId)` for a drag-to-front. `parentId` groups the step for summaries.
   | { kind: 'flowReorder'; id: string; rid?: string; afterId?: string; beforeId?: string; parentId: string }

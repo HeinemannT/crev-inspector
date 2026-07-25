@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { propertyAccessorEditor } from '../property-editors';
+import { propertyAccessorEditor, stringEditor } from '../property-editors';
 
 describe('propertyAccessorEditor', () => {
   beforeEach(() => {
@@ -67,5 +67,23 @@ describe('propertyAccessorEditor', () => {
     );
     expect(loading.querySelector('input')!.disabled).toBe(true);
     expect(loading.querySelector('input')!.placeholder).toBe('Loading properties…');
+  });
+});
+
+describe('stringEditor', () => {
+  it('stages plain text on commit without re-rendering on each keystroke', () => {
+    const onChange = vi.fn();
+    const editor = stringEditor({
+      value: '',
+      original: '',
+      dirty: false,
+      onChange,
+    });
+    const input = editor.querySelector<HTMLInputElement>('.prop-string-input')!;
+    input.value = 'Shown inside the field';
+    input.dispatchEvent(new Event('input'));
+    expect(onChange).not.toHaveBeenCalled();
+    input.dispatchEvent(new Event('change'));
+    expect(onChange).toHaveBeenCalledWith('Shown inside the field');
   });
 });

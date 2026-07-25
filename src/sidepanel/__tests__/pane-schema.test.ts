@@ -104,4 +104,14 @@ describe('EditField property mapping', () => {
     expect(def?.availableOn?.has('EditPage')).toBe(false);
     expect(PANE_PROPS).toContain('propertyMapping');
   });
+
+  it('keeps essential field behavior in the same type-gated section', () => {
+    expect(findPropDef('required')).toMatchObject({ kind: 'boolean', label: 'Required' });
+    expect(findPropDef('placeholder')).toMatchObject({ kind: 'string', label: 'Placeholder' });
+    expect(findPropDef('propertyHint')).toMatchObject({ kind: 'string', label: 'Help text' });
+    for (const prop of ['required', 'placeholder', 'propertyHint'] as const) {
+      expect(findPropDef(prop)?.availableOn?.has('EditField')).toBe(true);
+      expect(PANE_PROPS).toContain(prop);
+    }
+  });
 });

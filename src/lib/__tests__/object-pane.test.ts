@@ -210,6 +210,9 @@ describe('buildObjectPaneEc — sibling cap', () => {
     const ec = buildObjectPaneEc('lookup(5611)', PANE_PROPS);
     expect(ec).toContain('_o.parent.rref(editPage).forEach(_view:');
     expect(ec).toContain('_view.objectType.className.whenMissing("")');
+    expect(ec).toContain('IF _editFieldTypes = "" THEN');
+    expect(ec).toContain('_o.parent.types.forEach(_type:');
+    expect(ec).toContain('_editFieldTypes := _editFieldTypes + output(_type) + ","');
     expect(ec).toContain('"editFieldTypes"');
     expect(PANE_PROPS).toContain('propertyMapping');
   });
@@ -263,6 +266,20 @@ describe('applyObjectChanges — PANE_PROPS_SET allowlist', () => {
     expect(result.ok).toBe(true);
     const ec = (exec.mock.calls[0] as unknown as [string])[0];
     expect(ec).toContain('propertyMapping := "domain_owner"');
+  });
+
+  it('allows the essential EditField settings', async () => {
+    const { c, exec } = makeClient('Result : 0');
+    const result = await c.applyObjectChanges('5611', 'instance', {
+      required: 'true',
+      placeholder: 'Enter process code',
+      propertyHint: 'Use the controlled identifier',
+    });
+    expect(result.ok).toBe(true);
+    const ec = (exec.mock.calls[0] as unknown as [string])[0];
+    expect(ec).toContain('required := TRUE');
+    expect(ec).toContain('placeholder := "Enter process code"');
+    expect(ec).toContain('propertyHint := "Use the controlled identifier"');
   });
 
   it('rejects a malformed colour id (no EC sent)', async () => {

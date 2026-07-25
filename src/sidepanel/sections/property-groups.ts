@@ -20,7 +20,7 @@ import { ICON_REFRESH } from '../../lib/icons';
 import { PROP_GROUPS, type PropDef } from '../pane-schema';
 import {
   colorLinkEditor, numberEditor, enumEditor, booleanEditor, sliderEditor,
-  propertyAccessorEditor, displayValue, type EnumOption, type PropEditorContext,
+  propertyAccessorEditor, stringEditor, displayValue, type EnumOption, type PropEditorContext,
 } from '../property-editors';
 import { colorLinkBid } from '../../lib/color-util';
 import { lookupColor } from '../color-picker';
@@ -71,7 +71,7 @@ export function renderPropertyGroups(ctx: PaneGroupsCtx): HTMLElement {
         if (!serverHas || (Number.isFinite(n) && n <= 1)) continue;
       }
       const isAlwaysShown = def.kind === 'boolean' || def.kind === 'enum'
-        || def.kind === 'slider' || def.kind === 'property';
+        || def.kind === 'slider' || def.kind === 'property' || def.kind === 'string';
       if (!serverHas && !draftPresent && !isAlwaysShown) continue;
       if (draftPresent) dirtyInGroup++;
       visibleDefs.push(def);
@@ -214,6 +214,7 @@ export function renderPropRow(ctx: PaneGroupsCtx, def: PropDef): HTMLElement {
       editor = propertyAccessorEditor(editorCtx, choices?.options, choices);
       break;
     }
+    case 'string': editor = stringEditor(editorCtx); break;
     case 'text':
       editor = h('span', { class: 'prop-text-value' }, value || h('span', { class: 'prop-text-empty' }, '—'));
       break;

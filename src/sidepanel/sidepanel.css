@@ -2560,6 +2560,21 @@ body.crev-divider-dragging * { user-select: none; }
   outline: none;
   box-shadow: inset 0 1px 0 rgba(0,0,0,0.25);
 }
+.prop-string-input {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+.prop-string-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
 .prop-property-input:focus { border-color: var(--accent); }
 .prop-property-input:disabled {
   color: var(--text-3);

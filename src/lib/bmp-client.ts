@@ -171,6 +171,10 @@ export const PANE_PROPS = [
   // the owning CreateObjectView. Full Object View renders a live class-schema
   // picker for this rather than a free-text box.
   'propertyMapping',
+  // Essential EditField behaviour. Keep these in the same focused Field
+  // section as propertyMapping; Blueprint owns structure, Object View owns
+  // deliberate field configuration.
+  'required', 'placeholder', 'propertyHint',
 ] as const;
 export type PaneProp = typeof PANE_PROPS[number];
 export const PANE_PROPS_SET: ReadonlySet<string> = new Set(PANE_PROPS);
@@ -660,7 +664,13 @@ export class BmpClient {
     for (const p of props) {
       // Shared rule (style-ec): colour links → `prop := t.<bid>` (a reference, never a quoted string,
       // which errors on a CorpoColor prop) or `:= ""` to CLEAR when empty; scalars → an EC literal.
-      const rhs = styleAssignRhs(p, changes[p], (v) => this.formatEcLiteral(v));
+      // Property editors store draft values as strings. `required` is outside
+      // the style catalogue, so normalize it explicitly to an EC boolean
+      // instead of persisting the string "true"/"false".
+      const value = p === 'required'
+        ? String(changes[p]).toLowerCase() === 'true'
+        : changes[p];
+      const rhs = styleAssignRhs(p, value, (v) => this.formatEcLiteral(v));
       if (rhs === INVALID_COLOR_BID) return { ok: false, error: `Invalid colour id "${colorLinkBid(changes[p])}"` };
       assignments.push(`${p} := ${rhs}`);
     }

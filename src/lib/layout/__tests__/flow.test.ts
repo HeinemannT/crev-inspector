@@ -42,7 +42,8 @@ function flowModel(): LModel {
       ownerId: '50845', ownerRid: 'r_cov', ownerClass: 'CreateObjectView', kind: 'editpage',
       refId: '50865', refRid: 'r_ep', refClass: 'EditPage', refName: 'Create Risk Statement',
       refParentClass: 'Category', refParentId: '50675',
-      createMode: 'EDITORADD', objectType: 'Risk Statement', destExpr: 'root.ceRiskAssessment', container: 'RESULT',
+      createMode: 'EDITORADD', objectType: 'Risk Statement', objectTypeClass: 'CeRiskAssessment',
+      destExpr: 'root.ceRiskAssessment', container: 'RESULT',
       children: [
         { id: '50866', rid: 'r_e1', className: 'EditField', name: 'Edit field', prop: 'code' },
         { id: '50873', rid: 'r_pb', className: 'EditPageBreak', name: 'Page break', isBreak: true },
@@ -257,6 +258,7 @@ describe('parseFlows enum normalization + wire parsing (pitfalls 3/4)', () => {
   const log = [
     `${FLOW_REF_MARKER}50845|r_cov|CreateObjectView|editpage|50865|r_ep|EditPage|CreateMode.editorAdd||||RESULT|Category|50675|Create Risk Statement`,
     `${FLOW_META_MARKER}50845|objectType|Risk Statement`,
+    `${FLOW_META_MARKER}50845|objectTypeClass|CeRiskAssessment`,
     `${FLOW_META_MARKER}50845|destExpr|root.ceRiskAssessment`,
     `${FLOW_CHILD_MARKER}50845||50866|r_e1|EditField|1|0|0,0,1,0,0,|Edit field`,
     `${FLOW_CPROP_MARKER}50845|50866|risk_code`,
@@ -280,6 +282,7 @@ describe('parseFlows enum normalization + wire parsing (pitfalls 3/4)', () => {
     const flows = parseFlows(log);
     const cov = flows.get('50845')!;
     expect(cov.objectType).toBe('Risk Statement');
+    expect(cov.objectTypeClass).toBe('CeRiskAssessment');
     expect(cov.destExpr).toBe('root.ceRiskAssessment');
     const [ef, pb] = cov.children;
     expect(ef).toMatchObject({ id: '50866', className: 'EditField', required: true, prop: 'risk_code' });
@@ -441,7 +444,18 @@ describe('staged-new InputSet / EditPage + reference wiring', () => {
     // named after the page (display name → falls back to pageId here); NOT "<pageId> support" anymore
     expect(catLines[0]).toContain('name := "template_example_flow"');
     expect(script).toContain('_fcat.add(InputSet, name := "S")');
-    expect(script).toContain('_fcat.add(EditPage, name := "P")');
+    expect(script).toContain('_fcat.add(EditPage, name := "P", types := list(CeRiskAssessment))');
+  });
+
+  it('propagates a CreateObjectView class to a newly-created EditPage', () => {
+    const base = flowModel();
+    const staged = stageNewFlowContainer(base, '50845', 'editPage', 'New risk page').model;
+    const edit = Object.values(staged.flowEdits ?? {}).find(entry => entry.newContainer)?.newContainer;
+    expect(edit).toMatchObject({ className: 'EditPage', editPageType: 'CeRiskAssessment' });
+
+    const { script } = compile(flowDiff(base, staged), staged);
+    expect(script).toContain('add(EditPage, name := "New risk page", types := list(CeRiskAssessment))');
+    expect(script).toContain('t.50845.change(editPage := _ff0)');
   });
 
   it('compiles: uses the page DISPLAY NAME for the support Category when the model carries one', () => {

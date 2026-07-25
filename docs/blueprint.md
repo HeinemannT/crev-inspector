@@ -242,7 +242,9 @@ new name immediately, and `flowChangeCount` counts a rename-only edit so Apply u
 **New references from blueprint**: a reference-less InputView/COV (typically one just staged from the
 grid picker) offers "wire to existing…" (a lean SW fetch of the workspace's InputSets/EditPages at
 picker-open — `LAYOUT_FLOW_REFS`) and "+ new" (stages a new set/page auto-named after the widget; its
-empty child list renders immediately so elements stage underneath before the first Apply).
+empty child list renders immediately so elements stage underneath before the first Apply). A new
+EditPage inherits the COV's concrete `objectType.className` as its `types` entry; without that type,
+EditField property mapping has no authoritative business-object schema.
 
 **Wiring to an EXISTING off-page reference** fetches that reference's real current children on demand
 (`LAYOUT_FLOW_REF_CHILDREN` → `t.<bid>.children()`, same child shape as the main projection) and renders

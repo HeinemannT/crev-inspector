@@ -261,9 +261,12 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
           // reuses an on-page reference's existing Category (co-locate) or lazily creates one named
           // after the page, so a set + a page (+ a new tabset) created together all share it.
           const cat = ensureSupportCat();
+          const typeArg = s.node.className === 'EditPage' && s.editPageType
+            ? `, types := list(${ecClass(s.editPageType)})`
+            : '';
           emit({ verb: 'create', id: s.node.id, text: `Create ${s.node.className} "${s.node.name}" in ${supportCatName}`,
             action: 'Add', object: s.node.name, objectType: s.node.className, where: supportCatName,
-            ec: `${v} := ${cat}.add(${ecClass(s.node.className)}, name := ${ecStr(s.node.name)}) // BMP assigns id` });
+            ec: `${v} := ${cat}.add(${ecClass(s.node.className)}, name := ${ecStr(s.node.name)}${typeArg}) // BMP assigns id` });
         } else {
           emit({ verb: 'create', id: s.node.id, text: `Add ${s.node.className} "${s.node.name}" to ${s.parentClass}`,
             action: 'Add', object: s.node.name, objectType: s.node.className, where: s.parentClass,

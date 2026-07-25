@@ -185,7 +185,10 @@ export function isStagedActionButtonAdd(key: string, e: FlowEdit): boolean {
 export function stageNewFlowContainer(m: LModel, widgetId: string, prop: 'inputSet' | 'editPage', name: string): { model: LModel; id: string } {
   const id = tempId('flowset');
   const className = prop === 'inputSet' ? 'InputSet' as const : 'EditPage' as const;
-  let next = withFlowEdit(m, id, e => { e.newContainer = { className, name }; });
+  const editPageType = prop === 'editPage' ? m.flows?.[widgetId]?.objectTypeClass : undefined;
+  let next = withFlowEdit(m, id, e => {
+    e.newContainer = { className, name, ...(editPageType ? { editPageType } : {}) };
+  });
   next = withFlowEdit(next, widgetId, e => {
     e.wireRef = { prop, targetId: id, targetClass: className, targetName: name, ...(needsModeFlip(m, widgetId, prop) ? { setCreateMode: true } : {}) };
   });
@@ -347,6 +350,7 @@ export function flowDiff(_baseline: LModel, desired: LModel): PlanStep[] {
         kind: 'flowCreate',
         node: { id: key, className: e.newContainer.className, name: e.newContainer.name },
         parentId: '*support*', parentClass: 'Category',
+        ...(e.newContainer.editPageType ? { editPageType: e.newContainer.editPageType } : {}),
       });
     }
     // The widget's staged reference wire (emitted last, after every create).
