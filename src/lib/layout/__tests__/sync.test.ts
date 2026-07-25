@@ -275,6 +275,7 @@ describe('sync.loadEditPageModel', () => {
   const log = [
     '<<<CREV_PAGE>>>Risk Workshop',
     '<<<CREV_EDIT_PAGE_TITLE>>>Create a risk statement',
+    '<<<CREV_EDIT_PAGE_TYPE>>>CeRiskAssessment',
     '<<<CREV_FCHD>>>crev_ep||page_1|1|EditPageBreak|0|1||Details',
     '<<<CREV_FCHD>>>crev_ep||field_1|2|EditField|1|0||Risk code',
     '<<<CREV_FCPR>>>crev_ep|field_1|code',
@@ -284,7 +285,7 @@ describe('sync.loadEditPageModel', () => {
     const { model, baseline, orphans } = await loadEditPageModel(fakeIo(log), ctx);
     expect(model).toMatchObject({
       pageId: 'crev_ep', pageName: 'Risk Workshop',
-      editPageTitle: 'Create a risk statement', tabs: [],
+      editPageTitle: 'Create a risk statement', editPageTypes: ['CeRiskAssessment'], tabs: [],
     });
     expect(model.flows?.crev_ep.children[1]).toMatchObject({
       id: 'field_1', name: 'Risk code', prop: 'code', required: true,
@@ -297,6 +298,7 @@ describe('sync.loadEditPageModel', () => {
     const ec = buildEditPageFetchEc('crev_ep');
     expect(ec).toContain('t.crev_ep');
     expect(ec).toContain('_ref.children().forEach(_fc:');
+    expect(ec).toContain('_ref.types.forEach(_type:');
     expect(ec).not.toContain('descendants()');
   });
 });

@@ -19,7 +19,7 @@ import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { render } from './view';
-import { applyPage, fetchBlast, fetchFlowRefs, fetchFlowRefChildren } from './service';
+import { applyPage, fetchBlast, fetchFlowRefs, fetchFlowRefChildren, fetchEditPageSchemas } from './service';
 import { ensureColorSets } from './colors';
 import { loadPresets, savePreset, deletePreset } from './presets';
 import { PAINT_STYLE_PROPS } from '../lib/style-props';
@@ -30,6 +30,12 @@ import type { StylePreset } from '../lib/style-presets';
 export function mutate(next: LModel): void { bp.history?.push(next); bp.flipNext = true; render(); }
 
 export function select(id: string | null): void { bp.selectedId = id; bp.swatch = null; render(); }
+export function selectEditPageField(id: string, types: readonly string[]): void {
+  bp.selectedId = id;
+  bp.swatch = null;
+  void fetchEditPageSchemas(types);
+  render();
+}
 /** Begin renaming a node: select it and flag the next render to open its inline-rename field. The one
  *  entry point — used by BOTH double-click on a cell name and the toolbar pencil. */
 export function beginRename(id: string): void { bp.selectedId = id; bp.renameId = id; render(); }

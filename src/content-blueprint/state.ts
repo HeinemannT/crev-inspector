@@ -3,6 +3,7 @@
  * Actions mutate `bp` and call view.render(); view reads `bp`. Keeping the state here (data only)
  * means neither the view nor the controller owns it, and there's no import cycle through it.
  */
+import type { TypeSchemaProp } from '../lib/types';
 import type { LModel, PlanNote, NodeStyle, FlowNode } from '../lib/layout/types';
 import type { StylePreset } from '../lib/style-presets';
 import { PAINT_STYLE_PROPS } from '../lib/style-props';
@@ -31,6 +32,11 @@ export interface BpState {
   history: History | null;     // undo/redo over the edited model
   layer: HTMLElement | null;
   selectedId: string | null;
+  /** Lazy schemas used by standalone EditPage fields. The initial page read stays lean; selecting
+   *  an EditField requests only its configured object class(es) through the shared schema service. */
+  editPageSchemas: Map<string, TypeSchemaProp[]>;
+  editPageSchemaPending: Set<string>;
+  editPageSchemaErrors: Map<string, string>;
   applying: boolean;
   preview: PlanNote[] | null;   // non-null → the apply-preview modal is open
   applyOutcome: ApplyOutcome | null; // non-null → a persistent stale/partial/failed outcome panel is docked (cleared on dismiss / new apply / discard / reset)
@@ -114,7 +120,7 @@ export interface BpState {
 function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
-    layer: null, selectedId: null, applying: false, preview: null, applyOutcome: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, discardArm: false, discardTimer: 0, actionMenuOpen: false, picker: null, pickerOpts: null,
+    layer: null, selectedId: null, editPageSchemas: new Map(), editPageSchemaPending: new Set(), editPageSchemaErrors: new Map(), applying: false, preview: null, applyOutcome: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, discardArm: false, discardTimer: 0, actionMenuOpen: false, picker: null, pickerOpts: null,
     flowPicker: null, flowRefList: null, flowRefChildren: new Map(), flowRefChildrenPending: new Set(), flowFolds: new Set(), trayCardsOpen: new Set(),
     movePicker: null, tabMenu: null, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], presetStatus: 'idle', renameId: null,
@@ -139,6 +145,7 @@ export function resetState(): void { Object.assign(bp, freshState()); }
 export function resetModel(): void {
   bp.baseline = null; bp.ctx = null; bp.history = null;
   bp.selectedId = null; bp.viewTabId = null; bp.unusedTabsOpen = false; bp.ridSig = ''; bp.peek = false;
+  bp.editPageSchemas = new Map(); bp.editPageSchemaPending = new Set(); bp.editPageSchemaErrors = new Map();
   bp.resultAnchor = null; bp.actionMenuOpen = false;
   // In-flight apply / preview state is tied to the page being left. A reload mid-apply (a popstate/
   // link-nav bumps `gen`, so the late apply reply returns early without clearing `applying`) would

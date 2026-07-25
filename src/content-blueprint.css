@@ -305,9 +305,10 @@
 
 /* Standalone EditPage Blueprint. BMP persists one flat child stream; this surface projects the
    PageBreak/ColumnBreak markers into the step navigation and form columns users actually see. */
-#crev-blueprint-layer .bp-editpage{position:absolute;z-index:6;padding:18px 20px 22px;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);box-shadow:var(--bp-shadow);pointer-events:auto}
+#crev-blueprint-layer .bp-editpage{position:absolute;z-index:6;padding:18px 20px 22px;background-color:var(--bp-ground);background-image:repeating-linear-gradient(to bottom,transparent 0,transparent 27px,rgba(0,33,71,.025) 27px,rgba(0,33,71,.025) 28px);border:var(--bp-hair) solid var(--bp-line-1);border-top:2px solid var(--bp-cyan-hi);box-shadow:var(--bp-shadow);pointer-events:auto}
 #crev-blueprint-layer .bp-editpage-header{min-width:min(440px,94vw)}
 #crev-blueprint-layer .bp-ep-title{display:flex;align-items:center;min-height:30px;margin-bottom:10px;border-bottom:var(--bp-hair) solid var(--bp-line-2);font:600 16px/1.3 'BPInter',system-ui,sans-serif}
+#crev-blueprint-layer .bp-ep-width{margin-left:auto;color:var(--bp-muted);font:500 9.5px var(--bp-mono);letter-spacing:.02em}
 #crev-blueprint-layer .bp-ep-nav{display:flex;align-items:stretch;gap:0;margin-bottom:18px;border-bottom:var(--bp-hair) solid var(--bp-line-2);overflow-x:auto}
 #crev-blueprint-layer .bp-ep-nav>button{position:relative;display:flex;align-items:center;gap:7px;min-width:0;padding:8px 12px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--bp-muted);font:500 11px 'BPInter',system-ui,sans-serif;cursor:pointer;white-space:nowrap}
 #crev-blueprint-layer .bp-ep-nav>button:hover{color:var(--bp-text);background:rgba(74,144,217,.08)}
@@ -319,10 +320,15 @@
 #crev-blueprint-layer .bp-ep-nav>button:hover .bp-ep-pencil,#crev-blueprint-layer .bp-ep-label:hover .bp-ep-pencil{opacity:.7}
 #crev-blueprint-layer .bp-ep-cancel{display:grid;place-items:center;width:18px;height:18px;padding:0;border:0;background:transparent;color:var(--bp-red);cursor:pointer}
 #crev-blueprint-layer .bp-ep-cancel svg{width:10px;height:10px}
-#crev-blueprint-layer .bp-ep-columns{display:grid;grid-template-columns:repeat(var(--ep-cols),minmax(0,1fr));gap:22px}
-#crev-blueprint-layer .bp-ep-column{min-width:0}
-#crev-blueprint-layer .bp-ep-field{display:grid;grid-template-columns:12px minmax(0,1fr);gap:7px;margin-bottom:14px;padding:8px;border:var(--bp-div) solid transparent}
+#crev-blueprint-layer .bp-ep-columns{display:grid;grid-template-columns:repeat(var(--ep-cols),minmax(0,1fr));gap:0}
+#crev-blueprint-layer .bp-ep-column{position:relative;min-width:0;padding:0 11px}
+#crev-blueprint-layer .bp-ep-column:first-child{padding-left:0}
+#crev-blueprint-layer .bp-ep-column:last-child{padding-right:0}
+#crev-blueprint-layer .bp-ep-column.has-guide{border-left:var(--bp-hair) dashed rgba(74,144,217,.55)}
+#crev-blueprint-layer .bp-ep-field{display:grid;grid-template-columns:12px minmax(0,1fr);gap:7px;margin:0;padding:8px;border:var(--bp-div) solid transparent;outline:none}
 #crev-blueprint-layer .bp-ep-field:hover{border-color:var(--bp-line-2);background:rgba(74,144,217,.035)}
+#crev-blueprint-layer .bp-ep-field.selected{border-color:var(--bp-cyan-hi);background:rgba(74,144,217,.065);box-shadow:inset 2px 0 0 var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-ep-field:focus-visible{border-color:var(--bp-cyan-hi)}
 #crev-blueprint-layer .bp-ep-drag{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:12px;min-height:24px;opacity:.32;cursor:grab}
 #crev-blueprint-layer .bp-ep-drag i{display:block;width:3px;height:3px;border-radius:50%;background:currentColor}
 #crev-blueprint-layer .bp-ep-field:hover .bp-ep-drag{opacity:.72}
@@ -334,14 +340,29 @@
 #crev-blueprint-layer .bp-ep-control.info,#crev-blueprint-layer .bp-ep-control.validation{padding:8px 10px;border-left:3px solid var(--bp-cyan);background:rgba(74,144,217,.08);color:var(--bp-muted);font:11px/1.4 'BPInter',system-ui,sans-serif}
 #crev-blueprint-layer .bp-ep-control.validation{border-left-color:var(--bp-amber);background:rgba(217,119,6,.07)}
 #crev-blueprint-layer .bp-ep-control>button{height:30px;padding:0 12px;border:var(--bp-div) solid var(--bp-line-2);border-radius:var(--bp-r);background:#fff;color:var(--bp-text);font:500 11px 'BPInter',system-ui,sans-serif}
-#crev-blueprint-layer .bp-ep-colbreak{display:flex;align-items:center;gap:6px;height:18px;margin:-7px 0 7px;color:var(--bp-muted);font:500 8px var(--bp-mono)}
-#crev-blueprint-layer .bp-ep-colbreak:after{content:"";height:1px;flex:1;background:var(--bp-line-2);opacity:.45}
+#crev-blueprint-layer .bp-ep-details{display:flex;align-items:center;gap:8px;min-height:25px;margin-top:7px;padding-top:6px;border-top:var(--bp-hair) solid var(--bp-line-2);color:var(--bp-muted);font:500 9.5px var(--bp-mono)}
+#crev-blueprint-layer .bp-ep-details>span+span:before{content:"·";margin-right:8px;color:var(--bp-line-1)}
+#crev-blueprint-layer .bp-ep-detail-main{color:var(--bp-text);font-family:'BPInter',system-ui,sans-serif;font-weight:600}
+#crev-blueprint-layer .bp-ep-schema-state.is-error{color:var(--bp-amber)}
+#crev-blueprint-layer .bp-ep-help{display:grid;place-items:center;width:17px;height:17px;margin-left:auto;padding:0;border:var(--bp-hair) solid var(--bp-line-2);border-radius:50%;background:transparent;color:var(--bp-muted);font:700 9px var(--bp-mono);cursor:help}
+#crev-blueprint-layer .bp-ep-colguide{position:absolute;z-index:2;left:-8px;top:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:3px 1px;background:var(--bp-ground);color:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-ep-colguide .bp-ep-drag{min-height:18px}
+#crev-blueprint-layer .bp-ep-insert{position:relative;z-index:1;display:grid;grid-template-columns:1fr 18px 1fr;place-items:center;width:100%;height:12px;margin:-2px 0;padding:0;border:0;background:transparent;color:var(--bp-cyan-hi);opacity:0;cursor:pointer;transition:opacity .12s}
+#crev-blueprint-layer .bp-ep-insert:before,#crev-blueprint-layer .bp-ep-insert:after{content:"";width:100%;height:var(--bp-hair);background:currentColor;opacity:.45}
+#crev-blueprint-layer .bp-ep-insert>span{display:grid;place-items:center;width:16px;height:16px;border:var(--bp-hair) solid currentColor;border-radius:50%;background:var(--bp-ground)}
+#crev-blueprint-layer .bp-ep-insert svg{width:9px;height:9px}
+#crev-blueprint-layer .bp-ep-field:hover+.bp-ep-insert,#crev-blueprint-layer .bp-ep-insert:focus-visible{opacity:.72}
+#crev-blueprint-layer .bp-ep-insert:hover{opacity:1!important}
 #crev-blueprint-layer .bp-ep-add{display:flex;align-items:center;gap:6px;margin:6px 0 0 19px;padding:6px 9px;border:var(--bp-hair) dashed var(--bp-line-2);border-radius:var(--bp-r);background:transparent;color:var(--bp-muted);font:500 11px 'BPInter',system-ui,sans-serif;cursor:pointer}
 #crev-blueprint-layer .bp-ep-add:hover{border-color:var(--bp-cyan);color:var(--bp-cyan-hi)}
 #crev-blueprint-layer .bp-ep-add svg{width:12px;height:12px}
 @media (max-width:600px){
   #crev-blueprint-layer .bp-ep-columns{grid-template-columns:1fr}
   #crev-blueprint-layer .bp-editpage{padding-left:12px;padding-right:12px}
+  #crev-blueprint-layer .bp-ep-column{padding:0}
+  #crev-blueprint-layer .bp-ep-column.has-guide{margin-top:12px;padding-top:12px;border-top:var(--bp-hair) dashed rgba(74,144,217,.55);border-left:0}
+  #crev-blueprint-layer .bp-ep-colguide{left:50%;top:-8px;flex-direction:row;transform:translateX(-50%)}
+  #crev-blueprint-layer .bp-ep-insert{opacity:.45}
 }
 /* Full-bleed editor backdrop: the white + two-tier grid fills the WHOLE editor width (edge to edge,
    like the draft), not just the content panel. It sits BEHIND the cards (z 5 < 6) and is purely

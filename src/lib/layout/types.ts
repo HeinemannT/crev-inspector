@@ -142,6 +142,9 @@ export interface LModel {
   pageName?: string;
   /** Standalone EditPage only: the heading BMP renders above the form. */
   editPageTitle?: string;
+  /** Standalone EditPage only: business-object classes configured in `EditPage.types`.
+   *  Their normal type schemas are fetched lazily when an EditField is selected. */
+  editPageTypes?: string[];
   /** the page's BMP class — only consumed by the apply `SELECT <class>`; fetch uses `lookup(rid)`. */
   pageClass: PageClass;
   /** portal-model root that owns tabs (`<tabset>.add(Tab)`). */

@@ -6,7 +6,7 @@
  * the send and the result handling, keeping the controller/view free of transport detail.
  */
 import { History } from '../lib/layout/history';
-import { sendRequest } from '../lib/messaging';
+import { sendRequest, sendRequestBounded } from '../lib/messaging';
 import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import type { InspectorMessage } from '../lib/types';
@@ -21,6 +21,7 @@ type ApplyResult = Extract<InspectorMessage, { type: 'LAYOUT_APPLY_RESULT' }>;
 type BlastResult = Extract<InspectorMessage, { type: 'LAYOUT_BLAST_RESULT' }>;
 type FlowRefsResult = Extract<InspectorMessage, { type: 'LAYOUT_FLOW_REFS_RESULT' }>;
 type FlowRefChildrenResult = Extract<InspectorMessage, { type: 'LAYOUT_FLOW_REF_CHILDREN_RESULT' }>;
+type TypeSchemaResult = Extract<InspectorMessage, { type: 'FETCH_TYPE_SCHEMA_RESULT' }>;
 
 /** Adopt `m` as the new baseline: fresh history, clear selection. The single point where the editor
  *  rebases onto an authoritative server model (initial load + post-apply + stale-reload). */
@@ -39,6 +40,36 @@ function rebase(m: LModel): void {
 /** True if the session we started this I/O for is still the live one. A reply that arrives after the
  *  overlay was toggled off — or off-then-on (a new session, higher `gen`) — must not mutate state. */
 const sameSession = (g: number): boolean => bp.active && bp.gen === g;
+
+/** Fill the standalone EditPage's field-detail cache from the same authoritative schema path used by
+ *  Object View and EC autocomplete. Idempotent and lazy: initial Blueprint load never pays this cost. */
+export async function fetchEditPageSchemas(types: readonly string[]): Promise<void> {
+  const missing = [...new Set(types)].filter(type =>
+    type && !bp.editPageSchemas.has(type) && !bp.editPageSchemaPending.has(type),
+  );
+  if (!missing.length) return;
+  const g = bp.gen;
+  for (const type of missing) {
+    bp.editPageSchemaPending.add(type);
+    bp.editPageSchemaErrors.delete(type);
+  }
+  await Promise.all(missing.map(async (type) => {
+    try {
+      const response = await sendRequestBounded<TypeSchemaResult>(
+        { type: 'FETCH_TYPE_SCHEMA', className: type },
+        { timeoutMs: 10_000 },
+      );
+      if (!sameSession(g)) return;
+      if (response.ok && response.props) bp.editPageSchemas.set(type, response.props);
+      else bp.editPageSchemaErrors.set(type, response.error || 'Property details unavailable');
+    } catch {
+      if (sameSession(g)) bp.editPageSchemaErrors.set(type, 'Property details unavailable');
+    } finally {
+      if (sameSession(g)) bp.editPageSchemaPending.delete(type);
+    }
+  }));
+  if (sameSession(g)) render();
+}
 
 /** Request the page's layout model and load it into the editor. `prefer` chooses, for a templated
  *  instance, whether to open the shared TEMPLATE (default) or THIS instance. Resolves false when the

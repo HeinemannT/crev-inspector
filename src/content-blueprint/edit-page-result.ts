@@ -1,9 +1,11 @@
+import type { TypeSchemaProp } from '../lib/types';
 import type { FlowNode, LModel } from '../lib/layout/types';
 import { effectiveFlowChildren } from '../lib/layout/flow';
+import { intersectTypeSchemas } from '../lib/type-schema-utils';
 import { ICON_PENCIL, ICON_PLUS, ICON_X } from '../lib/icons';
 import { isTempId } from '../lib/layout/model';
 import { bp } from './state';
-import { beginRename, cancelFlowAdd, openFlowPicker, viewEditPage } from './actions';
+import { beginRename, cancelFlowAdd, openFlowPicker, selectEditPageField, viewEditPage } from './actions';
 import { armFlowRow } from './gestures';
 import { setIcon, docX, docY } from './geometry';
 import { flowBadge } from './result-flow';
@@ -41,19 +43,116 @@ function dragHandle(): HTMLElement {
 
 /** Stock BMP EditFields are often all named literally "Edit field". In that case the property
  * mapping is the only useful label available in this bounded read; configured names still win. */
-export function editPageFieldLabel(node: FlowNode): string {
+export function editPageFieldLabel(node: FlowNode, property?: TypeSchemaProp): string {
   if (node.className === 'EditField' && /^edit field$/i.test(node.name.trim()) && node.prop) {
-    return node.prop.replace(/[_-]+/g, ' ').toUpperCase();
+    return property?.label || node.prop.replace(/[_-]+/g, ' ').toUpperCase();
   }
   return node.name || node.className;
 }
 
-function field(node: FlowNode, pageId: string): HTMLElement {
+interface EditPageSchemaView {
+  state: 'unavailable' | 'loading' | 'error' | 'ready';
+  byAccessor: Map<string, TypeSchemaProp>;
+  typeLabel: string;
+}
+
+function schemaView(types: readonly string[]): EditPageSchemaView {
+  if (!types.length) return { state: 'unavailable', byAccessor: new Map(), typeLabel: '' };
+  const schemas = types.flatMap(type => {
+    const schema = bp.editPageSchemas.get(type);
+    return schema ? [schema] : [];
+  });
+  const typeLabel = types.join(', ');
+  if (schemas.length === types.length) {
+    const shared = intersectTypeSchemas(schemas);
+    return { state: 'ready', byAccessor: new Map(shared.map(prop => [prop.accessor, prop])), typeLabel };
+  }
+  if (types.some(type => bp.editPageSchemaPending.has(type))) {
+    return { state: 'loading', byAccessor: new Map(), typeLabel };
+  }
+  if (types.some(type => bp.editPageSchemaErrors.has(type))) {
+    return { state: 'error', byAccessor: new Map(), typeLabel };
+  }
+  return { state: 'loading', byAccessor: new Map(), typeLabel };
+}
+
+function humanType(configClass: string): string {
+  return configClass
+    .replace(/MethodConfig$/, '')
+    .replace(/Config$/, '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .trim() || configClass;
+}
+
+function propertyLabel(property: TypeSchemaProp): string {
+  const label = property.label || property.accessor;
+  return label ? label[0].toUpperCase() + label.slice(1) : label;
+}
+
+function propertyDetails(node: FlowNode, schema: EditPageSchemaView): HTMLElement | null {
+  if (node.className !== 'EditField' || !node.prop) return null;
+  const details = document.createElement('div');
+  details.className = 'bp-ep-details';
+  if (schema.state !== 'ready') {
+    const status = document.createElement('span');
+    status.className = `bp-ep-schema-state is-${schema.state}`;
+    status.textContent = schema.state === 'loading' ? 'Loading property details…'
+      : schema.state === 'error' ? 'Property details unavailable'
+        : 'No object type configured';
+    status.title = schema.typeLabel || 'This Edit Page does not expose a configured business-object type.';
+    details.appendChild(status);
+    return details;
+  }
+
+  const property = schema.byAccessor.get(node.prop);
+  if (!property) {
+    const status = document.createElement('span');
+    status.className = 'bp-ep-schema-state is-error';
+    status.textContent = 'Mapping not found in the configured type';
+    status.title = `${node.prop} is not shared by ${schema.typeLabel}`;
+    details.appendChild(status);
+    return details;
+  }
+  const label = document.createElement('span');
+  label.className = 'bp-ep-detail-main';
+  label.textContent = propertyLabel(property);
+  const kind = document.createElement('span');
+  kind.textContent = humanType(property.configClass);
+  kind.title = property.configClass;
+  const origin = document.createElement('span');
+  origin.textContent = property.systemobject ? 'System property' : 'Custom property';
+  details.append(label, kind, origin);
+  if (property.description) {
+    const help = document.createElement('button');
+    help.className = 'bp-ep-help';
+    help.textContent = '?';
+    help.title = property.description;
+    help.setAttribute('aria-label', `About ${propertyLabel(property)}`);
+    details.appendChild(help);
+  }
+  return details;
+}
+
+function field(node: FlowNode, pageId: string, types: readonly string[], schema: EditPageSchemaView): HTMLElement {
   const row = document.createElement('div');
-  row.className = `bp-ep-field kind-${node.className}`;
+  const selected = bp.selectedId === node.id;
+  row.className = `bp-ep-field kind-${node.className}${selected ? ' selected' : ''}`;
   row.dataset.flowkey = pageId;
   row.dataset.flowid = node.id;
   row.dataset.bpflip = `flow:${pageId}:${node.id}`;
+  row.setAttribute('role', 'group');
+  row.tabIndex = 0;
+  row.setAttribute('aria-label', `${editPageFieldLabel(node)}${selected ? ', selected' : ''}`);
+  row.addEventListener('mousedown', (e) => {
+    if ((e.target as HTMLElement).closest('button,.bp-ep-drag')) return;
+    e.stopPropagation();
+    selectEditPageField(node.id, node.className === 'EditField' ? types : []);
+  });
+  row.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    selectEditPageField(node.id, node.className === 'EditField' ? types : []);
+  });
 
   const drag = dragHandle();
   armFlowRow(drag, row, pageId, node.id, false);
@@ -63,7 +162,10 @@ function field(node: FlowNode, pageId: string): HTMLElement {
   label.className = 'bp-ep-label';
   label.appendChild(flowBadge(node.className, node.id.includes(':'), true));
   const name = document.createElement('span');
-  name.textContent = editPageFieldLabel(node);
+  const property = schema.state === 'ready' && node.prop ? schema.byAccessor.get(node.prop) : undefined;
+  name.textContent = editPageFieldLabel(node, property
+    ? { ...property, label: propertyLabel(property) }
+    : undefined);
   name.dataset.bprename = node.id;
   label.appendChild(name);
   if (node.required) {
@@ -102,22 +204,40 @@ function field(node: FlowNode, pageId: string): HTMLElement {
     preview.appendChild(input);
   }
   body.appendChild(preview);
+  if (selected) {
+    const details = propertyDetails(node, schema);
+    if (details) body.appendChild(details);
+  }
   row.append(drag, body);
   return row;
 }
 
-function columnBreak(node: FlowNode, pageId: string): HTMLElement {
+function columnGuide(node: FlowNode, pageId: string): HTMLElement {
   const divider = document.createElement('div');
-  divider.className = 'bp-ep-colbreak';
+  divider.className = 'bp-ep-colguide';
   divider.dataset.flowkey = pageId;
   divider.dataset.flowid = node.id;
+  divider.title = 'Column boundary · drag to move';
   const drag = dragHandle();
   armFlowRow(drag, divider, pageId, node.id, false);
-  const text = document.createElement('span');
-  text.textContent = 'COLUMN';
-  divider.append(drag, text);
+  divider.append(drag);
   if (isTempId(node.id)) divider.appendChild(cancelAdd(pageId, node.id));
   return divider;
+}
+
+function insertionPoint(pageId: string, afterId: string | undefined, title: string): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.className = 'bp-ep-insert';
+  button.title = title;
+  button.setAttribute('aria-label', title);
+  const icon = document.createElement('span');
+  setIcon(icon, ICON_PLUS);
+  button.appendChild(icon);
+  tap(button, (e) => openFlowPicker(pageId, 'EditPage', {
+    afterId,
+    at: { x: e.clientX, y: e.clientY },
+  }));
+  return button;
 }
 
 function liveFormRect(): DOMRect | null {
@@ -146,7 +266,11 @@ export function renderEditPage(m: LModel, layer: HTMLElement): boolean {
   title.className = 'bp-ep-title';
   const titleText = document.createElement('span');
   titleText.textContent = m.editPageTitle || m.pageName || 'Edit page';
-  title.append(titleText);
+  const widthNote = document.createElement('code');
+  widthNote.className = 'bp-ep-width';
+  widthNote.textContent = `${Math.round(width)} px`;
+  widthNote.title = 'Rendered form width';
+  title.append(titleText, widthNote);
 
   const nav = document.createElement('nav');
   nav.className = 'bp-ep-nav';
@@ -170,24 +294,34 @@ export function renderEditPage(m: LModel, layer: HTMLElement): boolean {
   const form = document.createElement('div');
   form.className = 'bp-ep-columns';
   form.style.setProperty('--ep-cols', String(Math.max(1, selected.columns.length)));
-  for (const columnNodes of selected.columns) {
+  const schema = schemaView(m.editPageTypes ?? []);
+  selected.columns.forEach((columnModel, columnIndex) => {
     const column = document.createElement('div');
-    column.className = 'bp-ep-column';
-    for (const node of columnNodes) {
-      column.appendChild(node.className === 'EditPageColumnBreak'
-        ? columnBreak(node, m.pageId)
-        : field(node, m.pageId));
+    column.className = `bp-ep-column${columnModel.breakNode ? ' has-guide' : ''}`;
+    if (columnModel.breakNode) column.appendChild(columnGuide(columnModel.breakNode, m.pageId));
+    const columnStart = columnModel.breakNode?.id
+      ?? (columnIndex === 0 ? selected.breakNode?.id : undefined);
+    if (columnStart) {
+      column.appendChild(insertionPoint(m.pageId, columnStart, 'Add at the start of this column'));
     }
+    columnModel.nodes.forEach((node, nodeIndex) => {
+      column.appendChild(field(node, m.pageId, m.editPageTypes ?? [], schema));
+      const isFinalNode = columnIndex === selected.columns.length - 1
+        && nodeIndex === columnModel.nodes.length - 1;
+      if (!isFinalNode) {
+        column.appendChild(insertionPoint(m.pageId, node.id, `Add after ${editPageFieldLabel(node)}`));
+      }
+    });
     form.appendChild(column);
-  }
+  });
 
   const add = document.createElement('button');
   add.className = 'bp-ep-add';
   const icon = document.createElement('span');
   setIcon(icon, ICON_PLUS);
   add.append(icon, document.createTextNode('Add element'));
-  const pageNodes = selected.columns.flat();
-  const afterId = pageNodes.at(-1)?.id ?? selected.breakNode?.id;
+  const lastColumn = selected.columns.at(-1);
+  const afterId = lastColumn?.nodes.at(-1)?.id ?? lastColumn?.breakNode?.id ?? selected.breakNode?.id;
   tap(add, (e) => openFlowPicker(m.pageId, 'EditPage', { afterId, at: { x: e.clientX, y: e.clientY } }));
 
   frame.append(title, nav, form, add);

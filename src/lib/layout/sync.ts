@@ -104,6 +104,7 @@ const OVER = OVER_MARKER; // F2 per-widget override channel marker
 const STYLE = STYLE_MARKER; // G3 per-widget style channel marker
 const STRUCTURE_LIMIT = '<<<CREV_LAYOUT_LIMIT>>>';
 const EDIT_PAGE_TITLE = '<<<CREV_EDIT_PAGE_TITLE>>>';
+const EDIT_PAGE_TYPE = '<<<CREV_EDIT_PAGE_TYPE>>>';
 export const STRUCTURE_FETCH_NODE_CAP = 600;
 // Shared EC id/rid sanitisation (the same guards the other EC generators use).
 const ecBid = validateBusinessId;
@@ -699,6 +700,9 @@ export function buildEditPageFetchEc(refId: string): string {
     `_owner := _ref.id.whenMissing("")`,
     `_r := "${PAGE}" + ${safeWireTextEc('_ref.name.whenMissing("")')} + "\\n"`,
     `_r := _r + "${EDIT_PAGE_TITLE}" + ${safeWireTextEc('_ref.pageTitle.whenMissing("")')} + "\\n"`,
+    `_ref.types.forEach(_type:`,
+    `  _r := _r + "${EDIT_PAGE_TYPE}" + ${safeWireTextEc('output(_type)')} + "\\n"`,
+    `)`,
     `_l := ""`,
     `_ref.children().forEach(_fc:`,
     ...flowChildEmit('_fc', '_owner', '""'),
@@ -975,6 +979,7 @@ export async function loadEditPageModel(io: LayoutIO, ctx: BlueprintCtx): Promis
   const log = res.log ?? '';
   const pageName = parsePageName(log) || ctx.pageId;
   const pageTitle = markerLines(log, EDIT_PAGE_TITLE)[0] || '';
+  const pageTypes = [...new Set(markerLines(log, EDIT_PAGE_TYPE).filter(Boolean))];
   const children = parseFlowRefChildren(log);
   const projection: FlowProjection = {
     ownerId: ctx.pageId,
@@ -993,6 +998,7 @@ export async function loadEditPageModel(io: LayoutIO, ctx: BlueprintCtx): Promis
     pageRid: ctx.pageRid,
     pageName,
     editPageTitle: pageTitle,
+    editPageTypes: pageTypes,
     pageClass: 'EditPage',
     tabsetId: '',
     tabs: [],
