@@ -49,7 +49,7 @@ import {
   typeInferenceListener, scanDocForInferences, clearInferences,
   getAllInferences, getSchema, ensureSchema, refreshSchema,
   intersectionSchema, subscribe as subscribeInference, getSchemaError,
-  canonicalType, getOption, ensureOptionsNow,
+  canonicalType, getOption, ensureOptionsNow, ensureRefType,
   type TypeInference,
 } from './ec/typeInference'
 import { starExpansionCompletions } from './ec/starExpansion'
@@ -1670,6 +1670,11 @@ function renderVarsProps(selected: string | null, inferences: Map<string, TypeIn
     )
   }
   if (inf.kind === 'unknown') {
+    // Object-reference assignments resolve on demand. Selecting the variable
+    // is an explicit request to inspect it, so start the existing cached lookup;
+    // its completion re-scans the document and replaces this state with the
+    // resolved scalar type.
+    if (inf.ref) ensureRefType(inf.ref)
     return h('div', { class: 'editor-vars-props-pane' },
       h('div', { class: 'editor-vars-props-empty' }, inf.reason),
     )

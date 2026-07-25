@@ -28,12 +28,13 @@ import { EditorView } from '@codemirror/view';
 import type { ViewUpdate } from '@codemirror/view';
 import { sendRequest } from '../../lib/messaging';
 import type { InspectorMessage, TypeSchemaProp, TypeOptionSet } from '../../lib/types';
+import { ID_SPACE_PREFIXES } from '../../lib/ec-grammar';
 
 export type TypeInference =
   | { kind: 'list'; types: string[]; line: number }     // List<T> or List<T1|T2|...> for multi-type
   | { kind: 'scalar'; type: string; line: number; loopVar?: boolean }  // single object; loopVar → bound by a lambda (foreach/map/…)
   | { kind: 'primitive'; primitive: 'string' | 'number' | 'date' | 'bool'; line: number }
-  | { kind: 'unknown'; reason: string; line: number };
+  | { kind: 'unknown'; reason: string; line: number; ref?: string };
 
 const RESERVED = new Set([
   'if', 'then', 'else', 'elseif', 'endif', 'select', 'from', 'where', 'return',
@@ -194,6 +195,18 @@ const SELECT_RE = /^[Ss][Ee][Ll][Ee][Cc][Tt]\s+([A-Za-z][A-Za-z0-9_]*(?:\s*,\s*[
 const ROOT_NAV_RE = /^root\.([A-Za-z][A-Za-z0-9_]*)\.(?:children|descendants)(?:\s*\(\s*\))?\s*$/;
 const TYPED_NAV_RE = /^[A-Za-z_]\w*(?:\.\w+(?:\([^)]*\))?)*\.(\w+)\s*\(\s*([A-Za-z][A-Za-z0-9_]*)\s*\)\s*$/;
 
+/** A concrete `namespace.businessId` object reference with no property hops.
+ *  Keep this aligned with the editor grammar's namespace list: the class can
+ *  be resolved by the existing HOVER_RESOLVE path without scanning a type or
+ *  collection. `o.<rid>` is deliberately excluded — RIDs are not valid EC
+ *  object references even though the highlighter still recognises the legacy
+ *  prefix. */
+function concreteObjectRef(expression: string): string | null {
+  const match = /^([a-z]{1,6})\.([A-Za-z0-9_]+)$/.exec(expression);
+  if (!match || match[1] === 'o' || !ID_SPACE_PREFIXES.has(match[1])) return null;
+  return match[0];
+}
+
 /** Canonicalise a captured BMP class-name into its PascalCase form.
  *
  *  EC's runtime is case-insensitive in many surfaces — `SELECT
@@ -326,6 +339,23 @@ function parseRhs(rhs: string, line: number, seenVars: Map<string, TypeInference
     const argType = canonicalizeTypeName(typedNav[2]);
     if (TYPED_NAV_LIST.has(method)) return { kind: 'list', types: [argType], line };
     if (TYPED_NAV_SCALAR.has(method)) return { kind: 'scalar', type: argType, line };
+  }
+
+  // Concrete object reference (`t.some_template`, `ceras.some_risk`, …).
+  // Resolution is lazy: scanning a large script must remain pure and must not
+  // issue one request per reference. The completion or Vars-panel consumer
+  // calls ensureRefType only when this inference is actually needed. Once the
+  // shared cache knows the class, the next scan upgrades the variable to a
+  // normal scalar and every existing property-completion path works unchanged.
+  const objectRef = concreteObjectRef(s);
+  if (objectRef) {
+    const cachedType = getRefType(objectRef);
+    if (cachedType) return { kind: 'scalar', type: cachedType, line };
+    const refKind = objectRef.startsWith('t.') ? 'template reference' : 'object reference';
+    if (cachedType === null) {
+      return { kind: 'unknown', reason: `${refKind} ${objectRef} resolved to no object class`, line, ref: objectRef };
+    }
+    return { kind: 'unknown', reason: `Resolve ${refKind} ${objectRef} to show its properties`, line, ref: objectRef };
   }
 
   // <tracked-var>.first() / .last() — collapse list → scalar
@@ -748,7 +778,12 @@ export function ensureRefType(ref: string): void {
         const cls = r.objectType ? canonicalizeTypeName(r.objectType) : null;
         refTypeCache.set(ref, cls);
         if (cls) rememberCanonical(cls, r.objectType);
-        notify();
+        // A reference can be the RHS of a tracked variable assignment. Re-scan
+        // the immutable last document so `_x := t.foo` upgrades from a pending
+        // reference to scalar<Foo> as soon as the shared lookup lands.
+        const doc = lastDoc;
+        if (doc) scanDocForInferences(doc);
+        else notify();
       }
       // No response (SW handler missing / bridge down): leave uncached so the
       // next completion retries rather than caching a permanent miss.
@@ -899,6 +934,7 @@ export const typeInferenceListener = EditorView.updateListener.of((update: ViewU
  *  property (HTML/JS/CSS) so the panel doesn't show stale EC vars. */
 export function clearInferences(): void {
   state.vars.clear();
+  lastDoc = null;
   // Schemas + cache survive — different scripts often reference the
   // same types, so wiping would be a waste. The SW-side cache also
   // survives, of course.

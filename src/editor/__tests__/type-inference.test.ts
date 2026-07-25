@@ -8,7 +8,10 @@
  * @vitest-environment happy-dom
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { scanDocForInferences, getInference, clearInferences, ensureSchemaNow, getSchema, canonicalType, TokenBucket } from '../ec/typeInference';
+import {
+  scanDocForInferences, getInference, clearInferences, ensureSchemaNow,
+  ensureRefType, getSchema, canonicalType, TokenBucket,
+} from '../ec/typeInference';
 
 // Mock chrome.runtime.sendMessage so ensureSchema doesn't blow up
 // (it fires off requests for every type it sees).
@@ -431,6 +434,60 @@ describe('RHS parser — real-world coding shapes', () => {
   it('string-concat with literal → string', () => {
     infer('_r := "Name: " + this.object.name + "\\n"');
     expect(getInference('_r')).toMatchObject({ kind: 'primitive', primitive: 'string' });
+  });
+});
+
+describe('RHS parser — concrete object references', () => {
+  it('records t.<id> lazily without doing I/O during the document scan', () => {
+    infer('_template := t.autocomplete_lazy_template');
+
+    expect(getInference('_template')).toMatchObject({
+      kind: 'unknown',
+      ref: 't.autocomplete_lazy_template',
+    });
+    expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps a large document with many concrete refs entirely local until one is inspected', () => {
+    infer(Array.from(
+      { length: 500 },
+      (_, i) => `_template_${i} := t.autocomplete_template_${i}`,
+    ).join('\n'));
+
+    expect(getInference('_template_499')).toMatchObject({
+      kind: 'unknown',
+      ref: 't.autocomplete_template_499',
+    });
+    expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('upgrades a t.<id> assignment to a scalar when the shared ref lookup resolves', async () => {
+    const sendMessage = vi.fn((msg: { type: string; ref?: string }) =>
+      Promise.resolve(msg.type === 'HOVER_RESOLVE'
+        ? { type: 'HOVER_RESOLVE_RESULT', ref: msg.ref, objectType: 'ExtendedExpression' }
+        : { ok: false }),
+    );
+    (globalThis as unknown as { chrome: { runtime: { sendMessage: typeof sendMessage } } }).chrome = {
+      runtime: { sendMessage },
+    };
+    infer('_template := t.autocomplete_resolved_template');
+
+    ensureRefType('t.autocomplete_resolved_template');
+    for (let i = 0; i < 6; i++) await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(getInference('_template')).toMatchObject({
+      kind: 'scalar',
+      type: 'ExtendedExpression',
+    });
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not promote the invalid o.<rid> shorthand to a resolvable EC object ref', () => {
+    infer('_object := o.123456');
+
+    const inf = getInference('_object');
+    expect(inf).toMatchObject({ kind: 'unknown' });
+    if (inf?.kind === 'unknown') expect(inf.ref).toBeUndefined();
   });
 });
 

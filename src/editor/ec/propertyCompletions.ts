@@ -349,8 +349,13 @@ export function resolveDotMember(text: string, wordStart: number): { types?: str
     if (lam) return { types: lam };
     const inf = getInference(ident);
     // Only a SCALAR var is one object whose props we offer. A list var at a bare
-    // dot wants methods (.first/.filter/…), owned by extendedCompletions.
-    return inf && inf.kind === 'scalar' ? { types: [inf.type] } : null;
+    // dot wants methods (.first/.filter/…), owned by extendedCompletions. A
+    // variable assigned from a concrete object ref keeps that ref while its
+    // class is unresolved, so it can use the same lazy two-stage resolver as
+    // typing `t.foo.` directly.
+    if (inf?.kind === 'scalar') return { types: [inf.type] };
+    if (inf?.kind === 'unknown' && inf.ref) return { ref: inf.ref };
+    return null;
   }
 
   // Multi-segment without a known namespace root (`_obj.someRef.`): a nested hop

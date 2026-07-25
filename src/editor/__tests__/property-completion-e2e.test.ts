@@ -103,6 +103,20 @@ describe('property autocomplete at a dot-member — end to end', () => {
     expect(await propsAt('ceras.stmt_supplier_failure.')).toEqual(['id', 'name', 'subtype', 'owning_org']);
   });
 
+  it('two-stage: a variable assigned from t.<id> inherits that object’s properties', async () => {
+    mockSw({ 't.ec_autocomplete_template': 'ExtendedExpression' }, { extendedexpression: RISK_PROPS });
+    ti.scanDocForInferences({
+      lines: 1,
+      line: () => ({ text: '_template := t.ec_autocomplete_template' }),
+    });
+
+    expect(await propsAt('_template.')).toEqual(['id', 'name', 'subtype', 'owning_org']);
+    expect(ti.getInference('_template')).toMatchObject({
+      kind: 'scalar',
+      type: 'ExtendedExpression',
+    });
+  });
+
   it('two-stage CONCRETE nested hop (ceras.foo.owning_org. → Organisation props)', async () => {
     mockSw({ 'ceras.stmt_supplier_failure.owning_org': 'Organisation' }, { organisation: ORG_PROPS });
     expect(await propsAt('ceras.stmt_supplier_failure.owning_org.')).toEqual(['id', 'orgType']);
