@@ -1,115 +1,166 @@
 # CREV Inspector
 
-A Chrome side-panel extension for working with **Corporater BMP** the way developers want to, not the way the stock UI allows. Every BMP widget on the page gets a coloured pill showing its real ID. Click it to inspect the object, edit its code, or reshape the page in Blueprint. No round-trip through Config Studio.
+CREV Inspector is a Chrome side-panel extension for inspecting and changing Corporater BMP without opening Configuration Studio. It labels the objects rendered on a BMP page, opens their real configuration, edits code, and stages visual layout changes.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/a12828c4-97be-4d9d-94e4-505e6f05067c" width="540" alt="Type-pill overlay on a BMP scorecard">
+  <img src="docs/images/inspect-object.png" width="520" alt="CREV Inspector showing the code property of a TextElement">
 </p>
-
-> Full feature walkthrough (what it is, install, how it works, every feature): [`docs/walkthrough.html`](docs/walkthrough.html) — open in a browser.
-
-## Features
-
-- **Type-pill overlay.** Every widget on the BMP page gets a coloured ID badge. Click to open it in the side panel, double-click for a quick inspector, right-click to set context.
-- **Object inspector.** Type-aware detail view covering identity, references, code fields, siblings, access, and flow chains, with direct jumps into the right editor.
-- **Extended Code editor.** Floating CodeMirror window for any EC-bearing property, with preview / execute, run history, tracked variables, hover docs, inline runtime errors, and syntax help. The Vars + Properties panel infers the type of every `_v := SELECT X` and lets you click to insert any property.
-- **Blueprint.** Edit the live page visually: add, move, swap, resize, rename, and style tabs, containers, widgets, and supported flow objects. Changes stay staged until an impact preview and explicit Apply.
-- **CVO + text studio.** Edit HTML and JavaScript side by side, preview in a sandbox with live CVO data, manage inputs and hosted resources, and see the exact BMP-stored result after save.
-- **Optional AI assistant.** Bring an Anthropic, OpenAI, DeepSeek, or Grok key—or add one OpenAI-compatible/Anthropic-compatible provider as JSON—for workspace-grounded chat and context-aware code edits. With no key configured, the AI UI is absent.
-- **Code search.** Search Extended Code across the workspace and jump from results straight to the source object and property.
-- **Diff & compare.** Pick any two objects (RID vs RID, instance vs template, or `ns.bid` references) and see exactly which properties changed.
-- **Multi-window + profiles.** Per-window inspect state, panel routing, and per-server profiles that auto-switch on the BMP URL prefix.
 
 ## Install
 
-Download `crev-inspector-x.y.z.zip` from [Releases](https://github.com/HeinemannT/crev-inspector/releases) and unzip it. Open `chrome://extensions/` (Edge: `edge://extensions/`), turn on **Developer mode**, choose **Load unpacked**, and pick the unzipped folder. Pin it to the toolbar. The Connect tab shows a banner when a new version is available. Works on Chrome and Edge (any current Chromium ≥ 114).
+1. Download `crev-inspector-x.y.z.zip` from [Releases](https://github.com/HeinemannT/crev-inspector/releases/latest) and unzip it.
+2. Open `chrome://extensions/` (Edge: `edge://extensions/`) and enable **Developer mode**.
+3. Click **Load unpacked** and select the unzipped folder.
+4. Pin CREV Inspector and open your BMP workspace.
 
-## Site access (driven by your server profiles)
+Current Chromium browsers are supported (Chrome or Edge 114+).
 
-The extension ships with **no host permissions** and injects nothing anywhere by default — other
-sites (Google Maps, your bank, …) are never touched. Access follows the servers you configure,
-with nothing to manage twice:
+## Connect to BMP
 
-- **Saving a server profile** (Connect tab) triggers the browser's **standard permission prompt**
-  for that server's site. Approve once and CREV runs there — on that origin only — including
-  after browser restarts.
-- **Deleting a profile revokes** its site access and unregisters the content scripts.
-- If a grant is missing (declined prompt, or revoked via the browser's Site access settings), the
-  profile shows a **"no access" chip** — click it to re-request — and a strip at the top offers
-  to fix all configured servers in one prompt.
-- On update, any leftover broad access from older versions is revoked automatically; only
-  configured profile origins remain granted.
+Open **Connect**, add the BMP workspace URL, then approve Chrome's site-access prompt. CREV requests access only to configured BMP origins and revokes it when you delete a profile.
+
+Credentials are optional. With no password, CREV borrows your active browser session, including SSO, VPN, and client-certificate sessions. If you store credentials, CREV tries the browser session first and uses the stored login as a fallback.
+
+The connection strip distinguishes these states:
+
+- **Connected via browser session**
+- **Connected via stored login**
+- **Not logged in**
+- **No Configuration Access**
+- **Authentication failed**
+
+## Inspect objects
+
+Turn on **Inspect** from the header or press `Ctrl+Shift+X`. CREV outlines rendered BMP objects and adds a type-coloured ID pill.
+
+| Gesture | Result |
+|---|---|
+| Click | Open the object in the side panel |
+| Double-click | Open the quick inspector |
+| Alt-click | Copy the RID |
+| Shift-click | Copy the template business ID |
+| Ctrl-click | Copy a reference such as `t.some_id` |
+| Right-click an element | Use it as the current context |
+
+The object view groups what you can do:
+
+- **Code** lists direct and referenced code properties. Click **Edit** to open the correct editor.
+- **Structure** shows parents, children, linked objects, siblings, and supported action or input flows.
+- **Info** shows the type, business ID, RID, web link, access test, and favourite action.
+- **instance / template** chooses where a supported property or name change is saved.
+
+Use the pencil beside a supported object name to rename it. CREV asks for confirmation before saving.
+
+## Edit Extended Code, HTML, and CVOs
+
+The Extended Code editor opens from a code property or with `Ctrl+Shift+E`. It provides EC syntax highlighting, completion, hover documentation, linting, folding, runtime errors, and object-aware suggestions for `t.<id>` references and inferred variables.
+
+<p align="center">
+  <img src="docs/images/extended-code-properties.png" width="920" alt="Extended Code editor with inferred variables and type-specific properties">
+</p>
+
+Use **Preview** (`Ctrl+Enter`) before **Run** (`Ctrl+Shift+Enter`). Run stays gated until the current code previews successfully. The lower panel shows structured output, tracked variables, run history, timings, and safe HTML or JSON views when the output supports them.
+
+Text and CVO properties open in their dedicated studios:
+
+- **Text/HTML** previews the stored HTML in an inert, sanitized frame.
+- **CVO Studio** edits HTML and JavaScript side by side, supplies live CVO data, manages inputs and hosted resources, and runs the preview in a separate sandbox.
+
+## Rebuild a page in Blueprint
+
+Press `Ctrl+Shift+B` to place Blueprint over the live page. Choose **Template** or **This instance**, then work with the structure BMP actually renders.
+
+<p align="center">
+  <img src="docs/images/blueprint-page.png" width="980" alt="Blueprint showing a rendered scorecard, a CreateObjectView, and its linked EditPage fields">
+</p>
+
+Blueprint supports:
+
+- adding, moving, reordering, resizing, renaming, and removing supported tabs, containers, and widgets
+- editing layout and visual properties without leaving the page
+- following InputView to InputSet and CreateObjectView to EditPage
+- creating and linking a missing InputSet or EditPage
+- inspecting action menus and supported flow chains in place
+
+Changes remain staged. The counter, undo, redo, and discard controls operate on the draft. **Apply** first shows the affected objects, then asks for confirmation before it writes to BMP.
+
+### Edit pages
+
+Edit Page Blueprint follows page navigation, page breaks, columns, field order, and the configured form width. Move fields within or between columns and pages, add supported elements, and edit field properties while seeing the rendered form structure.
+
+<p align="center">
+  <img src="docs/images/blueprint-edit-page.png" width="900" alt="Edit Page Blueprint showing two pages and editable fields at the configured width">
+</p>
+
+A CreateObjectView can select an existing EditPage or stage a new one. New EditPages inherit the object class needed to configure their fields immediately.
+
+## Find references, code, and differences
+
+- **Browse** searches cached objects by RID, business ID, or name.
+- **Code Search** scans Extended Code across the workspace and opens the exact source property.
+- **References** answers "Who references this?" from the current object.
+- **Diff** compares RID to RID, instance to template, or two `namespace.businessId` references.
+
+## Use the optional AI assistant
+
+Open **Connect → AI Assistant → Set up**. Built-in presets cover Anthropic, OpenAI, DeepSeek, and Grok. The AI UI stays hidden until you configure a provider.
+
+For another endpoint, click **Add custom provider** and edit the JSON:
+
+```json
+{
+  "name": "OpenRouter",
+  "vendor": "openrouter",
+  "apiKey": "",
+  "apiType": "openai",
+  "models": [
+    {
+      "id": "anthropic/claude-sonnet-4",
+      "name": "Claude Sonnet 4",
+      "url": "https://openrouter.ai/api/v1",
+      "toolCalling": true,
+      "vision": true,
+      "maxInputTokens": 200000,
+      "maxOutputTokens": 64000,
+      "maxTokensParam": "max_completion_tokens"
+    }
+  ]
+}
+```
+
+`apiType` selects the wire format and accepts `openai` or `anthropic`. OpenAI-format models default to `max_completion_tokens`; set `maxTokensParam` to `max_tokens` for DeepSeek and older compatible APIs. At least one model must enable `toolCalling`. CREV encrypts the key and removes it from the saved JSON.
+
+Chat uses the current object and page context. Object references render as the same hoverable, clickable chips used elsewhere in CREV. Code changes are proposals until you review and save them.
 
 ## Shortcuts
 
 | Default | Action |
 |---|---|
-| `Ctrl+Shift+Y` | Toggle side panel (this window) |
-| `Ctrl+Shift+X` | Toggle inspect overlays (this window) |
-| `Ctrl+Shift+E` | Open Extended Code editor |
-| `Ctrl+Shift+B` | Toggle Blueprint for the current BMP page |
+| `Ctrl+Shift+Y` | Toggle the side panel |
+| `Ctrl+Shift+X` | Toggle Inspect |
+| `Ctrl+Shift+E` | Open the Extended Code editor |
+| `Ctrl+Shift+B` | Toggle Blueprint |
 
-Rebind at `chrome://extensions/shortcuts`.
+Rebind shortcuts at `chrome://extensions/shortcuts`.
 
-## Pill click modifiers
+## Data and security
 
-| Click | Result |
-|---|---|
-| Plain | Open in side panel |
-| Double-click | Quick inspector |
-| Alt-click | Copy RID |
-| Shift-click | Copy template business ID |
-| Ctrl-click | Copy `t.someBid` reference |
+- Borrowed tokens live in `chrome.storage.session` and disappear when the browser closes.
+- Stored passwords and AI keys are AES-GCM encrypted in `chrome.storage.local`.
+- A borrowed token is separate from the token used by the BMP tab.
+- HTTP profile URLs show a warning.
+- **Reset all state** clears cache, logs, context, and history while keeping profiles and favourites.
 
-## Gallery
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <img src="https://github.com/user-attachments/assets/e9800091-843d-4c5f-b556-c80a4595e34f" width="320" alt="Object inspector">
-      <br><sub><b>Object inspector</b>: typed property editor in the side panel</sub>
-    </td>
-    <td width="50%" align="center">
-      <img src="https://github.com/user-attachments/assets/a262acab-b346-4f11-a097-c9f1c1774178" width="420" alt="Extended Code editor with Vars + Properties panel">
-      <br><sub><b>Extended Code editor</b>: Vars panel plus click-to-insert properties</sub>
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">
-      <img src="https://github.com/user-attachments/assets/a6493475-9e46-43ba-8338-929643e35865" width="640" alt="Extended Code preview / execute">
-      <br><sub><b>Preview &amp; execute</b>: dry-run, output panel, run history</sub>
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">
-      <img src="https://github.com/user-attachments/assets/c8e00440-86cb-4bca-8a02-c2fa5600d72c" width="720" alt="Diff &amp; compare">
-      <br><sub><b>Diff &amp; compare</b>: side-by-side property comparison</sub>
-    </td>
-  </tr>
-</table>
-
-## Authentication
-
-A profile needs only a **BMP URL** — username and password are optional. Each profile authenticates by one of two strategies:
-
-- **Session borrow (default when no password).** The inspector reuses the BMP session you already have in the browser: it reads the workspace's `JSESSIONID` cookie and mints its own short-lived token from it (GraphQL `authorizationCode` → `/cstoken`). No credentials are stored, and it inherits your browser's reachability — so it works under SSO, VPN, and client-certificate deployments without any setup. The minted token is an **independent** chain (it never touches the page's own token, so it can't disturb your BMP tabs).
-- **Password (when credentials are set).** The profile is `auto`: it tries the browser session first and falls back to a stored-credential login only when there's no usable session. A password-only mode is not exposed because session-first is strictly better.
-
-The status strip shows which path is live ("… · via browser session" / "… · via stored login"). When you log out of BMP, a `cookies.onChanged` listener drops any borrowed token so the inspector's access tracks your login (state → "Not logged in"). States surface precisely: `needs-login` (open BMP and log in), `no-config-access` (logged in but missing the Configuration Access role), `auth-failed` (bad credentials).
-
-## Security
-
-Minted tokens live only in `chrome.storage.session` (cleared when the browser closes), never on disk. Stored passwords are AES-GCM encrypted at rest in `chrome.storage.local`. HTTP profile URLs trigger an inline warning. Note: a password login goes through the shared browser cookie jar, so it replaces the tab's current BMP session with the stored account — relevant only when the stored credentials differ from your browser login. "Reset all state" wipes the cache, log, and history while keeping profiles and favourites.
+The detailed [feature walkthrough](docs/walkthrough.html) covers the remaining controls and states.
 
 ## Development
 
 ```bash
 npm install
-npm run build           # outputs to dist/ and mirrors to the repo root for "Load unpacked"
-npm run dev             # vite watch
 npm run typecheck
 npm run lint
 npm test
+npm run build
 ```
 
-Every push and pull request triggers `.github/workflows/ci.yml`, which runs typecheck, lint, test, and build. Pushing a `v*.*.*` tag additionally triggers `.github/workflows/release.yml`, which repeats all four gates before packaging and publishing the release.
+CI runs the same four gates. A `v*.*.*` tag publishes the packaged extension after they pass.
