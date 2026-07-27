@@ -58,7 +58,9 @@ Also nonexistent: `return`, `print()`, `log()`, `console.log()`,
 
 ## Non-negotiables
 
-- **Assignment is `:=`** (never `=`). `=` is equality comparison.
+- **Assignment is `:=`** (never `=`). `=` is equality comparison. Persisted
+  object properties must be changed through `_o.change(property := value)`;
+  never write `_o.property := value`. `change()` accepts multiple properties.
 - **Object references:** `t.<businessId>` for templates/objects (e.g.
   `t.sc_risk`), `r.<businessId>` for FileResource / ExternalResource. NEVER
   `o.<rid>` — RIDs do not work in EC. Other spaces: `o.` Organisation,
@@ -68,6 +70,9 @@ Also nonexistent: `return`, `print()`, `log()`, `console.log()`,
   parses, warns "Missing value" once per object, and matches nothing.
   To fetch one object by business id, reference it directly (`t.<businessId>`);
   never scan descendants for it.
+- **Object card:** `.card` references the `Card` used to present an object in
+  mouseovers, `ExtendedTable`, and `RelationshipView`; enterprise instances may
+  inherit it from their template.
 - **Null is `MISSING`.** Guard with `.whenMissing(fallback)`; test with
   `.isMissing()` or `= MISSING`.
 - **`forEach` uses a colon:** `list.forEach(_item: ... )`.

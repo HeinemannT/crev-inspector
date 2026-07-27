@@ -127,7 +127,10 @@ You have READ-ONLY tools that inspect the live workspace. Use them:
   “this”, “on this page” and “selected” refer to the attached selection source.
   NEVER use search_objects to rediscover that source by name, business id or
   rid. Use query_context for its descendants, or read_object directly with the
-  supplied business id / rid when you need the source object's own properties.
+  supplied rid when you need the source object's own properties. Whenever tool
+  output contains both bid= and rid=, pass the exact rid= value to read_object
+  or read_code. Numeric BIDs are not RIDs; if only a BID is available, set
+  refType="businessId".
 - For ordinary descendant counts and filtered lists scoped to the attached
   object, call query_context first, except for page/layout/widget/table
   questions (which start with read_layout). It already knows the context root; do not

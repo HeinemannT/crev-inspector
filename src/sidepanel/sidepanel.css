@@ -4190,11 +4190,9 @@ body.crev-divider-dragging * { user-select: none; }
 }
 
 .ai-json-help-text {
-  margin-top: 8px;
-  padding: 8px 10px;
-  border-left: 2px solid var(--accent);
-  background: var(--surface-2);
-  color: var(--text-secondary);
+  margin-top: 6px;
+  padding: 0 2px;
+  color: var(--text-3);
   font-size: var(--text-xs);
   line-height: 1.45;
 }
@@ -4202,7 +4200,7 @@ body.crev-divider-dragging * { user-select: none; }
 .ai-json-help-text[hidden] { display: none; }
 .ai-json-help-text p { margin: 0; }
 .ai-json-help-text p + p { margin-top: 5px; }
-.ai-json-help-text code { color: var(--text-1); }
+.ai-json-help-text code { color: var(--text-2); }
 
 .ai-json-error {
   margin-top: 6px;

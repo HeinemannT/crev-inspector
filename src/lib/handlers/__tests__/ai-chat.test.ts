@@ -290,7 +290,7 @@ describe('executeAiTool — defensive', () => {
     expect(res.content).toContain('No object found');
   });
 
-  it('read_object uses a supplied numeric rid directly', async () => {
+  it('read_object uses an explicitly supplied numeric rid directly', async () => {
     mockChromeStorage();
     const executeEc = vi.fn();
     const fetchObjectPane = vi.fn(async () => ({
@@ -300,7 +300,7 @@ describe('executeAiTool — defensive', () => {
     setSwContext(makeCtx({ client: { executeEc, fetchObjectPane } }));
     const { executeAiTool } = await import('../ai-tools');
 
-    const res = await executeAiTool(call('read_object', { ref: '42' }));
+    const res = await executeAiTool(call('read_object', { ref: '42', refType: 'rid' }));
 
     expect(res.isError).toBe(false);
     expect(fetchObjectPane).toHaveBeenCalledWith('42', undefined);
@@ -315,6 +315,25 @@ describe('executeAiTool — defensive', () => {
     expect(res.content).toContain('[[object:42]]');
   });
 
+  it('read_object resolves a numeric business id instead of treating it as a rid', async () => {
+    mockChromeStorage();
+    const separator = '\x02';
+    const executeEc = vi.fn(async (_code: string) => ({ ok: true, log: `5278622719348993479${separator}` }));
+    const fetchObjectPane = vi.fn(async () => ({
+      instance: { rid: '5278622719348993479', businessId: '3197', name: 'Risk Management', type: 'ModelPage' },
+      template: null, parent: null, instanceProps: {}, templateProps: {}, contextValues: {}, references: {}, codeFields: {},
+    }));
+    setSwContext(makeCtx({ client: { executeEc, fetchObjectPane } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('read_object', { ref: '3197' }));
+
+    expect(res.isError).toBe(false);
+    expect(executeEc.mock.calls[0][0]).toContain('_o := t.get("3197")');
+    expect(fetchObjectPane).toHaveBeenCalledWith('5278622719348993479', undefined);
+    expect(res.content).toContain('bid=3197');
+  });
+
   it('read_code returns raw ExtendedTable expression by rid without resolving it again', async () => {
     mockChromeStorage();
     const executeEc = vi.fn();
@@ -322,7 +341,7 @@ describe('executeAiTool — defensive', () => {
     setSwContext(makeCtx({ client: { executeEc, fetchCodeViaEc } }));
     const { executeAiTool } = await import('../ai-tools');
 
-    const res = await executeAiTool(call('read_code', { ref: '42', property: 'expression' }));
+    const res = await executeAiTool(call('read_code', { ref: '42', refType: 'rid', property: 'expression' }));
 
     expect(res.isError).toBe(false);
     expect(fetchCodeViaEc).toHaveBeenCalledWith('42', ['expression']);

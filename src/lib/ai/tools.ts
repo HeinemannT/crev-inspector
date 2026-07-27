@@ -126,13 +126,18 @@ export const TOOL_DEFS: ToolDef[] = [
       'Read one BMP object by business id or rid. Returns its identity ' +
       '(name, type, businessId, rid, template), its property values, and the ' +
       'names + sizes of its code slots (full code inlined only when small). ' +
-      'Prefer a numeric rid already returned by context/layout/search tools; it avoids another lookup. Prefer this over guessing what an object contains.',
+      'When prior tool output contains both bid= and rid=, ALWAYS pass the rid= value. Numeric business ids are not rids. Prefer this over guessing what an object contains.',
     parameters: {
       type: 'object',
       properties: {
         ref: {
           type: 'string',
-          description: 'Business id (e.g. "cvo_demo") or numeric rid of the object to read.',
+          description: 'Object reference. Prefer the exact rid= value returned by another tool, not its bid= value.',
+        },
+        refType: {
+          type: 'string',
+          enum: ['rid', 'businessId'],
+          description: 'Optional explicit reference kind. Set businessId when ref came from bid=, especially when it contains only digits.',
         },
       },
       required: ['ref'],
@@ -148,7 +153,8 @@ export const TOOL_DEFS: ToolDef[] = [
     parameters: {
       type: 'object',
       properties: {
-        ref: { type: 'string', description: 'Numeric rid (preferred) or business id of the code-bearing object.' },
+        ref: { type: 'string', description: 'Object reference. Prefer the exact rid= value returned by another tool, not its bid= value.' },
+        refType: { type: 'string', enum: ['rid', 'businessId'], description: 'Optional explicit reference kind. Set businessId for a numeric business id.' },
         property: { type: 'string', description: 'Raw code property, e.g. "expression", "html", "javascript", "css", "text" or "longText".' },
       },
       required: ['ref', 'property'],

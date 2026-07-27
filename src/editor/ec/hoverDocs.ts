@@ -46,7 +46,7 @@ const DOCS: Record<string, string> = {
   table: 'Converts a list to a table: list.table(id, name, property...)',
   addColumn: "Adds a named column: .addColumn('Name', expression).",
   add: 'Adds a new child node. Use Execute. Preview will not commit.',
-  change: 'Updates a single property. Example: node.change(property, value)',
+  change: 'Persists one or more properties. Example: node.change(property := value)',
   delete: 'Permanently deletes a node. Use Execute. Not reversible.',
   generate: 'Generates EC code to recreate an object. generate(true) = with IDs.',
   genEdit: 'Generates editable EC change script for an object.',

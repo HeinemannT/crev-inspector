@@ -235,15 +235,13 @@ async function queryContext(
 const REF_ROW = '';
 const identSafe = (s: string) => s.replace(/[^\w.-]/g, '');
 
-/** Resolve a business id OR numeric rid to a numeric rid. Mirrors the studio
- *  STUDIO_RESOLVE_REF path: lookup() for a rid; t.get()/o.get() for a bid. */
-async function resolveRefToRid(client: BmpClient, ref: string): Promise<string | null> {
+/** Resolve a business id to a numeric rid through the two page/object id spaces. */
+async function resolveBusinessIdToRid(client: BmpClient, ref: string): Promise<string | null> {
   const trimmed = ref.trim();
   if (!trimmed) return null;
   const emit = `_out := str(_o.rid) + "${REF_ROW}"`;
-  const resolve = /^-?\d+$/.test(trimmed)
-    ? [`_o := lookup(${trimmed})`]
-    : [`_o := t.get("${identSafe(trimmed)}")`, 'IF _o.isMissing() THEN', `     _o := o.get("${identSafe(trimmed)}")`, 'ENDIF'];
+  const id = identSafe(trimmed);
+  const resolve = [`_o := t.get("${id}")`, 'IF _o.isMissing() THEN', `     _o := o.get("${id}")`, 'ENDIF'];
   const code = [...resolve, 'IF _o.isMissing() THEN', '     _out := ""', 'ELSE', `     ${emit}`, 'ENDIF', '_out'].join('\n');
   const res = await client.executeEc(code, undefined, false);
   if (!res.ok || !res.log) return null;
@@ -252,11 +250,30 @@ async function resolveRefToRid(client: BmpClient, ref: string): Promise<string |
   return /^-?\d+$/.test(rid) ? rid : null;
 }
 
+type RefType = 'rid' | 'businessId';
+
+/** Resolve the AI's ambiguous string reference. BMP RIDs are 64-bit values and
+ *  normally exceed JS's safe-integer range; short numeric refs are therefore
+ *  tried as business IDs first. refType remains the authoritative override. */
+async function resolveToolRef(client: BmpClient, ref: string, refType?: RefType): Promise<string | null> {
+  const trimmed = ref.trim();
+  const numeric = /^-?\d+$/.test(trimmed);
+  if (refType === 'rid') return numeric ? validateRid(trimmed) : null;
+  if (refType === 'businessId' || !numeric) return resolveBusinessIdToRid(client, trimmed);
+
+  const value = BigInt(trimmed);
+  if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < BigInt(Number.MIN_SAFE_INTEGER)) {
+    return validateRid(trimmed);
+  }
+  return await resolveBusinessIdToRid(client, trimmed) ?? validateRid(trimmed);
+}
+
 async function readObject(client: BmpClient, input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
   const ref = typeof input.ref === 'string' ? input.ref : '';
   if (!ref.trim()) return err('read_object needs a "ref" (business id or rid).');
   const trimmed = ref.trim();
-  const rid = /^-?\d+$/.test(trimmed) ? validateRid(trimmed) : await resolveRefToRid(client, trimmed);
+  const refType = input.refType === 'rid' || input.refType === 'businessId' ? input.refType : undefined;
+  const rid = await resolveToolRef(client, trimmed, refType);
   if (!rid) return err(`No object found for "${ref}". Check the business id / rid, or use search_objects.`);
   const pane = await client.fetchObjectPane(rid, signal);
   if (!pane) return err(`Could not read object ${rid}.`);
@@ -318,7 +335,8 @@ async function readCode(client: BmpClient, input: Record<string, unknown>): Prom
   let safeProperty: string;
   try { safeProperty = validateEcIdentifier(property); }
   catch (e) { return err(errorMessage(e)); }
-  const rid = /^-?\d+$/.test(ref) ? validateRid(ref) : await resolveRefToRid(client, ref);
+  const refType = input.refType === 'rid' || input.refType === 'businessId' ? input.refType : undefined;
+  const rid = await resolveToolRef(client, ref, refType);
   if (!rid) return err(`No object found for "${ref}".`);
   const values = await client.fetchCodeViaEc(rid, [safeProperty]);
   const code = values[safeProperty] ?? '';
