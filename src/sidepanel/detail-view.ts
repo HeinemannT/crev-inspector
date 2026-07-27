@@ -81,9 +81,10 @@ interface PaneChildren {
 }
 
 // Property schema lives in pane-schema.ts so the full-view popout can reuse it.
-import { buildChangesPayload } from './pane-edit';
-import { requestSchema, subscribePaneSchema } from './pane-schema-runtime';
+import { buildChangesPayload, paneValueEquals } from './pane-edit';
+import { isPropAvailable, requestSchema, subscribePaneSchema } from './pane-schema-runtime';
 import { showToast } from '../lib/toast';
+import type { PaneGroupsCtx } from './sections/property-groups';
 
 export class DetailView {
   private state: PaneState | null = null;
@@ -928,6 +929,18 @@ export class DetailView {
       // Flow is the answer to "what does this widget actually do" — the chain
       // (button → transport group → ExtendedTransport · or · view → set →
       // inputs) IS the anatomy; its code lives inside the ledger steps.
+      // Label's default-mode controls govern defaultExpression, so they live
+      // inside the root Label step directly before that EC field.
+      let rootContent: HTMLElement | null = null;
+      let inactiveCodeFields: Record<string, string> | undefined;
+      if (this.state!.identity.type === 'Label') {
+        rootContent = this.renderContextFields(panel, true);
+        rootContent?.classList.add('flow-default-config');
+        const advancedDefault = this.draft.advancedDefault ?? this.currentServerValue('advancedDefault');
+        if (advancedDefault !== 'true' && advancedDefault !== 'TRUE' && advancedDefault !== '1') {
+          inactiveCodeFields = { defaultExpression: 'Inactive: Advanced default is off' };
+        }
+      }
       wrap.appendChild(renderFlowSection({
         chain: this.state!.flow,
         loading: this.state!.flowLoading,
@@ -945,6 +958,8 @@ export class DetailView {
         },
         onNavigate: (rid) => { this.swapTo(rid, null, panel, true).catch(() => {}); },
         sendMessage: this.sendMessage,
+        rootContent,
+        inactiveCodeFields,
       }));
       return wrap;
     }
@@ -1033,12 +1048,7 @@ export class DetailView {
     // Context fields — enum/boolean/list values that shape how to read the
     // object (actionType, persistence, useShowExpression, …). Only renders
     // when the type has populated context values.
-    const ctxSection = renderContextSection({
-      type: this.state!.identity.type,
-      contextValues: this.state!.contextValues,
-      lists: this.state!.lists,
-      onNavigate: (r) => { this.swapTo(r, null, panel, true).catch(() => {}); },
-    });
+    const ctxSection = this.renderContextFields(panel, false);
     if (ctxSection) wrap.appendChild(ctxSection);
 
     // Action rows — the mock's Info list (Open in web / Test access / Pin).
@@ -1062,6 +1072,35 @@ export class DetailView {
     ));
 
     return wrap;
+  }
+
+  private renderContextFields(panel: HTMLElement, editable: boolean): HTMLElement | null {
+    return renderContextSection({
+      type: this.state!.identity.type,
+      contextValues: { ...this.state!.contextValues, ...this.draft },
+      lists: this.state!.lists,
+      onNavigate: (r) => { this.swapTo(r, null, panel, true).catch(() => {}); },
+      editor: editable ? this.makeContextEditor(panel) : undefined,
+    });
+  }
+
+  /** Flow can opt into writable context fields; Info uses the same values as
+   * read-only facts. The editor reuses the Full View schema and controls. */
+  private makeContextEditor(panel: HTMLElement): PaneGroupsCtx {
+    const objectType = this.state!.identity.type;
+    return {
+      objectType,
+      isAvailable: (def) => isPropAvailable(objectType, def.prop, def.availableOn),
+      displayValue: (prop) => this.draft[prop] ?? this.currentServerValue(prop),
+      serverValue: (prop) => this.currentServerValue(prop),
+      isDirty: (prop) => this.draft[prop] != null,
+      setDraft: (prop, value) => {
+        if (paneValueEquals(prop, value, this.currentServerValue(prop))) delete this.draft[prop];
+        else this.draft[prop] = value;
+        this.renderDetail(panel);
+      },
+      openColorPicker: () => {},
+    };
   }
 
   /** Normalize this object's links into the unified model: widget types use

@@ -219,6 +219,13 @@ describe('buildChatSystem workspace primer', () => {
     expect(prose).toContain('Do not offer follow-up actions after a simple find/locate answer.');
   });
 
+  it('sets a measurable concise-answer default', () => {
+    const { system } = buildChatSystem(env);
+    expect(system).toContain('use at most 200 words and no more than');
+    expect(system).toContain('omit preambles, repeated tool output, identity');
+    expect(system).toContain('user explicitly asks for a detailed explanation');
+  });
+
   it('ignores an empty / whitespace primer', () => {
     expect(buildChatSystem(env, '   ').system).not.toContain('</workspace>');
     expect(buildChatSystem(env, null).system).not.toContain('</workspace>');

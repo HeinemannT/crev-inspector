@@ -12,6 +12,12 @@ import { toggleInspect } from './inspect';
 import { errorMessage, log } from '../logger';
 import type { PlanNote } from '../layout/types';
 
+const BLUEPRINT_VERSION_ERROR = 'Blueprint requires BMP 5.6.3 or newer.';
+
+function blueprintSupported(ctx: SwContext): boolean {
+  return ctx.client?.supportsLookup !== false;
+}
+
 /** One plan note as a human-readable line for the LOG tab detail — mirrors what `planRow` shows in the
  *  overlay (action · type · object → where · detail) but in plain text, so the persistent record reads
  *  the same as the live panel without decoding the raw EC below it. */
@@ -35,6 +41,10 @@ function formatNotes(notes: PlanNote[]): string {
  *  be the window's active tab); default is the window's active tab. */
 export async function setBlueprintActive(windowId: number, active: boolean, tabId?: number, force = false): Promise<void> {
   const ctx = getCtx();
+  if (active && !blueprintSupported(ctx)) {
+    ctx.toast(BLUEPRINT_VERSION_ERROR, 'info');
+    return;
+  }
   const unchanged = ctx.blueprintActiveByWindow.get(windowId) === active;
   if (unchanged && !force) return;
   // Capture the owner before changing either map. Turning Blueprint OFF must follow the session back
@@ -94,7 +104,7 @@ register('BLUEPRINT_CLOSE', async (_msg, _respond, meta) => {
 // Fire-and-forget; content.ts follows up by dispatching the `crev-bp-cmd` enable event once this
 // resolves (or the newly-injected script picks up the pending-enable window flag on its own init).
 register('INJECT_BLUEPRINT', async (_msg, _respond, meta) => {
-  if (meta.senderTabId == null) return;
+  if (meta.senderTabId == null || !blueprintSupported(getCtx())) return;
   await ensureBlueprintScript(meta.senderTabId);
 });
 
@@ -122,6 +132,7 @@ const envToken = (ctx: SwContext): string => `${ctx.settings.activeProfileId}@${
 register('LAYOUT_LOAD', async (msg, respond) => {
   const ctx = getCtx();
   if (!ctx.client) { respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: 'Not connected' }); return; }
+  if (!blueprintSupported(ctx)) { respond({ type: 'LAYOUT_LOAD_RESULT', ok: false, error: BLUEPRINT_VERSION_ERROR }); return; }
   const t0 = Date.now();
   const timings: string[] = []; // operation-local — see makeLayoutIO
   try {
@@ -145,6 +156,10 @@ register('LAYOUT_LOAD', async (msg, respond) => {
 register('LAYOUT_APPLY', async (msg, respond) => {
   const ctx = getCtx();
   if (!ctx.client) { respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: 'Not connected' }); return; }
+  if (!blueprintSupported(ctx)) {
+    respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: BLUEPRINT_VERSION_ERROR });
+    return;
+  }
   // Wrong-env guard: refuse a commit whose load happened against a different profile than the one
   // now active (the user switched environments between load and apply).
   if (msg.env !== envToken(ctx)) {

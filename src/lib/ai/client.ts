@@ -54,6 +54,10 @@ export async function streamCompletion(opts: StreamCompletionOpts): Promise<{ te
 
 // ── Chat orchestrator (tool loop, both dialects) ─────────────────
 
+/** Hard ceiling for each tool-using chat turn. The prompt carries the tighter
+ * prose limit; this prevents a provider from producing an unbounded answer. */
+export const CHAT_MAX_OUTPUT_TOKENS = 2048;
+
 export interface StreamChatOpts {
   settings: AiSettings;
   /** Decrypted API key. */
@@ -75,9 +79,10 @@ export interface StreamChatOpts {
  *  it returns quietly (no done/error); on a real failure it emits `error`. */
 export async function streamChat(opts: StreamChatOpts): Promise<void> {
   const meta = resolveProvider(opts.settings);
+  const maxTokens = Math.min(meta.maxOutputTokens ?? CHAT_MAX_OUTPUT_TOKENS, CHAT_MAX_OUTPUT_TOKENS);
   try {
-    if (meta.openAiCompat) await runOpenAiChat(opts, meta.baseUrl, meta.maxOutputTokens, meta.maxTokensParam);
-    else await runAnthropicChat(opts, meta.baseUrl, meta.maxOutputTokens);
+    if (meta.openAiCompat) await runOpenAiChat(opts, meta.baseUrl, maxTokens, meta.maxTokensParam);
+    else await runAnthropicChat(opts, meta.baseUrl, maxTokens);
     opts.onEvent({ kind: 'done' });
   } catch (e) {
     if (opts.signal?.aborted) return; // caller cancelled — UI already reset

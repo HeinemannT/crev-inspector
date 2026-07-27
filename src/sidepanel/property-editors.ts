@@ -39,7 +39,7 @@ export function booleanEditor(ctx: PropEditorContext): HTMLElement {
   // BMP serializes booleans as the strings "true" / "false" (or empty when unset).
   const checked = ctx.value === 'true' || ctx.value === 'TRUE';
   const toggle = h('button', {
-    class: `prop-toggle${checked ? ' prop-toggle--on' : ''}${ctx.dirty ? ' prop-cell--dirty' : ''}`,
+    class: `prop-toggle${checked ? ' prop-toggle--on' : ''}`,
     role: 'switch',
     'aria-checked': checked ? 'true' : 'false',
     onClick: () => ctx.onChange(checked ? 'false' : 'true'),
@@ -97,21 +97,23 @@ const enumCompareKey = enumMember;
 export function enumEditor(ctx: PropEditorContext, options: EnumOption[]): HTMLElement {
   const select = h('select', { class: 'prop-select' }) as HTMLSelectElement;
   const normalized = enumCompareKey(ctx.value);
+  const matching = options.find(opt => enumCompareKey(opt.value) === normalized);
   for (const opt of options) {
     const o = document.createElement('option');
     o.value = opt.value;
     o.textContent = opt.label ?? opt.value;
-    if (enumCompareKey(opt.value) === normalized) o.selected = true;
     select.appendChild(o);
   }
   // If current value isn't in options, surface it explicitly so the user sees it.
-  if (!options.find(o => enumCompareKey(o.value) === normalized)) {
+  if (!matching) {
     const o = document.createElement('option');
     o.value = ctx.value;
     o.textContent = ctx.value ? `${ctx.value} (custom)` : '(none)';
-    o.selected = true;
     select.appendChild(o);
   }
+  // Set the value after all options are attached. Some DOM implementations
+  // reselect an adjacent option while later options are appended.
+  select.value = matching?.value ?? ctx.value;
   // Always save the bare token form — that's what _o.change() expects. If
   // the user picks "Inside" from the dropdown, send "INSIDE", not the
   // qualified "HeaderStyle.INSIDE" form.

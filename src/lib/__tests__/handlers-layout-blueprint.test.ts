@@ -37,7 +37,7 @@ interface Harness {
   tabMessagesSent: Array<{ tabId: number; msg: unknown }>;
 }
 
-function makeHarness(overrides: { inspectActiveWindows?: Set<number> } = {}): Harness {
+function makeHarness(overrides: { inspectActiveWindows?: Set<number>; supportsLookup?: boolean } = {}): Harness {
   const panelMsgs: InspectorMessage[] = [];
   const tabMessagesSent: Array<{ tabId: number; msg: unknown }> = [];
   const inspectActiveWindows = overrides.inspectActiveWindows ?? new Set<number>();
@@ -57,12 +57,13 @@ function makeHarness(overrides: { inspectActiveWindows?: Set<number> } = {}): Ha
   };
 
   const ctx: any = {
-    client: null,
+    client: overrides.supportsLookup === undefined ? null : { supportsLookup: overrides.supportsLookup },
     blueprintActiveByWindow: new Map<number, boolean>(),
     blueprintTabByWindow: new Map<number, number>(),
     persistBlueprintState: vi.fn(),
     isInspectActive: vi.fn((windowId: number | undefined) => windowId != null && inspectActiveWindows.has(windowId)),
     logActivity: vi.fn(),
+    toast: vi.fn(),
     sendToPanelByWindow: vi.fn((_w: number, m: InspectorMessage) => panelMsgs.push(m)),
     settings: { activeProfileId: 'p1' },
   };
@@ -104,6 +105,16 @@ describe('INJECT_BLUEPRINT handler', () => {
     const entry = getHandler('INJECT_BLUEPRINT');
 
     await entry!({ type: 'INJECT_BLUEPRINT' } as any, () => {}, { isOneShot: true });
+
+    expect(ensureBlueprintScript).not.toHaveBeenCalled();
+  });
+
+  it('does not inject Blueprint on a pre-5.6.3 BMP', async () => {
+    makeHarness({ supportsLookup: false });
+    const { getHandler } = await import('../handler-registry');
+    await import('../handlers/layout');
+
+    await getHandler('INJECT_BLUEPRINT')!({ type: 'INJECT_BLUEPRINT' } as any, () => {}, { senderTabId: 42, isOneShot: true });
 
     expect(ensureBlueprintScript).not.toHaveBeenCalled();
   });
@@ -190,6 +201,17 @@ describe('BLUEPRINT_CLOSE handler', () => {
 });
 
 describe('toggleBlueprint', () => {
+  it('blocks Blueprint on a pre-5.6.3 BMP and explains why', async () => {
+    const h = makeHarness({ supportsLookup: false });
+    const { toggleBlueprint } = await import('../handlers/layout');
+
+    await toggleBlueprint(1);
+
+    expect(h.ctx.blueprintActiveByWindow.get(1)).not.toBe(true);
+    expect(h.ctx.toast).toHaveBeenCalledWith('Blueprint requires BMP 5.6.3 or newer.', 'info');
+    expect(ensureContentScript).not.toHaveBeenCalled();
+  });
+
   it('turning blueprint ON in a window where inspect is active turns inspect off first, then marks blueprint on', async () => {
     const h = makeHarness({ inspectActiveWindows: new Set([1]) });
     const { toggleBlueprint } = await import('../handlers/layout');
@@ -273,5 +295,25 @@ describe('toggleBlueprint', () => {
     h.ctx.persistBlueprintState.mockClear();
     await setBlueprintActive(1, false);
     expect(h.ctx.persistBlueprintState).not.toHaveBeenCalled();
+  });
+});
+
+describe('Blueprint request version gates', () => {
+  it('rejects load and apply requests before executing Blueprint code on an old BMP', async () => {
+    makeHarness({ supportsLookup: false });
+    const { getHandler } = await import('../handler-registry');
+    await import('../handlers/layout');
+    const loadRespond = vi.fn();
+    const applyRespond = vi.fn();
+
+    await getHandler('LAYOUT_LOAD')!({ type: 'LAYOUT_LOAD', rid: '123' } as any, loadRespond, { isOneShot: true });
+    await getHandler('LAYOUT_APPLY')!({ type: 'LAYOUT_APPLY' } as any, applyRespond, { isOneShot: true });
+
+    expect(loadRespond).toHaveBeenCalledWith({
+      type: 'LAYOUT_LOAD_RESULT', ok: false, error: 'Blueprint requires BMP 5.6.3 or newer.',
+    });
+    expect(applyRespond).toHaveBeenCalledWith({
+      type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: 'Blueprint requires BMP 5.6.3 or newer.',
+    });
   });
 });

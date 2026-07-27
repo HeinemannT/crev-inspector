@@ -6,6 +6,20 @@ import { type ObjectIdentity, type SaveTarget } from '../lib/types'
 
 export type { ObjectIdentity } from '../lib/types'
 
+export type SlotLang = 'ec' | 'html' | 'javascript' | 'css' | 'plain'
+
+/** Language family follows the property's semantics, not only its exact name. */
+export function languageForProperty(prop: string, extended: boolean): SlotLang {
+  if (extended || prop === 'expression' || prop.endsWith('Expression')) return 'ec'
+  if (prop === 'html' || prop === 'javascript' || prop === 'css') return prop
+  if (prop === 'text' || prop === 'longText') return 'html'
+  return 'plain'
+}
+
+export function hasCodeProperty(code: Record<string, string>, prop: string): boolean {
+  return Object.prototype.hasOwnProperty.call(code, prop)
+}
+
 // ── Types ────────────────────────────────────────────────────────
 
 export interface EditorContext {

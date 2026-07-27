@@ -29,6 +29,7 @@ import { installDirtyGuards } from '../editor-core/overlay';
 import { RuntimeRequestError, sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging';
 import { resolveLayoutShortcut } from '../lib/layout-target';
 import { findPropDef } from '../sidepanel/pane-schema';
+import { paneValueEquals } from '../sidepanel/pane-edit';
 import { displayValue } from '../sidepanel/property-editors';
 import { renderPropertyGroups, type PaneGroupsCtx } from '../sidepanel/sections/property-groups';
 import { renderLinks, referencesToLinks } from '../sidepanel/sections/links';
@@ -306,7 +307,7 @@ function currentDisplayValue(prop: string): string {
 
 function setDraft(prop: string, value: string): void {
   const server = currentServerValue(prop);
-  if (value === server) delete draft[prop];
+  if (paneValueEquals(prop, value, server)) delete draft[prop];
   else draft[prop] = value;
   renderPane();
 }

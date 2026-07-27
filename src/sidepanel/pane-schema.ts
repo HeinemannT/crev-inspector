@@ -154,6 +154,7 @@ export const HAS_COLUMN_WIDTHS_TYPES: ReadonlySet<string> = new Set([
   'StrategicObjective', 'Perspective',
 ]);
 const EDIT_FIELD_TYPES: ReadonlySet<string> = new Set(['EditField']);
+const LABEL_TYPES: ReadonlySet<string> = new Set(['Label']);
 
 export const PROP_GROUPS: Array<{ title: string; props: PropDef[] }> = [
   {
@@ -214,6 +215,17 @@ export const PROP_GROUPS: Array<{ title: string; props: PropDef[] }> = [
       { prop: 'shownOnLargeDisplay', label: 'Show on large',    kind: 'boolean', availableOn: HAS_RESPONSIVE_VIS_TYPES, compact: true },
       { prop: 'shownOnMediumDisplay', label: 'Show on medium',  kind: 'boolean', availableOn: HAS_RESPONSIVE_VIS_TYPES, compact: true },
       { prop: 'shownOnSmallDisplay', label: 'Show on small',    kind: 'boolean', availableOn: HAS_RESPONSIVE_VIS_TYPES, compact: true },
+    ],
+  },
+  {
+    title: 'Default',
+    props: [
+      { prop: 'textInputType', label: 'Text type', kind: 'enum', availableOn: LABEL_TYPES, options: [
+        { value: 'SINGLELINE', label: 'Single line' },
+        { value: 'MULTILINE', label: 'Multi-line' },
+        { value: 'RICH', label: 'Rich text' },
+      ] },
+      { prop: 'advancedDefault', label: 'Advanced default', kind: 'boolean', availableOn: LABEL_TYPES },
     ],
   },
   {

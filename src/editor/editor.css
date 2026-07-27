@@ -486,6 +486,11 @@ body {
 
 .editor-output-header-spacer { flex: 1; }
 
+.editor-output-context {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
 .editor-output-header .btn-micro:disabled {
   color: var(--text-disabled);
   background: none;

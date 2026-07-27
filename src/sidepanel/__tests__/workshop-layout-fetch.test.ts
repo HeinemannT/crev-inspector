@@ -55,4 +55,19 @@ describe('Workshop layout fetch states', () => {
     expect(root.textContent).toContain('Layout');
     expect(root.textContent).toContain('first 600 structural nodes');
   });
+
+  it('disables the Blueprint launcher when the connected BMP is too old', () => {
+    const { pane, root, sent } = mountedPane();
+    pane.handleMessage({
+      type: 'CONNECTION_STATE',
+      state: { blueprintSupported: false },
+    } as InspectorMessage);
+    pane.render(root);
+
+    const button = root.querySelector<HTMLButtonElement>('[data-action="edit-in-blueprint"]');
+    expect(button?.disabled).toBe(true);
+    expect(button?.title).toContain('5.6.3');
+    button?.click();
+    expect(sent).not.toContainEqual({ type: 'BLUEPRINT_TOGGLE' });
+  });
 });

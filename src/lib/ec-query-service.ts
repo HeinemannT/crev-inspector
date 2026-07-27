@@ -742,14 +742,15 @@ export class EcQueryService {
     if (!instance) return null;
     const template = parseIdentityBlock(data, 'tmpl');
 
-    // Extract code props, filtering empty values
+    // Extract code props. Caller-requested fields stay present even when empty
+    // so an explicit Create/Edit action can open a new expression tab.
     const instanceCode: Record<string, string> = {};
     const templateCode: Record<string, string> = {};
     for (const prop of codeProps) {
       const instVal = data[`inst_${prop}`];
       const tmplVal = data[`tmpl_${prop}`];
-      if (instVal) instanceCode[prop] = instVal;
-      if (tmplVal) templateCode[prop] = tmplVal;
+      if (instVal || extras.includes(prop)) instanceCode[prop] = instVal ?? '';
+      if (tmplVal || (template && extras.includes(prop))) templateCode[prop] = tmplVal ?? '';
     }
 
     const locationRid = data.locRid && data.locRid !== 'MISSING' ? data.locRid : undefined;
@@ -1115,7 +1116,8 @@ export class EcQueryService {
     if (!lblRow) return null;
     const step: FlowStep = { identity: lblRow };
     const code: FlowCodeField[] = [];
-    if (data.lbl_defaultExpression) code.push(makeCodeField('defaultExpression', data.lbl_defaultExpression, []));
+    // Always expose the advanced default so an empty Label can create it.
+    code.push(makeCodeField('defaultExpression', data.lbl_defaultExpression ?? '', []));
     if (data.lbl_expression) code.push(makeCodeField('expression', data.lbl_expression, []));
     if (code.length > 0) step.codeFields = code;
     return { steps: [step] };

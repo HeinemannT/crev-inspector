@@ -85,6 +85,7 @@ export class ConnectTab implements Tab {
   /** Unsaved custom-provider JSON. Plaintext keys live here only until Save. */
   private aiJsonDraft: string | null = null;
   private aiJsonOpen = false;
+  private aiJsonHelpOpen = false;
   private aiJsonError: string | null = null;
   private aiJsonSaving = false;
   /** Draft of the unsaved API key, carried across re-renders so an async
@@ -859,10 +860,28 @@ export class ConnectTab implements Tab {
           h('button', {
             class: 'btn-micro help-btn ai-json-help',
             type: 'button',
-            title: 'apiType selects the API format: openai uses /chat/completions; anthropic uses /v1/messages.\nurl is the API base URL.\nOpenAI-format models default to max_completion_tokens. Set maxTokensParam to max_tokens for DeepSeek or older compatible APIs.\nAt least one model must have toolCalling set to true.',
             'aria-label': 'Custom provider JSON help',
-            onClick: (event: Event) => event.preventDefault(),
+            'aria-expanded': this.aiJsonHelpOpen ? 'true' : 'false',
+            'aria-controls': 'ai-provider-json-help',
+            onClick: (event: Event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              this.aiJsonHelpOpen = !this.aiJsonHelpOpen;
+              const button = event.currentTarget as HTMLButtonElement;
+              button.setAttribute('aria-expanded', this.aiJsonHelpOpen ? 'true' : 'false');
+              const help = button.closest('.ai-json')?.querySelector<HTMLElement>('#ai-provider-json-help');
+              if (help) help.hidden = !this.aiJsonHelpOpen;
+            },
           }, '?'),
+        ),
+        h('div', {
+          class: 'ai-json-help-text',
+          id: 'ai-provider-json-help',
+          hidden: !this.aiJsonHelpOpen,
+        },
+          h('p', {}, h('code', {}, 'apiType'), ' selects the request format: ', h('code', {}, 'openai'), ' uses ', h('code', {}, '/chat/completions'), '; ', h('code', {}, 'anthropic'), ' uses ', h('code', {}, '/v1/messages'), '.'),
+          h('p', {}, h('code', {}, 'url'), ' is the API base URL. OpenAI-format models default to ', h('code', {}, 'max_completion_tokens'), '; set ', h('code', {}, 'maxTokensParam'), ' to ', h('code', {}, 'max_tokens'), ' for DeepSeek or older compatible APIs.'),
+          h('p', {}, 'At least one model must set ', h('code', {}, 'toolCalling'), ' to ', h('code', {}, 'true'), '.'),
         ),
         h('textarea', {
           class: 'field-input ai-json-input',

@@ -47,6 +47,10 @@ export interface FlowSectionInput {
   onRetry?: () => void;
   onNavigate: (rid: string) => void;
   sendMessage: SendFn;
+  /** Controls that belong to the inspected root node, before its code fields. */
+  rootContent?: HTMLElement | null;
+  /** Code properties that are configured but currently inactive, with reason. */
+  inactiveCodeFields?: Readonly<Record<string, string>>;
 }
 
 /** Trigger-encoding glyph per code property. The prop name is still spelled
@@ -96,8 +100,8 @@ export function renderFlowSection(input: FlowSectionInput): HTMLElement {
 
 function renderChain(chain: FlowChainMsg, input: FlowSectionInput): HTMLElement {
   const container = h('div', { class: 'flow-chain' });
-  for (const step of chain.steps) {
-    container.appendChild(renderTopStep(step, input));
+  for (const [index, step] of chain.steps.entries()) {
+    container.appendChild(renderTopStep(step, input, index === 0 ? input.rootContent : null));
   }
   // Cross-reference highlight: hovering a `reads` chip flashes the source row.
   container.addEventListener('mouseover', e => {
@@ -125,15 +129,15 @@ function spine(step: FlowStepMsg): { root: FlowStepMsg; containers: FlowStepMsg[
   return { root: chain[0], containers: chain.slice(1), leaves };
 }
 
-function renderTopStep(step: FlowStepMsg, input: FlowSectionInput): HTMLElement {
+function renderTopStep(step: FlowStepMsg, input: FlowSectionInput, rootContent?: HTMLElement | null): HTMLElement {
   const { root, containers, leaves } = spine(step);
   const frag = h('div', { class: 'flow-root' });
 
   // The root usually IS the inspected object — its identity already heads the
   // pane, so a bare repeat row is noise. Render it as a step ONLY when it
   // carries its own fields (ActionButton expression / Label default / …).
-  if (root.inputKey || (root.codeFields && root.codeFields.length > 0)) {
-    frag.appendChild(renderStep(root, input, /* open */ true));
+  if (rootContent || root.inputKey || (root.codeFields && root.codeFields.length > 0)) {
+    frag.appendChild(renderStep(root, input, /* open */ true, rootContent));
   }
   if (root.hint && (!root.codeFields || root.codeFields.length === 0)) {
     frag.appendChild(h('div', { class: 'flow-hint' }, root.hint));
@@ -169,7 +173,12 @@ function renderGroup(node: FlowStepMsg, input: FlowSectionInput): HTMLElement {
 
 /** Accordion step — the ledger row. Row click toggles; badge click copies;
  *  "Open ↗" inside the body navigates. */
-function renderStep(node: FlowStepMsg, input: FlowSectionInput, open: boolean): HTMLElement {
+function renderStep(
+  node: FlowStepMsg,
+  input: FlowSectionInput,
+  open: boolean,
+  content?: HTMLElement | null,
+): HTMLElement {
   // A ButtonGroup is just a layout wrapper — don't give it a step; draw a
   // subtle outline with a small "group · name" label and lay its buttons inside.
   if (node.identity.type === 'ButtonGroup' && node.children && node.children.length > 0) {
@@ -221,6 +230,7 @@ function renderStep(node: FlowStepMsg, input: FlowSectionInput, open: boolean): 
 
   const body = h('div', { class: 'flow-step-b' });
   if (node.hint) body.appendChild(h('div', { class: 'flow-hint' }, node.hint));
+  if (content) body.appendChild(content);
   const fields = renderFields(node, input);
   if (fields) body.appendChild(fields);
   // Rare: a step that itself branches (nested input sets). Recurse so no node
@@ -354,24 +364,36 @@ function renderFields(node: FlowStepMsg, input: FlowSectionInput): HTMLElement |
     ));
   }
   for (const cf of codes) {
-    b.appendChild(renderCodeField(cf, node.identity.rid, input.sendMessage));
+    b.appendChild(renderCodeField(
+      cf,
+      node.identity.rid,
+      input.sendMessage,
+      input.inactiveCodeFields?.[cf.prop],
+    ));
   }
   return b;
 }
 
-function renderCodeField(cf: FlowCodeFieldMsg, rid: string, sendMessage: SendFn): HTMLElement {
+function renderCodeField(
+  cf: FlowCodeFieldMsg,
+  rid: string,
+  sendMessage: SendFn,
+  inactiveReason?: string,
+): HTMLElement {
   // Gate state: when the EC is gated by a boolean toggle (useShowExpression /
   // useEnableExpression) and that toggle is currently false, the EC won't run.
   // Dim it and spell out which toggle is off — the user still sees the EC and
   // why it's dormant.
   const gated = cf.gateProp != null && cf.gateValue !== 'true';
-  const wrap = h('div', { class: `flow-cf${gated ? ' flow-cf--off' : ''}` });
+  const empty = cf.firstLine === '';
+  const inactive = gated || inactiveReason != null;
+  const wrap = h('div', { class: `flow-cf${inactive ? ' flow-cf--off' : ''}` });
 
   wrap.appendChild(h('div', { class: 'flow-line flow-cf-head', onClick: (e: Event) => e.stopPropagation() },
     icon(propIcon(cf.prop), 'flow-ic--code'),
     h('span', { class: 'flow-cf-tx mono' },
       h('span', { class: 'flow-cf-prop', title: cf.prop }, cf.prop),
-      h('span', { class: 'flow-cf-lines' }, ` · ${cf.lineCount} ${cf.lineCount === 1 ? 'line' : 'lines'}`),
+      h('span', { class: 'flow-cf-lines' }, empty ? ' · not set' : ` · ${cf.lineCount} ${cf.lineCount === 1 ? 'line' : 'lines'}`),
     ),
     h('button', {
       class: 'btn btn-small btn-ghost flow-cf-edit',
@@ -385,7 +407,7 @@ function renderCodeField(cf: FlowCodeFieldMsg, rid: string, sendMessage: SendFn)
         const editProp = cf.targetProp ?? cf.prop;
         sendMessage({ type: 'OPEN_EDITOR', rid: editRid, property: editProp });
       },
-    }, 'Edit ↗'),
+    }, empty ? 'Create ↗' : 'Edit ↗'),
   ));
 
   const sub = h('div', { class: 'flow-cf-sub' });
@@ -396,6 +418,8 @@ function renderCodeField(cf: FlowCodeFieldMsg, rid: string, sendMessage: SendFn)
   );
   if (gated) {
     sub.appendChild(h('div', { class: 'flow-cf-gate' }, `Off: ${cf.gateProp} = ${cf.gateValue || 'false'}`));
+  } else if (inactiveReason) {
+    sub.appendChild(h('div', { class: 'flow-cf-gate' }, inactiveReason));
   }
   if (cf.reads && cf.reads.length > 0) {
     sub.appendChild(h('div', { class: 'flow-cf-reads' },

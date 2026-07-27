@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { resolveSwatchGroups, renderSwatchGrid, BASIC_COLORS } from '../swatch-grid';
-import { buildChangesPayload } from '../../sidepanel/pane-edit';
+import { buildChangesPayload, paneValueEquals } from '../../sidepanel/pane-edit';
 import type { ColorSetData } from '../../lib/types';
 
 const sets: ColorSetData[] = [
@@ -103,5 +103,12 @@ describe('buildChangesPayload', () => {
   it('leaves enums and colour links as strings', () => {
     expect(buildChangesPayload({ headerStyle: 'NONE', headerColor: 'C_BLUE Brand Blue' }))
       .toEqual({ headerStyle: 'NONE', headerColor: 'C_BLUE Brand Blue' });
+  });
+});
+
+describe('paneValueEquals', () => {
+  it('compares qualified and bare enum members semantically', () => {
+    expect(paneValueEquals('textInputType', 'RICH', 'TextType.rich')).toBe(true);
+    expect(paneValueEquals('textInputType', 'MULTILINE', 'TextType.rich')).toBe(false);
   });
 });

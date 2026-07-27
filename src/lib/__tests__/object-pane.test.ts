@@ -282,6 +282,17 @@ describe('applyObjectChanges — PANE_PROPS_SET allowlist', () => {
     expect(ec).toContain('propertyHint := "Use the controlled identifier"');
   });
 
+  it('writes Label default configuration atomically with typed literals', async () => {
+    const { c, exec } = makeClient('Result : 0');
+    const result = await c.applyObjectChanges('4000', 'instance', {
+      textInputType: 'RICH',
+      advancedDefault: true,
+    });
+    expect(result.ok).toBe(true);
+    const ec = (exec.mock.calls[0] as unknown as [string])[0];
+    expect(ec).toContain('_o.change(textInputType := "RICH", advancedDefault := TRUE)');
+  });
+
   it('rejects a malformed colour id (no EC sent)', async () => {
     const { c, exec } = makeClient('');
     const result = await c.applyObjectChanges('100', 'instance', { headerColor: '#fff' });

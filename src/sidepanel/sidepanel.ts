@@ -186,6 +186,7 @@ onPortMessage((msg: InspectorMessage) => {
     case 'CONNECTION_STATE':
       S.connState = msg.state;
       headerChanged = true;
+      updateToggle();
       updateLatencyPill();
       break;
     case 'DETECTION_STATE':
@@ -472,6 +473,7 @@ function syncAiTab(): void {
 }
 
 function buildApp(): void {
+  const canUseBlueprint = S.connState.blueprintSupported !== false;
   const header = h('div', { class: 'header' },
     h('button', {
       class: 'header-brand',
@@ -514,7 +516,10 @@ function buildApp(): void {
         id: 'toggle-blueprint',
         'aria-label': 'Toggle blueprint layout overlay',
         'aria-pressed': S.blueprintActive ? 'true' : 'false',
-        title: 'Toggle the blueprint layout editor overlay on the live BMP page',
+        disabled: !canUseBlueprint,
+        title: canUseBlueprint
+          ? 'Toggle the blueprint layout editor overlay on the live BMP page'
+          : 'Blueprint requires BMP 5.6.3 or newer',
       }, svg(ICON_BLUEPRINT)),
       h('button', {
         class: `hdr-mode paint-btn ${S.paintPhase !== 'off' ? 'active' : ''}`,
@@ -654,7 +659,14 @@ function updateToggle() {
   const btn = document.getElementById('toggle-inspect');
   if (btn) btn.className = `hdr-mode inspect-toggle ${S.inspectActive ? 'active' : ''}`;
   const bp = document.getElementById('toggle-blueprint');
-  if (bp) bp.className = `hdr-mode blueprint-toggle ${S.blueprintActive ? 'active' : ''}`;
+  if (bp instanceof HTMLButtonElement) {
+    const supported = S.connState.blueprintSupported !== false;
+    bp.className = `hdr-mode blueprint-toggle ${S.blueprintActive ? 'active' : ''}`;
+    bp.disabled = !supported;
+    bp.title = supported
+      ? 'Toggle the blueprint layout editor overlay on the live BMP page'
+      : 'Blueprint requires BMP 5.6.3 or newer';
+  }
 }
 
 function updateObjectsBadge() {

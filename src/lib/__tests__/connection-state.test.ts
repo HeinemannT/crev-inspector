@@ -372,6 +372,30 @@ describe('resetConnectionState — clears stale state', () => {
   });
 });
 
+describe('Blueprint version capability', () => {
+  it('assumes lookup support when /buildNum is unavailable', async () => {
+    const h = await createHarness();
+    h.setHealthResult({ up: true, reachable: true });
+    h.setBuildNumber(null);
+
+    await h.conn.pollHealth();
+
+    expect(h.ctx.client.supportsLookup).toBe(true);
+    expect(h.conn.computeConnectionState().blueprintSupported).toBe(true);
+  });
+
+  it('disables Blueprint for a known pre-5.6.3 version', async () => {
+    const h = await createHarness();
+    h.setHealthResult({ up: true, reachable: true });
+    h.setBuildNumber('5.6.2.9');
+
+    await h.conn.pollHealth();
+
+    expect(h.ctx.client.supportsLookup).toBe(false);
+    expect(h.conn.computeConnectionState().blueprintSupported).toBe(false);
+  });
+});
+
 describe('normalizeUrl', () => {
   it('adds https:// scheme when missing and trailing slash', async () => {
     const h = await createHarness();

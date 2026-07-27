@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { streamChat } from '../client';
+import { CHAT_MAX_OUTPUT_TOKENS, streamChat } from '../client';
 import type { AiChatEvent } from '../types';
 import type { ToolResult } from '../tools';
 import type { AiSettings } from '../types';
@@ -42,6 +42,11 @@ const TEXT_TURN = [
   'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Final"}}\n\n',
   'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
 ];
+const OPENAI_TEXT_TURN = [
+  'data: {"choices":[{"delta":{"content":"Final"}}]}\n\n',
+  'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+  'data: [DONE]\n\n',
+];
 
 const settings: AiSettings = { provider: 'anthropic', model: 'claude-opus-4-8', apiKeyEnc: '' };
 
@@ -61,6 +66,51 @@ afterEach(() => { vi.restoreAllMocks(); });
 import { MAX_TOOL_CALLS, TOOL_BUDGET_EXHAUSTED_NOTE } from '../tools';
 
 describe('streamChat tool loop', () => {
+  it('applies the hard chat output cap to Anthropic', async () => {
+    const bodies: any[] = [];
+    vi.stubGlobal('fetch', vi.fn((_u: string, init: any) => {
+      bodies.push(JSON.parse(init.body));
+      return Promise.resolve(okStream(TEXT_TURN));
+    }));
+
+    await streamChat({ settings, apiKey: 'k', system: 'S', history: [], text: 'go', onEvent: () => {}, executeTool: vi.fn() });
+
+    expect(bodies[0].max_tokens).toBe(CHAT_MAX_OUTPUT_TOKENS);
+  });
+
+  it('applies the hard chat output cap with the provider-specific OpenAI field', async () => {
+    const bodies: any[] = [];
+    vi.stubGlobal('fetch', vi.fn((_u: string, init: any) => {
+      bodies.push(JSON.parse(init.body));
+      return Promise.resolve(okStream(OPENAI_TEXT_TURN));
+    }));
+    const openAiSettings: AiSettings = { provider: 'openai', model: 'gpt-5.2', apiKeyEnc: '' };
+
+    await streamChat({ settings: openAiSettings, apiKey: 'k', system: 'S', history: [], text: 'go', onEvent: () => {}, executeTool: vi.fn() });
+
+    expect(bodies[0].max_completion_tokens).toBe(CHAT_MAX_OUTPUT_TOKENS);
+    expect(bodies[0].max_tokens).toBeUndefined();
+  });
+
+  it('keeps a custom model limit when it is below the chat ceiling', async () => {
+    const bodies: any[] = [];
+    vi.stubGlobal('fetch', vi.fn((_u: string, init: any) => {
+      bodies.push(JSON.parse(init.body));
+      return Promise.resolve(okStream(OPENAI_TEXT_TURN));
+    }));
+    const customSettings: AiSettings = {
+      provider: 'custom', model: 'small', apiKeyEnc: '',
+      customProvider: {
+        name: 'Custom', vendor: 'Vendor', apiType: 'openai',
+        models: [{ id: 'small', name: 'Small', url: 'https://ai.example.test/v1', toolCalling: true, maxOutputTokens: 768, maxTokensParam: 'max_tokens' }],
+      },
+    };
+
+    await streamChat({ settings: customSettings, apiKey: 'k', system: 'S', history: [], text: 'go', onEvent: () => {}, executeTool: vi.fn() });
+
+    expect(bodies[0].max_tokens).toBe(768);
+  });
+
   it('caps tool calls at MAX_TOOL_CALLS, then forces a tools-off final answer', async () => {
     vi.stubGlobal('fetch', toolThenText());
     const events: AiChatEvent[] = [];

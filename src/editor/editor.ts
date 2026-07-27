@@ -39,6 +39,8 @@ import {
   getActiveIdentity,
   getExecutionRid,
   getSaveTarget,
+  hasCodeProperty,
+  languageForProperty,
 } from './editor-types'
 
 // EC-specific extensions
@@ -77,7 +79,6 @@ let ctx: EditorContext | null = null
 let surface: CodeSurface | null = null
 /** Language family for a slot. EC covers the `expression` prop + the scratch
  *  window; html/javascript/css get grammar-only; else plain. */
-type SlotLang = 'ec' | 'html' | 'javascript' | 'css' | 'plain'
 let activeProperty = ''
 /** AI assistant — created in init() only when a provider key is configured.
  *  When null, NOTHING of the AI feature renders (zero-footprint rule). */
@@ -159,13 +160,7 @@ const slotKey = (target: SaveTarget | 'extended', prop: string): string =>
 /** Key of the currently-active slot. */
 const activeKey = (): string => ctx?.extended ? 'extended' : slotKey(ctx?.saveTarget ?? 'instance', activeProperty)
 /** Language family for a property (or the scratch window). */
-function langFor(prop: string, extended: boolean): SlotLang {
-  if (extended || prop === 'expression') return 'ec'
-  if (prop === 'html' || prop === 'javascript' || prop === 'css') return prop
-  // TextElement's html-bearing bodies (BMP sanitizes them server-side on save)
-  if (prop === 'text' || prop === 'longText') return 'html'
-  return 'plain'
-}
+const langFor = languageForProperty
 /** Dirty state of the active slot (drives Save/Discard); anyDirty spans all
  *  slots (drives the close / unload guards so a dirty inactive prop isn't lost). */
 const curDirty = (): boolean => surface?.isDirty(activeKey()) ?? false
@@ -211,7 +206,7 @@ async function init() {
   } else {
     const activeCode = getActiveCode(ctx)
     activeProperty = ctx.property ?? Object.keys(activeCode)[0] ?? 'expression'
-    if (!activeCode[activeProperty]) {
+    if (!hasCodeProperty(activeCode, activeProperty)) {
       activeProperty = Object.keys(activeCode)[0] ?? 'expression'
     }
   }
@@ -649,7 +644,7 @@ function renderShell() {
       previewDone = false
       // Re-determine active property from new target's code
       const newCode = getActiveCode(ctx)
-      if (!newCode[activeProperty]) {
+      if (!hasCodeProperty(newCode, activeProperty)) {
         activeProperty = Object.keys(newCode)[0] ?? activeProperty
       }
       updateWindowTitle()
@@ -1418,6 +1413,7 @@ function renderBottomContentInner() {
         staleAfterPreview
           ? h('span', { class: 'editor-output-stale', title: 'You edited the code after this preview ran' }, svg(ICON_WARNING), ' stale. Preview again')
           : null,
+        showingHtml ? h('span', { class: 'editor-output-context' }, 'Context') : null,
         h('div', { class: 'editor-output-header-spacer' }),
         // Output-specific controls moved here from the bottom bar —
         // decode + table operate on THIS panel's content, copy snapshots

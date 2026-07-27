@@ -95,6 +95,7 @@ export class WorkshopLayoutPane implements Tab {
   /** Last known inspect-mode state, kept fresh by INSPECT_STATE
    *  broadcasts from the service worker. */
   private inspectActive = false;
+  private blueprintSupported = true;
 
   private send: SendFn;
   private onNavigate: (rid: string) => void;
@@ -130,6 +131,7 @@ export class WorkshopLayoutPane implements Tab {
     // didn't return a rid. Sending both here used to race — two
     // responses would step on each other's contextRid assignment.
     this.send({ type: 'GET_PAGE_INFO' });
+    this.send({ type: 'GET_CONNECTION_STATE' });
   }
 
   /** Wipe all context + page state (used on workspace/profile switch — every
@@ -251,6 +253,12 @@ export class WorkshopLayoutPane implements Tab {
         if (this.blueprintActive === msg.active) return false;
         this.blueprintActive = msg.active;
         return true;
+      case 'CONNECTION_STATE': {
+        const supported = msg.state.blueprintSupported !== false;
+        if (this.blueprintSupported === supported) return false;
+        this.blueprintSupported = supported;
+        return true;
+      }
       case 'CONTEXT_RID_DATA':
         if ('rid' in msg && msg.rid) {
           // Explicit right-click always takes precedence over auto-detection
@@ -478,7 +486,10 @@ export class WorkshopLayoutPane implements Tab {
           h('button', {
             class: `refresh-enrich-btn${this.blueprintActive ? ' active' : ''}`,
             'data-action': 'edit-in-blueprint',
-            title: this.blueprintActive ? 'Blueprint editor is open' : 'Edit this page in the blueprint overlay',
+            disabled: !this.blueprintSupported,
+            title: !this.blueprintSupported
+              ? 'Blueprint requires BMP 5.6.3 or newer'
+              : this.blueprintActive ? 'Blueprint editor is open' : 'Edit this page in the blueprint overlay',
           }, svg(ICON_BLUEPRINT)),
         ));
         if (this.layoutNodes) {
@@ -589,7 +600,7 @@ export class WorkshopLayoutPane implements Tab {
       'edit-in-blueprint': () => {
         // Hand off to the in-page blueprint overlay — the single editing surface. The SW toggle is
         // idempotent per window; if it's already open this is a no-op (the button just reflects state).
-        if (!this.blueprintActive) this.send({ type: 'BLUEPRINT_TOGGLE' });
+        if (this.blueprintSupported && !this.blueprintActive) this.send({ type: 'BLUEPRINT_TOGGLE' });
       },
       'toggle-preview-section': () => {
         this.previewSectionExpanded = !this.previewSectionExpanded;

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import type { LModel, LNode } from '../../lib/layout/types';
-import { actionMenuPanel } from '../result-flow';
+import { actionMenuPanel, flowPanel } from '../result-flow';
 
 const tab: LNode = {
   id: 'tab1', rid: 'r_tab1', kind: 'tab', className: 'Tab', name: 'Overview',
@@ -40,5 +40,25 @@ describe('action-menu controls', () => {
     expect(scope.classList.contains('single-tab')).toBe(false);
     expect(scope.title).toContain('All tabs');
     expect(scope.getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
+describe('template flow references', () => {
+  it('explains that an instance may own the missing EditPage link', () => {
+    const createObject: LNode = {
+      id: 'cov1', rid: 'r_cov1', kind: 'widget', className: 'CreateObjectView', name: 'Create',
+      cols: { L: 6 }, children: [],
+    };
+    const template: LModel = {
+      pageId: 'template_flow', pageClass: 'Scorecard', tabsetId: 'ts_test', tabs: [],
+      target: 'template', hasTemplate: false,
+      flows: {
+        cov1: { ownerId: 'cov1', ownerClass: 'CreateObjectView', kind: 'editpage', children: [] },
+      },
+    };
+
+    expect(flowPanel(template, createObject)?.textContent).toContain(
+      'No edit page linked in this template. Switch to This instance to edit its page link.',
+    );
   });
 });

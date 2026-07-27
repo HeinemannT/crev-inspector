@@ -290,6 +290,52 @@ describe('renderFlowSection', () => {
     expect(open).toEqual({ type: 'OPEN_EDITOR', rid: '99', property: 'expression' });
   });
 
+  it('offers Create for an empty defaultExpression', () => {
+    const sendMessage = vi.fn();
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '99', businessId: 'label', name: 'Label', type: 'Label' },
+      codeFields: [{ prop: 'defaultExpression', lineCount: 1, firstLine: '' }],
+    })] };
+    const el = renderFlowSection(inputs({ chain, sendMessage }));
+    const btn = el.querySelector<HTMLButtonElement>('.flow-cf-edit');
+    expect(btn?.textContent).toContain('Create');
+    expect(el.querySelector('.flow-cf-lines')?.textContent).toContain('not set');
+    btn!.click();
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'OPEN_EDITOR', rid: '99', property: 'defaultExpression' });
+  });
+
+  it('places supplied root controls before the root code fields', () => {
+    const controls = document.createElement('div');
+    controls.className = 'test-controls';
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '99', businessId: 'label', name: 'Label', type: 'Label' },
+      codeFields: [{ prop: 'defaultExpression', lineCount: 1, firstLine: 'x' }],
+    })] };
+
+    const el = renderFlowSection(inputs({ chain, rootContent: controls }));
+    const body = el.querySelector('.flow-step-b')!;
+    expect(body.firstElementChild).toBe(controls);
+    expect(controls.nextElementSibling?.classList.contains('flow-fields')).toBe(true);
+  });
+
+  it('dims a configured inactive code field without disabling Edit', () => {
+    const sendMessage = vi.fn();
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '99', businessId: 'label', name: 'Label', type: 'Label' },
+      codeFields: [{ prop: 'defaultExpression', lineCount: 1, firstLine: 'x' }],
+    })] };
+    const el = renderFlowSection(inputs({
+      chain,
+      sendMessage,
+      inactiveCodeFields: { defaultExpression: 'Inactive: Advanced default is off' },
+    }));
+
+    expect(el.querySelector('.flow-cf--off .flow-cf-gate')?.textContent)
+      .toBe('Inactive: Advanced default is off');
+    el.querySelector<HTMLButtonElement>('.flow-cf-edit')!.click();
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'OPEN_EDITOR', rid: '99', property: 'defaultExpression' });
+  });
+
   it('Edit on an indirect EC redirects to the target rid + target prop', () => {
     // Repro for the v0.17.x bug: ActionButton.showExpression is a Reference to
     // an ExtendedExpression. Before the fix, Edit dispatched with the AB's rid

@@ -115,3 +115,23 @@ describe('EditField property mapping', () => {
     }
   });
 });
+
+describe('Label default configuration', () => {
+  it('exposes writable text type and advanced-default controls only on Label', () => {
+    expect(findPropDef('textInputType')).toMatchObject({
+      kind: 'enum',
+      label: 'Text type',
+      options: [
+        { value: 'SINGLELINE', label: 'Single line' },
+        { value: 'MULTILINE', label: 'Multi-line' },
+        { value: 'RICH', label: 'Rich text' },
+      ],
+    });
+    expect(findPropDef('advancedDefault')).toMatchObject({ kind: 'boolean', label: 'Advanced default' });
+    for (const prop of ['textInputType', 'advancedDefault'] as const) {
+      expect(findPropDef(prop)?.availableOn?.has('Label')).toBe(true);
+      expect(findPropDef(prop)?.availableOn?.has('TextInput')).toBe(false);
+      expect(PANE_PROPS).toContain(prop);
+    }
+  });
+});

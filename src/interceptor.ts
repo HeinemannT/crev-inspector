@@ -7,6 +7,7 @@
 import type { BmpObject, InspectorMessage } from './lib/types';
 import { isRidShaped } from './lib/rid-shape';
 import { extractEditPageContext } from './lib/edit-page-context';
+import { extractFiberObjects, type ObjectFiber } from './lib/fiber-objects';
 
 function post(payload: InspectorMessage) {
   document.dispatchEvent(new CustomEvent('crev-interceptor', { detail: payload }));
@@ -17,16 +18,21 @@ function post(payload: InspectorMessage) {
 document.addEventListener('crev-content', ((event: CustomEvent) => {
   const msg = event.detail;
   if (msg?.type === 'EXTRACT_FIBERS') {
-    const objects = extractAllFiberObjects();
-    if (objects.length > 0) {
-      post({ type: 'OBJECTS_DISCOVERED', objects });
+    try {
+      const objects = extractAllFiberObjects();
+      if (objects.length > 0) {
+        post({ type: 'OBJECTS_DISCOVERED', objects });
+      }
+      // Page context (the bound object + active tab) — present in the fiber even
+      // when BMP's custom routing leaves the URL/DOM blank. Posted alongside the
+      // object scan so the content script can resolve "what is this page about".
+      const ctx = extractPageContext();
+      if (ctx) post({ type: 'PAGE_CONTEXT', rid: ctx.rid, tabRid: ctx.tabRid });
+      post({ type: 'EDIT_PAGE_CONTEXT', context: extractEditPageContext() ?? undefined });
+    } catch {
+      // React internals are page-owned and may be malformed or change shape.
+      // Never let inspection failures escape into the host page's MAIN world.
     }
-    // Page context (the bound object + active tab) — present in the fiber even
-    // when BMP's custom routing leaves the URL/DOM blank. Posted alongside the
-    // object scan so the content script can resolve "what is this page about".
-    const ctx = extractPageContext();
-    if (ctx) post({ type: 'PAGE_CONTEXT', rid: ctx.rid, tabRid: ctx.tabRid });
-    post({ type: 'EDIT_PAGE_CONTEXT', context: extractEditPageContext() ?? undefined });
   }
 
   if (msg?.type === 'CHECK_BMP_SIGNALS') {
@@ -92,57 +98,13 @@ function extractPageContext(): { rid: string; tabRid?: string } | null {
 }
 
 function extractAllFiberObjects(): BmpObject[] {
-  const objects: BmpObject[] = [];
-  const seen = new Set<string>();
-  const now = Date.now();
-
   const appRoot = document.getElementById('epmapp') ?? document.getElementById('corpo-app') ?? document.getElementById('root') ?? document.body;
   const fiberKey = Object.keys(appRoot).find(k =>
     k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$')
   );
 
-  if (!fiberKey) return objects;
+  if (!fiberKey) return [];
 
-  interface FiberNode {
-    memoizedProps?: Record<string, unknown>;
-    pendingProps?: Record<string, unknown>;
-    return?: FiberNode;
-    child?: FiberNode;
-    sibling?: FiberNode;
-  }
-
-  function walkFiber(fiber: FiberNode, depth: number) {
-    if (depth > 80) return;
-
-    const props = fiber.memoizedProps ?? fiber.pendingProps;
-    if (props) {
-      const obj = props.object as Record<string, unknown> | undefined;
-      if (obj && typeof obj === 'object' && obj.rid) {
-        const rid = String(obj.rid);
-        if (!seen.has(rid)) {
-          seen.add(rid);
-          objects.push({
-            rid,
-            name: obj.name ? String(obj.name) : undefined,
-            type: obj.type ? String(obj.type) : undefined,
-            typename: obj.__typename ? String(obj.__typename) : undefined,
-            businessId: obj.id ? String(obj.id) : undefined,
-            webParentRid: obj.webParentRid ? String(obj.webParentRid) : undefined,
-            hasChildren: obj.hasChildren != null ? Boolean(obj.hasChildren) : undefined,
-            source: 'fiber',
-            discoveredAt: now,
-            updatedAt: now,
-          });
-        }
-      }
-    }
-
-    try { if (fiber.child) walkFiber(fiber.child, depth + 1); } catch { /* skip malformed subtree */ }
-    try { if (fiber.sibling) walkFiber(fiber.sibling, depth + 1); } catch { /* skip malformed subtree */ }
-  }
-
-  const rootFiber = (appRoot as unknown as Record<string, unknown>)[fiberKey] as FiberNode;
-  if (rootFiber) walkFiber(rootFiber, 0);
-
-  return objects;
+  const rootFiber = (appRoot as unknown as Record<string, unknown>)[fiberKey] as ObjectFiber;
+  return rootFiber ? extractFiberObjects(rootFiber) : [];
 }

@@ -11,6 +11,13 @@
  * is reused rather than copy-pasted.
  */
 import { findPropDef } from './pane-schema';
+import { enumMember } from '../lib/color-util';
+
+/** Compare pane values by their property semantics. BMP reads enums as
+ * qualified values (TextType.rich) while editors stage bare members (RICH). */
+export function paneValueEquals(prop: string, a: string, b: string): boolean {
+  return findPropDef(prop)?.kind === 'enum' ? enumMember(a) === enumMember(b) : a === b;
+}
 
 /** Coerce a string-valued draft into the typed payload APPLY_OBJECT_CHANGES
  *  wants. Number/slider props become numbers (non-finite → 0), boolean props

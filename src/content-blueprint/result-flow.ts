@@ -250,10 +250,14 @@ export function hasFlowPanel(m: LModel, node: LNode): boolean {
 }
 
 /** The two affordances of a reference-less InputView/COV: "wire to existing" + "+ new". */
-function noRefBand(widgetId: string, prop: 'inputSet' | 'editPage'): HTMLElement {
+function noRefBand(widgetId: string, prop: 'inputSet' | 'editPage', editingTemplate: boolean): HTMLElement {
   const band = document.createElement('div'); band.className = 'bp-fband';
   const what = prop === 'inputSet' ? 'Input set' : 'Edit page';
-  const lbl = document.createElement('span'); lbl.textContent = `No ${what.toLowerCase()} linked`; band.appendChild(lbl);
+  const lbl = document.createElement('span');
+  lbl.textContent = editingTemplate && prop === 'editPage'
+    ? 'No edit page linked in this template. Switch to This instance to edit its page link.'
+    : `No ${what.toLowerCase()} linked`;
+  band.appendChild(lbl);
   const end = document.createElement('span'); end.className = 'end';
   const wire = document.createElement('button'); wire.className = 'bp-fwire';
   wire.textContent = 'Select existing';
@@ -328,7 +332,7 @@ export function flowPanel(m: LModel, node: LNode): HTMLElement | null {
   } else if (prop && p?.kind !== 'action' && p?.kind !== 'add' && p?.kind !== 'navigate') {
     // Reference-less InputView/COV (typical for a widget freshly staged from the grid picker):
     // offer the two affordances. ActionButtons never take this path (their band is the verb).
-    wrap.appendChild(noRefBand(node.id, prop));
+    wrap.appendChild(noRefBand(node.id, prop, m.target === 'template'));
   }
   return wrap.children.length ? wrap : null;
 }

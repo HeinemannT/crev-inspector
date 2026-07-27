@@ -2415,6 +2415,7 @@ body.crev-divider-dragging * { user-select: none; }
   background: var(--accent);
   box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.15);
 }
+.prop-cell--bool { min-height: 24px; }
 
 .prop-color-swatch {
   width: 22px;
@@ -3366,6 +3367,24 @@ body.crev-divider-dragging * { user-select: none; }
 .flow-step--open > .flow-step-b { display: block; }
 .flow-step--open > .flow-step-h .flow-step-nm { font-weight: var(--weight-semi); }
 
+/* Label defaults belong to the root step, not to a detached context band.
+ * Keep the two controls dense and aligned with the 16px field gutter. */
+.flow-default-config.context-section {
+  padding: 2px 16px 4px;
+  animation: none;
+}
+.flow-default-config .context-editors { padding: 0; }
+.flow-default-config .prop-row {
+  grid-template-columns: minmax(0, 1fr) auto 14px;
+  gap: var(--space-2);
+  padding: 2px 0;
+}
+.flow-default-config .prop-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Badge = copy affordance. Green confirmation flips the tile + chip. */
 .flow-bdg { cursor: pointer; }
 .flow-bdg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -4169,6 +4188,21 @@ body.crev-divider-dragging * { user-select: none; }
   flex: none;
   margin: -4px 0;
 }
+
+.ai-json-help-text {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.ai-json-help-text[hidden] { display: none; }
+.ai-json-help-text p { margin: 0; }
+.ai-json-help-text p + p { margin-top: 5px; }
+.ai-json-help-text code { color: var(--text-1); }
 
 .ai-json-error {
   margin-top: 6px;

@@ -286,6 +286,18 @@ describe('fetchFlowChain — Label', () => {
     expect(lbl.codeFields).toHaveLength(1);
     expect(lbl.codeFields![0].prop).toBe('defaultExpression');
   });
+
+  it('keeps an empty defaultExpression available for creation', async () => {
+    const log = [
+      `${SEP}lbl${SEP}4000|lbl_hdr|Header|Label`,
+      `${SEP}DONE`,
+    ].join('\n');
+    const c = makeClient(log);
+    const chain = await c.fetchFlowChain('4000', 'Label');
+    expect(chain!.steps[0].codeFields).toEqual([{
+      prop: 'defaultExpression', lineCount: 1, firstLine: '',
+    }]);
+  });
 });
 
 describe('fetchFlowChain — EditPage / CreateObjectView', () => {

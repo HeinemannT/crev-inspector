@@ -19,6 +19,8 @@ export interface ConnectionState {
   /** How the live connection was established (only meaningful when connected). */
   authVia: AuthVia | null;
   version: string | null;
+  /** Blueprint requires EC lookup(). Missing means capability is not yet known. */
+  blueprintSupported?: boolean;
   responseMs: number | null;
   profileLabel: string | null;
   user: string | null;

@@ -146,9 +146,11 @@ export async function buildEditorContext(
   const { instance, template, instanceCode, templateCode } = editorData;
 
   // Determine initial property — caller hint first, then instance, then template.
-  // Caller hint is honored only if the property actually has content on the
-  // instance or template, otherwise it'd open an empty tab.
-  const hintValid = preferredProperty && (instanceCode[preferredProperty] || templateCode[preferredProperty]);
+  // Caller-requested fields are retained in the fetched maps even when empty,
+  // allowing an explicit Create action to open a new code value safely.
+  const hintValid = preferredProperty
+    && (Object.prototype.hasOwnProperty.call(instanceCode, preferredProperty)
+      || Object.prototype.hasOwnProperty.call(templateCode, preferredProperty));
   const property = hintValid
     ? preferredProperty!
     : (Object.keys(instanceCode)[0] ?? Object.keys(templateCode)[0] ?? 'expression');

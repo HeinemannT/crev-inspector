@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { renderContextSection } from '../sections/context-fields';
+import type { PaneGroupsCtx } from '../sections/property-groups';
 
 function inputs(overrides: Partial<Parameters<typeof renderContextSection>[0]> = {}) {
   return {
@@ -80,5 +81,31 @@ describe('renderContextSection', () => {
     // Chip strip + list rows both render
     expect(el!.querySelector('.ctx-chips')).toBeTruthy();
     expect(el!.querySelectorAll('.ctx-list-row').length).toBe(1);
+  });
+
+  it('renders Label context properties as writable controls when given an editor', () => {
+    const drafts: Record<string, string> = {};
+    const values: Record<string, string> = {
+      textInputType: 'TextType.rich',
+      advancedDefault: 'false',
+    };
+    const editor: PaneGroupsCtx = {
+      objectType: 'Label',
+      isAvailable: () => true,
+      displayValue: prop => drafts[prop] ?? values[prop] ?? '',
+      serverValue: prop => values[prop] ?? '',
+      isDirty: prop => drafts[prop] != null,
+      setDraft: (prop, value) => { drafts[prop] = value; },
+      openColorPicker: vi.fn(),
+    };
+    const el = renderContextSection(inputs({ type: 'Label', contextValues: values, editor }));
+
+    const select = el!.querySelector<HTMLSelectElement>('select');
+    const toggle = el!.querySelector<HTMLButtonElement>('[role="switch"]');
+    expect(select?.value).toBe('RICH');
+    expect(toggle?.getAttribute('aria-checked')).toBe('false');
+    toggle!.click();
+    expect(drafts.advancedDefault).toBe('true');
+    expect(el!.querySelector('.ctx-chips')).toBeNull();
   });
 });

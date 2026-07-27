@@ -54,17 +54,16 @@ if (typeof chrome !== 'undefined' && chrome.permissions?.onAdded) {
   });
 }
 
-/** Apply BMP version flags to client (auth mode, lookup support).
- *  When version is null, assume old BMP — binary mode with ticket auth
- *  is the safe fallback that works on all versions. */
+/** Apply BMP version flags to client. When /buildNum is unavailable, prefer
+ *  modern capabilities: current deployments may hide that endpoint. */
 function applyVersionFlags(version: string | null, reason?: string) {
   const ctx = getCtx();
   if (!ctx.client) return;
   if (!version) {
-    ctx.client.assumeOldBmp();
+    ctx.client.supportsLookup = true;
     log.info('connection:versionFlags', reason
-      ? `Version detection: ${reason} — assuming old BMP (binary + ticket auth)`
-      : 'Version detection failed — assuming old BMP (binary + ticket auth)');
+      ? `Version detection: ${reason} — assuming lookup() support`
+      : 'Version detection failed — assuming lookup() support');
     return;
   }
   ctx.client.applyVersionFlags(version);
@@ -138,6 +137,7 @@ export function computeConnectionState(): ConnectionState {
   return {
     display,
     version: healthVersion || null,
+    blueprintSupported: ctx.client?.supportsLookup !== false,
     responseMs: healthResponseMs,
     profileLabel: profile.label,
     user: authResult === 'ok' ? (profile.bmpUser || null) : null,
@@ -275,7 +275,7 @@ async function runAuthTestInternal(generationAtStart: number, clientAtStart: Bmp
     if (result.ok && !healthVersion) {
       healthVersion = await BmpClient.getBuildNumber(bmpUrl, clientAtStart.jwt ?? undefined);
       if (connectionGeneration !== generationAtStart || ctx.client !== clientAtStart) return;
-      applyVersionFlags(healthVersion, healthVersion ? undefined : '/buildNum not available (likely old BMP)');
+      applyVersionFlags(healthVersion, healthVersion ? undefined : '/buildNum not available');
     }
   } catch (e) {
     if (connectionGeneration !== generationAtStart || ctx.client !== clientAtStart) return;
@@ -347,7 +347,7 @@ async function pollHealthInternal(generationAtStart: number, clientAtStart: BmpC
       if (!healthVersion) {
         healthVersion = await BmpClient.getBuildNumber(bmpUrl, ctx.client?.jwt ?? undefined) ?? '';
         if (connectionGeneration !== generationAtStart || ctx.client !== clientAtStart) return;
-        applyVersionFlags(healthVersion || null, healthVersion ? undefined : '/buildNum not available (likely old BMP)');
+        applyVersionFlags(healthVersion || null, healthVersion ? undefined : '/buildNum not available');
       }
       healthUp = 'up';
       healthResponseMs = result.responseMs;

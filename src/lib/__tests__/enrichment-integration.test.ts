@@ -1200,6 +1200,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     instExpression?: string; tmplExpression?: string;
     instHtml?: string; tmplHtml?: string;
     instJavascript?: string; tmplJavascript?: string;
+    instDefaultExpression?: string; tmplDefaultExpression?: string;
     locRid?: string;
   }): string {
     const s = SEP;
@@ -1219,6 +1220,8 @@ describe('Editor Context — What The Code Popup Shows', () => {
       `${s}tmpl_html${s}${opts.tmplHtml ?? ''}`,
       `${s}inst_javascript${s}${opts.instJavascript ?? ''}`,
       `${s}tmpl_javascript${s}${opts.tmplJavascript ?? ''}`,
+      `${s}inst_defaultExpression${s}${opts.instDefaultExpression ?? ''}`,
+      `${s}tmpl_defaultExpression${s}${opts.tmplDefaultExpression ?? ''}`,
       `${s}DONE`,
     ];
     return parts.join('\n');
@@ -1327,6 +1330,27 @@ describe('Editor Context — What The Code Popup Shows', () => {
     expect(ctx.templateCode.expression).toBe('root.children()');
     // Property should default to expression (from template code)
     expect(ctx.property).toBe('expression');
+  });
+
+  it('opens an explicitly requested empty defaultExpression', async () => {
+    harness.client.executeEc = vi.fn(async () => ({
+      ok: true,
+      log: buildEditorContextLog({
+        instRid: RIDS.extTable, instId: 'lbl_empty', instType: 'Label', instName: 'Empty label',
+        instDefaultExpression: '',
+      }),
+    })) as any;
+
+    const { openEditorWindow } = await import('../editor');
+    await openEditorWindow(RIDS.extTable, 'defaultExpression');
+
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
+    );
+    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
+    const ctx = setCall[0][ctxKey];
+    expect(ctx.property).toBe('defaultExpression');
+    expect(ctx.instanceCode).toHaveProperty('defaultExpression', '');
   });
 
   it('template businessId is captured in context', async () => {

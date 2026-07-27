@@ -177,6 +177,9 @@ export const PANE_PROPS = [
   // section as propertyMapping; Blueprint owns structure, Object View owns
   // deliberate field configuration.
   'required', 'placeholder', 'propertyHint',
+  // Label default mode. Both have concrete setters on Label and are edited
+  // together through the pane's confirmed, atomic change() path.
+  'textInputType', 'advancedDefault',
 ] as const;
 export type PaneProp = typeof PANE_PROPS[number];
 export const PANE_PROPS_SET: ReadonlySet<string> = new Set(PANE_PROPS);

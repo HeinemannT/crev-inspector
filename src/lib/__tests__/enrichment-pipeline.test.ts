@@ -128,7 +128,7 @@ describe('Chunk size', () => {
   it('BATCH_CHUNK_SIZE should be 25', async () => {
     // Read the constant from constants.ts source to verify
     const fs = await import('fs');
-    const source = fs.readFileSync(new URL('../../lib/constants.ts', import.meta.url).pathname.replace('/__tests__/', '/'), 'utf-8');
+    const source = fs.readFileSync(new URL('../constants.ts', import.meta.url), 'utf-8');
     const match = source.match(/BATCH_CHUNK_SIZE\s*=\s*(\d+)/);
     expect(match).not.toBeNull();
     expect(Number(match![1])).toBe(25);

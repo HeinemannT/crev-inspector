@@ -63,18 +63,21 @@ function paneData(rid: string, over: Partial<{
   cardViaTemplate: boolean;
   instanceProps: Record<string, string>;
   templateProps: Record<string, string>;
+  objectType: string;
+  contextValues: Record<string, string>;
   siblings: Array<{ rid: string; isCurrent: boolean }>;
   error: string;
 }> = {}): InspectorMessage {
+  const objectType = over.objectType ?? 'ExtendedTable';
   return {
     type: 'OBJECT_PANE_DATA',
     rid,
-    instance: { rid, businessId: `bid-${rid}`, type: 'ExtendedTable', name: `Obj-${rid}` },
+    instance: { rid, businessId: `bid-${rid}`, type: objectType, name: `Obj-${rid}` },
     parent: over.parentRid
       ? { rid: over.parentRid, businessId: `bid-${over.parentRid}`, type: 'EditPage', name: 'Parent' }
       : null,
     template: over.templateRid
-      ? { rid: over.templateRid, businessId: `tmpl-${over.templateRid}`, type: 'ExtendedTable', name: 'Template' }
+      ? { rid: over.templateRid, businessId: `tmpl-${over.templateRid}`, type: objectType, name: 'Template' }
       : null,
     card: over.cardRid
       ? { rid: over.cardRid, businessId: `card-${over.cardRid}`, type: 'Card', name: 'Detail card', viaTemplate: over.cardViaTemplate ?? false }
@@ -89,7 +92,7 @@ function paneData(rid: string, over: Partial<{
     references: {},
     indirectCode: {},
     indirectCodeRids: {},
-    contextValues: {},
+    contextValues: over.contextValues ?? {},
     gateValues: {},
     lists: {},
     ...(over.error ? { error: over.error } : {}),
@@ -110,6 +113,19 @@ function clickSegment(panel: HTMLElement, label: string) {
     .find(b => b.textContent!.startsWith(label));
   expect(seg, `segment "${label}" should exist`).toBeTruthy();
   seg!.click();
+}
+
+function labelFlowData(rid: string, firstLine = '"<strong>Banner</strong>"'): InspectorMessage {
+  return {
+    type: 'FLOW_CHAIN_DATA',
+    rid,
+    chain: {
+      steps: [{
+        identity: { rid, businessId: `bid-${rid}`, type: 'Label', name: `Obj-${rid}` },
+        codeFields: [{ prop: 'defaultExpression', lineCount: 1, firstLine }],
+      }],
+    },
+  };
 }
 
 beforeEach(() => { document.body.innerHTML = ''; });
@@ -283,6 +299,59 @@ describe('DetailView — fetch flow', () => {
 });
 
 describe('DetailView — draft save pipeline (editors live in Blueprint now)', () => {
+  it('shows Label default configuration directly in Flow', () => {
+    const { dv, panel } = makeDetailView();
+    dv.show(makeObj('4000', { type: 'Label' }), panel);
+    dv.handleMessage(paneData('4000', {
+      objectType: 'Label',
+      instanceProps: emptyProps({ textInputType: 'TextType.rich', advancedDefault: 'true' }),
+      contextValues: { textInputType: 'TextType.rich', advancedDefault: 'true' },
+    }), panel);
+    dv.handleMessage(labelFlowData('4000'), panel);
+
+    const body = panel.querySelector('.flow-step-b')!;
+    const defaults = body.querySelector<HTMLElement>(':scope > .flow-default-config')!;
+    expect(defaults.querySelector<HTMLSelectElement>('select')?.value).toBe('RICH');
+    expect(defaults.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true');
+    expect(defaults.nextElementSibling?.classList.contains('flow-fields')).toBe(true);
+
+    clickSegment(panel, 'Info');
+    expect(panel.querySelector('.context-editors')).toBeNull();
+    expect(panel.querySelector('.ctx-chips')?.textContent).toContain('RICH');
+    expect(panel.querySelector('.ctx-chips')?.textContent).toContain('on');
+  });
+
+  it('edits and saves Label default configuration from Flow', async () => {
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('4000', { type: 'Label' }), panel);
+    dv.handleMessage(paneData('4000', {
+      objectType: 'Label',
+      instanceProps: emptyProps({ textInputType: 'TextType.rich', advancedDefault: 'false' }),
+      contextValues: { textInputType: 'TextType.rich', advancedDefault: 'false' },
+    }), panel);
+    dv.handleMessage(labelFlowData('4000'), panel);
+
+    expect(panel.querySelector('.flow-cf--off .flow-cf-gate')?.textContent)
+      .toContain('Inactive: Advanced default is off');
+
+    const select = panel.querySelector<HTMLSelectElement>('.flow-default-config select')!;
+    expect(select.value).toBe('RICH');
+    select.value = 'MULTILINE';
+    select.dispatchEvent(new Event('change'));
+    panel.querySelector<HTMLButtonElement>('.flow-default-config [role="switch"]')!.click();
+
+    expect(panel.querySelector('.flow-cf--off')).toBeNull();
+
+    panel.querySelector<HTMLButtonElement>('.pane-actionbar .btn-success')!.click();
+    await new Promise(r => setTimeout(r, 0));
+    document.querySelector<HTMLButtonElement>('.crev-modal .btn-success')!.click();
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    const applied = sent.find(m => m.type === 'APPLY_OBJECT_CHANGES') as Extract<InspectorMessage, { type: 'APPLY_OBJECT_CHANGES' }>;
+    expect(applied.changes).toEqual({ textInputType: 'MULTILINE', advancedDefault: true });
+  });
+
   it('a pending draft shows the floating action bar with the pending count', () => {
     const { dv, panel } = makeDetailView();
     dv.show(makeObj('100'), panel);

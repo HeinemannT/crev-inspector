@@ -10,12 +10,17 @@ import { h } from '../../lib/dom';
 import { contextFieldsFor, normalizeBmpEnum } from '../../lib/widget-metadata';
 import { typeBadge } from '../../lib/type-badge';
 import type { ObjectPaneIdentity } from '../../lib/types';
+import { findPropDef } from '../pane-schema';
+import { renderPropRow, type PaneGroupsCtx } from './property-groups';
 
 export interface ContextSectionInput {
   type: string;
   contextValues: Record<string, string>;
   lists: Record<string, ObjectPaneIdentity[]>;
   onNavigate: (rid: string) => void;
+  /** Optional editing controller. Context properties with a pane schema entry
+   * render as normal writable rows; the remaining context stays as chips. */
+  editor?: PaneGroupsCtx;
 }
 
 export function renderContextSection(input: ContextSectionInput): HTMLElement | null {
@@ -23,6 +28,7 @@ export function renderContextSection(input: ContextSectionInput): HTMLElement | 
   if (defs.length === 0) return null;
 
   const chips: HTMLElement[] = [];
+  const editors: HTMLElement[] = [];
   const listGroups: HTMLElement[] = [];
 
   for (const def of defs) {
@@ -32,18 +38,24 @@ export function renderContextSection(input: ContextSectionInput): HTMLElement | 
       listGroups.push(renderListGroup(def.label ?? def.prop, items, input.onNavigate));
       continue;
     }
+    const propDef = input.editor ? findPropDef(def.prop) : undefined;
+    if (propDef && input.editor?.isAvailable(propDef)) {
+      editors.push(renderPropRow(input.editor, propDef));
+      continue;
+    }
     const value = input.contextValues[def.prop];
     if (value == null || value === '') continue;
     chips.push(renderContextChip(def.label ?? def.prop, def.kind, value));
   }
 
-  if (chips.length === 0 && listGroups.length === 0) return null;
+  if (chips.length === 0 && editors.length === 0 && listGroups.length === 0) return null;
 
   // No "Context" header — the chip strip carries enough signal on its own,
   // and the title duplicated the chip key labels. CSS gives the strip its
   // own zone (background + accent left border) so it doesn't get lost in
   // the surrounding dark-on-dark layout.
   return h('div', { class: 'context-section' },
+    editors.length > 0 ? h('div', { class: 'prop-group context-editors' }, ...editors) : null,
     chips.length > 0 ? h('div', { class: 'ctx-chips' }, ...chips) : null,
     ...listGroups,
   );
