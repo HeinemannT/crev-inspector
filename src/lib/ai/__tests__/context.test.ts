@@ -16,6 +16,13 @@ describe('renderContext', () => {
     expect(renderContext(env())).toBe('');
   });
 
+  it('carries the live page and current tab independently of object chips', () => {
+    const out = renderContext(env({
+      page: { rid: '99', tabRid: '43', tabName: 'Overview & status' },
+    }));
+    expect(out).toBe('<context server="hetzner-prod" pageRid="99" tabRid="43" tabName="Overview &amp; status">\n</context>');
+  });
+
   it('is deterministic — identical envelopes render byte-identically', () => {
     const e = env({
       sources: [{

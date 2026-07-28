@@ -128,6 +128,9 @@ export interface AiContextSource {
 export interface AiContextEnvelope {
   v: 1;
   server: { id: string; url: string };
+  /** Live browser page independently of the selected Inspect object. tabRid is
+   * refreshed on BMP SPA tab switches and can scope read_layout. */
+  page?: { rid: string; tabRid?: string; tabName?: string };
   sources: AiContextSource[];
 }
 

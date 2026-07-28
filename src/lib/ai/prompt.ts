@@ -136,6 +136,9 @@ You have READ-ONLY tools that inspect the live workspace. Use them:
   questions (which start with read_layout). It already knows the context root; do not
   call read_object or search_objects before it. Supply a class or filter
   property only when the user, live schema, or an earlier result established it.
+- The attached context may include pageRid and the currently viewed tabRid.
+  For questions about the current tab, call read_layout with pageRid and use
+  tabRid as its focusRid.
 - For “what object/class are these X?” a successful semantic query_context is
   FINAL when it returns the class distribution and matching template names.
   Answer from that result immediately. Do not query the same scope again, read

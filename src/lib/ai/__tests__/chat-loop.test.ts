@@ -63,7 +63,7 @@ function toolThenText() {
 
 afterEach(() => { vi.restoreAllMocks(); });
 
-import { MAX_TOOL_CALLS, TOOL_BUDGET_EXHAUSTED_NOTE } from '../tools';
+import { MAX_TOOL_CALLS, MAX_TOOL_ROUNDS, TOOL_BUDGET_EXHAUSTED_NOTE } from '../tools';
 
 describe('streamChat tool loop', () => {
   it('applies the hard chat output cap to Anthropic', async () => {
@@ -111,7 +111,7 @@ describe('streamChat tool loop', () => {
     expect(bodies[0].max_tokens).toBe(768);
   });
 
-  it('caps tool calls at MAX_TOOL_CALLS, then forces a tools-off final answer', async () => {
+  it('caps serial plans at MAX_TOOL_ROUNDS, then forces a tools-off final answer', async () => {
     vi.stubGlobal('fetch', toolThenText());
     const events: AiChatEvent[] = [];
     let toolCount = 0;
@@ -119,9 +119,9 @@ describe('streamChat tool loop', () => {
 
     await streamChat({ settings, apiKey: 'k', system: 'S', history: [], text: 'go', onEvent: e => events.push(e), executeTool });
 
-    expect(toolCount).toBe(MAX_TOOL_CALLS);
-    expect(events.filter(e => e.kind === 'tool-start')).toHaveLength(MAX_TOOL_CALLS);
-    expect(events.filter(e => e.kind === 'tool-end')).toHaveLength(MAX_TOOL_CALLS);
+    expect(toolCount).toBe(MAX_TOOL_ROUNDS);
+    expect(events.filter(e => e.kind === 'tool-start')).toHaveLength(MAX_TOOL_ROUNDS);
+    expect(events.filter(e => e.kind === 'tool-end')).toHaveLength(MAX_TOOL_ROUNDS);
     expect(events.at(-1)).toEqual({ kind: 'done' });
     // The forced final turn streamed text.
     expect(events.some(e => e.kind === 'text-delta' && e.delta === 'Final')).toBe(true);
@@ -186,8 +186,8 @@ describe('streamChat tool loop', () => {
     await streamChat({ settings, apiKey: 'k', system: 'S', history: [], text: 'go', onEvent: e => events.push(e), executeTool });
 
     expect(executeTool).toHaveBeenCalledTimes(1);
-    expect(events.filter(e => e.kind === 'tool-start')).toHaveLength(MAX_TOOL_CALLS);
-    expect(events.filter(e => e.kind === 'tool-end')).toHaveLength(MAX_TOOL_CALLS);
+    expect(events.filter(e => e.kind === 'tool-start')).toHaveLength(MAX_TOOL_ROUNDS);
+    expect(events.filter(e => e.kind === 'tool-end')).toHaveLength(MAX_TOOL_ROUNDS);
     expect(events.at(-1)).toEqual({ kind: 'done' });
   });
 

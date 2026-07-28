@@ -199,6 +199,7 @@ onPortMessage((msg: InspectorMessage) => {
     case 'PAGE_INFO':
       // PAGE_INFO carries the same detection verdict; keep the header's page-state in sync on every refresh.
       if (msg.detection) { S.bmpDetected = msg.detection.isBmp; headerChanged = true; }
+      S.page = msg.rid ? { rid: msg.rid, ...(msg.tabRid ? { tabRid: msg.tabRid } : {}), ...(msg.tabName ? { tabName: msg.tabName } : {}) } : null;
       break;
     case 'CONTEXT_RID_DATA':
       // Canonical page/selection context from the SW. This is global panel
@@ -236,6 +237,7 @@ onPortMessage((msg: InspectorMessage) => {
       // now stale. Clear the footer context + the inspected object, and reset
       // the Workshop's layout context (which re-detects in the new workspace).
       S.context = null;
+      S.page = null;
       S.detailRid = null;
       (tabs.workshop as WorkshopTab).resetContext();
       // AI chat grounding is per-workspace — reset the transcript even when

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   TOOL_DEFS, TOOL_NAMES, toAnthropicTools, toOpenAiTools,
-  truncateToolResult, TOOL_RESULT_CAP, TRUNCATION_MARKER, MAX_TOOL_CALLS,
+  truncateToolResult, TOOL_RESULT_CAP, TRUNCATION_MARKER, MAX_TOOL_CALLS, MAX_TOOL_ROUNDS,
   mergeObjectReferences, objectReferencePattern, objectReferenceToken, toolResultWithObjects,
 } from '../tools';
 
@@ -66,8 +66,9 @@ describe('tool schemas', () => {
     }
   });
 
-  it('caps the tool call budget at 6', () => {
-    expect(MAX_TOOL_CALLS).toBe(6);
+  it('allows broad batched plans but caps serial tool rounds', () => {
+    expect(MAX_TOOL_CALLS).toBe(10);
+    expect(MAX_TOOL_ROUNDS).toBe(6);
   });
 });
 

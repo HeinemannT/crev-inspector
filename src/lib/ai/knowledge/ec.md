@@ -70,9 +70,18 @@ Also nonexistent: `return`, `print()`, `log()`, `console.log()`,
   parses, warns "Missing value" once per object, and matches nothing.
   To fetch one object by business id, reference it directly (`t.<businessId>`);
   never scan descendants for it.
-- **Object card:** `.card` references the `Card` used to present an object in
-  mouseovers, `ExtendedTable`, and `RelationshipView`; enterprise instances may
-  inherit it from their template.
+- **Object card:** `.card` is a reference property pointing to a `Card` object
+  used to present the object in mouseovers, `ExtendedTable`, and
+  `RelationshipView`; enterprise instances may inherit it from their template.
+- **Widget visibility:** after locating the widget with `read_layout`, preview
+  the exact widget once (replace the example RID):
+
+  ```
+  _w := lookup(1234567890123456789)
+  output("visible=" + _w.visible.whenMissing("") + "|L=" + _w.shownOnLargeDisplay.whenMissing("") + "|M=" + _w.shownOnMediumDisplay.whenMissing("") + "|S=" + _w.shownOnSmallDisplay.whenMissing(""))
+  ```
+
+  Treat `visible=false` or `L=false|M=false|S=false` as hidden.
 - **Null is `MISSING`.** Guard with `.whenMissing(fallback)`; test with
   `.isMissing()` or `= MISSING`.
 - **`forEach` uses a colon:** `list.forEach(_item: ... )`.

@@ -10,14 +10,11 @@
  */
 import type { ObjectReference } from '../types';
 
-/** Max tool calls the orchestrator will execute in one user turn. On the cap
- *  it makes one final turn with NO tools offered, forcing a text answer.
- *
- *  Six is enough for genuine multi-step inspection while still forcing a
- *  concise answer when a model starts rediscovering identifiers or repeating
- *  probes. Straightforward attached-context questions should normally use
- *  query_context once. */
-export const MAX_TOOL_CALLS = 6;
+/** Two-dimensional budget: a model may execute a larger batch-oriented plan,
+ * but serial one-call-at-a-time wandering still stops after six tool rounds.
+ * The final turn always has tools disabled and must answer from gathered data. */
+export const MAX_TOOL_CALLS = 10;
+export const MAX_TOOL_ROUNDS = 6;
 
 /** Appended (in the dialect's best role) on the forced final turn so the model
  *  knows WHY tools vanished and answers instead of re-emitting tool syntax as

@@ -12,7 +12,7 @@ import type { AnthropicContentBlock, AnthropicMessage } from './anthropic';
 import { streamOpenAiCompat, streamOpenAiTurn, openAiTools, listModels as listOpenAiModels } from './openai-compat';
 import type { OpenAiMessage } from './openai-compat';
 import type { ExecuteTool, ToolCall, ToolResult } from './tools';
-import { MAX_TOOL_CALLS, TOOL_BUDGET_EXHAUSTED_NOTE, truncateToolResult } from './tools';
+import { MAX_TOOL_CALLS, MAX_TOOL_ROUNDS, TOOL_BUDGET_EXHAUSTED_NOTE, truncateToolResult } from './tools';
 import { ToolMarkupScrubber } from './scrub';
 
 export interface StreamCompletionOpts {
@@ -124,17 +124,19 @@ async function runToolLoop(
   opts: StreamChatOpts,
 ): Promise<void> {
   let used = 0;
+  let toolRounds = 0;
   let notedFinal = false;
   const priorResults = new Map<string, ToolResult>();
   for (;;) {
     if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const allowTools = used < MAX_TOOL_CALLS;
+    const allowTools = used < MAX_TOOL_CALLS && toolRounds < MAX_TOOL_ROUNDS;
     // On the forced tools-off turn, tell the model WHY tools vanished so it
     // answers instead of emitting tool-call syntax as plain text (Issue A).
     if (!allowTools && !notedFinal) { appendFinalNote(); notedFinal = true; }
     const toolCalls = await runTurn(allowTools);
     // A tools-off turn (or a turn that asked for nothing) is the final answer.
     if (!allowTools || toolCalls.length === 0) return;
+    toolRounds++;
     const results: Array<{ call: ToolCall; result: ToolResult }> = [];
     for (const call of toolCalls) {
       if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');

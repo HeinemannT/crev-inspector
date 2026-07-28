@@ -49,6 +49,7 @@ interface DisplayTurn {
 
 export class AiTab implements Tab {
   private container: HTMLElement | null = null;
+  private send: SendFn;
 
   // ── Conversation ────────────────────────────────────────────────
   private transcript: DisplayTurn[] = [];
@@ -84,10 +85,9 @@ export class AiTab implements Tab {
   /** The notice row above the composer, shown only while editing. */
   private noticeEl: HTMLElement | null = null;
 
-  // The tab talks to the SW via one-shot chrome.runtime messaging (streams are
-  // broadcasts, not port replies), so the port send function is unused here —
-  // the parameter exists to match the Tab-constructor convention.
-  constructor(_send: SendFn) { void _send; }
+  // Chat streams use runtime broadcasts; page context uses the window-scoped
+  // panel port so GET_PAGE_INFO resolves against this panel's browser window.
+  constructor(send: SendFn) { this.send = send; }
 
   // ── Tab interface ───────────────────────────────────────────────
 
@@ -96,6 +96,7 @@ export class AiTab implements Tab {
     void sendRequest({ type: 'AI_GET_EDITOR_CONTEXT' }).then(r => {
       if (r?.type === 'AI_EDITOR_CONTEXT') { this.setEditorSource(r.source); }
     });
+    this.send({ type: 'GET_PAGE_INFO' });
     // Esc cancels the edit-last-message state first, then an active stream.
     if (!this.escHandler) {
       this.escHandler = (e: KeyboardEvent) => {
@@ -117,6 +118,7 @@ export class AiTab implements Tab {
       case 'CONTEXT_RID_DATA':
       case 'OBJECT_PANE_DATA':
       case 'SELECT_OBJECT':
+      case 'PAGE_INFO':
       case 'PROFILE_SWITCHED':
         // A profile switch invalidates the whole conversation's grounding.
         if (msg.type === 'PROFILE_SWITCHED') this.resetForProfile();
@@ -210,7 +212,7 @@ export class AiTab implements Tab {
     const sel = this.selectionSource();
     if (ed) sources.push(ed);
     if (sel) sources.push(sel);
-    return { v: 1, server: this.activeServer(), sources };
+    return { v: 1, server: this.activeServer(), ...(S.page ? { page: { ...S.page } } : {}), sources };
   }
 
   /** Divergence tag naming the source a reply used. Only meaningful with 2

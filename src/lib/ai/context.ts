@@ -97,10 +97,16 @@ function renderSource(src: AiContextSource): string {
  *  the same envelope produce byte-identical output. Returns '' for an envelope
  *  with no sources (the chat can still run tool-first with no attached context). */
 export function renderContext(envelope: AiContextEnvelope): string {
-  if (!envelope.sources.length) return '';
-  const head = `<context server="${attr(envelope.server.id)}">`;
+  if (!envelope.sources.length && !envelope.page) return '';
+  const contextAttrs = [`server="${attr(envelope.server.id)}"`];
+  if (envelope.page) {
+    contextAttrs.push(`pageRid="${attr(envelope.page.rid)}"`);
+    if (envelope.page.tabRid) contextAttrs.push(`tabRid="${attr(envelope.page.tabRid)}"`);
+    if (envelope.page.tabName) contextAttrs.push(`tabName="${attr(envelope.page.tabName)}"`);
+  }
+  const head = `<context ${contextAttrs.join(' ')}>`;
   const body = envelope.sources.map(renderSource).join('\n');
-  return `${head}\n${body}\n</context>`;
+  return body ? `${head}\n${body}\n</context>` : `${head}\n</context>`;
 }
 
 /** Distinct object types across the envelope's sources, in first-seen order.

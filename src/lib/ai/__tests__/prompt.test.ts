@@ -192,6 +192,8 @@ describe('buildChatSystem workspace primer', () => {
     expect(system).toContain('“process” does not imply `Task`');
     expect(system).toContain('Enterprise Ce*');
     expect(system).toContain('read_code on its numeric rid with property="expression"');
+    expect(system).toContain('currently viewed tabRid');
+    expect(system).toContain('tabRid as its focusRid');
     expect(system).toContain('output contains both bid= and rid=');
     expect(system).toContain('Numeric BIDs are not RIDs');
     expect(system).toContain('successful semantic query_context is');
@@ -206,7 +208,8 @@ describe('buildChatSystem workspace primer', () => {
     expect(system).toContain('Table property arguments are BARE properties');
     expect(system).toContain('object properties must be changed through `_o.change(property := value)`');
     expect(system).toContain('never write `_o.property := value`');
-    expect(system).toContain('`.card` references the `Card`');
+    expect(system).toContain('`.card` is a reference property pointing to a `Card` object');
+    expect(system).toContain('`visible=false` or `L=false|M=false|S=false` as hidden');
     expect(system).toContain('`WHILE` / `ENDWHILE`');
     expect(system).toContain('Stored ExtendedExpression utilities are workspace-authored configuration');
     expect(system).not.toContain('t.json_set.expression');

@@ -34,6 +34,9 @@ export const S = {
   // right-click or the Page-tab picker). Status bar chip surfaces this so
   // the user always sees "what am I working on" across tabs.
   context: null as PanelObjectContext | null,
+  // Live BMP page/tab context. Unlike `context`, this does not follow object
+  // drill-down in Inspect; AI uses it to scope read_layout to the viewed tab.
+  page: null as { rid: string; tabRid?: string; tabName?: string } | null,
   // EC round-trip latency from the last execute or preview. Health-poll
   // latency lives on connState.responseMs; this is the user-action signal
   // (real EC against the live workspace) which matters more for "is BMP
