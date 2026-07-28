@@ -72,6 +72,9 @@ describe('sync.buildFetchEc', () => {
     expect(ec).toContain('_candidateTs := _w.tab.parent');
     expect(ec).toContain('_tabsets NOT CONTAINS _candidateTs');
     expect(ec).toContain('LIST(t.crev_demo_tabset)'); // compatibility fallback
+    expect(ec).toContain('_defaultHasOrdinaryTab := "1"');
+    expect(ec).toContain('IF _ts.id.whenMissing("") = "default_tabset" AND _defaultHasOrdinaryTab = "0" THEN');
+    expect(ec).toContain('_res := t.RESULT');           // Result-only default contribution is pruned
     expect(ec).toContain('_ts.descendants().forEach');
     expect(ec).toContain('_sc.descendants().forEach');   // org side recurses (composites)
     expect(ec).toContain('<<<CREV_TAB>>>');              // provenance + global ordering metadata
@@ -152,7 +155,7 @@ describe('sync.buildFetchEc', () => {
     expect(ec).not.toContain('<<<CREV_OVER>>>');
     expect(ec).not.toContain('<<<CREV_STY>>>');
     expect(ec).not.toContain('<<<CREV_FREF>>>');
-    expect(ec.length).toBeLessThan(buildFetchEc({ ...CTX, target: 'instance' }).length / 3);
+    expect(ec.length).toBeLessThan(buildFetchEc({ ...CTX, target: 'instance' }).length * 0.36);
   });
 });
 

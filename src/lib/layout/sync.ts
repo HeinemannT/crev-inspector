@@ -407,9 +407,15 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
     // A page has no single TabSet reference. Resolve each direct page child's inferred Tab, then
     // collect its real parent TabSet. LIST/CONTAINS/union was preview-verified on pro-demo SC 98357.
     `_tabsets := LIST()`,
+    `_defaultHasOrdinaryTab := "0"`,
     `_sc.children().forEach(_w:`,
     `     _candidateTs := _w.tab.parent`,
     `     IF _candidateTs.className.whenMissing("") = "TabSet" THEN`,
+    `          IF _candidateTs.id.whenMissing("") = "${DEFAULT_TABSET}" AND _w.tab.id.whenMissing("") <> "${RESULT_TAB_ID}" THEN`,
+    `               _defaultHasOrdinaryTab := "1"`,
+    `          ELSE`,
+    `               _defaultHasOrdinaryTab := _defaultHasOrdinaryTab`,
+    `          ENDIF`,
     `          IF _tabsets NOT CONTAINS _candidateTs THEN`,
     `               _tabsets := _tabsets.union(LIST(_candidateTs))`,
     `          ELSE`,
@@ -425,10 +431,18 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
     // TabSet root: no parent/container/columns/height. Emitting every contributing root lets
     // reconstruction recover names and real ownership without changing the shared layout row.
     `     _r := _r + "${SEP}" + _ts.rid + "|" + _ts.id.whenMissing("") + "|TabSet|||||||" + ${safeWireTextEc('_ts.name.whenMissing("")')} + "\\n"`,
+    // Result is the only page-specific contribution from default_tabset in the common case. Do not
+    // pull its global tabs/containers into Blueprint's hidden-tab panel unless this page genuinely
+    // places a widget on an ordinary default tab.
+    `     IF _ts.id.whenMissing("") = "${DEFAULT_TABSET}" AND _defaultHasOrdinaryTab = "0" THEN`,
+    `          _res := t.${RESULT_TAB_ID}`,
+    `          _r := _r + "${SEP}" + _res.rid + "|${RESULT_TAB_ID}|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + ${safeWireTextEc('_res.name.whenMissing("Result")')} + "\\n"`,
+    `          _r := _r + "${TAB}" + _res.rid + "|${DEFAULT_TABSET}|" + _res.sortIndex.whenMissing("0") + "\\n"`,
+    `     ELSE`,
     // grid: tabs + containers — parentRid set, containerRid always empty, no chartHeight.
     // Same small-first rule as the org loop: line into `_l`, ONE `_r` touch per node.
-    `_c := ""`,
-    `_i := 0`,
+    `          _c := ""`,
+    `          _i := 0`,
     `     _ts.descendants().forEach(_n:`,
     ...(projection === 'structure' ? [
       `          _l := ""`,
@@ -457,6 +471,7 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
     `          ENDIF`,
     `     )`,
     `     _r := _r + _c`,
+    `     ENDIF`,
     `)`,
     ...orgLoop,
     ...(projection === 'structure' ? [
