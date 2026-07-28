@@ -16,11 +16,21 @@ import { flowChangeCount, flowDiff } from '../lib/layout/flow';
 import { compile } from '../lib/layout/ec';
 import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_SLIDERS, ICON_COPY } from '../lib/icons';
 import { objectChip } from '../lib/object-chip';
+import {
+  PORTABLE_ID_TOKENS,
+  portableIdExample,
+  portableIdPatternError,
+} from '../lib/layout/portable-ids';
 import { showToast } from '../lib/toast';
 import { bp, model, type ApplyOutcome } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
 import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, toggleSettings, closeSettings, discard, armDiscard, disarmDiscard, openApplyPreview, exitBlueprint, setMode, dismissApplyOutcome } from './actions';
 import { setEditTarget } from '../content-blueprint'; // runtime-only (click handler) — no init-time cycle
+import {
+  persistPortableIdPattern,
+  setPortableIdPatternDraft,
+  setPortableIdsEnabled,
+} from './id-config';
 
 const VERB_ICON: Record<PlanNote['verb'], string> = { create: ICON_PLUS, update: ICON_PENCIL, move: ICON_ARROW_RIGHT, reorder: ICON_SWAP, delete: ICON_TRASH };
 
@@ -377,12 +387,13 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   if (pending === 0 && bp.discardArm) disarmDiscard();
   const armed = bp.discardArm;
   const discardB = mkBtn(armed ? 'Sure?' : 'Discard', armed ? discard : armDiscard);
-  discardB.disabled = pending === 0 || bp.applying;
+  discardB.disabled = pending === 0 || bp.applying || bp.preparingPreview;
   if (armed) discardB.classList.add('bp-danger');
   discardB.title = armed ? 'Click again to discard all staged changes' : 'Discard all staged changes';
   c.appendChild(discardB);
-  const applyB = mkBtn(bp.applying ? 'Applying…' : `Apply${pending ? ` (${pending})` : ''}`, openApplyPreview);
-  applyB.className = 'apply'; applyB.disabled = pending === 0 || bp.applying; c.appendChild(applyB);
+  const applyLabel = bp.preparingPreview ? 'Checking IDs…' : bp.applying ? 'Applying…' : `Apply${pending ? ` (${pending})` : ''}`;
+  const applyB = mkBtn(applyLabel, openApplyPreview);
+  applyB.className = 'apply'; applyB.disabled = pending === 0 || bp.applying || bp.preparingPreview; c.appendChild(applyB);
   const exit = mkIconBtn(ICON_X, exitBlueprint); exit.title = 'Exit blueprint mode'; c.appendChild(exit);
   return c;
 }
@@ -414,10 +425,109 @@ export function settingsPanel(anchor: { left: number; top: number }): HTMLElemen
   close.setAttribute('aria-label', 'Close settings');
   head.append(title, close);
 
+  const idSection = document.createElement('div');
+  idSection.className = 'bp-settings-section';
+  const templateEligible = bp.ctx?.target === 'template';
+  const idsLoading = bp.idConfigStatus === 'loading';
+  const idRow = document.createElement('button');
+  idRow.className = 'bp-settings-row';
+  idRow.type = 'button';
+  idRow.setAttribute('role', 'switch');
+  idRow.setAttribute('aria-checked', String(bp.idConfig.enabled));
+  idRow.disabled = !templateEligible || idsLoading;
+  idRow.addEventListener('click', () => setPortableIdsEnabled(!bp.idConfig.enabled));
+  const idCopy = document.createElement('span');
+  idCopy.className = 'bp-settings-copy';
+  const idLabel = document.createElement('span');
+  idLabel.className = 'bp-settings-label';
+  idLabel.textContent = 'Portable text IDs';
+  const idHelp = document.createElement('span');
+  idHelp.className = 'bp-settings-help';
+  idHelp.textContent = idsLoading
+    ? 'Loading ID settings…'
+    : templateEligible
+      ? 'Assign readable IDs to new template and Shared Web Items.'
+      : 'Available while editing Template; instances keep BMP-generated IDs.';
+  idCopy.append(idLabel, idHelp);
+  const idToggle = document.createElement('span');
+  idToggle.className = 'bp-settings-switch' + (bp.idConfig.enabled ? ' on' : '');
+  idToggle.setAttribute('aria-hidden', 'true');
+  idToggle.appendChild(document.createElement('span'));
+  idRow.append(idCopy, idToggle);
+  idSection.appendChild(idRow);
+
+  if (templateEligible && bp.idConfig.enabled) {
+    const form = document.createElement('div');
+    form.className = 'bp-id-form';
+    const formLabel = document.createElement('label');
+    formLabel.className = 'bp-id-form-label';
+    formLabel.textContent = 'ID pattern';
+    const input = document.createElement('input');
+    input.className = 'bp-id-pattern';
+    input.value = bp.idConfig.pattern;
+    input.spellcheck = false;
+    input.setAttribute('aria-label', 'Portable ID pattern');
+    const feedback = document.createElement('div');
+    feedback.className = 'bp-id-feedback';
+    const example = document.createElement('code');
+    example.className = 'bp-id-example';
+    const error = document.createElement('span');
+    error.className = 'bp-id-error';
+    const refreshFeedback = (): string | null => {
+      const issue = portableIdPatternError(input.value);
+      input.classList.toggle('invalid', !!issue);
+      input.setAttribute('aria-invalid', String(!!issue));
+      error.textContent = issue ?? '';
+      example.textContent = issue ? '' : portableIdExample(input.value, model()?.pageName || bp.ctx?.pageId || 'Risk register');
+      return issue;
+    };
+    input.addEventListener('input', () => {
+      setPortableIdPatternDraft(input.value);
+      refreshFeedback();
+    });
+    input.addEventListener('blur', () => {
+      setPortableIdPatternDraft(input.value);
+      if (!refreshFeedback()) persistPortableIdPattern();
+    });
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') { event.preventDefault(); input.blur(); }
+    });
+    formLabel.appendChild(input);
+
+    const tags = document.createElement('div');
+    tags.className = 'bp-id-tags';
+    for (const token of PORTABLE_ID_TOKENS) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = `{${token}}`;
+      button.title = `Insert {${token}}`;
+      button.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? start;
+        const tag = `{${token}}`;
+        input.value = input.value.slice(0, start) + tag + input.value.slice(end);
+        input.setSelectionRange(start + tag.length, start + tag.length);
+        setPortableIdPatternDraft(input.value);
+        refreshFeedback();
+        input.focus();
+      });
+      tags.appendChild(button);
+    }
+    const note = document.createElement('p');
+    note.className = 'bp-id-note';
+    note.textContent = 'New objects only. Name edits made before Apply are included. Collisions use _2, _3, and so on.';
+    feedback.append(error, example);
+    form.append(formLabel, tags, feedback, note);
+    idSection.appendChild(form);
+    refreshFeedback();
+  }
+
   const row = document.createElement('button');
   row.className = 'bp-settings-row';
   row.type = 'button';
   row.setAttribute('role', 'switch');
+  row.setAttribute('aria-label', 'Show live page');
   row.setAttribute('aria-checked', String(bp.peek));
   row.addEventListener('click', togglePeek);
   const copy = document.createElement('span');
@@ -435,7 +545,7 @@ export function settingsPanel(anchor: { left: number; top: number }): HTMLElemen
   toggle.appendChild(document.createElement('span'));
   row.append(copy, toggle);
 
-  panel.append(head, row);
+  panel.append(head, idSection, row);
   back.appendChild(panel);
   return back;
 }

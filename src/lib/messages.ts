@@ -42,6 +42,7 @@ import type { AiCustomProvider, AiProviderId, AiRequestPayload, AiChatTurn, AiCh
 import type { LModel, PlanNote, NodeStyle, FlowNode } from './layout/types';
 import type { StylePreset } from './style-presets';
 import type { BlueprintCtx, FlowRefListItem } from './layout/sync';
+import type { PortableIdPlan, PortableIdRequest } from './layout/portable-ids';
 import type { InstanceFanout, ContainerBlast } from './layout/blast-radius';
 
 // ── Page & Object Discovery ──────────────────────────────────────
@@ -421,8 +422,10 @@ export type LayoutMessage =
   // `env` = the active profile id at load time; the panel echoes it back on apply so the SW can
   // reject a commit aimed at a different environment (the user switched profiles mid-edit).
   | { type: 'LAYOUT_LOAD_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
-  | { type: 'LAYOUT_APPLY'; env: string; ctx: BlueprintCtx; baseline: LModel; desired: LModel }
+  | { type: 'LAYOUT_APPLY'; env: string; ctx: BlueprintCtx; baseline: LModel; desired: LModel; portableIds?: PortableIdPlan }
   | { type: 'LAYOUT_APPLY_RESULT'; ok: boolean; noop: boolean; stale?: boolean; partial?: boolean; unverified?: boolean; script?: string; notes?: PlanNote[]; model?: LModel; baseline?: LModel; error?: string }
+  | { type: 'LAYOUT_PORTABLE_ID_PREFLIGHT'; requests: PortableIdRequest[] }
+  | { type: 'LAYOUT_PORTABLE_ID_PREFLIGHT_RESULT'; ok: boolean; portableIds?: PortableIdPlan; error?: string }
   // Apply-preview blast radius: is the page a template master (fan-out), and do any touched shared
   // containers reach pages outside the page's own template-family. Best-effort — both may be null.
   | { type: 'LAYOUT_BLAST'; pageId: string; containers: { id: string; rid?: string }[] }

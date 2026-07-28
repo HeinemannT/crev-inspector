@@ -27,6 +27,7 @@ import type { ReconstructCtx, TabMetadata } from './model';
 import { diff } from './diff';
 import { flowDiff, flowSignature } from './flow';
 import { compile } from './ec';
+import { occupiedPortableIdPlan, type PortableIdPlan } from './portable-ids';
 import { validateBusinessId, validateRid } from '../ec-guards';
 import { LAYOUT_SEP, PAGE_MARKER, CTX_MARKER, OVER_MARKER, STYLE_MARKER, TAB_META_MARKER,
   FLOW_REF_MARKER, FLOW_META_MARKER, FLOW_CHILD_MARKER, FLOW_CPROP_MARKER, FLOW_TR_MARKER,
@@ -1084,13 +1085,19 @@ export async function loadStructureModel(io: LayoutIO, ctx: BlueprintCtx): Promi
  * the model (real rids replace temp ids; the fresh baseline makes the next apply idempotent).
  * An empty diff short-circuits to a no-op so the UI can disable Apply when nothing changed.
  */
-export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel, ctx: BlueprintCtx): Promise<ApplyResult> {
+export async function applyModel(
+  io: LayoutIO,
+  baseline: LModel,
+  desired: LModel,
+  ctx: BlueprintCtx,
+  portableIds: PortableIdPlan = {},
+): Promise<ApplyResult> {
   // Layout steps + flow steps join ONE plan → ONE compiled EC program → one commit. flowDiff reads only
   // `desired.flowEdits` (staged by businessId), so the layout portion is byte-identical with or without
   // flow data (pitfall #1) and a flow edit staged from two cells compiles once (pitfall #2).
   const layoutPlan = diff(baseline, desired);
   const plan = [...layoutPlan, ...flowDiff(baseline, desired)];
-  const { script, notes } = compile(plan, desired);
+  const { script, notes } = compile(plan, desired, portableIds);
   if (!plan.length || !script) {
     return { ok: true, noop: true, plan, notes, script: '' };
   }
@@ -1104,6 +1111,19 @@ export async function applyModel(io: LayoutIO, baseline: LModel, desired: LModel
   if (diff(baseline, live.model).length > 0 || flowSignature(live.model) !== flowSignature(baseline)) {
     return { ok: false, noop: false, stale: true, plan, notes, script, model: live.model, baseline: live.baseline,
       error: 'The page changed since you started editing. Review the refreshed layout and reapply.' };
+  }
+  const occupiedIds = await occupiedPortableIdPlan(io, portableIds);
+  if (occupiedIds.length) {
+    return {
+      ok: false,
+      noop: false,
+      plan,
+      notes,
+      script,
+      model: live.model,
+      baseline: live.baseline,
+      error: `Generated ID ${occupiedIds[0]} is now in use. Reopen Apply to choose the next free suffix.`,
+    };
   }
   const res = await io.exec(script, true); // commit — the only writing exec in the whole flow
 

@@ -6,7 +6,7 @@
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import type { SwContext } from '../sw-context';
-import { loadPage, applyPage, loadBlastRadius, loadFlowRefs, loadFlowRefChildren } from '../layout-service';
+import { loadPage, applyPage, loadBlastRadius, loadFlowRefs, loadFlowRefChildren, preflightPortableIds } from '../layout-service';
 import { ensureContentScript, ensureBlueprintScript } from '../tab-awareness';
 import { toggleInspect } from './inspect';
 import { errorMessage, log } from '../logger';
@@ -168,10 +168,19 @@ register('LAYOUT_APPLY', async (msg, respond) => {
     ctx.logActivity('warn', `Blueprint apply blocked: env ${msg.env} != active ${envToken(ctx)}`);
     return;
   }
+  if (msg.portableIds && Object.keys(msg.portableIds).length && msg.ctx.target !== 'template') {
+    respond({
+      type: 'LAYOUT_APPLY_RESULT',
+      ok: false,
+      noop: false,
+      error: 'Portable text IDs are available only while editing a template.',
+    });
+    return;
+  }
   const t0 = Date.now();
   const timings: string[] = []; // operation-local — see makeLayoutIO
   try {
-    const res = await applyPage(ctx.client, msg.ctx, msg.baseline, msg.desired, timings);
+    const res = await applyPage(ctx.client, msg.ctx, msg.baseline, msg.desired, timings, msg.portableIds);
     respond({
       type: 'LAYOUT_APPLY_RESULT', ok: res.ok, noop: res.noop, stale: res.stale, partial: res.partial,
       unverified: res.unverified,
@@ -200,6 +209,20 @@ register('LAYOUT_APPLY', async (msg, respond) => {
   } catch (e) {
     respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: errorMessage(e) });
     ctx.logActivity('error', 'Blueprint apply threw', e instanceof Error ? e.message : String(e));
+  }
+});
+
+register('LAYOUT_PORTABLE_ID_PREFLIGHT', async (msg, respond) => {
+  const ctx = getCtx();
+  if (!ctx.client) {
+    respond({ type: 'LAYOUT_PORTABLE_ID_PREFLIGHT_RESULT', ok: false, error: 'Not connected' });
+    return;
+  }
+  try {
+    const portableIds = await preflightPortableIds(ctx.client, msg.requests);
+    respond({ type: 'LAYOUT_PORTABLE_ID_PREFLIGHT_RESULT', ok: true, portableIds });
+  } catch (error) {
+    respond({ type: 'LAYOUT_PORTABLE_ID_PREFLIGHT_RESULT', ok: false, error: errorMessage(error) });
   }
 });
 

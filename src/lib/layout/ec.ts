@@ -20,6 +20,7 @@ import { COMPOSITE_TYPES } from './constraints';
 import { formatEcLiteral, validateEcIdentifier as ecClass, validateBusinessId as ecBid, validateRid as ecRid } from '../ec-guards';
 import { styleAssignRhs, INVALID_COLOR_BID } from '../style-ec';
 import { OVERRIDABLE_PROPS, styleAssignments } from './types';
+import { SUPPORT_CATEGORY_KEY, VIRTUAL_TABSET_KEY, type PortableIdPlan } from './portable-ids';
 import type { Breakpoint, FlowNode, LModel, LNode, PlanNote, PlanStep } from './types';
 
 const ecStr = (s: string): string => `"${formatEcLiteral(s)}"`;
@@ -50,8 +51,22 @@ const RESETTABLE = new Set<string>(OVERRIDABLE_PROPS);
 const colsSuffix = (cols: { L: number; M?: number; S?: number }): string =>
   (cols.M != null ? `, ${COL_PROP.M} := ${cols.M}` : '') + (cols.S != null ? `, ${COL_PROP.S} := ${cols.S}` : '');
 
-export function compile(plan: PlanStep[], m: LModel): { script: string; notes: PlanNote[] } {
+export function compile(
+  plan: PlanStep[],
+  m: LModel,
+  portableIds: PortableIdPlan = {},
+): { script: string; notes: PlanNote[] } {
   if (!plan.length) return { script: '', notes: [] };
+  const portableId = (key: string): string | undefined => portableIds[key];
+  const idArg = (key: string): string => {
+    const id = portableId(key);
+    return id ? `, id := ${ecStr(ecBid(id))}` : '';
+  };
+  const idComment = (key: string): string => portableId(key) ? '// portable text id' : '// BMP assigns id';
+  const withIdDetail = (key: string, detail?: string): string | undefined => {
+    const id = portableId(key);
+    return [detail, id ? `id ${id}` : ''].filter(Boolean).join(' · ') || undefined;
+  };
 
   const byId = new Map<string, LNode>();
   const parentById = new Map<string, string>();
@@ -123,7 +138,8 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
     if (supportCatRef) return supportCatRef;
     emit({ verb: 'create', text: `Create support Category "${supportCatName}" in Portal`,
       action: 'Add', object: supportCatName, objectType: 'Category', where: 'Portal',
-      ec: `_fcat := root.portal.add(Category, name := ${ecStr(supportCatName)}) // page support folder` });
+      detail: withIdDetail(SUPPORT_CATEGORY_KEY),
+      ec: `_fcat := root.portal.add(Category${idArg(SUPPORT_CATEGORY_KEY)}, name := ${ecStr(supportCatName)}) // page support folder` });
     supportCatRef = '_fcat';
     return supportCatRef;
   };
@@ -137,7 +153,8 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
       const tsName = m.tabsetName ?? '» New TabSet';
       emit({ verb: 'create', text: `Create tabset "${tsName}" in ${supportCatName}`,
         action: 'Add', object: tsName, objectType: 'TabSet', where: supportCatName,
-        ec: `_ts := ${cat}.add(TabSet, name := ${ecStr(tsName)}) // BMP assigns id` });
+        detail: withIdDetail(VIRTUAL_TABSET_KEY),
+        ec: `_ts := ${cat}.add(TabSet${idArg(VIRTUAL_TABSET_KEY)}, name := ${ecStr(tsName)}) ${idComment(VIRTUAL_TABSET_KEY)}` });
     }
   }
   const tabsetRef = (id: string): string =>
@@ -156,12 +173,12 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         if (n.kind === 'tab') {
           const owner = m.tabsets?.find(t => t.id === s.parentId);
           emit({ verb: 'create', id: n.id, text: `Create tab "${n.name}"`,
-            action: 'Add', object: n.name, objectType: 'Tab', where: owner?.name ?? s.parentId, detail: `${n.cols.L}/6`,
-            ec: `${v} := ${tabsetRef(s.parentId)}.add(Tab, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}) // BMP assigns id` });
+            action: 'Add', object: n.name, objectType: 'Tab', where: owner?.name ?? s.parentId, detail: withIdDetail(n.id, `${n.cols.L}/6`),
+            ec: `${v} := ${tabsetRef(s.parentId)}.add(Tab${idArg(n.id)}, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}) ${idComment(n.id)}` });
         } else if (n.kind === 'container') {
           emit({ verb: 'create', id: n.id, text: `Create new container "${n.name}" (${n.cols.L}/6) in ${where}`,
-            action: 'Add', object: n.name, objectType: 'Container', where: par?.name, detail: `${n.cols.L}/6`,
-            ec: `${v} := ${ref(s.parentId)}.add(Container, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}) // BMP assigns id` });
+            action: 'Add', object: n.name, objectType: 'Container', where: par?.name, detail: withIdDetail(n.id, `${n.cols.L}/6`),
+            ec: `${v} := ${ref(s.parentId)}.add(Container${idArg(n.id)}, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}) ${idComment(n.id)}` });
         } else if (s.parentKind === 'widget') {
           // Composite child (e.g. a button in a ButtonContainer): the child is added to the COMPOSITE
           // itself (`<composite>.add(Child)`), NOT bound to a portal cell — its parent is the composite
@@ -171,13 +188,13 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
             throw new Error(`cannot add ${n.className} into a ${parentClass ?? 'widget'}; it is not a composite container`);
           }
           emit({ verb: 'create', id: n.id, text: `Create ${n.className} "${n.name}" in ${parentClass}`,
-            action: 'Add', object: n.name, objectType: n.className, where: par?.name,
-            ec: `${v} := ${ref(s.parentId)}.add(${ecClass(n.className)}, name := ${ecStr(n.name)}) // BMP assigns id` });
+            action: 'Add', object: n.name, objectType: n.className, where: par?.name, detail: withIdDetail(n.id),
+            ec: `${v} := ${ref(s.parentId)}.add(${ecClass(n.className)}${idArg(n.id)}, name := ${ecStr(n.name)}) ${idComment(n.id)}` });
         } else {
           const h = n.height != null ? `, chartHeight := ${n.height}` : '';
           emit({ verb: 'create', id: n.id, text: `Add ${n.className} "${n.name}" (${n.cols.L}/6) to ${where}`,
-            action: 'Add', object: n.name, objectType: n.className, where: par?.name, detail: `${n.cols.L}/6`,
-            ec: `${v} := _sc.add(${ecClass(n.className)}, name := ${ecStr(n.name)}, container := ${ref(s.parentId)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}${h}) // BMP assigns id` });
+            action: 'Add', object: n.name, objectType: n.className, where: par?.name, detail: withIdDetail(n.id, `${n.cols.L}/6`),
+            ec: `${v} := _sc.add(${ecClass(n.className)}${idArg(n.id)}, name := ${ecStr(n.name)}, container := ${ref(s.parentId)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}${h}) ${idComment(n.id)}` });
         }
         // G3: a widget created AND styled in the same batch carries its appearance on `n.style`. The create
         // above has no baseline (diff couldn't pair it for an update), so emit the style as a follow-up
@@ -255,8 +272,8 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
           // follows sets it). `node.prop` carries the tab/RESULT container binding staged with it.
           const cont = s.node.prop ? `, container := ${fref(s.node.prop)}` : '';
           emit({ verb: 'create', id: s.node.id, text: `Add action "${s.node.name}" to the action menu`,
-            action: 'Add', object: s.node.name, objectType: 'ActionButton', where: 'action menu',
-            ec: `${v} := _sc.add(ActionButton, name := ${ecStr(s.node.name)}${cont}) // BMP assigns id` });
+            action: 'Add', object: s.node.name, objectType: 'ActionButton', where: 'action menu', detail: withIdDetail(s.node.id),
+            ec: `${v} := _sc.add(ActionButton${idArg(s.node.id)}, name := ${ecStr(s.node.name)}${cont}) ${idComment(s.node.id)}` });
         } else if (s.parentId === '*support*') {
           // A new InputSet/EditPage lands in the page's ONE support Category — the shared resolver
           // reuses an on-page reference's existing Category (co-locate) or lazily creates one named
@@ -266,12 +283,12 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
             ? `, types := list(${ecClass(s.editPageType)})`
             : '';
           emit({ verb: 'create', id: s.node.id, text: `Create ${s.node.className} "${s.node.name}" in ${supportCatName}`,
-            action: 'Add', object: s.node.name, objectType: s.node.className, where: supportCatName,
-            ec: `${v} := ${cat}.add(${ecClass(s.node.className)}, name := ${ecStr(s.node.name)}${typeArg}) // BMP assigns id` });
+            action: 'Add', object: s.node.name, objectType: s.node.className, where: supportCatName, detail: withIdDetail(s.node.id),
+            ec: `${v} := ${cat}.add(${ecClass(s.node.className)}${idArg(s.node.id)}, name := ${ecStr(s.node.name)}${typeArg}) ${idComment(s.node.id)}` });
         } else {
           emit({ verb: 'create', id: s.node.id, text: `Add ${s.node.className} "${s.node.name}" to ${s.parentClass}`,
-            action: 'Add', object: s.node.name, objectType: s.node.className, where: s.parentClass,
-            ec: `${v} := ${fref(s.parentId, s.parentRid)}.add(${ecClass(s.node.className)}, name := ${ecStr(s.node.name)}) // BMP assigns id` });
+            action: 'Add', object: s.node.name, objectType: s.node.className, where: s.parentClass, detail: withIdDetail(s.node.id),
+            ec: `${v} := ${fref(s.parentId, s.parentRid)}.add(${ecClass(s.node.className)}${idArg(s.node.id)}, name := ${ecStr(s.node.name)}) ${idComment(s.node.id)}` });
         }
         break;
       }

@@ -502,6 +502,26 @@ describe('sync.applyModel', () => {
     expect(res.model).toBeDefined();        // fresh live state handed back for rebase
     expect(findNode(res.model!, '4964')!.node.name).toBe('Register RENAMED');
   });
+  it('rechecks previewed portable IDs and aborts before commit when one became occupied', async () => {
+    const io = fakeIo(LIVE_LOG);
+    const { baseline } = await loadModel(io, CTX);
+    const added = addContainer(baseline, '4904', 0, 3, 'New KPIs');
+    let committed = false;
+    io.exec = vi.fn(async (code: string, commit = false) => {
+      if (commit) committed = true;
+      if (code.includes('<PORTABLE_ID>')) {
+        return { ok: true, log: '<PORTABLE_ID>risk_kpis|123' };
+      }
+      return { ok: true, log: LIVE_LOG };
+    });
+
+    const res = await applyModel(io, baseline, added.model, CTX, { [added.id]: 'risk_kpis' });
+
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/risk_kpis.*now in use/i);
+    expect(res.script).toContain('id := "risk_kpis"');
+    expect(committed).toBe(false);
+  });
   it('detects a SILENT rollback: commit returns ok but the re-fetched page is unchanged', async () => {
     // BMP discarded the transaction and returned ok with no ERROR (the "200 but nothing changed" case).
     // The re-fetch still matches the baseline, so the structural guard must fail the apply rather than

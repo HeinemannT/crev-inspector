@@ -13,13 +13,14 @@ import { resize, setHeight, rename, remove, restoreNode, addWidget, addContainer
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { addFlowChild, reorderFlowChild, removeFlowAdd, setActionFlag, addActionButton, flowDiff, flowChangeCount, stageNewFlowContainer, wireFlowRef, unwireFlowRef, renameFlowObject } from '../lib/layout/flow';
 import { compile } from '../lib/layout/ec';
+import { portableIdPatternError, portableIdRequests, type PortableIdPlan } from '../lib/layout/portable-ids';
 import { History } from '../lib/layout/history';
 import { maskStyle, type LModel, type PlanStep, type NodeStyle } from '../lib/layout/types';
 import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { render } from './view';
-import { applyPage, fetchBlast, fetchFlowRefs, fetchFlowRefChildren, fetchEditPageSchemas } from './service';
+import { applyPage, fetchBlast, fetchFlowRefs, fetchFlowRefChildren, fetchEditPageSchemas, preflightPortableIds } from './service';
 import { ensureColorSets } from './colors';
 import { loadPresets, savePreset, deletePreset } from './presets';
 import { PAINT_STYLE_PROPS } from '../lib/style-props';
@@ -529,15 +530,47 @@ export function hasPendingEdits(): boolean {
 /** Apply opens a preview first — never commit blind. The plan is computed with the SAME diff+compile
  *  the SW will run, so the human-readable notes match exactly what gets executed. */
 export function openApplyPreview(): void {
+  void prepareApplyPreview();
+}
+
+async function prepareApplyPreview(): Promise<void> {
   const m = model();
-  if (!bp.ctx || !bp.baseline || !m || bp.applying) return;
+  if (!bp.ctx || !bp.baseline || !m || bp.applying || bp.preparingPreview) return;
   // Layout + flow steps compose into the ONE plan — the same composition applyModel (SW-side) runs,
   // so the previewed EC matches the committed EC exactly.
   const plan = [...diff(bp.baseline, m), ...flowDiff(bp.baseline, m)];
   if (plan.length === 0) { showToast('Blueprint: nothing to apply', 'info'); return; }
-  const { script, notes } = compile(plan, m);
+  const usePortableIds = bp.idConfig.enabled && bp.ctx.target === 'template';
+  let portableIds: PortableIdPlan = {};
+  if (usePortableIds) {
+    const patternError = portableIdPatternError(bp.idConfig.pattern);
+    if (patternError) {
+      showToast(`Blueprint IDs: ${patternError}`, 'error');
+      return;
+    }
+    const requests = portableIdRequests(plan, m, bp.idConfig.pattern);
+    if (requests.length) {
+      const gen = bp.gen;
+      const revision = bp.history?.revision();
+      bp.preparingPreview = true;
+      bp.settingsOpen = false;
+      render();
+      const result = await preflightPortableIds(requests);
+      if (!bp.active || bp.gen !== gen) return;
+      bp.preparingPreview = false;
+      if (bp.history?.revision() !== revision) { render(); return; }
+      if (!result.ok || !result.portableIds) {
+        showToast(`Blueprint IDs: ${result.error || 'collision check failed.'}`, 'error');
+        render();
+        return;
+      }
+      portableIds = result.portableIds;
+    }
+  }
+  const { script, notes } = compile(plan, m, portableIds);
   bp.preview = notes;
   bp.previewScript = script; // the modal's "Copy EC" copies the whole program, not per-row fragments
+  bp.portableIdPlan = Object.keys(portableIds).length ? portableIds : null;
   bp.blast = null;
   bp.blastPending = true; // Confirm waits for the impact probe — the shared-master / fan-out warning
                           // is the most consequential one and must not be skippable by a fast click.
@@ -548,7 +581,7 @@ export function openApplyPreview(): void {
   // or fails, so a dead probe can't wedge Confirm shut.
   void fetchBlast(seq, bp.ctx.pageId, touchedContainers(plan, m));
 }
-export function closePreview(): void { bp.preview = null; bp.previewScript = ''; bp.blast = null; bp.blastPending = false; render(); }
+export function closePreview(): void { bp.preview = null; bp.previewScript = ''; bp.portableIdPlan = null; bp.blast = null; bp.blastPending = false; render(); }
 /** Dismiss the docked stale/partial/failed outcome panel (the user has acknowledged it). */
 export function dismissApplyOutcome(): void { bp.applyOutcome = null; render(); }
 
@@ -557,10 +590,12 @@ export function dismissApplyOutcome(): void { bp.applyOutcome = null; render(); 
  *  always renders before a commit — the UI also disables the Confirm button in that window. */
 export function confirmApply(): void {
   if (!bp.ctx || !bp.baseline || !bp.env || !model() || bp.applying || bp.blastPending) return;
+  const portableIds = bp.portableIdPlan ?? undefined;
   bp.preview = null;
   bp.previewScript = '';
+  bp.portableIdPlan = null;
   bp.blast = null;
-  void applyPage();
+  void applyPage(portableIds);
 }
 
 /** Exit is an explicit close, never a toggle. MV3 can restart the worker or briefly disconnect the

@@ -12,6 +12,7 @@ import { showToast } from '../lib/toast';
 import type { InspectorMessage } from '../lib/types';
 import type { LModel } from '../lib/layout/types';
 import type { FlowRefListItem } from '../lib/layout/sync';
+import type { PortableIdPlan, PortableIdRequest } from '../lib/layout/portable-ids';
 import { BP_RESUME_KEY } from '../lib/blueprint-resume';
 import { bp, model } from './state';
 import { render } from './view';
@@ -22,6 +23,7 @@ type BlastResult = Extract<InspectorMessage, { type: 'LAYOUT_BLAST_RESULT' }>;
 type FlowRefsResult = Extract<InspectorMessage, { type: 'LAYOUT_FLOW_REFS_RESULT' }>;
 type FlowRefChildrenResult = Extract<InspectorMessage, { type: 'LAYOUT_FLOW_REF_CHILDREN_RESULT' }>;
 type TypeSchemaResult = Extract<InspectorMessage, { type: 'FETCH_TYPE_SCHEMA_RESULT' }>;
+type PortableIdPreflightResult = Extract<InspectorMessage, { type: 'LAYOUT_PORTABLE_ID_PREFLIGHT_RESULT' }>;
 
 /** Adopt `m` as the new baseline: fresh history, clear selection. The single point where the editor
  *  rebases onto an authoritative server model (initial load + post-apply + stale-reload). */
@@ -111,6 +113,20 @@ export async function fetchBlast(seq: number, pageId: string, containers: { id: 
   }
 }
 
+export async function preflightPortableIds(
+  requests: PortableIdRequest[],
+): Promise<{ ok: boolean; portableIds?: PortableIdPlan; error?: string }> {
+  try {
+    const response = await sendRequestBounded<PortableIdPreflightResult>(
+      { type: 'LAYOUT_PORTABLE_ID_PREFLIGHT', requests },
+      { timeoutMs: 15_000 },
+    );
+    return response ?? { ok: false, error: 'No response while checking generated IDs.' };
+  } catch {
+    return { ok: false, error: 'Could not check generated IDs.' };
+  }
+}
+
 /** Fetch the flow "wire to existing" list for the OPEN flow picker (lean, at picker-open). Stores the
  *  rows on `bp.flowRefList` and re-renders; a reply for a closed/changed picker is dropped. */
 /** Session cache of the wire-to-existing lists, keyed by refClass. The InputSet/EditPage sets only
@@ -170,12 +186,19 @@ export async function fetchFlowRefChildren(refId: string, refClass: string): Pro
 }
 
 /** Fire the guarded apply and rebase the editor onto the result. */
-export async function applyPage(): Promise<void> {
+export async function applyPage(portableIds?: PortableIdPlan): Promise<void> {
   const m = model();
   if (!bp.ctx || !bp.baseline || !bp.env || !m) return;
   const g = bp.gen;
   bp.applying = true; render();
-  const res = await sendRequest<ApplyResult>({ type: 'LAYOUT_APPLY', env: bp.env, ctx: bp.ctx, baseline: bp.baseline, desired: m });
+  const res = await sendRequest<ApplyResult>({
+    type: 'LAYOUT_APPLY',
+    env: bp.env,
+    ctx: bp.ctx,
+    baseline: bp.baseline,
+    desired: m,
+    ...(portableIds && Object.keys(portableIds).length ? { portableIds } : {}),
+  });
   if (!sameSession(g)) return;
   bp.applying = false;
   bp.applyOutcome = null; // a fresh apply supersedes any prior outcome panel

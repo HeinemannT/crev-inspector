@@ -18,6 +18,7 @@ import { select, onKeydown, clearHintTimer, hasPendingEdits } from './content-bl
 import { cancelGesture } from './content-blueprint/gestures';
 import { loadPage } from './content-blueprint/service';
 import { resetColorSets } from './content-blueprint/colors';
+import { loadPortableIdConfig } from './content-blueprint/id-config';
 
 export { isBlueprintActive };
 
@@ -86,6 +87,7 @@ export function enableBlueprint(): void {
   enableRetries = 0;
   bp.active = true;
   bp.gen += 1; // new session — invalidates any in-flight load/apply from a prior toggle
+  void loadPortableIdConfig();
   ensureStyle();
   const layer = document.createElement('div');
   layer.id = 'crev-blueprint-layer';
@@ -181,7 +183,10 @@ function mountLoadingShell(): void {
   layer.textContent = '';
   const head = document.createElement('div'); head.className = 'bp-header';
   const c = document.createElement('div'); c.className = 'bp-chip';
-  c.innerHTML = '<b>BLUEPRINT</b><span>loading…</span>';
+  const loading = document.createElement('span');
+  loading.className = 'bp-loading';
+  loading.textContent = 'Loading page…';
+  c.appendChild(loading);
   head.appendChild(c); layer.appendChild(head);
 }
 

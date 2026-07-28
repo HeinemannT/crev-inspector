@@ -274,7 +274,7 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
   if (bp.settingsOpen) {
     const trigger = layer.querySelector('.bp-settings-trigger')?.getBoundingClientRect();
     const header = layer.querySelector('.bp-header')?.getBoundingClientRect();
-    const width = 286;
+    const width = 340;
     const idealLeft = trigger ? trigger.left : (window.innerWidth - width) / 2;
     const left = Math.min(Math.max(8, idealLeft), Math.max(8, window.innerWidth - width - 8));
     layer.appendChild(settingsPanel({ left, top: (header?.bottom ?? 56) + 5 }));

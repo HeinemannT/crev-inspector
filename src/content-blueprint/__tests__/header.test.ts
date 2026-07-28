@@ -48,11 +48,32 @@ describe('Blueprint command header', () => {
 
   it('keeps the live-page peek as a real setting', () => {
     const panel = settingsPanel({ left: 12, top: 60 });
-    const row = panel.querySelector<HTMLButtonElement>('.bp-settings-row');
+    const row = panel.querySelector<HTMLButtonElement>('[aria-label="Show live page"]');
 
     expect(row?.getAttribute('role')).toBe('switch');
     expect(row?.getAttribute('aria-checked')).toBe('false');
     row?.click();
     expect(bp.peek).toBe(true);
+  });
+
+  it('shows portable ID configuration only for the template target', () => {
+    bp.ctx = ctx;
+    bp.idConfig = { enabled: true, pattern: '{page}_{parent}_{class}_{name}' };
+    bp.idConfigStatus = 'ready';
+
+    const templatePanel = settingsPanel({ left: 12, top: 60 });
+    const toggle = templatePanel.querySelector<HTMLButtonElement>('.bp-settings-section [role="switch"]');
+    const pattern = templatePanel.querySelector<HTMLInputElement>('.bp-id-pattern');
+
+    expect(toggle?.disabled).toBe(false);
+    expect(pattern?.value).toBe('{page}_{parent}_{class}_{name}');
+    expect(templatePanel.querySelector('.bp-id-example')?.textContent).toContain('textelement');
+
+    bp.ctx = { ...ctx, target: 'instance' };
+    const instancePanel = settingsPanel({ left: 12, top: 60 });
+    const instanceToggle = instancePanel.querySelector<HTMLButtonElement>('.bp-settings-section [role="switch"]');
+    expect(instanceToggle?.disabled).toBe(true);
+    expect(instancePanel.querySelector('.bp-id-pattern')).toBeNull();
+    expect(instancePanel.textContent).toContain('Available while editing Template');
   });
 });

@@ -17,6 +17,7 @@ import { AI_LAYOUT_EC_TIMEOUT, LAYOUT_EC_TIMEOUT } from './constants';
 import type { LayoutIO, BlueprintCtx, LoadResult, StructureLoadResult, ApplyResult, FlowRefListItem } from './layout/sync';
 import { loadModel, loadEditPageModel, loadStructureModel, applyModel, resolvePageContext, loadFlowRefList, loadFlowRefChildren as loadFlowRefChildrenCore } from './layout/sync';
 import type { LModel, FlowNode } from './layout/types';
+import { preflightPortableIdRequests, type PortableIdPlan, type PortableIdRequest } from './layout/portable-ids';
 import { validateBusinessId, validateRid } from './ec-guards';
 import { log } from './logger';
 import {
@@ -120,8 +121,24 @@ export async function loadPageStructure(
 
 /** Apply an edit: diff baseline→desired, compile, commit, re-fetch. The ctx must be the one
  *  `loadPage` returned for this page (it carries the page root + tabset + tab scope). */
-export async function applyPage(client: BmpClient, ctx: BlueprintCtx, baseline: LModel, desired: LModel, timings: string[] = []): Promise<ApplyResult> {
-  return applyModel(makeLayoutIO(client, timings), baseline, desired, ctx);
+export async function applyPage(
+  client: BmpClient,
+  ctx: BlueprintCtx,
+  baseline: LModel,
+  desired: LModel,
+  timings: string[] = [],
+  portableIds: PortableIdPlan = {},
+): Promise<ApplyResult> {
+  return applyModel(makeLayoutIO(client, timings), baseline, desired, ctx, portableIds);
+}
+
+/** Resolve portable Blueprint IDs against the live template-category namespace without writing. */
+export async function preflightPortableIds(
+  client: BmpClient,
+  requests: PortableIdRequest[],
+  timings: string[] = [],
+): Promise<PortableIdPlan> {
+  return preflightPortableIdRequests(makeLayoutIO(client, timings), requests);
 }
 
 /** The flow "wire to existing" list: every InputSet or EditPage under root.portal (lean fields only).
