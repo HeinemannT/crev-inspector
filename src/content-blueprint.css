@@ -180,7 +180,7 @@
 #crev-blueprint-layer .bp-chip .bp-target-b.on{background:var(--bp-cyan);color:var(--bp-ground)}            /* Template active = shared definition (blue) */
 #crev-blueprint-layer .bp-chip .bp-target-b:last-child.on{background:var(--bp-amber);color:var(--bp-ground)} /* This instance active = local override (orange) */
 
-#crev-blueprint-layer .bp-tabs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:7px 10px 7px 12px;border-top:var(--bp-hair) solid var(--bp-line-2)}
+#crev-blueprint-layer .bp-tabs{position:relative;display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:7px 10px 7px 12px;border-top:var(--bp-hair) solid var(--bp-line-2)}
 #crev-blueprint-layer .bp-tabs-l{color:var(--bp-muted);font:700 9px/1 var(--bp-mono);letter-spacing:.12em;margin-right:2px}
 #crev-blueprint-layer .bp-tab{display:flex;align-items:center;gap:5px;height:26px;padding:0 4px 0 9px;background:transparent;border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r);color:var(--bp-text);font:500 11.5px 'BPInter',sans-serif;cursor:pointer}
 #crev-blueprint-layer .bp-tab:hover{border-color:var(--bp-cyan)}
@@ -193,6 +193,13 @@
 #crev-blueprint-layer .bp-tab.st-new .newtag{font:700 9px var(--bp-mono);letter-spacing:.04em;text-transform:uppercase;color:#fff;background:var(--bp-green);border:0;padding:1px 5px;border-radius:var(--bp-r)}
 #crev-blueprint-layer .bp-tab.st-gone{opacity:.5}
 #crev-blueprint-layer .bp-tab.st-gone .bp-tnm{text-decoration:line-through}
+/* TabSet provenance is deliberately background-only: borders/text remain reserved for selected,
+   renamed, new, deleted and drop-target state. Activated only on multi-TabSet pages by the view. */
+#crev-blueprint-layer .bp-tab.tsc-0,#crev-blueprint-layer .bp-tswatch.tsc-0{background:rgba(99,102,241,.09)}
+#crev-blueprint-layer .bp-tab.tsc-1,#crev-blueprint-layer .bp-tswatch.tsc-1{background:rgba(13,148,136,.085)}
+#crev-blueprint-layer .bp-tab.tsc-2,#crev-blueprint-layer .bp-tswatch.tsc-2{background:rgba(180,83,9,.08)}
+#crev-blueprint-layer .bp-tab.tsc-3,#crev-blueprint-layer .bp-tswatch.tsc-3{background:rgba(2,132,199,.085)}
+#crev-blueprint-layer .bp-tab.tsc-4,#crev-blueprint-layer .bp-tswatch.tsc-4{background:rgba(168,85,247,.08)}
 /* EMPTY tab (no widgets on this page — BMP hides it): ghosted + dashed so it can't be mistaken
    for a tab the portal actually shows. Solidifies on hover (it's still clickable/droppable). */
 #crev-blueprint-layer .bp-tab.unused{opacity:.55;border-style:dashed;color:var(--bp-muted)}
@@ -200,15 +207,29 @@
 #crev-blueprint-layer .bp-tedit,#crev-blueprint-layer .bp-tdel{width:17px;height:17px;border-radius:var(--bp-r);border:1px solid transparent;background:transparent;color:var(--bp-muted);font:500 11px/1 var(--bp-mono);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 #crev-blueprint-layer .bp-tshared{flex:none;display:flex;align-items:center;color:var(--bp-muted);margin-left:1px}
 #crev-blueprint-layer .bp-tshared svg{display:block;width:11px;height:11px}
-/* the shared Result tab — a clearly visible solid frame + faint fill (was a too-faint dashed hairline) */
-#crev-blueprint-layer .bp-tab.shared{border:1.5px solid var(--bp-muted);background:rgba(75,85,99,.08)}
+/* Result is semantic rather than palette-assigned: a permanent Blueprint-blue tint, still locked. */
+#crev-blueprint-layer .bp-tab.shared{border:1.5px solid var(--bp-muted);background:rgba(21,101,192,.09)}
 #crev-blueprint-layer .bp-tedit:hover{background:var(--bp-cyan);color:var(--bp-ground)}
 #crev-blueprint-layer .bp-tdel:hover{background:var(--bp-red);color:var(--bp-ground)}
 #crev-blueprint-layer .bp-tabs>button{height:26px;padding:0 11px;border-radius:var(--bp-r);border:var(--bp-hair) dashed var(--bp-cyan);background:transparent;color:var(--bp-cyan);font:500 11px 'BPInter',sans-serif;cursor:pointer}
 #crev-blueprint-layer .bp-tabs>button:hover{background:var(--bp-cyan);color:var(--bp-ground)}
-/* the "+N empty" fold toggle — muted (it's a disclosure, not an action like "+ Tab") */
+/* the "+N hidden" fold toggle — muted (it's a disclosure, not an action like "+ Tab") */
 #crev-blueprint-layer .bp-tabs>button.bp-tabs-fold{border-color:var(--bp-line-2);color:var(--bp-muted)}
 #crev-blueprint-layer .bp-tabs>button.bp-tabs-fold:hover{background:transparent;border-color:var(--bp-muted);color:var(--bp-text)}
+/* Tab-strip popovers share one quiet floating treatment. The fixed transparent backdrop makes outside
+   click dismissal reliable without covering BMP with a modal shade. */
+#crev-blueprint-layer .bp-tabs-back{position:fixed;inset:0;z-index:64;background:transparent}
+#crev-blueprint-layer .bp-hidden-tabs,#crev-blueprint-layer .bp-tabset-picker{position:absolute;top:calc(100% + 5px);z-index:65;width:320px;max-width:min(86vw,360px);max-height:52vh;overflow:auto;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);box-shadow:var(--bp-shadow);padding:5px;pointer-events:auto}
+#crev-blueprint-layer .bp-hidden-tabs{left:10px}
+#crev-blueprint-layer .bp-tabset-picker{right:10px}
+#crev-blueprint-layer .bp-hidden-title{padding:7px 8px 8px;font:600 11.5px 'BPInter',sans-serif;color:var(--bp-text);border-bottom:var(--bp-hair) solid var(--bp-line-2)}
+#crev-blueprint-layer .bp-hidden-group{display:flex;align-items:center;gap:7px;padding:9px 8px 4px;color:var(--bp-muted);font:700 9px var(--bp-mono);letter-spacing:.05em;text-transform:uppercase}
+#crev-blueprint-layer .bp-hidden-group .count{margin-left:auto;font-weight:500;letter-spacing:0}
+#crev-blueprint-layer .bp-tswatch{width:9px;height:9px;flex:none;border:var(--bp-hair) solid var(--bp-line-2);border-radius:2px}
+#crev-blueprint-layer .bp-hidden-row,#crev-blueprint-layer .bp-tabset-row{display:flex;align-items:center;gap:8px;width:100%;min-height:29px;padding:5px 8px;border:0;border-radius:var(--bp-r);background:transparent;color:var(--bp-text);font:500 11.5px 'BPInter',sans-serif;text-align:left;cursor:pointer}
+#crev-blueprint-layer .bp-hidden-row:hover,#crev-blueprint-layer .bp-tabset-row:hover{background:rgba(21,101,192,.08)}
+#crev-blueprint-layer .bp-hidden-row>span:first-child,#crev-blueprint-layer .bp-tabset-row .name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#crev-blueprint-layer .bp-hidden-row .why,#crev-blueprint-layer .bp-tabset-row .meta{margin-left:auto;flex:none;color:var(--bp-muted);font:500 9.5px var(--bp-mono)}
 
 /* ── add / move picker ───────────────────────────────── */
 /* Pickers are modal to every floating Blueprint panel. In particular the Add

@@ -9,7 +9,7 @@
  * have no DOM, so they draw as dashed placeholders in their host's area.
  */
 import type { LModel, LNode } from '../lib/layout/types';
-import { findNode, hasHeight, isResultTab, descendantWidgets, descendantVisibleWidgets } from '../lib/layout/model';
+import { findNode, hasHeight, isResultTab, descendantWidgets, descendantVisibleWidgets, editableTabsets, modelTabsets, tabsetOf } from '../lib/layout/model';
 import { COMPOSITE_TYPES, COMPOSITE_CHILDREN } from '../lib/layout/constraints';
 import { isAncestorOf } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
@@ -107,7 +107,7 @@ export function visibilityStrip(node: LNode): HTMLElement | null {
   return wrap;
 }
 import {
-  beginRename, viewTab, addTabAction, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
+  beginRename, viewTab, addTabAction, addTabTo, closeTabsetPicker, setWidth, setH, doDelete, doRename, openPicker, addFromPicker, closePicker, addContainerTo,
   openMovePicker, closeMovePicker, moveTo, doCreateTabset, setNodeStyle, openSwatch, closeSwatch, applySwatch,
   openTabMenu, closeTabMenu, reorderTab,
   closeFlowPicker, addFlowFromPicker, addActionFromTray, wireExistingFromPicker,
@@ -794,15 +794,19 @@ function pickRow(label: string, tag: string, on: () => void, icon?: string | nul
 function tabContextMenu(menu: { id: string; x: number; y: number }): HTMLElement {
   const m = model();
   if (!m) return document.createElement('div'); // session torn down between open and paint — no menu
-  const order = m.tabs.filter(t => !isResultTab(t));
+  const node = findNode(m, menu.id)?.node;
+  const ownerId = node?.tabsetId ?? m.tabsetId;
+  const owner = modelTabsets(m).find(t => t.id === ownerId);
+  const order = m.tabs.filter(t => !isResultTab(t) && (t.tabsetId ?? m.tabsetId) === ownerId);
   const i = order.findIndex(t => t.id === menu.id);
-  const name = findNode(m, menu.id)?.node.name ?? '';
+  const name = node?.name ?? '';
   const back = document.createElement('div'); back.className = 'bp-pick-back';
   back.addEventListener('mousedown', (e) => { if (e.target === back) closeTabMenu(); });
   const panel = document.createElement('div'); panel.className = 'bp-pick bp-tabmenu';
   panel.style.left = `${Math.min(Math.max(4, menu.x), window.innerWidth - 220)}px`;
   panel.style.top = `${Math.min(Math.max(40, menu.y), window.innerHeight - 200)}px`;
-  const head = document.createElement('div'); head.className = 'bp-pick-h'; head.textContent = `Move "${name}"`;
+  const head = document.createElement('div'); head.className = 'bp-pick-h';
+  head.textContent = `Move "${name}" in ${owner?.name ?? ownerId}`;
   const list = document.createElement('div'); list.className = 'bp-pick-list';
   const atStart = i <= 0, atEnd = i === order.length - 1;
   const item = (label: string, dir: 'left' | 'right' | 'start' | 'end', disabled: boolean): void => {
@@ -821,17 +825,81 @@ function tabContextMenu(menu: { id: string; x: number; y: number }): HTMLElement
 }
 
 // ── header tab bar (manage tabs + switch which one the canvas shows) ──────────────
+/** Five quiet provenance fills. Assignment is stable by sorted TabSet id and activates only when
+ *  multiple non-Result TabSets actually contribute page content. */
+export function tabsetColorMap(m: LModel): Map<string, number> {
+  const sets = [...editableTabsets(m)].sort((a, b) => a.id.localeCompare(b.id));
+  if (sets.length < 2) return new Map();
+  return new Map(sets.map((t, i) => [t.id, i % 5]));
+}
+
+function hiddenTabsPanel(m: LModel, rows: Array<{ node: LNode; reason: string }>, colors: Map<string, number>): HTMLElement {
+  const panel = document.createElement('div'); panel.className = 'bp-hidden-tabs';
+  const title = document.createElement('div'); title.className = 'bp-hidden-title'; title.textContent = 'Hidden tabs';
+  panel.appendChild(title);
+  const groups = new Map<string, Array<{ node: LNode; reason: string }>>();
+  for (const row of rows) {
+    const id = row.node.tabsetId ?? m.tabsetId;
+    (groups.get(id) ?? groups.set(id, []).get(id)!).push(row);
+  }
+  for (const ts of modelTabsets(m)) {
+    const group = groups.get(ts.id);
+    if (!group?.length) continue;
+    const head = document.createElement('div'); head.className = 'bp-hidden-group';
+    const sw = document.createElement('span'); sw.className = 'bp-tswatch';
+    const ci = colors.get(ts.id); if (ci !== undefined) sw.classList.add(`tsc-${ci}`);
+    const nm = document.createElement('span'); nm.textContent = ts.name;
+    const count = document.createElement('span'); count.className = 'count'; count.textContent = String(group.length);
+    head.append(sw, nm, count); panel.appendChild(head);
+    for (const { node, reason } of group) {
+      const row = document.createElement('button'); row.className = 'bp-hidden-row';
+      const label = document.createElement('span'); label.textContent = node.name;
+      const why = document.createElement('span'); why.className = 'why'; why.textContent = reason;
+      row.append(label, why);
+      row.title = `${node.name} · ${ts.name} · ${reason}`;
+      row.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        bp.unusedTabsOpen = false;
+        viewTab(node.id);
+      });
+      panel.appendChild(row);
+    }
+  }
+  return panel;
+}
+
+function tabsetDestinationPanel(m: LModel, colors: Map<string, number>): HTMLElement {
+  const panel = document.createElement('div'); panel.className = 'bp-tabset-picker';
+  const head = document.createElement('div'); head.className = 'bp-hidden-title'; head.textContent = 'Add tab to…';
+  panel.appendChild(head);
+  for (const ts of editableTabsets(m)) {
+    const tabs = m.tabs.filter(t => !isResultTab(t) && (t.tabsetId ?? m.tabsetId) === ts.id);
+    const visible = tabs.filter(t => descendantVisibleWidgets(t).length > 0).length;
+    const row = document.createElement('button'); row.className = 'bp-tabset-row';
+    const sw = document.createElement('span'); sw.className = 'bp-tswatch';
+    const ci = colors.get(ts.id); if (ci !== undefined) sw.classList.add(`tsc-${ci}`);
+    const nm = document.createElement('span'); nm.className = 'name'; nm.textContent = ts.name;
+    const meta = document.createElement('span'); meta.className = 'meta';
+    meta.textContent = `${visible} shown · ${Math.max(0, tabs.length - visible)} hidden`;
+    row.append(sw, nm, meta);
+    row.addEventListener('mousedown', (e) => { e.stopPropagation(); addTabTo(ts.id); });
+    panel.appendChild(row);
+  }
+  return panel;
+}
+
 /** The tab strip under the chip. Each pill switches the canvas to that tab (click), renames (pencil),
  *  and deletes (✕); it's also a cross-tab move drop-target (data-bpkind=tab). Rendered from the
  *  BASELINE tabs so a staged delete stays visible (struck), with staged-new tabs appended. The pill
  *  for BMP's live (on-screen) tab carries a dot; the currently-viewed tab is highlighted. */
 function tabBar(base: LModel, m: LModel, liveId: string | null, viewedId: string | null): HTMLElement {
   const bar = document.createElement('div'); bar.className = 'bp-tabs';
+  const colors = tabsetColorMap(m);
   const lbl = document.createElement('span'); lbl.className = 'bp-tabs-l'; lbl.textContent = 'TABS'; bar.appendChild(lbl);
   // A tab is USED when it holds a widget on THIS page — in the baseline or after staged edits
   // (moving a widget onto an empty tab makes it used immediately). BMP's portal shows only used
   // tabs, so a big shared tabset (Risk Register's has ~25 tabs, 2 used) would otherwise drown the
-  // strip: lead with the used pills and fold the empty rest behind a "+N empty" expander. A changed
+  // strip: lead with the used pills and fold the rest behind a grouped "+N hidden" panel. A changed
   // (renamed/deleted), viewed, or live tab always stays visible — folding it would hide an edit.
   // "Used" = holds a VISIBLE widget. A tab whose widgets are all hidden is folded
   // like an empty one, because BMP hides it on the web all the same (verified live).
@@ -843,39 +911,41 @@ function tabBar(base: LModel, m: LModel, liveId: string | null, viewedId: string
   // deleted tabs (in the baseline, gone from the model) appended as struck 'gone' pills so Undo can
   // restore them. Rendering from base.tabs would pin the strip in baseline order and hide the very
   // reorder the user just made.
-  type TabRow = { node: LNode | null; id: string; name: string; state: 'same' | 'renamed' | 'gone' | 'new' };
+  type TabRow = { node: LNode; id: string; name: string; state: 'same' | 'renamed' | 'gone' | 'new' };
   const baseName = new Map(base.tabs.map(b => [b.id, b.name]));
   const inModel = new Set(m.tabs.map(t => t.id));
   const rows: TabRow[] = m.tabs.map(mt => {
     const bn = baseName.get(mt.id);
     return { node: mt, id: mt.id, name: mt.name, state: bn === undefined ? 'new' : (mt.name !== bn ? 'renamed' : 'same') };
   });
-  for (const bt of base.tabs) if (!inModel.has(bt.id)) rows.push({ node: null, id: bt.id, name: bt.name, state: 'gone' });
-  const folded: HTMLElement[] = [];
+  for (const bt of base.tabs) if (!inModel.has(bt.id)) rows.push({ node: bt, id: bt.id, name: bt.name, state: 'gone' });
+  const folded: Array<{ node: LNode; reason: string }> = [];
   for (const r of rows) {
-    const pill = tabPill(r.id, r.name, r.state, r.id === viewedId, r.id === liveId);
+    const pill = tabPill(m, r.node, r.state, r.id === viewedId, r.id === liveId, colors);
     if (r.state === 'same' && !used.has(r.id) && r.id !== viewedId && r.id !== liveId) {
-      pill.classList.add('unused');
-      pill.title = r.node && descendantWidgets(r.node).length > 0
-        ? 'Every widget on this tab is hidden, so BMP hides the tab. Click to view; show a widget (eye / S·M·L) to bring it back.'
-        : 'Empty on this page, so BMP hides it. Click to view; add or move a widget here to use it.';
-      folded.push(pill);
+      folded.push({
+        node: r.node,
+        reason: descendantWidgets(r.node).length > 0 ? 'All widgets hidden' : 'Empty',
+      });
     } else {
       bar.appendChild(pill);
     }
   }
   if (folded.length) {
+    const counts = new Map<string, number>();
+    for (const row of folded) {
+      const ts = tabsetOf(m, row.node);
+      counts.set(ts.name, (counts.get(ts.name) ?? 0) + 1);
+    }
+    const more = mkBtn(`+${folded.length} hidden`, () => { bp.unusedTabsOpen = !bp.unusedTabsOpen; bp.tabsetPickerOpen = false; render(); });
+    more.className = 'bp-tabs-fold';
+    more.setAttribute('aria-expanded', String(bp.unusedTabsOpen));
+    more.title = [...counts].map(([name, count]) => `${name}: ${count}`).join(' · ');
+    bar.appendChild(more);
     if (bp.unusedTabsOpen) {
-      for (const p of folded) bar.appendChild(p);
-      const less = mkBtn('− hide', () => { bp.unusedTabsOpen = false; render(); });
-      less.className = 'bp-tabs-fold';
-      less.title = 'Collapse the hidden tabs again';
-      bar.appendChild(less);
-    } else {
-      const more = mkBtn(`+${folded.length} hidden`, () => { bp.unusedTabsOpen = true; render(); });
-      more.className = 'bp-tabs-fold';
-      more.title = `${folded.length} tab${folded.length === 1 ? '' : 's'} of this tabset ${folded.length === 1 ? 'is' : 'are'} not shown on this page (empty, or every widget hidden), so BMP hides ${folded.length === 1 ? 'it' : 'them'}. Expand to view or edit ${folded.length === 1 ? 'it' : 'them'}.`;
-      bar.appendChild(more);
+      const back = document.createElement('div'); back.className = 'bp-tabs-back';
+      back.addEventListener('mousedown', () => { bp.unusedTabsOpen = false; render(); });
+      bar.append(back, hiddenTabsPanel(m, folded, colors));
     }
   }
   if (m.resultOnly) {
@@ -885,7 +955,13 @@ function tabBar(base: LModel, m: LModel, liveId: string | null, viewedId: string
     b.title = 'This page has no tabset of its own. Create one to organise its widgets into tabs. It is created together with your other changes when you Apply.';
     bar.appendChild(b);
   } else {
-    bar.appendChild(mkBtn('+ Tab', addTabAction)); // plain "+ Tab" text (no icon — the icon mis-aligned)
+    const add = mkBtn('+ Tab', addTabAction);
+    bar.appendChild(add); // plain "+ Tab" text (no icon — the icon mis-aligned)
+    if (bp.tabsetPickerOpen) {
+      const back = document.createElement('div'); back.className = 'bp-tabs-back';
+      back.addEventListener('mousedown', () => closeTabsetPicker());
+      bar.append(back, tabsetDestinationPanel(m, colors));
+    }
   }
   // Action-menu trigger — docked at the FAR RIGHT of the tab bar (mirrors BMP's own top-right Actions
   // button). The panel opens as a floating overlay (mountActionTray), so it never widens this bar.
@@ -897,16 +973,20 @@ function tabBar(base: LModel, m: LModel, liveId: string | null, viewedId: string
   return bar;
 }
 
-function tabPill(id: string, name: string, state: 'same' | 'renamed' | 'gone' | 'new', viewed: boolean, live: boolean): HTMLElement {
+function tabPill(m: LModel, node: LNode, state: 'same' | 'renamed' | 'gone' | 'new', viewed: boolean, live: boolean, colors: Map<string, number>): HTMLElement {
+  const { id, name } = node;
   const gone = state === 'gone';
   const pill = document.createElement('div');
   pill.className = `bp-tab st-${state}` + (viewed ? ' sel' : '') + (live ? ' live' : '');
   const shared = isResultTab({ kind: 'tab', id }); // the shared Result tab — view + edit its widgets, but
+  const owner = tabsetOf(m, node);
   pill.dataset.bpid = id; pill.dataset.bpkind = 'tab'; // drop target for cross-tab moves
   pill.title = gone ? 'Deleted. Use Undo to restore it.'
     : shared ? 'The shared Result tab. Its widgets are editable, but the tab itself is shared across scorecards, so rename and delete are disabled.'
-    : 'Show this tab in the canvas';
+    : `Show this tab in the canvas · TabSet: ${owner.name}`;
   if (shared) pill.classList.add('shared');
+  const color = colors.get(owner.id);
+  if (!shared && color !== undefined) pill.classList.add(`tsc-${color}`);
   // click switches the tab — but NOT when clicking into the open rename field (that would navigate away).
   // Left-button only: a right-click's mousedown (button 2) precedes `contextmenu`, and viewTab can
   // dispatch synthetic clicks that switch BMP's live tab — so an unguarded handler would navigate the

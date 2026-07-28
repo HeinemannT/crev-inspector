@@ -7,7 +7,7 @@
  * actions onto button handlers, and these call render() at click time. All cross-calls happen inside
  * functions (never at module-init), so ESM resolves the cycle cleanly.
  */
-import { findNode, isTempId, isResultTab } from '../lib/layout/model';
+import { findNode, isTempId, isResultTab, editableTabsets } from '../lib/layout/model';
 import { bandInsertIndex } from '../lib/layout/placement';
 import { resize, setHeight, rename, remove, restoreNode, addWidget, addContainer, moveInto, swap, insertRelative, addTab, createTabset, toggleReset, setStyle } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
@@ -98,7 +98,7 @@ export function setNodeStyle(id: string, patch: Partial<NodeStyle>): void { cons
 export function setMode(mode: 'layout' | 'style'): void {
   if (!bp.active || bp.mode === mode) return;
   bp.mode = mode;
-  bp.swatch = null; bp.picker = null; bp.pickerOpts = null; bp.movePicker = null; bp.tabMenu = null; // don't leave a popup hanging across modes
+  bp.swatch = null; bp.picker = null; bp.pickerOpts = null; bp.movePicker = null; bp.tabMenu = null; bp.tabsetPickerOpen = false; // don't leave a popup hanging across modes
   bp.brush.mode = 'off'; bp.paintPanel = null; // disarm the paintbrush when leaving/entering style mode
   if (mode === 'style') void ensureColorSets(); // lazy-load colours so cells can tint (re-renders on arrival)
   render();
@@ -221,7 +221,29 @@ export function addFromPicker(className: string): void {
   mutate(added.model);
 }
 
-export function addTabAction(): void { const m = model(); if (m) { const r = addTab(m, m.tabs.length, 'New Tab'); bp.selectedId = r.id; mutate(r.model); } }
+export function addTabAction(): void {
+  const m = model(); if (!m) return;
+  const destinations = editableTabsets(m);
+  if (destinations.length > 1) {
+    bp.tabsetPickerOpen = true;
+    render();
+    return;
+  }
+  const id = destinations[0]?.id ?? m.tabsetId;
+  addTabTo(id);
+}
+export function closeTabsetPicker(): void {
+  if (bp.tabsetPickerOpen) { bp.tabsetPickerOpen = false; render(); }
+}
+export function addTabTo(tabsetId: string): void {
+  const m = model(); if (!m) return;
+  const destinations = editableTabsets(m);
+  if (destinations.length && !destinations.some(t => t.id === tabsetId)) return;
+  const r = addTab(m, tabsetId, 'New Tab');
+  bp.tabsetPickerOpen = false;
+  bp.selectedId = r.id;
+  mutate(r.model);
+}
 
 // ── flow editing (blueprint flow layer) ────────────────────────────────────────
 /** Open the flow add picker for a flow container (InputSet/EditPage/ButtonGroup referenced by a flow
@@ -318,7 +340,9 @@ export function reorderTab(id: string, dir: 'left' | 'right' | 'start' | 'end'):
   bp.tabMenu = null;
   const m = model();
   if (!m) { render(); return; }
-  const order = m.tabs.filter(t => !isResultTab(t));
+  const current = findNode(m, id)?.node;
+  const owner = current?.tabsetId ?? m.tabsetId;
+  const order = m.tabs.filter(t => !isResultTab(t) && (t.tabsetId ?? m.tabsetId) === owner);
   const i = order.findIndex(t => t.id === id);
   if (i < 0) { render(); return; } // the shared Result tab isn't reorderable
   const last = order.length - 1;
@@ -546,6 +570,8 @@ export function onKeydown(e: KeyboardEvent): void {
     else if (bp.picker) closePicker();
     else if (bp.movePicker) closeMovePicker();
     else if (bp.tabMenu) closeTabMenu();
+    else if (bp.tabsetPickerOpen) closeTabsetPicker();
+    else if (bp.unusedTabsOpen) { bp.unusedTabsOpen = false; render(); }
     else if (bp.brush.mode !== 'off') disarmBrush();
     else if (bp.selectedId) select(null);
     else return;

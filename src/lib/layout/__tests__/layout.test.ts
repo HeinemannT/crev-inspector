@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { LayoutNode as WireNode } from '../../types';
 import { maskStyle, type LModel, type LNode, type NodeStyle } from '../types';
-import { reconstruct, findNode, descendantWidgets, isChart, isResultTab } from '../model';
+import { reconstruct, findNode, descendantWidgets, editableTabsets, isChart, isResultTab } from '../model';
 import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, restoreNode, isAncestorOf, toggleReset, setStyle } from '../edit';
 import { diff, summarizeChanges } from '../diff';
 import { compile } from '../ec';
@@ -54,6 +54,34 @@ describe('model.reconstruct', () => {
     expect(m.tabs.map(t => t.id)).toEqual(['RESULT', 'tab1']); // Result leads the strip (emit order)
     expect(isResultTab(m.tabs[0])).toBe(true);
     expect(m.tabs[0].children.map(c => c.name)).toEqual(['Run Audit']); // its directly-bound widget attaches
+  });
+
+  it('keeps real TabSet ownership and globally orders an interleaved union', () => {
+    const wire: WireNode[] = [
+      { rid: 'r_a', businessId: 'ts_a', type: 'TabSet', name: 'Alpha' },
+      { rid: 'r_b', businessId: 'ts_b', type: 'TabSet', name: 'Beta' },
+      { rid: 'r_def', businessId: 'default_tabset', type: 'TabSet', name: 'Tab set' },
+      { rid: 'ta1', businessId: 'a1', type: 'Tab', parentRid: 'r_a', name: 'A1' },
+      { rid: 'ta2', businessId: 'a2', type: 'Tab', parentRid: 'r_a', name: 'A2' },
+      { rid: 'tb1', businessId: 'b1', type: 'Tab', parentRid: 'r_b', name: 'B1' },
+      { rid: 'tr', businessId: 'RESULT', type: 'Tab', parentRid: 'r_def', name: 'Result' },
+      { rid: 'wa', businessId: 'wa', type: 'TextElement', containerRid: 'ta1', name: 'WA' },
+      { rid: 'wb', businessId: 'wb', type: 'TextElement', containerRid: 'tb1', name: 'WB' },
+      { rid: 'wr', businessId: 'wr', type: 'TextElement', containerRid: 'tr', name: 'Result widget' },
+    ];
+    const meta = new Map([
+      ['ta1', { tabsetId: 'ts_a', sortIndex: 0, sourceIndex: 0 }],
+      ['tb1', { tabsetId: 'ts_b', sortIndex: 1, sourceIndex: 1 }],
+      ['ta2', { tabsetId: 'ts_a', sortIndex: 2, sourceIndex: 2 }],
+      ['tr', { tabsetId: 'default_tabset', sortIndex: 0, sourceIndex: 3 }],
+    ]);
+    const m = reconstruct(wire, { pageId: 'p', tabsetId: 'ts_a' }, undefined, undefined, undefined, meta);
+    expect(m.tabs.map(t => `${t.tabsetId}:${t.id}`)).toEqual([
+      'ts_a:a1', 'default_tabset:RESULT', 'ts_b:b1', 'ts_a:a2',
+    ]);
+    expect(m.tabsets?.map(t => t.name)).toEqual(['Alpha', 'Beta', 'Tab set']);
+    // Result remains visible, but its shared system TabSet is never offered as an add destination.
+    expect(editableTabsets(m).map(t => t.id)).toEqual(['ts_a', 'ts_b']);
   });
 
   it('drops the Result tab when it holds none of this page\'s widgets', () => {
@@ -321,7 +349,7 @@ describe('edit engine (pure, returns new model)', () => {
     expect(id).toMatch(/^w:/);
     expect(findNode(m1, id)!.node.kind).toBe('widget');
     expect(addContainer(demo(), 'tab1', 0).id).toMatch(/^box:/);
-    expect(addTab(demo(), 0).id).toMatch(/^tab:/);
+    expect(addTab(demo(), 'ts1').id).toMatch(/^tab:/);
   });
 });
 
@@ -475,6 +503,37 @@ describe('summarizeChanges (logical changes vs readable actions)', () => {
 });
 
 describe('diff + ec compile', () => {
+  it('creates a new tab under its selected real TabSet', () => {
+    const base: LModel = {
+      pageId: 'p', pageClass: 'Scorecard', tabsetId: 'ts_a',
+      tabsets: [{ id: 'ts_a', name: 'Alpha' }, { id: 'ts_b', name: 'Beta' }],
+      tabs: [
+        n({ id: 'a', kind: 'tab', className: 'Tab', tabsetId: 'ts_a', children: [n({ id: 'wa', kind: 'widget', className: 'TextElement' })] }),
+        n({ id: 'b', kind: 'tab', className: 'Tab', tabsetId: 'ts_b', children: [n({ id: 'wb', kind: 'widget', className: 'TextElement' })] }),
+      ],
+      target: 'instance', hasTemplate: false,
+    };
+    const desired = addTab(base, 'ts_b', 'New Beta').model;
+    const { script, notes } = compile(diff(base, desired), desired);
+    expect(script).toContain('t.ts_b.add(Tab');
+    expect(script).not.toContain('t.ts_a.add(Tab');
+    expect(notes[0]).toMatchObject({ where: 'Beta' });
+  });
+
+  it('does not emit a cross-TabSet reorder when the flat union interleaves', () => {
+    const base: LModel = {
+      pageId: 'p', pageClass: 'Scorecard', tabsetId: 'ts_a',
+      tabs: [
+        n({ id: 'a1', kind: 'tab', className: 'Tab', tabsetId: 'ts_a' }),
+        n({ id: 'b1', kind: 'tab', className: 'Tab', tabsetId: 'ts_b' }),
+        n({ id: 'a2', kind: 'tab', className: 'Tab', tabsetId: 'ts_a' }),
+      ],
+      target: 'instance', hasTemplate: false,
+    };
+    const interleaved = { ...base, tabs: [base.tabs[1], base.tabs[0], base.tabs[2]] };
+    expect(diff(base, interleaved).filter(s => s.kind === 'reorder')).toEqual([]);
+  });
+
   it('never chains the shared Result tab in a tab reorder (it is cross-tabset, pinned first)', () => {
     // RESULT (the shared default_tabset tab) leads the strip; the page tabs follow. diff.index() parents
     // ALL tabs under the page tabset, so without the isResultTab guard a page-tab reorder would emit

@@ -16,7 +16,7 @@ describe('layout scale', () => {
     let d = base();
     let widgets = 0, conts = 0;
     for (let t = 0; t < NTABS; t++) {
-      const tab = addTab(d, t, `Tab ${t}`); d = tab.model;
+      const tab = addTab(d, d.tabsetId, `Tab ${t}`); d = tab.model;
       for (let col = 0; col < NCOLS; col++) {
         const c = addContainer(d, tab.id, col, 2, `col ${t}.${col}`); d = c.model; conts++;
         let parent = c.id;
@@ -36,8 +36,8 @@ describe('layout scale', () => {
 
     const { script } = compile(steps, d);
     const lines = script.split('\n');
-    // preamble (_sc := t.<id> + _ts := t.<id>) + one line per create
-    expect(lines.length).toBe(total + 2);
+    // page-root preamble + one line per create (tabs now address their real TabSet directly)
+    expect(lines.length).toBe(total + 1);
     // a deep widget binds to its container VARIABLE, never to a t.<tempid>
     expect(script).not.toMatch(/container := t\.(box|w|leaf|tab):/);
     expect(script.match(/container := _n\d+/g)!.length).toBeGreaterThan(widgets / 2);

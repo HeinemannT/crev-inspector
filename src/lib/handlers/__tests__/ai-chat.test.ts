@@ -359,7 +359,8 @@ describe('executeAiTool — defensive', () => {
     const out = formatAiLayout('12', { kind: 'page', ctx: { pageId: 'ent_process', pageRid: '99', tabsetId: 'default_tabset' }, load: { model, baseline: model, orphans: [] } } as any);
 
     expect(out).toContain('viewed enterprise instance → .template page owner');
-    expect(out).toContain('Tab "Main" bid=tab_main rid=43 span=6 model=portal-shared');
+    expect(out).toContain('Contributing TabSets: default_tabset [default_tabset]');
+    expect(out).toContain('Tab "Main" bid=tab_main rid=43 span=6 model=portal-shared tabset=default_tabset');
     expect(out).toContain('ExtendedTable "Processes" bid=tbl_process rid=44 span=6 model=page-child code=expression,html,javascript');
   });
 

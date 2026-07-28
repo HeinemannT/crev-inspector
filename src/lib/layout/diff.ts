@@ -33,7 +33,11 @@ function index(m: LModel): Map<string, Entry> {
       rec(node.children, node.id, node.kind, depth + 1);
     });
   };
-  rec(m.tabs, m.tabsetId, 'tab', 0);
+  for (const tab of m.tabs) {
+    const parentId = tab.tabsetId ?? m.tabsetId;
+    map.set(tab.id, { node: tab, parentId, parentKind: 'tab', depth: 0, sibIndex: m.tabs.filter(t => (t.tabsetId ?? m.tabsetId) === parentId).findIndex(t => t.id === tab.id) });
+    rec(tab.children, tab.id, tab.kind, 1);
+  }
   return map;
 }
 
@@ -104,11 +108,7 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
   const parents = new Set([...B.values()].map(e => e.parentId));
   for (const pid of parents) {
     for (const kind of ['tab', 'container', 'widget'] as NodeKind[]) {
-      // `index()` parents EVERY tab under the page's tabsetId — including the shared Result tab, whose
-      // REAL parent is default_tabset. So it lands in this group with the page's own tabs. Exclude it
-      // from BOTH the desired order AND the natural/surviving order below (excluding it from only one
-      // would make them mismatch and emit a phantom reorder for every tab after it). It's pinned first
-      // and not user-reorderable, and a chained `t.<pageTab>.moveAfter(t.RESULT)` would be cross-tabset.
+      // Result remains non-reorderable even though it now carries its real default_tabset parent.
       const excluded = (id: string): boolean => kind === 'tab' && !!B.get(id) && isResultTab(B.get(id)!.node);
       const group = childIdsOf(B, pid).filter(id => kindOfId(id) === kind && !excluded(id));
       if (group.length < 2) continue;

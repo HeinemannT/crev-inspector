@@ -527,6 +527,7 @@ export function projectAiLayout(
   const lines = [
     `Viewed rid=${viewedRid}`,
     `Effective page owner: ${model.pageName || model.pageId} (${model.pageClass}) bid=${model.pageId} rid=${ctx.pageRid}`,
+    `Contributing TabSets: ${(model.tabsets?.length ? model.tabsets : [{ id: model.tabsetId, name: model.tabsetId }]).map(t => `${t.name} [${t.id}]`).join(', ')}`,
     `Layout: ${count(model.tabs)} total nodes${model.resultOnly ? ' (shared Result tab)' : ''}${focus ? `; focused subtree rid=${focus.rid} has ${total}` : ''}`,
   ];
   if (ctx.pageRid !== viewedRid) lines.push('Resolution: viewed enterprise instance → .template page owner');
@@ -536,7 +537,8 @@ export function projectAiLayout(
     if (quota <= 0 || emitted >= AI_LAYOUT_NODE_CAP) return 0;
     const storage = node.kind === 'widget' ? 'page-child' : 'portal-shared';
     const slots = node.kind === 'widget' ? codeFieldsFor(node.className).map(field => field.prop) : [];
-    const line = `${'  '.repeat(depth + 1)}${node.className} "${node.name}" bid=${node.id}${node.rid ? ` rid=${node.rid}` : ''} span=${node.cols.L} model=${storage}${slots.length ? ` code=${slots.join(',')}` : ''}`;
+    const provenance = node.kind === 'tab' ? ` tabset=${node.tabsetId ?? model.tabsetId}` : '';
+    const line = `${'  '.repeat(depth + 1)}${node.className} "${node.name}" bid=${node.id}${node.rid ? ` rid=${node.rid}` : ''} span=${node.cols.L} model=${storage}${provenance}${slots.length ? ` code=${slots.join(',')}` : ''}`;
     if (chars + line.length + 1 > AI_LAYOUT_CHAR_BUDGET) return 0;
     lines.push(line);
     chars += line.length + 1;

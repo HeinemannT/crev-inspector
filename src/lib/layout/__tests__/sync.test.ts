@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   buildFetchEc, parseFetchLog, parseOverrides, parseStyles, loadModel, loadStructureModel, applyModel,
-  resolvePageContext, buildContextEc, DEFAULT_TABSET, parsePageName,
+  resolvePageContext, buildContextEc, DEFAULT_TABSET, parsePageName, parseTabMetadata,
   buildFlowRefChildrenEc, parseFlowRefChildren, buildEditPageFetchEc, loadEditPageModel,
   type LayoutIO, type BlueprintCtx,
 } from '../sync';
@@ -66,14 +66,15 @@ const LIVE_LOG = [
 const fakeIo = (log: string, ok = true): LayoutIO => ({ exec: vi.fn(async () => ({ ok, log })) });
 
 describe('sync.buildFetchEc', () => {
-  it('resolves org root with lookup(rid), tabset with t.<id>, recurses both models', () => {
+  it('discovers every contributing tabset from page children and recurses both models', () => {
     const ec = buildFetchEc(CTX);
-    expect(ec).toContain('_ts := t.crev_demo_tabset');
     expect(ec).toContain('_sc := lookup(451704949656267090)');
+    expect(ec).toContain('_candidateTs := _w.tab.parent');
+    expect(ec).toContain('_tabsets NOT CONTAINS _candidateTs');
+    expect(ec).toContain('LIST(t.crev_demo_tabset)'); // compatibility fallback
     expect(ec).toContain('_ts.descendants().forEach');
     expect(ec).toContain('_sc.descendants().forEach');   // org side recurses (composites)
-    expect(ec).toContain('_res := t.RESULT');            // the shared Result tab is adopted into the strip
-    expect(ec).toContain('|RESULT|Tab|');                // ...emitted as a Tab node with its real parent
+    expect(ec).toContain('<<<CREV_TAB>>>');              // provenance + global ordering metadata
   });
   it('rejects an unsafe rid / business id (no EC injection)', () => {
     expect(() => buildFetchEc({ ...CTX, pageRid: '1); delete()' })).toThrow(/Invalid RID/);
@@ -310,7 +311,7 @@ describe('sync.loadEditPageModel', () => {
 const TMPL_RID = '6657825841951873912';
 const ENTERPRISE_CTX: BlueprintCtx = {
   pageId: '5923', pageRid: TMPL_RID, pageClass: 'EnterpriseTemplate',
-  tabsetId: DEFAULT_TABSET, target: 'template', hasTemplate: true, tabScope: 'withContent',
+  tabsetId: DEFAULT_TABSET, target: 'template', hasTemplate: true, tabScope: 'all',
 };
 const ENTERPRISE_LOG = [
   '900|default_tabset|Tab set|TabSet|||||',
@@ -324,7 +325,7 @@ const ENTERPRISE_LOG = [
 ].map(l => SEP + toWire(l)).join('\n');
 
 describe('sync.resolvePageContext', () => {
-  it('enterprise: points the page root at the linked template + shared tabset, scoped to content', async () => {
+  it('enterprise: points the page root at the linked template and retains hidden tabs', async () => {
     const probe = `${'<<<CREV_CTX>>>'}enterprise|${TMPL_RID}|5923|EnterpriseTemplate|default_tabset`;
     const r = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '5977812347502735400');
     expect(r).not.toBeNull();
@@ -332,7 +333,7 @@ describe('sync.resolvePageContext', () => {
     expect(ctx.pageId).toBe('5923');            // edit the TEMPLATE, not the instance
     expect(ctx.pageRid).toBe(TMPL_RID);
     expect(ctx.tabsetId).toBe(DEFAULT_TABSET);
-    expect(ctx.tabScope).toBe('withContent');
+    expect(ctx.tabScope).toBe('all');
     expect(ctx.target).toBe('template');
   });
   it('enterprise: preserves a dedicated tabset discovered from template widget placement', async () => {
@@ -340,7 +341,7 @@ describe('sync.resolvePageContext', () => {
     const r = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '5977812347502735400');
     expect(r).toMatchObject({
       pageId: '5923', pageRid: TMPL_RID, tabsetId: 'org_custom_tabs',
-      tabScope: 'withContent', target: 'template',
+      tabScope: 'all', target: 'template',
     });
   });
   it('direct: edits the object itself with its discovered dedicated tabset', async () => {
@@ -418,16 +419,27 @@ describe('sync.buildContextEc (org redirect)', () => {
 });
 
 describe('sync.loadModel (enterprise)', () => {
-  it('reconstructs the template page and drops shared-tabset tabs with no template content', async () => {
+  it('reconstructs the template page and retains shared-tabset tabs with no template content', async () => {
     const { model } = await loadModel(fakeIo(ENTERPRISE_LOG), ENTERPRISE_CTX);
-    // only "Issue Overview" survives; the decoy "My KPIs" tab is filtered out by withContent
-    expect(model.tabs.map(t => t.name)).toEqual(['Issue Overview']);
+    expect(model.tabs.map(t => t.name)).toEqual(['Issue Overview', 'My KPIs']);
     const main = findNode(model, '5931')!;
     expect(main.node.children.map(c => c.name)).toEqual(['Issue Status', 'Issue Summary', 'Issue Trend']);
   });
-  it('with tabScope "all" the decoy tab would remain (proves the filter is what drops it)', async () => {
-    const { model } = await loadModel(fakeIo(ENTERPRISE_LOG), { ...ENTERPRISE_CTX, tabScope: 'all' });
-    expect(model.tabs.map(t => t.name)).toEqual(['Issue Overview', 'My KPIs']);
+  it('the legacy withContent scope still filters when explicitly requested', async () => {
+    const { model } = await loadModel(fakeIo(ENTERPRISE_LOG), { ...ENTERPRISE_CTX, tabScope: 'withContent' });
+    expect(model.tabs.map(t => t.name)).toEqual(['Issue Overview']);
+  });
+});
+
+describe('sync multi-TabSet metadata', () => {
+  it('parses real parents and stable source order', () => {
+    const meta = parseTabMetadata([
+      '<<<CREV_TAB>>>tab-a|ts-a|3',
+      '<<<CREV_TAB>>>tab-b|ts-b|3',
+      '<<<CREV_TAB>>>tab-c|ts-b|8',
+    ].join('\n'));
+    expect(meta.get('tab-a')).toEqual({ tabsetId: 'ts-a', sortIndex: 3, sourceIndex: 0 });
+    expect(meta.get('tab-b')).toEqual({ tabsetId: 'ts-b', sortIndex: 3, sourceIndex: 1 });
   });
 });
 

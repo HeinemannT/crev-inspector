@@ -128,8 +128,8 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
     return supportCatRef;
   };
 
-  // A STAGED (virtual) tabset has no businessId yet — create it in the SAME EC as its tabs (`_ts.add(Tab
-  // …)` below), landing it in the shared support Category so a page's new tabset + new sets/pages all
+  // A STAGED (virtual) tabset has no businessId yet — create it in the SAME EC as its tabs, landing it
+  // in the shared support Category so a page's new tabset + new sets/pages all
   // live in ONE folder named after the page. Otherwise reference the existing tabset by business id.
   if (needTabset) {
     if (m.tabsetVirtual) {
@@ -138,10 +138,10 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
       emit({ verb: 'create', text: `Create tabset "${tsName}" in ${supportCatName}`,
         action: 'Add', object: tsName, objectType: 'TabSet', where: supportCatName,
         ec: `_ts := ${cat}.add(TabSet, name := ${ecStr(tsName)}) // BMP assigns id` });
-    } else {
-      lines.push(`_ts := t.${ecBid(m.tabsetId)}`);
     }
   }
+  const tabsetRef = (id: string): string =>
+    m.tabsetVirtual && id === m.tabsetId ? '_ts' : `t.${ecBid(id)}`;
 
   for (const s of plan) {
     switch (s.kind) {
@@ -154,9 +154,10 @@ export function compile(plan: PlanStep[], m: LModel): { script: string; notes: P
         const par = byId.get(s.parentId);
         const where = par ? (par.kind === 'tab' ? `tab "${par.name}"` : `container "${par.name}"`) : 'the page';
         if (n.kind === 'tab') {
+          const owner = m.tabsets?.find(t => t.id === s.parentId);
           emit({ verb: 'create', id: n.id, text: `Create tab "${n.name}"`,
-            action: 'Add', object: n.name, objectType: 'Tab', detail: `${n.cols.L}/6`,
-            ec: `${v} := _ts.add(Tab, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}) // BMP assigns id` });
+            action: 'Add', object: n.name, objectType: 'Tab', where: owner?.name ?? s.parentId, detail: `${n.cols.L}/6`,
+            ec: `${v} := ${tabsetRef(s.parentId)}.add(Tab, name := ${ecStr(n.name)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}) // BMP assigns id` });
         } else if (n.kind === 'container') {
           emit({ verb: 'create', id: n.id, text: `Create new container "${n.name}" (${n.cols.L}/6) in ${where}`,
             action: 'Add', object: n.name, objectType: 'Container', where: par?.name, detail: `${n.cols.L}/6`,

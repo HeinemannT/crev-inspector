@@ -21,6 +21,9 @@ export const PAGE_MARKER = '<<<CREV_PAGE>>>';  // page display name — support-
 export const CTX_MARKER = '<<<CREV_CTX>>>';    // page-context probe line (resolvePageContext)
 export const OVER_MARKER = '<<<CREV_OVER>>>';  // F2 per-widget override flags `bid|prop,…` (parseOverrides)
 export const STYLE_MARKER = '<<<CREV_STY>>>';  // G3 per-widget styling `bid|hcBid|fcBid|shadow|headerStyle|borderStyle|transparency` (parseStyles)
+/** Blueprint-only tab provenance/order channel: `tabRid|tabsetBid|sortIndex`.
+ *  Kept separate from LAYOUT_SEP because that shared ten-field wire is also consumed by Workshop. */
+export const TAB_META_MARKER = '<<<CREV_TAB>>>';
 // Flow projection (blueprint flow editing) — four channels, each one flow-widget or flow-row per line,
 // every free-text field placed LAST (see parseFlows in sync.ts). buildFetchEc emits them inside the org loop.
 export const FLOW_REF_MARKER = '<<<CREV_FREF>>>';   // one per flow widget: owner|ownerRid|ownerClass|kind|refId|refRid|refClass|createMode|actionType|dOAM|dOAT|container|refParentClass|refParentId|<refName>

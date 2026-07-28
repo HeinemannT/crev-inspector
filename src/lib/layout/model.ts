@@ -9,7 +9,7 @@
  * container bindings.
  */
 import type { LayoutNode as WireNode } from '../types';
-import type { FlowEdit, FlowProjection, LModel, LNode, NodeKind, NodeStyle } from './types';
+import type { FlowEdit, FlowProjection, LModel, LNode, NodeKind, NodeStyle, TabSetRef } from './types';
 import { COMPOSITE_TYPES } from './constraints';
 
 const CHART_CLASSES = /Chart$/;
@@ -120,7 +120,21 @@ export interface ReconstructCtx {
   tabScope?: 'all' | 'withContent';
 }
 
-export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx, overrides?: Map<string, string[]>, styles?: Map<string, NodeStyle>, flows?: Map<string, FlowProjection>): LModel {
+/** Extra per-tab data rides a Blueprint-specific marker so the shared layout wire stays stable. */
+export interface TabMetadata {
+  tabsetId: string;
+  sortIndex?: number;
+  sourceIndex: number;
+}
+
+export function reconstruct(
+  nodes: readonly WireNode[],
+  ctx: ReconstructCtx,
+  overrides?: Map<string, string[]>,
+  styles?: Map<string, NodeStyle>,
+  flows?: Map<string, FlowProjection>,
+  tabMetadata?: Map<string, TabMetadata>,
+): LModel {
   const byRid = new Map<string, WireNode>();
   for (const n of nodes) byRid.set(n.rid, n);
 
@@ -137,12 +151,18 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx, ove
     const id = wire.businessId ?? wire.rid;
     const ovr = overrides?.get(id);
     const sty = styles?.get(id);
+    const meta = tabMetadata?.get(wire.rid);
+    const structuralTabset = wire.parentRid ? byRid.get(wire.parentRid) : undefined;
+    const tabsetId = wire.type === 'Tab'
+      ? (meta?.tabsetId || structuralTabset?.businessId || ctx.tabsetId)
+      : undefined;
     return {
       id,
       rid: wire.rid,
       kind: kindOf(wire.type),
       className: wire.type,
       name: wire.name ?? wire.businessId ?? wire.rid,
+      ...(tabsetId ? { tabsetId } : {}),
       cols: {
         L: wire.columnsLargeScreen ?? 6,
         ...(wire.columnsMediumScreen != null ? { M: wire.columnsMediumScreen } : {}),
@@ -155,10 +175,36 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx, ove
     };
   };
 
+  const tabsets: TabSetRef[] = nodes
+    .filter(n => n.type === 'TabSet')
+    .map(n => ({
+      id: n.businessId ?? n.rid,
+      rid: n.rid,
+      name: n.name ?? n.businessId ?? n.rid,
+    }));
+  // Result-only fetches intentionally omit default_tabset's huge shared scaffold. Keep its identity
+  // in the model so provenance helpers still have a safe fallback.
+  if (!tabsets.length && ctx.tabsetId) {
+    tabsets.push({ id: ctx.tabsetId, name: ctx.tabsetId });
+  }
+
   // tabs = every emitted Tab node, in emit order. Not just the page tabset's children: a page can show
   // tabs from more than one tabset (the shared "Result" tab lives in default_tabset, not the page's own
   // tabset, yet renders in the same strip). Tabs never nest, so each Tab node is a root here.
   let tabs = nodes.filter(n => kindOf(n.type) === 'tab').map(build);
+  // BMP's union strip uses Tab.sortIndex across contributing TabSets. The secondary tie contract is
+  // undocumented, so preserve the server marker order for equal values instead of inventing a TabSet
+  // ordering rule.
+  tabs.sort((a, b) => {
+    const am = a.rid ? tabMetadata?.get(a.rid) : undefined;
+    const bm = b.rid ? tabMetadata?.get(b.rid) : undefined;
+    const ai = am?.sortIndex;
+    const bi = bm?.sortIndex;
+    if (ai != null && bi != null && ai !== bi) return ai - bi;
+    if (ai != null && bi == null) return -1;
+    if (ai == null && bi != null) return 1;
+    return (am?.sourceIndex ?? 0) - (bm?.sourceIndex ?? 0);
+  });
   // shared-tabset pages keep only tabs that hold one of THIS page's widgets (see tabScope doc)
   if (ctx.tabScope === 'withContent') tabs = tabs.filter(t => descendantWidgets(t).length > 0);
   // The Result tab is a system tab (where unplaced widgets land). Show it only when it actually holds
@@ -170,6 +216,7 @@ export function reconstruct(nodes: readonly WireNode[], ctx: ReconstructCtx, ove
     pageRid: ctx.pageRid,
     pageClass: ctx.pageClass ?? 'Scorecard',
     tabsetId: ctx.tabsetId,
+    tabsets,
     tabs,
     target: ctx.target ?? 'template',
     hasTemplate: ctx.hasTemplate ?? false,
@@ -208,6 +255,7 @@ export function normalizeModel(m: LModel): LModel {
 export function cloneModel(m: LModel): LModel {
   return {
     ...m,
+    ...(m.tabsets ? { tabsets: m.tabsets.map(t => ({ ...t })) } : {}),
     tabs: m.tabs.map(cloneNode),
     // `flows` is read-only (never mutated after load), so the projection objects can be shared; the
     // record is spread so it's a distinct container. `flowEdits` IS mutated per edit, so it's deep-cloned
@@ -314,6 +362,31 @@ export function descendantWidgets(n: LNode): LNode[] {
  *  ghost tray + other counts still need every widget. */
 export function descendantVisibleWidgets(n: LNode): LNode[] {
   return descendantWidgets(n).filter(w => !isFullGhost(w));
+}
+
+/** TabSet catalogue with a compatibility fallback for old fixtures/models. */
+export function modelTabsets(m: LModel): TabSetRef[] {
+  return m.tabsets?.length ? m.tabsets : [{ id: m.tabsetId, name: m.tabsetId }];
+}
+
+/** Full owner metadata for a tab. */
+export function tabsetOf(m: LModel, tab: LNode): TabSetRef {
+  const id = tab.tabsetId ?? m.tabsetId;
+  return modelTabsets(m).find(t => t.id === id) ?? { id, name: id };
+}
+
+/** Safe add destinations. Result is ignored: default_tabset is included only when this page actually
+ *  uses one of its ordinary tabs, not merely because it has an implicit Result placement. */
+export function editableTabsets(m: LModel): TabSetRef[] {
+  const used = new Set(
+    m.tabs
+      .filter(t => !isResultTab(t) && descendantWidgets(t).length > 0)
+      .map(t => t.tabsetId ?? m.tabsetId),
+  );
+  const out = modelTabsets(m).filter(t => used.has(t.id) && !t.virtual);
+  if (out.length) return out;
+  // A newly-created virtual set is the only destination on a Result-only conversion.
+  return modelTabsets(m).filter(t => t.virtual);
 }
 
 let tmpSeq = 0;

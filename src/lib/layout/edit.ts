@@ -179,11 +179,14 @@ export function addContainer(m: LModel, parentId: string, index: number, colsL =
   };
 }
 
-export function addTab(m: LModel, index: number, name = 'New Tab'): { model: LModel; id: string } {
+export function addTab(m: LModel, tabsetId: string, name = 'New Tab'): { model: LModel; id: string } {
   const id = tempId('tab');
-  const node: LNode = { id, kind: 'tab', className: 'Tab', name, cols: { L: 6 }, children: [] };
+  const node: LNode = { id, kind: 'tab', className: 'Tab', name, tabsetId, cols: { L: 6 }, children: [] };
   return {
-    model: edit(m, c => { c.tabs.splice(Math.max(0, Math.min(index, c.tabs.length)), 0, node); }),
+    model: edit(m, c => {
+      const last = c.tabs.reduce((at, t, i) => (t.tabsetId ?? c.tabsetId) === tabsetId ? i : at, -1);
+      c.tabs.splice(last < 0 ? c.tabs.length : last + 1, 0, node);
+    }),
     id,
   };
 }
@@ -201,8 +204,9 @@ export function createTabset(m: LModel): { model: LModel; id: string } {
       // The result-only model holds the page's widgets on the Result tab — carry them onto the new Main
       // tab so the diff emits a reparent (container := Main), mirroring the old eager create-tabset move.
       const carried = c.tabs.flatMap(t => t.children);
-      c.tabs = [{ id, kind: 'tab', className: 'Tab', name: 'Main', cols: { L: 6 }, children: carried }];
       c.tabsetId = tempId('tabset');
+      c.tabsets = [{ id: c.tabsetId, name: '» New TabSet', virtual: true }];
+      c.tabs = [{ id, kind: 'tab', className: 'Tab', name: 'Main', tabsetId: c.tabsetId, cols: { L: 6 }, children: carried }];
       c.tabsetVirtual = true;
       c.tabsetName = '» New TabSet';
       c.resultOnly = false;

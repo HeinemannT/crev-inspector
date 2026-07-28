@@ -7,7 +7,7 @@
  * agnostic (same code path in the service worker and in tests).
  *
  * The two-model split is handled in ONE fetch round trip:
- *   - grid   (Tab + Container tree)  ← `t.<tabsetId>.descendants()` (portal model)
+ *   - grid   (Tab + Container tree)  ← every TabSet reached from the page's placed widgets
  *   - widgets + composites           ← page children/composites (org model)
  * Both are emitted into a single pipe-delimited list in the exact 9-field wire shape that
  * `reconstruct` already consumes (rid|bid|name|type|parentRid|containerRid|L|M|S).
@@ -23,12 +23,12 @@
  * an already-applied model diffs to an empty plan).
  */
 import { reconstruct, walk, RESULT_TAB_ID, stripWidgetContent } from './model';
-import type { ReconstructCtx } from './model';
+import type { ReconstructCtx, TabMetadata } from './model';
 import { diff } from './diff';
 import { flowDiff, flowSignature } from './flow';
 import { compile } from './ec';
 import { validateBusinessId, validateRid } from '../ec-guards';
-import { LAYOUT_SEP, PAGE_MARKER, CTX_MARKER, OVER_MARKER, STYLE_MARKER,
+import { LAYOUT_SEP, PAGE_MARKER, CTX_MARKER, OVER_MARKER, STYLE_MARKER, TAB_META_MARKER,
   FLOW_REF_MARKER, FLOW_META_MARKER, FLOW_CHILD_MARKER, FLOW_CPROP_MARKER, FLOW_TR_MARKER,
   FLOW_LIST_MARKER, markerLines, parseLayoutNodes, safeWireTextEc } from '../layout-wire';
 import { enumMember } from '../color-util';
@@ -102,6 +102,7 @@ const PAGE = PAGE_MARKER; // page-name marker (support-Category naming)
 const CTX = CTX_MARKER;   // page-context probe marker
 const OVER = OVER_MARKER; // F2 per-widget override channel marker
 const STYLE = STYLE_MARKER; // G3 per-widget style channel marker
+const TAB = TAB_META_MARKER; // tab RID → real TabSet + sortIndex
 const STRUCTURE_LIMIT = '<<<CREV_LAYOUT_LIMIT>>>';
 const EDIT_PAGE_TITLE = '<<<CREV_EDIT_PAGE_TITLE>>>';
 const EDIT_PAGE_TYPE = '<<<CREV_EDIT_PAGE_TYPE>>>';
@@ -266,8 +267,6 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
   // Field order (see layout-wire.ts): rid|bid|type|parent|container|L|M|S|height|name. `name` is LAST
   // and free-text, so a `|` in a name can't shift the structural fields. EVERY emit line ends with the
   // raw name as the final field.
-  // tabset root: no parent, no container, no height (5 empties: parent|container|L|M|S), then height empty, then name.
-  const root = `${ts}.rid + "|" + ${ts}.id.whenMissing("") + "|" + ${ts}.className.whenMissing("") + "|||||" + "|" + "|" + ${safeWireTextEc(`${ts}.name.whenMissing("")`)}`;
   // org model: widgets + composites (recursive). Emit BOTH parent (composite nesting) and container
   // (portal placement). A widget bound to the Result tab keeps that binding so it attaches to the Result
   // tab node. Skip ActionButtons flagged displayOnActionMenu — BMP renders those in the page's action
@@ -389,6 +388,7 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
       `_r := _r + "${PAGE}" + ${safeWireTextEc('_sc.name.whenMissing("")')} + "\\n"`,
       `_res := t.${RESULT_TAB_ID}`,
       `_r := _r + "${SEP}" + _res.rid + "|${RESULT_TAB_ID}|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + ${safeWireTextEc('_res.name.whenMissing("Result")')} + "\\n"`,
+      `_r := _r + "${TAB}" + _res.rid + "|${DEFAULT_TABSET}|" + _res.sortIndex.whenMissing("0") + "\\n"`,
       ...orgLoop,
       ...(projection === 'structure' ? [
         `IF _structureLimitHit = "1" THEN _r := _r + "${STRUCTURE_LIMIT}${STRUCTURE_FETCH_NODE_CAP}\\n" ELSE _r := _r ENDIF`,
@@ -397,7 +397,6 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
     ].join('\n');
   }
   return [
-    `_ts := ${ts}`,
     `_sc := ${sc}`,
     `_r := ""`,
     ...(projection === 'structure' ? [
@@ -405,48 +404,60 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
       `_structureLimitHit := "0"`,
     ] : []),
     `_r := _r + "${PAGE}" + ${safeWireTextEc('_sc.name.whenMissing("")')} + "\\n"`,
-    `_r := _r + "${SEP}" + ${root} + "\\n"`,
-    // The scorecard's intrinsic "Result" tab lives in the SHARED default_tabset, not this page's tabset,
-    // so `_ts.descendants()` below never reaches it. Emit it here (with its REAL parent) when it's a
-    // different tabset, so it's just another Tab node in the list — reconstruct collects tabs by kind.
-    // Emitted first so it leads the strip (as BMP shows it). Its widgets bind to the tab directly and
-    // come through the org loop unchanged; we don't pull in its shared Row/Column scaffold. NOTE: diff's
-    // index() parents all tabs under this page's tabsetId, so the Result tab is NOT auto-isolated by
-    // parent — diff.ts excludes it from the tab reorder group explicitly (see isResultTab there), and
-    // the UI blocks its rename/delete. Don't assume the foreign parent protects it.
-    `_res := t.${RESULT_TAB_ID}`,
-    `IF _res.className.whenMissing("") = "Tab" AND _res.parent.rid.whenMissing("") != _ts.rid THEN`,
-    `     _r := _r + "${SEP}" + _res.rid + "|${RESULT_TAB_ID}|Tab|" + _res.parent.rid.whenMissing("") + "||||||" + ${safeWireTextEc('_res.name.whenMissing("Result")')} + "\\n"`,
-    `ELSE`,
-    `     _r := _r`,
-    `ENDIF`,
+    // A page has no single TabSet reference. Resolve each direct page child's inferred Tab, then
+    // collect its real parent TabSet. LIST/CONTAINS/union was preview-verified on pro-demo SC 98357.
+    `_tabsets := LIST()`,
+    `_sc.children().forEach(_w:`,
+    `     _candidateTs := _w.tab.parent`,
+    `     IF _candidateTs.className.whenMissing("") = "TabSet" THEN`,
+    `          IF _tabsets NOT CONTAINS _candidateTs THEN`,
+    `               _tabsets := _tabsets.union(LIST(_candidateTs))`,
+    `          ELSE`,
+    `               _tabsets := _tabsets`,
+    `          ENDIF`,
+    `     ELSE`,
+    `          _tabsets := _tabsets`,
+    `     ENDIF`,
+    `)`,
+    // Defensive compatibility fallback for an unusual host whose direct children do not expose .tab.
+    `IF _tabsets.count() = 0 THEN _tabsets := LIST(${ts}) ELSE _tabsets := _tabsets ENDIF`,
+    `_tabsets.forEach(_ts:`,
+    // TabSet root: no parent/container/columns/height. Emitting every contributing root lets
+    // reconstruction recover names and real ownership without changing the shared layout row.
+    `     _r := _r + "${SEP}" + _ts.rid + "|" + _ts.id.whenMissing("") + "|TabSet|||||||" + ${safeWireTextEc('_ts.name.whenMissing("")')} + "\\n"`,
     // grid: tabs + containers — parentRid set, containerRid always empty, no chartHeight.
     // Same small-first rule as the org loop: line into `_l`, ONE `_r` touch per node.
     `_c := ""`,
     `_i := 0`,
-    `_ts.descendants().forEach(_n:`,
+    `     _ts.descendants().forEach(_n:`,
     ...(projection === 'structure' ? [
-      `     _l := ""`,
-      `     IF _structureEmitted > ${STRUCTURE_FETCH_NODE_CAP - 1} THEN`,
-      `          _structureLimitHit := "1"`,
-      `     ELSE`,
-      `          _l := "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + ${safeWireTextEc('_n.name.whenMissing("")')} + "\\n"`,
-      `          _structureEmitted := _structureEmitted + 1`,
-      `     ENDIF`,
+      `          _l := ""`,
+      `          IF _structureEmitted > ${STRUCTURE_FETCH_NODE_CAP - 1} THEN`,
+      `               _structureLimitHit := "1"`,
+      `          ELSE`,
+      `               _l := "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + ${safeWireTextEc('_n.name.whenMissing("")')} + "\\n"`,
+      `               _structureEmitted := _structureEmitted + 1`,
+      `          ENDIF`,
     ] : [
-      `     _l := "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + ${safeWireTextEc('_n.name.whenMissing("")')} + "\\n"`,
+      `          _l := "${SEP}" + _n.rid + "|" + _n.id.whenMissing("") + "|" + _n.className.whenMissing("") + "|" + _n.parent.rid.whenMissing("") + "||" + ${cols('_n')} + "|" + "|" + ${safeWireTextEc('_n.name.whenMissing("")')} + "\\n"`,
     ]),
-    `     _c := _c + _l`,
-    `     IF _l <> "" THEN _i := _i + 1 ELSE _i := _i ENDIF`,
-    `     IF _i > ${flushAfter} THEN`,
-    `          _r := _r + _c`,
-    `          _c := ""`,
-    `          _i := 0`,
-    `     ELSE`,
-    `          _r := _r`,
-    `     ENDIF`,
+    `          IF _n.className.whenMissing("") = "Tab" THEN`,
+    `               _l := _l + "${TAB}" + _n.rid + "|" + _ts.id.whenMissing("") + "|" + _n.sortIndex.whenMissing("") + "\\n"`,
+    `          ELSE`,
+    `               _l := _l`,
+    `          ENDIF`,
+    `          _c := _c + _l`,
+    `          IF _l <> "" THEN _i := _i + 1 ELSE _i := _i ENDIF`,
+    `          IF _i > ${flushAfter} THEN`,
+    `               _r := _r + _c`,
+    `               _c := ""`,
+    `               _i := 0`,
+    `          ELSE`,
+    `               _r := _r`,
+    `          ENDIF`,
+    `     )`,
+    `     _r := _r + _c`,
     `)`,
-    `_r := _r + _c`,
     ...orgLoop,
     ...(projection === 'structure' ? [
       `IF _structureLimitHit = "1" THEN _r := _r + "${STRUCTURE_LIMIT}${STRUCTURE_FETCH_NODE_CAP}\\n" ELSE _r := _r ENDIF`,
@@ -464,6 +475,20 @@ export const parseFetchLog = parseLayoutNodes;
 export function parsePageName(log: string): string | undefined {
   const name = markerLines(log, PAGE_MARKER)[0] ?? '';
   return name || undefined;
+}
+
+/** Parse tab provenance/order records. Keyed by tab RID because every layout row has one even when a
+ *  legacy/shared Tab has no business ID. Marker order is the stable tie fallback. */
+export function parseTabMetadata(log: string): Map<string, TabMetadata> {
+  const map = new Map<string, TabMetadata>();
+  let sourceIndex = 0;
+  for (const line of markerLines(log, TAB)) {
+    const [tabRid, tabsetId, rawSort] = line.split('|');
+    if (!tabRid || !tabsetId || map.has(tabRid)) continue;
+    const sortIndex = /^-?\d+$/.test(rawSort ?? '') ? parseInt(rawSort, 10) : undefined;
+    map.set(tabRid, { tabsetId, ...(sortIndex !== undefined ? { sortIndex } : {}), sourceIndex: sourceIndex++ });
+  }
+  return map;
 }
 
 /** Parse the F2 override channel (`<OVER>bid|prop,prop` lines) into a businessId → prop-names map. It
@@ -739,7 +764,7 @@ function findOrphans(nodes: readonly WireNode[], model: LModel): WireNode[] {
   const placed = new Set<string>();
   walk(model, n => { if (n.rid) placed.add(n.rid); });
   return nodes.filter(n =>
-    n.type !== 'TabSet' && n.type !== 'Tab' && n.type !== 'Container' && !placed.has(n.rid));
+    n.type !== 'TabSet' && n.type !== 'Tab' && n.type !== 'Container' && n.type !== 'Spacer' && !placed.has(n.rid));
 }
 
 /**
@@ -921,7 +946,7 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
     // The page root IS the shared template; every edit hits all linked instances → high blast radius.
     return {
       pageId: p.pageId, pageRid: p.pageRid, pageClass: (p.pageClass || 'EnterpriseTemplate') as BlueprintCtx['pageClass'],
-      tabsetId: p.tabsetId, target: 'template', hasTemplate: true, tabScope: 'withContent',
+      tabsetId: p.tabsetId, target: 'template', hasTemplate: true, tabScope: 'all',
     };
   }
   if (p.pageClass === 'EditPage') {
@@ -967,8 +992,9 @@ export async function loadModel(io: LayoutIO, ctx: BlueprintCtx): Promise<LoadRe
   const overrides = parseOverrides(log); // F2: per-widget overridden props (instance view → reset arrows)
   const styles = parseStyles(log);       // G3: per-widget current appearance (style mode rendering)
   const flows = parseFlows(log);         // flow projections keyed by flow-widget businessId (read-only)
-  const model = reconstruct(nodes, ctx, overrides, styles, flows);
-  const baseline = reconstruct(nodes, ctx, overrides, styles, flows); // independent clone — diff target, never mutated
+  const tabMetadata = parseTabMetadata(log);
+  const model = reconstruct(nodes, ctx, overrides, styles, flows, tabMetadata);
+  const baseline = reconstruct(nodes, ctx, overrides, styles, flows, tabMetadata); // independent clone — diff target, never mutated
   const pageName = parsePageName(log);   // names the ONE support Category new sets/pages/tabset land in
   if (pageName) { model.pageName = pageName; baseline.pageName = pageName; }
   return { model, baseline, orphans: findOrphans(nodes, model) };
@@ -1028,7 +1054,7 @@ export async function loadStructureModel(io: LayoutIO, ctx: BlueprintCtx): Promi
   if (!res.ok) throw new Error(res.error || 'layout structure fetch failed');
   const log = res.log ?? '';
   const nodes = stripWidgetContent(parseFetchLog(log));
-  const model = reconstruct(nodes, ctx);
+  const model = reconstruct(nodes, ctx, undefined, undefined, undefined, parseTabMetadata(log));
   const pageName = parsePageName(log);
   if (pageName) model.pageName = pageName;
   return {

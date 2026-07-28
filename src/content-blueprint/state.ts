@@ -67,6 +67,7 @@ export interface BpState {
   trayCardsOpen: Set<string>;   // action-tray ACTION cards with their transport list expanded (by button id)
   movePicker: string | null;    // widgetId the move-destination menu is open for
   tabMenu: { id: string; x: number; y: number } | null; // tab-strip right-click reorder menu (tab id + viewport anchor)
+  tabsetPickerOpen: boolean;    // multi-TabSet "+ Tab" destination picker
   swatch: { nodeId: string; prop: 'headerColor' | 'fontColor' } | null; // G3: the colour swatch popup target (style mode), null = closed
   swatchExpanded: Set<string>; // G3: which swatch-popup colour folders are open (per session; 'Basics' open by default)
   // G4 — the paintbrush (style mode). `mode`: off / pick (eyedropper, sampling a source) / paint (applying
@@ -122,7 +123,7 @@ function freshState(): Omit<BpState, 'gen'> {
     active: false, baseline: null, ctx: null, env: null, history: null,
     layer: null, selectedId: null, editPageSchemas: new Map(), editPageSchemaPending: new Set(), editPageSchemaErrors: new Map(), applying: false, preview: null, applyOutcome: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, discardArm: false, discardTimer: 0, actionMenuOpen: false, picker: null, pickerOpts: null,
     flowPicker: null, flowRefList: null, flowRefChildren: new Map(), flowRefChildrenPending: new Set(), flowFolds: new Set(), trayCardsOpen: new Set(),
-    movePicker: null, tabMenu: null, swatch: null, swatchExpanded: new Set(['Basics']),
+    movePicker: null, tabMenu: null, tabsetPickerOpen: false, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], presetStatus: 'idle', renameId: null,
     onResize: null, onKey: null, onPop: null, onBeforeUnload: null, reloading: false, loadedRid: '', editingTemplate: false, mode: 'layout', raf: 0, resultMode: false, hint: null, trayOpen: false, dragging: false, renaming: false,
     observer: null, resizeObs: null, ridSig: '', mutRaf: 0, bodyResizeTimer: 0, flipNext: false, viewTabId: null, unusedTabsOpen: false,
@@ -144,7 +145,7 @@ export function resetState(): void { Object.assign(bp, freshState()); }
  *  can't be forgotten at a reload site. */
 export function resetModel(): void {
   bp.baseline = null; bp.ctx = null; bp.history = null;
-  bp.selectedId = null; bp.viewTabId = null; bp.unusedTabsOpen = false; bp.ridSig = ''; bp.peek = false;
+  bp.selectedId = null; bp.viewTabId = null; bp.unusedTabsOpen = false; bp.tabsetPickerOpen = false; bp.ridSig = ''; bp.peek = false;
   bp.editPageSchemas = new Map(); bp.editPageSchemaPending = new Set(); bp.editPageSchemaErrors = new Map();
   bp.resultAnchor = null; bp.actionMenuOpen = false;
   // In-flight apply / preview state is tied to the page being left. A reload mid-apply (a popstate/

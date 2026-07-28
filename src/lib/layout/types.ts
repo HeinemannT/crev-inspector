@@ -111,6 +111,8 @@ export interface LNode {
   /** BMP className: Tab | Container | CustomVisualization | ExtendedTable | … */
   className: string;
   name: string;
+  /** Owning TabSet business ID. Present on tabs; absent on containers/widgets. */
+  tabsetId?: string;
   /** Column span per breakpoint (1..6). 0 is class-dependent (live-verified 2026-07-02): a widget
    *  renders full width (= 6); a container renders as a ~1-track auto cell — see rows.trackSpan.
    *  L is always set; M/S optional. */
@@ -132,6 +134,15 @@ export interface LNode {
   style?: NodeStyle;
 }
 
+/** One contributing portal TabSet. Tabs remain a flat BMP strip in `LModel.tabs`; this collection
+ *  carries provenance and supplies safe structural edit destinations. */
+export interface TabSetRef {
+  id: string;
+  rid?: string;
+  name: string;
+  virtual?: boolean;
+}
+
 /** The whole page being edited (a Scorecard, ModelPage, or Enterprise template). */
 export interface LModel {
   /** org-model root that owns widgets (`<page>.add(Widget …)`) — the Scorecard/ModelPage/etc. */
@@ -149,6 +160,9 @@ export interface LModel {
   pageClass: PageClass;
   /** portal-model root that owns tabs (`<tabset>.add(Tab)`). */
   tabsetId: string;
+  /** Every TabSet reached by this page's widget placements. Loaded models always populate this;
+   *  optional for legacy/test fixtures, which fall back to `tabsetId`. */
+  tabsets?: TabSetRef[];
   /** the page's tabs, each holding containers + tab-bound widgets (containers-first order). */
   tabs: LNode[];
   target: SaveTarget;
