@@ -112,7 +112,7 @@ import {
   openTabMenu, closeTabMenu, reorderTab,
   closeFlowPicker, addFlowFromPicker, addActionFromTray, wireExistingFromPicker,
 } from './actions';
-import { renderChip, modeSwitch, scopeClass, previewModal, outcomePanel, trayPanel, hintBar } from './view-panels';
+import { renderChip, modeSwitch, scopeClass, previewModal, outcomePanel, trayPanel, hintBar, settingsPanel } from './view-panels';
 import { paintStation, paintPopup } from './view-paint';
 import { renderResult, typeIcon } from './result';
 import { renderEditPage } from './edit-page-result';
@@ -254,7 +254,7 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
   const layer = bp.layer!, base = bp.baseline!, ctx = bp.ctx!;
   // selection toolbar (hidden while a modal/picker is up, or while the paintbrush is armed / a paint
   // popup is open — you're transferring styles in bulk, not editing one cell)
-  if (!bp.preview && !bp.picker && !bp.movePicker && bp.brush.mode === 'off' && !bp.paintPanel) {
+  if (!bp.preview && !bp.picker && !bp.movePicker && !bp.settingsOpen && bp.brush.mode === 'off' && !bp.paintPanel) {
     const selBox = bp.selectedId ? findNode(m, bp.selectedId) : null;
     // Tabs own their rename/add/delete on the pill itself — the generic toolbar's Rename targets
     // a `.bp-box .bp-nm` a pill doesn't have, and its W/Delete just duplicate the pill. Skip it.
@@ -271,6 +271,14 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
   }
   if (bp.swatch) layer.appendChild(swatchPopup(byRid));
   if (bp.paintPanel) { const p = paintPopup(); if (p) layer.appendChild(p); }
+  if (bp.settingsOpen) {
+    const trigger = layer.querySelector('.bp-settings-trigger')?.getBoundingClientRect();
+    const header = layer.querySelector('.bp-header')?.getBoundingClientRect();
+    const width = 286;
+    const idealLeft = trigger ? trigger.left : (window.innerWidth - width) / 2;
+    const left = Math.min(Math.max(8, idealLeft), Math.max(8, window.innerWidth - width - 8));
+    layer.appendChild(settingsPanel({ left, top: (header?.bottom ?? 56) + 5 }));
+  }
 
   if (bp.movePicker) {
     const f = findNode(m, bp.movePicker);

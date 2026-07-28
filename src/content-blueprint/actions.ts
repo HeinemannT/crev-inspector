@@ -425,6 +425,28 @@ export function revertNode(id: string): void {
 export function setHint(text: string | null): void { if (bp.hint !== text) { bp.hint = text; render(); } }
 export function toggleTray(): void { bp.trayOpen = !bp.trayOpen; render(); }
 export function toggleActionMenu(): void { bp.actionMenuOpen = !bp.actionMenuOpen; render(); }
+export function toggleSettings(): void {
+  bp.settingsOpen = !bp.settingsOpen;
+  if (bp.settingsOpen) {
+    bp.trayOpen = false;
+    bp.actionMenuOpen = false;
+    bp.paintPanel = null;
+    bp.swatch = null;
+    bp.picker = null;
+    bp.pickerOpts = null;
+    bp.movePicker = null;
+    bp.flowPicker = null;
+    bp.tabMenu = null;
+    bp.tabsetPickerOpen = false;
+    bp.unusedTabsOpen = false;
+  }
+  render();
+}
+export function closeSettings(): void {
+  if (!bp.settingsOpen) return;
+  bp.settingsOpen = false;
+  render();
+}
 /** Sticky peek toggle — keep the overlay faded so the live widgets stay visible (hover gives a transient
  *  peek; this click keeps it on). The faded state is a class on the layer; render() keeps it in sync. */
 export function togglePeek(): void { bp.peek = !bp.peek; bp.layer?.classList.toggle('bp-peek', bp.peek); render(); }
@@ -564,6 +586,7 @@ export function onKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
     if (typing) return;
     if (bp.preview) closePreview();
+    else if (bp.settingsOpen) closeSettings();
     else if (bp.paintPanel) closePaintPanel();
     else if (bp.swatch) closeSwatch();
     else if (bp.flowPicker) closeFlowPicker();

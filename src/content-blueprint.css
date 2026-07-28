@@ -46,7 +46,7 @@
 #crev-blueprint-layer *{box-sizing:border-box}
 
 /* lifted-paper shadow on every floating chrome panel (matches the cards) */
-#crev-blueprint-layer .bp-header,#crev-blueprint-layer .bp-tools,#crev-blueprint-layer .bp-tray,#crev-blueprint-layer .bp-pick,#crev-blueprint-layer .bp-modal,#crev-blueprint-layer .bp-hint{box-shadow:var(--bp-shadow)}
+#crev-blueprint-layer .bp-header,#crev-blueprint-layer .bp-tools,#crev-blueprint-layer .bp-tray,#crev-blueprint-layer .bp-pick,#crev-blueprint-layer .bp-modal,#crev-blueprint-layer .bp-hint,#crev-blueprint-layer .bp-settings-panel{box-shadow:var(--bp-shadow)}
 
 #crev-blueprint-layer .bp-modal{ background:var(--bp-ground); }
 
@@ -146,22 +146,18 @@
 #crev-blueprint-layer .bp-vsw-b.on{background:var(--bp-cyan);color:var(--bp-ground)}
 #crev-blueprint-layer .bp-vsw-b.style.on{background:var(--bp-accent,#8a3ffc);color:#fff}
 #crev-blueprint-layer .bp-chip{display:flex;gap:9px;align-items:center;padding:8px 10px 8px 12px}
-/* wordmark: the mode mark + a calm letterspaced label — blue in Layout, purple in Style (never yellow) */
-#crev-blueprint-layer .bp-chip b{display:inline-flex;align-items:center;gap:6px;font:600 10px/1 'BPInter',sans-serif;letter-spacing:.13em;color:var(--bp-cyan)}
-#crev-blueprint-layer .bp-chip .bp-mark{display:inline-flex}
-#crev-blueprint-layer .bp-chip .bp-mark svg{display:block;width:13px;height:13px}
-#crev-blueprint-layer .bp-chip .bp-word{display:inline-block;min-width:68px}
-#crev-blueprint-layer .bp-chip.style b{color:var(--bp-accent,#8a3ffc)}
-#crev-blueprint-layer .bp-chip>span{font:500 11px/1 var(--bp-mono);color:var(--bp-muted)}
-/* page-id truncates first when the chip is clamped to max-width (narrow window) — so the action buttons
-   (esp. Exit) are never the ones clipped by the header's overflow:hidden. Template mode is widest. */
-#crev-blueprint-layer .bp-chip .bp-pgid{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#crev-blueprint-layer .bp-page-chip{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;max-width:min(260px,28vw);padding:2px 4px 2px 2px;border:1px solid transparent;border-radius:var(--bp-r);color:var(--bp-text)}
+#crev-blueprint-layer .bp-page-chip .object-chip-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 11px/1 var(--bp-mono)}
+#crev-blueprint-layer .bp-page-chip .bdg{display:inline-flex;align-items:stretch;flex:none;height:20px;border:1px solid var(--bp-line-2);border-radius:var(--bp-r);overflow:hidden}
+#crev-blueprint-layer .bp-page-chip .bdg .tile{display:flex;align-items:center;justify-content:center;padding:0 5px;background:var(--c,var(--bp-muted));color:#fff}
+#crev-blueprint-layer .bp-page-chip .bdg .tile svg{display:block;width:12px;height:12px}
+#crev-blueprint-layer .bp-page-chip .bdg .lbl{display:flex;align-items:center;padding:0 6px;background:rgba(148,163,184,.08);font:600 9px/1 var(--bp-mono);color:var(--bp-text)}
 #crev-blueprint-layer .bp-chip .sp{flex:1;font-size:0}
-#crev-blueprint-layer .bp-chip b,#crev-blueprint-layer .bp-chip button{flex:none}
+#crev-blueprint-layer .bp-chip button{flex:none}
 #crev-blueprint-layer .bp-chip button{height:26px;padding:0 11px;border-radius:var(--bp-r);border:var(--bp-hair) solid var(--bp-line-2);background:transparent;color:var(--bp-text);font:500 11px 'BPInter',sans-serif;cursor:pointer}
 #crev-blueprint-layer .bp-chip button:hover:not(:disabled){border-color:var(--bp-cyan);color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-chip button:disabled{opacity:.3;cursor:default}
-/* borderless icon nudges (peek / undo / redo) — no outline, tighter, so they don't crowd out Exit */
+/* Borderless icon nudges stay compact so they do not crowd out Exit. */
 #crev-blueprint-layer .bp-chip button.plain{border-color:transparent;padding:0 6px}
 #crev-blueprint-layer .bp-chip button.plain:hover:not(:disabled){background:rgba(74,144,217,.12)}
 #crev-blueprint-layer .bp-chip button.apply{background:var(--bp-cyan);color:var(--bp-ground);border-color:var(--bp-cyan)}
@@ -179,6 +175,24 @@
 #crev-blueprint-layer .bp-chip .bp-target-b:hover:not(.on){color:var(--bp-text)}
 #crev-blueprint-layer .bp-chip .bp-target-b.on{background:var(--bp-cyan);color:var(--bp-ground)}            /* Template active = shared definition (blue) */
 #crev-blueprint-layer .bp-chip .bp-target-b:last-child.on{background:var(--bp-amber);color:var(--bp-ground)} /* This instance active = local override (orange) */
+
+#crev-blueprint-layer .bp-settings-back{position:fixed;inset:0;z-index:51;background:transparent;pointer-events:auto}
+#crev-blueprint-layer .bp-settings-panel{position:fixed;z-index:52;width:286px;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);overflow:hidden;pointer-events:auto}
+#crev-blueprint-layer .bp-settings-head{display:flex;align-items:center;justify-content:space-between;min-height:38px;padding:5px 7px 5px 12px;border-bottom:var(--bp-div) solid var(--bp-line-2)}
+#crev-blueprint-layer .bp-settings-head strong{font:600 12px 'BPInter',sans-serif;color:var(--bp-text)}
+#crev-blueprint-layer .bp-settings-head button{width:26px;height:26px;display:grid;place-items:center;padding:0;border:0;border-radius:var(--bp-r);background:transparent;color:var(--bp-muted);cursor:pointer}
+#crev-blueprint-layer .bp-settings-head button:hover{background:rgba(74,144,217,.12);color:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-settings-head svg{display:block;width:12px;height:12px}
+#crev-blueprint-layer .bp-settings-row{display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;border:0;background:transparent;color:var(--bp-text);text-align:left;cursor:pointer}
+#crev-blueprint-layer .bp-settings-row:hover{background:rgba(74,144,217,.08)}
+#crev-blueprint-layer .bp-settings-row:focus-visible{outline:2px solid var(--bp-cyan-hi);outline-offset:-2px}
+#crev-blueprint-layer .bp-settings-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:2px}
+#crev-blueprint-layer .bp-settings-label{font:600 11.5px 'BPInter',sans-serif}
+#crev-blueprint-layer .bp-settings-help{font:500 10.5px/1.35 'BPInter',sans-serif;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-settings-switch{position:relative;flex:none;width:28px;height:16px;border:1px solid var(--bp-line-2);border-radius:8px;background:rgba(148,163,184,.16);transition:background .12s,border-color .12s}
+#crev-blueprint-layer .bp-settings-switch>span{position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--bp-muted);transition:transform .12s,background .12s}
+#crev-blueprint-layer .bp-settings-switch.on{border-color:var(--bp-cyan-hi);background:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-settings-switch.on>span{transform:translateX(12px);background:#fff}
 
 #crev-blueprint-layer .bp-tabs{position:relative;display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:7px 10px 7px 12px;border-top:var(--bp-hair) solid var(--bp-line-2)}
 #crev-blueprint-layer .bp-tabs-l{color:var(--bp-muted);font:700 9px/1 var(--bp-mono);letter-spacing:.12em;margin-right:2px}

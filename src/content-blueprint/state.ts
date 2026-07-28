@@ -47,6 +47,7 @@ export interface BpState {
   discardArm: boolean;          // Discard button armed ("Sure?"): first click arms, second discards; auto-disarms after a few seconds
   discardTimer: number;         // setTimeout id auto-disarming Discard (0 = none)
   actionMenuOpen: boolean;      // the canvas-top-right action-menu dropdown is expanded (collapsed by default, like BMP's own Actions button, so it never covers the canvas until opened)
+  settingsOpen: boolean;        // compact Blueprint settings panel, opened from the command header
   picker: string | null;        // containerId/compositeId/tabId the add picker is open for
   pickerOpts: { afterId?: string; cols?: number; at?: { x: number; y: number } } | null; // positional insert (after a sibling, sized to a gap) + the click point to anchor the picker popup at
   // Flow editing: the add picker for a FLOW container (an InputSet/EditPage/ButtonGroup referenced by a
@@ -121,7 +122,7 @@ export interface BpState {
 function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
-    layer: null, selectedId: null, editPageSchemas: new Map(), editPageSchemaPending: new Set(), editPageSchemaErrors: new Map(), applying: false, preview: null, applyOutcome: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, discardArm: false, discardTimer: 0, actionMenuOpen: false, picker: null, pickerOpts: null,
+    layer: null, selectedId: null, editPageSchemas: new Map(), editPageSchemaPending: new Set(), editPageSchemaErrors: new Map(), applying: false, preview: null, applyOutcome: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, discardArm: false, discardTimer: 0, actionMenuOpen: false, settingsOpen: false, picker: null, pickerOpts: null,
     flowPicker: null, flowRefList: null, flowRefChildren: new Map(), flowRefChildrenPending: new Set(), flowFolds: new Set(), trayCardsOpen: new Set(),
     movePicker: null, tabMenu: null, tabsetPickerOpen: false, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], presetStatus: 'idle', renameId: null,
@@ -147,7 +148,7 @@ export function resetModel(): void {
   bp.baseline = null; bp.ctx = null; bp.history = null;
   bp.selectedId = null; bp.viewTabId = null; bp.unusedTabsOpen = false; bp.tabsetPickerOpen = false; bp.ridSig = ''; bp.peek = false;
   bp.editPageSchemas = new Map(); bp.editPageSchemaPending = new Set(); bp.editPageSchemaErrors = new Map();
-  bp.resultAnchor = null; bp.actionMenuOpen = false;
+  bp.resultAnchor = null; bp.actionMenuOpen = false; bp.settingsOpen = false;
   // In-flight apply / preview state is tied to the page being left. A reload mid-apply (a popstate/
   // link-nav bumps `gen`, so the late apply reply returns early without clearing `applying`) would
   // otherwise leave "Applying…" stuck and Apply/Discard disabled on the fresh page — M5. Clearing it

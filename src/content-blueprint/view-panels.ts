@@ -14,11 +14,12 @@ import { lint } from '../lib/layout/constraints';
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { flowChangeCount, flowDiff } from '../lib/layout/flow';
 import { compile } from '../lib/layout/ec';
-import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_EYE_SLASH, ICON_COPY } from '../lib/icons';
+import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_SLIDERS, ICON_COPY } from '../lib/icons';
+import { objectChip } from '../lib/object-chip';
 import { showToast } from '../lib/toast';
 import { bp, model, type ApplyOutcome } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
-import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, discard, armDiscard, disarmDiscard, openApplyPreview, exitBlueprint, setMode, dismissApplyOutcome } from './actions';
+import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, toggleSettings, closeSettings, discard, armDiscard, disarmDiscard, openApplyPreview, exitBlueprint, setMode, dismissApplyOutcome } from './actions';
 import { setEditTarget } from '../content-blueprint'; // runtime-only (click handler) — no init-time cycle
 
 const VERB_ICON: Record<PlanNote['verb'], string> = { create: ICON_PLUS, update: ICON_PENCIL, move: ICON_ARROW_RIGHT, reorder: ICON_SWAP, delete: ICON_TRASH };
@@ -326,18 +327,24 @@ export function modeSwitch(): HTMLElement {
 
 /** Command chip — page id, undo/redo, pending tray toggle, discard, apply, exit. */
 export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
-  const styling = bp.mode === 'style';
-  const c = document.createElement('div'); c.className = 'bp-chip' + scopeClass(ctx) + (styling ? ' style' : '');
-  const b = document.createElement('b');
-  // The wordmark morphs with the mode — BLUEPRINT (cyan) in layout, STYLE (purple) in style — so the
-  // mode is legible without the old horizontal toggle (that role moved to the vertical switch at left).
-  const mark = document.createElement('span'); mark.className = 'bp-mark'; setIcon(mark, styling ? ICON_PAINT : ICON_BLUEPRINT);
-  // Fixed-width word so the chip (centred header) doesn't resize/shift when the shorter "STYLE" replaces
-  // "BLUEPRINT" — the box is sized to the longer word and the text left-aligns in it.
-  const wordmark = document.createElement('span'); wordmark.className = 'bp-word'; wordmark.textContent = styling ? 'STYLE' : 'BLUEPRINT';
-  b.append(mark, wordmark);
-  const id = document.createElement('span'); id.className = 'bp-pgid'; id.textContent = `${ctx.pageClass} ${ctx.pageId}`;
-  c.append(b, id);
+  const c = document.createElement('div'); c.className = 'bp-chip' + scopeClass(ctx);
+  c.appendChild(objectChip({
+    rid: ctx.pageRid ?? ctx.pageId,
+    businessId: ctx.pageId,
+    type: ctx.pageClass,
+    name: ctx.pageId,
+  }, {
+    label: ctx.pageId,
+    preview: false,
+    className: 'bp-page-chip',
+  }));
+  const settings = mkIconBtn(ICON_SLIDERS, toggleSettings);
+  settings.classList.add('plain', 'bp-settings-trigger');
+  settings.classList.toggle('on', bp.settingsOpen);
+  settings.title = 'Blueprint settings';
+  settings.setAttribute('aria-label', 'Blueprint settings');
+  settings.setAttribute('aria-expanded', String(bp.settingsOpen));
+  c.appendChild(settings);
   // F: template/instance target toggle — shown whenever this page reuses a template (you can edit the
   // shared template OR just this instance). Default is the template. The active segment + the tmpl
   // styling on the chip ARE the "what am I editing" indicator (E), so no free-flowing warning text that
@@ -360,14 +367,7 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   // (No "affects all instances" banner here — the template scope is shown by the Template/Instance
   // toggle above, and the full blast-radius warning is spelled out in the apply-preview modal.)
   c.appendChild(sp());
-  // Peek + undo/redo are borderless (.plain) — they're frequent, low-stakes nudges, so the outline just
-  // ate width and pushed Exit out of the chip. Peek: hover for a transient fade, CLICK to keep it on.
-  const peek = mkIconBtn(ICON_EYE_SLASH, togglePeek); peek.title = 'Peek at the live widgets. Hover for a moment, or click to keep it on.';
-  peek.classList.add('plain');
-  if (bp.peek) peek.classList.add('on');
-  peek.addEventListener('mouseenter', () => bp.layer?.classList.add('bp-peek'));
-  peek.addEventListener('mouseleave', () => { if (!bp.peek) bp.layer?.classList.remove('bp-peek'); });
-  c.appendChild(peek);
+  // Undo/redo are borderless: frequent, low-stakes nudges that should not crowd out Exit.
   const undoB = mkIconBtn(ICON_ARROW_UNDO, undo); undoB.title = 'Undo'; undoB.disabled = !bp.history?.canUndo(); undoB.classList.add('plain'); c.appendChild(undoB);
   const redoB = mkIconBtn(ICON_ARROW_REDO, redo); redoB.title = 'Redo'; redoB.disabled = !bp.history?.canRedo(); redoB.classList.add('plain'); c.appendChild(redoB);
   const trayB = mkIconBtn(ICON_LIST, toggleTray, String(pending)); trayB.title = 'Pending changes'; trayB.disabled = pending === 0;
@@ -385,4 +385,57 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   applyB.className = 'apply'; applyB.disabled = pending === 0 || bp.applying; c.appendChild(applyB);
   const exit = mkIconBtn(ICON_X, exitBlueprint); exit.title = 'Exit blueprint mode'; c.appendChild(exit);
   return c;
+}
+
+/** Compact settings popover anchored below the command header. Keep this surface for Blueprint-wide
+ *  behaviour; object editing remains in the canvas/toolbars. */
+export function settingsPanel(anchor: { left: number; top: number }): HTMLElement {
+  const back = document.createElement('div');
+  back.className = 'bp-settings-back';
+  back.addEventListener('mousedown', (event) => {
+    if (event.target === back) closeSettings();
+  });
+
+  const panel = document.createElement('section');
+  panel.className = 'bp-settings-panel';
+  panel.style.left = `${anchor.left}px`;
+  panel.style.top = `${anchor.top}px`;
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-label', 'Blueprint settings');
+  panel.addEventListener('mousedown', (event) => event.stopPropagation());
+
+  const head = document.createElement('header');
+  head.className = 'bp-settings-head';
+  const title = document.createElement('strong');
+  title.textContent = 'Blueprint settings';
+  const close = mkIconBtn(ICON_X, closeSettings);
+  close.classList.add('plain');
+  close.title = 'Close settings';
+  close.setAttribute('aria-label', 'Close settings');
+  head.append(title, close);
+
+  const row = document.createElement('button');
+  row.className = 'bp-settings-row';
+  row.type = 'button';
+  row.setAttribute('role', 'switch');
+  row.setAttribute('aria-checked', String(bp.peek));
+  row.addEventListener('click', togglePeek);
+  const copy = document.createElement('span');
+  copy.className = 'bp-settings-copy';
+  const label = document.createElement('span');
+  label.className = 'bp-settings-label';
+  label.textContent = 'Show live page';
+  const help = document.createElement('span');
+  help.className = 'bp-settings-help';
+  help.textContent = 'Fade the canvas to inspect the underlying BMP page.';
+  copy.append(label, help);
+  const toggle = document.createElement('span');
+  toggle.className = 'bp-settings-switch' + (bp.peek ? ' on' : '');
+  toggle.setAttribute('aria-hidden', 'true');
+  toggle.appendChild(document.createElement('span'));
+  row.append(copy, toggle);
+
+  panel.append(head, row);
+  back.appendChild(panel);
+  return back;
 }
