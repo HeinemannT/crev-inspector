@@ -185,7 +185,7 @@ describe('AI Assistant card states', () => {
     shared.cacheCount = 27;
     const { el } = renderTab();
 
-    expect(el.querySelector('.ref-toggle.connect-eyebrow')?.textContent).toContain('Keyboard shortcuts');
+    expect(el.querySelector('.ref-toggle.connect-eyebrow')?.textContent).toContain('Shortcuts & Info');
     expect(el.querySelector('.footer-actions')?.textContent).toContain('27 cached');
     expect(el.querySelector('.footer-actions')?.textContent).toContain('Clear cache');
     expect(el.querySelector('.footer-actions')?.textContent).toContain('Reset all');

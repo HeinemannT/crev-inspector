@@ -70,6 +70,12 @@ describe('portable Blueprint IDs', () => {
       class: 'ExtendedTable',
       name: 'Top risks',
     })).toBe('tbl_top_risks');
+    expect(renderPortableId('{class}_{name}', {
+      page: 'Risk Register',
+      parent: 'Overview',
+      class: 'FutureWidget',
+      name: 'Emerging risks',
+    })).toBe('fut_emerging_risks');
     expect(portableIdPatternError('{page}_{unknown}')).toBe('Unknown tag {unknown}.');
     expect(portableIdPatternError('fixed_only')).toBe('Add at least one tag.');
   });

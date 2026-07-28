@@ -954,7 +954,7 @@ export class ConnectTab implements Tab {
       'aria-expanded': String(this.referenceOpen),
     },
       h('span', { class: `disclosure-caret${this.referenceOpen ? ' open' : ''}`, 'aria-hidden': 'true' }),
-      h('span', { class: 'ref-toggle-label' }, 'Keyboard shortcuts'),
+      h('span', { class: 'ref-toggle-label' }, 'Shortcuts & Info'),
     );
     toggle.addEventListener('click', () => {
       this.referenceOpen = !this.referenceOpen;

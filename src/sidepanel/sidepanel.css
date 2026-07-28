@@ -1757,6 +1757,10 @@ body.crev-divider-dragging * { user-select: none; }
   min-width: 0;
   flex: 1 1 140px;
   overflow: hidden;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
 }
 .status-bar-context--empty {
   padding: 1px 6px;
@@ -1781,14 +1785,14 @@ body.crev-divider-dragging * { user-select: none; }
   gap: 4px;
   flex-shrink: 0;
   white-space: nowrap;
-  padding: 1px 6px;
-  border-radius: 999px;
+  padding: 0;
+  border: none;
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   font-weight: var(--weight-medium);
   color: var(--text-2);
-  background: var(--surface-2);
-  border: 1px solid var(--surface-3);
+  background: none;
+  box-shadow: none;
 }
 .status-bar-latency-value { letter-spacing: 0.2px; }
 .status-bar-latency--t-1 .status-bar-latency-value { color: var(--text-3); }
@@ -4001,21 +4005,6 @@ body.crev-divider-dragging * { user-select: none; }
 .hdr-mode svg { width: 14px; height: 14px; }
 
 /* ── Status bar: quiet line + pulse meter + feedback overlay ───── */
-.status-bar-context {
-  background: none !important;
-  border: none !important;
-  padding: 0 !important;
-  box-shadow: none !important;
-}
-.status-bar-latency {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: none !important;
-  border: none !important;
-  padding: 0 !important;
-  box-shadow: none !important;
-}
 .status-bar-latency-ic { display: inline-flex; }
 .status-bar-latency-ic svg { width: 12px; height: 12px; }
 .status-bar-latency-value { font-family: var(--font-mono); font-size: var(--text-2xs); }
