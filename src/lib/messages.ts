@@ -173,7 +173,7 @@ export type ProfileMessage =
 
 // ── EC Execution ─────────────────────────────────────────────────
 export type EcMessage =
-  | { type: 'EC_EXECUTE'; code: string; objectRid?: string; transactional?: boolean }
+  | { type: 'EC_EXECUTE'; code: string; objectRid?: string; property?: string; transactional?: boolean }
   // `durationMs` is the SW-measured EC round-trip. The panel surfaces it in
   // the status bar latency chip — it's the user-perceived signal of how
   // responsive BMP is to actual work (vs health-check pings).

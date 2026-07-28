@@ -1021,6 +1021,7 @@ async function executeEc(transactional: boolean) {
     type: 'EC_EXECUTE',
     code,
     objectRid: getExecutionRid(ctx),
+    property: activeProperty,
     ...(transactional ? { transactional: true } : {}),
   })
   lastDuration = Date.now() - startTime

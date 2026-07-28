@@ -27,7 +27,16 @@ register('TOGGLE_FAVORITE', (msg, respond) => {
   ctx.favorites.toggle(msg.rid, { name: msg.name, type: msg.objectType, businessId: msg.businessId });
   respond({ type: 'FAVORITES_DATA', entries: ctx.favorites.getAll() });
   const label = msg.name || msg.businessId || msg.rid;
-  ctx.logActivity('info', wasPinned ? `Unpinned ${label}` : `Pinned ${label}`);
+  ctx.logActivity('info', wasPinned ? `Unpinned ${label}` : `Pinned ${label}`, undefined, {
+    category: 'change',
+    action: wasPinned ? 'unpin' : 'pin',
+    object: {
+      rid: msg.rid,
+      ...(msg.name ? { name: msg.name } : {}),
+      ...(msg.businessId ? { businessId: msg.businessId } : {}),
+      ...(msg.objectType ? { type: msg.objectType } : {}),
+    },
+  });
 });
 
 register('GET_FAVORITES', (msg, respond) => {
@@ -43,7 +52,9 @@ register('SAVE_STYLE_PRESET', (msg, respond) => {
   const ctx = getCtx();
   const saved = ctx.stylePresets.save(msg.name, msg.style);
   respond({ type: 'STYLE_PRESETS_DATA', presets: ctx.stylePresets.getAll() });
-  if (saved) ctx.logActivity('info', `Saved style "${saved.name}"`);
+  if (saved) ctx.logActivity('info', `Saved style "${saved.name}"`, undefined, {
+    category: 'change', action: 'save-style-preset',
+  });
 });
 
 register('DELETE_STYLE_PRESET', (msg, respond) => {

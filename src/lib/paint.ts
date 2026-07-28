@@ -2,6 +2,7 @@ import type { InspectorMessage, PaintPhase } from './types';
 import { PAINT_STYLE_PROPS, PAINT_PROP_RESET } from './types';
 import { getCtx } from './sw-context';
 import { log, errorMessage } from './logger';
+import { activityObject, activityObjectLabel, boundedActivityDetail, ecActivityDetail } from './activity-format';
 
 let paintPhase: PaintPhase = 'off';
 let paintSourceRid: string | null = null;
@@ -122,10 +123,20 @@ function activePaintProps(ctx: ReturnType<typeof getCtx>): string[] {
  */
 export async function handlePaintApply(rid: string) {
   const ctx = getCtx();
+  const startedAt = Date.now();
+  const object = activityObject(rid, ctx.cache.get(rid));
+  const targetName = activityObjectLabel(object, rid);
+  const meta = {
+    category: 'paint' as const,
+    action: 'apply-style',
+    object,
+  };
   if (!paintSourceRid || !ctx.client) {
-    broadcastApplyResult(rid, false, !ctx.client
+    const error = !ctx.client
       ? 'Not connected. Configure in Connect tab'
-      : 'No source selected');
+      : 'No source selected';
+    broadcastApplyResult(rid, false, error);
+    ctx.logActivity('error', `Paint failed on ${targetName}`, error, meta);
     return;
   }
 
@@ -133,7 +144,9 @@ export async function handlePaintApply(rid: string) {
 
   const props = activePaintProps(ctx);
   if (props.length === 0) {
-    broadcastApplyResult(rid, false, 'No styles selected. Right-click the paint button to choose which to copy.');
+    const error = 'No styles selected. Right-click the paint button to choose which to copy.';
+    broadcastApplyResult(rid, false, error);
+    ctx.logActivity('error', `Paint failed on ${targetName}`, error, meta);
     return;
   }
 
@@ -169,7 +182,25 @@ export async function handlePaintApply(rid: string) {
 
     const result = await ctx.client.executeEc(code, undefined, true);
     broadcastApplyResult(rid, result.ok, result.error ?? (result.hasError ? result.log : undefined));
+    const durationMs = Date.now() - startedAt;
+    const summary = `Source: ${paintSourceName ?? paintSourceRid}\nProperties: ${props.length}`;
+    const serverDetail = ecActivityDetail(result);
+    const detail = boundedActivityDetail(serverDetail ? `${summary}\n\nBMP output\n${serverDetail}` : summary);
+    ctx.logActivity(
+      result.ok ? 'success' : 'error',
+      result.ok
+        ? `Painted ${props.length} style propert${props.length === 1 ? 'y' : 'ies'} onto ${targetName} (${durationMs}ms)`
+        : `Paint failed on ${targetName} (${durationMs}ms)`,
+      detail,
+      { ...meta, durationMs },
+    );
   } catch (e) {
-    broadcastApplyResult(rid, false, errorMessage(e));
+    const error = errorMessage(e);
+    const durationMs = Date.now() - startedAt;
+    broadcastApplyResult(rid, false, error);
+    ctx.logActivity('error', `Paint request failed on ${targetName} (${durationMs}ms)`, error, {
+      ...meta,
+      durationMs,
+    });
   }
 }

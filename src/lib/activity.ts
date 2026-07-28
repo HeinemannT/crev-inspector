@@ -4,11 +4,11 @@
  * Persisted to chrome.storage.local (NOT .session) so the feed survives a
  * browser restart. The user complaint "the log empties itself" was caused by
  * (a) the 50-entry cap (now 300, see constants.ts) and (b) session storage
- * being wiped on browser close. Local storage has a 10 MB quota; the ring
- * buffer caps at ~30 KB so cost is negligible.
+ * being wiped on browser close. Details are bounded before insertion and the
+ * ring buffer remains comfortably below Chrome's local-storage quota.
  */
 
-import type { ActivityEntry } from './types';
+import type { ActivityEntry, ActivityMeta } from './types';
 import { getCtx } from './sw-context';
 import { debounce } from './util';
 import { log } from './logger';
@@ -39,10 +39,18 @@ export async function restoreActivity(): Promise<void> {
   } catch (e) { log.swallow('activity:restore', e); }
 }
 
-export function logActivity(level: ActivityEntry['level'], message: string, detail?: string) {
+export function logActivity(level: ActivityEntry['level'], message: string, detail?: string, meta?: ActivityMeta) {
   const ctx = getCtx();
   const profileId = ctx.settings?.activeProfileId || undefined;
-  const entry: ActivityEntry = { id: ++activitySeq, time: Date.now(), level, message, detail, profileId };
+  const entry: ActivityEntry = {
+    id: ++activitySeq,
+    time: Date.now(),
+    level,
+    message,
+    detail,
+    profileId,
+    ...meta,
+  };
   activityLog.push(entry);
   if (activityLog.length > ACTIVITY_MAX) activityLog.shift();
   ctx.sendToPanel({ type: 'ACTIVITY_ENTRY', entry });

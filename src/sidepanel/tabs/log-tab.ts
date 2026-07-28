@@ -9,7 +9,8 @@ import { ACTIVITY_MAX, ACTIVITY_DISPLAY_TIMEOUT } from '../../lib/constants';
 import { S } from '../state';
 import type { Tab, SendFn } from './tab-types';
 
-type LogFilter = 'this' | 'all';
+type ProfileFilter = 'this' | 'all';
+type EventFilter = 'activity' | 'problems' | 'all';
 
 export class LogTab implements Tab {
   private entries: ActivityEntry[] = [];
@@ -20,7 +21,10 @@ export class LogTab implements Tab {
   /** Show only entries from the active profile by default. With sbx/dev/prod
    *  configured this keeps the log readable; otherwise an EC executed on dev
    *  would scroll past entries from sbx. */
-  private filter: LogFilter = 'this';
+  private profileFilter: ProfileFilter = 'this';
+  /** User actions are the useful default. Diagnostics remain available without
+   *  letting detection/enrichment chatter bury saves and executions. */
+  private eventFilter: EventFilter = 'activity';
   /** Entries whose detail (e.g. the applied EC) is expanded inline, keyed by entry time. */
   private expanded = new Set<number>();
 
@@ -73,9 +77,14 @@ export class LogTab implements Tab {
     // visibility into them just by upgrading.
     const activeId = S.settings.activeProfileId;
     const profileCount = S.settings.profiles.length;
-    const visible = (this.filter === 'all' || profileCount <= 1)
+    const profileVisible = (this.profileFilter === 'all' || profileCount <= 1)
       ? this.entries
       : this.entries.filter(e => !e.profileId || e.profileId === activeId);
+    const visible = profileVisible.filter(entry => {
+      if (this.eventFilter === 'all') return true;
+      if (this.eventFilter === 'problems') return entry.level === 'warn' || entry.level === 'error';
+      return (entry.category != null && entry.category !== 'system') || entry.level === 'error';
+    });
 
     // Collapse runs of identical consecutive messages into a count badge so
     // the feed reads as a feed (not a tail -f). E.g. 14× "Enriching 4 from
@@ -92,22 +101,32 @@ export class LogTab implements Tab {
       }
     }
 
-    // Filter toggle — only worth rendering when the user has more than one
-    // profile, since otherwise "this" and "all" are the same set.
-    const filterRow = profileCount > 1
-      ? h('div', { class: 'log-filter-row' },
-          h('button', {
-            class: `log-filter-chip ${this.filter === 'this' ? 'log-filter-chip--active' : ''}`,
-            'data-filter': 'this',
-            title: 'Only this profile',
-          }, 'This profile'),
-          h('button', {
-            class: `log-filter-chip ${this.filter === 'all' ? 'log-filter-chip--active' : ''}`,
-            'data-filter': 'all',
-            title: 'All profiles',
-          }, 'All'),
-        )
-      : null;
+    const eventButton = (value: EventFilter, label: string) => h('button', {
+      class: `log-filter-chip ${this.eventFilter === value ? 'log-filter-chip--active' : ''}`,
+      'data-event-filter': value,
+      'aria-pressed': String(this.eventFilter === value),
+    }, label);
+    const filterRow = h('div', { class: 'log-filter-row' },
+      eventButton('activity', 'Activity'),
+      eventButton('problems', 'Problems'),
+      eventButton('all', 'All'),
+      profileCount > 1
+        ? h('span', { class: 'log-profile-filters' },
+            h('button', {
+              class: `log-filter-chip ${this.profileFilter === 'this' ? 'log-filter-chip--active' : ''}`,
+              'data-profile-filter': 'this',
+              'aria-pressed': String(this.profileFilter === 'this'),
+              title: 'Only this profile',
+            }, 'This profile'),
+            h('button', {
+              class: `log-filter-chip ${this.profileFilter === 'all' ? 'log-filter-chip--active' : ''}`,
+              'data-profile-filter': 'all',
+              'aria-pressed': String(this.profileFilter === 'all'),
+              title: 'Every configured profile',
+            }, 'All profiles'),
+          )
+        : null,
+    );
 
     const feed = h('div', { class: 'activity-feed', id: 'activity-feed' },
       collapsed.length === 0
@@ -115,7 +134,9 @@ export class LogTab implements Tab {
             h('span', null, 'No activity yet.'),
             h('br'),
             h('span', { class: 'activity-empty-hint' },
-              'Edits, saves, EC runs, paint, pins, and context changes are logged here.'),
+              this.eventFilter === 'activity'
+                ? 'Saves, EC runs, Blueprint applies, paint, and Studio changes appear here. System events remain under All.'
+                : 'No matching log entries.'),
           )
         // Newest-first: collapse runs in chronological order (so adjacent
         // dupes merge), then reverse for display so the latest entry is on top.
@@ -145,18 +166,25 @@ export class LogTab implements Tab {
     const root = h('div', { class: 'log-tab' }, filterRow, feed);
     render(container, root);
 
-    // Click delegation on filter chips — simple enough that a global
-    // delegate isn't worth the indirection.
-    if (filterRow) {
-      filterRow.addEventListener('click', (ev) => {
-        const target = (ev.target as HTMLElement).closest('[data-filter]') as HTMLElement | null;
-        if (!target) return;
-        const next = target.getAttribute('data-filter') as LogFilter | null;
-        if (!next || next === this.filter) return;
-        this.filter = next;
-        this.render(container);
-      });
-    }
+    // One compact filter bar: action relevance first, optional profile scope second.
+    filterRow.addEventListener('click', (ev) => {
+      const target = ev.target as HTMLElement;
+      const eventTarget = target.closest('[data-event-filter]') as HTMLElement | null;
+      const profileTarget = target.closest('[data-profile-filter]') as HTMLElement | null;
+      if (eventTarget) {
+        const next = eventTarget.getAttribute('data-event-filter') as EventFilter | null;
+        if (next && next !== this.eventFilter) {
+          this.eventFilter = next;
+          this.render(container);
+        }
+      } else if (profileTarget) {
+        const next = profileTarget.getAttribute('data-profile-filter') as ProfileFilter | null;
+        if (next && next !== this.profileFilter) {
+          this.profileFilter = next;
+          this.render(container);
+        }
+      }
+    });
 
     // Expand/collapse an entry's detail (click or Enter/Space on the row).
     const toggleDetail = (el: HTMLElement | null) => {

@@ -8,6 +8,8 @@ import { SCRIPT_PROPS } from '../types';
 import { buildEditorContext, openEditorWindow, openExtendedWindow } from '../editor';
 import { errorMessage, log } from '../logger';
 import { invalidateRid } from '../enrichment';
+import type { ActivityMeta } from '../types';
+import { activityObject, activityObjectLabel, ecActivityDetail } from '../activity-format';
 
 // Props saved as EC string literals (saveCodeViaEc). SCRIPT_PROPS plus the
 // TextElement HTML bodies — their typed binary save path rejects the value
@@ -33,17 +35,31 @@ register('EC_EXECUTE', async (msg, respond) => {
     // Activity log: EC runs are first-class actions worth surfacing in the Log
     // tab — previously only enrichment / connection / detection touched it.
     const mode = msg.transactional ? 'execute' : 'preview';
-    const lineCount = msg.code.split('\n').length;
-    const target = msg.objectRid ? ` against ${msg.objectRid}` : '';
+    const object = msg.objectRid ? activityObject(msg.objectRid, ctx.cache.get(msg.objectRid)) : undefined;
+    const target = object ? activityObjectLabel(object, msg.objectRid!) : 'standalone code';
+    const property = msg.property ? ` · ${msg.property}` : '';
+    const verb = msg.transactional ? 'Executed' : 'Previewed';
+    const meta: ActivityMeta = {
+      category: 'execution',
+      action: mode,
+      ...(object ? { object } : {}),
+      durationMs,
+    };
+    const detail = ecActivityDetail(result);
     if (result.ok) {
-      ctx.logActivity('success', `EC ${mode}${target} (${lineCount} line${lineCount === 1 ? '' : 's'}, ${durationMs}ms)`);
+      ctx.logActivity('success', `${verb} EC on ${target}${property} (${durationMs}ms)`, detail, meta);
     } else {
-      ctx.logActivity('warn', `EC ${mode} failed${target}`, result.error);
+      ctx.logActivity('error', `EC ${mode} failed on ${target}${property} (${durationMs}ms)`, detail, meta);
     }
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
     respond({ type: 'EC_RESULT', ok: false, error: errorMessage(e) });
-    ctx.logActivity('error', 'EC threw', errMsg);
+    const object = msg.objectRid ? activityObject(msg.objectRid, ctx.cache.get(msg.objectRid)) : undefined;
+    ctx.logActivity('error', `EC request failed on ${activityObjectLabel(object, msg.objectRid ?? 'standalone code')}`, errMsg, {
+      category: 'execution',
+      action: msg.transactional ? 'execute' : 'preview',
+      ...(object ? { object } : {}),
+    });
     // Thrown EC (vs result.ok=false) means BMP never even saw the
     // request — usually auth/network. Editor surfaces ok=false inline,
     // but a thrown error can race the SW unload and leave the editor
@@ -68,16 +84,32 @@ register('SAVE_PROPERTY', async (msg, respond) => {
     // the response was lost between SW and the editor (MV3 SW unload race).
     log.debug('handler:save', `SAVE_PROPERTY ${msg.property} on ${msg.rid}: ok=${result.ok}, ${durationMs}ms${result.error ? `, error=${result.error}` : ''}`);
     respond({ type: 'SAVE_RESULT', ...result });
+    const object = activityObject(msg.rid, ctx.cache.get(msg.rid));
+    const label = activityObjectLabel(object, msg.rid);
+    const meta: ActivityMeta = {
+      category: 'change',
+      action: 'save-property',
+      object,
+      durationMs,
+    };
     if (result.ok) {
+      ctx.logActivity('success', `Saved ${msg.property} on ${label} (${durationMs}ms)`, undefined, meta);
       // Drop the cached enrichment + re-fetch so badges / side panel
       // pick up any name/type/businessId change immediately. Fire-and-
       // forget; this doesn't block the editor's "saved" UI.
       invalidateRid(msg.rid).catch(e => log.swallow('handler:save:invalidate', e));
+    } else {
+      ctx.logActivity('error', `Save failed for ${msg.property} on ${label} (${durationMs}ms)`, result.error, meta);
     }
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
     respond({ type: 'SAVE_RESULT', ok: false, error: errorMessage(e) });
-    ctx.logActivity('error', `Save threw on ${msg.rid}`, errMsg);
+    const object = activityObject(msg.rid, ctx.cache.get(msg.rid));
+    ctx.logActivity('error', `Save request failed for ${msg.property} on ${activityObjectLabel(object, msg.rid)}`, errMsg, {
+      category: 'change',
+      action: 'save-property',
+      object,
+    });
     // Thrown save means SW lost track before BMP responded. Editor
     // window may already be torn down — surface via toast so the user
     // doesn't think the save silently succeeded.

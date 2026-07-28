@@ -1591,10 +1591,19 @@ body.crev-divider-dragging * { user-select: none; }
 }
 .log-filter-row {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
   padding: 6px 8px;
   border-bottom: 1px solid var(--surface-3);
   flex-shrink: 0;
+}
+.log-profile-filters {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+  padding-left: 6px;
+  border-left: 1px solid var(--surface-3);
 }
 .log-filter-chip {
   font: 500 11px/1 var(--font-body, 'Inter', system-ui, sans-serif);

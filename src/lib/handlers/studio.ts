@@ -8,6 +8,7 @@ import { getCtx } from '../sw-context'
 import { openStudioWindow } from '../cvo-studio'
 import { errorMessage, log } from '../logger'
 import { formatEcLiteral } from '../ec-guards'
+import { ecActivityDetail } from '../activity-format'
 import type { StudioChildType } from '../types'
 
 // CVO child kind -> BMP class. Each populates a different `_data.*` map.
@@ -106,14 +107,29 @@ register('STUDIO_ADD_CHILD', async (msg, respond) => {
     `_n.change(key := '${key}')`,
     `output("RID=" + str(_n.rid))`,
   ].join('\n')
+  const startedAt = Date.now()
   try {
     const res = await ctx.client.executeEc(code, undefined, true)
-    if (!res.ok) { respond({ type: 'STUDIO_CHILD_ADDED', ok: false, error: res.error }); return }
+    const durationMs = Date.now() - startedAt
+    if (!res.ok) {
+      respond({ type: 'STUDIO_CHILD_ADDED', ok: false, error: res.error })
+      ctx.logActivity('error', `Studio failed to add ${msg.childType} ${msg.childId} (${durationMs}ms)`, ecActivityDetail(res), {
+        category: 'studio', action: 'add-child', durationMs,
+      })
+      return
+    }
     // Same as STUDIO_WRITE_RESOURCE: the transactional log mixes change-tracking
     // with the output, so read the rid from the RID= marker, not a whole trim.
     respond({ type: 'STUDIO_CHILD_ADDED', ok: true, rid: (res.log ?? '').match(/RID=(-?\d+)/)?.[1] })
+    ctx.logActivity('success', `Studio added ${msg.childType} ${msg.childId} to ${msg.cvoBid} (${durationMs}ms)`, undefined, {
+      category: 'studio', action: 'add-child', durationMs,
+    })
   } catch (e) {
-    respond({ type: 'STUDIO_CHILD_ADDED', ok: false, error: errorMessage(e) })
+    const error = errorMessage(e)
+    respond({ type: 'STUDIO_CHILD_ADDED', ok: false, error })
+    ctx.logActivity('error', `Studio add failed for ${msg.childId}`, error, {
+      category: 'studio', action: 'add-child',
+    })
   }
 })
 
@@ -165,16 +181,38 @@ register('STUDIO_WRITE_RESOURCE', async (msg, respond) => {
     `     output("RID=" + str(_new.rid))`,
     `ENDIF`,
   ].join('\n')
+  const startedAt = Date.now()
   try {
     const res = await ctx.client.executeEc(code, undefined, true)
-    if (!res.ok) { respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: res.error }); return }
+    const durationMs = Date.now() - startedAt
+    if (!res.ok) {
+      respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: res.error })
+      ctx.logActivity('error', `Studio failed to host ${name} (${durationMs}ms)`, ecActivityDetail(res), {
+        category: 'studio', action: 'write-resource', durationMs,
+      })
+      return
+    }
     // executeEc's log mixes change-tracking lines with the output value, so the
     // rid can't be read by trimming the whole log — pull it from the RID= marker.
     const rid = (res.log ?? '').match(/RID=(-?\d+)/)?.[1]
-    if (!rid) { respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: 'Hosted, but could not read the new resource rid from BMP' }); return }
+    if (!rid) {
+      const error = 'Hosted, but could not read the new resource rid from BMP'
+      respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error })
+      ctx.logActivity('error', `Studio hosted ${name}, but verification failed (${durationMs}ms)`, error, {
+        category: 'studio', action: 'write-resource', durationMs,
+      })
+      return
+    }
     respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: true, rid, id })
+    ctx.logActivity('success', `Studio hosted ${name} as ${id} (${durationMs}ms)`, undefined, {
+      category: 'studio', action: 'write-resource', durationMs,
+    })
   } catch (e) {
-    respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: errorMessage(e) })
+    const error = errorMessage(e)
+    respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error })
+    ctx.logActivity('error', `Studio host failed for ${name}`, error, {
+      category: 'studio', action: 'write-resource',
+    })
   }
 })
 
@@ -213,11 +251,25 @@ register('STUDIO_SAVE_CHILD', async (msg, respond) => {
     lines.push(`_o.change(table := t.get("${formatEcLiteral(f.table)}"))`)
   }
   lines.push(`output("ok")`)
+  const startedAt = Date.now()
   try {
     const res = await ctx.client.executeEc(lines.join('\n'), undefined, true)
+    const durationMs = Date.now() - startedAt
     respond({ type: 'STUDIO_CHILD_SAVED', ok: res.ok, error: res.error })
+    ctx.logActivity(
+      res.ok ? 'success' : 'error',
+      res.ok
+        ? `Studio saved ${msg.childType} ${msg.childId} (${durationMs}ms)`
+        : `Studio save failed for ${msg.childId} (${durationMs}ms)`,
+      ecActivityDetail(res),
+      { category: 'studio', action: 'save-child', durationMs },
+    )
   } catch (e) {
-    respond({ type: 'STUDIO_CHILD_SAVED', ok: false, error: errorMessage(e) })
+    const error = errorMessage(e)
+    respond({ type: 'STUDIO_CHILD_SAVED', ok: false, error })
+    ctx.logActivity('error', `Studio save request failed for ${msg.childId}`, error, {
+      category: 'studio', action: 'save-child',
+    })
   }
 })
 
@@ -229,11 +281,25 @@ register('STUDIO_DELETE_CHILD', async (msg, respond) => {
     `_o.delete()`,
     `output("deleted")`,
   ].join('\n')
+  const startedAt = Date.now()
   try {
     const res = await ctx.client.executeEc(code, undefined, true)
+    const durationMs = Date.now() - startedAt
     respond({ type: 'STUDIO_CHILD_DELETED', ok: res.ok, error: res.error })
+    ctx.logActivity(
+      res.ok ? 'success' : 'error',
+      res.ok
+        ? `Studio deleted ${msg.childId} (${durationMs}ms)`
+        : `Studio delete failed for ${msg.childId} (${durationMs}ms)`,
+      ecActivityDetail(res),
+      { category: 'studio', action: 'delete-child', durationMs },
+    )
   } catch (e) {
-    respond({ type: 'STUDIO_CHILD_DELETED', ok: false, error: errorMessage(e) })
+    const error = errorMessage(e)
+    respond({ type: 'STUDIO_CHILD_DELETED', ok: false, error })
+    ctx.logActivity('error', `Studio delete request failed for ${msg.childId}`, error, {
+      category: 'studio', action: 'delete-child',
+    })
   }
 })
 

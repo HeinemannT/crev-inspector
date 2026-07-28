@@ -19,11 +19,11 @@ function pushEntries(tab: LogTab, entries: ActivityEntry[]) {
 
 function entries(): ActivityEntry[] {
   return [
-    { id: 1, time: 1000, level: 'info', message: 'sbx-1', profileId: 'sbx' },
-    { id: 2, time: 2000, level: 'info', message: 'dev-1', profileId: 'dev' },
-    { id: 3, time: 3000, level: 'info', message: 'prod-1', profileId: 'prod' },
-    { id: 4, time: 4000, level: 'info', message: 'legacy-no-tag' }, // no profileId
-    { id: 5, time: 5000, level: 'info', message: 'sbx-2', profileId: 'sbx' },
+    { id: 1, time: 1000, level: 'info', category: 'change', message: 'sbx-1', profileId: 'sbx' },
+    { id: 2, time: 2000, level: 'info', category: 'change', message: 'dev-1', profileId: 'dev' },
+    { id: 3, time: 3000, level: 'info', category: 'change', message: 'prod-1', profileId: 'prod' },
+    { id: 4, time: 4000, level: 'info', category: 'change', message: 'legacy-no-tag' }, // no profileId
+    { id: 5, time: 5000, level: 'info', category: 'change', message: 'sbx-2', profileId: 'sbx' },
   ];
 }
 
@@ -67,7 +67,7 @@ describe('LogTab — profile filter', () => {
     tab.render(container);
 
     // Click the "All" chip (the filter row is the first child).
-    const allChip = container.querySelector('[data-filter="all"]') as HTMLElement;
+    const allChip = container.querySelector('[data-profile-filter="all"]') as HTMLElement;
     expect(allChip).toBeTruthy();
     allChip.click();
 
@@ -86,8 +86,8 @@ describe('LogTab — profile filter', () => {
     tab.render(container);
 
     // Start on "all", then click back.
-    (container.querySelector('[data-filter="all"]') as HTMLElement).click();
-    (container.querySelector('[data-filter="this"]') as HTMLElement).click();
+    (container.querySelector('[data-profile-filter="all"]') as HTMLElement).click();
+    (container.querySelector('[data-profile-filter="this"]') as HTMLElement).click();
 
     const shown = renderedMessages(container);
     expect(shown).toContain('dev-1');
@@ -96,16 +96,15 @@ describe('LogTab — profile filter', () => {
     expect(shown).not.toContain('prod-1');
   });
 
-  it('hides the filter row when only one profile is configured', () => {
+  it('hides only the profile scope when one profile is configured', () => {
     configureProfiles('sbx', ['sbx']);
     const tab = new LogTab(vi.fn());
     pushEntries(tab, entries());
     const container = document.createElement('div');
     tab.render(container);
 
-    // No filter row at all — there's nothing to filter on.
-    expect(container.querySelector('.log-filter-row')).toBeNull();
-    // Without the filter, all entries are shown.
+    expect(container.querySelector('.log-filter-row')).toBeTruthy();
+    expect(container.querySelector('.log-profile-filters')).toBeNull();
     const shown = renderedMessages(container);
     expect(shown.length).toBe(5);
   });
@@ -135,6 +134,7 @@ describe('LogTab — profile filter', () => {
         id: 6,
         time: 6000,
         level: 'warn',
+        category: 'blueprint',
         message: 'Blueprint apply unverified',
         detail: 'BMP execution log\nWould addTabSet: 1',
         profileId: 'sbx',
@@ -146,5 +146,39 @@ describe('LogTab — profile filter', () => {
     const row = container.querySelector('.activity-entry') as HTMLElement;
     expect(row.getAttribute('aria-expanded')).toBe('true');
     expect(container.querySelector('.activity-detail')?.textContent).toContain('Would addTabSet: 1');
+  });
+
+  it('defaults to user activity while All keeps diagnostics accessible', () => {
+    configureProfiles('sbx', ['sbx']);
+    const tab = new LogTab(vi.fn());
+    pushEntries(tab, [
+      { id: 1, time: 1000, level: 'info', category: 'system', message: 'Detection: BMP page' },
+      { id: 2, time: 2000, level: 'success', category: 'execution', message: 'Executed EC' },
+      { id: 3, time: 3000, level: 'error', category: 'system', message: 'Connection failed' },
+    ]);
+    const container = document.createElement('div');
+    tab.render(container);
+
+    expect(renderedMessages(container)).toEqual(expect.arrayContaining(['Executed EC', 'Connection failed']));
+    expect(renderedMessages(container)).not.toContain('Detection: BMP page');
+
+    (container.querySelector('[data-event-filter="all"]') as HTMLElement).click();
+    expect(renderedMessages(container)).toContain('Detection: BMP page');
+  });
+
+  it('filters Problems to warnings and errors', () => {
+    configureProfiles('sbx', ['sbx']);
+    const tab = new LogTab(vi.fn());
+    pushEntries(tab, [
+      { id: 1, time: 1000, level: 'success', category: 'change', message: 'Saved expression' },
+      { id: 2, time: 2000, level: 'warn', category: 'blueprint', message: 'Apply unverified' },
+      { id: 3, time: 3000, level: 'error', category: 'execution', message: 'EC failed' },
+    ]);
+    const container = document.createElement('div');
+    tab.render(container);
+
+    (container.querySelector('[data-event-filter="problems"]') as HTMLElement).click();
+    expect(renderedMessages(container)).toEqual(expect.arrayContaining(['Apply unverified', 'EC failed']));
+    expect(renderedMessages(container)).not.toContain('Saved expression');
   });
 });

@@ -395,12 +395,26 @@ export const DEFAULT_SETTINGS: InspectorSettings = {
 };
 
 /** Activity feed entry */
+export type ActivityCategory = 'execution' | 'change' | 'blueprint' | 'paint' | 'studio' | 'system';
+
+export interface ActivityMeta {
+  category: ActivityCategory;
+  action?: string;
+  object?: ObjectReference;
+  durationMs?: number;
+}
+
 export interface ActivityEntry {
   id: number;
   time: number;
   level: 'info' | 'success' | 'warn' | 'error';
   message: string;
   detail?: string;
+  /** Structured metadata keeps filtering cheap and avoids parsing display copy. */
+  category?: ActivityCategory;
+  action?: string;
+  object?: ObjectReference;
+  durationMs?: number;
   /** Profile the action ran against. Used to filter the Log tab when
    *  the user has multiple environments configured. Missing on legacy
    *  entries — UI treats them as belonging to the active profile. */

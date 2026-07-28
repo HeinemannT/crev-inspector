@@ -4,7 +4,7 @@ import type { HistoryManager } from './history';
 import type { FavoritesManager } from './favorites';
 import type { ScriptHistoryManager } from './script-history';
 import type { StylePresetStore } from './style-presets';
-import type { InspectorMessage, InspectorSettings, ActivityEntry } from './types';
+import type { InspectorMessage, InspectorSettings, ActivityEntry, ActivityMeta } from './types';
 
 /** Shared mutable context passed to all service-worker modules. */
 export interface SwContext {
@@ -46,7 +46,7 @@ export interface SwContext {
   technicalOverlay: boolean;
   settingsReady: Promise<void>;
 
-  logActivity(level: ActivityEntry['level'], message: string, detail?: string): void;
+  logActivity(level: ActivityEntry['level'], message: string, detail?: string, meta?: ActivityMeta): void;
   /** Broadcast to every connected panel. Use for global state updates
    *  (CONNECTION_STATE, SETTINGS_DATA, ACTIVITY_ENTRY, …) — anything
    *  that's the same across windows. */

@@ -12,8 +12,27 @@ import { toggleInspect } from './inspect';
 import { errorMessage, log } from '../logger';
 import type { PlanNote } from '../layout/types';
 import type { ApplyResult } from '../layout/sync';
+import type { ActivityMeta } from '../types';
 
 const BLUEPRINT_VERSION_ERROR = 'Blueprint requires BMP 5.6.3 or newer.';
+
+function blueprintActivityMeta(
+  page: { pageRid: string; pageId: string; pageClass?: string },
+  action: string,
+  durationMs?: number,
+): ActivityMeta {
+  return {
+    category: 'blueprint',
+    action,
+    object: {
+      rid: page.pageRid,
+      businessId: page.pageId,
+      type: page.pageClass ?? 'Page',
+      name: page.pageId,
+    },
+    ...(durationMs == null ? {} : { durationMs }),
+  };
+}
 
 function blueprintSupported(ctx: SwContext): boolean {
   return ctx.client?.supportsLookup !== false;
@@ -224,22 +243,24 @@ register('LAYOUT_APPLY', async (msg, respond) => {
     // requested changes, generated EC, and internal timings. A partial apply is logged loudly at
     // 'error' even when ok:true because BMP EC is not atomic.
     const detail = () => applyActivityDetail(res, timings);
+    const durationMs = Date.now() - t0;
+    const meta = blueprintActivityMeta(msg.ctx, 'apply', durationMs);
     if (res.noop) {
-      ctx.logActivity('success', 'Blueprint apply: no changes');
+      ctx.logActivity('success', 'Blueprint apply: no changes', undefined, meta);
     } else if (res.unverified) {
       // Commit ran but the reconcile re-fetch failed — warn (ok) / error (errored partway), never a bare
       // "apply failed": the write most likely landed and the page reloads to show the truth.
-      ctx.logActivity(res.ok ? 'warn' : 'error', `Blueprint apply UNVERIFIED — ${res.error ?? 'reconcile re-fetch failed'}`, detail());
+      ctx.logActivity(res.ok ? 'warn' : 'error', `Blueprint apply UNVERIFIED — ${res.error ?? 'reconcile re-fetch failed'}`, detail(), meta);
     } else if (res.partial) {
-      ctx.logActivity('error', `Blueprint apply PARTIAL — ${res.error ?? 'some steps did not land'}`, detail());
+      ctx.logActivity('error', `Blueprint apply PARTIAL — ${res.error ?? 'some steps did not land'}`, detail(), meta);
     } else if (res.ok) {
-      ctx.logActivity('success', `Blueprint applied ${res.plan.length} step(s) (${Date.now() - t0}ms)`, detail());
+      ctx.logActivity('success', `Blueprint applied ${res.plan.length} step(s) (${durationMs}ms)`, detail(), meta);
     } else {
-      ctx.logActivity('error', 'Blueprint apply failed', detail());
+      ctx.logActivity('error', 'Blueprint apply failed', detail(), meta);
     }
   } catch (e) {
     respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: errorMessage(e) });
-    ctx.logActivity('error', 'Blueprint apply threw', e instanceof Error ? e.message : String(e));
+    ctx.logActivity('error', 'Blueprint apply threw', e instanceof Error ? e.message : String(e), blueprintActivityMeta(msg.ctx, 'apply'));
   }
 });
 

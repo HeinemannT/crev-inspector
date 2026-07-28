@@ -4,6 +4,7 @@
 
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
+import { activityObject, activityObjectLabel } from '../activity-format';
 import { CODE_PROPS_FOR_TYPE } from '../types';
 import { incrementGeneration, invalidateRid } from '../enrichment';
 import { clearActivityLog } from '../activity';
@@ -917,8 +918,12 @@ register('APPLY_OBJECT_CHANGES', async (msg, respond) => {
     respond({ type: 'APPLY_CHANGES_RESULT', rid: msg.rid, ok: false, error: 'Not connected' });
     return;
   }
+  const startedAt = Date.now();
+  const object = activityObject(msg.rid, ctx.cache.get(msg.rid));
+  const label = activityObjectLabel(object, msg.rid);
   try {
     const result = await ctx.client.applyObjectChanges(msg.rid, msg.target, msg.changes);
+    const durationMs = Date.now() - startedAt;
     respond({ type: 'APPLY_CHANGES_RESULT', rid: msg.rid, ok: result.ok, error: result.error });
     // Activity log: edits are the most-clicked surface; the Log tab was
     // otherwise blind to them. Surface prop-by-prop summary so the user
@@ -928,7 +933,9 @@ register('APPLY_OBJECT_CHANGES', async (msg, respond) => {
       ? propList[0]
       : `${propList.length} props (${propList.slice(0, 3).join(', ')}${propList.length > 3 ? '…' : ''})`;
     if (result.ok) {
-      ctx.logActivity('success', `Edited ${msg.target} ${msg.rid}: ${propSummary}`);
+      ctx.logActivity('success', `Edited ${msg.target} ${label}: ${propSummary} (${durationMs}ms)`, undefined, {
+        category: 'change', action: 'edit-object', object, durationMs,
+      });
       // Drop cached enrichment so badges + detail view refresh on the
       // next read. Fire-and-forget; the panel "saved" UI doesn't need
       // to wait for the re-fetch.
@@ -937,13 +944,17 @@ register('APPLY_OBJECT_CHANGES', async (msg, respond) => {
       // Log AND toast: the user clicked Save and the detail-view inline
       // banner is easy to miss if focus moved or the detail view
       // closed.
-      ctx.logActivity('error', `Edit failed: ${propSummary}`, result.error);
+      ctx.logActivity('error', `Edit failed on ${label}: ${propSummary} (${durationMs}ms)`, result.error, {
+        category: 'change', action: 'edit-object', object, durationMs,
+      });
       ctx.toast(`Save failed: ${result.error ?? 'unknown error'}`, 'error');
     }
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
     respond({ type: 'APPLY_CHANGES_RESULT', rid: msg.rid, ok: false, error: errorMessage(e) });
-    ctx.logActivity('error', `Edit threw on ${msg.rid}`, errMsg);
+    ctx.logActivity('error', `Edit request failed on ${label}`, errMsg, {
+      category: 'change', action: 'edit-object', object,
+    });
     ctx.toast(`Save threw: ${errMsg}`, 'error');
   }
 });
