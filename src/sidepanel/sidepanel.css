@@ -1039,6 +1039,8 @@ body {
   align-items: center;
   gap: 10px;
   margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--surface-3);
 }
 .footer-cache { font-size: var(--text-xs); color: var(--text-3); }
 .footer-spacer { flex: 1; }
@@ -1085,7 +1087,12 @@ body {
   cursor: pointer;
   text-align: left;
 }
-.ref-toggle-label { font-size: var(--text-sm); color: var(--text-2); }
+.ref-toggle-label {
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
 .ref-toggle:hover .ref-toggle-label { color: var(--text-1); }
 .ref-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius-sm); }
 .disclosure-caret {
@@ -1747,7 +1754,9 @@ body.crev-divider-dragging * { user-select: none; }
  * cannot crowd the activity marquee. */
 .status-bar-context {
   max-width: 140px;
-  flex-shrink: 0;
+  min-width: 0;
+  flex: 1 1 140px;
+  overflow: hidden;
 }
 .status-bar-context--empty {
   padding: 1px 6px;
@@ -1771,6 +1780,7 @@ body.crev-divider-dragging * { user-select: none; }
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  white-space: nowrap;
   padding: 1px 6px;
   border-radius: 999px;
   font-family: var(--font-mono);

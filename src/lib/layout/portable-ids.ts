@@ -1,6 +1,7 @@
 import { existingSupportCategory } from './flow';
 import { walk } from './model';
 import { formatEcLiteral, validateBusinessId } from '../ec-guards';
+import { getTypeAbbr } from '../type-registry';
 import type { LayoutIO } from './sync';
 import type { FlowNode, LModel, LNode, PlanStep } from './types';
 
@@ -22,14 +23,15 @@ export const DEFAULT_PORTABLE_ID_CONFIG: PortableIdConfig = {
   pattern: DEFAULT_PORTABLE_ID_PATTERN,
 };
 
-export const PORTABLE_ID_TOKENS = ['page', 'parent', 'class', 'name'] as const;
+export const PORTABLE_ID_TOKENS = ['page', 'parent', 'class', 'name', 'hash4'] as const;
 export const SUPPORT_CATEGORY_KEY = '@support-category';
 export const VIRTUAL_TABSET_KEY = '@virtual-tabset';
 
 type Token = typeof PORTABLE_ID_TOKENS[number];
-type TokenValues = Record<Token, string>;
+type SemanticToken = Exclude<Token, 'hash4'>;
+type TokenValues = Record<SemanticToken, string>;
 
-const TOKEN_RE = /\{([a-z]+)\}/gi;
+const TOKEN_RE = /\{([a-z][a-z0-9]*)\}/gi;
 const KNOWN_TOKENS = new Set<string>(PORTABLE_ID_TOKENS);
 
 /** BMP business IDs are case-insensitive and accept alphanumerics/underscores. Keep the output
@@ -53,14 +55,34 @@ export function portableIdPatternError(pattern: string): string | null {
   }
   const bracesRemoved = pattern.replace(TOKEN_RE, '');
   if (/[{}]/.test(bracesRemoved)) return 'Tags must use matching braces.';
-  if (![...pattern.matchAll(TOKEN_RE)].length) return 'Add at least one text tag.';
+  if (![...pattern.matchAll(TOKEN_RE)].length) return 'Add at least one tag.';
   return null;
+}
+
+/** Stable four-hex discriminator for the full hierarchical identity. Slugging first makes equivalent
+ * Unicode/case/punctuation spellings hash alike across environments; live collision checks remain the
+ * final authority when two semantic identities happen to share 16 bits. */
+export function portableIdHash4(values: TokenValues): string {
+  const canonical = (['page', 'parent', 'class', 'name'] as const)
+    .map(token => portableIdSlug(values[token]))
+    .join('|');
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < canonical.length; i++) {
+    hash ^= canonical.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return (hash & 0xffff).toString(16).padStart(4, '0');
 }
 
 export function renderPortableId(pattern: string, values: TokenValues): string {
   const error = portableIdPatternError(pattern);
   if (error) throw new Error(error);
-  const expanded = pattern.replace(TOKEN_RE, (_whole, raw: string) => values[raw.toLowerCase() as Token]);
+  const expanded = pattern.replace(TOKEN_RE, (_whole, raw: string) => {
+    const token = raw.toLowerCase() as Token;
+    if (token === 'hash4') return portableIdHash4(values);
+    if (token === 'class') return getTypeAbbr(values.class).toLowerCase();
+    return values[token];
+  });
   return portableIdSlug(expanded) || 'object';
 }
 

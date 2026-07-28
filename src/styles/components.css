@@ -584,7 +584,8 @@
 }
 .object-chip--xs { padding-block: 1px; font-size: var(--text-xs); }
 .object-chip--interactive { cursor: pointer; }
-.object-chip--interactive:hover {
+.object-chip--interactive:hover,
+.object-chip--preview:hover {
   color: var(--text-1);
   background: var(--surface-2);
   border-color: var(--surface-4);

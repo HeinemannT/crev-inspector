@@ -57,15 +57,34 @@ describe('portable Blueprint IDs', () => {
     expect(portableIdSlug('  Größte Risiken & Maßnahmen  ')).toBe('grosste_risiken_and_massnahmen');
   });
 
-  it('renders and validates text-tag patterns', () => {
+  it('renders abbreviated class tags and validates ID patterns', () => {
     expect(renderPortableId('{page}_{class}_{name}', {
       page: 'Risk Register',
       parent: 'Overview',
       class: 'TextElement',
       name: 'Top 10',
-    })).toBe('risk_register_textelement_top_10');
+    })).toBe('risk_register_txt_top_10');
+    expect(renderPortableId('{class}_{name}', {
+      page: 'Risk Register',
+      parent: 'Overview',
+      class: 'ExtendedTable',
+      name: 'Top risks',
+    })).toBe('tbl_top_risks');
     expect(portableIdPatternError('{page}_{unknown}')).toBe('Unknown tag {unknown}.');
-    expect(portableIdPatternError('fixed_only')).toBe('Add at least one text tag.');
+    expect(portableIdPatternError('fixed_only')).toBe('Add at least one tag.');
+  });
+
+  it('offers a stable four-character hierarchical hash tag', () => {
+    const values = {
+      page: 'Risk Register',
+      parent: 'Overview',
+      class: 'ExtendedTable',
+      name: 'Top risks',
+    };
+    const first = renderPortableId('{class}_{name}_{hash4}', values);
+    expect(first).toMatch(/^tbl_top_risks_[0-9a-f]{4}$/);
+    expect(renderPortableId('{class}_{name}_{hash4}', values)).toBe(first);
+    expect(renderPortableId('{class}_{name}_{hash4}', { ...values, parent: 'Details' })).not.toBe(first);
   });
 
   it('covers implicit support objects and every staged layout object', () => {
@@ -86,7 +105,7 @@ describe('portable Blueprint IDs', () => {
       'new:widget',
     ]);
     expect(requests.find(request => request.key === 'new:widget')?.base)
-      .toBe('enterprise_risk_summary_textelement_top_risks');
+      .toBe('enterprise_risk_summary_txt_top_risks');
   });
 
   it('suffixes live and same-batch collisions case-insensitively', () => {

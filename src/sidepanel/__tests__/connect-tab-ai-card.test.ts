@@ -179,4 +179,15 @@ describe('AI Assistant card states', () => {
     expect(card.classList.contains('ready')).toBe(true);
     expect(card.querySelector('.ai-card-latency')?.textContent).toBe('233 ms');
   });
+
+  it('uses the standard section-heading grammar for shortcuts and separates cache utilities', () => {
+    shared.settings = freshSettings();
+    shared.cacheCount = 27;
+    const { el } = renderTab();
+
+    expect(el.querySelector('.ref-toggle.connect-eyebrow')?.textContent).toContain('Keyboard shortcuts');
+    expect(el.querySelector('.footer-actions')?.textContent).toContain('27 cached');
+    expect(el.querySelector('.footer-actions')?.textContent).toContain('Clear cache');
+    expect(el.querySelector('.footer-actions')?.textContent).toContain('Reset all');
+  });
 });

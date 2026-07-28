@@ -28,6 +28,7 @@ describe('Blueprint command header', () => {
     const target = chip.querySelector('.bp-target');
 
     expect(page?.querySelector('.bdg')).not.toBeNull();
+    expect(page?.classList.contains('object-chip--preview')).toBe(true);
     expect(page?.querySelector('.object-chip-label')?.textContent).toBe('sc_risk_register');
     expect(chip.querySelector('.bp-word')).toBeNull();
     expect(chip.textContent).not.toContain('BLUEPRINT');
@@ -46,13 +47,14 @@ describe('Blueprint command header', () => {
     expect(bp.settingsOpen).toBe(true);
   });
 
-  it('keeps the live-page peek as a real setting', () => {
+  it('keeps live-page peek in the header rather than settings', () => {
+    const chip = renderChip(ctx, 0);
     const panel = settingsPanel({ left: 12, top: 60 });
-    const row = panel.querySelector<HTMLButtonElement>('[aria-label="Show live page"]');
+    const peek = chip.querySelector<HTMLButtonElement>('.bp-peek-trigger');
 
-    expect(row?.getAttribute('role')).toBe('switch');
-    expect(row?.getAttribute('aria-checked')).toBe('false');
-    row?.click();
+    expect(panel.querySelector('[aria-label="Show live page"]')).toBeNull();
+    expect(peek?.getAttribute('aria-pressed')).toBe('false');
+    peek?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     expect(bp.peek).toBe(true);
   });
 
@@ -67,7 +69,10 @@ describe('Blueprint command header', () => {
 
     expect(toggle?.disabled).toBe(false);
     expect(pattern?.value).toBe('{page}_{parent}_{class}_{name}');
-    expect(templatePanel.querySelector('.bp-id-example')?.textContent).toContain('textelement');
+    expect(templatePanel.textContent).toContain('Automatic ID Assignment');
+    expect(templatePanel.querySelector('.bp-id-example')?.textContent).toContain('_txt_');
+    expect(Array.from(templatePanel.querySelectorAll('.bp-id-tags button')).map(button => button.textContent))
+      .toContain('{hash4}');
 
     bp.ctx = { ...ctx, target: 'instance' };
     const instancePanel = settingsPanel({ left: 12, top: 60 });

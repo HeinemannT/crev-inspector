@@ -208,6 +208,7 @@ export function objectChip(identity: ObjectReference, options: ObjectChipOptions
     'object-chip',
     options.size === 'xs' ? 'object-chip--xs' : '',
     interactive ? 'object-chip--interactive' : '',
+    options.preview !== false ? 'object-chip--preview' : '',
     options.className ?? '',
   ].filter(Boolean).join(' ');
   const attrs = interactive

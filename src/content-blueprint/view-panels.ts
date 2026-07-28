@@ -14,7 +14,7 @@ import { lint } from '../lib/layout/constraints';
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { flowChangeCount, flowDiff } from '../lib/layout/flow';
 import { compile } from '../lib/layout/ec';
-import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_SLIDERS, ICON_COPY } from '../lib/icons';
+import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_SLIDERS, ICON_COPY, ICON_EYE_SLASH } from '../lib/icons';
 import { objectChip } from '../lib/object-chip';
 import {
   PORTABLE_ID_TOKENS,
@@ -345,7 +345,6 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
     name: ctx.pageId,
   }, {
     label: ctx.pageId,
-    preview: false,
     className: 'bp-page-chip',
   }));
   const settings = mkIconBtn(ICON_SLIDERS, toggleSettings);
@@ -377,6 +376,17 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   // (No "affects all instances" banner here — the template scope is shown by the Template/Instance
   // toggle above, and the full blast-radius warning is spelled out in the apply-preview modal.)
   c.appendChild(sp());
+  // Hover temporarily reveals BMP's live widgets; click keeps that state on. This frequent spatial
+  // check belongs in the header, not in the settings panel.
+  const peek = mkIconBtn(ICON_EYE_SLASH, togglePeek);
+  peek.classList.add('plain', 'bp-peek-trigger');
+  peek.classList.toggle('on', bp.peek);
+  peek.title = 'Show live page. Hover to peek; click to keep it visible.';
+  peek.setAttribute('aria-label', 'Show live page');
+  peek.setAttribute('aria-pressed', String(bp.peek));
+  peek.addEventListener('mouseenter', () => bp.layer?.classList.add('bp-peek'));
+  peek.addEventListener('mouseleave', () => { if (!bp.peek) bp.layer?.classList.remove('bp-peek'); });
+  c.appendChild(peek);
   // Undo/redo are borderless: frequent, low-stakes nudges that should not crowd out Exit.
   const undoB = mkIconBtn(ICON_ARROW_UNDO, undo); undoB.title = 'Undo'; undoB.disabled = !bp.history?.canUndo(); undoB.classList.add('plain'); c.appendChild(undoB);
   const redoB = mkIconBtn(ICON_ARROW_REDO, redo); redoB.title = 'Redo'; redoB.disabled = !bp.history?.canRedo(); redoB.classList.add('plain'); c.appendChild(redoB);
@@ -440,7 +450,7 @@ export function settingsPanel(anchor: { left: number; top: number }): HTMLElemen
   idCopy.className = 'bp-settings-copy';
   const idLabel = document.createElement('span');
   idLabel.className = 'bp-settings-label';
-  idLabel.textContent = 'Portable text IDs';
+  idLabel.textContent = 'Automatic ID Assignment';
   const idHelp = document.createElement('span');
   idHelp.className = 'bp-settings-help';
   idHelp.textContent = idsLoading
@@ -466,7 +476,7 @@ export function settingsPanel(anchor: { left: number; top: number }): HTMLElemen
     input.className = 'bp-id-pattern';
     input.value = bp.idConfig.pattern;
     input.spellcheck = false;
-    input.setAttribute('aria-label', 'Portable ID pattern');
+    input.setAttribute('aria-label', 'Automatic ID pattern');
     const feedback = document.createElement('div');
     feedback.className = 'bp-id-feedback';
     const example = document.createElement('code');
@@ -523,29 +533,7 @@ export function settingsPanel(anchor: { left: number; top: number }): HTMLElemen
     refreshFeedback();
   }
 
-  const row = document.createElement('button');
-  row.className = 'bp-settings-row';
-  row.type = 'button';
-  row.setAttribute('role', 'switch');
-  row.setAttribute('aria-label', 'Show live page');
-  row.setAttribute('aria-checked', String(bp.peek));
-  row.addEventListener('click', togglePeek);
-  const copy = document.createElement('span');
-  copy.className = 'bp-settings-copy';
-  const label = document.createElement('span');
-  label.className = 'bp-settings-label';
-  label.textContent = 'Show live page';
-  const help = document.createElement('span');
-  help.className = 'bp-settings-help';
-  help.textContent = 'Fade the canvas to inspect the underlying BMP page.';
-  copy.append(label, help);
-  const toggle = document.createElement('span');
-  toggle.className = 'bp-settings-switch' + (bp.peek ? ' on' : '');
-  toggle.setAttribute('aria-hidden', 'true');
-  toggle.appendChild(document.createElement('span'));
-  row.append(copy, toggle);
-
-  panel.append(head, idSection, row);
+  panel.append(head, idSection);
   back.appendChild(panel);
   return back;
 }

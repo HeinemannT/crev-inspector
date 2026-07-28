@@ -205,7 +205,7 @@ register('LAYOUT_APPLY', async (msg, respond) => {
       type: 'LAYOUT_APPLY_RESULT',
       ok: false,
       noop: false,
-      error: 'Portable text IDs are available only while editing a template.',
+      error: 'Automatic ID assignment is available only while editing a template.',
     });
     return;
   }

@@ -950,7 +950,7 @@ export class ConnectTab implements Tab {
   private renderReferenceDisclosure(rerender: () => void): HTMLElement {
     const wrap = h('div', { class: 'ref-disclosure' });
     const toggle = h('button', {
-      class: 'ref-toggle',
+      class: 'ref-toggle connect-eyebrow',
       'aria-expanded': String(this.referenceOpen),
     },
       h('span', { class: `disclosure-caret${this.referenceOpen ? ' open' : ''}`, 'aria-hidden': 'true' }),
