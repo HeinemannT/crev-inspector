@@ -144,8 +144,12 @@ function field(node: FlowNode, pageId: string, types: readonly string[], schema:
   row.setAttribute('role', 'group');
   row.tabIndex = 0;
   row.setAttribute('aria-label', `${editPageFieldLabel(node)}${selected ? ', selected' : ''}`);
-  row.addEventListener('mousedown', (e) => {
+  // Select on the completed click. Re-rendering on mousedown detached the row
+  // before mouseup, so BMP could receive the remainder of the gesture and the
+  // selection appeared to fail intermittently.
+  row.addEventListener('click', (e) => {
     if ((e.target as HTMLElement).closest('button,.bp-ep-drag')) return;
+    e.preventDefault();
     e.stopPropagation();
     selectEditPageField(node.id, node.className === 'EditField' ? types : []);
   });
@@ -294,7 +298,10 @@ export function renderEditPage(m: LModel, layer: HTMLElement): boolean {
   const title = document.createElement('div');
   title.className = 'bp-ep-title';
   const titleText = document.createElement('span');
-  titleText.textContent = m.editPageTitle || m.pageName || 'Edit page';
+  titleText.className = 'bp-ep-kicker';
+  // The configured page name is BMP chrome, not editable canvas content.
+  // This opaque, neutral label masks it without presenting a duplicate title.
+  titleText.textContent = 'EDIT PAGE';
   const widthNote = document.createElement('code');
   widthNote.className = 'bp-ep-width';
   widthNote.textContent = `${Math.round(width)} px`;
@@ -406,13 +413,20 @@ export function renderEditPage(m: LModel, layer: HTMLElement): boolean {
           + (index < column.nodes.length - 1 ? rowGap : 0), 0),
     );
     const formHeight = Math.max(0, ...columnHeights);
+    // BMP's own action buttons sit at the bottom of the live EditPage host.
+    // Put Blueprint's add action after that complete footprint, not merely
+    // after the projected field rows, so the two action layers never overlap.
+    const addTop = Math.max(
+      geometry.content.top + formHeight + 8,
+      (live?.height ?? 0) + 12,
+    );
     Object.assign(add.style, {
       left: `${geometry.content.left + 18}px`,
-      top: `${geometry.content.top + formHeight + 8}px`,
+      top: `${addTop}px`,
     });
     frame.style.height = `${Math.max(
       live?.height ?? 0,
-      geometry.content.top + formHeight + 52,
+      addTop + 42,
     )}px`;
   }
 

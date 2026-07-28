@@ -170,7 +170,9 @@ export function render(): void {
   const pending = pendingCount(base, m); // headline = logical changes; memoised so pure scroll/observer renders skip diff()
   if (ctx.surface === 'edit-page') {
     const header = document.createElement('div');
-    header.className = 'bp-header bp-editpage-header inst';
+    // An EditPage is an editing surface even though it is instance-backed.
+    // Keep its chrome in Blueprint blue; amber is reserved for staged changes.
+    header.className = 'bp-header bp-editpage-header';
     const main = document.createElement('div');
     main.className = 'bp-header-main';
     main.appendChild(renderChip(ctx, pending));
