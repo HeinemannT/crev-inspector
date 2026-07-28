@@ -145,6 +145,8 @@ describe('LogTab — profile filter', () => {
 
     const row = container.querySelector('.activity-entry') as HTMLElement;
     expect(row.getAttribute('aria-expanded')).toBe('true');
+    expect(row.querySelector('.activity-caret svg')).toBeTruthy();
+    expect(row.querySelector('.activity-caret')?.textContent).not.toContain('▾');
     expect(container.querySelector('.activity-detail')?.textContent).toContain('Would addTabSet: 1');
   });
 

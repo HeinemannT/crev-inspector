@@ -250,9 +250,9 @@ register('LAYOUT_APPLY', async (msg, respond) => {
     } else if (res.unverified) {
       // Commit ran but the reconcile re-fetch failed — warn (ok) / error (errored partway), never a bare
       // "apply failed": the write most likely landed and the page reloads to show the truth.
-      ctx.logActivity(res.ok ? 'warn' : 'error', `Blueprint apply UNVERIFIED — ${res.error ?? 'reconcile re-fetch failed'}`, detail(), meta);
+      ctx.logActivity(res.ok ? 'warn' : 'error', 'Blueprint apply unverified', detail(), meta);
     } else if (res.partial) {
-      ctx.logActivity('error', `Blueprint apply PARTIAL — ${res.error ?? 'some steps did not land'}`, detail(), meta);
+      ctx.logActivity('error', 'Blueprint partially applied', detail(), meta);
     } else if (res.ok) {
       ctx.logActivity('success', `Blueprint applied ${res.plan.length} step(s) (${durationMs}ms)`, detail(), meta);
     } else {

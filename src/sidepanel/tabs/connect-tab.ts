@@ -7,7 +7,7 @@ import { resolveAuthMode } from '../../lib/bmp-auth';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { ICON_EYE_OPEN, ICON_EYE_CLOSED } from '../utils';
-import { ICON_WARNING, ICON_REFRESH, ICON_SPARKLE } from '../../lib/icons';
+import { ICON_WARNING, ICON_REFRESH, ICON_SPARKLE, ICON_CHEVRON } from '../../lib/icons';
 import { S as shared, getTabPanel } from '../state';
 import { FLASH_INVALID_DURATION } from '../../lib/constants';
 import { confirmModal } from '../../lib/modal';
@@ -835,7 +835,7 @@ export class ConnectTab implements Tab {
           h('div', { class: 'ai-model-combo' },
             h('input', { class: 'field-input', id: 'ai-model', value: model, autocomplete: 'off', placeholder: meta.defaultModel }),
             modelOptions.length
-              ? h('button', { class: 'ai-model-caret' + (this.aiModelMenuOpen ? ' open' : ''), type: 'button', 'data-action': 'ai-model-browse', title: 'Browse all models', 'aria-label': 'Browse all models' }, '▾')
+              ? h('button', { class: 'ai-model-caret' + (this.aiModelMenuOpen ? ' open' : ''), type: 'button', 'data-action': 'ai-model-browse', title: 'Browse all models', 'aria-label': 'Browse all models' }, svg(ICON_CHEVRON))
               : null,
             modelMenu,
           ),
@@ -953,7 +953,7 @@ export class ConnectTab implements Tab {
       class: 'ref-toggle connect-eyebrow',
       'aria-expanded': String(this.referenceOpen),
     },
-      h('span', { class: `disclosure-caret${this.referenceOpen ? ' open' : ''}`, 'aria-hidden': 'true' }),
+      h('span', { class: `disclosure-caret${this.referenceOpen ? ' open' : ''}`, 'aria-hidden': 'true' }, svg(ICON_CHEVRON)),
       h('span', { class: 'ref-toggle-label' }, 'Shortcuts & Info'),
     );
     toggle.addEventListener('click', () => {

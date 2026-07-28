@@ -93,9 +93,10 @@ export const ICON_PAINT = ph('M236,32a12,12,0,0,0-12-12c-44.78,0-90,48.54-115.9,
 // "pick a target" than the paintbrush (which implies "apply a style").
 export const ICON_CROSSHAIR = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>';
 export const ICON_EYE_OPEN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
-// Chevron — disclosure twisty. Points right when collapsed; CSS rotates it 90°
-// when open. Cleaner than a text ▸/▾.
-export const ICON_CHEVRON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+// Phosphor Bold CaretRight — the shared disclosure/dropdown indicator. Points
+// right by default; disclosure CSS rotates it 90° when open, while dropdown
+// triggers keep it rotated downward. Replaces the uneven text ▸/▾ glyphs.
+export const ICON_CHEVRON = ph('M187.31,119.51l-80-80a12,12,0,0,0-17,17L161.83,128,90.34,199.51a12,12,0,0,0,17,17l80-80A12,12,0,0,0,187.31,119.51Z');
 // Shield — "Test access" / permission affordance.
 export const ICON_SHIELD = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
 // Status icons for verdicts (access trace etc.) — a circled glyph reads as a

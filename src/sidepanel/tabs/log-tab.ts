@@ -3,7 +3,8 @@
  */
 
 import type { InspectorMessage, ActivityEntry } from '../../lib/types';
-import { h, render } from '../../lib/dom';
+import { h, render, svg } from '../../lib/dom';
+import { ICON_CHEVRON } from '../../lib/icons';
 import { relativeTime } from '../utils';
 import { ACTIVITY_MAX, ACTIVITY_DISPLAY_TIMEOUT } from '../../lib/constants';
 import { S } from '../state';
@@ -148,14 +149,16 @@ export class LogTab implements Tab {
             return h('div', {
               class: `activity-entry activity-entry--${entry.level}${hasDetail ? ' activity-entry--expandable' : ''}`,
               ...(hasDetail
-                ? { 'data-detail-key': String(entry.time), role: 'button', tabindex: '0', 'aria-expanded': String(isOpen) }
+                ? { 'data-detail-key': String(entry.time), role: 'button', tabindex: '0', 'aria-expanded': String(isOpen), title: entry.message }
                 : { title: entry.message }),
             },
               // Level stripe gives a quick scan of severity without reading.
               h('span', { class: 'activity-stripe', 'aria-hidden': 'true' }),
               h('span', { class: 'activity-msg' },
-                hasDetail ? h('span', { class: 'activity-caret', 'aria-hidden': 'true' }, isOpen ? '▾ ' : '▸ ') : null,
-                entry.message),
+                hasDetail
+                  ? h('span', { class: `activity-caret${isOpen ? ' activity-caret--open' : ''}`, 'aria-hidden': 'true' }, svg(ICON_CHEVRON))
+                  : null,
+                h('span', { class: 'activity-msg-text' }, entry.message)),
               count > 1 ? h('span', { class: 'activity-count', title: `Repeated ${count} times` }, `×${count}`) : null,
               h('span', { class: 'activity-time' }, relativeTime(entry.time)),
               isOpen ? h('pre', { class: 'activity-detail' }, entry.detail) : null,

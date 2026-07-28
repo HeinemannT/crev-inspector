@@ -18,7 +18,7 @@ register('SITE_ACCESS_CHANGED', async (msg) => {
   void runAuthTest();
   if (msg.tabId != null) {
     await injectIntoTab(msg.tabId);
-    getCtx().logActivity('success', 'Site access granted — CREV enabled on this tab');
+    getCtx().logActivity('success', 'Site access granted: CREV enabled');
     // Detection + Page tab refresh now that the content script is live.
     setTimeout(() => sendPageInfoToPanel(msg.tabId), 300);
   }
