@@ -21,7 +21,7 @@ import { typeBadge, wireBadgeCopy } from '../lib/type-badge'
 import { objectChip } from '../lib/object-chip'
 import { h, svg, render as renderDom } from '../lib/dom'
 import { captureTypingFocus } from '../lib/focus-keep'
-import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_CODE, ICON_CHEVRON, ICON_WARNING, ICON_SPARKLE } from '../lib/icons'
+import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_CODE, ICON_CHEVRON, ICON_WARNING, ICON_SPARKLE, ICON_BRACKETS } from '../lib/icons'
 import { fetchAiConfig } from '../editor-core/ai-config'
 import type { AiAssist } from '../editor-core/ai-assist'
 import type { AiLang, AiObjectContext, AiContextSource } from '../lib/ai/types'
@@ -67,6 +67,7 @@ import { runtimeErrorLinter, setRuntimeError, parseEcErrorLocation, clearRuntime
 import { ecBlockMatching } from './ec/blockMatching'
 import { ecFoldService } from './ec/foldRegions'
 import { wrapInIf, wrapInForEach } from './ec/wrapCommands'
+import { formatExtendedCode } from './ec/format'
 
 // ── State ────────────────────────────────────────────────────────
 
@@ -152,6 +153,7 @@ let staleAfterPreview = false
 let lastSavedAt: number | null = null
 let contextRetryGeneration = 0
 let saveLabelTimer: ReturnType<typeof setTimeout> | null = null
+let editorStatusTimer: ReturnType<typeof setTimeout> | null = null
 /** CodeSurface slot key for a (target, prop) pair. The scratch window is the
  *  single "extended" slot. (Per-slot cursor/scroll/dirty + the loaded baseline
  *  for Discard now live inside CodeSurface, keyed by these strings.) */
@@ -374,6 +376,7 @@ function editorHelpText(): string {
     `${KBD_MOD}+S            Save (when editing a property)`,
     `${KBD_MOD}+D            Select next occurrence (then multi-cursor edit to rename)`,
     `${KBD_MOD}+/            Toggle comment`,
+    'Shift+Alt+F     Format Extended Code',
     'Tab / Shift+Tab Indent / outdent',
     '',
     'Click ?-button for full reference.',
@@ -398,6 +401,7 @@ function showEditorHelp(anchor: HTMLElement): void {
       rows: [
         [`${KBD_MOD}+D`,        'Select next occurrence (multi-cursor)'],
         [`${KBD_MOD}+/`,        'Toggle line comment'],
+        ['Shift+Alt+F',          'Format Extended Code'],
         [`${KBD_MOD}+F`,        'Find / replace (in-editor panel)'],
         ['Tab',        'Indent selection'],
         ['Shift+Tab',  'Outdent selection'],
@@ -720,6 +724,11 @@ function buildExtensions(slot: CodeSlot): Extension[] {
       ...baseKeymapBindings,
       { key: 'Ctrl-Shift-x', run: wrapInIf },
       { key: 'Ctrl-Shift-e', run: wrapInForEach },
+      ...(isEc ? [{
+        key: 'Shift-Alt-f',
+        run: () => { formatActiveExtendedCode(); return true },
+        preventDefault: true,
+      }] : []),
       // Preview on F5 only. Ctrl+Enter was advertised on the button but never fired
       // reliably inside the BMP page context, so it's removed. Execute is
       // button-only by design (no keyboard shortcut).
@@ -826,6 +835,35 @@ function updateStatusBar(): void {
   const col = pos - line.from + 1
   const bar = document.getElementById('status-bar')
   if (bar) bar.textContent = `Ln ${line.number}, Col ${col}`
+}
+
+function flashEditorStatus(message: string): void {
+  if (editorStatusTimer) clearTimeout(editorStatusTimer)
+  const bar = document.getElementById('status-bar')
+  if (bar) bar.textContent = message
+  editorStatusTimer = setTimeout(() => {
+    editorStatusTimer = null
+    updateStatusBar()
+  }, 1800)
+}
+
+/** Format the complete active EC document. Unsafe or incomplete input is returned untouched, so the
+ * action never guesses through a broken block, unbalanced delimiter, or multiline lexical region. */
+function formatActiveExtendedCode(): void {
+  if (!surface || langFor(activeProperty, !!ctx?.extended) !== 'ec') return
+  const result = formatExtendedCode(surface.getDoc())
+  if (!result.safe) {
+    flashEditorStatus('Format skipped · complete the EC structure first')
+    surface.focus()
+    return
+  }
+  if (!result.changed) {
+    flashEditorStatus('Already formatted')
+    surface.focus()
+    return
+  }
+  surface.replaceActive(result.code)
+  flashEditorStatus('Formatted · undo available')
 }
 
 // ── AI assistant ─────────────────────────────────────────────────
@@ -1100,6 +1138,13 @@ function buildActionRow(): HTMLElement {
       'aria-label': 'AI assistant',
       onClick: openAiAssist,
     }, svg(ICON_SPARKLE)),
+    langFor(activeProperty, !!ctx?.extended) === 'ec' && h('button', {
+      class: 'btn-micro',
+      id: 'btn-format',
+      title: 'Format Extended Code (Shift+Alt+F)',
+      'aria-label': 'Format Extended Code',
+      onClick: formatActiveExtendedCode,
+    }, svg(ICON_BRACKETS)),
     h('button', {
       class: `btn-micro${wrapLines ? ' active' : ''}`,
       id: 'btn-wrap',
