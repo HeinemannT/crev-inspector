@@ -1152,6 +1152,12 @@ export async function applyModel(
   }
   const landed = diff(baseline, reloaded.model).length > 0
     || flowSignature(reloaded.model) !== flowSignature(baseline);
+  // A page's first real TabSet cannot be rediscovered through the result-only context that was
+  // resolved before the commit. The re-fetch above therefore returns the same empty/result-only
+  // projection even when BMP successfully created the support Category, TabSet, Tab, and children.
+  // Let the content script reload the page, which resolves a fresh context and discovers the TabSet.
+  const virtualTabsetBootstrap = desired.tabsetVirtual
+    && layoutPlan.some(step => step.kind === 'create' && step.node.kind === 'tab');
 
   if (!res.ok) {
     // The script aborted mid-way. Because EC isn't atomic, earlier steps may already be committed.
@@ -1162,6 +1168,17 @@ export async function applyModel(
         : (res.error || 'Apply failed; the page is unchanged.') };
   }
   if (!landed) {
+    if (virtualTabsetBootstrap) {
+      return {
+        ok: true,
+        noop: false,
+        unverified: true,
+        plan,
+        notes,
+        script,
+        error: 'The first tabset was applied. Refreshing the page to discover its new layout.',
+      };
+    }
     // res.ok, but the re-fetched page is byte-identical to the baseline → BMP silently discarded the
     // whole transaction (the "200 but nothing changed" rollback). Catch it rather than mark it saved.
     // A PURELY-flow apply changes no layout node, so the flow signature covers that half.

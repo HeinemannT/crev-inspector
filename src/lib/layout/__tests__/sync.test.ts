@@ -5,7 +5,7 @@ import {
   buildFlowRefChildrenEc, parseFlowRefChildren, buildEditPageFetchEc, loadEditPageModel,
   type LayoutIO, type BlueprintCtx,
 } from '../sync';
-import { addContainer, rename } from '../edit';
+import { addContainer, createTabset, rename } from '../edit';
 import { addFlowChild } from '../flow';
 import { findNode } from '../model';
 
@@ -535,6 +535,33 @@ describe('sync.applyModel', () => {
     expect(res.stale).toBeFalsy();
     expect(res.error).toMatch(/discarded|unchanged/i);
     expect(res.model).toBeDefined();         // fresh live state still handed back
+  });
+  it('reloads to rediscover a successfully committed first TabSet instead of reporting a rollback', async () => {
+    const ctx: BlueprintCtx = {
+      pageId: 'bootstrap_page',
+      pageRid: '123',
+      pageClass: 'Scorecard',
+      tabsetId: DEFAULT_TABSET,
+      target: 'template',
+      hasTemplate: true,
+      resultOnly: true,
+    };
+    const io = fakeIo('');
+    const { baseline } = await loadModel(io, ctx);
+    const desired = createTabset(baseline).model;
+    io.exec = vi.fn(async (_code: string, _commit = false) => ({
+      ok: true,
+      // The old result-only context remains blind to the new TabSet until a fresh page load resolves
+      // a new context, so both the stale check and immediate reconcile legitimately look unchanged.
+      log: '',
+    }));
+
+    const res = await applyModel(io, baseline, desired, ctx);
+
+    expect(res.ok).toBe(true);
+    expect(res.unverified).toBe(true);
+    expect(res.error).toMatch(/first tabset.*refresh/i);
+    expect(res.model).toBeUndefined();
   });
   it('on a commit ERROR with nothing landed, fails but hands back fresh state (EC is non-atomic)', async () => {
     const io = fakeIo(LIVE_LOG);
