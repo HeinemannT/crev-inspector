@@ -423,7 +423,7 @@ export type LayoutMessage =
   // reject a commit aimed at a different environment (the user switched profiles mid-edit).
   | { type: 'LAYOUT_LOAD_RESULT'; ok: boolean; env?: string; ctx?: BlueprintCtx; model?: LModel; baseline?: LModel; orphans?: LayoutNode[]; error?: string }
   | { type: 'LAYOUT_APPLY'; env: string; ctx: BlueprintCtx; baseline: LModel; desired: LModel; portableIds?: PortableIdPlan }
-  | { type: 'LAYOUT_APPLY_RESULT'; ok: boolean; noop: boolean; stale?: boolean; partial?: boolean; unverified?: boolean; script?: string; notes?: PlanNote[]; model?: LModel; baseline?: LModel; error?: string }
+  | { type: 'LAYOUT_APPLY_RESULT'; ok: boolean; noop: boolean; stale?: boolean; partial?: boolean; unverified?: boolean; script?: string; executionLog?: string; notes?: PlanNote[]; model?: LModel; baseline?: LModel; error?: string }
   | { type: 'LAYOUT_PORTABLE_ID_PREFLIGHT'; requests: PortableIdRequest[] }
   | { type: 'LAYOUT_PORTABLE_ID_PREFLIGHT_RESULT'; ok: boolean; portableIds?: PortableIdPlan; error?: string }
   // Apply-preview blast radius: is the page a template master (fan-out), and do any touched shared

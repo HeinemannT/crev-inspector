@@ -92,6 +92,8 @@ export interface ApplyResult {
   notes: PlanNote[];
   /** The compiled EC (empty string on no-op) — handy for a dry-run preview and for logs. */
   script: string;
+  /** Actual BMP log from the committing EC call. Guard and reconciliation reads are excluded. */
+  executionLog?: string;
   /** Re-fetched model + fresh baseline after a successful apply (or the fresh live state on stale). */
   model?: LModel;
   baseline?: LModel;
@@ -1126,6 +1128,7 @@ export async function applyModel(
     };
   }
   const res = await io.exec(script, true); // commit — the only writing exec in the whole flow
+  const executionLog = res.log?.trim() || undefined;
 
   // BMP Extended Code is NOT transactional (verified live 2026-07-12 on fixture t.50675: a mid-script
   // `Could not find type` error left the prior `.add()` committed — child count went 4→5; see
@@ -1145,7 +1148,7 @@ export async function applyModel(
   try {
     reloaded = await loadBlueprintModel(io, ctx);
   } catch (e) {
-    return { ok: res.ok, noop: false, unverified: true, partial: res.hasWarning || !res.ok, plan, notes, script,
+    return { ok: res.ok, noop: false, unverified: true, partial: res.hasWarning || !res.ok, plan, notes, script, executionLog,
       error: res.ok
         ? 'Applied, but the result could not be verified (the reload failed). Refreshing the page to show the real state.'
         : `Apply may have partly failed (${res.error || 'BMP error'}) and the result could not be verified (${e instanceof Error ? e.message : String(e)}). Reload the page and check what landed.` };
@@ -1161,7 +1164,7 @@ export async function applyModel(
 
   if (!res.ok) {
     // The script aborted mid-way. Because EC isn't atomic, earlier steps may already be committed.
-    return { ok: false, noop: false, partial: landed, plan, notes, script,
+    return { ok: false, noop: false, partial: landed, plan, notes, script, executionLog,
       model: reloaded.model, baseline: reloaded.baseline,
       error: landed
         ? `Apply failed partway: ${res.error || 'BMP error'}. Some changes DID land — the layout was refreshed to the real state; review it before re-applying.`
@@ -1176,22 +1179,23 @@ export async function applyModel(
         plan,
         notes,
         script,
+        executionLog,
         error: 'The first tabset was applied. Refreshing the page to discover its new layout.',
       };
     }
     // res.ok, but the re-fetched page is byte-identical to the baseline → BMP silently discarded the
     // whole transaction (the "200 but nothing changed" rollback). Catch it rather than mark it saved.
     // A PURELY-flow apply changes no layout node, so the flow signature covers that half.
-    return { ok: false, noop: false, plan, notes, script, model: reloaded.model, baseline: reloaded.baseline,
+    return { ok: false, noop: false, plan, notes, script, executionLog, model: reloaded.model, baseline: reloaded.baseline,
       error: 'BMP discarded the changes. The page is unchanged; reload the page and try again.' };
   }
   if (res.hasWarning) {
     // Something landed, but BMP emitted a WARNING — a step may have soft-failed (a missing-value
     // lookup, a reorder anchor that had moved) and been skipped while the script continued. Report
     // possibly-partial so the UI asks the user to verify instead of claiming a clean save.
-    return { ok: true, noop: false, partial: true, plan, notes, script,
+    return { ok: true, noop: false, partial: true, plan, notes, script, executionLog,
       model: reloaded.model, baseline: reloaded.baseline,
       error: 'Applied, but BMP reported warnings — some steps may not have taken. The layout was refreshed; check it matches what you intended.' };
   }
-  return { ok: true, noop: false, plan, notes, script, model: reloaded.model, baseline: reloaded.baseline };
+  return { ok: true, noop: false, plan, notes, script, executionLog, model: reloaded.model, baseline: reloaded.baseline };
 }

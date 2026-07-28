@@ -11,6 +11,7 @@ import { ensureContentScript, ensureBlueprintScript } from '../tab-awareness';
 import { toggleInspect } from './inspect';
 import { errorMessage, log } from '../logger';
 import type { PlanNote } from '../layout/types';
+import type { ApplyResult } from '../layout/sync';
 
 const BLUEPRINT_VERSION_ERROR = 'Blueprint requires BMP 5.6.3 or newer.';
 
@@ -32,6 +33,37 @@ function formatNotes(notes: PlanNote[]): string {
       return `• ${act} ${type}${obj}${where}${det}`.replace(/\s+/g, ' ').trim();
     })
     .join('\n');
+}
+
+function verificationText(res: ApplyResult): string {
+  if (res.unverified) return res.error || 'The write completed, but Blueprint could not verify the refreshed layout.';
+  if (res.partial) return res.error || 'The refreshed layout shows that only part of the requested change landed.';
+  if (!res.ok) return res.error || 'The refreshed layout did not match the requested change.';
+  return 'Verified against a fresh layout read.';
+}
+
+/** Persistent Apply record. The server's write response comes first because it is the primary
+ * execution evidence; Blueprint's interpretation and generated program remain available below it. */
+function applyActivityDetail(res: ApplyResult, timings: string[]): string {
+  const execution = res.executionLog || 'No execution log was returned by BMP.';
+  const requested = formatNotes(res.notes) || 'No requested changes.';
+  const script = res.script || 'No Extended Code was executed.';
+  return [
+    'BMP execution log',
+    execution,
+    '',
+    'Verification',
+    verificationText(res),
+    '',
+    'Requested changes',
+    requested,
+    '',
+    'Generated Extended Code',
+    script,
+    '',
+    'Diagnostics',
+    `EC calls: ${timings.join(' | ') || 'none'}`,
+  ].join('\n');
 }
 
 /** Set blueprint mode for a window + broadcast to its panel and content tab. Shared by the
@@ -184,15 +216,14 @@ register('LAYOUT_APPLY', async (msg, respond) => {
     respond({
       type: 'LAYOUT_APPLY_RESULT', ok: res.ok, noop: res.noop, stale: res.stale, partial: res.partial,
       unverified: res.unverified,
-      script: res.script, notes: res.notes, model: res.model, baseline: res.baseline, error: res.error,
+      script: res.script, executionLog: res.executionLog, notes: res.notes,
+      model: res.model, baseline: res.baseline, error: res.error,
     });
-    // Audit trail: the applied EC is first-class — record it so a mis-apply is reconstructable. The
-    // detail leads with the human-readable plan (which widget, where) so the LOG tab scans without
-    // decoding EC, then the raw EC + timings for reconstruction. A partial apply (BMP EC isn't atomic)
-    // is logged loudly at 'error' even when ok:true, since some steps didn't land and the recorded EC
-    // no longer matches the page.
-    const detail = (lead = '') =>
-      `${formatNotes(res.notes)}${lead ? `\n\n${lead}` : ''}\n\nEC calls: ${timings.join(' | ')}\n\n${res.script}`;
+    // Audit trail: the applied EC is first-class — record it so a mis-apply is reconstructable.
+    // The detail leads with BMP's actual commit response, followed by Blueprint's verification,
+    // requested changes, generated EC, and internal timings. A partial apply is logged loudly at
+    // 'error' even when ok:true because BMP EC is not atomic.
+    const detail = () => applyActivityDetail(res, timings);
     if (res.noop) {
       ctx.logActivity('success', 'Blueprint apply: no changes');
     } else if (res.unverified) {
@@ -204,7 +235,7 @@ register('LAYOUT_APPLY', async (msg, respond) => {
     } else if (res.ok) {
       ctx.logActivity('success', `Blueprint applied ${res.plan.length} step(s) (${Date.now() - t0}ms)`, detail());
     } else {
-      ctx.logActivity('error', 'Blueprint apply failed', detail(res.error ?? ''));
+      ctx.logActivity('error', 'Blueprint apply failed', detail());
     }
   } catch (e) {
     respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false, error: errorMessage(e) });

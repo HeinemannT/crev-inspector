@@ -125,4 +125,26 @@ describe('LogTab — profile filter', () => {
     expect(shown).toContain('dev-1');
     expect(shown).not.toContain('sbx-1');
   });
+
+  it('opens a new warning detail so the BMP execution log is immediately visible', () => {
+    configureProfiles('sbx', ['sbx']);
+    const tab = new LogTab(vi.fn());
+    tab.handleMessage({
+      type: 'ACTIVITY_ENTRY',
+      entry: {
+        id: 6,
+        time: 6000,
+        level: 'warn',
+        message: 'Blueprint apply unverified',
+        detail: 'BMP execution log\nWould addTabSet: 1',
+        profileId: 'sbx',
+      },
+    });
+    const container = document.createElement('div');
+    tab.render(container);
+
+    const row = container.querySelector('.activity-entry') as HTMLElement;
+    expect(row.getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('.activity-detail')?.textContent).toContain('Would addTabSet: 1');
+  });
 });

@@ -479,6 +479,7 @@ describe('sync.applyModel', () => {
     expect(execed.map(e => e.commit)).toEqual([false, true, false]);
     expect(execed[0].code).toContain('descendants'); // stale-check re-fetch
     expect(execed[1].commit).toBe(true);             // the only committing call
+    expect(res.executionLog).toBe(LIVE_LOG);         // preserve BMP's actual write response for the Log tab
     expect(res.model).toBeDefined();
     expect(res.baseline).toBeDefined();
   });

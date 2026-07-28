@@ -50,6 +50,11 @@ export class LogTab implements Tab {
       case 'ACTIVITY_ENTRY':
         this.entries.push(msg.entry);
         if (this.entries.length > ACTIVITY_MAX) this.entries.shift();
+        // Diagnostic outcomes should reveal the server response immediately. Routine successes stay
+        // compact, but warnings/errors open so the user sees BMP's execution log without another click.
+        if (msg.entry.detail && (msg.entry.level === 'warn' || msg.entry.level === 'error')) {
+          this.expanded.add(msg.entry.time);
+        }
         this.latestMsg = msg.entry.message;
         if (this.latestTimer) clearTimeout(this.latestTimer);
         this.latestTimer = setTimeout(() => {
