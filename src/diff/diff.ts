@@ -95,7 +95,7 @@ function renderUI() {
         id: 'left-rid',
         value: leftValue,
         placeholder: 'RID or t.bid / o.bid / k.bid',
-        title: 'Numeric RID, or a business ID with a namespace prefix (t. = template, o. = organisation, k. = property, r. = resource). Bare BIDs without a prefix are ambiguous and not accepted.',
+        'aria-describedby': 'diff-id-help',
       }),
       leftIdentity ? renderIdentityChip(leftIdentity) : null,
       h('button', { class: 'btn btn-accent', id: 'btn-load-left' }, 'Load'),
@@ -111,7 +111,7 @@ function renderUI() {
         id: 'right-rid',
         value: rightValue,
         placeholder: 'RID or t.bid / o.bid / k.bid',
-        title: 'Numeric RID, or a business ID with a namespace prefix (t. = template, o. = organisation, k. = property, r. = resource). Bare BIDs without a prefix are ambiguous and not accepted.',
+        'aria-describedby': 'diff-id-help',
       }),
       rightIdentity ? renderIdentityChip(rightIdentity) : null,
       h('button', { class: 'btn btn-accent', id: 'btn-load-right' }, 'Load'),
@@ -121,6 +121,9 @@ function renderUI() {
     h('div', { class: 'diff-actions' },
       h('button', { class: 'btn', id: 'btn-swap', title: 'Swap sides' }, 'Swap'),
     ),
+  );
+  const formatHelp = h('div', { class: 'diff-format-help', id: 'diff-id-help' },
+    'Use a numeric RID or a namespaced business ID such as t.risk_register. Bare business IDs are ambiguous.',
   );
 
   const mergeContainer = h('div', { class: 'diff-merge-container', id: 'merge-container' });
@@ -137,7 +140,7 @@ function renderUI() {
     statusEl = h('div', { class: 'diff-hint' }, 'Enter RIDs and click Load to compare objects');
   }
 
-  render(root, bar, statusEl ?? mergeContainer);
+  render(root, bar, formatHelp, statusEl ?? mergeContainer);
 
   // Wire events
   document.getElementById('btn-load-left')?.addEventListener('click', () => {

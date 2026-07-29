@@ -1097,13 +1097,13 @@ export class ConnectTab implements Tab {
     if (liveKey) {
       wrap.appendChild(h('kbd', { class: 'kbd' }, liveKey));
       if (liveKey !== defaultKey) {
-        wrap.appendChild(h('span', { class: 'kbd-default-hint', title: `Default: ${defaultKey}` }, `default: ${defaultKey}`));
+        wrap.appendChild(h('span', { class: 'kbd-default-hint' }, `default: ${defaultKey}`));
       }
     } else {
       // Binding cleared — show the default greyed so the user knows what
       // it WOULD be and can re-set it via chrome://extensions/shortcuts.
       wrap.appendChild(h('span', { class: 'kbd-unbound' }, '(not bound)'));
-      wrap.appendChild(h('span', { class: 'kbd-default-hint', title: `Default: ${defaultKey}` }, `default: ${defaultKey}`));
+      wrap.appendChild(h('span', { class: 'kbd-default-hint' }, `default: ${defaultKey}`));
     }
     return wrap;
   }

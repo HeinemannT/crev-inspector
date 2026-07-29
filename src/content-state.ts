@@ -73,6 +73,11 @@ export class ContentState {
   // Transient DOM state — the badge pill the cursor is currently over
   // (hover-tooltip dedup guard).
   hoveredLabelEl: Element | null = null;
+  /** Current rich object-card anchor + keyboard trigger. The card is portalled
+   *  under documentElement, so these references preserve its focus contract. */
+  tooltipLabelEl: HTMLElement | null = null;
+  tooltipTriggerEl: HTMLElement | null = null;
+  tooltipRestoreInProgress = false;
 
   // Synthetic identity attached to BMP's normal page heading. It is cached
   // until the heading detaches or the resolved page RID changes, so a busy
@@ -93,6 +98,9 @@ export class ContentState {
     this.requestedRids.clear();
     this.overlayProps.clear();
     this.hoveredLabelEl = null;
+    this.tooltipLabelEl = null;
+    this.tooltipTriggerEl = null;
+    this.tooltipRestoreInProgress = false;
   }
 
   /** Reset discovery dedup (on URL change) */

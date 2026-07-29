@@ -423,9 +423,9 @@ function ghostTray(tab: LNode): HTMLElement | null {
   ht.textContent = 'Hidden widgets';
   const ct = document.createElement('span'); ct.className = 'bp-ghost-count'; ct.textContent = String(ghosts.length);
   const hh = document.createElement('span'); hh.className = 'bp-ghost-hint';
-  hh.textContent = bp.ghostTrayOpen ? '— click to fold' : '— click to show';
+  hh.textContent = bp.ghostTrayOpen ? 'Click to fold' : 'Click to show';
   head.append(hi, ht, ct, hh);
-  head.title = 'Widgets on this tab that no viewer sees (noVisible, or hidden on every display size). The grid above shows the page as it really packs — without them.';
+  head.title = 'Widgets on this tab that no viewer sees. The grid above shows how the page packs without them.';
   // mousedown is the overlay's gesture convention (every cell/handle toggles on
   // mousedown, not click) and it fires before render() tears this node down, so
   // it's the single source of truth. The trailing click is swallowed only so it

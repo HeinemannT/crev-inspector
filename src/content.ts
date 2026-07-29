@@ -19,7 +19,7 @@ import { ContentState } from './content-state';
 import { syncOverlays, removeOverlays, updateLabels } from './content-overlays';
 import { removePageHeaderIdentity, syncPageHeaderIdentity } from './content-page-header';
 import { updatePaintCursors, flashApplyResult } from './content-paint';
-import { showTooltipForElement, hideTooltip, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
+import { showTooltipForElement, hideTooltip, wireObjectPopover, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
 import { mountFrameOverlay, teardownFrameOverlayModule } from './content-frame-overlay';
 import { BP_RESUME_KEY } from './lib/blueprint-resume';
@@ -200,6 +200,7 @@ function injectStyles() {
   // which painted the card UNDER outlines/badges. Same escape hatch the
   // frame overlays use.
   document.documentElement.appendChild(tooltip);
+  wireObjectPopover(s, tooltip);
 
   // Delegated hover handler for the badge pills. Hovering the pill (not the
   // whole widget) shows the info card — the widget body stays clickable for

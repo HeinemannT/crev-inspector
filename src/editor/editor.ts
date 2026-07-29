@@ -367,22 +367,6 @@ function updateWindowTitle() {
 
 // ── Help reference ──────────────────────────────────────────────
 
-/** Plain-text feature list shown as the help button's hover tooltip. Tight
- *  enough to read inside a native tooltip box without scrolling. The richer
- *  click-popover version lives in showEditorHelp() below. */
-function editorHelpText(): string {
-  return [
-    `F5              Preview (dry-run)`,
-    `${KBD_MOD}+S            Save (when editing a property)`,
-    `${KBD_MOD}+D            Select next occurrence (then multi-cursor edit to rename)`,
-    `${KBD_MOD}+/            Toggle comment`,
-    'Shift+Alt+F     Format Extended Code',
-    'Tab / Shift+Tab Indent / outdent',
-    '',
-    'Click ?-button for full reference.',
-  ].join('\n');
-}
-
 /** Open the rich help popover anchored under the ? button. Stays inside the
  *  editor window. Esc / outside-click dismisses. */
 function showEditorHelp(anchor: HTMLElement): void {
@@ -1094,7 +1078,7 @@ function buildActionRow(): HTMLElement {
       h('button', {
         class: `btn btn-accent editor-run-preview${hasSel ? ' editor-run-preview--sel' : ''}`,
         id: 'btn-preview',
-        title: 'Preview (dry-run, safe) · F5',
+        title: 'Preview without saving changes (F5)',
         onClick: doPreview,
       },
         svg(ICON_PLAY), ' ', h('span', { class: 'editor-run-label' }, 'Preview'), ' ', h('kbd', null, 'F5'),
@@ -1162,7 +1146,7 @@ function buildActionRow(): HTMLElement {
     h('button', {
       class: 'btn-micro help-btn',
       id: 'btn-help',
-      title: editorHelpText(),
+      title: 'Open editor reference',
       'aria-label': 'Editor features and shortcuts',
       onClick: (e: Event) => showEditorHelp(e.currentTarget as HTMLElement),
     }, '?'),
@@ -2001,7 +1985,7 @@ const KIND_FILTER_PILLS: ReadonlyArray<{ family: PropFamily; label: string; titl
   { family: 'num',  label: 'Num',  title: 'Number + historical number' },
   { family: 'date', label: 'Date', title: 'Date + historical date' },
   { family: 'list', label: 'List', title: 'List + historical list' },
-  { family: 'tag',  label: 'Tag',  title: 'Tag' },
+  { family: 'tag',  label: 'Tag',  title: 'Tag properties' },
   { family: 'ec',   label: 'EC',   title: 'Extended Code expression' },
 ]
 

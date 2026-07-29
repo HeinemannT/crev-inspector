@@ -198,6 +198,12 @@ body {
 }
 .cs-scope-input:focus { border-color: var(--accent); }
 .cs-scope-input::placeholder { color: var(--text-3); font-style: italic; }
+.cs-scope-help {
+  margin-top: -4px;
+  padding-left: 42px;
+  color: var(--text-3);
+  font-size: var(--text-2xs);
+}
 
 /* Scope resolution feedback — shows the object the scope resolved to, or an
  * error, right after the scope pill. */

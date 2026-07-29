@@ -32,6 +32,9 @@ describe('ContentState', () => {
     expect(s.debounceTimer).toBeNull();
     expect(s.renderRefreshTimer).toBeNull();
     expect(s.hoveredLabelEl).toBeNull();
+    expect(s.tooltipLabelEl).toBeNull();
+    expect(s.tooltipTriggerEl).toBeNull();
+    expect(s.tooltipRestoreInProgress).toBe(false);
     expect(s.pageHeaderElement).toBeNull();
     expect(s.pageHeaderLabel).toBeNull();
     expect(s.pageHeaderRid).toBeNull();
@@ -42,12 +45,18 @@ describe('ContentState', () => {
       s.requestedRids.add('rid1');
       s.overlayProps.set('rid1', { foo: 'bar' });
       s.hoveredLabelEl = {} as Element;
+      s.tooltipLabelEl = {} as HTMLElement;
+      s.tooltipTriggerEl = {} as HTMLElement;
+      s.tooltipRestoreInProgress = true;
 
       s.resetOverlays();
 
       expect(s.requestedRids.size).toBe(0);
       expect(s.overlayProps.size).toBe(0);
       expect(s.hoveredLabelEl).toBeNull();
+      expect(s.tooltipLabelEl).toBeNull();
+      expect(s.tooltipTriggerEl).toBeNull();
+      expect(s.tooltipRestoreInProgress).toBe(false);
     });
 
     it('does not clear enrichments or discoveredRids', () => {

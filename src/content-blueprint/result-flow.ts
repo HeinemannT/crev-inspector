@@ -120,7 +120,7 @@ function flowRow(node: FlowNode, key: string, opts: { grid?: boolean; nested?: b
   if (!node.isBreak) prop.appendChild(renamePencil(node.id, `Rename "${node.name}"`));
   if (staged) {
     const tag = document.createElement('button'); tag.className = 'bp-ftag new'; tag.textContent = 'NEW';
-    tag.title = 'Staged — created on Apply. Click to cancel this add.';
+    tag.title = 'Created on Apply. Click to cancel this staged addition.';
     onTap(tag, () => cancelFlowAdd(key, node.id));
     prop.appendChild(tag);
   }
@@ -441,7 +441,7 @@ export function actionMenuTrigger(m: LModel, viewedTabId: string | null): HTMLEl
   const tn = document.createElement('span'); tn.className = 'tn'; tn.textContent = String(countMenuButtons(m, viewedTabId));
   const tc = document.createElement('span'); tc.className = 'tc'; tc.textContent = open ? '▴' : '▾';
   trigger.append(ti, tl, tn, tc);
-  trigger.title = open ? 'Hide the action menu' : 'Show the page action menu — the buttons BMP renders top-right';
+  trigger.title = open ? 'Hide the action menu' : 'Show the page action menu that BMP renders at the top right';
   onTap(trigger, () => toggleActionMenu());
   return trigger;
 }

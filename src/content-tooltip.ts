@@ -16,25 +16,120 @@ const OVERLAY_SKIP_PROPS = new Set(['rid', 'id', 'name', 'type', '__typename', '
   'source', 'discoveredAt', 'updatedAt', 'treePath', 'webParentRid', 'hasChildren']);
 const OVERLAY_CODE_PROPS = new Set(['expression', 'html', 'javascript']);
 const OVERLAY_MAX_PROP_LINES = 6;
+const POPOVER_FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+
+function popoverTrigger(label: HTMLElement): HTMLElement {
+  return label.querySelector<HTMLElement>('.crev-stub') ?? label;
+}
+
+function focusableIn(tooltip: HTMLElement): HTMLElement[] {
+  return [...tooltip.querySelectorAll<HTMLElement>(POPOVER_FOCUSABLE)];
+}
+
+function nextFocusableAfter(trigger: HTMLElement, tooltip: HTMLElement): HTMLElement | null {
+  const all = [...document.querySelectorAll<HTMLElement>(POPOVER_FOCUSABLE)]
+    .filter(el => !tooltip.contains(el) && el.getAttribute('aria-hidden') !== 'true');
+  const index = all.indexOf(trigger);
+  return index >= 0 ? all[index + 1] ?? null : null;
+}
+
+function clearHideTimer(s: ContentState): void {
+  if (!s.tooltipHideTimer) return;
+  clearTimeout(s.tooltipHideTimer);
+  s.tooltipHideTimer = null;
+}
+
+/** Give the portalled rich object card proper popover semantics and a complete
+ * mouse + keyboard contract. Wired once per content-script lifetime. */
+export function wireObjectPopover(s: ContentState, tooltip: HTMLElement): void {
+  tooltip.setAttribute('role', 'dialog');
+  tooltip.setAttribute('aria-label', 'Object details');
+  tooltip.setAttribute('aria-modal', 'false');
+
+  tooltip.addEventListener('mouseenter', () => clearHideTimer(s), { signal: s.listenerLifetime.signal });
+  tooltip.addEventListener('mouseleave', () => hideTooltip(s), { signal: s.listenerLifetime.signal });
+
+  document.addEventListener('focusin', (event) => {
+    if (s.tooltipRestoreInProgress) return;
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+    if (tooltip.contains(target)) {
+      clearHideTimer(s);
+      return;
+    }
+    const label = target.closest<HTMLElement>('.crev-label');
+    const rid = label?.dataset.crevLabel;
+    if (label && rid) showTooltipForElement(s, label, rid);
+  }, { signal: s.listenerLifetime.signal });
+
+  document.addEventListener('focusout', () => {
+    if (!tooltip.classList.contains('crev-visible')) return;
+    setTimeout(() => {
+      const active = document.activeElement;
+      if (active && (tooltip.contains(active) || s.tooltipLabelEl?.contains(active))) return;
+      hideTooltip(s);
+    }, 0);
+  }, { signal: s.listenerLifetime.signal });
+
+  document.addEventListener('keydown', (event) => {
+    if (!tooltip.classList.contains('crev-visible')) return;
+    const trigger = s.tooltipTriggerEl;
+    const target = event.target as HTMLElement | null;
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      dismissTooltip(s, !!target && tooltip.contains(target));
+      return;
+    }
+    if (!trigger || !target) return;
+
+    const controls = focusableIn(tooltip);
+    if (target === trigger && (event.key === 'ArrowDown' || (event.key === 'Tab' && !event.shiftKey))) {
+      const first = controls[0];
+      if (first) {
+        event.preventDefault();
+        first.focus();
+      }
+      return;
+    }
+    if (!tooltip.contains(target) || event.key !== 'Tab' || controls.length === 0) return;
+
+    if (event.shiftKey && target === controls[0]) {
+      event.preventDefault();
+      trigger.focus();
+      return;
+    }
+    if (!event.shiftKey && target === controls[controls.length - 1]) {
+      event.preventDefault();
+      const next = nextFocusableAfter(trigger, tooltip);
+      dismissTooltip(s);
+      (next ?? trigger).focus();
+    }
+  }, { signal: s.listenerLifetime.signal });
+
+  document.addEventListener('pointerdown', (event) => {
+    if (!tooltip.classList.contains('crev-visible')) return;
+    const target = event.target as Node | null;
+    if (!target || tooltip.contains(target) || s.tooltipLabelEl?.contains(target)) return;
+    dismissTooltip(s);
+  }, { capture: true, signal: s.listenerLifetime.signal });
+}
 
 export function showTooltipForElement(s: ContentState, el: HTMLElement, rid: string) {
-  if (s.tooltipHideTimer) {
-    clearTimeout(s.tooltipHideTimer);
-    s.tooltipHideTimer = null;
-  }
+  clearHideTimer(s);
 
   const tooltip = document.getElementById('crev-tooltip');
   if (!tooltip) return;
 
-  // The card is interactive (copy rows + open button): keep it alive while
-  // the cursor is on it, hide on leave. Wired once.
-  if (!tooltip.dataset.wired) {
-    tooltip.dataset.wired = '1';
-    tooltip.addEventListener('mouseenter', () => {
-      if (s.tooltipHideTimer) { clearTimeout(s.tooltipHideTimer); s.tooltipHideTimer = null; }
-    });
-    tooltip.addEventListener('mouseleave', () => hideTooltip(s));
+  const trigger = popoverTrigger(el);
+  if (s.tooltipTriggerEl && s.tooltipTriggerEl !== trigger) {
+    s.tooltipTriggerEl.setAttribute('aria-expanded', 'false');
   }
+  s.tooltipLabelEl = el;
+  s.tooltipTriggerEl = trigger;
+  trigger.setAttribute('aria-haspopup', 'dialog');
+  trigger.setAttribute('aria-controls', 'crev-tooltip');
+  trigger.setAttribute('aria-expanded', 'true');
 
   const enrichment = s.enrichments.get(rid);
   const type = enrichment?.type;
@@ -93,16 +188,45 @@ export function showTooltipForElement(s: ContentState, el: HTMLElement, rid: str
 }
 
 export function hideTooltip(s: ContentState) {
-  if (s.tooltipHideTimer) clearTimeout(s.tooltipHideTimer);
+  clearHideTimer(s);
   s.tooltipHideTimer = setTimeout(() => {
     const tooltip = document.getElementById('crev-tooltip');
+    const active = document.activeElement;
     // Last-line defence: never hide while the cursor is ON the card —
     // timer-vs-mouseenter races (and any listener that re-arms the hide
     // mid-transit) can't kill an actively used card this way.
-    if (tooltip?.matches(':hover')) { s.tooltipHideTimer = null; return; }
-    if (tooltip) { tooltip.style.display = 'none'; tooltip.classList.remove('crev-visible'); }
-    s.tooltipHideTimer = null;
+    if (tooltip?.matches(':hover')
+      || (active && (tooltip?.contains(active) || s.tooltipLabelEl?.contains(active)))) {
+      s.tooltipHideTimer = null;
+      return;
+    }
+    dismissTooltip(s);
   }, 400);
+}
+
+export function dismissTooltip(s: ContentState, restoreFocus = false): void {
+  clearHideTimer(s);
+  const tooltip = document.getElementById('crev-tooltip');
+  const trigger = s.tooltipTriggerEl;
+  // Restore focus while the current relationship is still intact. The
+  // delegated focus listener may refresh the card once; the cleanup below
+  // then closes it and leaves the trigger focused.
+  if (restoreFocus && trigger?.isConnected) {
+    s.tooltipRestoreInProgress = true;
+    try {
+      trigger.focus();
+    } finally {
+      s.tooltipRestoreInProgress = false;
+    }
+  }
+  if (tooltip) {
+    tooltip.style.display = 'none';
+    tooltip.classList.remove('crev-visible');
+  }
+  trigger?.setAttribute('aria-expanded', 'false');
+  s.hoveredLabelEl = null;
+  s.tooltipLabelEl = null;
+  s.tooltipTriggerEl = null;
 }
 
 /** Request and render technical overlay property cards */

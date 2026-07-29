@@ -96,7 +96,7 @@ export function getModifier(e: MouseEvent): CopyModifier {
 }
 
 /** Standard tooltip text for copy buttons with modifier support. */
-export const COPY_TOOLTIP = 'Copy ID \u00b7 Alt \u2192 RID \u00b7 Shift \u2192 Template \u00b7 Ctrl \u2192 Reference';
+export const COPY_TOOLTIP = 'Copy ID (Alt: RID; Shift: template; Ctrl: reference)';
 
 // ── Namespace validation ─────────────────────────────────────
 

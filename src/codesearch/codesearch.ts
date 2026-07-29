@@ -282,13 +282,16 @@ function renderToolbar(): HTMLElement {
     h('input', {
       class: 'cs-scope-input',
       type: 'text',
-      placeholder: 'RID or t.bid (blank = whole workspace)',
+      placeholder: 'RID or t.business_id',
       value: subtreeRid,
-      title: 'Limit to a subtree: numeric RID or namespace.bid (e.g. t.118). Empty = whole workspace. Press Enter or Search to apply.',
+      'aria-describedby': 'cs-scope-help',
       onInput: (e: Event) => { subtreeRid = (e.currentTarget as HTMLInputElement).value; hasSearched = false; },
       onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); fireSearch(); } },
     }),
     scopeFeedback,
+  );
+  const scopeHelp = h('div', { class: 'cs-scope-help', id: 'cs-scope-help' },
+    'Use a numeric RID or namespaced business ID. Leave blank for the whole workspace.',
   );
 
   // Second toolbar row — only shown once results land. Carries the
@@ -321,6 +324,7 @@ function renderToolbar(): HTMLElement {
     searchShell,
     h('div', { class: 'cs-pill-row' }, ...pills),
     scopeRow,
+    scopeHelp,
     resultControls,
   );
 }

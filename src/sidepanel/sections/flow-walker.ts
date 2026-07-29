@@ -251,7 +251,7 @@ function badgeFor(node: FlowStepMsg): HTMLElement {
   const { rid, businessId, type } = node.identity;
   const b = typeBadge(type, { size: 'xs' });
   b.classList.add('flow-bdg');
-  b.title = `Copy ${businessId || rid} · Alt → RID · Shift → Template · Ctrl → Reference`;
+  b.title = `Copy ${businessId || rid} (Alt: RID; Shift: template; Ctrl: reference)`;
   b.setAttribute('role', 'button');
   b.setAttribute('tabindex', '0');
   b.addEventListener('click', (e: MouseEvent) => {
@@ -289,7 +289,7 @@ function copyFromBadge(badge: HTMLElement, node: FlowStepMsg, mod: CopyModifier)
 }
 
 const FLOW_COPY_HINT =
-  'Click: copy ID + open · Alt → RID · Shift → Template · Ctrl → Reference';
+  'Click: copy ID and open (Alt: RID; Shift: template; Ctrl: reference)';
 
 function navAttrs(node: FlowStepMsg, input: FlowSectionInput) {
   const { rid, businessId, type } = node.identity;

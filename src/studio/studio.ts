@@ -489,7 +489,7 @@ function refreshActions() {
   renderDom(el,
     h('button', { class: 'btn btn-accent', id: 'studio-run', title: 'Re-render preview (retries failed dependencies)', onClick: () => void runPreview({ retryDeps: true }) },
       svg(ICON_PLAY), ' Re-render', h('kbd', null, `${KBD_MOD}↵`)),
-    h('button', { class: saveClass, id: 'studio-save', disabled: saving || !isDirty, title: `Save every changed field (${mode.files.map(f => f.prop).join(' + ')}) · ${KBD_MOD}+S`, onClick: doSave },
+    h('button', { class: saveClass, id: 'studio-save', disabled: saving || !isDirty, title: `Save every changed field (${mode.files.map(f => f.prop).join(' + ')}) (${KBD_MOD}+S)`, onClick: doSave },
       saving ? 'Saving…' : justSaved ? svg(ICON_CHECK) : null,
       saving ? null : justSaved ? ' Saved' : n > 1 ? `Save ${n}` : 'Save',
       isDirty ? h('kbd', null, `${KBD_MOD}S`) : null),
@@ -524,7 +524,7 @@ function updateFileSwitch() {
       surface?.isDirty(f.prop) ? h('span', { class: 'studio-file-dot', 'aria-label': 'unsaved changes' }) : null)),
     // Editor tools live with the editor: reflow and soft-wrap.
     h('div', { class: 'studio-file-spacer' }),
-    h('button', { class: 'studio-file-tool', title: `Format the ${fileFor(activeProp).label} · ${KBD_MOD}+Shift+F`, 'aria-label': 'Format', onClick: () => void doFormat() }, svg(ICON_BRACKETS)),
+    h('button', { class: 'studio-file-tool', title: `Format the ${fileFor(activeProp).label} (${KBD_MOD}+Shift+F)`, 'aria-label': 'Format', onClick: () => void doFormat() }, svg(ICON_BRACKETS)),
     h('button', { class: `studio-file-tool${wrapLines ? ' active' : ''}`, title: 'Wrap long lines', 'aria-label': 'Wrap long lines', 'aria-pressed': wrapLines ? 'true' : 'false', onClick: toggleWrap }, svg(ICON_WRAP)),
   )
 }
@@ -657,10 +657,10 @@ function updateStrip(): void {
   if (!el) return
   const ctxInput = h('input', {
     class: 'studio-ctx-input',
-    placeholder: 'scorecard id or rid',
+    placeholder: 'scorecard/page ID or RID',
     value: renderContextRef,
     spellcheck: 'false', autocomplete: 'off',
-    title: 'Org-rooted object (scorecard or page) the CVO renders under, by business id or rid. The data servlet is gated on it.',
+    'aria-label': 'Live preview context',
   }) as HTMLInputElement
   ctxInput.addEventListener('change', () => { renderContextRef = ctxInput.value.trim(); void resolveRenderContext() })
   const live = dataMode === 'live'
@@ -679,7 +679,7 @@ function updateStrip(): void {
     sandbox && live && renderContextRid && liveError ? h('span', { class: 'studio-strip-err', title: liveError }, h('span', { class: 'studio-status-dot studio-status-dot--err' }), 'Live failed') : null,
     sandbox && live && renderContextRid && !liveError && liveData ? h('span', { class: 'studio-strip-ok', title: 'Rendering against live BMP data' }, h('span', { class: 'studio-status-dot studio-status-dot--ok' }), 'Live') : null,
     mode.rewriteSemantics === 'sanitizer'
-      ? h('span', { class: 'studio-strip-hint', title: 'The preview shows your raw draft. On save, BMP\'s sanitizer strips non-whitelisted HTML/CSS (radius, gradients, shadows, transforms) and the editor reloads the stored result.' }, 'preview is raw · BMP sanitizes on save')
+      ? h('span', { class: 'studio-strip-hint' }, 'Preview is raw. BMP sanitizes on save.')
       : null,
     h('div', { class: 'studio-strip-spacer' }),
     h('div', { class: 'seg', role: 'group', 'aria-label': 'Auto-render' },

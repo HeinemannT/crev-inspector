@@ -73,6 +73,15 @@ body {
               0 0 0 2px rgba(139, 92, 246, 0.18);
 }
 
+.diff-format-help {
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--surface-3);
+  background: var(--surface-1);
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
 .diff-identity {
   font-size: var(--text-sm);
   color: var(--text-2);
