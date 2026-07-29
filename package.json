@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:extension-load": "node scripts/browser.mjs --check",
-    "browser:open": "node scripts/browser.mjs"
+    "browser:open": "node scripts/browser.mjs",
+    "qa:devtools-package": "npm run build && node scripts/prepare-devtools-package.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
