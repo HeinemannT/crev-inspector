@@ -61,7 +61,10 @@ export function numberEditor(ctx: PropEditorContext, opts: { unit?: string; min?
     ...(opts.max != null ? { max: opts.max } : {}),
     ...(opts.step != null ? { step: opts.step } : { step: 1 }),
   }) as HTMLInputElement;
-  input.addEventListener('input', () => ctx.onChange(input.value));
+  // Commit on change rather than every keystroke. Hosts rebuild their property
+  // document after a draft changes; committing on input would replace the
+  // focused field after the first digit.
+  input.addEventListener('change', () => ctx.onChange(input.value));
   const children: (HTMLElement | string)[] = [input];
   if (opts.unit) children.push(h('span', { class: 'prop-unit' }, opts.unit));
   return h('div', { class: `prop-cell prop-cell--number${ctx.dirty ? ' prop-cell--dirty' : ''}` }, ...children);

@@ -24,10 +24,15 @@ describe('site access registration boundaries', () => {
 
     const { reconcileProfileOrigins } = await import('../site-access');
     await reconcileProfileOrigins(['https://bmp.example.test/corpo'], {
-      name: 'Gateway',
-      vendor: 'gateway',
-      apiType: 'openai',
-      models: [{ id: 'agent', name: 'Agent', url: 'https://gateway.example.test/v1', toolCalling: true }],
+      provider: 'custom',
+      model: 'agent',
+      apiKeyEnc: 'encrypted',
+      customProvider: {
+        name: 'Gateway',
+        vendor: 'gateway',
+        apiType: 'openai',
+        models: [{ id: 'agent', name: 'Agent', url: 'https://gateway.example.test/v1', toolCalling: true }],
+      },
     });
 
     expect(chrome.permissions.remove).not.toHaveBeenCalledWith(expect.objectContaining({
@@ -38,5 +43,69 @@ describe('site access registration boundaries', () => {
     expect(registrations).toHaveLength(2);
     expect(registrations[0].matches).toEqual(['https://bmp.example.test/*']);
     expect(registrations[1].matches).toEqual(['https://bmp.example.test/*']);
+  });
+
+  it('removes provider grants that are no longer selected', async () => {
+    const remove = vi.fn(async (_permissions: chrome.permissions.Permissions) => true);
+    globalThis.chrome = {
+      permissions: {
+        getAll: vi.fn(async () => ({
+          origins: [
+            'https://bmp.example.test/*',
+            'https://api.openai.com/*',
+            'https://api.anthropic.com/*',
+          ],
+        })),
+        remove,
+        onAdded: { addListener: vi.fn() },
+        onRemoved: { addListener: vi.fn() },
+      },
+      scripting: {
+        getRegisteredContentScripts: vi.fn(async () => []),
+        unregisterContentScripts: vi.fn(async () => {}),
+        registerContentScripts: vi.fn(async () => {}),
+      },
+    } as unknown as typeof chrome;
+
+    const { reconcileProfileOrigins } = await import('../site-access');
+    await reconcileProfileOrigins(['https://bmp.example.test/workspace'], {
+      provider: 'openai',
+      model: 'gpt-5.2',
+      apiKeyEnc: 'encrypted',
+    });
+
+    expect(remove).toHaveBeenCalledWith({ origins: ['https://api.anthropic.com/*'] });
+  });
+
+  it('removes provider grants when AI configuration is removed', async () => {
+    const remove = vi.fn(async (_permissions: chrome.permissions.Permissions) => true);
+    globalThis.chrome = {
+      permissions: {
+        getAll: vi.fn(async () => ({
+          origins: [
+            'https://api.openai.com/*',
+            'https://api.anthropic.com/*',
+          ],
+        })),
+        remove,
+        onAdded: { addListener: vi.fn() },
+        onRemoved: { addListener: vi.fn() },
+      },
+      scripting: {
+        getRegisteredContentScripts: vi.fn(async () => []),
+        unregisterContentScripts: vi.fn(async () => {}),
+        registerContentScripts: vi.fn(async () => {}),
+      },
+    } as unknown as typeof chrome;
+
+    const { reconcileProfileOrigins } = await import('../site-access');
+    await reconcileProfileOrigins([], undefined);
+
+    expect(remove).toHaveBeenCalledWith({
+      origins: [
+        'https://api.openai.com/*',
+        'https://api.anthropic.com/*',
+      ],
+    });
   });
 });

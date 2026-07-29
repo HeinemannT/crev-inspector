@@ -6,7 +6,7 @@
  * out of their EC string context.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { BmpClient, PANE_PROPS } from '../bmp-client';
+import { BmpClient, PANE_PROPS, parseObjectOverrideProps } from '../bmp-client';
 import './chrome-mock';
 
 const SEP = '<<<CREV_SEP>>>';
@@ -34,6 +34,9 @@ function buildPaneLog(opts: {
   sibTotal?: number;
   /** Comma-delimited owning CreateObjectView class names for EditField. */
   editFieldTypes?: string;
+  template?: { rid: string; id: string; name: string; type: string };
+  instanceProps?: Partial<Record<(typeof PANE_PROPS)[number], string>>;
+  templateProps?: Partial<Record<(typeof PANE_PROPS)[number], string>>;
 }) {
   const props: string[] = [
     `${SEP}instRid${SEP}${opts.instRid}`,
@@ -44,10 +47,10 @@ function buildPaneLog(opts: {
     `${SEP}parId${SEP}`,
     `${SEP}parName${SEP}`,
     `${SEP}parType${SEP}`,
-    `${SEP}tmplRid${SEP}MISSING`,
-    `${SEP}tmplId${SEP}`,
-    `${SEP}tmplName${SEP}`,
-    `${SEP}tmplType${SEP}`,
+    `${SEP}tmplRid${SEP}${opts.template?.rid ?? 'MISSING'}`,
+    `${SEP}tmplId${SEP}${opts.template?.id ?? ''}`,
+    `${SEP}tmplName${SEP}${opts.template?.name ?? ''}`,
+    `${SEP}tmplType${SEP}${opts.template?.type ?? ''}`,
     `${SEP}cardRid${SEP}${opts.card?.rid ?? 'MISSING'}`,
     `${SEP}cardId${SEP}${opts.card?.id ?? ''}`,
     `${SEP}cardName${SEP}${opts.card?.name ?? ''}`,
@@ -55,8 +58,8 @@ function buildPaneLog(opts: {
     `${SEP}instCardRid${SEP}${opts.instCardRid ?? ''}`,
   ];
   for (const p of PANE_PROPS) {
-    props.push(`${SEP}inst_${p}${SEP}`);
-    props.push(`${SEP}tmpl_${p}${SEP}`);
+    props.push(`${SEP}inst_${p}${SEP}${opts.instanceProps?.[p] ?? ''}`);
+    props.push(`${SEP}tmpl_${p}${SEP}${opts.templateProps?.[p] ?? ''}`);
   }
   if (opts.editFieldTypes) props.push(`${SEP}editFieldTypes${SEP}${opts.editFieldTypes}`);
   // Code fields the panel may surface
@@ -78,6 +81,55 @@ function buildPaneLog(opts: {
   props.push(`${SEP}DONE`);
   return props.join('\n');
 }
+
+describe('object override metadata', () => {
+  it('keeps an unreadable response distinct from a valid empty override list', () => {
+    expect(parseObjectOverrideProps(null)).toBeNull();
+    expect(parseObjectOverrideProps({ props: {}, overridden: [] })).toEqual([]);
+    expect(parseObjectOverrideProps({
+      response: { props: {}, overridden: { $elements: ['disableSearch'] } },
+    })).toEqual(['disableSearch']);
+  });
+
+  it('infers differing values only when authoritative metadata is unavailable', async () => {
+    const log = buildPaneLog({
+      instRid: '100',
+      instId: 'text_instance',
+      instName: 'Text instance',
+      instType: 'TextElement',
+      template: { rid: '101', id: 'text_template', name: 'Text template', type: 'TextElement' },
+      instanceProps: { disableSearch: 'true' },
+      templateProps: { disableSearch: 'false' },
+    });
+    const { c } = makeClient(log);
+    (c as unknown as { fetchObjectOverrideProps: () => Promise<null> }).fetchObjectOverrideProps =
+      vi.fn(async () => null);
+
+    const data = await c.fetchObjectPane('100');
+    expect(data?.instanceOverrideProps).toContain('disableSearch');
+  });
+
+  it('trusts valid metadata, including empty and same-value explicit overrides', async () => {
+    const log = buildPaneLog({
+      instRid: '100',
+      instId: 'text_instance',
+      instName: 'Text instance',
+      instType: 'TextElement',
+      template: { rid: '101', id: 'text_template', name: 'Text template', type: 'TextElement' },
+      instanceProps: { disableSearch: 'false' },
+      templateProps: { disableSearch: 'false' },
+    });
+    const { c } = makeClient(log);
+    const fetchOverrides = vi.fn<() => Promise<string[] | null>>();
+    (c as unknown as { fetchObjectOverrideProps: typeof fetchOverrides }).fetchObjectOverrideProps = fetchOverrides;
+
+    fetchOverrides.mockResolvedValueOnce([]);
+    expect((await c.fetchObjectPane('100'))?.instanceOverrideProps).toEqual([]);
+
+    fetchOverrides.mockResolvedValueOnce(['disableSearch']);
+    expect((await c.fetchObjectPane('100'))?.instanceOverrideProps).toEqual(['disableSearch']);
+  });
+});
 
 describe('fetchObjectPane — reference parsing', () => {
   it('resolves a single populated reference edge to its identity', async () => {
@@ -306,6 +358,28 @@ describe('applyObjectChanges — PANE_PROPS_SET allowlist', () => {
     expect(result.ok).toBe(true);
     expect(exec).not.toHaveBeenCalled();
   });
+
+  it('stages true BMP resets alongside ordinary instance changes', async () => {
+    const { c, exec } = makeClient('Result : 0');
+    const result = await c.applyObjectChanges(
+      '100',
+      'instance',
+      { shadow: true },
+      ['disableSearch', 'showToolMenu'],
+    );
+    expect(result.ok).toBe(true);
+    const ec = (exec.mock.calls[0] as unknown as [string])[0];
+    expect(ec).toContain('_o.change(shadow := TRUE)');
+    expect(ec).toContain('_o.reset(disableSearch)');
+    expect(ec).toContain('_o.reset(showToolMenu)');
+  });
+
+  it('rejects reset requests for template targets and change/reset collisions', async () => {
+    const { c, exec } = makeClient('');
+    expect((await c.applyObjectChanges('100', 'template', {}, ['shadow'])).ok).toBe(false);
+    expect((await c.applyObjectChanges('100', 'instance', { shadow: true }, ['shadow'])).ok).toBe(false);
+    expect(exec).not.toHaveBeenCalled();
+  });
 });
 
 describe('applyObjectChanges — EC literal escaping', () => {
@@ -355,5 +429,68 @@ describe('applyObjectChanges — template target', () => {
     const ec = (exec.mock.calls[0] as unknown as [string])[0];
     expect(ec).not.toContain('_o.linkedTo');
     expect(ec).toContain('_o.change(');
+  });
+});
+
+describe('applyIdentityChanges', () => {
+  it('previews the exact script before one write and orders the instance before the template', async () => {
+    const { c, exec } = makeClient('Result : 0');
+    const result = await c.applyIdentityChanges('100', {
+      businessId: 'renamed_instance',
+      name: 'Renamed "instance"',
+      templateBusinessId: 'renamed_template',
+    });
+
+    expect(result).toEqual({ ok: true, writeAttempted: true });
+    expect(exec).toHaveBeenCalledTimes(2);
+    const [ec, objectRid, previewWrite] = exec.mock.calls[0] as unknown as [string, string | undefined, boolean];
+    const [writeEc, writeObjectRid, writeMode] = exec.mock.calls[1] as unknown as [string, string | undefined, boolean];
+    expect(ec).toContain('_t.change(id := "renamed_template")');
+    expect(ec).toContain('_o.change(id := "renamed_instance", name := "Renamed \\"instance\\"")');
+    expect(ec.indexOf('_o.change')).toBeLessThan(ec.indexOf('_t.change'));
+    expect(objectRid).toBeUndefined();
+    expect(previewWrite).toBe(false);
+    expect(writeEc).toBe(ec);
+    expect(writeObjectRid).toBeUndefined();
+    expect(writeMode).toBe(true);
+  });
+
+  it('keeps both changes inside the resolved-template branch and does not write when preview cannot resolve it', async () => {
+    const { c, exec } = makeClient('Result : no template');
+    const result = await c.applyIdentityChanges('100', {
+      businessId: 'renamed_instance',
+      name: 'Renamed instance',
+      templateBusinessId: 'renamed_template',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      writeAttempted: false,
+      error: 'Could not resolve the linked template.',
+    });
+    expect(exec).toHaveBeenCalledOnce();
+    const ec = (exec.mock.calls[0] as unknown as [string])[0];
+    expect(ec).toMatch(/IF _t = MISSING THEN[\s\S]*ELSE[\s\S]*_o\.change[\s\S]*_t\.change[\s\S]*ENDIF/);
+  });
+
+  it('rejects preview warnings before a write is attempted', async () => {
+    const { c, exec } = makeClient('Duplicate business ID');
+    exec.mockResolvedValueOnce({
+      ok: true,
+      log: 'Duplicate business ID',
+      hasError: false,
+      hasWarning: true,
+    });
+
+    const result = await c.applyIdentityChanges('100', {
+      businessId: 'duplicate_id',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      writeAttempted: false,
+      error: 'BMP reported a warning during identity validation: Duplicate business ID',
+    });
+    expect(exec).toHaveBeenCalledOnce();
   });
 });

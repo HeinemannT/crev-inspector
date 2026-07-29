@@ -14,7 +14,7 @@ import { confirmModal } from '../../lib/modal';
 import { getUpdateStatus, refresh as refreshUpdate, type UpdateStatus } from '../../lib/version-check';
 import { originPatternFor } from '../../lib/site-access';
 import { requestOriginsInGesture } from '../site-access-strip';
-import { PROVIDERS, AI_PROVIDER_IDS, customProviderOrigins, parseCustomProviderJson, resolveProvider } from '../../lib/ai/providers';
+import { PROVIDERS, AI_PROVIDER_IDS, parseCustomProviderJson, resolveProvider } from '../../lib/ai/providers';
 import type { AiCustomProvider, AiProviderId } from '../../lib/ai/types';
 import type { Tab, SendFn } from './tab-types';
 
@@ -496,7 +496,14 @@ export class ConnectTab implements Tab {
           this.aiJsonError = null;
           this.aiJsonSaving = true;
           this.aiTestStatus = null;
-          void requestOriginsInGesture(customProviderOrigins(parsed.provider)).then((granted) => {
+          const model = parsed.provider.models.find((item) => item.toolCalling)?.id
+            ?? parsed.provider.models[0].id;
+          const origin = resolveProvider({
+            provider: 'custom',
+            model,
+            customProvider: parsed.provider,
+          }).origin;
+          void requestOriginsInGesture([origin]).then((granted) => {
             if (!granted) {
               this.aiJsonError = 'Site access to the custom endpoint was declined';
               this.aiJsonOpen = true;
@@ -828,6 +835,7 @@ export class ConnectTab implements Tab {
       h('div', { class: 'field-group' },
         h('label', { class: 'field-label' }, 'Provider'),
         providerSelect,
+        h('span', { class: 'field-hint' }, 'Messages and attached BMP context are sent directly to this provider.'),
       ),
       h('div', { class: 'field-group' },
         h('label', { class: 'field-label' }, 'Model'),

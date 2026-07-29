@@ -153,6 +153,28 @@ export function showTooltipForElement(s: ContentState, el: HTMLElement, rid: str
       onOpenEc: codeBearing
         ? () => sendFireForget(hasStudio(type) ? { type: 'OPEN_STUDIO', rid } : { type: 'OPEN_EDITOR', rid })
         : undefined,
+      onSaveIdentity: type
+        ? async identity => {
+          const response = await sendRequest({
+            type: 'SAVE_IDENTITY',
+            rid,
+            ...identity,
+          });
+          if (response?.type !== 'SAVE_IDENTITY_RESULT') {
+            return { ok: false, error: 'The extension did not return a save result.' };
+          }
+          if (response.ok) {
+            s.enrichments.set(rid, {
+              ...enrichment,
+              businessId: response.businessId ?? identity.businessId,
+              name: response.name ?? identity.name,
+              templateBusinessId: response.templateBusinessId ?? identity.templateBusinessId,
+            });
+            updateLabelsAfterIdentitySave(s);
+          }
+          return response;
+        }
+        : undefined,
     },
   ));
   tooltip.style.top = '-9999px';
@@ -184,6 +206,16 @@ export function showTooltipForElement(s: ContentState, el: HTMLElement, rid: str
   // overlay is actually open) so an intersecting tooltip gets hidden.
   if (document.body.classList.contains('crev-task-open')) {
     updateOverlayBlockState();
+  }
+}
+
+function updateLabelsAfterIdentitySave(s: ContentState): void {
+  for (const label of document.querySelectorAll<HTMLElement>('[data-crev-label]')) {
+    const rid = label.dataset.crevLabel;
+    const text = label.querySelector<HTMLElement>('.crev-label-text');
+    const enrichment = rid ? s.enrichments.get(rid) : undefined;
+    if (!rid || !text || !enrichment || label.classList.contains('crev-label--card')) continue;
+    text.textContent = enrichment.businessId ?? enrichment.name ?? getTypeAbbr(enrichment.type);
   }
 }
 

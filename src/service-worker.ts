@@ -261,10 +261,9 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(e => l
 // Per-site access: reconcile the dynamic content-script registrations with the granted origins at
 // boot and on every grant/revoke. Nothing is injected anywhere until the user approves a site.
 initSiteAccess();
-// Access invariant: grants ≡ configured profile origins. The boot reconcile also serves as the
-// one-time migration off the legacy `<all_urls>` grant that pre-0.5.3 installs carried over
-// (it isn't a profile origin, so it gets revoked here).
-void settingsReady.then(() => reconcileProfileOrigins(ctx.settings.profiles.map(p => p.bmpUrl), ctx.settings.ai?.customProvider));
+// Access invariant: grants equal configured BMP origins plus the selected AI provider origin.
+// This also migrates legacy broad grants carried over from older installs.
+void settingsReady.then(() => reconcileProfileOrigins(ctx.settings.profiles.map(p => p.bmpUrl), ctx.settings.ai));
 
 chrome.windows.onRemoved.addListener((id) => {
   // Drop the closed window's inspect-mode entry; otherwise a future

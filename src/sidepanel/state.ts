@@ -8,6 +8,7 @@ import { DEFAULT_SETTINGS } from '../lib/types';
 import { log } from '../lib/logger';
 import { createReconnectingPort, type ReconnectingPort } from '../lib/reconnecting-port';
 import type { PanelObjectContext } from './context-state';
+import { workStatusForMessage, type WorkStatus } from './work-status';
 
 // ── Shared state (readable by tabs, header, status bar) ──────────
 
@@ -49,6 +50,7 @@ export const S = {
 let portInstance: ReconnectingPort | null = null;
 let messageHandler: ((msg: InspectorMessage) => void) | null = null;
 let reconnectHandler: (() => void) | null = null;
+let workStatusHandler: ((status: WorkStatus) => void) | null = null;
 /** Window this panel is attached to. Discovered via chrome.windows.getCurrent
  *  at boot and re-asserted on every (re)connect via PANEL_HELLO so the SW
  *  can route window-scoped messages (PAGE_INFO, DETECTION_STATE, CONTEXT_RID_DATA)
@@ -79,6 +81,10 @@ export function onPortMessage(handler: (msg: InspectorMessage) => void): void {
 
 export function onReconnect(handler: () => void): void {
   reconnectHandler = handler;
+}
+
+export function onWorkStatus(handler: (status: WorkStatus) => void): void {
+  workStatusHandler = handler;
 }
 
 /** Message types worth queuing while the SW port is bouncing. These are
@@ -150,6 +156,9 @@ function sendPanelHello(): void {
 }
 
 export function sendMessage(msg: InspectorMessage): void {
+  const status = workStatusForMessage(msg);
+  if (status) workStatusHandler?.(status);
+
   // Hold non-handshake messages until PANEL_HELLO has been sent.
   // Without this, switchTab() in the boot path could race PANEL_HELLO
   // and reach the SW first — meta.panelWindowId would be undefined and

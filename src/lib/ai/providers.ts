@@ -74,10 +74,6 @@ export const PROVIDERS: Record<BuiltinProviderId, ProviderMeta> = {
 
 export const AI_PROVIDER_IDS: BuiltinProviderId[] = ['anthropic', 'openai', 'deepseek', 'grok'];
 
-/** Every provider API origin. site-access keeps these granted so a profile
- *  reconcile never revokes a key's host permission. */
-export const AI_API_ORIGINS: string[] = AI_PROVIDER_IDS.map(id => PROVIDERS[id].origin);
-
 export function providerMeta(id: BuiltinProviderId): ProviderMeta {
   return PROVIDERS[id];
 }

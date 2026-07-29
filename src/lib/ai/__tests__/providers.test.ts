@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PROVIDERS, AI_PROVIDER_IDS, AI_API_ORIGINS, customProviderOrigins, parseCustomProviderJson, resolveProvider } from '../providers';
+import { PROVIDERS, AI_PROVIDER_IDS, customProviderOrigins, parseCustomProviderJson, resolveProvider } from '../providers';
 
 describe('providers', () => {
   it('lists the four supported providers', () => {
@@ -22,15 +22,6 @@ describe('providers', () => {
   it('uses DeepSeek V4 Flash for new configurations while retaining the legacy alias as a suggestion', () => {
     expect(PROVIDERS.deepseek.defaultModel).toBe('deepseek-v4-flash');
     expect(PROVIDERS.deepseek.suggestedModels).toContain('deepseek-chat');
-  });
-
-  it('exposes each provider API origin so site-access never revokes it', () => {
-    expect(AI_API_ORIGINS).toEqual([
-      'https://api.anthropic.com/*',
-      'https://api.openai.com/*',
-      'https://api.deepseek.com/*',
-      'https://api.x.ai/*',
-    ]);
   });
 
   it('has a default model in each suggestion list', () => {

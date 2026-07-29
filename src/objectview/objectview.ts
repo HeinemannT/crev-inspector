@@ -19,19 +19,25 @@
 import type { ObjectPaneIdentity, ObjectPaneSiblingMsg, TypeSchemaProp } from '../lib/types';
 import { getTypeColor } from '../lib/types';
 import { intersectTypeSchemas } from '../lib/type-schema-utils';
-import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
+import { typeBadge } from '../lib/type-badge';
 import { h, render, svg } from '../lib/dom';
-import { ICON_ARROW_LINE_UP, ICON_PENCIL } from '../lib/icons';
-import { validateBusinessId } from '../lib/ec-guards';
-import { resolveCopyText, getModifier } from '../lib/namespace';
+import {
+  ICON_ARROWS_LEFT_RIGHT, ICON_CARET_DOWN, ICON_CHEVRON, ICON_CODE,
+  ICON_COLUMNS, ICON_COPY, ICON_EYE, ICON_IDENTIFICATION_CARD, ICON_PENCIL,
+  ICON_SHIELD_PH, ICON_SLIDERS_HORIZONTAL, ICON_TREE_STRUCTURE,
+} from '../lib/icons';
+import { identityBusinessIdError } from '../lib/object-identity';
 import { appendEcPreview } from '../lib/ec-format';
 import { installDirtyGuards } from '../editor-core/overlay';
 import { RuntimeRequestError, sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging';
-import { resolveLayoutShortcut } from '../lib/layout-target';
 import { findPropDef } from '../sidepanel/pane-schema';
 import { paneValueEquals } from '../sidepanel/pane-edit';
 import { displayValue } from '../sidepanel/property-editors';
-import { renderPropertyGroups, type PaneGroupsCtx } from '../sidepanel/sections/property-groups';
+import {
+  renderPropertyElement,
+  renderPropertyGroups,
+  type PaneGroupsCtx,
+} from '../sidepanel/sections/property-groups';
 import { renderLinks, referencesToLinks } from '../sidepanel/sections/links';
 import { renderFlowSection } from '../sidepanel/sections/flow-walker';
 import { hasFlow } from '../lib/widget-metadata';
@@ -39,6 +45,9 @@ import { hasStudio, modeForType } from '../studio/studio-mode';
 import { openAccessTrace, routeAccessMessage, initAccessTrace } from '../sidepanel/access-trace';
 import { openColorPicker } from '../sidepanel/color-picker';
 import { confirmModal } from '../lib/modal';
+import { clearCommittedDraft, reconcileInstanceOverrides } from './saved-state';
+import { replacePropertyElement, syncOptionalElement } from './local-update';
+import { syncObjectViewInteractionLock } from './interaction-lock';
 
 // The Access Trace overlay is shared with the side panel. The SW replies to the
 // sender (respond()), so here we bridge its fire-and-forget sends through
@@ -59,6 +68,17 @@ const rid = location.hash.slice(1);
 // change does NOT reload the document, so `rid` above would stay stale and
 // the view wouldn't move. Reload on hashchange so the new RID is picked up.
 window.addEventListener('hashchange', () => location.reload());
+document.addEventListener('click', (event) => {
+  for (const menu of document.querySelectorAll<HTMLDetailsElement>('.ov-compare[open]')) {
+    if (!menu.contains(event.target as Node)) menu.removeAttribute('open');
+  }
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    document.querySelectorAll<HTMLDetailsElement>('.ov-compare[open]')
+      .forEach(menu => menu.removeAttribute('open'));
+  }
+});
 
 interface PaneState {
   rid: string;
@@ -67,6 +87,7 @@ interface PaneState {
   template: ObjectPaneIdentity | null;
   instanceProps: Record<string, string>;
   templateProps: Record<string, string>;
+  instanceOverrideProps: string[];
   siblings: ObjectPaneSiblingMsg[];
   /** Code-bearing properties (expression / html / javascript) — keyed
    *  by property name. Populated from OBJECT_PANE_DATA.codeFields. */
@@ -90,16 +111,20 @@ interface PaneState {
 
 type SaveTarget = 'instance' | 'template';
 type IdentityProp = 'name' | 'id';
+type IdentityEditLocation = 'header' | 'document';
 
 let state: PaneState | null = null;
 let draft: Record<string, string> = {};
+let resetDraft = new Set<string>();
 let target: SaveTarget = 'instance';
-let pendingIdentityEdit: IdentityProp | null = null;
+let pendingIdentityEdit: { prop: IdentityProp; location: IdentityEditLocation } | null = null;
+let activePropertyEdit: string | null = null;
+let outlineCleanup: (() => void) | null = null;
 let loadAttempt = 0;
 let loadTimers: Array<ReturnType<typeof setTimeout>> = [];
 
 installDirtyGuards({
-  isDirty: () => Object.keys(draft).length > 0,
+  isDirty: () => Object.keys(draft).length + resetDraft.size > 0,
   bodyText: 'This object view has unsaved changes. Close anyway?',
 });
 
@@ -170,6 +195,7 @@ async function reloadPane(): Promise<void> {
     template: msg.template,
     instanceProps: msg.instanceProps,
     templateProps: msg.templateProps,
+    instanceOverrideProps: msg.instanceOverrideProps ?? [],
     siblings: msg.siblings,
     codeFields: msg.codeFields ?? {},
     flow: null,
@@ -186,6 +212,8 @@ async function reloadPane(): Promise<void> {
     error: (msg as any).error ?? null,
     saving: false,
   };
+  activePropertyEdit = null;
+  resetDraft.clear();
   if (!state.template) target = 'instance';
   document.title = `${msg.instance.name || msg.instance.businessId || rid} - CREV Object View`;
   renderPane();
@@ -302,19 +330,31 @@ function currentServerValue(prop: string): string {
 }
 
 function currentDisplayValue(prop: string): string {
+  if (target === 'instance' && resetDraft.has(prop) && state?.template) {
+    return state.templateProps[prop] ?? '';
+  }
   return draft[prop] ?? currentServerValue(prop);
 }
 
 function setDraft(prop: string, value: string): void {
+  if (state?.saving) return;
+  resetDraft.delete(prop);
   const server = currentServerValue(prop);
   if (paneValueEquals(prop, value, server)) delete draft[prop];
   else draft[prop] = value;
-  renderPane();
+  activePropertyEdit = null;
+  if (prop === 'name' || prop === 'id') {
+    renderPane();
+    return;
+  }
+  refreshProperty(prop);
+  syncActionBar();
 }
 
 
 async function discardAll(): Promise<void> {
-  const n = Object.keys(draft).length;
+  if (state?.saving) return;
+  const n = Object.keys(draft).length + resetDraft.size;
   if (n === 0) {
     if (state?.error) {
       state.error = null;
@@ -329,15 +369,26 @@ async function discardAll(): Promise<void> {
     confirmVariant: 'danger',
   });
   if (!ok) return;
+  const changedProps = [...new Set([...Object.keys(draft), ...resetDraft])];
+  const changesIdentity = changedProps.some(prop => prop === 'name' || prop === 'id');
   draft = {};
+  resetDraft.clear();
+  activePropertyEdit = null;
   if (state) state.error = null;
-  renderPane();
+  if (changesIdentity) {
+    renderPane();
+    return;
+  }
+  for (const prop of changedProps) refreshProperty(prop);
+  syncActionBar();
 }
 
 async function commitSave(): Promise<void> {
   if (!state || state.saving) return;
   const props = Object.keys(draft);
-  if (props.length === 0) return;
+  const resetProps = [...resetDraft];
+  const saveTarget = target;
+  if (props.length === 0 && resetProps.length === 0) return;
 
   // Diff preview before committing — same pattern as the side-panel.
   const diffRows = props.map(p => ({
@@ -345,14 +396,21 @@ async function commitSave(): Promise<void> {
     from: displayValue(currentServerValue(p)),
     to: displayValue(draft[p]),
   }));
+  for (const prop of resetProps) {
+    diffRows.push({
+      key: `${prop} · reset override`,
+      from: displayValue(currentServerValue(prop)),
+      to: displayValue(state.templateProps[prop] ?? ''),
+    });
+  }
   const changesBusinessId = props.includes('id');
 
   const ok = await confirmModal({
     title: changesBusinessId
-      ? `Confirm business ID change${props.length === 1 ? '' : 's'}`
-      : `Save ${props.length} change${props.length === 1 ? '' : 's'}`,
+      ? `Confirm business ID change${diffRows.length === 1 ? '' : 's'}`
+      : `Save ${diffRows.length} change${diffRows.length === 1 ? '' : 's'}`,
     body: [
-      `Apply changes to ${target}?`,
+      `Apply changes to ${saveTarget}?`,
       changesBusinessId
         ? h('div', { class: 'ov-id-change-warning' },
           'Changing a business ID can break Extended Code, integrations, or saved references that use the old ID.',
@@ -375,6 +433,7 @@ async function commitSave(): Promise<void> {
   if (!ok) return;
 
   const changes: Record<string, string | number | boolean> = {};
+  const committedDraft = { ...draft };
   for (const p of props) {
     const value = draft[p];
     const def = findPropDef(p);
@@ -390,67 +449,136 @@ async function commitSave(): Promise<void> {
 
   state.saving = true;
   state.error = null;
-  renderPane();
-  const reply = await sendRequest({ type: 'APPLY_OBJECT_CHANGES', rid: state.rid, target, changes });
-  if (!state) return;
-  state.saving = false;
-  if (reply && reply.type === 'APPLY_CHANGES_RESULT' && reply.ok) {
-    draft = {};
-    await reloadPane();
-  } else {
-    state.error = (reply && reply.type === 'APPLY_CHANGES_RESULT' ? reply.error : null) ?? 'Save failed';
-    renderPane();
+  syncObjectViewInteractionLock(root, true);
+  syncActionBar();
+  const savingState = state;
+  try {
+    const reply = await sendRequest({
+      type: 'APPLY_OBJECT_CHANGES',
+      rid: savingState.rid,
+      target: saveTarget,
+      changes,
+      resetProps,
+    });
+    if (state !== savingState) return;
+
+    if (reply && reply.type === 'APPLY_CHANGES_RESULT' && reply.ok) {
+      if (saveTarget === 'instance') {
+        for (const prop of props) {
+          const value = committedDraft[prop];
+          if (prop === 'name') state.identity.name = value;
+          else if (prop === 'id') state.identity.businessId = value;
+          else state.instanceProps[prop] = value;
+        }
+        for (const prop of resetProps) {
+          state.instanceProps[prop] = state.templateProps[prop] ?? '';
+        }
+        state.instanceOverrideProps = reconcileInstanceOverrides(
+          state.instanceOverrideProps,
+          props.filter(prop => prop !== 'name' && prop !== 'id'),
+          resetProps,
+        );
+      } else if (state.template) {
+        for (const prop of props) {
+          const value = committedDraft[prop];
+          if (prop === 'name') state.template.name = value;
+          else if (prop === 'id') state.template.businessId = value;
+          else {
+            state.templateProps[prop] = value;
+            if (!state.instanceOverrideProps.includes(prop)) state.instanceProps[prop] = value;
+          }
+        }
+      }
+
+      clearCommittedDraft(draft, resetDraft, committedDraft, resetProps);
+      activePropertyEdit = null;
+      document.title = `${state.identity.name || state.identity.businessId || rid} - CREV Object View`;
+      if (props.some(prop => prop === 'name' || prop === 'id')) {
+        renderPane();
+      } else {
+        for (const prop of [...new Set([...props, ...resetProps])]) refreshProperty(prop);
+      }
+    } else {
+      state.error = (reply && reply.type === 'APPLY_CHANGES_RESULT' ? reply.error : null)
+        ?? 'No response from the extension. BMP may have saved; reload the object before retrying.';
+    }
+  } catch (error) {
+    if (state === savingState) {
+      state.error = error instanceof Error ? error.message : 'Save failed';
+    }
+  } finally {
+    if (state === savingState) {
+      state.saving = false;
+      syncObjectViewInteractionLock(root, false);
+      syncActionBar();
+    }
   }
 }
 
 // ── Rendering ─────────────────────────────────────────────────────
 
-/** The header type badge — click copies the business id (green ✓ flash),
- *  the panel-wide badge gesture. */
+/** Identity-only type badge. Copy is an explicit RID action below. */
 function identityBadge(identity: ObjectPaneIdentity): HTMLElement {
-  const id = identity.businessId || identity.rid;
-  const b = wireBadgeCopy(typeBadge(identity.type), () => id);
+  const b = typeBadge(identity.type);
   b.classList.add('pane-id-bdg');
   return b;
 }
 
-/** Blueprint-style inline rename: pencil → edit in place, Enter or
- * outside click stages it, Escape cancels. Saving remains a separate confirmed
- * action so an accidental inline edit never writes to BMP immediately. */
-function renderEditableIdentity(prop: IdentityProp, value: string): HTMLElement {
+/** Blueprint-style inline rename: click the existing value (or its pencil) to
+ * edit in place. Enter / outside click stages it, Escape cancels. Saving
+ * remains a separate confirmed action so an accidental edit never writes to
+ * BMP immediately. */
+function renderEditableIdentity(
+  prop: IdentityProp,
+  value: string,
+  location: IdentityEditLocation = 'header',
+  showPencil = true,
+): HTMLElement {
   const isName = prop === 'name';
+  const requestEdit = (e: MouseEvent): void => {
+    e.preventDefault();
+    e.stopPropagation();
+    pendingIdentityEdit = { prop, location };
+    renderPane();
+  };
   const valueEl = h('span', {
-    class: isName ? 'pane-id-name' : 'pane-id-bid',
-    'data-identity-edit': prop,
+    class: `${isName ? 'pane-id-name' : 'pane-id-bid'} ov-identity-value`,
+    'data-identity-edit': `${location}-${prop}`,
+    role: 'button',
+    tabindex: '0',
+    title: isName ? `Rename ${target}` : `Edit ${target} business ID`,
+    onMousedown: requestEdit,
+    onKeydown: (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      pendingIdentityEdit = { prop, location };
+      renderPane();
+    },
   }, value || (isName ? '(unnamed)' : '(no ID)'));
   const pencil = h('button', {
     class: 'icon-btn ov-identity-pencil',
     type: 'button',
     title: isName ? `Rename ${target}` : `Edit ${target} business ID`,
     'aria-label': isName ? `Rename ${target}` : `Edit ${target} business ID`,
-    onMousedown: (e: MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      pendingIdentityEdit = prop;
-      renderPane();
-    },
+    onMousedown: requestEdit,
   }, svg(ICON_PENCIL));
   return h('span', {
     class: `ov-identity-field${isName ? ' ov-identity-field-name' : ''}`,
-  }, valueEl, pencil);
+  }, valueEl, showPencil ? pencil : null);
 }
 
 function openPendingIdentityEdit(): void {
-  const prop = pendingIdentityEdit;
-  if (!prop) return;
+  const pending = pendingIdentityEdit;
+  if (!pending) return;
   pendingIdentityEdit = null;
-  const field = root.querySelector<HTMLElement>(`[data-identity-edit="${prop}"]`);
+  const { prop, location } = pending;
+  const field = root.querySelector<HTMLElement>(`[data-identity-edit="${location}-${prop}"]`);
   if (!field) return;
 
   const original = currentDisplayValue(prop);
   field.textContent = original;
   field.setAttribute('contenteditable', 'plaintext-only');
-  field.focus();
+  field.focus({ preventScroll: true });
   const range = document.createRange();
   range.selectNodeContents(field);
   range.collapse(false);
@@ -492,10 +620,9 @@ function openPendingIdentityEdit(): void {
       return;
     }
     if (prop === 'id') {
-      try {
-        validateBusinessId(next);
-      } catch {
-        if (state) state.error = 'Business ID may contain only letters, numbers, and underscores.';
+      const error = identityBusinessIdError(next);
+      if (error) {
+        if (state) state.error = error;
         renderPane();
         return;
       }
@@ -507,16 +634,20 @@ function openPendingIdentityEdit(): void {
 
 function renderPane(): void {
   if (!state) return;
+  const previousScrollTop = root.querySelector<HTMLElement>('.ov-body')?.scrollTop ?? 0;
+  outlineCleanup?.();
+  outlineCleanup = null;
   const s = state;
   const color = getTypeColor(s.identity.type);
   const hasTemplate = !!s.template;
   const activeIdentity = target === 'template' && s.template ? s.template : s.identity;
-  const dirtyCount = Object.keys(draft).length;
+  const dirtyCount = Object.keys(draft).length + resetDraft.size;
 
   const switchTarget = async (next: SaveTarget) => {
+    if (s.saving) return;
     if (target === next) return;
     if (next === 'template' && !hasTemplate) return;
-    if (Object.keys(draft).length > 0) {
+    if (Object.keys(draft).length + resetDraft.size > 0) {
       const ok = await confirmModal({
         title: 'Discard draft to switch target?',
         body: 'Switching between template and instance resets your pending edits.',
@@ -525,7 +656,9 @@ function renderPane(): void {
       });
       if (!ok) return;
       draft = {};
+      resetDraft.clear();
     }
+    activePropertyEdit = null;
     target = next;
     renderPane();
   };
@@ -534,48 +667,68 @@ function renderPane(): void {
       class: `pane-target-btn${target === 'instance' ? ' active' : ''}`,
       role: 'tab', 'aria-selected': target === 'instance' ? 'true' : 'false',
       onClick: () => switchTarget('instance'),
-    }, 'instance'),
+    }, 'Instance'),
     h('button', {
       class: `pane-target-btn${target === 'template' ? ' active' : ''}`,
       role: 'tab', 'aria-selected': target === 'template' ? 'true' : 'false',
       disabled: !hasTemplate,
       onClick: () => switchTarget('template'),
-    }, 'template'),
+    }, 'Template'),
   );
 
-  // Two-row header, matching the side-panel's pattern:
-  //   Row 1 (context + actions): ↑parent ···· Diff · Vs Template · Layout · instance|template
-  //   Row 2 (identity):          [chip] Name ······················· id
+  // Two-row header: hierarchy + tools, then identity + source.
   const header = h('div', { class: 'ov-header pane-header', style: `--type-color:${color}` },
     h('div', { class: 'pane-header-nav' },
-      s.parent ? renderParentCrumb(s.parent) : h('span', { class: 'pane-header-nav-spacer' }),
+      renderHierarchyBreadcrumb(s.parent, s.identity),
       h('div', { class: 'pane-header-actions' },
-        h('button', { class: 'btn btn-small', 'data-action': 'diff', title: 'Compare with another object' }, 'Diff…'),
-        hasTemplate
-          ? h('button', { class: 'btn btn-small', 'data-action': 'template-diff', title: 'Compare instance to its template' }, 'Vs Template')
-          : null,
+        h('details', { class: 'ov-compare' },
+          h('summary', {
+            class: 'btn btn-small ov-compare-trigger',
+            title: 'Compare this object',
+          }, svg(ICON_ARROWS_LEFT_RIGHT), 'Compare', svg(ICON_CARET_DOWN)),
+          h('div', { class: 'ov-compare-menu', role: 'menu' },
+            hasTemplate
+              ? h('button', {
+                  class: 'ov-compare-item',
+                  type: 'button',
+                  role: 'menuitem',
+                  'data-action': 'template-diff',
+                }, svg(ICON_ARROWS_LEFT_RIGHT),
+                h('span', null, 'Diff vs Template',
+                  h('small', null, 'Inherited and overridden values'),
+                ))
+              : null,
+            h('button', {
+              class: 'ov-compare-item',
+              type: 'button',
+              role: 'menuitem',
+              'data-action': 'diff',
+            }, svg(ICON_ARROWS_LEFT_RIGHT),
+            h('span', null, 'Diff',
+              h('small', null, 'Compare with another object'),
+            )),
+          ),
+        ),
         h('button', {
           class: 'btn btn-small',
           title: 'Test access: trace whether a user or role can read, write, add, or delete this object',
           onClick: () => openAccessTrace({ rid: s.rid, name: s.identity.name, type: s.identity.type }),
-        }, 'Access ↗'),
-        renderLayoutShortcut(),
-        targetToggle,
+        }, svg(ICON_SHIELD_PH), 'Access'),
       ),
     ),
     h('div', { class: 'pane-header-id' },
       identityBadge(activeIdentity),
       renderEditableIdentity('name', currentDisplayValue('name')),
       renderEditableIdentity('id', currentDisplayValue('id')),
+      h('div', { class: 'ov-source-control' },
+        h('span', { class: 'ov-source-label' }, 'Source'),
+        targetToggle,
+      ),
     ),
   );
 
-  const propsArea = h('div', { class: 'ov-props-area' }, renderPropertiesArea());
-
-  const treeArea = h('div', { class: 'ov-tree-area' },
-    renderSiblingsSection(),
-    renderTemplateSection(),
-  );
+  const documentArea = renderPropertiesArea();
+  const outline = renderSectionOutline(documentArea);
 
   const actionBar = dirtyCount > 0 || s.saving || !!s.error
     ? renderActionBar(dirtyCount)
@@ -583,46 +736,292 @@ function renderPane(): void {
 
   render(root, h('div', { class: 'ov-shell pane-shell' },
     header,
-    h('div', { class: 'ov-body' }, propsArea, treeArea),
+    h('div', { class: 'ov-body' }, outline, documentArea),
     actionBar,
   ));
+  syncObjectViewInteractionLock(root, s.saving);
+  const body = root.querySelector<HTMLElement>('.ov-body');
+  if (body) body.scrollTop = previousScrollTop;
+  outlineCleanup = installSectionOutline();
   openPendingIdentityEdit();
+  focusActivePropertyEditor();
 }
 
-/** "Layout ↗" button — only for layout-container types (Scorecard / TabSet /
- *  Tab / Container). Sends OPEN_LAYOUT_FOR through the SW; the side panel
- *  handler does the actual tab switch + state priming. */
-function renderLayoutShortcut(): HTMLElement | null {
-  const s = state;
-  if (!s?.identity?.type) return null;
-  // Shared resolver (see lib/layout-target.ts) — identical routing to the
-  // side-panel detail view's "Layout ↗" button.
-  const layout = resolveLayoutShortcut({ rid: s.rid, type: s.identity.type }, s.parent);
-  // Only for objects that ARE layout containers (Scorecard / TabSet / Tab /
-  // Container) — not leaf widgets routed to their parent's layout.
-  if (!layout?.selfIsLayout) return null;
-  return h('button', {
-    class: 'btn btn-small',
-    title: 'Open this object in the Page tab\'s Layout view',
-    onClick: () => sendFireForget({ type: 'OPEN_LAYOUT_FOR', rid: layout.target, highlightRid: layout.highlight }),
-  }, 'Layout ↗');
+function renderHierarchyBreadcrumb(
+  parent: ObjectPaneIdentity | null,
+  current: ObjectPaneIdentity,
+): HTMLElement {
+  return h('nav', { class: 'ov-breadcrumb', 'aria-label': 'Object hierarchy' },
+    parent
+      ? h('span', {
+          class: 'ov-breadcrumb-continuation',
+          title: 'Higher levels in the object hierarchy',
+          'aria-label': 'Higher hierarchy levels omitted',
+        }, '…')
+      : null,
+    parent ? h('span', { class: 'ov-breadcrumb-separator', 'aria-hidden': 'true' }, svg(ICON_CHEVRON)) : null,
+    parent
+      ? h('button', {
+          class: 'ov-breadcrumb-parent',
+          type: 'button',
+          title: `Open parent: ${parent.businessId || parent.rid}`,
+          onClick: () => sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid: parent.rid }),
+        },
+          typeBadge(parent.type, { size: 'xs' }),
+          h('span', { class: 'ov-breadcrumb-name' }, parent.name || '(unnamed)'),
+          parent.businessId ? h('code', null, parent.businessId) : null,
+        )
+      : null,
+    parent ? h('span', { class: 'ov-breadcrumb-separator', 'aria-hidden': 'true' }, svg(ICON_CHEVRON)) : null,
+    h('span', { class: 'ov-breadcrumb-current', title: current.businessId || current.rid },
+      current.name || current.businessId || '(unnamed)',
+    ),
+  );
 }
 
-function renderParentCrumb(parent: ObjectPaneIdentity): HTMLElement {
-  return h('div', {
-    class: 'pane-parent-crumb',
+function renderDocumentIdentityValue(prop: IdentityProp): HTMLElement {
+  const value = currentDisplayValue(prop);
+  const requestEdit = (e: Event): void => {
+    e.preventDefault();
+    e.stopPropagation();
+    pendingIdentityEdit = { prop, location: 'document' };
+    renderPane();
+  };
+  return h('span', {
+    class: `dv-meta-v${prop === 'id' ? ' mono' : ''} ov-document-identity-value`,
+    'data-identity-edit': `document-${prop}`,
     role: 'button',
     tabindex: '0',
-    title: `Open parent: ${parent.businessId || parent.rid}`,
-    onClick: () => sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid: parent.rid }),
-  },
-    h('span', { class: 'pane-parent-crumb-arrow' }, svg(ICON_ARROW_LINE_UP)),
-    typeBadge(parent.type, { size: 'xs' }),
-    h('span', { class: 'pane-parent-crumb-name' }, parent.name || '(unnamed)'),
-    parent.businessId
-      ? h('span', { class: 'pane-parent-crumb-bid' }, parent.businessId)
+    title: prop === 'name' ? `Rename ${target}` : `Edit ${target} business ID`,
+    onMousedown: requestEdit,
+    onKeydown: (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') requestEdit(e);
+    },
+  }, value || (prop === 'name' ? '(unnamed)' : '(no ID)'));
+}
+
+/** The shared property renderer keeps the side panel's compact group grammar.
+ *  In the expanded view, promote those groups into one continuous document and
+ *  split responsive columns back into the Layout section so the outline reads
+ *  in the same order users think about the object. */
+function decoratePropertyGroups(groups: HTMLElement): void {
+  const displayGroup = groups.querySelector<HTMLElement>(':scope > [data-section-label="Display"]');
+  const columnsRow = displayGroup?.querySelector<HTMLElement>(':scope > .prop-row--columns');
+  if (displayGroup && columnsRow) {
+    let layoutGroup = groups.querySelector<HTMLElement>(':scope > [data-section-label="Layout"]');
+    if (!layoutGroup) {
+      layoutGroup = h('div', {
+        class: 'prop-group',
+        'data-section-label': 'Layout',
+      });
+      groups.insertBefore(layoutGroup, displayGroup);
+    }
+    layoutGroup.appendChild(columnsRow);
+    displayGroup.querySelector(':scope > .prop-divider')?.remove();
+  }
+
+  for (const group of groups.querySelectorAll<HTMLElement>(':scope > [data-section-label]')) {
+    const rawLabel = group.dataset.sectionLabel ?? 'Properties';
+    const label = rawLabel === 'Display' ? 'Behaviour' : rawLabel;
+    group.dataset.sectionLabel = label;
+    group.classList.add('ov-document-section');
+    const title = group.querySelector<HTMLElement>(':scope > .prop-group-title');
+    if (title) {
+      title.classList.add('ov-document-heading');
+      title.replaceChildren(...renderSectionHeadingContent(label));
+    } else {
+      group.insertBefore(h('div', { class: 'ov-document-heading' }, ...renderSectionHeadingContent(label)), group.firstChild);
+    }
+  }
+}
+
+function sectionIcon(label: string): string {
+  switch (label) {
+    case 'Identity': return ICON_IDENTIFICATION_CARD;
+    case 'Layout': return ICON_COLUMNS;
+    case 'Behaviour': return ICON_SLIDERS_HORIZONTAL;
+    case 'Visibility': return ICON_EYE;
+    case 'Code':
+    case 'Flow': return ICON_CODE;
+    case 'Relations':
+    case 'References': return ICON_TREE_STRUCTURE;
+    default: return ICON_SLIDERS_HORIZONTAL;
+  }
+}
+
+function renderSectionHeadingContent(label: string): Array<HTMLElement | string> {
+  return [
+    h('span', { class: 'ov-section-icon', 'aria-hidden': 'true' }, svg(sectionIcon(label))),
+    h('span', null, label),
+  ];
+}
+
+function renderRelationsSection(): HTMLElement {
+  const s = state!;
+  const path = h('div', { class: 'ov-relation-path' },
+    s.parent
+      ? h('button', {
+          class: 'ov-relation-node',
+          type: 'button',
+          'data-open-rid': s.parent.rid,
+          title: `Open parent ${s.parent.name || s.parent.businessId || s.parent.rid}`,
+        },
+          h('span', { class: 'ov-relation-node-label' }, 'Parent'),
+          h('span', { class: 'ov-relation-node-value' },
+            typeBadge(s.parent.type, { size: 'xs' }),
+            h('span', null, s.parent.name || '(unnamed)'),
+            s.parent.businessId ? h('code', null, s.parent.businessId) : null,
+          ),
+        )
       : null,
+    s.parent ? h('span', { class: 'ov-relation-arrow', 'aria-hidden': 'true' }, '→') : null,
+    h('div', { class: 'ov-relation-node ov-relation-node--current' },
+      h('span', { class: 'ov-relation-node-label' }, 'Current object'),
+      h('span', { class: 'ov-relation-node-value' },
+        typeBadge(s.identity.type, { size: 'xs' }),
+        h('span', null, s.identity.name || '(unnamed)'),
+        s.identity.businessId ? h('code', null, s.identity.businessId) : null,
+      ),
+    ),
   );
+
+  return h('section', {
+    class: 'ov-document-section ov-relations-section',
+    id: 'ov-section-relations',
+    'data-section-label': 'Relations',
+  },
+    h('div', { class: 'ov-document-heading' }, ...renderSectionHeadingContent('Relations')),
+    path,
+    renderTemplateSection(),
+    renderSiblingsSection(),
+  );
+}
+
+function sectionSlug(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function renderSectionOutline(documentArea: HTMLElement): HTMLElement {
+  const used = new Map<string, number>();
+  const sections = [...documentArea.querySelectorAll<HTMLElement>(':scope > [data-section-label]')];
+  return h('nav', { class: 'ov-outline', 'aria-label': 'Object sections' },
+    ...sections.map((section, index) => {
+      const label = section.dataset.sectionLabel ?? 'Section';
+      const base = sectionSlug(label) || 'section';
+      const count = used.get(base) ?? 0;
+      used.set(base, count + 1);
+      if (!section.id) section.id = `ov-section-${base}${count ? `-${count + 1}` : ''}`;
+      return h('button', {
+        class: 'ov-outline-item',
+        type: 'button',
+        'data-outline-target': section.id,
+        'aria-current': index === 0 ? 'true' : 'false',
+        onClick: () => scrollDocumentSection(section.id),
+      },
+        h('span', { class: 'ov-outline-icon', 'aria-hidden': 'true' }, svg(sectionIcon(label))),
+        h('span', null, label),
+      );
+    }),
+  );
+}
+
+function scrollDocumentSection(sectionId: string): void {
+  const body = root.querySelector<HTMLElement>('.ov-body');
+  const section = root.querySelector<HTMLElement>(`#${CSS.escape(sectionId)}`);
+  if (!body || !section) return;
+  const outline = root.querySelector<HTMLElement>('.ov-outline');
+  const dockedOffset = outline && getComputedStyle(outline).flexDirection === 'row'
+    ? outline.offsetHeight + 12
+    : 16;
+  const top = section.getBoundingClientRect().top
+    - body.getBoundingClientRect().top
+    + body.scrollTop
+    - dockedOffset;
+  body.scrollTo({ top, behavior: 'smooth' });
+  setCurrentOutlineItem(sectionId);
+}
+
+function setCurrentOutlineItem(sectionId: string): void {
+  for (const button of root.querySelectorAll<HTMLElement>('[data-outline-target]')) {
+    button.setAttribute('aria-current', button.dataset.outlineTarget === sectionId ? 'true' : 'false');
+  }
+}
+
+function installSectionOutline(): (() => void) | null {
+  const body = root.querySelector<HTMLElement>('.ov-body');
+  const sections = [...root.querySelectorAll<HTMLElement>('.ov-document > [data-section-label]')];
+  if (!body || sections.length === 0) return null;
+
+  let frame = 0;
+  const update = (): void => {
+    frame = 0;
+    const marker = body.getBoundingClientRect().top + Math.min(120, body.clientHeight * 0.18);
+    let current = sections[0];
+    for (const section of sections) {
+      if (section.getBoundingClientRect().top <= marker) current = section;
+    }
+    if (body.scrollTop + body.clientHeight >= body.scrollHeight - 2) current = sections[sections.length - 1];
+    setCurrentOutlineItem(current.id);
+  };
+  const onScroll = (): void => {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(update);
+  };
+  body.addEventListener('scroll', onScroll, { passive: true });
+  update();
+  return () => {
+    body.removeEventListener('scroll', onScroll);
+    cancelAnimationFrame(frame);
+  };
+}
+
+function focusActivePropertyEditor(): void {
+  if (!activePropertyEdit) return;
+  const holder = root.querySelector<HTMLElement>(`[data-editing-prop="${CSS.escape(activePropertyEdit)}"]`);
+  const control = holder?.matches('button, input, select, textarea')
+    ? holder
+    : holder?.querySelector<HTMLElement>('input, select, textarea, button');
+  control?.focus({ preventScroll: true });
+  if (control instanceof HTMLInputElement && control.type === 'text') control.select();
+}
+
+/**
+ * Render the current version of one property into a detached group tree, then
+ * swap only that property's DOM node into the live document. The `.ov-body`
+ * scroll owner and every unrelated section remain untouched.
+ */
+function refreshProperty(prop: string, focus = false): void {
+  const replaced = replacePropertyElement(root, prop, () => {
+    const def = findPropDef(prop);
+    return def ? renderPropertyElement(makeGroupsCtx(), def) : null;
+  });
+  if (!replaced) {
+    // A property can structurally appear/disappear (for example an empty
+    // auto-sized width). That rare case needs the complete section topology.
+    renderPane();
+    return;
+  }
+  if (focus) focusActivePropertyEditor();
+}
+
+function activatePropertyEditor(prop: string): void {
+  if (state?.saving) return;
+  const previous = activePropertyEdit;
+  activePropertyEdit = prop;
+  if (previous && previous !== prop) refreshProperty(previous);
+  refreshProperty(prop, true);
+}
+
+/** Update only the shell footer used for pending/saving/error state. */
+function syncActionBar(): void {
+  if (!state) return;
+  const shell = root.querySelector<HTMLElement>('.ov-shell');
+  if (!shell) return;
+  const dirtyCount = Object.keys(draft).length + resetDraft.size;
+  const next = dirtyCount > 0 || state.saving || !!state.error
+    ? renderActionBar(dirtyCount)
+    : null;
+  syncOptionalElement(shell, '.pane-actionbar', next);
 }
 
 function renderPropertiesArea(): HTMLElement {
@@ -632,34 +1031,58 @@ function renderPropertiesArea(): HTMLElement {
     return objectLoadErrorContent(s.error);
   }
 
-  const wrap = h('div');
+  const wrap = h('div', { class: 'ov-document' });
 
   // Identity meta — the Inspect tab's quiet Info grammar (dv-meta styles come
   // from the shared sidepanel.css). Copy buttons flash green like everywhere.
+  const copyButton = (label: string, value: string): HTMLButtonElement => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const button = h('button', {
+      class: 'dv-meta-copy',
+      type: 'button',
+      title: `Copy ${label}`,
+      'aria-label': `Copy ${label}`,
+      onClick: () => {
+        navigator.clipboard?.writeText(value).catch(() => { /* blocked — silent */ });
+        if (timer) clearTimeout(timer);
+        button.classList.add('is-copied');
+        button.replaceChildren('✓');
+        timer = setTimeout(() => {
+          button.classList.remove('is-copied');
+          button.replaceChildren(svg(ICON_COPY));
+        }, 700);
+      },
+    }, svg(ICON_COPY)) as HTMLButtonElement;
+    return button;
+  };
   const metaRow = (label: string, value: string | undefined, copyable = false) => {
     if (!value) return [];
-    const valEl = h('span', { class: 'dv-meta-v mono' }, value);
-    const cells: HTMLElement[] = [h('span', { class: 'dv-meta-k' }, label), valEl];
-    if (copyable) {
-      cells.push(h('button', {
-        class: 'dv-meta-copy', title: `Copy ${label}`,
-        onClick: () => {
-          navigator.clipboard?.writeText(value).catch(() => { /* blocked — silent */ });
-          const orig = valEl.textContent;
-          valEl.textContent = '\u2713 copied';
-          valEl.classList.add('dv-meta-v--ok');
-          setTimeout(() => { valEl.textContent = orig; valEl.classList.remove('dv-meta-v--ok'); }, 700);
-        },
-      }, '\u29c9'));
-    } else {
-      cells.push(h('span'));
-    }
-    return cells;
+    return [
+      h('span', { class: 'dv-meta-k' }, label),
+      h('span', { class: 'dv-meta-v mono' }, value),
+      copyable ? copyButton(label, value) : h('span'),
+    ];
   };
-  wrap.appendChild(h('div', { class: 'dv-meta' },
-    ...metaRow('Type', s.identity.type),
-    ...metaRow('Business ID', s.identity.businessId, true),
-    ...metaRow('RID', s.rid, true),
+  const activeIdentity = target === 'template' && s.template ? s.template : s.identity;
+  const displayedName = currentDisplayValue('name');
+  const displayedId = currentDisplayValue('id');
+  const identityMeta = h('div', { class: 'dv-meta' },
+    ...metaRow('Type', activeIdentity.type),
+    h('span', { class: 'dv-meta-k' }, 'Name'),
+    renderDocumentIdentityValue('name'),
+    displayedName ? copyButton('name', displayedName) : h('span'),
+    h('span', { class: 'dv-meta-k' }, target === 'template' ? 'Template ID' : 'Business ID'),
+    renderDocumentIdentityValue('id'),
+    displayedId ? copyButton(target === 'template' ? 'template ID' : 'business ID', displayedId) : h('span'),
+    ...metaRow('RID', activeIdentity.rid, true),
+  );
+  wrap.appendChild(h('section', {
+    class: 'ov-document-section ov-identity-section',
+    id: 'ov-section-identity',
+    'data-section-label': 'Identity',
+  },
+    h('div', { class: 'ov-document-heading' }, ...renderSectionHeadingContent('Identity')),
+    identityMeta,
   ));
 
   const typeIsFlow = hasFlow(s.identity.type);
@@ -668,20 +1091,25 @@ function renderPropertiesArea(): HTMLElement {
   // the chain carries their code + references, so the popout's own code/links
   // sections are skipped (mirrors the Inspect rule).
   if (typeIsFlow) {
-    wrap.appendChild(renderFlowSection({
+    const flowSection = renderFlowSection({
       chain: s.flow,
       loading: s.flowLoading,
       error: s.flowError,
       onRetry: () => { void loadFlow(); },
       onNavigate: (r) => { location.hash = r; },
       sendMessage: sendFireForget,
-    }));
+    });
+    flowSection.classList.add('ov-document-section');
+    flowSection.dataset.sectionLabel = 'Flow';
+    wrap.appendChild(flowSection);
   }
 
   // Property groups — the popout KEEPS the layout/appearance editors (it is
   // the full-object EDITOR; on-page styling work lives in Blueprint, but this
   // surface is where deliberate property edits happen).
-  wrap.appendChild(renderPropertyGroups(makeGroupsCtx()));
+  const groups = renderPropertyGroups(makeGroupsCtx());
+  decoratePropertyGroups(groups);
+  while (groups.firstChild) wrap.appendChild(groups.firstChild);
 
   if (!typeIsFlow) {
     // Richer code section — popout-only. Each code prop renders as a
@@ -698,9 +1126,14 @@ function renderPropertiesArea(): HTMLElement {
       links: { outgoing: referencesToLinks(s.identity.type, s.references), incoming: [] },
       onNavigate: (rid) => { location.hash = rid; },
     });
-    if (linksSection) wrap.appendChild(linksSection);
+    if (linksSection) {
+      linksSection.classList.add('ov-document-section');
+      linksSection.dataset.sectionLabel = 'References';
+      wrap.appendChild(linksSection);
+    }
   }
 
+  wrap.appendChild(renderRelationsSection());
   return wrap;
 }
 
@@ -712,8 +1145,41 @@ function makeGroupsCtx(): PaneGroupsCtx {
     isAvailable: (def) => !def.availableOn || def.availableOn.has(objectType),
     displayValue: (prop) => currentDisplayValue(prop),
     serverValue: (prop) => currentServerValue(prop),
-    isDirty: (prop) => draft[prop] != null,
-    setDraft: (prop, value) => setDraft(prop, value),
+    isDirty: (prop) => draft[prop] != null || resetDraft.has(prop),
+    isValueDirty: (prop) => draft[prop] != null,
+    setDraft: (prop, value) => {
+      setDraft(prop, value);
+    },
+    editOnDemand: {
+      activeProp: activePropertyEdit,
+      request: activatePropertyEditor,
+    },
+    cascade: {
+      get: (prop) => {
+        const s = state!;
+        const hasTemplate = !!s.template;
+        const explicitlyOverridden = target === 'instance'
+          && hasTemplate
+          && s.instanceOverrideProps.includes(prop);
+        const resetStaged = resetDraft.has(prop);
+        return {
+          overridden: explicitlyOverridden,
+          resetStaged,
+        };
+      },
+      toggleReset: (prop) => {
+        if (state?.saving) return;
+        if (target !== 'instance' || !state?.template || !state.instanceOverrideProps.includes(prop)) return;
+        if (resetDraft.has(prop)) resetDraft.delete(prop);
+        else {
+          resetDraft.add(prop);
+          delete draft[prop];
+        }
+        activePropertyEdit = null;
+        refreshProperty(prop);
+        syncActionBar();
+      },
+    },
     propertyChoices: (prop) => {
       if (prop !== 'propertyMapping') return {};
       const classes = state!.editFieldClassNames;
@@ -757,8 +1223,11 @@ function renderPopoutCodeSection(): HTMLElement | null {
   ];
   if (ordered.length === 0) return null;
 
-  return h('div', { class: 'prop-group ov-code-group' },
-    h('div', { class: 'prop-group-title' }, 'Code'),
+  return h('section', {
+    class: 'prop-group ov-code-group ov-document-section',
+    'data-section-label': 'Code',
+  },
+    h('div', { class: 'prop-group-title ov-document-heading' }, ...renderSectionHeadingContent('Code')),
     h('div', { class: 'ov-code-cards' },
       ...ordered.map(prop => renderPopoutCodeCard(prop, s.codeFields[prop])),
     ),
@@ -876,6 +1345,7 @@ function handleActionClick(e: Event): void {
 
   const actionEl = target.closest<HTMLElement>('[data-action]');
   if (actionEl) {
+    actionEl.closest<HTMLDetailsElement>('.ov-compare')?.removeAttribute('open');
     if (actionEl.dataset.action === 'retry-load') {
       void reloadPane();
     }
@@ -888,25 +1358,6 @@ function handleActionClick(e: Event): void {
     }
     if (actionEl.dataset.action === 'template-diff') {
       sendFireForget({ type: 'OPEN_TEMPLATE_DIFF', rid });
-    }
-    return;
-  }
-
-  // Modifier-aware identity copy. Same modifier semantics as the side-panel
-  // (Alt → RID, Shift → template, Ctrl → ref, plain → BID/ID).
-  const copyEl = target.closest<HTMLElement>('[data-copy]');
-  if (copyEl) {
-    const { text } = resolveCopyText({
-      rid: copyEl.dataset.copyRid ?? copyEl.dataset.copy ?? '',
-      businessId: copyEl.dataset.copy,
-      type: copyEl.dataset.copyType,
-      templateBusinessId: copyEl.dataset.copyTmpl,
-    }, getModifier(e as MouseEvent));
-    if (text) {
-      navigator.clipboard.writeText(text).then(() => {
-        copyEl.classList.add('copied');
-        setTimeout(() => copyEl.classList.remove('copied'), 800);
-      }).catch(() => {});
     }
     return;
   }

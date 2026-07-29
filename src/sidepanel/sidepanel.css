@@ -18,6 +18,8 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* ── Header ────────────────────────────────────── */
@@ -53,7 +55,11 @@ body {
               color var(--duration-fast) var(--ease-default),
               transform var(--duration-fast) var(--ease-default);
 }
-.header-brand > svg { width: 34px; height: 34px; display: block; }
+.header-brand > img {
+  display: block;
+  width: 32px;
+  height: 32px;
+}
 .header-brand:hover { background: var(--accent-bg); }
 .header-brand:active { transform: scale(0.94); }
 .header-brand:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -486,7 +492,12 @@ body {
 
 /* ── Tab content ───────────────────────────────── */
 
-.tab-content { flex: 1; overflow-y: auto; overflow-x: hidden; }
+.tab-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
 
 .tab-panel { display: none; padding: 12px 16px 16px; }
 .tab-panel.active { display: block; }
@@ -1746,28 +1757,25 @@ body.crev-divider-dragging * { user-select: none; }
   flex-shrink: 0;
   font-size: var(--text-xs);
   min-height: 28px;
-}
-
-.status-bar-connection {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--text-3);
-  flex-shrink: 0;
-}
-
-.status-bar-connection .status-dot {
-  width: 5px;
-  height: 5px;
+  min-width: 0;
 }
 
 .status-bar-activity {
-  flex: 1;
-  text-align: center;
+  flex: 1 1 96px;
+  min-width: 48px;
+  text-align: left;
   color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.status-bar-activity.is-idle {
+  color: var(--text-3);
+}
+
+.status-bar-activity.is-working {
+  color: var(--text-1);
 }
 
 .status-bar-count {
@@ -1800,6 +1808,11 @@ body.crev-divider-dragging * { user-select: none; }
   background: transparent;
   border-color: var(--surface-3);
   color: var(--text-3);
+}
+
+@media (max-width: 390px) {
+  .status-bar-count { display: none; }
+  .status-bar-context { max-width: 108px; }
 }
 
 /* Latency traffic light — 6-step warm-cool ramp plus a grey ✕ for "no
@@ -2409,6 +2422,12 @@ body.crev-divider-dragging * { user-select: none; }
   color: var(--text-2);
   font-weight: var(--weight-medium);
   white-space: nowrap;
+}
+.prop-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
 }
 
 .prop-revert {

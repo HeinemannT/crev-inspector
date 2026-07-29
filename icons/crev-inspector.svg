@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="360" viewBox="0 0 360 360" role="img" aria-label="CREV Inspector">
+  <defs>
+    <radialGradient id="rearBase" cx="0" cy="0" r="1"
+      gradientTransform="translate(242 282) rotate(-139) scale(224 194)"
+      gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#aa5cf6"/>
+      <stop offset=".35" stop-color="#8747e9"/>
+      <stop offset=".7" stop-color="#5930c1"/>
+      <stop offset="1" stop-color="#35228e"/>
+    </radialGradient>
+
+    <radialGradient id="rearShade" cx="0" cy="0" r="1"
+      gradientTransform="translate(109 170) rotate(18) scale(118 91)"
+      gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#21146b" stop-opacity=".52"/>
+      <stop offset=".55" stop-color="#312080" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#44269f" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="rearGlow" cx="0" cy="0" r="1"
+      gradientTransform="translate(216 305) rotate(-10) scale(146 82)"
+      gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d095ff" stop-opacity=".23"/>
+      <stop offset=".62" stop-color="#b56efa" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#9548f1" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="frontBase" cx="0" cy="0" r="1"
+      gradientTransform="translate(239 59) rotate(151) scale(224 179)"
+      gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f365d8"/>
+      <stop offset=".34" stop-color="#e653dd"/>
+      <stop offset=".68" stop-color="#ca48e5"/>
+      <stop offset="1" stop-color="#9d3fe2"/>
+    </radialGradient>
+
+    <radialGradient id="frontTurn" cx="0" cy="0" r="1"
+      gradientTransform="translate(70 227) rotate(-39) scale(135 110)"
+      gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8435d9" stop-opacity=".55"/>
+      <stop offset=".55" stop-color="#a63fe1" stop-opacity=".17"/>
+      <stop offset="1" stop-color="#bd49e7" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="frontBloom" cx="0" cy="0" r="1"
+      gradientTransform="translate(164 39) rotate(25) scale(159 80)"
+      gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffc1f0" stop-opacity=".27"/>
+      <stop offset=".58" stop-color="#fbacf0" stop-opacity=".05"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="eyeFrameBase" cx="0" cy="0" r="1"
+      gradientTransform="translate(199 151) rotate(132) scale(107 96)"
+      gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a86bf2"/>
+      <stop offset=".34" stop-color="#8950e4"/>
+      <stop offset=".7" stop-color="#6738ca"/>
+      <stop offset="1" stop-color="#47289f"/>
+    </radialGradient>
+
+    <radialGradient id="eyeFrameLight" cx="0" cy="0" r="1"
+      gradientTransform="translate(170 137) rotate(48) scale(72 49)"
+      gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e0b6ff" stop-opacity=".27"/>
+      <stop offset=".55" stop-color="#c68cff" stop-opacity=".07"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!--
+      Horizontally symmetrical C silhouette around y=180:
+      every upper contour and terminal coordinate has a mirrored lower partner.
+    -->
+    <path id="rearC" fill-rule="evenodd" d="
+      M298 80
+      C260 48 220 36 180 36
+      C94 36 38 100 38 180
+      C38 260 94 324 180 324
+      C220 324 260 312 298 280
+      Q307 273 299 265
+      L246 218
+      Q239 212 231 219
+      C216 234 198 242 177 242
+      C139 242 113 218 113 180
+      C113 142 139 118 177 118
+      C198 118 216 126 231 141
+      Q239 148 246 141
+      L299 95
+      Q307 87 298 80
+      Z"/>
+  </defs>
+
+  <use href="#rearC" fill="url(#rearBase)"/>
+  <use href="#rearC" fill="url(#rearShade)"/>
+  <use href="#rearC" fill="url(#rearGlow)"/>
+
+  <!-- Flowing 07-style material sheet inside the symmetric base silhouette. -->
+  <path id="frontSheet" fill="url(#frontBase)" d="
+    M298 80
+    C260 48 220 36 180 36
+    C94 36 38 100 38 180
+    C38 203 44 225 56 244
+    C70 203 94 164 127 137
+    C158 111 197 104 230 117
+    C236 119 240 123 245 127
+    L299 95
+    Q307 87 298 80
+    Z"/>
+
+  <use href="#frontSheet" fill="url(#frontBloom)"/>
+  <use href="#frontSheet" fill="url(#frontTurn)"/>
+
+  <!-- Rounded-diamond inspector eye from concept 02. -->
+  <path id="eyeFrame" fill="url(#eyeFrameBase)" d="
+    M180 127
+    C190 127 198 132 207 141
+    L220 154
+    C237 171 237 189 220 206
+    L207 219
+    C198 228 190 233 180 233
+    C170 233 162 228 153 219
+    L140 206
+    C123 189 123 171 140 154
+    L153 141
+    C162 132 170 127 180 127
+    Z"/>
+
+  <use href="#eyeFrame" fill="url(#eyeFrameLight)"/>
+  <circle cx="180" cy="180" r="31" fill="#ffffff"/>
+  <rect x="163" y="163" width="34" height="34" rx="7" fill="#8a3ffc"/>
+</svg>

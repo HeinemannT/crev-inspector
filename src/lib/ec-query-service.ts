@@ -876,7 +876,7 @@ export class EcQueryService {
 
     return {
       instance, parent, template, card,
-      instanceProps, templateProps, siblings, siblingTotal,
+      instanceProps, templateProps, instanceOverrideProps: [], siblings, siblingTotal,
       codeFields, references,
       indirectCode, indirectCodeRids, contextValues, gateValues, lists,
       ...(editFieldClassNames.length > 0 ? { editFieldClassNames } : {}),

@@ -5,11 +5,14 @@
 
 import {
   registerBmpTypes,
+  makeGetObjectCommand,
   makeUpdateCommand,
   makeExtendedExecuteCommand,
   makeTreeItemCommand,
   makeAccessTraceCommand,
   parseEcResults,
+  parseCommandResponse,
+  parseObjectData,
   parseTreeNodeInfo,
   type EcOutputEntry,
 } from './bmp-types';
@@ -22,11 +25,12 @@ import { BmpAuth, AuthError } from './bmp-auth';
 import type { AuthMode, AuthErrorCode, AuthVia } from './bmp-auth';
 import { BmpTransport, type BmpTransportOutcome } from './bmp-transport';
 import { compareVersions } from './util';
-import { validateRid, validateEcIdentifier, formatEcLiteral } from './ec-guards';
+import { validateBusinessId, validateRid, validateEcIdentifier, formatEcLiteral } from './ec-guards';
 import { resolveNamespace } from './namespace';
 import { ecResolveTemplate } from './template-link';
 import type { FlowChain } from './flow-parser';
 import { EcQueryService } from './ec-query-service';
+import type { IdentityChangeSet } from './object-identity';
 export { buildAccessSubjectsEc, parseAccessSubjectsLog, parseResolveTemplateLog, buildLayoutTreeEc, parseAwtColor } from './ec-query-service';
 
 /** The subset of BMP's GraphQL quickSearch response we read (external, evolving
@@ -110,6 +114,8 @@ export interface ObjectPaneData {
   /** Property values keyed by name. Empty string means "not set" on server. */
   instanceProps: Record<string, string>;
   templateProps: Record<string, string>;
+  /** Explicit instance overrides from BMP ObjectData, not value comparison. */
+  instanceOverrideProps: string[];
   /** Siblings under the same parent — empty if parent is null. Capped at
    *  SIBLING_CAP rows; `siblingTotal` carries the true count. */
   siblings: ObjectPaneSibling[];
@@ -192,6 +198,13 @@ export const OBJECT_CHANGE_PROPS_SET: ReadonlySet<string> = new Set([
   ...PANE_PROPS,
   ...OBJECT_IDENTITY_PROPS,
 ]);
+
+/** Preserve "unreadable metadata" as null instead of treating it as no overrides. */
+export function parseObjectOverrideProps(raw: unknown): string[] | null {
+  const response = raw as { response?: unknown } | null | undefined;
+  const parsed = parseObjectData(response?.response ?? response);
+  return parsed ? parsed.overridden : null;
+}
 
 // ── Access-trace parsing ──────────────────────────────────────────
 // The deserialized tree uses boxed java.lang.Boolean ({value}), HashMaps
@@ -401,8 +414,13 @@ export class BmpClient {
 
   /** Save a single property back to BMP (binary serializer) */
   async saveProperty(rid: string, objectType: string, property: string, value: string): Promise<{ ok: boolean; error?: string }> {
+    return this.saveProperties(rid, objectType, { [property]: value });
+  }
+
+  /** Save a related property set in one BMP update command. */
+  async saveProperties(rid: string, objectType: string, properties: Record<string, string>): Promise<{ ok: boolean; error?: string }> {
     try {
-      const cmd = makeUpdateCommand(rid, objectType, { [property]: value });
+      const cmd = makeUpdateCommand(rid, objectType, properties);
       const buffer = await this.transport.sendCommands([cmd], 'write');
       const raw = this.transport.deserializeResponse(buffer, 'write');
 
@@ -616,7 +634,34 @@ export class BmpClient {
    *  Returns identity + parent + template + allowlisted style props + siblings.
    *  Handles both model (.linkedTo) and enterprise (.template) objects. */
   async fetchObjectPane(rid: string, signal?: AbortSignal): Promise<ObjectPaneData | null> {
-    return this.ecQuery.fetchObjectPane(rid, signal);
+    const overridePropsPromise = this.fetchObjectOverrideProps(rid, signal);
+    const data = await this.ecQuery.fetchObjectPane(rid, signal);
+    if (!data) return null;
+    const overrideProps = await overridePropsPromise;
+    if (overrideProps) {
+      data.instanceOverrideProps = overrideProps;
+    } else {
+      // Some older BMP objects throw inside IntegrationGetObjectCommand. Keep
+      // the pane usable with value comparison. This cannot reveal an explicit
+      // same-value override, so authoritative metadata always wins when parsed.
+      data.instanceOverrideProps = PANE_PROPS.filter(prop =>
+        data.template != null
+        && data.instanceProps[prop] !== data.templateProps[prop],
+      );
+    }
+    return data;
+  }
+
+  private async fetchObjectOverrideProps(rid: string, signal?: AbortSignal): Promise<string[] | null> {
+    try {
+      const buffer = await this.transport.sendCommands([makeGetObjectCommand(rid)], 'read', signal);
+      const raw = this.transport.deserializeResponse(buffer);
+      const first = parseCommandResponse(raw)[0];
+      return parseObjectOverrideProps(first);
+    } catch (e) {
+      log.swallow('bmpClient:fetchObjectPane:overrides', e);
+      return null;
+    }
   }
 
   /** Build the Flow chain for an InputView / ActionButton / Label.
@@ -637,15 +682,22 @@ export class BmpClient {
 
   /** Apply a batched pane/identity change to a single object via _o.change(...).
    *  Property names MUST be in OBJECT_CHANGE_PROPS_SET; values are escaped client-side.
-   *  Atomic per the EC change() semantics — partial application is impossible. */
+   *  Callers must still read back persisted state: BMP execute mode commits writes,
+   *  but does not provide rollback-on-error semantics. */
   async applyObjectChanges(
     rid: string,
     target: 'instance' | 'template',
     changes: Record<string, string | number | boolean>,
+    resetProps: string[] = [],
   ): Promise<{ ok: boolean; error?: string }> {
     const props = Object.keys(changes);
-    if (props.length === 0) return { ok: true };
-    for (const p of props) {
+    if (props.length === 0 && resetProps.length === 0) return { ok: true };
+    if (target === 'template' && resetProps.length > 0) {
+      return { ok: false, error: 'Template properties cannot be reset to an instance source' };
+    }
+    const duplicate = resetProps.find(prop => props.includes(prop));
+    if (duplicate) return { ok: false, error: `Property cannot be changed and reset together: ${duplicate}` };
+    for (const p of [...props, ...resetProps]) {
       if (!OBJECT_CHANGE_PROPS_SET.has(p)) {
         // Print enough context to diagnose the cause. We had a report
         // ("Property not allowed: disableSearch") for a prop that's
@@ -690,12 +742,97 @@ export class BmpClient {
       lines.push(`  _t.change(${assignments.join(', ')})`);
       lines.push('ENDIF');
     } else {
-      lines.push(`_o.change(${assignments.join(', ')})`);
+      if (assignments.length > 0) lines.push(`_o.change(${assignments.join(', ')})`);
+      for (const prop of resetProps) lines.push(`_o.reset(${prop})`);
     }
     const result = await this.executeEc(lines.join('\n'), undefined, true);
     if (!result.ok) return { ok: false, error: result.error ?? result.log ?? 'Change failed' };
     if (result.log?.includes('no template')) return { ok: false, error: 'Object has no template' };
     return { ok: true };
+  }
+
+  /**
+   * Preview, then apply the requested identity fields in one EC write.
+   *
+   * BMP's `transactional` flag means commit-vs-preview, not rollback on error.
+   * The exact script is therefore previewed first, template resolution happens
+   * before either write, and the lower-blast-radius instance change runs before
+   * the linked-template ID change. The handler must always read back after a
+   * write attempt and treat that persisted state as authoritative.
+   */
+  async applyIdentityChanges(
+    rid: string,
+    changes: IdentityChangeSet,
+  ): Promise<{ ok: boolean; writeAttempted: boolean; error?: string }> {
+    const changesTemplate = Object.hasOwn(changes, 'templateBusinessId');
+    const instanceAssignments: string[] = [];
+
+    if (changes.businessId !== undefined) {
+      validateBusinessId(changes.businessId);
+      instanceAssignments.push(`id := ${this.formatEcLiteral(changes.businessId)}`);
+    }
+    if (changes.name !== undefined) {
+      if (!changes.name.trim()) {
+        return { ok: false, writeAttempted: false, error: 'Name is required.' };
+      }
+      instanceAssignments.push(`name := ${this.formatEcLiteral(changes.name)}`);
+    }
+    if (changesTemplate) validateBusinessId(changes.templateBusinessId ?? '');
+    if (instanceAssignments.length === 0 && !changesTemplate) {
+      return { ok: true, writeAttempted: false };
+    }
+
+    const ref = await this.resolveRef(rid);
+    const lines = [`_o := ${ref}`];
+    const instanceChange = instanceAssignments.length > 0
+      ? `_o.change(${instanceAssignments.join(', ')})`
+      : null;
+
+    if (changesTemplate) {
+      lines.push(...ecResolveTemplate('_o', '_t'));
+      lines.push('IF _t = MISSING THEN');
+      lines.push('  "no template"');
+      lines.push('ELSE');
+      if (instanceChange) lines.push(`  ${instanceChange}`);
+      lines.push(`  _t.change(id := ${this.formatEcLiteral(changes.templateBusinessId ?? '')})`);
+      lines.push('ENDIF');
+    } else if (instanceChange) {
+      lines.push(instanceChange);
+    }
+
+    const script = lines.join('\n');
+    const preview = await this.executeEc(script, undefined, false);
+    if (!preview.ok || preview.hasWarning) {
+      return {
+        ok: false,
+        writeAttempted: false,
+        error: preview.error
+          ?? (preview.hasWarning
+            ? `BMP reported a warning during identity validation${preview.log ? `: ${preview.log}` : '.'}`
+            : preview.log)
+          ?? 'Identity validation failed',
+      };
+    }
+    if (preview.log?.includes('no template')) {
+      return { ok: false, writeAttempted: false, error: 'Could not resolve the linked template.' };
+    }
+
+    const result = await this.executeEc(script, undefined, true);
+    if (!result.ok || result.hasWarning) {
+      return {
+        ok: false,
+        writeAttempted: true,
+        error: result.error
+          ?? (result.hasWarning
+            ? `BMP reported a warning while saving identity values${result.log ? `: ${result.log}` : '.'}`
+            : result.log)
+          ?? 'Identity change failed',
+      };
+    }
+    if (result.log?.includes('no template')) {
+      return { ok: false, writeAttempted: true, error: 'Could not resolve the linked template.' };
+    }
+    return { ok: true, writeAttempted: true };
   }
 
   /** Enumerate the workspace's colour sets + colours (for the link picker).

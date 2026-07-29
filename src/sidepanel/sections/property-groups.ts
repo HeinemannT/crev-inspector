@@ -16,7 +16,7 @@
  * shared here.
  */
 import { h, svg } from '../../lib/dom';
-import { ICON_REFRESH } from '../../lib/icons';
+import { ICON_REFRESH, ICON_REVERT } from '../../lib/icons';
 import { PROP_GROUPS, type PropDef } from '../pane-schema';
 import {
   colorLinkEditor, numberEditor, enumEditor, booleanEditor, sliderEditor,
@@ -36,6 +36,8 @@ export interface PaneGroupsCtx {
   /** Last value from the server (no draft). */
   serverValue(prop: string): string;
   isDirty(prop: string): boolean;
+  /** True only for a staged literal value edit (not an inheritance reset). */
+  isValueDirty?(prop: string): boolean;
   setDraft(prop: string, value: string): void;
   /** Live business-object properties for specialized mapping editors. */
   propertyChoices?(prop: string): {
@@ -46,12 +48,36 @@ export interface PaneGroupsCtx {
   };
   /** Open the colour-link picker for a colour prop (host wires its own messaging). */
   openColorPicker(def: PropDef, anchor: HTMLElement, currentBid: string | null): void;
+  /** Optional expanded-view interaction: render values quietly until the user
+   *  explicitly clicks a field, then reveal its native editor. */
+  editOnDemand?: {
+    activeProp: string | null;
+    request(prop: string): void;
+  };
+  /** Optional instance-override state for the expanded object view. The reset
+   * arrow is the complete affordance: no inheritance/source inspector. */
+  cascade?: {
+    get(prop: string): {
+      overridden: boolean;
+      resetStaged: boolean;
+    };
+    toggleReset(prop: string): void;
+  };
 }
 
 const RESP_VIS: Record<string, string> = {
   shownOnLargeDisplay: 'L', shownOnMediumDisplay: 'M', shownOnSmallDisplay: 'S',
 };
 const COLUMN_PROPS = ['columnsLargeScreen', 'columnsMediumScreen', 'columnsSmallScreen'];
+const COLUMN_PROP_SET: ReadonlySet<string> = new Set(COLUMN_PROPS);
+
+/** Render one stable property root for either a full group or a local refresh. */
+export function renderPropertyElement(ctx: PaneGroupsCtx, def: PropDef): HTMLElement {
+  if (COLUMN_PROP_SET.has(def.prop)) return renderColumnCell(ctx, def);
+  const visibilityLabel = RESP_VIS[def.prop];
+  if (visibilityLabel) return renderVisCell(ctx, def, visibilityLabel);
+  return renderPropRow(ctx, def);
+}
 
 /** Render every applicable property group for the object. */
 export function renderPropertyGroups(ctx: PaneGroupsCtx): HTMLElement {
@@ -90,9 +116,9 @@ export function renderPropertyGroups(ctx: PaneGroupsCtx): HTMLElement {
       wrap.appendChild(renderVisibilityGroup(ctx, visibleDefs, titleChildren));
     } else {
       wrap.appendChild(
-        h('div', { class: 'prop-group' },
+        h('div', { class: 'prop-group', 'data-section-label': group.title },
           suppressTitle ? null : h('div', { class: 'prop-group-title' }, ...titleChildren.filter(Boolean) as (HTMLElement | string)[]),
-          ...visibleDefs.map(d => renderPropRow(ctx, d)),
+          ...visibleDefs.map(d => renderPropertyElement(ctx, d)),
         ),
       );
     }
@@ -112,17 +138,17 @@ function renderDisplayGroup(
   const columnsRow = columnsDefs.length > 0
     ? h('div', { class: 'prop-row prop-row--columns', title: 'Responsive width: large / medium / small screens (0–6, 0 = full width)' },
         h('span', { class: 'prop-label' }, 'Columns'),
-        h('div', { class: 'prop-columns-triplet' }, ...columnsDefs.map(d => renderColumnCell(ctx, d))),
+        h('div', { class: 'prop-columns-triplet' }, ...columnsDefs.map(d => renderPropertyElement(ctx, d))),
       )
     : null;
 
   const styleGrid = otherDefs.length > 0
-    ? h('div', { class: 'prop-grid' }, ...otherDefs.map(d => renderPropRow(ctx, d)))
+    ? h('div', { class: 'prop-grid' }, ...otherDefs.map(d => renderPropertyElement(ctx, d)))
     : null;
   // Divider only when both halves are present (gives the hierarchy a reason).
   const divider = columnsRow && styleGrid ? h('div', { class: 'prop-divider' }) : null;
 
-  return h('div', { class: 'prop-group prop-group--display' },
+  return h('div', { class: 'prop-group prop-group--display', 'data-section-label': 'Display' },
     suppressTitle ? null : h('div', { class: 'prop-group-title' }, ...titleChildren.filter(Boolean) as (HTMLElement | string)[]),
     columnsRow,
     divider,
@@ -140,38 +166,85 @@ function renderVisibilityGroup(
   const tripletRow = respDefs.length > 0
     ? h('div', { class: 'prop-row prop-row--columns', title: 'Show on large / medium / small screens' },
         h('span', { class: 'prop-label' }, 'Show on'),
-        h('div', { class: 'prop-vis-triplet' }, ...respDefs.map(d => renderVisCell(ctx, d, RESP_VIS[d.prop]))),
+        h('div', { class: 'prop-vis-triplet' }, ...respDefs.map(d => renderPropertyElement(ctx, d))),
       )
     : null;
-  return h('div', { class: 'prop-group' },
+  return h('div', { class: 'prop-group', 'data-section-label': 'Visibility' },
     h('div', { class: 'prop-group-title' }, ...titleChildren.filter(Boolean) as (HTMLElement | string)[]),
-    ...otherDefs.map(d => renderPropRow(ctx, d)),
+    ...otherDefs.map(d => renderPropertyElement(ctx, d)),
     tripletRow,
   );
 }
 
-/** One responsive-columns number cell (input + L/M/S label under it). */
+/** One responsive-columns cell. In the expanded view all seven widths are
+ * directly available—there is no input mode, spinner, or dropdown. */
 function renderColumnCell(ctx: PaneGroupsCtx, def: PropDef): HTMLElement {
   const value = ctx.displayValue(def.prop);
   const original = ctx.serverValue(def.prop);
   const dirty = ctx.isDirty(def.prop);
+  if (ctx.editOnDemand) {
+    const selected = Math.max(0, Math.min(6, Number(value) || 0));
+    return h('div', {
+      class: `prop-column-cell${dirty ? ' is-dirty' : ''}`,
+      'data-property-prop': def.prop,
+      title: `${def.label}: ${selected} of 6 columns (server: ${original || 'none'})`,
+    },
+      h('span', { class: 'prop-column-label' }, def.label),
+      h('div', { class: 'prop-column-direct', role: 'radiogroup', 'aria-label': `${def.label} column width` },
+        ...Array.from({ length: 7 }, (_, option) =>
+          h('button', {
+            class: `prop-column-step${option === 0 ? ' is-zero' : ''}${option > 0 && option <= selected ? ' is-filled' : ''}${selected === option ? ' is-selected' : ''}`,
+            type: 'button',
+            role: 'radio',
+            'aria-checked': selected === option ? 'true' : 'false',
+            'aria-label': option === 0 ? 'BMP full width (0)' : `${option} of 6 columns`,
+            title: option === 0 ? 'BMP full width (0)' : `${option} of 6 columns`,
+            onClick: () => ctx.setDraft(def.prop, String(option)),
+          }, option === 0 ? '0' : ''),
+        ),
+        h('span', { class: 'prop-column-current', 'aria-hidden': 'true' }, `${selected}/6`),
+      ),
+      renderCascadeActions(ctx, def.prop),
+    );
+  }
   const input = h('input', {
     class: `prop-column-input${dirty ? ' prop-cell--dirty' : ''}`,
     type: 'number', min: 0, max: 6, step: 1, value: value || '', 'aria-label': def.label,
   }) as HTMLInputElement;
-  input.addEventListener('input', () => ctx.setDraft(def.prop, input.value));
+  input.addEventListener('change', () => ctx.setDraft(def.prop, input.value));
   return h('div', {
     class: `prop-column-cell${dirty ? ' is-dirty' : ''}`,
+    'data-property-prop': def.prop,
     title: `${def.label} (server: ${original || 'none'})`,
   }, input, h('span', { class: 'prop-column-label' }, def.label));
 }
 
-/** One compact L/M/S visibility toggle (switch + breakpoint letter under it). */
+/** One compact responsive visibility button. The L/M/S label is the control,
+ * replacing the repeated "On" values and switches. */
 function renderVisCell(ctx: PaneGroupsCtx, def: PropDef, label: string): HTMLElement {
   const value = ctx.displayValue(def.prop);
   const dirty = ctx.isDirty(def.prop);
   const checked = value === 'true' || value === 'TRUE';
-  return h('div', { class: 'prop-vis-cell' },
+  if (ctx.editOnDemand) {
+    return h('div', {
+      class: `prop-vis-cell${dirty ? ' is-dirty' : ''}`,
+      'data-property-prop': def.prop,
+    },
+      h('button', {
+        class: `prop-vis-breakpoint${checked ? ' is-shown' : ' is-hidden'}${dirty ? ' prop-cell--dirty' : ''}`,
+        type: 'button',
+        'aria-pressed': checked ? 'true' : 'false',
+        'aria-label': `${checked ? 'Hide' : 'Show'} on ${def.label.replace(/^Show on /, '')}`,
+        title: `${checked ? 'Shown' : 'Hidden'} on ${def.label.replace(/^Show on /, '').toLowerCase()} screens`,
+        onClick: () => ctx.setDraft(def.prop, checked ? 'false' : 'true'),
+      }, label),
+      renderCascadeActions(ctx, def.prop),
+    );
+  }
+  return h('div', {
+    class: 'prop-vis-cell',
+    'data-property-prop': def.prop,
+  },
     h('button', {
       class: `prop-toggle prop-toggle--compact${checked ? ' prop-toggle--on' : ''}${dirty ? ' prop-cell--dirty' : ''}`,
       role: 'switch', 'aria-checked': checked ? 'true' : 'false',
@@ -181,6 +254,23 @@ function renderVisCell(ctx: PaneGroupsCtx, def: PropDef, label: string): HTMLEle
       h('span', { class: 'prop-toggle-track' }, h('span', { class: 'prop-toggle-thumb' })),
     ),
     h('span', { class: 'prop-vis-cell-label' }, label),
+    renderCascadeActions(ctx, def.prop),
+  );
+}
+
+function renderCascadeActions(ctx: PaneGroupsCtx, prop: string): HTMLElement | null {
+  if (!ctx.cascade) return null;
+  const model = ctx.cascade.get(prop);
+  return h('span', { class: 'prop-cascade-actions' },
+    model.overridden || model.resetStaged
+      ? h('button', {
+          class: `prop-source-reset${model.resetStaged ? ' is-staged' : ''}`,
+          type: 'button',
+          title: model.resetStaged ? 'Cancel staged reset' : 'Reset instance override to its inherited value',
+          'aria-label': model.resetStaged ? 'Cancel staged reset' : 'Reset instance override',
+          onClick: () => ctx.cascade!.toggleReset(prop),
+        }, svg(ICON_REVERT))
+      : null,
   );
 }
 
@@ -189,11 +279,24 @@ export function renderPropRow(ctx: PaneGroupsCtx, def: PropDef): HTMLElement {
   const value = ctx.displayValue(def.prop);
   const original = ctx.serverValue(def.prop);
   const dirty = ctx.isDirty(def.prop);
+  const valueDirty = ctx.isValueDirty?.(def.prop) ?? dirty;
   const editorCtx: PropEditorContext = {
     value, original, dirty,
     onChange: (next) => ctx.setDraft(def.prop, next),
   };
   let editor: HTMLElement;
+  const editOnDemand = ctx.editOnDemand;
+  if (editOnDemand && editOnDemand.activeProp !== def.prop && def.kind !== 'color' && def.kind !== 'text') {
+    const rendered = displayValue(value);
+    const label = rendered === 'on' ? 'On' : rendered === 'off' ? 'Off' : rendered;
+    editor = h('button', {
+      class: `prop-cell prop-cell--ondemand${dirty ? ' prop-cell--dirty' : ''}`,
+      type: 'button',
+      title: `Edit ${def.label}`,
+      'aria-label': `Edit ${def.label}`,
+      onClick: () => editOnDemand.request(def.prop),
+    }, h('span', { class: 'prop-ondemand-value' }, label));
+  } else {
   switch (def.kind) {
     case 'color': {
       const bid = colorLinkBid(value);
@@ -220,16 +323,24 @@ export function renderPropRow(ctx: PaneGroupsCtx, def: PropDef): HTMLElement {
       break;
     default: editor = h('span');
   }
-  return h('div', { class: `prop-row prop-row--${def.kind}` },
+  if (editOnDemand?.activeProp === def.prop) editor.dataset.editingProp = def.prop;
+  }
+  return h('div', {
+    class: `prop-row prop-row--${def.kind}`,
+    'data-property-prop': def.prop,
+  },
     h('span', { class: 'prop-label', title: `BMP property: ${def.prop}` }, def.label),
     editor,
-    dirty && def.kind !== 'text'
-      ? h('button', {
-          class: 'prop-revert',
-          title: `Reset to ${displayValue(original)}`,
-          'aria-label': 'Revert this property',
-          onClick: () => ctx.setDraft(def.prop, original),
-        }, svg(ICON_REFRESH))
-      : h('span', { class: 'prop-revert', 'aria-hidden': 'true' }),
+    h('span', { class: 'prop-row-actions' },
+      valueDirty && def.kind !== 'text'
+        ? h('button', {
+            class: 'prop-revert',
+            title: `Undo draft to ${displayValue(original)}`,
+            'aria-label': 'Undo this draft',
+            onClick: () => ctx.setDraft(def.prop, original),
+          }, svg(ICON_REFRESH))
+        : null,
+      renderCascadeActions(ctx, def.prop),
+    ),
   );
 }

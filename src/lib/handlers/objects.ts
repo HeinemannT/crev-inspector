@@ -831,7 +831,7 @@ function emptyPaneResponse(rid: string, error?: string) {
     rid,
     instance: { rid, businessId: '', type: '', name: '' },
     parent: null, template: null, card: null,
-    instanceProps: {}, templateProps: {}, siblings: [], siblingTotal: 0,
+    instanceProps: {}, templateProps: {}, instanceOverrideProps: [], siblings: [], siblingTotal: 0,
     codeFields: {}, references: {},
     indirectCode: {}, indirectCodeRids: {}, contextValues: {}, gateValues: {}, lists: {},
     ...(error ? { error } : {}),
@@ -865,6 +865,7 @@ register('FETCH_OBJECT_PANE', async (msg, respond) => {
       card: data.card,
       instanceProps: data.instanceProps,
       templateProps: data.templateProps,
+      instanceOverrideProps: data.instanceOverrideProps,
       siblings: data.siblings,
       siblingTotal: data.siblingTotal,
       codeFields: data.codeFields,
@@ -922,13 +923,16 @@ register('APPLY_OBJECT_CHANGES', async (msg, respond) => {
   const object = activityObject(msg.rid, ctx.cache.get(msg.rid));
   const label = activityObjectLabel(object, msg.rid);
   try {
-    const result = await ctx.client.applyObjectChanges(msg.rid, msg.target, msg.changes);
+    const result = await ctx.client.applyObjectChanges(msg.rid, msg.target, msg.changes, msg.resetProps ?? []);
     const durationMs = Date.now() - startedAt;
     respond({ type: 'APPLY_CHANGES_RESULT', rid: msg.rid, ok: result.ok, error: result.error });
     // Activity log: edits are the most-clicked surface; the Log tab was
     // otherwise blind to them. Surface prop-by-prop summary so the user
     // can audit what they actually changed.
-    const propList = Object.keys(msg.changes);
+    const propList = [
+      ...Object.keys(msg.changes),
+      ...(msg.resetProps ?? []).map(prop => `${prop}↩`),
+    ];
     const propSummary = propList.length === 1
       ? propList[0]
       : `${propList.length} props (${propList.slice(0, 3).join(', ')}${propList.length > 3 ? '…' : ''})`;

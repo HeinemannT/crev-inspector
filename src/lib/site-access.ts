@@ -16,8 +16,8 @@
  * first-time injection into the already-open tab that was just granted.
  */
 import { log } from './logger';
-import { AI_API_ORIGINS, customProviderOrigins } from './ai/providers';
-import type { AiCustomProvider } from './ai/types';
+import { resolveProvider } from './ai/providers';
+import type { AiSettings } from './ai/types';
 
 const CONTENT_ID = 'crev-content';
 const INTERCEPTOR_ID = 'crev-interceptor';
@@ -83,22 +83,27 @@ export function initSiteAccess(): void {
   void syncRegisteredScripts();
 }
 
-/** Make the granted origins EXACTLY the configured profiles' origins (drop everything else), then
- *  re-sync the script registrations. The single invariant of the access model: a grant exists iff a
- *  server profile needs it. Runs at SW boot (settings loaded) and after every profile save/delete —
- *  boot-time runs double as the migration that revokes the legacy `<all_urls>` carry-over from
- *  pre-0.5.3 installs (it's not a profile origin, so it's dropped). Granting itself stays in the
- *  panel (permissions.request needs the user gesture); removal needs none. */
-export async function reconcileProfileOrigins(profileUrls: Array<string | undefined>, customProvider?: AiCustomProvider): Promise<void> {
+/** Make the granted origins EXACTLY the configured profiles plus the selected AI model's API
+ *  origin, then re-sync content-script registrations. A removed or replaced AI configuration
+ *  therefore drops its old provider grant instead of keeping every provider indefinitely.
+ *  Runs at SW boot and after every profile/AI change. Granting stays in the panel because
+ *  permissions.request needs a user gesture; removal needs none. */
+export async function reconcileProfileOrigins(
+  profileUrls: Array<string | undefined>,
+  ai?: AiSettings,
+): Promise<void> {
   const configuredPages = profileUrls.map(originPatternFor).filter((p): p is string => !!p);
   pageOrigins.clear();
   for (const origin of configuredPages) pageOrigins.add(origin);
   const keep = new Set(configuredPages);
-  // Never drop the AI provider API origins — a saved AI key needs its host
-  // permission to survive every profile save/delete/boot reconcile. They're
-  // harmless when no key is configured (nothing calls them).
-  for (const o of AI_API_ORIGINS) keep.add(o);
-  for (const o of customProviderOrigins(customProvider)) keep.add(o);
+  if (ai?.apiKeyEnc) {
+    try {
+      keep.add(resolveProvider(ai).origin);
+    } catch (e) {
+      // Malformed legacy settings must not pin an otherwise-unused grant.
+      log.swallow('siteAccess:resolveAiOrigin', e);
+    }
+  }
   const granted = await grantedOrigins();
   const drop = granted.filter(o => !keep.has(o));
   if (drop.length) {

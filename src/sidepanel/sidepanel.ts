@@ -11,12 +11,12 @@ import { PAINT_STYLE_PROPS } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
 import { log } from '../lib/logger';
-import { ICON_REFRESH, ICON_APERTURE, ICON_SEARCH, ICON_CROSSHAIR, ICON_BLUEPRINT } from './utils';
+import { ICON_REFRESH, ICON_SEARCH, ICON_CROSSHAIR, ICON_BLUEPRINT } from './utils';
 import { ICON_TERMINAL_WINDOW, ICON_PAINT_BROAD, ICON_PULSE } from '../lib/icons';
 import { DetailView } from './detail-view';
 import { onColorSetsData, resetColorSets } from './color-picker';
 import { initReferenceView, showReferenceView, handleReferenceMessage, isReferenceActive } from './reference-view';
-import { S, sendMessage, getActivePanel, getTabPanel, tabPanelId, onPortMessage, onReconnect, connectPanel } from './state';
+import { S, sendMessage, getActivePanel, getTabPanel, tabPanelId, onPortMessage, onReconnect, onWorkStatus, connectPanel } from './state';
 import { dispatchBroadcast } from '../lib/handler-registry';
 import { routeAccessMessage, initAccessTrace } from './access-trace';
 import { showProfileSwitcher } from './profile-switcher';
@@ -31,6 +31,7 @@ import { showToast } from '../lib/toast';
 import { contextFromData } from './context-state';
 import { provisionalConnectionSnapshot } from '../lib/connection-snapshot';
 import { objectChip } from '../lib/object-chip';
+import { workStatusForMessage } from './work-status';
 
 // ── Tab instances ────────────────────────────────────────────────
 
@@ -109,6 +110,7 @@ function computeAiEnabled(): boolean { return !!S.settings.ai; }
 
 const logTab = tabs.log as LogTab;
 logTab.onActivityChange(() => updateStatusBar());
+onWorkStatus(status => logTab.showWorkStatus(status));
 
 initReferenceView(
   () => renderActiveTab(),
@@ -122,6 +124,9 @@ initReferenceView(
 initAccessTrace(sendMessage);
 
 onPortMessage((msg: InspectorMessage) => {
+  const workStatus = workStatusForMessage(msg);
+  if (workStatus) logTab.showWorkStatus(workStatus);
+
   // Access-trace overlay claims its own responses regardless of active tab.
   if ((msg.type === 'ACCESS_SUBJECTS_DATA' || msg.type === 'ACCESS_TRACE_RESULT') && routeAccessMessage(msg)) return;
 
@@ -484,7 +489,12 @@ function buildApp(): void {
       'aria-label': 'CREV menu',
       'aria-haspopup': 'menu',
     },
-      svg(ICON_APERTURE),
+      h('img', {
+        src: chrome.runtime.getURL('icons/crev-inspector.svg'),
+        alt: '',
+        'aria-hidden': 'true',
+        draggable: 'false',
+      }),
     ),
     h('div', { class: 'header-status', id: 'header-status', 'aria-live': 'polite' },
       h('span', { class: `status-dot ${statusDotClass()}` }),
@@ -565,11 +575,10 @@ function buildApp(): void {
     ? h('div', { class: 'status-bar-count', title: `${S.cacheCount} objects cached` }, `${S.cacheCount} cached`)
     : null;
   const statusBar = h('div', { class: 'status-bar', id: 'status-bar', 'aria-live': 'polite' },
-    h('div', { class: 'status-bar-connection', title: `Connection to BMP server: ${statusBarText()}` },
-      h('span', { class: `status-dot ${statusDotClass()}` }),
-      h('span', null, statusBarText()),
-    ),
-    h('div', { class: 'status-bar-activity', title: logTab.latestActivityMsg ? 'Latest activity: open Log tab for full history' : '' }, logTab.latestActivityMsg ?? ''),
+    h('div', {
+      class: `status-bar-activity${logTab.isWorking ? ' is-working' : ''}${logTab.latestActivityMsg ? '' : ' is-idle'}`,
+      title: logTab.latestActivityTitle ?? 'No work in progress',
+    }, logTab.latestActivityMsg ?? 'Ready'),
     renderContextPill(),
     renderLatencyPill(),
     cacheCountEl,
@@ -715,16 +724,6 @@ function statusText(): string {
   }
 }
 
-function statusBarText(): string {
-  if (onNonBmpPage()) return 'Not BMP';
-  const d = S.connState.display;
-  // Quiet-line rule: the green dot says "connected", so the text says WHICH
-  // server — one fact, once.
-  if (d === 'connected') return S.connState.profileLabel ?? 'Connected';
-  if (d === 'server-down') return 'Down';
-  return statusText();
-}
-
 function showPaintError(error: string) {
   // Errors surface as a toast — the dedicated sidebar paint bar is gone.
   showToast(error, 'error');
@@ -819,19 +818,28 @@ function updateStatusBar() {
   const bar = document.getElementById('status-bar');
   if (!bar) return;
 
-  const conn = bar.querySelector('.status-bar-connection');
-  if (conn) {
-    const dot = conn.querySelector('.status-dot');
-    const text = conn.querySelector('span:last-child');
-    if (dot) dot.className = `status-dot ${statusDotClass()}`;
-    if (text) text.textContent = statusBarText();
+  const activity = bar.querySelector<HTMLElement>('.status-bar-activity');
+  if (activity) {
+    activity.textContent = logTab.latestActivityMsg ?? 'Ready';
+    activity.title = logTab.latestActivityTitle ?? 'No work in progress';
+    activity.classList.toggle('is-working', logTab.isWorking);
+    activity.classList.toggle('is-idle', !logTab.latestActivityMsg);
   }
 
-  const activity = bar.querySelector('.status-bar-activity');
-  if (activity) activity.textContent = logTab.latestActivityMsg ?? '';
-
-  const count = bar.querySelector('.status-bar-count');
-  if (count) count.textContent = String(S.cacheCount);
+  const count = bar.querySelector<HTMLElement>('.status-bar-count');
+  if (S.cacheCount > 0) {
+    if (count) {
+      count.textContent = `${S.cacheCount} cached`;
+      count.title = `${S.cacheCount} objects cached`;
+    } else {
+      bar.appendChild(h('div', {
+        class: 'status-bar-count',
+        title: `${S.cacheCount} objects cached`,
+      }, `${S.cacheCount} cached`));
+    }
+  } else {
+    count?.remove();
+  }
 
   updateContextPill();
   updateLatencyPill();

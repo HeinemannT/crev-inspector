@@ -57,6 +57,7 @@ register('AI_SAVE_CONFIG', async (msg, respond) => {
     ctx.settings = { ...ctx.settings, ai };
     await saveSettings();
     snapshotSettings();
+    await reconcileProfileOrigins(ctx.settings.profiles.map(p => p.bmpUrl), ai);
     respond({ type: 'AI_CONFIG_SAVED', ok: true, configured: !!apiKeyEnc, provider: ai.provider, model: ai.model, customProvider: ai.customProvider });
     // Notify open editor / studio surfaces so the assistant appears live.
     sendFireForget({ type: 'AI_CONFIG_CHANGED', configured: !!apiKeyEnc, provider: ai.provider, model: ai.model, customProvider: ai.customProvider });
@@ -79,6 +80,7 @@ register('AI_SAVE_CUSTOM_PROVIDER', async (msg, respond) => {
     ctx.settings = { ...ctx.settings, ai };
     await saveSettings();
     snapshotSettings();
+    await reconcileProfileOrigins(ctx.settings.profiles.map(p => p.bmpUrl), ai);
     respond({ type: 'AI_CONFIG_SAVED', ok: true, configured: true, provider: 'custom', model, customProvider: parsed.provider });
     sendFireForget({ type: 'AI_CONFIG_CHANGED', configured: true, provider: 'custom', model, customProvider: parsed.provider });
   } catch (e) {
@@ -93,7 +95,7 @@ register('AI_REMOVE_CONFIG', async (_msg, respond) => {
   ctx.settings = next;
   await saveSettings();
   snapshotSettings();
-  void reconcileProfileOrigins(ctx.settings.profiles.map(p => p.bmpUrl), undefined);
+  await reconcileProfileOrigins(ctx.settings.profiles.map(p => p.bmpUrl), undefined);
   respond({ type: 'AI_CONFIG_SAVED', ok: true, configured: false });
   // Notify open editor / studio surfaces so the assistant disappears live.
   sendFireForget({ type: 'AI_CONFIG_CHANGED', configured: false });

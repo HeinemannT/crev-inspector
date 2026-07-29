@@ -9,6 +9,7 @@ import { relativeTime } from '../utils';
 import { ACTIVITY_MAX, ACTIVITY_DISPLAY_TIMEOUT } from '../../lib/constants';
 import { S } from '../state';
 import type { Tab, SendFn } from './tab-types';
+import { compactActivityStatus, type WorkStatus } from '../work-status';
 
 type ProfileFilter = 'this' | 'all';
 type EventFilter = 'activity' | 'problems' | 'all';
@@ -16,6 +17,8 @@ type EventFilter = 'activity' | 'problems' | 'all';
 export class LogTab implements Tab {
   private entries: ActivityEntry[] = [];
   private latestMsg: string | null = null;
+  private latestTitle: string | null = null;
+  private latestWorking = false;
   private latestTimer: ReturnType<typeof setTimeout> | null = null;
   private send: SendFn;
   private onStatusChange: (() => void) | null = null;
@@ -31,6 +34,8 @@ export class LogTab implements Tab {
 
   /** Latest activity message (read by status bar in sidepanel) */
   get latestActivityMsg() { return this.latestMsg; }
+  get latestActivityTitle() { return this.latestTitle; }
+  get isWorking() { return this.latestWorking; }
 
   constructor(send: SendFn) {
     this.send = send;
@@ -38,6 +43,22 @@ export class LogTab implements Tab {
 
   /** Register callback for when activity status changes (message arrives or 3s timeout clears it) */
   onActivityChange(cb: () => void) { this.onStatusChange = cb; }
+
+  showWorkStatus(status: WorkStatus): void {
+    this.latestMsg = status.text;
+    this.latestTitle = status.title ?? status.text;
+    this.latestWorking = status.working;
+    if (this.latestTimer) clearTimeout(this.latestTimer);
+    // A running request gets a longer safety window so a missing completion
+    // cannot leave stale UI forever. Settled feedback stays only briefly.
+    this.latestTimer = setTimeout(() => {
+      this.latestMsg = null;
+      this.latestTitle = null;
+      this.latestWorking = false;
+      this.onStatusChange?.();
+    }, status.working ? 12_000 : ACTIVITY_DISPLAY_TIMEOUT);
+    this.onStatusChange?.();
+  }
 
   activate() {
     this.send({ type: 'GET_ACTIVITY' });
@@ -60,12 +81,7 @@ export class LogTab implements Tab {
         if (msg.entry.detail && (msg.entry.level === 'warn' || msg.entry.level === 'error')) {
           this.expanded.add(msg.entry.time);
         }
-        this.latestMsg = msg.entry.message;
-        if (this.latestTimer) clearTimeout(this.latestTimer);
-        this.latestTimer = setTimeout(() => {
-          this.latestMsg = null;
-          this.onStatusChange?.();
-        }, ACTIVITY_DISPLAY_TIMEOUT);
+        this.showWorkStatus(compactActivityStatus(msg.entry));
         return true;
       default:
         return false;

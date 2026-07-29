@@ -11,11 +11,11 @@ import { pushConnectionState, runAuthTest } from '../connection';
 import { reconcileProfileOrigins } from '../site-access';
 import { log } from '../logger';
 
-/** Keep granted host permissions ≡ profile origins after any profile change (revokes orphans from
- *  deletes/URL edits + re-syncs the content-script registrations). Fire-and-forget. */
+/** Keep host grants equal to BMP profile origins plus the selected AI provider origin.
+ *  Profile changes revoke orphaned grants and re-sync content-script registrations. */
 const reconcileAccess = (): void => {
   const ctx = getCtx();
-  void reconcileProfileOrigins(ctx.settings.profiles.map(p => p.bmpUrl), ctx.settings.ai?.customProvider);
+  void reconcileProfileOrigins(ctx.settings.profiles.map(p => p.bmpUrl), ctx.settings.ai);
 };
 
 register('GET_SETTINGS', (msg, respond) => {

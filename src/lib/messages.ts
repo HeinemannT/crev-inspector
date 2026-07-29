@@ -36,6 +36,7 @@ import type {
   EditPageContext,
   WidgetInfo,
 } from './types';
+import type { IdentityEditInput, IdentitySaveResult } from './object-identity';
 import type { EcOutputEntry } from './bmp-types';
 import type { JsonShape } from './json-shape';
 import type { AiCustomProvider, AiProviderId, AiRequestPayload, AiChatTurn, AiChatEvent, AiChatQuote, AiContextEnvelope, AiContextSource } from './ai/types';
@@ -180,6 +181,8 @@ export type EcMessage =
   | { type: 'EC_RESULT'; ok: boolean; log?: string; outputEntries?: EcOutputEntry[]; hasError?: boolean; hasWarning?: boolean; error?: string; durationMs?: number }
   | { type: 'SAVE_PROPERTY'; rid: string; objectType: string; property: string; value: string }
   | { type: 'SAVE_RESULT'; ok: boolean; error?: string }
+  | ({ type: 'SAVE_IDENTITY'; rid: string } & IdentityEditInput)
+  | ({ type: 'SAVE_IDENTITY_RESULT' } & IdentitySaveResult)
   | { type: 'OPEN_EDITOR'; rid: string; property?: string; scrollToLine?: number; scrollToText?: string }
   | { type: 'FETCH_EDITOR_CONTEXT'; rid: string; property?: string }
   | { type: 'EDITOR_CONTEXT_DATA'; rid: string; context: import('../editor/editor-types').EditorContext }
@@ -316,6 +319,8 @@ export type ObjectPaneMessage =
       card: ObjectPaneCard | null;
       instanceProps: Record<string, string>;
       templateProps: Record<string, string>;
+      /** Explicit per-property overrides on the instance. */
+      instanceOverrideProps?: string[];
       siblings: ObjectPaneSiblingMsg[];
       /** True child count under the parent; `siblings` may be a capped slice. */
       siblingTotal: number;
@@ -330,7 +335,7 @@ export type ObjectPaneMessage =
       /** Owning CreateObjectView object classes for an EditField. */
       editFieldClassNames?: string[];
       error?: string }
-  | { type: 'APPLY_OBJECT_CHANGES'; rid: string; target: 'instance' | 'template'; changes: Record<string, string | number | boolean> }
+  | { type: 'APPLY_OBJECT_CHANGES'; rid: string; target: 'instance' | 'template'; changes: Record<string, string | number | boolean>; resetProps?: string[] }
   | { type: 'APPLY_CHANGES_RESULT'; rid: string; ok: boolean; error?: string }
   // Connections — generic reference relationships (forward + reverse) resolved
   // from the object's class config. The relationship view for domain objects.

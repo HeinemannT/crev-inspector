@@ -1,6 +1,6 @@
 /* Tokens + base imported via HTML. sidepanel.css is ALSO loaded so all the
    .pane-* / .prop-* classes match the side-panel detail view 1:1 — this file
-   only adds wide-mode overrides (two-column body, bigger header, etc.). */
+   only adds expanded-view structure, spacing, and responsive overrides. */
 
 html, body { width: 100%; height: 100%; overflow: hidden; }
 
@@ -28,33 +28,252 @@ body {
   min-height: 0;
 }
 
-/* Body uses a 2-column grid only when the window is wide enough that the
- * right-hand tree area gets meaningful space. Below ~960 px the sidebar
- * would be squeezed under 280 px and the properties area below 600 px —
- * both feel cramped. Single-column there gives properties the entire
- * window width, with the tree stacked below where it can also expand. */
+/* The body is one continuous document with a sticky section outline. On
+ * narrow hosts the outline becomes a compact horizontal scroll tracker. */
 .ov-body {
   display: grid;
-  grid-template-columns: minmax(560px, 1fr) minmax(320px, 0.5fr);
-  gap: 16px;
-  padding: 16px;
+  grid-template-columns: 176px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-4);
+  padding: 12px;
   overflow: auto;
   flex: 1;
   min-height: 0;
 }
 
-@media (max-width: 960px) {
-  .ov-body { grid-template-columns: 1fr; }
+.ov-outline {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: var(--space-3);
+  border-right: 1px solid var(--surface-3);
 }
 
-.ov-props-area { min-width: 0; }
-.ov-tree-area { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.ov-outline-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ov-outline-item:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.ov-outline-item[aria-current="true"] {
+  background: var(--surface-3);
+  color: var(--text-1);
+  font-weight: var(--weight-semi);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.ov-document {
+  width: min(100%, 1040px);
+  min-width: 0;
+}
+
+.ov-document-section {
+  scroll-margin-top: var(--space-4);
+  padding: 0 0 var(--space-5);
+}
+
+.ov-document-section + .ov-document-section {
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--surface-3);
+}
+
+.ov-document .prop-group {
+  padding-right: 0;
+  padding-left: 0;
+  border-top: 0;
+}
+
+.ov-document-heading,
+.ov-document .prop-group-title.ov-document-heading {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  margin: 0 0 var(--space-2);
+  color: var(--text-1);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semi);
+  letter-spacing: 0;
+  text-transform: none;
+  gap: 6px;
+}
+.ov-section-icon,
+.ov-outline-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  flex: 0 0 auto;
+}
+.ov-section-icon svg { width: 14px; height: 14px; }
+.ov-outline-icon svg { width: 13px; height: 13px; }
+.ov-outline-item[aria-current="true"] .ov-outline-icon { color: var(--accent-bright); }
+.ov-identity-section .dv-meta { margin: 0; }
+.ov-identity-section .dv-meta-copy.is-copied { color: var(--success); }
+
+.ov-document-identity-value {
+  min-width: 0;
+  padding: 3px 4px;
+  margin: -3px -4px;
+  border-radius: var(--radius-sm);
+  cursor: text;
+}
+
+.ov-document-identity-value:hover,
+.ov-document-identity-value:focus-visible {
+  background: var(--surface-2);
+  color: var(--text-1);
+  outline: none;
+}
+
+@media (max-width: 760px) {
+  .ov-body {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 0 var(--space-3) var(--space-3);
+  }
+  .ov-outline {
+    z-index: 3;
+    top: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 2px;
+    overflow-x: auto;
+    min-height: 40px;
+    margin: 0 calc(var(--space-3) * -1) var(--space-3);
+    padding: var(--space-1) var(--space-3);
+    border-right: 0;
+    border-bottom: 1px solid var(--surface-3);
+    background: var(--surface-0);
+  }
+  .ov-outline-item {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .ov-outline-item[aria-current="true"] {
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  .ov-document-section { scroll-margin-top: 52px; }
+}
 
 /* Bigger header for the popout — the side-panel uses compact title sizes,
    the popout has the screen real estate to read clearly. */
 /* The popout header uses the shared .pane-header column layout (.pane-header-nav
    + .pane-header-id), like the side panel — just with more breathing room. */
-.ov-header { padding: 12px 16px; }
+.ov-header { padding: 10px 12px; }
+.ov-header .pane-header-id {
+  padding-left: 0;
+}
+.ov-breadcrumb {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 5px;
+  color: var(--text-3);
+}
+.ov-breadcrumb-parent {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+.ov-breadcrumb-parent:hover { background: var(--surface-2); color: var(--text-1); }
+.ov-breadcrumb-name,
+.ov-breadcrumb-current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov-breadcrumb-parent code {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+.ov-breadcrumb-continuation {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 3px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: 1px;
+}
+.ov-breadcrumb-separator { display: inline-flex; }
+.ov-breadcrumb-separator svg { width: 9px; height: 9px; }
+.ov-breadcrumb-current { color: var(--text-1); font-weight: var(--weight-medium); }
+.ov-compare { position: relative; }
+.ov-compare > summary { list-style: none; }
+.ov-compare > summary::-webkit-details-marker { display: none; }
+.ov-compare-trigger svg:last-child { width: 8px; height: 8px; margin-left: 1px; }
+.ov-compare-menu {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 5px);
+  right: 0;
+  width: 236px;
+  padding: 4px;
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-3);
+}
+.ov-compare-item {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: start;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ov-compare-item:hover { background: var(--surface-2); }
+.ov-compare-item svg { margin-top: 2px; }
+.ov-compare-item small {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+.ov-source-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.ov-source-label {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
 
 /* Inline identity editing follows Blueprint's rename grammar: the value stays
  * visually primary and a single muted pencil is the only added control. */
@@ -94,6 +313,258 @@ body {
   border-left: 2px solid var(--danger);
   background: color-mix(in srgb, var(--danger) 7%, transparent);
   color: var(--text-2);
+}
+
+/* Expanded view fields read as values until clicked. The shared side-panel
+ * renderer only emits these controls when editOnDemand is enabled here. */
+.ov-document .prop-cell--ondemand {
+  width: 100%;
+  min-height: 24px;
+  justify-content: flex-start;
+  padding: 3px 5px;
+  margin: -3px -5px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  text-align: left;
+  cursor: text;
+}
+.ov-document .prop-cell--ondemand:hover,
+.ov-document .prop-cell--ondemand:focus-visible {
+  background: var(--surface-2);
+  outline: none;
+}
+.ov-document .prop-ondemand-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov-document .prop-group--display .prop-grid {
+  grid-template-columns: 1fr;
+}
+.ov-document .prop-group--display .prop-grid .prop-row {
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  min-height: 32px;
+  padding: var(--space-1) 0;
+}
+.ov-document .prop-row,
+.ov-document .prop-row--columns {
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  min-height: 32px;
+  border-bottom: 1px solid var(--surface-2);
+}
+.ov-document .prop-row--columns {
+  grid-template-columns: 150px minmax(0, 1fr);
+}
+.ov-document .prop-columns-triplet {
+  justify-content: flex-start;
+  gap: 22px;
+}
+.ov-document .prop-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+.prop-cascade-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+.prop-source-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.prop-source-reset:hover { background: var(--surface-2); color: var(--text-1); }
+.prop-source-reset { color: var(--accent-bright); }
+.prop-source-reset.is-staged {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.prop-column-cell,
+.prop-vis-cell { position: relative; }
+.prop-column-cell > .prop-cascade-actions {
+  position: absolute;
+  top: 1px;
+  right: -20px;
+}
+.ov-document .prop-column-cell {
+  align-items: flex-start;
+  gap: 4px;
+}
+.prop-column-direct {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.prop-column-step {
+  width: 9px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--surface-4);
+  border-radius: 1px;
+  background: var(--surface-2);
+  color: var(--text-3);
+  font: 600 8px/16px var(--font-sans);
+  cursor: pointer;
+}
+.prop-column-step.is-zero {
+  width: 18px;
+  margin-right: 2px;
+}
+.prop-column-step:hover,
+.prop-column-step:focus-visible {
+  border-color: var(--accent-bright);
+  outline: none;
+}
+.prop-column-step.is-filled {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--surface-4));
+  background: var(--accent-bright);
+}
+.prop-column-step.is-selected {
+  box-shadow: 0 0 0 1px var(--surface-1), 0 0 0 2px var(--accent-bright);
+}
+.prop-column-current {
+  min-width: 28px;
+  margin-left: 3px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.ov-document .prop-vis-triplet {
+  align-items: center;
+  gap: 8px;
+}
+.ov-document .prop-vis-cell {
+  flex-direction: row;
+  gap: 2px;
+}
+.prop-vis-breakpoint {
+  position: relative;
+  width: 32px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font: var(--weight-semi) var(--text-xs)/1 var(--font-sans);
+  cursor: pointer;
+}
+.prop-vis-breakpoint:hover,
+.prop-vis-breakpoint:focus-visible {
+  border-color: var(--accent-bright);
+  color: var(--text-1);
+  outline: none;
+}
+.prop-vis-breakpoint.is-shown {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--text-on-color);
+}
+.prop-vis-breakpoint.is-hidden::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 15px;
+  width: 1px;
+  height: 16px;
+  background: currentColor;
+  transform: rotate(38deg);
+}
+
+.ov-relation-path {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.ov-relation-node {
+  min-height: 68px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--text-1);
+  font: inherit;
+  text-align: left;
+}
+button.ov-relation-node { cursor: pointer; }
+button.ov-relation-node:hover { border-color: var(--surface-4); background: var(--surface-2); }
+.ov-relation-node--current {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--surface-3));
+  background: var(--accent-bg);
+}
+.ov-relation-node-label {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+.ov-relation-node-value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ov-relation-node-value > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov-relation-node-value code {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+.ov-relation-arrow {
+  color: var(--text-3);
+  text-align: center;
+}
+.ov-relations-section .ov-section {
+  margin-top: var(--space-4);
+}
+.ov-relations-section .ov-section-title {
+  margin-bottom: var(--space-2);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+@media (max-width: 620px) {
+  .ov-header .pane-header-id {
+    flex-wrap: wrap;
+    padding-left: 0;
+  }
+  .ov-source-control {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+  .ov-document .prop-row,
+  .ov-document .prop-row--columns,
+  .ov-document .prop-group--display .prop-grid .prop-row {
+    grid-template-columns: 112px minmax(0, 1fr) auto;
+  }
+  .ov-relation-path {
+    grid-template-columns: 1fr;
+  }
+  .ov-relation-arrow { transform: rotate(90deg); }
 }
 
 /* ── Sections ───────────────────────────────────── */

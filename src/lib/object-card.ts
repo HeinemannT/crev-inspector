@@ -9,7 +9,13 @@
  * editor.css both style these classes (light card, theme-independent).
  */
 import { h, svg } from './dom'
-import { ICON_ARROWS_OUT_SIMPLE, ICON_CODE } from './icons'
+import { ICON_ARROWS_OUT_SIMPLE, ICON_CHECK, ICON_CODE, ICON_PENCIL, ICON_X } from './icons'
+import {
+  normalizeAndValidateIdentity,
+  type IdentityEditInput,
+  type IdentityField,
+  type IdentitySaveResult,
+} from './object-identity'
 
 export interface ObjectCardData {
   name?: string
@@ -30,6 +36,8 @@ export interface ObjectCardActions {
   onOpenFull?: () => void
   /** Code icon in the header — opens the EC editor / studio. Omit to hide. */
   onOpenEc?: () => void
+  /** Pencil icon in the header. Omit on read-only card instances. */
+  onSaveIdentity?: (identity: IdentityEditInput) => Promise<IdentitySaveResult>
 }
 
 /** One copy-on-click fact row (green ✓ flash), or null when the value is empty. */
@@ -53,11 +61,23 @@ function copyRow(k: string, value: string | undefined, dim = false): HTMLElement
 
 export function buildObjectCard(data: ObjectCardData, actions: ObjectCardActions = {}): HTMLElement {
   const typeName = data.type ?? data.typeFallback ?? 'Unknown'
+  let businessId = data.businessId ?? ''
+  let name = data.name ?? ''
+  let templateBusinessId = data.templateBusinessId ?? ''
 
   const headActions: HTMLElement[] = []
+  if (actions.onSaveIdentity) {
+    headActions.push(h('button', {
+      class: 'crev-tt-open crev-tt-edit-open',
+      type: 'button',
+      title: 'Edit name, ID, and template ID',
+      'aria-label': 'Edit name, ID, and template ID',
+    }, svg(ICON_PENCIL)))
+  }
   if (actions.onOpenEc) {
     headActions.push(h('button', {
       class: 'crev-tt-open',
+      type: 'button',
       title: 'Open in the Extended Code editor',
       'aria-label': 'Open in the Extended Code editor',
       onClick: (e: Event) => { e.stopPropagation(); actions.onOpenEc!() },
@@ -66,30 +86,218 @@ export function buildObjectCard(data: ObjectCardData, actions: ObjectCardActions
   if (actions.onOpenFull) {
     headActions.push(h('button', {
       class: 'crev-tt-open',
+      type: 'button',
       title: 'Open full object view',
       'aria-label': 'Open full object view',
       onClick: (e: Event) => { e.stopPropagation(); actions.onOpenFull!() },
     }, svg(ICON_ARROWS_OUT_SIMPLE)))
   }
 
-  const card = h('div', { class: 'crev-tt-card' },
-    h('div', { class: 'crev-tt-band' },
+  const nameEl = h('div', { class: 'crev-tt-nm' }, name || businessId || '(unnamed)')
+  const actionBar = h('div', { class: 'crev-tt-actions' }, ...headActions)
+  const body = h('div', { class: 'crev-tt-body' })
+  const band = h('div', { class: 'crev-tt-band' },
       h('div', { class: 'crev-tt-hd' },
-        h('div', { class: 'crev-tt-nm' }, data.name || data.businessId || '(unnamed)'),
+        nameEl,
         h('div', { class: 'crev-tt-ty' },
           h('span', { class: 'crev-tt-tydot' }),
           typeName,
         ),
       ),
-      ...headActions,
-    ),
-    h('div', { class: 'crev-tt-body' },
-      copyRow('ID', data.businessId),
-      copyRow('Template', data.templateBusinessId),
-      copyRow('RID', data.rid, true),
-    ),
+      actionBar,
+    )
+  const card = h('div', { class: 'crev-tt-card' },
+    band,
+    body,
   )
   card.style.setProperty('--tt-color', data.color)
+
+  const renderReadMode = (): void => {
+    card.classList.remove('crev-tt-card--editing')
+    nameEl.textContent = name || businessId || '(unnamed)'
+    actionBar.replaceChildren(...headActions)
+    body.replaceChildren(
+      ...[
+        copyRow('ID', businessId),
+        copyRow('Template', templateBusinessId),
+        copyRow('RID', data.rid, true),
+      ].filter((row): row is HTMLElement => row !== null),
+    )
+  }
+
+  const renderEditMode = (): void => {
+    if (!actions.onSaveIdentity) return
+    card.classList.add('crev-tt-card--editing')
+
+    const idInput = h('input', {
+      class: 'crev-tt-edit-input crev-tt-edit-id',
+      name: 'businessId',
+      value: businessId,
+      autocomplete: 'off',
+      spellcheck: 'false',
+      'aria-label': 'Object ID',
+    }) as HTMLInputElement
+    const nameInput = h('input', {
+      class: 'crev-tt-edit-input crev-tt-edit-name',
+      name: 'name',
+      value: name,
+      autocomplete: 'off',
+      'aria-label': 'Object name',
+    }) as HTMLInputElement
+    const templateInput = templateBusinessId
+      ? h('input', {
+          class: 'crev-tt-edit-input crev-tt-edit-id',
+          name: 'templateBusinessId',
+          value: templateBusinessId,
+          autocomplete: 'off',
+          spellcheck: 'false',
+          'aria-label': 'Template ID',
+        }) as HTMLInputElement
+      : null
+    const focusIdentityField = (field: IdentityField | undefined): void => {
+      const inputByField: Record<IdentityField, HTMLInputElement | null> = {
+        businessId: idInput,
+        name: nameInput,
+        templateBusinessId: templateInput,
+      }
+      if (field) inputByField[field]?.focus()
+    }
+    const status = h('div', {
+      class: 'crev-tt-edit-status',
+      role: 'status',
+      'aria-live': 'polite',
+    })
+    const saveButton = h('button', {
+      class: 'crev-tt-open crev-tt-edit-save',
+      type: 'button',
+      title: 'Save and verify',
+      'aria-label': 'Save and verify',
+      onClick: (event: Event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        void submitIdentity()
+      },
+    }, svg(ICON_CHECK)) as HTMLButtonElement
+    const discardButton = h('button', {
+      class: 'crev-tt-open crev-tt-edit-discard',
+      type: 'button',
+      title: 'Discard changes',
+      'aria-label': 'Discard changes',
+      onClick: (event: Event) => {
+        event.stopPropagation()
+        renderReadMode()
+      },
+    }, svg(ICON_X)) as HTMLButtonElement
+
+    const setError = (message: string): void => {
+      status.className = 'crev-tt-edit-status crev-tt-edit-status--error'
+      status.textContent = message
+    }
+    const submitIdentity = async (): Promise<void> => {
+      const validation = normalizeAndValidateIdentity({
+        businessId: idInput.value,
+        name: nameInput.value,
+        ...(templateInput ? { templateBusinessId: templateInput.value } : {}),
+      })
+      if (!validation.ok) {
+        setError(validation.error)
+        focusIdentityField(validation.field)
+        return
+      }
+      const {
+        businessId: nextId,
+        name: nextName,
+        templateBusinessId: nextTemplateId,
+      } = validation.value
+      if (nextId === businessId && nextName === name && nextTemplateId === templateBusinessId) {
+        renderReadMode()
+        return
+      }
+
+      idInput.disabled = true
+      nameInput.disabled = true
+      if (templateInput) templateInput.disabled = true
+      saveButton.disabled = true
+      discardButton.disabled = true
+      status.className = 'crev-tt-edit-status crev-tt-edit-status--saving'
+      status.textContent = 'Saving and verifying\u2026'
+
+      try {
+        const result = await actions.onSaveIdentity!(validation.value)
+        if (!result.ok) {
+          idInput.disabled = false
+          nameInput.disabled = false
+          if (templateInput) templateInput.disabled = false
+          saveButton.disabled = false
+          discardButton.disabled = false
+          setError(result.error ?? 'Could not verify the saved values.')
+          focusIdentityField(result.field)
+          return
+        }
+
+        businessId = result.businessId ?? nextId
+        name = result.name ?? nextName
+        templateBusinessId = result.templateBusinessId ?? nextTemplateId ?? templateBusinessId
+        status.className = 'crev-tt-edit-status crev-tt-edit-status--success'
+        status.replaceChildren(svg(ICON_CHECK), 'Saved and verified')
+        setTimeout(renderReadMode, 700)
+      } catch {
+        idInput.disabled = false
+        nameInput.disabled = false
+        if (templateInput) templateInput.disabled = false
+        saveButton.disabled = false
+        discardButton.disabled = false
+        setError('Could not save and verify the changes.')
+      }
+    }
+    const handleEditKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        renderReadMode()
+        return
+      }
+      if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        event.preventDefault()
+        event.stopPropagation()
+        void submitIdentity()
+      }
+    }
+    idInput.addEventListener('keydown', handleEditKey)
+    nameInput.addEventListener('keydown', handleEditKey)
+    templateInput?.addEventListener('keydown', handleEditKey)
+
+    actionBar.replaceChildren(saveButton, discardButton)
+    nameEl.replaceChildren(nameInput)
+    body.replaceChildren(
+      h('div', { class: 'crev-tt-cprow crev-tt-edit-idrow' },
+        h('span', { class: 'crev-tt-k' }, 'ID'),
+        idInput,
+      ),
+      ...[
+        templateInput
+          ? h('div', { class: 'crev-tt-cprow crev-tt-edit-idrow' },
+              h('span', { class: 'crev-tt-k' }, 'Template'),
+              templateInput,
+            )
+          : null,
+      ].filter((row): row is HTMLElement => row !== null),
+      ...[
+        copyRow('RID', data.rid, true),
+      ].filter((row): row is HTMLElement => row !== null),
+      status,
+    )
+    nameInput.focus()
+    nameInput.select()
+  }
+
+  headActions[0]?.classList.contains('crev-tt-edit-open')
+    && headActions[0].addEventListener('click', (event) => {
+      event.stopPropagation()
+      renderEditMode()
+    })
+
+  renderReadMode()
 
   if (data.codePreview) {
     const code = h('pre', { class: 'crev-tt-code' }, data.codePreview)

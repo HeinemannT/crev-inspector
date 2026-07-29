@@ -573,10 +573,12 @@ export function makeExtendedExecuteCommand(
 
 // ── Response Parsers ────────────────────────────────────────────
 
-interface ParsedObjectData {
+export interface ParsedObjectData {
   rid?: string;
   type?: string;
   properties: Record<string, any>;
+  /** Properties explicitly overridden on an object linked to a template. */
+  overridden: string[];
 }
 
 /** Extract useful data from a deserialized ObjectData */
@@ -612,7 +614,16 @@ export function parseObjectData(raw: any): ParsedObjectData | null {
     }
   }
 
-  return { rid, type, properties: props };
+  const rawOverridden = raw.overridden;
+  const overridden = Array.isArray(rawOverridden)
+    ? rawOverridden.map(String)
+    : Array.isArray(rawOverridden?.$elements)
+      ? rawOverridden.$elements.map(String)
+      : rawOverridden instanceof Set
+        ? [...rawOverridden].map(String)
+        : [];
+
+  return { rid, type, properties: props, overridden };
 }
 
 /** One server-side EC log entry, kept alongside the flattened `log` so UI

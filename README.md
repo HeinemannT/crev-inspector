@@ -116,6 +116,10 @@ The assistant can inspect workspace context, but code changes remain proposals u
 
 Rebind shortcuts at `chrome://extensions/shortcuts`.
 
+## Privacy
+
+See the [privacy policy](PRIVACY.md) for the data the extension handles and where it is sent.
+
 ## Data and security
 
 - Borrowed tokens live in `chrome.storage.session` and disappear when the browser closes.
