@@ -23,7 +23,8 @@
  */
 import type { TypeSchemaProp } from './types';
 
-const STORAGE_KEY = 'crev_schema_cache_v1';
+// v2 adds the master property RID/ID needed by direct property navigation.
+const STORAGE_KEY = 'crev_schema_cache_v2';
 const TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface CacheEntry {
@@ -188,4 +189,3 @@ export function setRoot(serverId: string, category: string, className: string | 
   rootMem.set(rootKey(serverId, category), { serverId, category, className, resolvedAt: Date.now() });
   scheduleRootFlush();
 }
-

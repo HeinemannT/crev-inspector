@@ -7,6 +7,7 @@ vi.mock('../../lib/toast', () => ({ showToast: vi.fn() }));
 import { bp, resetState } from '../state';
 import {
   loadPortableIdConfig,
+  portableIdsAvailable,
   setPortableIdPatternDraft,
   setPortableIdsEnabled,
 } from '../id-config';
@@ -40,6 +41,12 @@ afterEach(() => {
 });
 
 describe('Blueprint Automatic ID Assignment persistence', () => {
+  it('is available for templates and standalone EditPages, but not normal instances', () => {
+    expect(portableIdsAvailable({ pageId: 'p', pageRid: '1', tabsetId: 't', target: 'template' })).toBe(true);
+    expect(portableIdsAvailable({ pageId: 'p', pageRid: '1', tabsetId: '', target: 'instance', surface: 'edit-page' })).toBe(true);
+    expect(portableIdsAvailable({ pageId: 'p', pageRid: '1', tabsetId: 't', target: 'instance' })).toBe(false);
+  });
+
   it('loads one global recipe from extension-local storage', async () => {
     storageGet.mockResolvedValue({
       crev_blueprint_portable_ids: {

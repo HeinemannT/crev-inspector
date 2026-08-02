@@ -22,7 +22,7 @@ type ApplyResult = Extract<InspectorMessage, { type: 'LAYOUT_APPLY_RESULT' }>;
 type BlastResult = Extract<InspectorMessage, { type: 'LAYOUT_BLAST_RESULT' }>;
 type FlowRefsResult = Extract<InspectorMessage, { type: 'LAYOUT_FLOW_REFS_RESULT' }>;
 type FlowRefChildrenResult = Extract<InspectorMessage, { type: 'LAYOUT_FLOW_REF_CHILDREN_RESULT' }>;
-type TypeSchemaResult = Extract<InspectorMessage, { type: 'FETCH_TYPE_SCHEMA_RESULT' }>;
+type TypeSchemasResult = Extract<InspectorMessage, { type: 'FETCH_TYPE_SCHEMAS_RESULT' }>;
 type PortableIdPreflightResult = Extract<InspectorMessage, { type: 'LAYOUT_PORTABLE_ID_PREFLIGHT_RESULT' }>;
 
 /** Adopt `m` as the new baseline: fresh history, clear selection. The single point where the editor
@@ -43,8 +43,8 @@ function rebase(m: LModel): void {
  *  overlay was toggled off — or off-then-on (a new session, higher `gen`) — must not mutate state. */
 const sameSession = (g: number): boolean => bp.active && bp.gen === g;
 
-/** Fill the standalone EditPage's field-detail cache from the same authoritative schema path used by
- *  Object View and EC autocomplete. Idempotent and lazy: initial Blueprint load never pays this cost. */
+/** Fill EditPage property catalogues from the same authoritative schema path used by Object View
+ * and EC autocomplete. Requests are deduplicated across standalone and embedded surfaces. */
 export async function fetchEditPageSchemas(types: readonly string[]): Promise<void> {
   const missing = [...new Set(types)].filter(type =>
     type && !bp.editPageSchemas.has(type) && !bp.editPageSchemaPending.has(type),
@@ -55,21 +55,27 @@ export async function fetchEditPageSchemas(types: readonly string[]): Promise<vo
     bp.editPageSchemaPending.add(type);
     bp.editPageSchemaErrors.delete(type);
   }
-  await Promise.all(missing.map(async (type) => {
-    try {
-      const response = await sendRequestBounded<TypeSchemaResult>(
-        { type: 'FETCH_TYPE_SCHEMA', className: type },
-        { timeoutMs: 10_000 },
-      );
-      if (!sameSession(g)) return;
-      if (response.ok && response.props) bp.editPageSchemas.set(type, response.props);
-      else bp.editPageSchemaErrors.set(type, response.error || 'Property details unavailable');
-    } catch {
-      if (sameSession(g)) bp.editPageSchemaErrors.set(type, 'Property details unavailable');
-    } finally {
-      if (sameSession(g)) bp.editPageSchemaPending.delete(type);
+  try {
+    const response = await sendRequestBounded<TypeSchemasResult>(
+      { type: 'FETCH_TYPE_SCHEMAS', classNames: missing },
+      { timeoutMs: Math.max(15_000, missing.length * 10_000) },
+    );
+    if (!sameSession(g) || (bp.env && response.environment !== bp.env)) return;
+    const byType = new Map(response.results.map(result => [result.className, result]));
+    for (const type of missing) {
+      const result = byType.get(type);
+      if (result?.ok && result.props) bp.editPageSchemas.set(type, result.props);
+      else bp.editPageSchemaErrors.set(type, result?.error || 'Property details unavailable');
     }
-  }));
+  } catch {
+    if (sameSession(g)) {
+      for (const type of missing) bp.editPageSchemaErrors.set(type, 'Property details unavailable');
+    }
+  } finally {
+    if (sameSession(g)) {
+      for (const type of missing) bp.editPageSchemaPending.delete(type);
+    }
+  }
   if (sameSession(g)) render();
 }
 
@@ -89,6 +95,13 @@ export async function loadPage(rid: string, prefer: 'template' | 'instance' = 't
   if (res.ctx.surface === 'edit-page') bp.mode = 'layout';
   bp.editingTemplate = res.ctx.editingTemplate ?? false;
   bp.env = res.env ?? null;
+  const editPageTypes = [
+    ...(res.model.editPageTypes ?? []),
+    ...Object.values(res.model.flows ?? {})
+      .filter(flow => flow.ownerClass === 'CreateObjectView' && flow.refClass === 'EditPage')
+      .flatMap(flow => flow.objectTypeClass ? [flow.objectTypeClass] : []),
+  ];
+  void fetchEditPageSchemas(editPageTypes);
   const orphans = res.orphans?.length ?? 0;
   if (orphans) showToast(`Blueprint: ${orphans} widget${orphans === 1 ? ' is' : 's are'} bound to this page but placed on no tab or container, so the editor does not show ${orphans === 1 ? 'it' : 'them'}`, 'info');
   render();
@@ -99,12 +112,30 @@ export async function loadPage(rid: string, prefer: 'template' | 'instance' = 't
  *  re-renders so the modal can show the warnings; silent on failure (the modal just omits them). The
  *  reply is dropped unless it's still the same session, the preview is open, AND it's for the LATEST
  *  preview (`seq`) — a slow walk for an earlier preview must not overwrite a newer one's result. */
-export async function fetchBlast(seq: number, pageId: string, containers: { id: string; rid?: string }[]): Promise<void> {
+export async function fetchBlast(
+  seq: number,
+  pageId: string,
+  containers: { id: string; rid?: string }[],
+  flowContainers: {
+    id: string;
+    rid?: string;
+    className: 'InputSet' | 'EditPage';
+  }[],
+): Promise<void> {
   const g = bp.gen;
   try {
-    const res = await sendRequest<BlastResult>({ type: 'LAYOUT_BLAST', pageId, containers });
+    const res = await sendRequest<BlastResult>({
+      type: 'LAYOUT_BLAST',
+      pageId,
+      containers,
+      flowContainers,
+    });
     if (!sameSession(g) || !bp.preview || bp.blastSeq !== seq) return;
-    bp.blast = { fanout: res?.fanout ?? null, blast: res?.blast ?? null };
+    bp.blast = {
+      fanout: res?.fanout ?? null,
+      blast: res?.blast ?? null,
+      flowBlast: res?.flowBlast ?? null,
+    };
   } catch { /* fail silent — no blast warning; `finally` still re-enables Confirm */ }
   finally {
     // Always clear the pending gate for THIS preview (success, empty reply, or error) so Confirm can

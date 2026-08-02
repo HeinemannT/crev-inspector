@@ -544,6 +544,74 @@
 .bdg.xs .tile { padding: 0 4px; }
 .bdg.xs .tile svg { width: 11px; height: 11px; }
 .bdg.xs .lbl { padding: 0 6px; }
+
+/* Property objects remain standard `.bdg` identities with the same copy and
+   activation behavior. The variant changes presentation only: a split capsule,
+   value-kind color, and (for Historical*) a ClockCountdown mark on the seam. */
+.bdg.bdg-property {
+  width: 57px;
+  border-radius: 999px;
+}
+.bdg.bdg-property .tile {
+  position: relative;
+  flex: 0 0 24px;
+  width: 24px;
+  padding: 0;
+}
+.bdg.bdg-property .tile > svg {
+  width: 12px;
+  height: 12px;
+  transform: translateX(1px);
+}
+.bdg.bdg-property .lbl {
+  justify-content: center;
+  flex: 0 0 31px;
+  width: 31px;
+  padding: 0 0 0 1px;
+}
+.bdg-property .bdg-history {
+  position: absolute;
+  z-index: 2;
+  bottom: 0;
+  left: 19px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 9px;
+  height: 9px;
+  color: #fff;
+  filter: drop-shadow(0 0 1px color-mix(in srgb, var(--c) 42%, var(--surface-1)));
+}
+.bdg.bdg-property .bdg-history svg {
+  display: block;
+  width: 9px;
+  height: 9px;
+}
+.bdg.bdg-property.xs {
+  width: 53px;
+}
+.bdg.bdg-property.xs .tile {
+  flex-basis: 22px;
+  width: 22px;
+}
+.bdg.bdg-property.xs .tile > svg {
+  width: 11px;
+  height: 11px;
+}
+.bdg.bdg-property.xs .lbl {
+  flex-basis: 29px;
+  width: 29px;
+  padding-left: 1px;
+}
+.bdg.bdg-property.xs .bdg-history {
+  left: 18px;
+  width: 8px;
+  height: 8px;
+}
+.bdg.bdg-property.xs .bdg-history svg {
+  width: 8px;
+  height: 8px;
+}
 .bdg-copy { cursor: pointer; }
 .bdg-copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .bdg.bdg-copied .tile { background: var(--success) !important; }

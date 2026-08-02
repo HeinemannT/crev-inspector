@@ -24,6 +24,18 @@ export interface FlowContainer {
   original: FlowNode[];
 }
 
+/** Find a flow node at any supported nesting depth. ButtonGroup is currently the only nested
+ *  flow container, but keeping the walk recursive also covers a staged group and an off-page
+ *  InputSet projection without teaching each caller where that group came from. */
+function findFlowNode(children: readonly FlowNode[], key: string): FlowNode | undefined {
+  for (const child of children) {
+    if (child.id === key) return child;
+    const nested = child.children ? findFlowNode(child.children, key) : undefined;
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
 /** Locate the flow container addressed by `key`: an InputSet/EditPage (a projection's `refId`), a
  *  nested ButtonGroup (a FlowNode inside a projection), or a STAGED-NEW container (a temp-keyed
  *  flowEdits entry carrying `newContainer` — original children are by definition empty). Returns null
@@ -33,15 +45,30 @@ export function findFlowContainer(m: LModel, key: string): FlowContainer | null 
   if (nc) return { key, className: nc.className, original: [] };
   for (const p of Object.values(m.flows ?? {})) {
     if (p.refId === key) return { key, className: p.refClass ?? 'InputSet', rid: p.refRid, original: p.children };
-    // a nested ButtonGroup lives one level down in a projection's children
-    for (const c of p.children) {
-      if (c.id === key && c.children) return { key, className: c.className || 'ButtonGroup', rid: c.rid, original: c.children };
+    const nested = findFlowNode(p.children, key);
+    // An empty ButtonGroup has no `children` property on the wire. It is still a valid add target.
+    if (nested?.className === 'ButtonGroup') {
+      return { key, className: 'ButtonGroup', rid: nested.rid, original: nested.children ?? [] };
     }
   }
   // on-demand fetched children of an EXISTING off-page reference the user wired to (FIX: wire to
   // existing — the main fetch never projected it, so its real contents come from flowRefChildren).
   const rc = m.flowRefChildren?.[key];
   if (rc) return { key, className: rc.className, rid: rc.rid, original: rc.children };
+  for (const cached of Object.values(m.flowRefChildren ?? {})) {
+    const nested = findFlowNode(cached.children, key);
+    if (nested?.className === 'ButtonGroup') {
+      return { key, className: 'ButtonGroup', rid: nested.rid, original: nested.children ?? [] };
+    }
+  }
+  // A ButtonGroup can itself be staged under an InputSet and receive buttons before the first Apply.
+  // Resolve it from staged adds so its ButtonInput create is typed and dependency-ordered correctly.
+  for (const edit of Object.values(m.flowEdits ?? {})) {
+    const staged = findFlowNode(edit.adds ?? [], key);
+    if (staged?.className === 'ButtonGroup') {
+      return { key, className: 'ButtonGroup', original: staged.children ?? [] };
+    }
+  }
   return null;
 }
 
@@ -60,7 +87,8 @@ export function effectiveFlowChildren(m: LModel, key: string): FlowNode[] {
   const e = editOf(m, key);
   const original = container?.original ?? [];
   if (!original.length && !e?.adds?.length) return [];
-  const natural = [...original, ...(e?.adds ?? [])];
+  const removed = new Set(e?.removes ?? []);
+  const natural = [...original, ...(e?.adds ?? [])].filter(node => !removed.has(node.id));
   const ordered: FlowNode[] = [];
   if (!e?.order) {
     ordered.push(...natural);
@@ -72,17 +100,22 @@ export function effectiveFlowChildren(m: LModel, key: string): FlowNode[] {
   // Overlay staged renames (keyed per flow object) so the renderer AND the reorder-id source both see the
   // new name; reorder only reads ids, so this is display-only for it. Recurses one nesting level (a
   // ButtonGroup grandchild rename rides here too). Identity is preserved when nothing changed.
-  return ordered.map(n => overlayRename(m, n));
+  return ordered.map(n => overlayFlowEdit(m, n));
 }
 
 /** Apply a staged `rename` edit to a flow node (and, recursively, its nested children), returning the
  *  same object when nothing changed. Keyed per flow-object businessId in `flowEdits`. */
-function overlayRename(m: LModel, n: FlowNode): FlowNode {
-  const rn = m.flowEdits?.[n.id]?.rename;
-  const kids = n.children?.map(c => overlayRename(m, c));
+function overlayFlowEdit(m: LModel, n: FlowNode): FlowNode {
+  const edit = m.flowEdits?.[n.id];
+  const kids = n.children?.map(c => overlayFlowEdit(m, c));
   const kidsChanged = !!kids && n.children!.some((c, i) => c !== kids[i]);
-  if (rn === undefined && !kidsChanged) return n;
-  return { ...n, ...(rn !== undefined ? { name: rn } : {}), ...(kids ? { children: kids } : {}) };
+  if (edit?.rename === undefined && edit?.propertyMapping === undefined && !kidsChanged) return n;
+  return {
+    ...n,
+    ...(edit?.rename !== undefined ? { name: edit.rename } : {}),
+    ...(edit?.propertyMapping !== undefined ? { prop: edit.propertyMapping } : {}),
+    ...(kids ? { children: kids } : {}),
+  };
 }
 
 /** Immutable helper: clone the model and ensure a mutable `flowEdits[key]` entry exists, then run `fn`. */
@@ -92,14 +125,14 @@ function withFlowEdit(m: LModel, key: string, fn: (e: FlowEdit) => void): LModel
   const e = (edits[key] ??= {});
   fn(e);
   // Drop an entry that ended up empty (e.g. a flag toggled back to its projection value).
-  if (!e.adds?.length && !e.order && e.displayOnActionMenu === undefined && e.displayOnAllTabs === undefined
-    && !e.newContainer && !e.wireRef && e.rename === undefined) delete edits[key];
+  if (!e.adds?.length && !e.removes?.length && !e.order && e.displayOnActionMenu === undefined && e.displayOnAllTabs === undefined
+    && !e.newContainer && !e.wireRef && e.rename === undefined && e.propertyMapping === undefined) delete edits[key];
   return c;
 }
 
 /** Stage a new child in a flow container (type + name only — no property forms). `afterId` inserts right
- *  after that sibling (else appended). Returns the new model + the staged child's temp id. */
-export function addFlowChild(m: LModel, key: string, className: string, name?: string, afterId?: string): { model: LModel; id: string } {
+ *  after that sibling, null inserts at the front, and undefined appends. */
+export function addFlowChild(m: LModel, key: string, className: string, name?: string, afterId?: string | null): { model: LModel; id: string } {
   const id = tempId('flow');
   const isBreak = className === 'EditPageBreak' || className === 'EditPageColumnBreak';
   const node: FlowNode = { id, className, name: name ?? `New ${className}`, ...(isBreak ? { isBreak: true } : {}) };
@@ -107,11 +140,11 @@ export function addFlowChild(m: LModel, key: string, className: string, name?: s
     (e.adds ??= []).push(node);
     // Placement: append by default. When inserting after a specific sibling, materialise the current
     // effective order (incl. this new node appended) and splice the new id into place → an `order` edit.
-    if (afterId) {
+    if (afterId !== undefined) {
       const cur = effectiveFlowChildren({ ...m, flowEdits: { ...(m.flowEdits ?? {}), [key]: { ...(m.flowEdits?.[key] ?? {}), adds: [...(m.flowEdits?.[key]?.adds ?? []), node] } } }, key).map(n => n.id);
-      const at = cur.indexOf(afterId);
       const without = cur.filter(x => x !== id);
-      const insertAt = at >= 0 ? without.indexOf(afterId) + 1 : without.length;
+      const at = afterId === null ? -1 : without.indexOf(afterId);
+      const insertAt = afterId === null ? 0 : at >= 0 ? at + 1 : without.length;
       without.splice(insertAt, 0, id);
       e.order = without;
     }
@@ -139,13 +172,27 @@ export function reorderFlowChild(m: LModel, key: string, id: string, afterId: st
   });
 }
 
-/** Remove a STAGED add (temp-id child) from a flow container. Existing children are not deletable in
- *  blueprint (delete lives in Inspect); this only cancels a not-yet-applied add. */
+/** Cancel a staged add before it has ever reached BMP. */
 export function removeFlowAdd(m: LModel, key: string, id: string): LModel {
   if (!m.flowEdits?.[key]?.adds?.some(a => a.id === id)) return m;
   return withFlowEdit(m, key, e => {
     e.adds = (e.adds ?? []).filter(a => a.id !== id);
     if (e.order) e.order = e.order.filter(x => x !== id);
+  });
+}
+
+/** Stage deletion of one flow child. A staged-new child is cancelled outright;
+ * an existing child is retained in the baseline and omitted from the desired
+ * projection until Apply emits `<child>.delete()`. */
+export function deleteFlowChild(m: LModel, key: string, id: string): LModel {
+  if (m.flowEdits?.[key]?.adds?.some(add => add.id === id)) return removeFlowAdd(m, key, id);
+  const container = findFlowContainer(m, key);
+  if (!container?.original.some(child => child.id === id)) return m;
+  return withFlowEdit(m, key, edit => {
+    const removes = new Set(edit.removes ?? []);
+    removes.add(id);
+    edit.removes = [...removes];
+    if (edit.order) edit.order = edit.order.filter(childId => childId !== id);
   });
 }
 
@@ -290,6 +337,24 @@ export function renameFlowObject(m: LModel, id: string, rawName: string): LModel
   return withFlowEdit(m, id, ee => { if (cur !== undefined && cur === name) delete ee.rename; else ee.rename = name; });
 }
 
+/** Stage an EditField property mapping. A staged add keeps the mapping on its
+ * create node; an existing field gets a dedicated update entry. */
+export function setEditFieldProperty(m: LModel, parentId: string, id: string, accessor: string): LModel {
+  const clean = accessor.trim();
+  if (m.flowEdits?.[parentId]?.adds?.some(add => add.id === id && add.className === 'EditField')) {
+    return withFlowEdit(m, parentId, edit => {
+      const add = edit.adds?.find(node => node.id === id);
+      if (add) add.prop = clean;
+    });
+  }
+  const original = findFlowContainer(m, parentId)?.original.find(node => node.id === id);
+  if (!original || original.className !== 'EditField') return m;
+  return withFlowEdit(m, id, edit => {
+    if ((original.prop ?? '') === clean) delete edit.propertyMapping;
+    else edit.propertyMapping = clean;
+  });
+}
+
 /** The staged reference for a widget (wireRef), or its live projection ref — the renderer's one lookup. */
 export function effectiveRef(m: LModel, widgetId: string): { id: string; className: string; name?: string; staged: boolean; isNew: boolean } | null {
   const wire = m.flowEdits?.[widgetId]?.wireRef;
@@ -327,9 +392,11 @@ export function flowDiff(_baseline: LModel, desired: LModel): PlanStep[] {
   const edits = desired.flowEdits;
   if (!edits) return [];
   const containerCreates: PlanStep[] = [];
-  const creates: PlanStep[] = [];
+  const creates: Extract<PlanStep, { kind: 'flowCreate' }>[] = [];
   const reorders: PlanStep[] = [];
+  const deletes: PlanStep[] = [];
   const renames: PlanStep[] = [];
+  const properties: PlanStep[] = [];
   const flags: PlanStep[] = [];
   const wires: PlanStep[] = [];
 
@@ -341,6 +408,20 @@ export function flowDiff(_baseline: LModel, desired: LModel): PlanStep[] {
       const rid = flowObjectRid(desired, key);
       const className = desired.flows?.[key]?.refClass;
       renames.push({ kind: 'flowRename', id: key, name: e.rename, ...(rid ? { rid } : {}), ...(className ? { className } : {}) });
+    }
+    if (e.propertyMapping !== undefined) {
+      const rid = flowObjectRid(desired, key);
+      const parent = Object.values(desired.flows ?? {}).find(projection =>
+        projection.children.some(child => child.id === key));
+      if (parent?.refId) {
+        properties.push({
+          kind: 'flowProperty',
+          id: key,
+          parentId: parent.refId,
+          accessor: e.propertyMapping,
+          ...(rid ? { rid } : {}),
+        });
+      }
     }
     // A staged-new InputSet/EditPage: create it in the page's ONE support Category (the compiler
     // resolves that Category — reuse an on-page one, else create it — and shares it across every
@@ -380,7 +461,9 @@ export function flowDiff(_baseline: LModel, desired: LModel): PlanStep[] {
     // reorder — MINIMAL moves (one op per displaced item) vs the natural order (original + adds appended,
     // which is what BMP has after the create steps run). Shared with the layout diff (reorder.ts).
     if (e.order && container) {
-      const natural = [...container.original.map(c => c.id), ...(e.adds ?? []).map(a => a.id)];
+      const removed = new Set(e.removes ?? []);
+      const natural = [...container.original.map(c => c.id), ...(e.adds ?? []).map(a => a.id)]
+        .filter(id => !removed.has(id));
       const desiredOrder = effectiveFlowChildren(desired, key).map(n => n.id);
       const ridOf = (id: string): string | undefined =>
         container.original.find(c => c.id === id)?.rid ?? (e.adds ?? []).find(a => a.id === id)?.rid;
@@ -389,6 +472,18 @@ export function flowDiff(_baseline: LModel, desired: LModel): PlanStep[] {
           ...(mv.dir === 'before' ? { beforeId: mv.anchorId } : { afterId: mv.anchorId }),
           ...(ridOf(mv.id) ? { rid: ridOf(mv.id) } : {}) });
       }
+    }
+    for (const id of e.removes ?? []) {
+      const child = container?.original.find(candidate => candidate.id === id);
+      if (!child) continue;
+      deletes.push({
+        kind: 'flowDelete',
+        id,
+        parentId: key,
+        className: child.className,
+        ...(child.rid ? { rid: child.rid } : {}),
+        ...(child.name ? { name: child.name } : {}),
+      });
     }
     // flags — compare against the projection's current value; only emit a genuine change
     const proj = desired.flows?.[key];
@@ -399,7 +494,23 @@ export function flowDiff(_baseline: LModel, desired: LModel): PlanStep[] {
       }
     }
   }
-  return [...containerCreates, ...creates, ...reorders, ...renames, ...flags, ...wires];
+  // A user may add a ButtonGroup and then add its ButtonInput before Apply. Object-key insertion order
+  // normally happens to put the group first, but undo/redo, restored drafts, and future serialization
+  // must not be allowed to reverse those dependent creates. Stable-toposort flow creates by temp parent.
+  const createdIds = new Set(creates.map(step => step.node.id));
+  const emittedIds = new Set<string>();
+  const pending = [...creates];
+  const orderedCreates: typeof creates = [];
+  while (pending.length) {
+    const ready = pending.findIndex(step => !createdIds.has(step.parentId) || emittedIds.has(step.parentId));
+    // A cycle is not constructible through the UI. Preserve deterministic input order if malformed
+    // restored state ever contains one; the compiler/server will then surface the invalid parentage.
+    const index = ready >= 0 ? ready : 0;
+    const [step] = pending.splice(index, 1);
+    orderedCreates.push(step);
+    emittedIds.add(step.node.id);
+  }
+  return [...containerCreates, ...orderedCreates, ...reorders, ...renames, ...properties, ...deletes, ...flags, ...wires];
 }
 
 /** rid of an EXISTING flow object (reference or one of its children) — threaded on a flowRename so a

@@ -19,33 +19,34 @@ describe('propertyAccessorEditor', () => {
       { source: 'CeService' },
     );
     const input = editor.querySelector('input')!;
-    const options = [...editor.querySelectorAll('option')];
     expect(input.disabled).toBe(false);
     expect(input.title).toBe('Properties shared by CeService');
-    expect(options.map(option => option.value)).toEqual(['name', 'domain_owner']);
+    input.click();
+    const options = [...editor.querySelectorAll<HTMLElement>('.crev-property-picker__option')];
+    expect(options.map(option => option.dataset.value)).toEqual(['', 'name', 'domain_owner']);
 
-    input.value = 'domain_owner';
-    input.dispatchEvent(new Event('change'));
+    options[2].dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     expect(onChange).toHaveBeenCalledWith('domain_owner');
   });
 
-  it('rejects arbitrary text but permits clearing an existing mapping', () => {
+  it('does not commit arbitrary text and permits clearing an existing mapping', () => {
     const onChange = vi.fn();
     const editor = propertyAccessorEditor(
       { value: 'name', original: 'name', dirty: false, onChange },
       [{ value: 'name' }],
     );
     const input = editor.querySelector('input')!;
-    input.reportValidity = vi.fn(() => false);
-
+    input.click();
     input.value = 'not_a_real_property';
-    input.dispatchEvent(new Event('change'));
+    input.dispatchEvent(new Event('input'));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(onChange).not.toHaveBeenCalled();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(input.value).toBe('name');
-    expect(input.validationMessage).toBe('Choose a property from the list.');
 
-    input.value = '';
-    input.dispatchEvent(new Event('change'));
+    input.click();
+    editor.querySelector<HTMLElement>('[data-value=""]')!
+      .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     expect(onChange).toHaveBeenCalledWith('');
   });
 
@@ -54,9 +55,10 @@ describe('propertyAccessorEditor', () => {
       { value: 'legacy_field', original: 'legacy_field', dirty: false, onChange: vi.fn() },
       [{ value: 'name' }],
     );
-    const options = [...editor.querySelectorAll('option')];
-    expect(options.map(option => option.value)).toEqual(['legacy_field', 'name']);
-    expect(options[0].label).toBe('legacy_field (current)');
+    editor.querySelector('input')!.click();
+    const options = [...editor.querySelectorAll<HTMLElement>('.crev-property-picker__option')];
+    expect(options.map(option => option.dataset.value)).toEqual(['', 'legacy_field', 'name']);
+    expect(options[1].textContent).toContain('legacy_field (current)');
   });
 
   it('stays disabled while properties are unavailable', () => {

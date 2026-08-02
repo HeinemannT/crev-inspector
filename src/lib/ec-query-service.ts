@@ -12,7 +12,9 @@
  * New EC queries go here; new binary commands stay in bmp-client.ts.
  */
 
-import type { EcResult, TemplateResolution, EditorContextData, ObjectPaneSibling, ObjectPaneRef, ObjectPaneData } from './bmp-client';
+import type {
+  EcResult, TemplateResolution, EditorContextData,
+} from './bmp-client';
 import { log } from './logger';
 import {
   BATCH_CHUNK_SIZE,
@@ -27,21 +29,28 @@ import { buildRowEc, identityRow, parseDelimitedLines, parseDelimitedRow } from 
 import { validateEcIdentifier } from './ec-guards';
 import { ecResolveTemplate } from './template-link';
 import { LAYOUT_SEP, parseLayoutNodes, safeWireTextEc } from './layout-wire';
-import type { ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessSubject, LayoutNode } from './types';
+import type {
+  ColorSetData, ObjectPaneCard, ObjectPaneIdentity, AccessSubject, LayoutNode,
+  EditFieldPropertyResolution, PropertyApplication, ObjectPanePayload, ObjectPaneSiblingMsg,
+} from './types';
 import {
   parsePipeRow, parsePipeRowWithKey, parseAbRow, makeCodeField, splitNamedRow,
 } from './flow-parser';
 import type { FlowChain, FlowStep, FlowIdentity, FlowCodeField } from './flow-parser';
 import {
   buildInputViewFlowEc, buildInputSetFlowEc, buildTransportGroupFlowEc,
-  buildActionButtonFlowEc, buildLabelFlowEc, buildObjectPaneEc,
-  buildPageFormFlowEc, FLOW_SEP, PAGE_FORM_CHILD_CAP,
+  buildActionButtonFlowEc, buildLabelFlowEc, buildObjectPaneEc, buildPropertyApplicationsEc,
+  buildPageFormFlowEc, buildEditFieldPropertyEc, FLOW_SEP, PAGE_FORM_CHILD_CAP,
+  PROPERTY_APPLICATION_MARK,
+  PROPERTY_APPLICATION_FIELD, PROPERTY_APPLICATION_END, PROPERTY_APPLICATION_ERROR,
+  PROPERTY_APPLICATION_TOTAL,
 } from './ec-codegen';
 import {
   ALL_CODE_FIELDS, ALL_REFERENCE_FIELDS,
   ALL_INDIRECT_FIELDS, ALL_CONTEXT_FIELDS, ALL_ENABLED_BY_PROPS,
   normalizeBmpEnum,
 } from './widget-metadata';
+import { isMasterPropertyDefinition } from './property-config';
 
 /** Build the FlowCodeField[] for an InputSet child (input field, ButtonInput,
  *  Label) from the sep-block-parsed walker response. Shared between the IV
@@ -206,6 +215,141 @@ function parseIdentityBlock(data: Record<string, string | undefined>, prefix: st
     type: data[`${prefix}Type`] ?? '',
     name: data[`${prefix}Name`] ?? '',
   };
+}
+
+export function parseEditFieldPropertyLog(log: string): EditFieldPropertyResolution | null {
+  const data = parseSepBlocks(log, FLOW_SEP);
+  const accessor = data.accessor?.trim();
+  const property = parseIdentityBlock(data, 'property');
+  if (!accessor || !property) return null;
+  return { accessor, property };
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+}
+
+/** Parse one application.genedit() delta. The EC can contain nested lists,
+ * calls, and commas inside quoted strings, so assignments split only at
+ * top-level commas. */
+function parseGeneditDelta(genedit: string): Record<string, string> {
+  const overrides: Record<string, string> = {};
+  for (const body of extractCallBodies(genedit, '.change(')) {
+    for (const assignment of splitTopLevelAssignments(body)) {
+      const at = assignment.indexOf(':=');
+      if (at < 0) continue;
+      const field = assignment.slice(0, at).trim();
+      if (!field || field === 'id' || field === '__links') continue;
+      overrides[field] = assignment.slice(at + 2).trim();
+    }
+  }
+  return overrides;
+}
+
+function extractCallBodies(text: string, marker: string): string[] {
+  const bodies: string[] = [];
+  let pos = 0;
+  while (pos < text.length) {
+    const start = text.indexOf(marker, pos);
+    if (start < 0) break;
+    const bodyStart = start + marker.length;
+    let depth = 1;
+    let inQuote = false;
+    let quote = '';
+    let i = bodyStart;
+    while (i < text.length && depth > 0) {
+      const ch = text[i];
+      if (inQuote) {
+        if (ch === '\\' && i + 1 < text.length) i++;
+        else if (ch === quote) inQuote = false;
+      } else if (ch === "'" || ch === '"') {
+        inQuote = true;
+        quote = ch;
+      } else if (ch === '(' || ch === '[') {
+        depth++;
+      } else if (ch === ')' || ch === ']') {
+        depth--;
+      }
+      i++;
+    }
+    if (depth === 0) bodies.push(text.slice(bodyStart, i - 1));
+    pos = i;
+  }
+  return bodies;
+}
+
+function splitTopLevelAssignments(body: string): string[] {
+  const assignments: string[] = [];
+  let current = '';
+  let depth = 0;
+  let inQuote = false;
+  let quote = '';
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (inQuote) {
+      current += ch;
+      if (ch === '\\' && i + 1 < body.length) current += body[++i];
+      else if (ch === quote) inQuote = false;
+    } else if (ch === "'" || ch === '"') {
+      inQuote = true;
+      quote = ch;
+      current += ch;
+    } else if (ch === '(' || ch === '[') {
+      depth++;
+      current += ch;
+    } else if (ch === ')' || ch === ']') {
+      if (depth > 0) depth--;
+      current += ch;
+    } else if (ch === ',' && depth === 0) {
+      if (current.trim()) assignments.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) assignments.push(current.trim());
+  return assignments;
+}
+
+export function parsePropertyApplicationsLog(log: string): PropertyApplication[] | null {
+  if (log.includes(PROPERTY_APPLICATION_ERROR)) return null;
+  const end = log.indexOf(PROPERTY_APPLICATION_END);
+  if (end < 0) return null;
+  const applications: PropertyApplication[] = [];
+  for (const record of log.slice(0, end).split(PROPERTY_APPLICATION_MARK).slice(1)) {
+    const fields = record.split(PROPERTY_APPLICATION_FIELD);
+    if (fields.length < 5) return null;
+    const [classFqn, rid, businessId, type, ...geneditParts] = fields;
+    if (!classFqn || !rid || rid === 'MISSING' || !businessId) return null;
+    const classId = classFqn.trim().slice(classFqn.trim().lastIndexOf('.') + 1);
+    if (!classId) return null;
+    applications.push({
+      classId,
+      application: {
+        rid: rid.trim(),
+        businessId: businessId.trim(),
+        name: '',
+        type: type.trim(),
+      },
+      overrides: parseGeneditDelta(geneditParts.join(PROPERTY_APPLICATION_FIELD)),
+    });
+  }
+  return applications;
+}
+
+export function parsePropertyApplicationsResult(log: string): {
+  applications: PropertyApplication[];
+  total: number;
+  truncated: boolean;
+} | null {
+  const applications = parsePropertyApplicationsLog(log);
+  if (!applications) return null;
+  const totalMatch = log.match(new RegExp(`${PROPERTY_APPLICATION_TOTAL}(\\d+)`));
+  const parsedTotal = totalMatch ? Number(totalMatch[1]) : applications.length;
+  const total = Number.isFinite(parsedTotal) && parsedTotal >= applications.length
+    ? parsedTotal
+    : applications.length;
+  return { applications, total, truncated: total > applications.length };
 }
 
 /** Build the EC for `listAccessSubjects`: every user then every role, each as
@@ -591,6 +735,7 @@ export class EcQueryService {
   async batchFetchCode(
     rids: string[],
     properties: string[],
+    signal?: AbortSignal,
   ): Promise<Map<string, Record<string, string>>> {
     const result = new Map<string, Record<string, string>>();
     if (rids.length === 0 || properties.length === 0) return result;
@@ -617,7 +762,8 @@ export class EcQueryService {
     lines.push('_r');
     const code = lines.join('\n');
 
-    const ecResult = await this.executeEc(code);
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const ecResult = await this.executeEc(code, undefined, false, signal);
     if (!ecResult.ok) throw new Error(ecResult.error || ecResult.log || 'Code batch fetch failed');
     if (ecResult.hasWarning) throw new Error(ecResult.error || 'Code batch fetch returned warnings and may be incomplete');
     if (ecResult.log == null) throw new Error('Code batch fetch returned no result');
@@ -760,7 +906,7 @@ export class EcQueryService {
   /** Single EC round trip that powers the sidepanel object pane.
    *  Returns identity + parent + template + allowlisted style props + siblings.
    *  Handles both model (.linkedTo) and enterprise (.template) objects. */
-  async fetchObjectPane(rid: string, signal?: AbortSignal): Promise<ObjectPaneData | null> {
+  async fetchObjectPane(rid: string, signal?: AbortSignal): Promise<ObjectPanePayload | null> {
     const ref = await this.resolveRef(rid);
     const result = await this.executeEc(buildObjectPaneEc(ref, this.paneProps), undefined, false, signal);
     // Distinguish "EC failed" (throw — handler surfaces the message) from
@@ -773,6 +919,8 @@ export class EcQueryService {
     if (!instance) return null;
     const parent = parseIdentityBlock(data, 'par');
     const template = parseIdentityBlock(data, 'tmpl');
+    const propertyDefinition = data.isPropertyDefinition === 'true'
+      || isMasterPropertyDefinition(instance.type, template);
 
     const cardBase = parseIdentityBlock(data, 'card');
     const card: ObjectPaneCard | null = cardBase ? {
@@ -796,7 +944,7 @@ export class EcQueryService {
       if (v) codeFields[cf] = v;
     }
 
-    const references: Record<string, ObjectPaneRef | null> = {};
+    const references: Record<string, ObjectPaneIdentity | null> = {};
     for (const rf of ALL_REFERENCE_FIELDS) {
       const tRid = data[`ref_${rf}_rid`];
       if (tRid) {
@@ -832,11 +980,11 @@ export class EcQueryService {
       if (v != null && v !== '') gateValues[eb] = v;
     }
 
-    const lists: Record<string, ObjectPaneRef[]> = {};
+    const lists: Record<string, ObjectPaneIdentity[]> = {};
     for (const ctx of ALL_CONTEXT_FIELDS) {
       if (ctx.kind !== 'list-ref') continue;
       const block = data[`list_${ctx.prop}`] ?? '';
-      const items: ObjectPaneRef[] = [];
+      const items: ObjectPaneIdentity[] = [];
       for (const line of block.split('\n')) {
         const parts = line.split('|');
         if (parts.length < 4) continue;
@@ -850,8 +998,56 @@ export class EcQueryService {
     const editFieldClassNames = [...new Set(
       (data.editFieldTypes ?? '').split(',').map(v => v.trim()).filter(Boolean),
     )];
+    let editFieldProperty: EditFieldPropertyResolution | undefined;
+    let editFieldPropertyError: string | undefined;
+    const propertyAccessor = instance.type === 'EditField'
+      ? (instanceProps.propertyMapping ?? '').trim()
+      : '';
+    if (propertyAccessor) {
+      if (editFieldClassNames.length === 0) {
+        editFieldPropertyError = `Cannot resolve "${propertyAccessor}" without an owning object type.`;
+      } else {
+        try {
+          const resolution = await this.executeEc(
+            buildEditFieldPropertyEc(ref, editFieldClassNames),
+            undefined,
+            false,
+            signal,
+          );
+          throwIfAborted(signal);
+          if (!resolution.ok || resolution.hasWarning) {
+            editFieldPropertyError = resolution.error
+              ?? (resolution.hasWarning
+                ? 'Property resolution returned warnings and may be incomplete.'
+                : resolution.log ?? 'Property resolution failed');
+          } else {
+            editFieldProperty = parseEditFieldPropertyLog(resolution.log ?? '') ?? undefined;
+            if (!editFieldProperty) {
+              editFieldPropertyError = `No property configuration resolved for "${propertyAccessor}".`;
+            }
+          }
+        } catch (error) {
+          editFieldPropertyError = error instanceof Error ? error.message : 'Property resolution failed';
+        }
+      }
+    }
 
-    const siblings: ObjectPaneSibling[] = [];
+    // Backward-compatible parser for captured/older pane responses. The
+    // current builder no longer emits this block; live application loading is
+    // handled lazily by fetchPropertyApplications below.
+    let propertyApplications: PropertyApplication[] | undefined;
+    let propertyApplicationsError: string | undefined;
+    if (propertyDefinition && data.propertyApplications !== undefined) {
+      if (result.hasWarning) {
+        propertyApplicationsError = 'Property applications returned warnings and may be incomplete.';
+      } else {
+        const parsed = parsePropertyApplicationsLog(data.propertyApplications);
+        if (parsed == null) propertyApplicationsError = 'Property applications response was incomplete.';
+        else propertyApplications = parsed;
+      }
+    }
+
+    const siblings: ObjectPaneSiblingMsg[] = [];
     const sibBlock = data.siblings ?? '';
     for (const line of sibBlock.split('\n')) {
       const parts = line.split('|');
@@ -874,13 +1070,34 @@ export class EcQueryService {
       ? parsedTotal
       : siblings.length;
 
+    throwIfAborted(signal);
     return {
       instance, parent, template, card,
+      isPropertyDefinition: propertyDefinition,
       instanceProps, templateProps, instanceOverrideProps: [], siblings, siblingTotal,
       codeFields, references,
       indirectCode, indirectCodeRids, contextValues, gateValues, lists,
       ...(editFieldClassNames.length > 0 ? { editFieldClassNames } : {}),
+      ...(editFieldProperty ? { editFieldProperty } : {}),
+      ...(editFieldPropertyError ? { editFieldPropertyError } : {}),
+      ...(propertyApplications ? { propertyApplications } : {}),
+      ...(propertyApplicationsError ? { propertyApplicationsError } : {}),
     };
+  }
+
+  /** Lazy, bounded reverse-reference scan for master-property applications. */
+  async fetchPropertyApplications(rid: string, signal?: AbortSignal): Promise<{
+    applications: PropertyApplication[];
+    total: number;
+    truncated: boolean;
+  }> {
+    const ref = await this.resolveRef(rid);
+    const result = await this.executeEc(buildPropertyApplicationsEc(ref), undefined, false, signal);
+    if (!result.ok) throw new Error(result.error ?? result.log ?? 'Property application lookup failed');
+    if (result.hasWarning) throw new Error('Property applications returned warnings and may be incomplete.');
+    const parsed = parsePropertyApplicationsResult(result.log ?? '');
+    if (!parsed) throw new Error('Property applications response was incomplete.');
+    return parsed;
   }
 
   // ── Flow chain (InputView / InputSet / ActionButton / TransportGroup / Label) ──

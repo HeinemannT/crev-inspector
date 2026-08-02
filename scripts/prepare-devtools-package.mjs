@@ -1,12 +1,14 @@
+import { createHash } from 'node:crypto';
 import {
   cpSync,
   existsSync,
-  mkdtempSync,
+  mkdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -21,7 +23,22 @@ for (const requiredPath of [distDir, manifestPath, iconsDir]) {
   }
 }
 
-const packageDir = mkdtempSync(join(tmpdir(), 'crev-inspector-devtools-'));
+// Keep one package path per checkout. Chrome's Reload button keeps pointing at
+// this directory, while every QA build replaces its contents with the newest
+// dist output. A random mkdtemp path would freeze Chrome on an obsolete copy
+// after the next build.
+const checkoutKey = createHash('sha256')
+  .update(repoRoot.toLowerCase())
+  .digest('hex')
+  .slice(0, 10);
+const tempRoot = resolve(tmpdir());
+const packageDir = resolve(tempRoot, `crev-inspector-devtools-${checkoutKey}`);
+const packageRelative = relative(tempRoot, packageDir);
+if (!packageRelative || packageRelative.startsWith('..') || isAbsolute(packageRelative)) {
+  throw new Error(`Refusing to replace package outside the temp directory: ${packageDir}`);
+}
+rmSync(packageDir, { recursive: true, force: true });
+mkdirSync(packageDir, { recursive: true });
 
 cpSync(distDir, packageDir, { recursive: true });
 cpSync(iconsDir, join(packageDir, 'icons'), { recursive: true });
@@ -45,6 +62,7 @@ if (grantHostAccess) {
 process.stdout.write(
   [
     `Chrome DevTools package: ${packageDir}`,
+    'Package path: stable for this checkout; rebuild, then use Chrome Reload',
     `Manifest: ${basename(manifestPath)}`,
     grantHostAccess
       ? 'Host access: promoted in the temporary manifest only'

@@ -3,6 +3,7 @@ import {
   portableIdPatternError,
   type PortableIdConfig,
 } from '../lib/layout/portable-ids';
+import type { BlueprintCtx } from '../lib/layout/sync';
 import { showToast } from '../lib/toast';
 import { bp } from './state';
 import { render } from './view';
@@ -13,6 +14,12 @@ const STORAGE_KEY = 'crev_blueprint_portable_ids';
 let draftSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let lastValidPattern = DEFAULT_PORTABLE_ID_CONFIG.pattern;
 let storageWriteQueue: Promise<void> = Promise.resolve();
+
+/** Portable IDs are safe for shared template structures and for children
+ * created directly under a standalone EditPage. */
+export function portableIdsAvailable(ctx: BlueprintCtx | null | undefined): boolean {
+  return ctx?.target === 'template' || ctx?.surface === 'edit-page';
+}
 
 /** Preserve call order when a debounced pattern write and an immediate toggle save overlap. */
 function storeConfig(config: PortableIdConfig): Promise<void> {

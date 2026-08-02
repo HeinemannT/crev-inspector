@@ -215,6 +215,32 @@ describe('computeConnectionState — auth result precedence', () => {
 });
 
 describe('command outcome observation', () => {
+  it('records only BMP requests that cross a load-pressure threshold', async () => {
+    const h = await createHarness();
+    let observer: ((outcome: any) => void) | null = null;
+    vi.spyOn(h.ctx.client, 'setTransportOutcomeObserver').mockImplementation((fn: any) => { observer = fn; });
+    h.conn.bindConnectionClient(h.ctx.client, 'p1');
+
+    observer!({
+      ok: true,
+      intent: 'read',
+      operation: 'ExtendedExecuteCommand',
+      commandCount: 1,
+      queueDepth: 2,
+      queueWaitMs: 2_500,
+      durationMs: 500,
+      requestBytes: 800,
+      responseBytes: 1_200,
+      attempts: 1,
+    });
+
+    expect(h.ctx.logActivity).toHaveBeenCalledWith(
+      'warn',
+      'BMP ExtendedExecuteCommand completed under load',
+      expect.stringContaining('queue 2500ms (depth 2)'),
+    );
+  });
+
   it('downgrades on an active-client network failure and recovers on command success', async () => {
     const h = await createHarness();
     let observer: ((outcome: any) => void) | null = null;

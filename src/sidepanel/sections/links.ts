@@ -51,6 +51,8 @@ export interface LinkTarget {
   broken?: boolean;
   /** Curated binding that is currently unset — filtered out before render. */
   empty?: boolean;
+  /** Configured relationship that could not be resolved. */
+  unavailableReason?: string;
 }
 
 /** Lazy "who else references me" — the universal inbound scan (rref). */
@@ -189,6 +191,16 @@ function dirGlyph(dir: LinkDir): HTMLElement {
 }
 
 function mainRow(dir: LinkDir, t: LinkTarget, nav: (rid: string) => void): HTMLElement {
+  if (t.unavailableReason) {
+    return h('div', {
+      class: 'lk-row lk-row--broken',
+      title: t.unavailableReason,
+    },
+      dirGlyph(dir),
+      h('span', { class: 'lk-broken' }, svg(ICON_WARNING), ` ${t.businessId || t.rid}`),
+      t.field ? h('span', { class: 'lk-field' }, t.field) : null,
+    );
+  }
   if (t.broken) {
     return h('div', { class: 'lk-row lk-row--broken', title: `Reference points to a missing object (${t.rid})` },
       dirGlyph(dir),

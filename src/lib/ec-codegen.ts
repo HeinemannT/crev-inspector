@@ -490,6 +490,84 @@ export function buildLabelFlowEc(ref: string): string {
 // ── Object pane ──────────────────────────────────────────────────
 
 /**
+ * Resolve an EditField's string `propertyMapping` to the real property
+ * configuration object. This deliberately does not use the generic reference
+ * walker: propertyMapping is an accessor, not an object reference.
+ *
+ * ClassConfig children are per-class applications. Their `linkedTo` target is
+ * the master property config under root.property, which is the stable object
+ * the relationship chip opens. Owner-specific applications belong on the
+ * Property view; this resolver returns only the stable master relationship.
+ */
+export function buildEditFieldPropertyEc(ref: string, classNames: readonly string[]): string {
+  const classes = [...new Set(classNames)];
+  const lines = [
+    `_sep := "${FLOW_SEP}"`,
+    `_o := ${ref}`,
+    '_accessor := _o.propertyMapping.whenMissing("")',
+    '_r := ""',
+    '_done := FALSE',
+    scalarBlock('accessor', '_accessor'),
+  ];
+  for (const className of classes) {
+    validateEcIdentifier(className);
+    lines.push('IF _done = FALSE THEN');
+    lines.push(`  c.get(${className}.name).children().forEach(_app:`);
+    lines.push('    IF _done = FALSE THEN');
+    lines.push('      IF _app.linkedTo.id = _accessor THEN');
+    lines.push('        _property := _app.linkedTo');
+    lines.push(scalarBlock('propertyRid', '_property.rid.whenMissing("MISSING")', '        '));
+    lines.push(scalarBlock('propertyId', '_property.id.whenMissing("")', '        '));
+    lines.push(scalarBlock('propertyName', '_property.name.whenMissing("")', '        '));
+    lines.push(scalarBlock('propertyType', '_property.className.whenMissing("")', '        '));
+    lines.push('        _done := TRUE');
+    lines.push('      ELSE');
+    lines.push('        _r := _r');
+    lines.push('      ENDIF');
+    lines.push('    ELSE');
+    lines.push('      _r := _r');
+    lines.push('    ENDIF');
+    lines.push('  )');
+    lines.push('ELSE');
+    lines.push('  _r := _r');
+    lines.push('ENDIF');
+  }
+  lines.push('_r := _r + _sep + "DONE"');
+  lines.push('_r');
+  return lines.join('\n');
+}
+
+export const PROPERTY_APPLICATION_MARK = '<<<CREV_PROPERTY_APPLICATION>>>';
+export const PROPERTY_APPLICATION_FIELD = '<<<CREV_PROPERTY_FIELD>>>';
+export const PROPERTY_APPLICATION_END = '<<<CREV_PROPERTY_END>>>';
+export const PROPERTY_APPLICATION_ERROR = '<<<CREV_PROPERTY_ERROR>>>';
+export const PROPERTY_APPLICATION_TOTAL = '<<<CREV_PROPERTY_TOTAL>>>';
+export const PROPERTY_APPLICATION_CAP = 100;
+
+/** Capture every ClassConfig application of one master property in a single
+ * reverse-reference pass. `application.genedit()` without `*` is the override delta:
+ * inherited applications emit only their structural `id`, while overridden
+ * applications emit the changed fields as well. */
+export function buildPropertyApplicationsEc(ref: string): string {
+  return [
+    `_property := ${ref}`,
+    `_applications := _property.rref(linkedTo)`,
+    `_total := _applications.size()`,
+    `_result := "${PROPERTY_APPLICATION_TOTAL}" + str(_total)`,
+    `_applications.first(${PROPERTY_APPLICATION_CAP}).forEach(_application:`,
+    `  _genedit := _application.genedit()`,
+    `  IF _genedit = "*<<<CREV_*" THEN`,
+    `    _result := _result + "${PROPERTY_APPLICATION_ERROR}"`,
+    `  ELSE`,
+    `    _result := _result + "${PROPERTY_APPLICATION_MARK}" + _application.parent.id.whenMissing("") + "${PROPERTY_APPLICATION_FIELD}" + _application.rid.whenMissing("MISSING") + "${PROPERTY_APPLICATION_FIELD}" + _application.id.whenMissing("") + "${PROPERTY_APPLICATION_FIELD}" + _application.className.whenMissing("") + "${PROPERTY_APPLICATION_FIELD}" + _genedit`,
+    `  ENDIF`,
+    `)`,
+    `_result := _result + "${PROPERTY_APPLICATION_END}"`,
+    '_result',
+  ].join('\n');
+}
+
+/**
  * fetchObjectPane EC. Reads identity, parent, template, PANE_PROPS (style
  * props on inst + tmpl), every code field / reference edge / context value /
  * gate / list-ref across all types, plus the sibling list. Union approach
@@ -519,6 +597,21 @@ export function buildObjectPaneEc(ref: string, paneProps: readonly string[]): st
     scalarBlock('tmplId', '_t.id.whenMissing("")'),
     scalarBlock('tmplName', '_t.name.whenMissing("")'),
     scalarBlock('tmplType', '_t.className.whenMissing("")'),
+    // A ClassConfig application has the same *MethodConfig class but resolves
+    // a linked master through ecResolveTemplate. Only the master definition
+    // combines a MethodConfig class with no linked/template object.
+    '_propertyMode := FALSE',
+    'IF _t = MISSING THEN',
+    '  IF _o.className.whenMissing("") = "*MethodConfig" THEN',
+    '    _propertyMode := TRUE',
+    '  ELSE',
+    '    _propertyMode := FALSE',
+    '  ENDIF',
+    'ELSE',
+    '  _propertyMode := FALSE',
+    'ENDIF',
+    scalarBlock('isPropertyDefinition', 'output(_propertyMode)'),
+    'IF _propertyMode = FALSE THEN',
     // Effective detail card — the object's own `.card`, else (for enterprise
     // objects, whose instance `.card` is empty) the template's. `.card` is
     // null-safe in BMP (returns MISSING, never throws) for types without
@@ -636,6 +729,16 @@ export function buildObjectPaneEc(ref: string, paneProps: readonly string[]): st
   // True total (all children, not just the emitted slice) so the navigator can
   // show "showing N of M". output() stringifies the number for bare concat.
   lines.push(scalarBlock('sibTotal', 'output(_sibN)'));
+  lines.push('ENDIF');
+  lines.push('IF _propertyMode = TRUE THEN');
+  // The compact Property view consumes only these definition fields. Keep the
+  // widget union, card resolution, relationship fields and sibling traversal
+  // entirely outside this branch.
+  for (const prop of ['description', 'category'] as const) {
+    lines.push(...condEcBlock(`"inst_${prop}"`, `output(_o.${prop}.whenMissing(""))`, '  '));
+  }
+  lines.push(...condEcBlock('"code_expression"', 'output(_o.expression.whenMissing(""))', '  '));
+  lines.push('ENDIF');
   lines.push(...footer());
   return lines.join('\n');
 }

@@ -158,6 +158,7 @@ export function showTooltipForElement(s: ContentState, el: HTMLElement, rid: str
           const response = await sendRequest({
             type: 'SAVE_IDENTITY',
             rid,
+            environment: s.environment ?? undefined,
             ...identity,
           });
           if (response?.type !== 'SAVE_IDENTITY_RESULT') {

@@ -4,6 +4,7 @@ import { log } from './logger';
 import { type EditorContext, type ObjectIdentity } from '../editor/editor-types';
 import { computeOverrides } from '../editor/editor-types';
 import { launchFrame } from './frame-launcher';
+import { ENVIRONMENT_CHANGED_ERROR, environmentToken } from './environment';
 
 // ── Public API ────────────────────────────────────────────────────
 
@@ -108,16 +109,19 @@ export async function buildEditorContext(
 ): Promise<EditorContext> {
   const swCtx = getCtx();
   await swCtx.settingsReady;
+  const environment = environmentToken(swCtx);
+  const client = swCtx.client;
+  const saveTarget = swCtx.settings.saveTarget;
 
   // Single EC call: identity + template + all code properties
   let editorData: import('../lib/bmp-client').EditorContextData | null = null;
   let loadError: string | undefined;
-  if (swCtx.client) {
+  if (client) {
     try {
       // Pass the caller's requested property so it's fetched too — otherwise
       // Edit on e.g. afterExpression / showExpression / initExpression would
       // open `expression` (the property wasn't in the fetched code map).
-      editorData = await swCtx.client.fetchEditorContext(rid, preferredProperty ? [preferredProperty] : []);
+      editorData = await client.fetchEditorContext(rid, preferredProperty ? [preferredProperty] : []);
     } catch (e) {
       log.swallow('editor:fetchContext', e);
       loadError = e instanceof Error ? e.message : 'Failed to load code from BMP';
@@ -125,6 +129,7 @@ export async function buildEditorContext(
   } else {
     loadError = 'No BMP connection is available';
   }
+  if (environmentToken(swCtx) !== environment) throw new Error(ENVIRONMENT_CHANGED_ERROR);
 
   // Fall back to cache for identity if EC failed or threw
   if (!editorData) {
@@ -163,19 +168,21 @@ export async function buildEditorContext(
   const pageRid = await getCurrentPageRid(target);
   const executionContextRid = pageRid ?? editorData.locationRid;
   const executionContext = await resolveContextIdentity(executionContextRid, instance.rid);
+  if (environmentToken(swCtx) !== environment) throw new Error(ENVIRONMENT_CHANGED_ERROR);
 
   const ctx: EditorContext = {
+    environment,
     instance,
     template,
     instanceCode,
     templateCode,
     overrides: template ? computeOverrides(instanceCode, templateCode) : {},
-    saveTarget: swCtx.settings.saveTarget,
+    saveTarget,
     property,
     loadError,
     executionContextRid,
     executionContext,
-    useLookup: swCtx.client?.supportsLookup !== false,
+    useLookup: client?.supportsLookup !== false,
     scrollToLine: opts?.scrollToLine,
     scrollToText: opts?.scrollToText,
   };
@@ -194,6 +201,8 @@ export async function openExtendedWindow(
 ) {
   const swCtx = getCtx();
   await swCtx.settingsReady;
+  const environment = environmentToken(swCtx);
+  const client = swCtx.client;
 
   const pageRid = pageRidOverride ?? await getCurrentPageRid(target);
 
@@ -202,8 +211,8 @@ export async function openExtendedWindow(
   let businessId = '';
 
   // Resolve page object identity for context display
-  if (pageRid && swCtx.client) {
-    const identity = await swCtx.client.lookupIdentity(pageRid).catch(() => null);
+  if (pageRid && client) {
+    const identity = await client.lookupIdentity(pageRid).catch(() => null);
     if (identity) {
       name = identity.name ?? '';
       type = identity.type ?? '';
@@ -217,8 +226,10 @@ export async function openExtendedWindow(
       }
     }
   }
+  if (environmentToken(swCtx) !== environment) throw new Error(ENVIRONMENT_CHANGED_ERROR);
 
   const ctx: EditorContext = {
+    environment,
     instance: { rid: pageRid ?? '', businessId, type, name },
     template: null,
     instanceCode: {},
@@ -229,7 +240,7 @@ export async function openExtendedWindow(
     extended: true,
     ...(initialCode ? { initialCode } : {}),
     executionContextRid: pageRid,
-    useLookup: swCtx.client?.supportsLookup !== false,
+    useLookup: client?.supportsLookup !== false,
   };
 
   await chrome.storage.local.set({ crev_editor_ctx_extended: ctx });

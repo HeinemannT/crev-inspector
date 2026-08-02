@@ -13,6 +13,20 @@ import type { InspectorMessage } from '../../lib/types';
 
 type SendFn = (msg: InspectorMessage) => void;
 
+export interface CodeRowInput {
+  label: string;
+  prop: string;
+  content: string;
+  rid: string;
+  editProp?: string;
+  sendMessage: SendFn;
+  studio?: boolean;
+  studioTitle?: string;
+  subtitle?: string;
+  gateProp?: string;
+  gateValue?: string;
+}
+
 export interface CodeSectionInput {
   type: string;
   rid: string;
@@ -81,24 +95,7 @@ export function renderCodeSection(input: CodeSectionInput): HTMLElement | null {
   return h('div', { class: 'prop-group code-section code-section--bare' }, ...rows);
 }
 
-function renderCodeRow(opts: {
-  label: string;
-  prop: string;
-  content: string;
-  rid: string;
-  /** Property the Edit button dispatches with. Defaults to `prop`. Set
-   *  separately when the indirection redirect changes the editable field
-   *  (e.g. row label says `showExpression` but edit opens `.expression`). */
-  editProp?: string;
-  sendMessage: SendFn;
-  /** CustomVisualization rows open the CVO studio rather than the EC editor. */
-  studio?: boolean;
-  studioTitle?: string;
-  subtitle?: string;
-  /** Set when the field is gated by an `enabledBy` flag that's currently false. */
-  gateProp?: string;
-  gateValue?: string;
-}): HTMLElement {
+export function renderCodeRow(opts: CodeRowInput): HTMLElement {
   const lines = opts.content.split('\n').length;
   const firstLine = firstNonEmptyLine(opts.content);
   const disabled = opts.gateProp != null;
@@ -127,7 +124,7 @@ function renderCodeRow(opts: {
   );
 }
 
-function firstNonEmptyLine(s: string): string {
+export function firstNonEmptyLine(s: string): string {
   for (const line of s.split('\n')) {
     const t = line.trimStart();
     if (t) return t.length > 200 ? t.slice(0, 200) + '…' : t;

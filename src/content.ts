@@ -18,6 +18,8 @@ import { ensureOverlayStyle, OVERLAY_STYLE_ID } from './content-overlay-style';
 import { ContentState } from './content-state';
 import { syncOverlays, removeOverlays, updateLabels } from './content-overlays';
 import { removePageHeaderIdentity, syncPageHeaderIdentity } from './content-page-header';
+import { editPageOverlayTargets, ensureEditPageInspection } from './content-edit-page-inspect';
+import { hasStandaloneEditPage, renderedEditPageHosts } from './lib/edit-page-dom';
 import { updatePaintCursors, flashApplyResult } from './content-paint';
 import { showTooltipForElement, hideTooltip, wireObjectPopover, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
@@ -107,7 +109,9 @@ function getResolvedPageRid(): string | undefined {
  * visually a form definition, so prefer its exact EditPage RID there while
  * leaving the normal bound-object resolver untouched everywhere else. */
 function getPageHeaderRid(): string | undefined {
-  return s.editPageContext?.editPageRid ?? getResolvedPageRid();
+  return hasStandaloneEditPage()
+    ? s.editPageContext?.editPageRid ?? getResolvedPageRid()
+    : getResolvedPageRid();
 }
 
 // Blueprint edits the structure visible on screen. On a standalone create/edit route that structure
@@ -119,15 +123,26 @@ window.__crevBpResolver = () => {
   // editionContext. Ask for that context independently; the MAIN-world
   // interceptor replies synchronously through `crev-interceptor`, so the
   // value is available before this resolver returns.
-  if (!s.editPageContext && document.querySelector('.edit-page')) {
+  if (!s.editPageContext && hasStandaloneEditPage()) {
     document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'EXTRACT_FIBERS' } }));
   }
-  return s.editPageContext?.editPageRid ?? getResolvedPageRid();
+  return hasStandaloneEditPage()
+    ? s.editPageContext?.editPageRid ?? getResolvedPageRid()
+    : getResolvedPageRid();
 };
 
 function syncInspectSurface(): void {
-  syncOverlays(s);
+  // Standalone create/edit forms expose their configuration only through
+  // React. Refresh that bounded context before joining native controls to the
+  // cached EditField list; the CustomEvent round-trip is synchronous.
+  if (renderedEditPageHosts().length > 0) {
+    document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'EXTRACT_FIBERS' } }));
+  }
+  syncOverlays(s, editPageOverlayTargets(s));
   syncPageHeaderIdentity(s, getPageHeaderRid());
+  void ensureEditPageInspection(s).then(fresh => {
+    if (fresh) syncOverlays(s, editPageOverlayTargets(s));
+  });
 }
 
 // Whether this content.ts instance has already asked the SW to inject content-blueprint.js. Reset on
@@ -251,6 +266,7 @@ function injectStyles() {
 function handleConnectionState(state: ConnectionState) {
   const prev = s.prevConnDisplay;
   s.prevConnDisplay = state.display;
+  s.environment = state.environment ?? null;
 
   if (prev !== null && prev !== state.display) {
     if (state.display === 'connected' && prev !== 'connected') {
@@ -270,6 +286,7 @@ function handleProfileSwitched(label: string) {
   sendBlueprintCmd({ cmd: 'disable' }); // any blueprint overlay is bound to the previous env's page — tear it down
   sendBlueprintCmd({ cmd: 'resetOverlayCaches' }); // colours + InputSet lists are per-workspace — drop the overlay's caches
   s.overlayProps.clear();
+  s.resetEditPageInspection();
   renderOverlayCards(s);
   if (s.technicalOverlay) applyTechnicalOverlay(s);
 }
@@ -348,6 +365,7 @@ function handleFiberPageContext(rid?: string, tabRid?: string) {
 function handleEditPageContext(context?: EditPageContext) {
   const previousRid = s.editPageContext?.editPageRid;
   s.editPageContext = context ?? null;
+  if (previousRid !== context?.editPageRid) s.resetEditPageInspection();
   if (s.inspectActive && previousRid !== context?.editPageRid) {
     syncPageHeaderIdentity(s, getPageHeaderRid());
   }

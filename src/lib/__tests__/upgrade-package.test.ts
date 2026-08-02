@@ -541,10 +541,9 @@ describe('FULL_LOOKUP handler', () => {
     mockChromeStorage();
   });
 
-  it('parallelizes lookupObject and resolveTemplate via Promise.all', async () => {
+  it('loads only the context identity Workshop renders', async () => {
     const callOrder: string[] = [];
     let lookupResolve: (v: any) => void = () => {};
-    let templateResolve: (v: any) => void = () => {};
 
     const ctx = makeHandlerCtx({
       client: {
@@ -554,7 +553,7 @@ describe('FULL_LOOKUP handler', () => {
         }),
         resolveTemplate: vi.fn(async () => {
           callOrder.push('resolveTemplate:called');
-          return new Promise((r) => { templateResolve = (v) => { callOrder.push('resolveTemplate:resolved'); r(v); }; });
+          return { templateRid: '600' };
         }),
         fetchChildren: vi.fn(async () => {
           callOrder.push('fetchChildren:called');
@@ -578,29 +577,40 @@ describe('FULL_LOOKUP handler', () => {
     // Both lookupObject and resolveTemplate should have started before either resolves
     await new Promise(r => setTimeout(r, 5));
     expect(callOrder).toContain('lookupIdentity:called');
-    expect(callOrder).toContain('resolveTemplate:called');
+    expect(callOrder).not.toContain('resolveTemplate:called');
     // Neither resolved yet — verifies parallelism (not sequential await)
     expect(callOrder).not.toContain('lookupIdentity:resolved');
-    expect(callOrder).not.toContain('resolveTemplate:resolved');
     // fetchChildren not called yet — must wait for Promise.all
     expect(callOrder).not.toContain('fetchChildren:called');
 
     // Resolve both
     lookupResolve({ name: 'Obj', type: 'Scorecard', businessId: 'sc1' });
-    templateResolve({ templateRid: '600', templateName: 'Template', templateType: 'Category', templateBusinessId: 'tmpl1' });
     await handlerPromise;
 
     // Now fetchChildren should have been called AFTER Promise.all resolved
-    expect(callOrder).toContain('fetchChildren:called');
-    const fetchIdx = callOrder.indexOf('fetchChildren:called');
-    const lookupIdx = callOrder.indexOf('lookupIdentity:resolved');
-    const tmplIdx = callOrder.indexOf('resolveTemplate:resolved');
-    expect(fetchIdx).toBeGreaterThan(lookupIdx);
-    expect(fetchIdx).toBeGreaterThan(tmplIdx);
+    expect(callOrder).not.toContain('fetchChildren:called');
+    expect(responses[0].object).toMatchObject({
+      rid: '500', name: 'Obj', type: 'Scorecard', businessId: 'sc1', properties: {},
+    });
+    expect(ctx.client.resolveTemplate).not.toHaveBeenCalled();
+    expect(ctx.client.fetchChildren).not.toHaveBeenCalled();
+    expect(responses[0].template).toBeUndefined();
+    expect(responses[0].children).toBeUndefined();
   });
 
-  it('fetches template children when template exists', async () => {
+  it('uses a complete cached identity without contacting BMP', async () => {
+    const cached = {
+      rid: '500',
+      name: 'Cached object',
+      type: 'Scorecard',
+      businessId: 'cached_scorecard',
+      properties: {},
+      source: 'server',
+      discoveredAt: 1,
+      updatedAt: 1,
+    };
     const ctx = makeHandlerCtx({
+      cache: { get: vi.fn(() => cached), put: vi.fn(), putAll: vi.fn(), size: 1 },
       client: {
         lookupIdentity: vi.fn(async () => ({ name: 'Obj', type: 'Scorecard', businessId: 'sc1' })),
         resolveTemplate: vi.fn(async () => ({ templateRid: '600', templateName: 'T', templateType: 'Category', templateBusinessId: 'tmpl1' })),
@@ -620,16 +630,16 @@ describe('FULL_LOOKUP handler', () => {
       { isOneShot: true },
     );
 
-    // fetchChildren should be called with template.rid ('600'), NOT msg.rid ('500')
-    expect(ctx.client.fetchChildren).toHaveBeenCalledWith('600');
-    expect(responses[0].template?.rid).toBe('600');
-    expect(responses[0].children).toHaveLength(1);
+    expect(ctx.client.lookupIdentity).not.toHaveBeenCalled();
+    expect(ctx.client.resolveTemplate).not.toHaveBeenCalled();
+    expect(ctx.client.fetchChildren).not.toHaveBeenCalled();
+    expect(responses[0].object).toBe(cached);
   });
 
-  it('falls back to msg.rid for children when no template', async () => {
+  it('returns Object not found when the identity query has no result', async () => {
     const ctx = makeHandlerCtx({
       client: {
-        lookupIdentity: vi.fn(async () => ({ name: 'Obj', type: 'Scorecard', businessId: 'sc1' })),
+        lookupIdentity: vi.fn(async () => null),
         resolveTemplate: vi.fn(async () => ({ templateRid: null })),
         fetchChildren: vi.fn(async () => []),
       },
@@ -647,9 +657,10 @@ describe('FULL_LOOKUP handler', () => {
       { isOneShot: true },
     );
 
-    // fetchChildren should be called with msg.rid ('500') since no template
-    expect(ctx.client.fetchChildren).toHaveBeenCalledWith('500');
-    expect(responses[0].template).toBeUndefined();
+    expect(ctx.client.resolveTemplate).not.toHaveBeenCalled();
+    expect(ctx.client.fetchChildren).not.toHaveBeenCalled();
+    expect(responses[0].object).toBeNull();
+    expect(responses[0].error).toContain('Object not found');
   });
 
   it('returns error when lookupObject throws', async () => {
@@ -675,5 +686,84 @@ describe('FULL_LOOKUP handler', () => {
 
     expect(responses[0].object).toBeNull();
     expect(responses[0].error).toContain('Lookup failed');
+  });
+});
+
+describe('SERVER_LOOKUP_BATCH handler', () => {
+  beforeEach(() => {
+    mockChromeStorage();
+  });
+
+  it('deduplicates requested RIDs and resolves them in one enrichment command', async () => {
+    const ctx = makeHandlerCtx({
+      client: {
+        batchEnrich: vi.fn(async () => ({
+          results: {
+            '5000000000000000001': { name: 'First', type: 'Widget', businessId: 'first' },
+            '6000000000000000002': { name: 'Second', type: 'Widget', businessId: 'second' },
+          },
+        })),
+      },
+    });
+    setSwContext(ctx);
+
+    const { getHandler } = await import('../handler-registry');
+    await import('../handlers/objects');
+    const entry = getHandler('SERVER_LOOKUP_BATCH');
+    await entry!(
+      {
+        type: 'SERVER_LOOKUP_BATCH',
+        rids: ['5000000000000000001', '6000000000000000002', '5000000000000000001'],
+      } as any,
+      () => {},
+      { isOneShot: false },
+    );
+
+    expect(ctx.client.batchEnrich).toHaveBeenCalledTimes(1);
+    expect(ctx.client.batchEnrich).toHaveBeenCalledWith([
+      '5000000000000000001',
+      '6000000000000000002',
+    ]);
+    expect(ctx.sendToPanel).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'SERVER_LOOKUP_BATCH_RESULT',
+      objects: {
+        '5000000000000000001': expect.objectContaining({
+          rid: '5000000000000000001',
+          businessId: 'first',
+        }),
+        '6000000000000000002': expect.objectContaining({
+          rid: '6000000000000000002',
+          businessId: 'second',
+        }),
+      },
+    }));
+    expect(ctx.cache.put).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns a terminal result for every RID instead of dropping requests above 200', async () => {
+    const rids = Array.from({ length: 205 }, (_, index) =>
+      String(5_000_000_000_000_000_000n + BigInt(index)));
+    const batchEnrich = vi.fn(async (chunk: string[]) => ({
+      results: Object.fromEntries(chunk.map(rid => [
+        rid,
+        { name: `Object ${rid}`, type: 'Widget', businessId: `id_${rid}` },
+      ])),
+    }));
+    const ctx = makeHandlerCtx({ client: { serverUrl: 'https://bmp.test', batchEnrich } });
+    setSwContext(ctx);
+
+    const { getHandler } = await import('../handler-registry');
+    await import('../handlers/objects');
+    await getHandler('SERVER_LOOKUP_BATCH')!(
+      { type: 'SERVER_LOOKUP_BATCH', rids } as any,
+      () => {},
+      { isOneShot: false },
+    );
+
+    const message = ctx.sendToPanel.mock.calls.at(-1)?.[0];
+    expect(message.type).toBe('SERVER_LOOKUP_BATCH_RESULT');
+    expect(Object.keys(message.objects)).toHaveLength(rids.length);
+    expect(message.objects[rids.at(-1)!]).toMatchObject({ rid: rids.at(-1)! });
+    expect(batchEnrich.mock.calls.flatMap(call => call[0])).toEqual(rids);
   });
 });

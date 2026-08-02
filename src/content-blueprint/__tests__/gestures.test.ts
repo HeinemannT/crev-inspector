@@ -75,9 +75,11 @@ describe('EditPage spatial drag', () => {
     expect(doFlowReorder).toHaveBeenCalledWith('page', 'source', 'right')
   })
 
-  it('moves a field to the start of a page when dropped on its tab', () => {
+  it('moves a field to the start of a page when dropped on its page-break object', () => {
     bp.mode = 'layout'
-    vi.mocked(viewEditPage).mockImplementation((id: string) => { bp.viewTabId = id })
+    vi.mocked(viewEditPage).mockImplementation((pageId: string, id: string) => {
+      bp.editPageViewKeys.set(pageId, id)
+    })
     const layer = document.createElement('div')
     const source = document.createElement('div')
     const handle = document.createElement('span')
@@ -103,8 +105,69 @@ describe('EditPage spatial drag', () => {
     document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 240, clientY: 35 }))
 
     expect(doFlowReorder).toHaveBeenCalledWith('page', 'source', 'page-break-2')
-    expect(viewEditPage).toHaveBeenCalledWith('assessment', 1)
-    expect(bp.viewTabId).toBe('assessment')
+    expect(viewEditPage).toHaveBeenCalledWith('page', 'assessment', 1, false)
+    expect(bp.editPageViewKeys.get('page')).toBe('assessment')
+  })
+
+  it('keeps the page-break anchor when a field is dropped above the first visible field', () => {
+    bp.mode = 'layout'
+    const layer = document.createElement('div')
+    const first = document.createElement('div')
+    first.dataset.flowkey = 'page'
+    first.dataset.flowid = 'first'
+    first.dataset.flowstart = 'page-break'
+    first.dataset.flowfirst = 'true'
+    first.getBoundingClientRect = () => rect(0, 100)
+    const source = document.createElement('div')
+    const handle = document.createElement('span')
+    source.className = 'bp-ep-field'
+    source.dataset.flowkey = 'page'
+    source.dataset.flowid = 'new-field'
+    source.dataset.flowstart = 'page-break'
+    source.appendChild(handle)
+    source.getBoundingClientRect = () => rect(0, 220)
+    layer.append(first, source)
+    document.body.append(layer)
+    bp.layer = layer
+
+    armFlowRow(handle, source, 'page', 'new-field', false, true)
+    handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 10, clientY: 230 }))
+    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 105 }))
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 10, clientY: 105 }))
+
+    expect(doFlowReorder).toHaveBeenCalledWith('page', 'new-field', 'page-break')
+  })
+
+  it('uses the target column boundary instead of the previous row from another column', () => {
+    bp.mode = 'layout'
+    const layer = document.createElement('div')
+    const otherColumn = document.createElement('div')
+    otherColumn.dataset.flowkey = 'page'
+    otherColumn.dataset.flowid = 'other-column-last'
+    otherColumn.getBoundingClientRect = () => rect(0, 80)
+    const first = document.createElement('div')
+    first.dataset.flowkey = 'page'
+    first.dataset.flowid = 'target-first'
+    first.dataset.flowstart = 'column-break'
+    first.dataset.flowfirst = 'true'
+    first.getBoundingClientRect = () => rect(220, 100)
+    const source = document.createElement('div')
+    const handle = document.createElement('span')
+    source.className = 'bp-ep-field'
+    source.dataset.flowkey = 'page'
+    source.dataset.flowid = 'source'
+    source.appendChild(handle)
+    source.getBoundingClientRect = () => rect(220, 220)
+    layer.append(otherColumn, first, source)
+    document.body.append(layer)
+    bp.layer = layer
+
+    armFlowRow(handle, source, 'page', 'source', false, true)
+    handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 240, clientY: 230 }))
+    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 240, clientY: 105 }))
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 240, clientY: 105 }))
+
+    expect(doFlowReorder).toHaveBeenCalledWith('page', 'source', 'column-break')
   })
 })
 

@@ -17,7 +17,7 @@ import { log } from './lib/logger';
 
 // Modules
 import { loadTabDetection, getTabDetection } from './lib/detection';
-import { ensureConnectionMonitoring, stopHealthPolling, pollHealth } from './lib/connection';
+import { computeConnectionState, ensureConnectionMonitoring, stopHealthPolling, pollHealth } from './lib/connection';
 import { restoreActivity, logActivity } from './lib/activity';
 import { createSettingsReady, loadSettingsFrom, onProfileSwitch, handleSessionCookieRemoved } from './lib/settings';
 import { registerTabListeners, sendPageInfoToPanel } from './lib/tab-awareness';
@@ -426,6 +426,10 @@ function initContentPort(port: chrome.runtime.Port, tabId: number | undefined) {
     }
     safeSend(port, { type: 'INSPECT_STATE', active: inspectForWindow });
     safeSend(port, { type: 'ENRICH_MODE', mode: settings.enrichMode });
+    // Writable content affordances (identity + paint) must carry the exact
+    // environment they were rendered under. Push the current token on every
+    // connect, even when connection display did not change.
+    safeSend(port, { type: 'CONNECTION_STATE', state: computeConnectionState() });
     // Re-sync paint state to this (re)connected content script — its in-page
     // banner + pill-click handling read s.paintPhase, and without this push a
     // reconnect/re-injection (SW idle→wake, F5, paint's own ensureContentScript)

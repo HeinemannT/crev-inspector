@@ -20,6 +20,30 @@ function mountedPane() {
 }
 
 describe('Workshop layout fetch states', () => {
+  it('batches missing widget and page identities into one request', () => {
+    const sent: InspectorMessage[] = [];
+    const pane = new WorkshopLayoutPane(msg => sent.push(msg), vi.fn());
+
+    pane.handleMessage({
+      type: 'PAGE_INFO',
+      url: 'https://bmp.test/Steadfast/?rid=500&tabrid=600',
+      rid: '500',
+      tabRid: '600',
+      widgets: [
+        { rid: '700', name: '', type: '' },
+        { rid: '800', name: '', type: '' },
+      ],
+      detection: { isBmp: true, confidence: 1, signals: [] },
+    });
+
+    const batches = sent.filter(message => message.type === 'SERVER_LOOKUP_BATCH');
+    expect(batches).toEqual([{
+      type: 'SERVER_LOOKUP_BATCH',
+      rids: ['700', '800', '500', '600'],
+    }]);
+    expect(sent.some(message => message.type === 'SERVER_LOOKUP')).toBe(false);
+  });
+
   it('surfaces a failed tree fetch and Retry starts a fresh request', () => {
     const { pane, root, sent } = mountedPane();
     expect(pane.handleMessage({

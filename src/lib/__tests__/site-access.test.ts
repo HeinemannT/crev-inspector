@@ -11,6 +11,8 @@ describe('site access registration boundaries', () => {
     globalThis.chrome = {
       permissions: {
         getAll: vi.fn(async () => ({ origins: granted })),
+        contains: vi.fn(async ({ origins }: chrome.permissions.Permissions) =>
+          origins?.every(origin => granted.includes(origin)) ?? false),
         remove: vi.fn(async () => true),
         onAdded: { addListener: vi.fn() },
         onRemoved: { addListener: vi.fn() },
@@ -45,6 +47,36 @@ describe('site access registration boundaries', () => {
     expect(registrations[1].matches).toEqual(['https://bmp.example.test/*']);
   });
 
+  it('registers a configured BMP origin when a broader host permission covers it', async () => {
+    const registerContentScripts = vi.fn(async (_scripts: chrome.scripting.RegisteredContentScript[]) => {});
+    globalThis.chrome = {
+      permissions: {
+        getAll: vi.fn(async () => ({ origins: ['https://*/*'] })),
+        contains: vi.fn(async ({ origins }: chrome.permissions.Permissions) =>
+          origins?.[0] === 'https://bmp.example.test/*'),
+        remove: vi.fn(async () => false),
+        onAdded: { addListener: vi.fn() },
+        onRemoved: { addListener: vi.fn() },
+      },
+      scripting: {
+        getRegisteredContentScripts: vi.fn(async () => []),
+        unregisterContentScripts: vi.fn(async () => {}),
+        registerContentScripts,
+      },
+    } as unknown as typeof chrome;
+
+    const { reconcileProfileOrigins } = await import('../site-access');
+    await reconcileProfileOrigins(['https://bmp.example.test/workspace']);
+
+    expect(chrome.permissions.contains).toHaveBeenCalledWith({
+      origins: ['https://bmp.example.test/*'],
+    });
+    expect(registerContentScripts).toHaveBeenCalledOnce();
+    const registrations = registerContentScripts.mock.calls[0]![0];
+    expect(registrations[0].matches).toEqual(['https://bmp.example.test/*']);
+    expect(registrations[1].matches).toEqual(['https://bmp.example.test/*']);
+  });
+
   it('removes provider grants that are no longer selected', async () => {
     const remove = vi.fn(async (_permissions: chrome.permissions.Permissions) => true);
     globalThis.chrome = {
@@ -56,6 +88,7 @@ describe('site access registration boundaries', () => {
             'https://api.anthropic.com/*',
           ],
         })),
+        contains: vi.fn(async () => true),
         remove,
         onAdded: { addListener: vi.fn() },
         onRemoved: { addListener: vi.fn() },
@@ -87,6 +120,7 @@ describe('site access registration boundaries', () => {
             'https://api.anthropic.com/*',
           ],
         })),
+        contains: vi.fn(async () => false),
         remove,
         onAdded: { addListener: vi.fn() },
         onRemoved: { addListener: vi.fn() },

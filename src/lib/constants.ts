@@ -65,7 +65,9 @@ export const HISTORY_SAVE_DELAY = 1_000;
 // ── Side panel ───────────────────────────────────────────────────
 export const DISPLAY_LIMIT_STEP = 200;
 export const SEARCH_DEBOUNCE = 300;
-export const LOOKUP_WATCHDOG_TIMEOUT = 15_000;
+/** Longer than the 30s EC transport deadline. This is a lost-response guard,
+ * not a server cancellation claim: BMP can keep running after detachment. */
+export const LOOKUP_WATCHDOG_TIMEOUT = 35_000;
 
 // ── Diff ─────────────────────────────────────────────────────────
 export const COMMON_DIFF_PROPS = [

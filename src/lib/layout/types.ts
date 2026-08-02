@@ -271,13 +271,16 @@ export interface FlowProjection {
 }
 
 /** A staged edit on ONE flow object, keyed by businessId in `LModel.flowEdits` (pitfall #2 dedupe).
- *  For an InputSet/EditPage/ButtonGroup key: `adds` + `order`. For an action-button key: the flag flips.
+ *  For an InputSet/EditPage/ButtonGroup key: `adds` + `removes` + `order`. For an action-button key: the flag flips.
  *  For a flow WIDGET key: `wireRef` (its inputSet/editPage reference). A TEMP key carrying
  *  `newContainer` IS a staged-new InputSet/EditPage — its `adds`/`order` are the new container's
  *  children, so children stage underneath it before the first Apply. */
 export interface FlowEdit {
-  /** Newly-added children (type + name only — no property forms in blueprint). */
+  /** Newly-added children. EditField adds may also carry `prop`. */
   adds?: FlowNode[];
+  /** Existing children staged for deletion. Their remaining siblings stay in
+   * flat order, so deleting a page/column break naturally merges the regions. */
+  removes?: string[];
   /** Desired full child order (businessIds incl. staged `new:` ids). Absent = unchanged order. */
   order?: string[];
   /** Staged displayOnActionMenu flip (in-grid ↔ action bar). */
@@ -289,6 +292,9 @@ export interface FlowEdit {
    *  name in place (name rides the create — no rename step); a staged-NEW container's rename updates
    *  `newContainer.name`. So `rename` only ever carries an EXISTING object's new name. */
   rename?: string;
+  /** Staged EditField.propertyMapping change on an existing child. Empty
+   * string intentionally clears the mapping; undefined means unchanged. */
+  propertyMapping?: string;
   /** This (temp-keyed) entry is a staged-new InputSet/EditPage awaiting creation on Apply. */
   newContainer?: { className: 'InputSet' | 'EditPage'; name: string; editPageType?: string };
   /** Staged reference wire on a flow WIDGET: `<widget>.change(<prop> := <target>)`. `targetId` may be
@@ -333,11 +339,13 @@ export type PlanStep =
   // Minimal reorder within ONE flow parent: `moveAfter(afterId)` (a prior sibling or a just-created
   // `_ff<k>`) or `moveBefore(beforeId)` for a drag-to-front. `parentId` groups the step for summaries.
   | { kind: 'flowReorder'; id: string; rid?: string; afterId?: string; beforeId?: string; parentId: string }
+  | { kind: 'flowDelete'; id: string; rid?: string; className: string; name?: string; parentId: string }
   // action-button flag flip (displayOnActionMenu / displayOnAllTabs). `id` is the button's businessId.
   | { kind: 'flowFlag'; id: string; rid?: string; className: string; prop: 'displayOnActionMenu' | 'displayOnAllTabs'; value: boolean }
   // rename an EXISTING flow object (child / container / reference): `<obj>.change(name := …)`. `id` is its
   // businessId (staged-add / staged-new renames don't reach here — their name rides the create).
   | { kind: 'flowRename'; id: string; rid?: string; className?: string; name: string }
+  | { kind: 'flowProperty'; id: string; rid?: string; parentId: string; accessor: string }
   // reference wire on a flow widget: `<widget>.change(<prop> := <target>)` (+ createMode := "EDITORADD"
   // when setCreateMode). Emitted AFTER every flow create so a staged-new target's var exists; the
   // widget itself may be a staged layout add (its `_n<k>` var resolves through the same vars map).

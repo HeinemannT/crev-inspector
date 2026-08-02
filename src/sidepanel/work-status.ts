@@ -27,10 +27,12 @@ export function workStatusForMessage(msg: InspectorMessage): WorkStatus | null {
     case 'FETCH_OBJECT_PANE':
     case 'FULL_LOOKUP':
     case 'SERVER_LOOKUP':
+    case 'SERVER_LOOKUP_BATCH':
       return working('Loading object…');
     case 'OBJECT_PANE_DATA':
     case 'FULL_LOOKUP_RESULT':
     case 'SERVER_LOOKUP_RESULT':
+    case 'SERVER_LOOKUP_BATCH_RESULT':
       return settled(msg.error ? 'Object load failed' : 'Object loaded');
     case 'FETCH_CHILDREN': return working('Loading children…');
     case 'FETCH_CHILDREN_RESULT': return settled(msg.error ? 'Children load failed' : 'Children loaded');
@@ -63,11 +65,16 @@ export function workStatusForMessage(msg: InspectorMessage): WorkStatus | null {
     case 'FETCH_COLOR_SETS': return working('Loading colors…');
     case 'COLOR_SETS_DATA': return settled(msg.error ? 'Color load failed' : 'Colors loaded');
     case 'FETCH_TYPE_SCHEMA':
+    case 'FETCH_TYPE_SCHEMAS':
     case 'FETCH_TYPE_OPTIONS':
       return working('Loading fields…');
     case 'FETCH_TYPE_SCHEMA_RESULT':
+    case 'FETCH_TYPE_SCHEMAS_RESULT':
     case 'FETCH_TYPE_OPTIONS_RESULT':
-      return settled(!msg.ok ? 'Field load failed' : 'Fields loaded');
+      return settled('ok' in msg && !msg.ok ? 'Field load failed' : 'Fields loaded');
+    case 'FETCH_PROPERTY_APPLICATIONS': return working('Loading applicationsâ€¦');
+    case 'PROPERTY_APPLICATIONS_RESULT':
+      return settled(msg.ok ? 'Applications loaded' : 'Application load failed');
 
     case 'SAVE_PROPERTY':
     case 'SAVE_IDENTITY':

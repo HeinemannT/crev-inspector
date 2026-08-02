@@ -64,4 +64,28 @@ describe('concrete-reference schema fallback', () => {
     expect(result.ok).toBe(false);
     expect(executeEc).toHaveBeenCalledTimes(1);
   });
+
+  it('coalesces concurrent schema reads for the same server and type', async () => {
+    let release: ((value: { ok: true; log: string }) => void) | undefined;
+    const executeEc = vi.fn(() => new Promise<{ ok: true; log: string }>(resolve => {
+      release = resolve;
+    }));
+    setSwContext({
+      client: { executeEc },
+      settings: { activeProfileId: `coalesced-schema-${Date.now()}` },
+    } as never);
+
+    const first = loadSchemaProps('EditField');
+    const second = loadSchemaProps('EditField');
+    await vi.waitFor(() => expect(executeEc).toHaveBeenCalledTimes(1));
+    release?.({
+      ok: true,
+      log: '__canon__|||EditField\nname|||Name|||TextPropertyConfig|||false|||100|||name|||TextPropertyConfig',
+    });
+
+    const firstResult = await first;
+    await expect(second).resolves.toEqual(firstResult);
+    expect(firstResult).toMatchObject({ ok: true });
+    expect(executeEc).toHaveBeenCalledTimes(1);
+  });
 });

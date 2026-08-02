@@ -7,6 +7,11 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { BmpClient, PANE_PROPS, parseObjectOverrideProps } from '../bmp-client';
+import {
+  PROPERTY_APPLICATION_END,
+  PROPERTY_APPLICATION_FIELD,
+  PROPERTY_APPLICATION_MARK,
+} from '../ec-codegen';
 import './chrome-mock';
 
 const SEP = '<<<CREV_SEP>>>';
@@ -37,6 +42,7 @@ function buildPaneLog(opts: {
   template?: { rid: string; id: string; name: string; type: string };
   instanceProps?: Partial<Record<(typeof PANE_PROPS)[number], string>>;
   templateProps?: Partial<Record<(typeof PANE_PROPS)[number], string>>;
+  propertyApplications?: string;
 }) {
   const props: string[] = [
     `${SEP}instRid${SEP}${opts.instRid}`,
@@ -62,6 +68,10 @@ function buildPaneLog(opts: {
     props.push(`${SEP}tmpl_${p}${SEP}${opts.templateProps?.[p] ?? ''}`);
   }
   if (opts.editFieldTypes) props.push(`${SEP}editFieldTypes${SEP}${opts.editFieldTypes}`);
+  if (opts.propertyApplications) {
+    props.push(`${SEP}isPropertyDefinition${SEP}true`);
+    props.push(`${SEP}propertyApplications${SEP}${opts.propertyApplications}`);
+  }
   // Code fields the panel may surface
   const codeFields = ['expression', 'afterExpression', 'defaultExpression', 'html', 'javascript', 'css'];
   for (const cf of codeFields) {
@@ -80,6 +90,30 @@ function buildPaneLog(opts: {
   if (opts.sibTotal != null) props.push(`${SEP}sibTotal${SEP}${opts.sibTotal}`);
   props.push(`${SEP}DONE`);
   return props.join('\n');
+}
+
+function buildEditFieldPropertyLog(opts: {
+  accessor: string;
+  property: { rid: string; id: string; name: string; type: string };
+  application: { rid: string; id: string; name: string; type: string };
+  ownerClassName: string;
+  systemobject: boolean;
+}) {
+  return [
+    `${SEP}accessor${SEP}${opts.accessor}`,
+    `${SEP}propertyRid${SEP}${opts.property.rid}`,
+    `${SEP}propertyId${SEP}${opts.property.id}`,
+    `${SEP}propertyName${SEP}${opts.property.name}`,
+    `${SEP}propertyType${SEP}${opts.property.type}`,
+    `${SEP}applicationRid${SEP}${opts.application.rid}`,
+    `${SEP}applicationId${SEP}${opts.application.id}`,
+    `${SEP}applicationName${SEP}${opts.application.name}`,
+    `${SEP}applicationType${SEP}${opts.application.type}`,
+    `${SEP}systemobject${SEP}${opts.systemobject}`,
+    `${SEP}ownerClassName${SEP}${opts.ownerClassName}`,
+    `${SEP}DONE`,
+    'Message : Duration : 7ms',
+  ].join('\n');
 }
 
 describe('object override metadata', () => {
@@ -220,7 +254,253 @@ describe('fetchObjectPane — reference parsing', () => {
     const data = await c.fetchObjectPane('5611');
     expect(data!.editFieldClassNames).toEqual(['CeService', 'CeAsset']);
   });
+
+  it('resolves a custom EditField accessor to its master property configuration', async () => {
+    const paneLog = buildPaneLog({
+      instRid: '5611',
+      instId: 'service_bucket_max',
+      instName: 'Bucket max',
+      instType: 'EditField',
+      editFieldTypes: 'CeService,',
+      instanceProps: { propertyMapping: 'bucket_1_max' },
+    });
+    const { c, exec } = makeClient(paneLog);
+    exec
+      .mockResolvedValueOnce({ ok: true, log: paneLog, hasError: false, hasWarning: false })
+      .mockResolvedValueOnce({
+        ok: true,
+        log: buildEditFieldPropertyLog({
+          accessor: 'bucket_1_max',
+          property: {
+            rid: '5716686349908164657',
+            id: 'bucket_1_max',
+            name: 'Bucket 1 Max',
+            type: 'HistoricalNumberMethodConfig',
+          },
+          application: {
+            rid: '8758002416307610306',
+            id: 'com.corporater.bmp.model.model.enterprise.CeService.bucket_1_max',
+            name: 'Bucket 1 Max',
+            type: 'HistoricalNumberMethodConfig',
+          },
+          ownerClassName: 'CeService',
+          systemobject: false,
+        }),
+        hasError: false,
+        hasWarning: false,
+      });
+
+    const data = await c.fetchObjectPane('5611');
+
+    expect(data?.editFieldProperty).toEqual({
+      accessor: 'bucket_1_max',
+      property: {
+        rid: '5716686349908164657',
+        businessId: 'bucket_1_max',
+        name: 'Bucket 1 Max',
+        type: 'HistoricalNumberMethodConfig',
+      },
+    });
+  });
+
+  it('propagates cancellation from an EditField property follow-up', async () => {
+    const paneLog = buildPaneLog({
+      instRid: '5611',
+      instId: 'service_bucket_max',
+      instName: 'Bucket max',
+      instType: 'EditField',
+      editFieldTypes: 'CeService,',
+      instanceProps: { propertyMapping: 'bucket_1_max' },
+    });
+    const controller = new AbortController();
+    const { c, exec } = makeClient(paneLog);
+    exec
+      .mockResolvedValueOnce({ ok: true, log: paneLog, hasError: false, hasWarning: false })
+      .mockImplementationOnce(async () => {
+        controller.abort();
+        return {
+          ok: false,
+          error: 'EC execution timed out (30s)',
+          log: '',
+          hasError: true,
+          hasWarning: false,
+        };
+      });
+
+    await expect(c.fetchObjectPane('5611', controller.signal)).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+  });
+
+  it('keeps a system property distinct while preserving its mapping accessor', async () => {
+    const paneLog = buildPaneLog({
+      instRid: '9001',
+      instId: 'risk_name',
+      instName: 'Name',
+      instType: 'EditField',
+      editFieldTypes: 'CeRiskAssessment,',
+      instanceProps: { propertyMapping: 'name' },
+    });
+    const { c, exec } = makeClient(paneLog);
+    exec
+      .mockResolvedValueOnce({ ok: true, log: paneLog, hasError: false, hasWarning: false })
+      .mockResolvedValueOnce({
+        ok: true,
+        log: buildEditFieldPropertyLog({
+          accessor: 'name',
+          property: {
+            rid: '6885080872209683609',
+            id: 'name',
+            name: 'name',
+            type: 'SystemMethodConfig',
+          },
+          application: {
+            rid: '2982463971745981146',
+            id: 'com.corporater.bmp.model.model.enterprise.CeRiskAssessment.name',
+            name: 'name',
+            type: 'SystemMethodConfig',
+          },
+          ownerClassName: 'CeRiskAssessment',
+          systemobject: true,
+        }),
+        hasError: false,
+        hasWarning: false,
+      });
+
+    const data = await c.fetchObjectPane('9001');
+
+    expect(data?.editFieldProperty?.accessor).toBe('name');
+    expect(data?.editFieldProperty?.property.type).toBe('SystemMethodConfig');
+  });
+
+  it('loads every ClassConfig application for a master property definition', async () => {
+    const applicationsLog = [
+      PROPERTY_APPLICATION_MARK,
+      'CeService',
+      PROPERTY_APPLICATION_FIELD,
+      '701',
+      PROPERTY_APPLICATION_FIELD,
+      'bucket_1_max',
+      PROPERTY_APPLICATION_FIELD,
+      'HistoricalNumberMethod',
+      PROPERTY_APPLICATION_FIELD,
+      "k.CeService.bucket_1_max.change(id := 'bucket_1_max')",
+      PROPERTY_APPLICATION_MARK,
+      'CeRiskAssessment',
+      PROPERTY_APPLICATION_FIELD,
+      '702',
+      PROPERTY_APPLICATION_FIELD,
+      'bucket_1_max',
+      PROPERTY_APPLICATION_FIELD,
+      'HistoricalNumberMethod',
+      PROPERTY_APPLICATION_FIELD,
+      "k.CeRiskAssessment.bucket_1_max.change(id := 'bucket_1_max', category := 'Risk')",
+      PROPERTY_APPLICATION_END,
+    ].join('');
+    const paneLog = buildPaneLog({
+      instRid: '700',
+      instId: 'bucket_1_max',
+      instName: 'Bucket 1 Max',
+      instType: 'HistoricalNumberMethodConfig',
+      instanceProps: { category: 'Boundaries' },
+      propertyApplications: applicationsLog,
+    });
+    const { c, exec } = makeClient(paneLog);
+
+    const data = await c.fetchObjectPane('700');
+
+    expect(data?.isPropertyDefinition).toBe(true);
+    expect(data?.propertyApplications).toHaveLength(2);
+    expect(data?.propertyApplications?.[0]?.overrides).toEqual({});
+    expect(data?.propertyApplications?.[1]?.overrides).toEqual({ category: "'Risk'" });
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not publish warning-bearing Property application results as complete', async () => {
+    const applicationsLog = recordPropertyApplicationForTest() + PROPERTY_APPLICATION_END;
+    const paneLog = buildPaneLog({
+      instRid: '700',
+      instId: 'bucket_1_max',
+      instName: 'Bucket 1 Max',
+      instType: 'HistoricalNumberMethodConfig',
+      propertyApplications: applicationsLog,
+    });
+    const { c, exec } = makeClient(paneLog);
+    exec.mockResolvedValueOnce({
+      ok: true,
+      log: paneLog,
+      hasError: false,
+      hasWarning: true,
+    });
+
+    const data = await c.fetchObjectPane('700');
+
+    expect(data?.propertyApplications).toBeUndefined();
+    expect(data?.propertyApplicationsError).toContain('warnings');
+  });
+
+  it('propagates cancellation from the compact Property query', async () => {
+    const paneLog = buildPaneLog({
+      instRid: '700',
+      instId: 'bucket_1_max',
+      instName: 'Bucket 1 Max',
+      instType: 'HistoricalNumberMethodConfig',
+      propertyApplications: recordPropertyApplicationForTest() + PROPERTY_APPLICATION_END,
+    });
+    const controller = new AbortController();
+    const { c, exec } = makeClient(paneLog);
+    exec.mockImplementationOnce(async () => {
+      controller.abort();
+      return {
+        ok: true,
+        log: paneLog,
+        hasError: false,
+        hasWarning: false,
+      };
+    });
+
+    await expect(c.fetchObjectPane('700', controller.signal)).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+  });
+
+  it('does not treat a linked ClassConfig application as a master Property', async () => {
+    const paneLog = buildPaneLog({
+      instRid: '701',
+      instId: 'com.corporater.bmp.model.model.enterprise.CeService.bucket_1_max',
+      instName: 'Bucket 1 Max',
+      instType: 'HistoricalNumberMethodConfig',
+      template: {
+        rid: '700',
+        id: 'bucket_1_max',
+        name: 'Bucket 1 Max',
+        type: 'HistoricalNumberMethodConfig',
+      },
+    });
+    const { c, exec } = makeClient(paneLog);
+
+    const data = await c.fetchObjectPane('701');
+
+    expect(data?.isPropertyDefinition).toBe(false);
+    expect(data?.propertyApplications).toBeUndefined();
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
 });
+
+function recordPropertyApplicationForTest(): string {
+  return [
+    PROPERTY_APPLICATION_MARK,
+    'CeService',
+    PROPERTY_APPLICATION_FIELD,
+    '701',
+    PROPERTY_APPLICATION_FIELD,
+    'bucket_1_max',
+    PROPERTY_APPLICATION_FIELD,
+    'HistoricalNumberMethod',
+    PROPERTY_APPLICATION_FIELD,
+    "k.CeService.bucket_1_max.change(id := 'bucket_1_max')",
+  ].join('');
+}
 
 describe('fetchObjectPane — sibling cap', () => {
   it('reports the true total from sibTotal when the list is capped', async () => {

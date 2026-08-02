@@ -15,6 +15,7 @@ import {
   addFlowChild, reorderFlowChild, removeFlowAdd, setActionFlag, addActionButton,
   effectiveFlowChildren, findFlowContainer, flowDiff, flowSignature, trayButtons,
   stageNewFlowContainer, wireFlowRef, unwireFlowRef, effectiveRef, flowChangeCount, renameFlowObject,
+  deleteFlowChild, setEditFieldProperty,
 } from '../flow';
 import { FLOW_REF_MARKER, FLOW_META_MARKER, FLOW_CHILD_MARKER, FLOW_CPROP_MARKER, FLOW_TR_MARKER } from '../../layout-wire';
 
@@ -105,6 +106,36 @@ describe('flow diff isolation (pitfall 1)', () => {
 
 // ── pitfall 2: staging dedupe by object id ───────────────────────────────────
 describe('flow staging dedupe (pitfall 2)', () => {
+  it('stages and compiles an existing EditField property mapping once', () => {
+    const base = flowModel();
+    const edited = setEditFieldProperty(base, '50865', '50866', 'risk_owner');
+
+    expect(effectiveFlowChildren(edited, '50865').find(node => node.id === '50866')?.prop)
+      .toBe('risk_owner');
+    expect(flowDiff(base, edited)).toEqual([{
+      kind: 'flowProperty',
+      id: '50866',
+      rid: 'r_e1',
+      parentId: '50865',
+      accessor: 'risk_owner',
+    }]);
+    expect(compile(flowDiff(base, edited), edited).script)
+      .toContain('t.50866.change(propertyMapping := "risk_owner")');
+    expect(setEditFieldProperty(edited, '50865', '50866', 'code').flowEdits).toEqual({});
+  });
+
+  it('keeps a staged EditField mapping on its create node', () => {
+    const base = flowModel();
+    const added = addFlowChild(base, '50865', 'EditField', 'New field');
+    const edited = setEditFieldProperty(added.model, '50865', added.id, 'name');
+    const plan = flowDiff(base, edited);
+    const create = plan.find(step => step.kind === 'flowCreate');
+
+    expect(create?.kind === 'flowCreate' && create.node.prop).toBe('name');
+    expect(compile(plan, edited).script)
+      .toContain('.change(propertyMapping := "name")');
+  });
+
   it('an add staged on a shared EditPage (from either COV cell) stages ONCE and compiles ONCE', () => {
     const base = flowModel();
     // Both COVs (50845, 50848) reference EditPage 50865 — the edit is keyed by the PAGE's id, so
@@ -143,11 +174,79 @@ describe('flow edit ops', () => {
     expect(effectiveFlowChildren(m2, '50850').map(c => c.id)).toEqual(['50851', id, '50852', '50858', '50862']);
   });
 
+  it('addFlowChild preserves an explicit front insertion', () => {
+    const { model: m2, id } = addFlowChild(flowModel(), '50850', 'NumberInput', 'Severity', null);
+    expect(effectiveFlowChildren(m2, '50850').map(c => c.id))
+      .toEqual([id, '50851', '50852', '50858', '50862']);
+  });
+
   it('addFlowChild targets a nested ButtonGroup', () => {
     const { model: m2, id } = addFlowChild(flowModel(), '50858', 'ButtonInput');
     expect(effectiveFlowChildren(m2, '50858').map(c => c.id)).toEqual(['50860', id]);
     const steps = flowDiff(flowModel(), m2);
     expect(steps[0]).toMatchObject({ kind: 'flowCreate', parentId: '50858', parentClass: 'ButtonGroup', parentRid: 'r_bg' });
+    expect(compile(steps, m2).script).toContain('t.50858.add(ButtonInput');
+  });
+
+  it('treats an empty existing ButtonGroup as an add target', () => {
+    const base = flowModel();
+    const group = base.flows!['50844'].children.find(child => child.id === '50858')!;
+    delete group.children;
+
+    expect(findFlowContainer(base, '50858')).toMatchObject({
+      className: 'ButtonGroup',
+      rid: 'r_bg',
+      original: [],
+    });
+    const added = addFlowChild(base, '50858', 'ButtonInput');
+    const steps = flowDiff(base, added.model);
+    expect(steps[0]).toMatchObject({
+      kind: 'flowCreate',
+      parentId: '50858',
+      parentClass: 'ButtonGroup',
+      parentRid: 'r_bg',
+    });
+    expect(compile(steps, added.model).script).toContain('t.50858.add(ButtonInput');
+  });
+
+  it('resolves a ButtonGroup inside an on-demand off-page InputSet', () => {
+    const base: LModel = {
+      ...flowModel(),
+      flowRefChildren: {
+        shared_set: {
+          className: 'InputSet',
+          rid: 'r_set',
+          children: [{ id: 'shared_group', rid: 'r_group', className: 'ButtonGroup', name: 'Actions' }],
+        },
+      },
+    };
+    expect(findFlowContainer(base, 'shared_group')).toMatchObject({
+      className: 'ButtonGroup',
+      rid: 'r_group',
+      original: [],
+    });
+  });
+
+  it('creates a staged ButtonGroup before the ButtonInput staged inside it', () => {
+    const base = flowModel();
+    const groupAdd = addFlowChild(base, '50850', 'ButtonGroup', 'Actions');
+    const buttonAdd = addFlowChild(groupAdd.model, groupAdd.id, 'ButtonInput', 'Submit');
+    // Simulate restored state whose object keys no longer reflect creation dependencies.
+    buttonAdd.model.flowEdits = Object.fromEntries(
+      Object.entries(buttonAdd.model.flowEdits!).reverse(),
+    );
+
+    expect(findFlowContainer(buttonAdd.model, groupAdd.id)).toMatchObject({
+      className: 'ButtonGroup',
+      original: [],
+    });
+    const steps = flowDiff(base, buttonAdd.model);
+    const groupIndex = steps.findIndex(step => step.kind === 'flowCreate' && step.node.id === groupAdd.id);
+    const buttonIndex = steps.findIndex(step => step.kind === 'flowCreate' && step.node.id === buttonAdd.id);
+    expect(groupIndex).toBeGreaterThanOrEqual(0);
+    expect(buttonIndex).toBeGreaterThan(groupIndex);
+    const script = compile(steps, buttonAdd.model).script;
+    expect(script.indexOf('.add(ButtonGroup')).toBeLessThan(script.indexOf('.add(ButtonInput'));
   });
 
   it('removeFlowAdd cancels a staged add (and only staged adds)', () => {
@@ -611,6 +710,35 @@ describe('flowChangeCount (drives Apply/Discard/tray enablement)', () => {
     expect(flowChangeCount(m2)).toBe(1);
     m2 = addFlowChild(m2, '50865', 'EditField', 'C').model;
     expect(flowChangeCount(m2)).toBe(2);
+  });
+});
+
+describe('existing flow-child deletion', () => {
+  it('omits the child immediately and compiles one RID-safe delete step', () => {
+    const base = flowModel();
+    const desired = deleteFlowChild(base, '50850', '50852');
+
+    expect(effectiveFlowChildren(desired, '50850').map(child => child.id))
+      .toEqual(['50851', '50858', '50862']);
+    expect(flowDiff(base, desired)).toContainEqual({
+      kind: 'flowDelete',
+      id: '50852',
+      rid: 'r_ni',
+      className: 'NumberInput',
+      name: 'Number input',
+      parentId: '50850',
+    });
+    expect(compile(flowDiff(base, desired), desired).script).toContain('t.50852.delete()');
+    expect(flowChangeCount(desired)).toBe(1);
+  });
+
+  it('cancels a staged add instead of emitting a delete', () => {
+    const base = flowModel();
+    const added = addFlowChild(base, '50850', 'TextInput', 'Temporary');
+    const desired = deleteFlowChild(added.model, '50850', added.id);
+
+    expect(effectiveFlowChildren(desired, '50850').some(child => child.id === added.id)).toBe(false);
+    expect(flowDiff(base, desired).some(step => step.kind === 'flowDelete')).toBe(false);
   });
 });
 

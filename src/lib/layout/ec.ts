@@ -289,6 +289,18 @@ export function compile(
           emit({ verb: 'create', id: s.node.id, text: `Add ${s.node.className} "${s.node.name}" to ${s.parentClass}`,
             action: 'Add', object: s.node.name, objectType: s.node.className, where: s.parentClass, detail: withIdDetail(s.node.id),
             ec: `${v} := ${fref(s.parentId, s.parentRid)}.add(${ecClass(s.node.className)}${idArg(s.node.id)}, name := ${ecStr(s.node.name)}) ${idComment(s.node.id)}` });
+          if (s.node.className === 'EditField' && s.node.prop) {
+            emit({
+              verb: 'update',
+              id: s.node.id,
+              text: `Map EditField to "${s.node.prop}"`,
+              action: 'Change',
+              object: s.node.name,
+              objectType: 'EditField',
+              detail: `propertyMapping → ${s.node.prop}`,
+              ec: `${v}.change(propertyMapping := ${ecStr(s.node.prop)})`,
+            });
+          }
         }
         break;
       }
@@ -313,6 +325,20 @@ export function compile(
           ec: `${fref(s.id, s.rid)}.change(name := ${ecStr(s.name)})` });
         break;
       }
+      case 'flowProperty': {
+        const node = flowById.get(s.id);
+        emit({
+          verb: 'update',
+          id: s.id,
+          text: `Map EditField to "${s.accessor || '(none)'}"`,
+          action: 'Change',
+          object: node?.name ?? s.id,
+          objectType: 'EditField',
+          detail: `propertyMapping → ${s.accessor || '(none)'}`,
+          ec: `${fref(s.id, s.rid)}.change(propertyMapping := ${ecStr(s.accessor)})`,
+        });
+        break;
+      }
       case 'flowReorder': {
         const anchor = s.beforeId ?? s.afterId!;
         const node = flowById.get(s.id);
@@ -322,6 +348,18 @@ export function compile(
           detail: `${s.beforeId ? 'before' : 'after'} "${anchorNode?.name ?? anchor}"`,
           ec: `${fref(s.id, s.rid)}.${s.beforeId ? 'moveBefore' : 'moveAfter'}(${fref(anchor)})` },
           !createParents.has(s.parentId));
+        break;
+      }
+      case 'flowDelete': {
+        emit({
+          verb: 'delete',
+          id: s.id,
+          text: `Delete flow element`,
+          action: 'Delete',
+          object: s.name ?? s.id,
+          objectType: s.className,
+          ec: `${fref(s.id, s.rid)}.delete()`,
+        });
         break;
       }
       case 'flowFlag': {

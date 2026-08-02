@@ -116,7 +116,8 @@ import { renderChip, modeSwitch, scopeClass, previewModal, outcomePanel, trayPan
 import { paintStation, paintPopup } from './view-paint';
 import { renderResult, typeIcon } from './result';
 import { renderEditPage } from './edit-page-result';
-import { actionMenuTrigger, actionMenuPanel, flowBadge } from './result-flow';
+import { actionMenuTrigger, actionMenuPanel } from './result-flow';
+import { flowBadge } from './flow-badge';
 import { flowChildPalette } from '../lib/layout/constraints';
 import { flowChangeCount } from '../lib/layout/flow';
 
@@ -181,7 +182,15 @@ export function render(): void {
     bp.resultMode = renderEditPage(m, layer);
     renderFloatingChrome(byRid, m);
     if (oldRects) flipFrom(layer, oldRects);
-    ensureScrollRoom(layer.querySelector('.bp-editpage'));
+    // Clean steps trace BMP's native footprint exactly. A structurally staged
+    // step can extend past it, so give the document enough scroll room for the
+    // compact model-driven rows while keeping the document as scroll owner.
+    const editPageWorkspace = layer.querySelector('.bp-editpage-workspace');
+    if (editPageWorkspace?.classList.contains('is-model-driven')) {
+      ensureScrollRoom(editPageWorkspace);
+    } else {
+      neutralizeScrollRoom();
+    }
     return;
   }
   // Command chip + the tab bar (tab manager AND canvas switcher — the canvas shows one tab at a time,

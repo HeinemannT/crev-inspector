@@ -23,6 +23,8 @@ export function hasCodeProperty(code: Record<string, string>, prop: string): boo
 // ── Types ────────────────────────────────────────────────────────
 
 export interface EditorContext {
+  /** Profile/server identity this editable context was loaded from. */
+  environment: string
   instance: ObjectIdentity
   template: ObjectIdentity | null
   instanceCode: Record<string, string>

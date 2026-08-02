@@ -19,11 +19,11 @@
  *   - Method chaining inside forEach parse-errors. Every
  *     `output(x).whenMissing("")` is split into per-step temp vars.
  *
- * Concurrency: `activeGeneration` is bumped on every start. In-flight
- * loops capture their generation and bail when it moves on, so a new
- * search auto-supersedes the previous one without an explicit STOP
- * (chrome.runtime.sendMessage is not FIFO across calls, so a
- * STOP-then-START dance would race).
+ * Cancellation: every interactive search owns an AbortController. Starting
+ * another search aborts the old controller before any new work is queued;
+ * the generation guard still prevents stale progress messages. Per-type work
+ * is intentionally sequential because BmpTransport serializes /cs/command
+ * and parallel promises would only build an obsolete queue behind it.
  *
  * Security: type names from the panel are validated against
  * `CODE_PROPS_FOR_TYPE` before interpolation, so a compromised panel
@@ -53,6 +53,7 @@ const SCAN_DONE = `${SCAN_MARKER}DONE`;
 /** Bumped on every start; in-flight loops capture and check it to
  *  short-circuit when superseded. Concurrent start+stop is safe. */
 let activeGeneration = 0;
+let activeController: AbortController | null = null;
 
 /** Last progress snapshot — so stopCodeSearch() can broadcast a final DONE
  *  (otherwise the panel's "searching" flag never clears: the in-flight loops
@@ -97,6 +98,7 @@ export function parseScopeResolveLog(ecLog: string): ScopeInfo | null {
 async function resolveScope(
   client: NonNullable<ReturnType<typeof getCtx>['client']>,
   input: string,
+  signal?: AbortSignal,
 ): Promise<{ ref: string; scope: ScopeInfo } | null> {
   const trimmed = input.trim();
   let ref: string;
@@ -108,7 +110,7 @@ async function resolveScope(
   } else {
     return null;
   }
-  const res = await client.executeEc(buildScopeResolveEc(ref), undefined, false);
+  const res = await client.executeEc(buildScopeResolveEc(ref), undefined, false, signal);
   if (!res.ok) throw new Error(res.error || res.log || 'Scope resolution EC failed');
   if (res.hasWarning) throw new Error(res.error || 'Scope resolution returned warnings and may be incomplete');
   if (res.log == null) throw new Error('Scope resolution returned no result');
@@ -120,12 +122,6 @@ async function resolveScope(
 function broadcastScope(scope: ScopeInfo | null, error?: string): void {
   sendFireForget({ type: 'CODE_SEARCH_SCOPE', scope, error });
 }
-
-/** SELECT enumerations are class-indexed (~10 ms per type) so the
- *  parallel cap keeps a workspace-wide search responsive. BMP can
- *  occasionally return a warning-only or markerless response at this
- *  concurrency; executeRidScan proves completion and retries that read once. */
-const MAX_ENUM_PARALLEL = 8;
 
 export async function startCodeSearch(
   query: string,
@@ -144,8 +140,14 @@ export async function startCodeSearch(
     return;
   }
 
+  activeController?.abort();
+  const controller = new AbortController();
+  activeController = controller;
   const myGen = ++activeGeneration;
-  const aborted = () => myGen !== activeGeneration;
+  const aborted = () => myGen !== activeGeneration || controller.signal.aborted;
+  const releaseController = () => {
+    if (activeController === controller) activeController = null;
+  };
 
   const caseSensitive = options.caseSensitive ?? true;
   // Allowlist type names against the known code-bearing types — they
@@ -159,6 +161,7 @@ export async function startCodeSearch(
     broadcastDone(0, 0, invalidTypes.length > 0
       ? `No searchable types remain. Unsupported: ${invalidTypes.join(', ')}.`
       : 'No searchable types selected.');
+    releaseController();
     return;
   }
 
@@ -169,19 +172,24 @@ export async function startCodeSearch(
   if (subtreeRid) {
     let resolved: Awaited<ReturnType<typeof resolveScope>>;
     try {
-      resolved = await resolveScope(ctx.client, subtreeRid);
+      resolved = await resolveScope(ctx.client, subtreeRid, controller.signal);
     } catch (e) {
       if (!aborted()) {
         const message = errorMessage(e);
         broadcastScope(null, message);
         broadcastDone(0, 0, message);
       }
+      releaseController();
       return;
     }
-    if (aborted()) return;
+    if (aborted()) {
+      releaseController();
+      return;
+    }
     if (!resolved) {
       broadcastScope(null, `Couldn't resolve scope "${subtreeRid}". Use a numeric RID or namespace.bid (e.g. t.118).`);
       broadcastDone(0, 0);
+      releaseController();
       return;
     }
     subtreeRef = resolved.ref;
@@ -205,11 +213,13 @@ export async function startCodeSearch(
         caseSensitive,
         subtreeRef,
         aborted,
+        controller.signal,
       );
       if (aborted()) return;
       allResults.push(...typeResult.results);
       issues.push(...typeResult.warnings.map(warning => `${typeName}: ${warning}`));
     } catch (e) {
+      if (aborted()) return;
       const message = errorMessage(e);
       issues.push(`${typeName}: ${message}`);
       log.error('codeSearch:type', e);
@@ -226,10 +236,12 @@ export async function startCodeSearch(
     }
   };
 
-  for (let i = 0; i < searchTypes.length; i += MAX_ENUM_PARALLEL) {
-    if (aborted()) return;
-    const batch = searchTypes.slice(i, i + MAX_ENUM_PARALLEL);
-    await Promise.all(batch.map(runOneType));
+  for (const typeName of searchTypes) {
+    if (aborted()) {
+      releaseController();
+      return;
+    }
+    await runOneType(typeName);
   }
 
   if (!aborted()) {
@@ -238,6 +250,7 @@ export async function startCodeSearch(
       : undefined;
     broadcastDone(allResults.length, typesDone, error);
   }
+  releaseController();
 }
 
 /** Synchronous, broadcast-free code search — used by the AI `code_search`
@@ -285,20 +298,22 @@ export async function collectCodeSearch(
   const never = () => false;
   const all: CodeSearchResult[] = [];
   const issues = invalidTypes.map(type => `Unsupported type: ${type}`);
-  for (let i = 0; i < searchTypes.length; i += MAX_ENUM_PARALLEL) {
-    const batch = searchTypes.slice(i, i + MAX_ENUM_PARALLEL);
-    const perType = await Promise.all(batch.map(async (t) => {
-      try {
-        const outcome = await searchOneType(ctx.client!, t, query.trim(), caseSensitive, subtreeRef, never);
-        issues.push(...outcome.warnings.map(warning => `${t}: ${warning}`));
-        return outcome.results;
-      } catch (e) {
-        issues.push(`${t}: ${errorMessage(e)}`);
-        log.error('codeSearch:collect', e);
-        return [] as CodeSearchResult[];
-      }
-    }));
-    for (const r of perType) all.push(...r);
+  for (const typeName of searchTypes) {
+    try {
+      const outcome = await searchOneType(
+        ctx.client,
+        typeName,
+        query.trim(),
+        caseSensitive,
+        subtreeRef,
+        never,
+      );
+      issues.push(...outcome.warnings.map(warning => `${typeName}: ${warning}`));
+      all.push(...outcome.results);
+    } catch (e) {
+      issues.push(`${typeName}: ${errorMessage(e)}`);
+      log.error('codeSearch:collect', e);
+    }
     if (all.length >= cap) break;
   }
 
@@ -317,6 +332,8 @@ export function stopCodeSearch(): void {
   // the panel we're done — otherwise its "searching" flag never clears and the
   // Stop button stays stuck. Partial results already shown via PROGRESS stay.
   activeGeneration++;
+  activeController?.abort();
+  activeController = null;
   broadcastDone(lastProgress.results, lastProgress.searched);
 }
 
@@ -329,13 +346,14 @@ async function searchOneType(
   caseSensitive: boolean,
   subtreeRef: string | null,
   aborted: () => boolean,
+  signal?: AbortSignal,
 ): Promise<TypeSearchResult> {
   // Narrow to candidate rids: server-side prefilter when we can
   // (case-sensitive), enumerate all and grep client-side when we
   // can't (EC has no .toLower()).
   const scan = caseSensitive
-    ? await prefilterMatchedRids(client, typeName, query, subtreeRef)
-    : await enumerateAllRids(client, typeName, subtreeRef);
+    ? await prefilterMatchedRids(client, typeName, query, subtreeRef, signal)
+    : await enumerateAllRids(client, typeName, subtreeRef, signal);
 
   if (aborted() || scan.rids.length === 0) {
     return {
@@ -347,7 +365,7 @@ async function searchOneType(
   }
 
   const props = CODE_PROPS_FOR_TYPE[typeName] ?? [...SCRIPT_PROPS];
-  const identity = await fetchIdentitiesForRids(client, scan.rids);
+  const identity = await fetchIdentitiesForRids(client, scan.rids, signal);
   if (aborted()) return { results: [], warnings: [] };
 
   const out: CodeSearchResult[] = [];
@@ -355,7 +373,7 @@ async function searchOneType(
   for (let i = 0; i < scan.rids.length; i += CODE_SEARCH_BATCH_SIZE) {
     if (aborted()) break;
     const batchRids = scan.rids.slice(i, i + CODE_SEARCH_BATCH_SIZE);
-    const codeMap = await client.batchFetchCode(batchRids, [...props]);
+    const codeMap = await client.batchFetchCode(batchRids, [...props], signal);
     for (const rid of batchRids) {
       const codeProps = codeMap.get(rid);
       if (!codeProps) continue;
@@ -394,13 +412,14 @@ async function prefilterMatchedRids(
   typeName: string,
   query: string,
   subtreeRef: string | null,
+  signal?: AbortSignal,
 ): Promise<RidScanResult> {
   const safeQuery = escapeEcString(query);
   // Queries with \r\n can't be safely embedded in EC string literals;
   // fall back to client-side grep instead of silently mangling.
-  if (safeQuery == null) return enumerateAllRids(client, typeName, subtreeRef);
+  if (safeQuery == null) return enumerateAllRids(client, typeName, subtreeRef, signal);
 
-  return executeRidScan(client, buildRidScanEc(typeName, subtreeRef, safeQuery));
+  return executeRidScan(client, buildRidScanEc(typeName, subtreeRef, safeQuery), signal);
 }
 
 /** Enumerate every instance of `typeName` — used by the
@@ -410,8 +429,9 @@ async function enumerateAllRids(
   client: BmpClient,
   typeName: string,
   subtreeRef: string | null,
+  signal?: AbortSignal,
 ): Promise<RidScanResult> {
-  return executeRidScan(client, buildRidScanEc(typeName, subtreeRef));
+  return executeRidScan(client, buildRidScanEc(typeName, subtreeRef), signal);
 }
 
 /** Build a bounded RID scan with explicit completion metadata. `query` is
@@ -494,25 +514,19 @@ export function parseRidScanLog(raw: string): RidScanResult {
   return { rids, total, truncated: seen > emitted };
 }
 
-async function executeRidScan(client: BmpClient, ec: string): Promise<RidScanResult> {
-  let lastError = 'RID scan failed';
-  // A read-only retry is safe. BMP occasionally yields a warning-only or
-  // markerless EC response when several class scans finish together; accept
-  // the retry only if it independently carries the full completion contract.
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const result = await client.executeEc(ec);
-    // Auth, HTTP, timeout and parser failures are already definitive and
-    // actionable. Retrying them multiplies the same error across every type.
-    if (!result.ok) throw new Error(result.error || result.log || 'RID scan EC failed');
-    try {
-      if (result.hasWarning) throw new Error(result.error || 'RID scan returned warnings and may be incomplete');
-      if (result.log == null) throw new Error('RID scan returned no result');
-      return parseRidScanLog(result.log);
-    } catch (e) {
-      lastError = errorMessage(e);
-    }
-  }
-  throw new Error(`${lastError} (failed twice)`);
+async function executeRidScan(
+  client: BmpClient,
+  ec: string,
+  signal?: AbortSignal,
+): Promise<RidScanResult> {
+  const result = await client.executeEc(ec, undefined, false, signal);
+  // BmpTransport owns the single bounded retry policy for reads. Retrying a
+  // warning or markerless heavy scan here would replay the entire workspace
+  // walk on top of transport recovery.
+  if (!result.ok) throw new Error(result.error || result.log || 'RID scan EC failed');
+  if (result.hasWarning) throw new Error(result.error || 'RID scan returned warnings and may be incomplete');
+  if (result.log == null) throw new Error('RID scan returned no result');
+  return parseRidScanLog(result.log);
 }
 
 /** Enrich the matched rids with name + businessId. Chunked so the
@@ -521,12 +535,13 @@ const IDENTITY_FETCH_CHUNK = 50;
 async function fetchIdentitiesForRids(
   client: BmpClient,
   rids: string[],
+  signal?: AbortSignal,
 ): Promise<{ objects: Map<string, { name: string; businessId: string }>; missing: number }> {
   const out = new Map<string, { name: string; businessId: string }>();
   if (rids.length === 0) return { objects: out, missing: 0 };
   for (let i = 0; i < rids.length; i += IDENTITY_FETCH_CHUNK) {
     const chunk = rids.slice(i, i + IDENTITY_FETCH_CHUNK);
-    await fetchIdentityChunk(client, chunk, out);
+    await fetchIdentityChunk(client, chunk, out, signal);
   }
   return { objects: out, missing: rids.length - out.size };
 }
@@ -550,6 +565,7 @@ async function fetchIdentityChunk(
   client: BmpClient,
   rids: string[],
   out: Map<string, { name: string; businessId: string }>,
+  signal?: AbortSignal,
 ): Promise<void> {
   const refs = await Promise.all(
     rids.map(rid => client.resolveRef(rid).then(r => ({ rid, ref: r })).catch(() => null)),
@@ -564,7 +580,8 @@ async function fetchIdentityChunk(
   lines.push('_r');
   const ec = lines.join('\n');
 
-  const result = await client.executeEc(ec);
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  const result = await client.executeEc(ec, undefined, false, signal);
   if (!result.ok) throw new Error(result.error || result.log || 'Identity fetch EC failed');
   if (result.hasWarning) throw new Error(result.error || 'Identity fetch returned warnings and may be incomplete');
   if (result.log == null) throw new Error('Identity fetch returned no result');

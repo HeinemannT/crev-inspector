@@ -8,7 +8,10 @@ import { incrementGeneration } from '../enrichment';
 import { ensureContentScript } from '../tab-awareness';
 import { togglePaint } from '../paint';
 import { setBlueprintActive } from './layout';
-import { log } from '../logger';
+import { loadPage } from '../layout-service';
+import { loadSchemaProps } from './objects';
+import { intersectTypeSchemas } from '../type-schema-utils';
+import { errorMessage, log } from '../logger';
 import type { InspectorMessage } from '../types';
 
 /** Resolve "which window does this toggle apply to" for callers that
@@ -103,6 +106,81 @@ register('SET_INSPECT_STATE', async (msg, _respond, meta) => {
     await toggleInspect(targetWindowId);
   } finally {
     inspectInFlight.delete(lockKey);
+  }
+});
+
+register('INSPECT_EDIT_PAGE_FIELDS', async (msg, respond) => {
+  const ctx = getCtx();
+  if (!ctx.client) {
+    respond({ type: 'INSPECT_EDIT_PAGE_FIELDS_RESULT', ok: false, error: 'Not connected' });
+    return;
+  }
+  if (ctx.client.supportsLookup === false) {
+    respond({
+      type: 'INSPECT_EDIT_PAGE_FIELDS_RESULT',
+      ok: false,
+      error: 'Edit-page inspection requires BMP 5.6.3 or newer.',
+    });
+    return;
+  }
+  try {
+    const loaded = await loadPage(ctx.client, msg.editPageRid, 'instance', []);
+    const model = loaded?.load.model;
+    const projection = Object.values(model?.flows ?? {}).find(flow =>
+      flow.ownerClass === 'EditPage' && (
+        flow.ownerRid === msg.editPageRid || flow.refRid === msg.editPageRid
+      ),
+    );
+    if (!projection) {
+      respond({
+        type: 'INSPECT_EDIT_PAGE_FIELDS_RESULT',
+        ok: false,
+        error: 'The rendered form has no inspectable EditPage field projection.',
+      });
+      return;
+    }
+    const objectTypes = model?.editPageTypes ?? [];
+    const schemaResults = await Promise.all(objectTypes.map(type => loadSchemaProps(type)));
+    const schemas = schemaResults.flatMap(result => result.ok ? [result.props] : []);
+    const properties = schemas.length === objectTypes.length
+      ? intersectTypeSchemas(schemas)
+      : [];
+    const propertyByAccessor = new Map(properties.map(property => [property.accessor, property]));
+    respond({
+      type: 'INSPECT_EDIT_PAGE_FIELDS_RESULT',
+      ok: true,
+      fields: projection.children
+        .map((field, streamIndex) => ({ field, streamIndex }))
+        .filter(({ field }) =>
+          (field.className === 'EditField' || field.className === 'EditPageInfo')
+          && field.rid,
+        )
+        .map(({ field, streamIndex }) => {
+          const property = field.prop ? propertyByAccessor.get(field.prop) : undefined;
+          return {
+            rid: field.rid!,
+            businessId: field.id,
+            name: field.name,
+            className: field.className as 'EditField' | 'EditPageInfo',
+            streamIndex,
+            ...(field.prop ? { property: field.prop } : {}),
+            ...(property?.propertyRid ? {
+              propertyObject: {
+                rid: property.propertyRid,
+                ...(property.propertyId ? { businessId: property.propertyId } : {}),
+                name: property.label || property.accessor,
+                type: property.propertyConfigClass ?? property.configClass,
+              },
+            } : {}),
+          };
+        }),
+    });
+  } catch (error) {
+    respond({
+      type: 'INSPECT_EDIT_PAGE_FIELDS_RESULT',
+      ok: false,
+      error: errorMessage(error),
+    });
   }
 });
 

@@ -47,7 +47,7 @@ export class WorkshopLayoutPane implements Tab {
   private pageRid: string | null = null;
   private pageTabRid: string | null = null;
   /** Enrichment for the widget list — rid → { type, name, businessId }.
-   *  Populated lazily as SERVER_LOOKUP_RESULTs arrive for the widget rids we
+   *  Populated lazily as SERVER_LOOKUP_BATCH_RESULTs arrive for the widget rids we
    *  asked about on every PAGE_INFO. The overlay BADGE_ENRICHMENT broadcast
    *  goes to content scripts, not the panel, so we pump enrichments through a
    *  dedicated panel-side path. */
@@ -239,8 +239,8 @@ export class WorkshopLayoutPane implements Tab {
           this.send({ type: 'GET_CONTEXT_RID' });
         }
         // Kick off enrichment for any widget we don't yet know the type/name of.
-        // SERVER_LOOKUP_RESULT comes back per-rid; we update widgetEnrichments
-        // as each lands. The handler dedupes via widgetEnrichInFlight + Map.
+        // One batch result updates every missing identity. The pane dedupes
+        // repeat requests via widgetEnrichInFlight + widgetEnrichments.
         this.requestWidgetEnrichments();
         return true;
       case 'INSPECT_STATE':
@@ -309,32 +309,31 @@ export class WorkshopLayoutPane implements Tab {
           return true;
         }
         return false;
-      case 'SERVER_LOOKUP_RESULT':
-        // Widget enrichment path — populate identity for a widget-list rid.
-        // The context object's own SERVER_LOOKUP goes through FULL_LOOKUP_RESULT.
-        if ('rid' in msg && this.widgetEnrichInFlight.has(msg.rid)) {
-          this.widgetEnrichInFlight.delete(msg.rid);
-          if (msg.object) {
-            this.widgetEnrichments.set(msg.rid, {
-              rid: msg.rid,
-              businessId: msg.object.businessId,
-              type: msg.object.type,
-              name: msg.object.name,
-            });
-            return true;
-          }
+      case 'SERVER_LOOKUP_BATCH_RESULT': {
+        let changed = false;
+        for (const [rid, object] of Object.entries(msg.objects)) {
+          this.widgetEnrichInFlight.delete(rid);
+          if (!object) continue;
+          this.widgetEnrichments.set(rid, {
+            rid,
+            businessId: object.businessId,
+            type: object.type,
+            name: object.name,
+          });
+          changed = true;
         }
-        return false;
+        return changed;
+      }
       default:
         return false;
     }
   }
 
   /** Request server enrichment for any widget we haven't resolved yet.
-   *  Each SERVER_LOOKUP responds with the full BmpObject; we keep only the
-   *  identity fields (type, name, businessId) for rendering. Inexpensive in
-   *  bytes — the heavy lifting is server-side; the panel only re-renders. */
+   *  One batched identity query supplies only the fields this list renders:
+   *  type, name, and businessId. */
   private requestWidgetEnrichments(): void {
+    const missing: string[] = [];
     for (const w of this.widgets) {
       if (!w.rid) continue;
       if (this.widgetEnrichments.has(w.rid)) continue;
@@ -344,7 +343,7 @@ export class WorkshopLayoutPane implements Tab {
       // instead of the DOM data-test." (Users can still drill in.)
       if (w.type && w.name) continue;
       this.widgetEnrichInFlight.add(w.rid);
-      this.send({ type: 'SERVER_LOOKUP', rid: w.rid });
+      missing.push(w.rid);
     }
     // Also enrich the page-location chips (scorecard + active tab) so
     // the chips show human names rather than the bare RID once the
@@ -354,7 +353,10 @@ export class WorkshopLayoutPane implements Tab {
       if (this.widgetEnrichments.has(rid)) continue;
       if (this.widgetEnrichInFlight.has(rid)) continue;
       this.widgetEnrichInFlight.add(rid);
-      this.send({ type: 'SERVER_LOOKUP', rid });
+      missing.push(rid);
+    }
+    if (missing.length > 0) {
+      this.send({ type: 'SERVER_LOOKUP_BATCH', rids: missing });
     }
   }
 

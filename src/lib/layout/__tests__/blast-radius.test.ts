@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildInstanceFanoutEc, parseInstanceFanout,
   buildContainerBlastEc, parseContainerBlast,
+  buildFlowContainerBlastEc, parseFlowContainerBlast,
 } from '../blast-radius';
 
 const SEP = '<<<CREV_BLAST>>>';
@@ -34,6 +35,46 @@ describe('instance fan-out', () => {
   it('preserves a pipe in an instance name (name is the last field)', () => {
     const log = `${SEP}SELF|6921|\n${SEP}INST|451|4957|Revenue | 2024\n`;
     expect(parseInstanceFanout(log).instances[0].name).toBe('Revenue | 2024');
+  });
+});
+
+describe('shared flow-container blast', () => {
+  it('probes the correct reverse-reference property for each form container', () => {
+    const ec = buildFlowContainerBlastEc([
+      { id: 'risk_page', className: 'EditPage', ref: 't.risk_page' },
+      { id: 'risk_inputs', className: 'InputSet', ref: 't.risk_inputs' },
+    ]);
+    expect(ec).toContain('_f0.rref(editPage).forEach');
+    expect(ec).toContain('_f1.rref(inputSet).forEach');
+  });
+
+  it('reports only containers referenced by more than one view', () => {
+    const log = [
+      `${SEP}FLOW|risk_page|EditPage|100|cov_a|CreateObjectView|Create risk`,
+      `${SEP}FLOW|risk_page|EditPage|101|cov_b|CreateObjectView|Edit risk`,
+      `${SEP}FLOW|risk_inputs|InputSet|200|input_view|InputView|Risk inputs`,
+    ].join('\n');
+    expect(parseFlowContainerBlast(log)).toEqual({
+      sharedContainers: 1,
+      containers: [{
+        id: 'risk_page',
+        className: 'EditPage',
+        usages: [
+          {
+            rid: '100',
+            businessId: 'cov_a',
+            className: 'CreateObjectView',
+            name: 'Create risk',
+          },
+          {
+            rid: '101',
+            businessId: 'cov_b',
+            className: 'CreateObjectView',
+            name: 'Edit risk',
+          },
+        ],
+      }],
+    });
   });
 });
 

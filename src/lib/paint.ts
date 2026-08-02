@@ -3,10 +3,12 @@ import { PAINT_STYLE_PROPS, PAINT_PROP_RESET } from './types';
 import { getCtx } from './sw-context';
 import { log, errorMessage } from './logger';
 import { activityObject, activityObjectLabel, boundedActivityDetail, ecActivityDetail } from './activity-format';
+import { ENVIRONMENT_CHANGED_ERROR, environmentMatches, environmentToken } from './environment';
 
 let paintPhase: PaintPhase = 'off';
 let paintSourceRid: string | null = null;
 let paintSourceName: string | null = null;
+let paintEnvironment: string | null = null;
 /** Tab paint is armed for. Lets us cancel precisely when THAT tab
  *  navigates/refreshes, instead of relying on the active-tab map (which is
  *  empty until the first tab switch — the cause of the "stuck brush after
@@ -53,6 +55,7 @@ export async function togglePaint(ensureContentScript: (tabId: number) => Promis
     paintPhase = 'picking';
     paintSourceRid = null;
     paintSourceName = null;
+    paintEnvironment = null;
     // Auto-enable inspect mode (labels must be visible for picking).
     // Per-window: paint launched from panel A auto-enables inspect
     // only in window A — other windows' BMP tabs stay quiet.
@@ -76,6 +79,7 @@ export async function togglePaint(ensureContentScript: (tabId: number) => Promis
     paintPhase = 'off';
     paintSourceRid = null;
     paintSourceName = null;
+    paintEnvironment = null;
     paintTabId = null;
   }
   broadcastPaintState();
@@ -87,6 +91,7 @@ export function cancelPaint() {
   paintPhase = 'off';
   paintSourceRid = null;
   paintSourceName = null;
+  paintEnvironment = null;
   paintTabId = null;
   broadcastPaintState();
 }
@@ -100,11 +105,18 @@ export function cancelPaintForTab(tabId: number) {
   cancelPaint();
 }
 
-export function handlePaintPick(rid: string) {
+export function handlePaintPick(rid: string, environment?: string, strictEnvironment = false) {
+  const ctx = getCtx();
+  if (strictEnvironment && !environmentMatches(ctx, environment)) {
+    broadcastApplyResult(rid, false, ENVIRONMENT_CHANGED_ERROR);
+    return;
+  }
+  const effectiveEnvironment = environment ?? environmentToken(ctx);
   const cached = getCtx().cache.get(rid);
   paintSourceRid = rid;
   paintSourceName = cached?.name ?? cached?.businessId ?? rid;
   paintPhase = 'applying';
+  paintEnvironment = effectiveEnvironment;
   broadcastPaintState();
 }
 
@@ -121,8 +133,9 @@ function activePaintProps(ctx: ReturnType<typeof getCtx>): string[] {
  * step. Paint stays armed (`phase` unchanged) so the user keeps clicking
  * targets; the content script flashes each one + shows a Reload toast.
  */
-export async function handlePaintApply(rid: string) {
+export async function handlePaintApply(rid: string, environment?: string, strictEnvironment = false) {
   const ctx = getCtx();
+  const effectiveEnvironment = environment ?? environmentToken(ctx);
   const startedAt = Date.now();
   const object = activityObject(rid, ctx.cache.get(rid));
   const targetName = activityObjectLabel(object, rid);
@@ -131,6 +144,12 @@ export async function handlePaintApply(rid: string) {
     action: 'apply-style',
     object,
   };
+  if ((strictEnvironment && !environmentMatches(ctx, environment))
+    || (paintEnvironment != null && paintEnvironment !== effectiveEnvironment)) {
+    broadcastApplyResult(rid, false, ENVIRONMENT_CHANGED_ERROR);
+    ctx.logActivity('error', `Paint failed on ${targetName}`, ENVIRONMENT_CHANGED_ERROR, meta);
+    return;
+  }
   if (!paintSourceRid || !ctx.client) {
     const error = !ctx.client
       ? 'Not connected. Configure in Connect tab'

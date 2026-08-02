@@ -167,6 +167,38 @@ const TYPE_COLORS: Record<string, string> = {
   // Governance / metadata (grey)
   ObjectApproval: '#8d8d8d', ObjectClassification: '#8d8d8d',
 
+  // ── Property objects ───────────────────────────────────────────
+  // MethodConfigs remain ordinary BMP objects, but their split-capsule badge
+  // uses value-kind colors derived from Config Studio's long-lived property
+  // vocabulary. Historical variants keep the base kind color; the clock mark
+  // carries the temporal modifier. Forward and reverse references deliberately
+  // sit in different bands so direction is visible before reading the glyph.
+  SystemMethodConfig: '#707983',
+  TextMethodConfig: '#4f86a8',
+  RichTextMethodConfig: '#596f9a',
+  BooleanMethodConfig: '#4f8e89',
+  NumberMethodConfig: '#2f92a5',
+  DateMethodConfig: '#587fb0',
+  UrlMethodConfig: '#65728f',
+  ListMethodConfig: '#3f8e98',
+  TagMethodConfig: '#8a6d8d',
+  ReferenceMethodConfig: '#a56f43',
+  ReverseReferenceMethodConfig: '#3a8c9b',
+  ExtendedMethodConfig: '#795d92',
+  FileMethodConfig: '#6f934b',
+  TokenMethodConfig: '#9a8245',
+  FunctionMethodConfig: '#766b98',
+  NodeTypeFunctionMethodConfig: '#5d8174',
+  HistoricalTextMethodConfig: '#4f86a8',
+  HistoricalRichTextMethodConfig: '#596f9a',
+  HistoricalBooleanMethodConfig: '#4f8e89',
+  HistoricalNumberMethodConfig: '#2f92a5',
+  HistoricalDateMethodConfig: '#587fb0',
+  HistoricalListMethodConfig: '#3f8e98',
+  HistoricalReferenceMethodConfig: '#a56f43',
+  HistoricalProgressMethodConfig: '#338f9e',
+  HistoricalStatusMethodConfig: '#a65e58',
+
   ...Object.fromEntries(CHART_TYPES.map(t => [t, CHART_COLOR])),
   // Risk charts override the generic chart coral with a deeper red so they
   // stand apart from the other charts at a glance.
@@ -270,6 +302,33 @@ const TYPE_ABBREVIATIONS: Record<string, string> = {
   StandardChart: 'SCH', Trend: 'TRN',
   ButtonContainer: 'BCN', Section: 'SEC', WebChildReference: 'WCR',
   ObjectApproval: 'APR', ObjectClassification: 'CLS',
+  // Property objects — historical variants intentionally keep their base code.
+  // The ClockCountdown seam mark is the temporal discriminator.
+  SystemMethodConfig: 'SYS',
+  TextMethodConfig: 'TXT',
+  RichTextMethodConfig: 'RTX',
+  BooleanMethodConfig: 'BLN',
+  NumberMethodConfig: 'NUM',
+  DateMethodConfig: 'DAT',
+  UrlMethodConfig: 'URL',
+  ListMethodConfig: 'LST',
+  TagMethodConfig: 'TAG',
+  ReferenceMethodConfig: 'REF',
+  ReverseReferenceMethodConfig: 'RRF',
+  ExtendedMethodConfig: 'EXT',
+  FileMethodConfig: 'FIL',
+  TokenMethodConfig: 'TOK',
+  FunctionMethodConfig: 'FUN',
+  NodeTypeFunctionMethodConfig: 'NTF',
+  HistoricalTextMethodConfig: 'TXT',
+  HistoricalRichTextMethodConfig: 'RTX',
+  HistoricalBooleanMethodConfig: 'BLN',
+  HistoricalNumberMethodConfig: 'NUM',
+  HistoricalDateMethodConfig: 'DAT',
+  HistoricalListMethodConfig: 'LST',
+  HistoricalReferenceMethodConfig: 'REF',
+  HistoricalProgressMethodConfig: 'PRG',
+  HistoricalStatusMethodConfig: 'STS',
   ...CHART_ABBREVIATIONS,
 };
 

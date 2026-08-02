@@ -66,7 +66,7 @@ const LIVE_LOG = [
 const fakeIo = (log: string, ok = true): LayoutIO => ({ exec: vi.fn(async () => ({ ok, log })) });
 
 describe('sync.buildFetchEc', () => {
-  it('discovers every contributing tabset from page children and recurses both models', () => {
+  it('discovers contributing tabsets and traverses only layout-owning org nodes', () => {
     const ec = buildFetchEc(CTX);
     expect(ec).toContain('_sc := lookup(451704949656267090)');
     expect(ec).toContain('_candidateTs := _w.tab.parent');
@@ -76,7 +76,16 @@ describe('sync.buildFetchEc', () => {
     expect(ec).toContain('IF _ts.id.whenMissing("") = "default_tabset" AND _defaultHasOrdinaryTab = "0" THEN');
     expect(ec).toContain('_res := t.RESULT');           // Result-only default contribution is pruned
     expect(ec).toContain('_ts.descendants().forEach');
-    expect(ec).toContain('_sc.descendants().forEach');   // org side recurses (composites)
+    expect(ec).toContain('_layoutNodes := _sc.children()');
+    expect(ec).toContain('_layoutPasses := LIST(1,2,3,4,5,6,7,8,9,10,11,12)');
+    expect(ec).toContain('_layoutParent.children()');
+    expect(ec).toContain('_layoutClass = "Container"');
+    expect(ec).toContain('_layoutClass = "ButtonContainer"');
+    expect(ec).toContain('_layoutClass = "ButtonGroup"');
+    expect(ec).toContain('_layoutClass = "InputSet"');
+    expect(ec).toContain('_layoutClass = "TagList"');
+    expect(ec).toContain('_layoutClass = "ListPropertySet"');
+    expect(ec).not.toContain('_sc.descendants()');
     expect(ec).toContain('<<<CREV_TAB>>>');              // provenance + global ordering metadata
   });
   it('rejects an unsafe rid / business id (no EC injection)', () => {
@@ -131,7 +140,8 @@ describe('sync.buildFetchEc', () => {
     const ec = buildFetchEc({ ...CTX, resultOnly: true });
     expect(ec).toContain('_res := t.RESULT');          // the Result tab node...
     expect(ec).toContain('|RESULT|Tab|');              // ...emitted as a Tab
-    expect(ec).toContain('_sc.descendants().forEach'); // the page's own widgets
+    expect(ec).toContain('_layoutNodes := _sc.children()'); // the page's own widgets
+    expect(ec).not.toContain('_sc.descendants()');     // leaf content is never traversed
     expect(ec).not.toContain('_ts.descendants()');     // NOT the shared Row/Column scaffold
     expect(ec).not.toContain('_ts := ');               // no tabset root walk at all
   });
@@ -144,8 +154,7 @@ describe('sync.buildFetchEc', () => {
     });
     expect(ec).toContain('_ts.descendants().forEach');
     expect(ec).toContain('_layoutNodes := _sc.children()');
-    expect(ec).toContain('_sc.descendants(ButtonContainer)');
-    expect(ec).toContain('_sc.descendants(ButtonGroup)');
+    expect(ec).toContain('_layoutParent.children()');
     expect(ec).not.toContain('_sc.descendants().forEach(_w:');
     expect(ec).toContain('_w.columnsLargeScreen.whenMissing("")');
     expect(ec).toContain('IF _i > 31 THEN');
@@ -683,6 +692,38 @@ describe('sync.applyModel — flow steps (blueprint flow editing)', () => {
     expect(res.ok).toBe(true);
     expect(res.script).toContain('t.is1.add(TextInput');
     expect(res.model?.flows?.['4971']?.children).toHaveLength(3); // re-fetched truth
+  });
+
+  it('adds a ButtonInput under an empty ButtonGroup and reloads the nested child', async () => {
+    const groupLog = [
+      LIVE_LOG,
+      `${FREF}4971|7298791240939894938|InputView|inputset|is1|111|InputSet|||||RESULT|Category|cat1|Owner set`,
+      `${FCHD}4971||buttons|202|ButtonGroup|0|0|0,0,0,0,0,|Actions`,
+    ].join('\n');
+    const groupLogAfter = [
+      groupLog,
+      `${FCHD}4971|buttons|submit|203|ButtonInput|0|0|0,0,0,0,0,|New ButtonInput`,
+    ].join('\n');
+    const io = fakeIo(groupLog);
+    const { baseline, model } = await loadModel(io, CTX);
+    const desired = addFlowChild(model, 'buttons', 'ButtonInput').model;
+    let committed = false;
+    io.exec = vi.fn(async (_code: string, commit = false) => {
+      if (commit) {
+        committed = true;
+        return { ok: true, log: groupLog };
+      }
+      return { ok: true, log: committed ? groupLogAfter : groupLog };
+    });
+
+    const res = await applyModel(io, baseline, desired, CTX);
+
+    expect(res.ok).toBe(true);
+    expect(res.script).toContain('t.buttons.add(ButtonInput');
+    const group = res.model?.flows?.['4971']?.children.find(child => child.id === 'buttons');
+    expect(group?.children).toEqual([
+      expect.objectContaining({ id: 'submit', className: 'ButtonInput', name: 'New ButtonInput' }),
+    ]);
   });
 
   it('a purely-flow apply whose re-fetch is unchanged IS a silent rollback', async () => {

@@ -1,4 +1,5 @@
-import type { EditPageContext } from './types';
+import type { EditPageContext, EditPageFieldContext } from './types';
+import { renderedEditPageHosts, renderedEditPageSlots } from './edit-page-dom';
 import { isRidShaped } from './rid-shape';
 
 interface FiberLike {
@@ -23,6 +24,100 @@ function reactFiber(element: Element): FiberLike | undefined {
 
 function optionalRid(value: unknown): string | undefined {
   return isRidShaped(value) ? value : undefined;
+}
+
+function optionalIndex(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 10_000
+    ? value
+    : undefined;
+}
+
+function optionalText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length <= 500 ? value : undefined;
+}
+
+function fieldContextFromProps(props: Record<string, unknown> | undefined): EditPageFieldContext | null {
+  if (!props) return null;
+  const nested = props.field;
+  const nestedField = Boolean(nested && typeof nested === 'object');
+  const raw = nestedField
+    ? nested as Record<string, unknown>
+    : props;
+  const key = optionalIndex(raw.key);
+  const name = optionalText(raw.name);
+  const displayName = optionalText(raw.displayName ?? raw.label);
+  const infoRef = nestedField && raw.displayName === undefined && optionalRid(name);
+  const propertyRef = infoRef ? undefined : name;
+  if (key === undefined && !propertyRef && !infoRef) return null;
+  return {
+    key,
+    ...(propertyRef ? { propertyRef } : {}),
+    ...(infoRef ? { objectRef: infoRef, kind: 'info' as const } : { kind: 'field' as const }),
+    displayName,
+    pageIndex: optionalIndex(raw.pageIndex),
+    columnIndex: optionalIndex(raw.columnIndex),
+  };
+}
+
+function renderedSlots(editPage: Element): Element[] {
+  return renderedEditPageSlots(editPage);
+}
+
+function slotFiberAnchors(slot: Element): Element[] {
+  const anchors = [slot];
+  const queue = [...slot.children];
+  while (queue.length && anchors.length < 12) {
+    const element = queue.shift()!;
+    anchors.push(element);
+    queue.push(...element.children);
+  }
+  return anchors;
+}
+
+/** Join each rendered native editor to BMP's field-stream index. React keeps
+ *  this on an `Editor` ancestor rather than consistently on a
+ *  `.property-editor` DOM node. Reference/tag controls have no such class, so
+ *  inspect the bounded direct field slots and use their fiber identity. */
+function renderedFieldContexts(editPage: Element): EditPageFieldContext[] {
+  const fields: EditPageFieldContext[] = [];
+  for (const slot of renderedSlots(editPage)) {
+    let fallback: EditPageFieldContext | null = null;
+    let resolved: EditPageFieldContext | null = null;
+    for (const anchor of slotFiberAnchors(slot)) {
+      let fiber = reactFiber(anchor);
+      for (let depth = 0; fiber && depth < MAX_UPWARD_DEPTH; depth++, fiber = fiber.return) {
+        const context = fieldContextFromProps(fiber.memoizedProps ?? fiber.pendingProps);
+        if (context?.key !== undefined) {
+          resolved = context;
+          break;
+        }
+        fallback ??= context;
+      }
+      if (resolved) break;
+    }
+    if (resolved || fallback) {
+      fields.push(resolved ?? fallback!);
+    } else if (slot.matches('.property-editor') || slot.querySelector('.property-editor')) {
+      // Preserve one slot for a genuine, metadata-less editor. An Info slot
+      // without React metadata cannot be inspected and is skipped.
+      fields.push({});
+    }
+  }
+  return fields;
+}
+
+function withRenderedFields(context: EditPageContext, editPage: Element): EditPageContext {
+  // Identity is the load-bearing part of this probe. A transitional React
+  // subtree can expose the EditionContext before every field slot has a stable
+  // fiber; never discard the valid EditPage RID merely because optional field
+  // metadata could not be joined during that render tick. Inspect can safely
+  // fall back to the configuration stream's DOM order and retry on mutation.
+  try {
+    const fields = renderedFieldContexts(editPage);
+    return fields.some(field => Object.keys(field).length > 0) ? { ...context, fields } : context;
+  } catch {
+    return context;
+  }
 }
 
 function contextFromProps(
@@ -51,10 +146,7 @@ function contextFromProps(
 /** Read BMP's create/edit form identity from the React data already mounted on
  * the page. Work is bounded independently of page size: semantic form anchors,
  * at most 40 ancestors, then at most 500 fiber nodes as a fallback. */
-export function extractEditPageContext(root: ParentNode = document): EditPageContext | null {
-  const editPage = root.querySelector('.edit-page');
-  if (!editPage) return null;
-
+function extractFromHost(editPage: Element): EditPageContext | null {
   const anchors: Element[] = [];
   const propertyEditor = editPage.querySelector('.property-editor');
   if (propertyEditor) anchors.push(propertyEditor);
@@ -92,7 +184,7 @@ export function extractEditPageContext(root: ParentNode = document): EditPageCon
             if (templateRid) { found.templateRid = templateRid; break; }
           }
         }
-        return found;
+        return withRenderedFields(found, editPage);
       }
       surrounding = props ?? surrounding;
     }
@@ -108,9 +200,17 @@ export function extractEditPageContext(root: ParentNode = document): EditPageCon
     seen.add(fiber);
     const props = fiber.memoizedProps ?? fiber.pendingProps;
     const found = contextFromProps(props, props);
-    if (found) return found;
+    if (found) return withRenderedFields(found, editPage);
     if (fiber.child) queue.push(fiber.child);
     if (fiber.sibling) queue.push(fiber.sibling);
+  }
+  return null;
+}
+
+export function extractEditPageContext(root: ParentNode = document): EditPageContext | null {
+  for (const editPage of renderedEditPageHosts(root)) {
+    const context = extractFromHost(editPage);
+    if (context) return context;
   }
   return null;
 }

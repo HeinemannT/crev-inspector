@@ -30,14 +30,45 @@ export class BmpTransportError extends Error {
   }
 }
 
+export interface BmpTransportMetrics {
+  /** Java command class (or compact batch summary), never EC source text. */
+  operation: string;
+  commandCount: number;
+  /** Requests already active/queued when this request entered the transport. */
+  queueDepth: number;
+  queueWaitMs: number;
+  durationMs: number;
+  requestBytes: number;
+  responseBytes: number;
+  attempts: number;
+}
+
 export type BmpTransportOutcome =
-  | { ok: true; intent: CommandIntent }
-  | { ok: false; intent: CommandIntent; error: BmpTransportError };
+  | ({ ok: true; intent: CommandIntent } & BmpTransportMetrics)
+  | ({ ok: false; intent: CommandIntent; error: BmpTransportError } & BmpTransportMetrics);
+
+interface RequestResult {
+  buffer: ArrayBuffer;
+  attempts: number;
+}
+
+interface RequestMeta {
+  operation?: string;
+  commandCount?: number;
+}
 
 const TRANSIENT_HTTP = new Set([502, 503, 504]);
 
 export class BmpTransport {
   private outcomeObserver: ((outcome: BmpTransportOutcome) => void) | null = null;
+  /**
+   * BMP command responses are session-sensitive. Concurrent /cs/command posts
+   * sharing one client/session can cause one caller to receive an incomplete
+   * response intended for another command. Keep HTTP exchanges ordered per
+   * transport instance; callers may still batch commands in one request.
+   */
+  private requestTail: Promise<void> = Promise.resolve();
+  private pendingRequests = 0;
 
   constructor(
     private bmpUrl: string,
@@ -60,18 +91,58 @@ export class BmpTransport {
     timeout: number,
     intent: CommandIntent,
     signal?: AbortSignal,
+    meta: RequestMeta = {},
   ): Promise<ArrayBuffer> {
-    try {
-      const buffer = await this.sendRequestInternal(body, timeout, intent, signal);
-      this.emitOutcome({ ok: true, intent });
-      return buffer;
-    } catch (cause) {
-      const error = cause instanceof BmpTransportError
-        ? cause
-        : this.classifyError(cause, 0, signal);
-      this.emitOutcome({ ok: false, intent, error });
-      throw error;
-    }
+    const queuedAt = Date.now();
+    const queueDepth = this.pendingRequests;
+    this.pendingRequests++;
+    return this.enqueueRequest(async () => {
+      const startedAt = Date.now();
+      const common = {
+        operation: meta.operation ?? 'SerializedCommand',
+        commandCount: meta.commandCount ?? 1,
+        queueDepth,
+        queueWaitMs: Math.max(0, startedAt - queuedAt),
+        requestBytes: body.byteLength,
+      };
+      try {
+        const { buffer, attempts } = await this.sendRequestInternal(body, timeout, intent, signal);
+        this.emitOutcome({
+          ok: true,
+          intent,
+          ...common,
+          durationMs: Math.max(0, Date.now() - startedAt),
+          responseBytes: buffer.byteLength,
+          attempts,
+        });
+        return buffer;
+      } catch (cause) {
+        const error = cause instanceof BmpTransportError
+          ? cause
+          : this.classifyError(cause, 0, signal);
+        this.emitOutcome({
+          ok: false,
+          intent,
+          error,
+          ...common,
+          durationMs: Math.max(0, Date.now() - startedAt),
+          responseBytes: 0,
+          attempts: error.attempts,
+        });
+        throw error;
+      } finally {
+        this.pendingRequests = Math.max(0, this.pendingRequests - 1);
+      }
+    });
+  }
+
+  private enqueueRequest<T>(request: () => Promise<T>): Promise<T> {
+    const result = this.requestTail.then(request, request);
+    this.requestTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   private async sendRequestInternal(
@@ -79,7 +150,7 @@ export class BmpTransport {
     timeout: number,
     intent: CommandIntent,
     signal?: AbortSignal,
-  ): Promise<ArrayBuffer> {
+  ): Promise<RequestResult> {
     if (signal?.aborted) {
       throw new BmpTransportError('BMP request cancelled', 'cancelled', 0);
     }
@@ -128,7 +199,7 @@ export class BmpTransport {
           throw new BmpTransportError(`Command failed: HTTP ${res.status}`, 'http', attempt, res.status);
         }
 
-        return await res.arrayBuffer();
+        return { buffer: await res.arrayBuffer(), attempts: attempt };
       } catch (cause) {
         const error = cause instanceof BmpTransportError
           ? cause
@@ -198,7 +269,13 @@ export class BmpTransport {
     intent: CommandIntent,
     signal?: AbortSignal,
   ): Promise<ArrayBuffer> {
-    return this.sendRequest(serializeCommands(commands), AUTH_TIMEOUT, intent, signal);
+    return this.sendRequest(
+      serializeCommands(commands),
+      AUTH_TIMEOUT,
+      intent,
+      signal,
+      { operation: commandOperation(commands), commandCount: commands.length },
+    );
   }
 
   /** Send a streaming command (e.g. ExtendedExecuteCommand). `timeoutMs`
@@ -209,12 +286,18 @@ export class BmpTransport {
     signal?: AbortSignal,
     timeoutMs?: number,
   ): Promise<any[]> {
-    const buffer = await this.sendRequest(serializeCommands([command]), timeoutMs ?? EC_TIMEOUT, intent, signal);
+    const buffer = await this.sendRequest(
+      serializeCommands([command]),
+      timeoutMs ?? EC_TIMEOUT,
+      intent,
+      signal,
+      { operation: commandOperation([command]), commandCount: 1 },
+    );
     try {
       return deserializeStream(buffer);
     } catch (cause) {
       const error = new BmpTransportError('BMP protocol error while decoding command response', 'protocol', 1, undefined, { cause });
-      this.emitOutcome({ ok: false, intent, error });
+      this.emitDecodeFailure(intent, error, 'DeserializeStream');
       throw error;
     }
   }
@@ -225,7 +308,7 @@ export class BmpTransport {
       return deserializeResponse(buffer);
     } catch (cause) {
       const error = new BmpTransportError('BMP protocol error while decoding command response', 'protocol', 1, undefined, { cause });
-      this.emitOutcome({ ok: false, intent, error });
+      this.emitDecodeFailure(intent, error, 'DeserializeResponse');
       throw error;
     }
   }
@@ -237,7 +320,7 @@ export class BmpTransport {
       return deserializeStream(buffer);
     } catch (cause) {
       const error = new BmpTransportError('BMP protocol error while decoding command response', 'protocol', 1, undefined, { cause });
-      this.emitOutcome({ ok: false, intent, error });
+      this.emitDecodeFailure(intent, error, 'DeserializeStream');
       throw error;
     }
   }
@@ -257,4 +340,34 @@ export class BmpTransport {
     if (msg.includes('Bad handle reference')) return 'BMP protocol error: possible version mismatch';
     return msg;
   }
+
+  private emitDecodeFailure(
+    intent: CommandIntent,
+    error: BmpTransportError,
+    operation: string,
+  ): void {
+    this.emitOutcome({
+      ok: false,
+      intent,
+      error,
+      operation,
+      commandCount: 1,
+      queueDepth: 0,
+      queueWaitMs: 0,
+      durationMs: 0,
+      requestBytes: 0,
+      responseBytes: 0,
+      attempts: error.attempts,
+    });
+  }
+}
+
+function commandOperation(commands: any[]): string {
+  const names = commands.map(command => {
+    const raw = typeof command?.$type === 'string' ? command.$type : 'SerializedCommand';
+    return raw.split('.').pop() || 'SerializedCommand';
+  });
+  const unique = [...new Set(names)];
+  if (unique.length === 1) return names.length > 1 ? `${names.length}×${unique[0]}` : unique[0];
+  return unique.slice(0, 3).join('+') + (unique.length > 3 ? `+${unique.length - 3}` : '');
 }

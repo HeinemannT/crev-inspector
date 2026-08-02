@@ -23,7 +23,8 @@ import { log } from './logger';
 import {
   buildInstanceFanoutEc, parseInstanceFanout,
   buildContainerBlastEc, parseContainerBlast,
-  type InstanceFanout, type ContainerBlast,
+  buildFlowContainerBlastEc, parseFlowContainerBlast,
+  type InstanceFanout, type ContainerBlast, type FlowContainerBlast,
 } from './layout/blast-radius';
 
 /** Wrap a BmpClient as a LayoutIO. `commit` → transactional executeEc. Layout runs get the wide
@@ -158,11 +159,23 @@ export async function loadFlowRefChildren(client: BmpClient, refId: string): Pro
  *  for the touched container businessIds, which template-families OUTSIDE this page's own use them.
  *  Returns nulls rather than throwing — the preview just omits the warning if BMP is slow/unhappy. */
 export async function loadBlastRadius(
-  client: BmpClient, pageId: string, containers: { id: string; rid?: string }[],
-): Promise<{ fanout: InstanceFanout | null; blast: ContainerBlast | null }> {
+  client: BmpClient,
+  pageId: string,
+  containers: { id: string; rid?: string }[],
+  flowContainers: {
+    id: string;
+    rid?: string;
+    className: 'InputSet' | 'EditPage';
+  }[] = [],
+): Promise<{
+  fanout: InstanceFanout | null;
+  blast: ContainerBlast | null;
+  flowBlast: FlowContainerBlast | null;
+}> {
   const io = makeLayoutIO(client);
   let fanout: InstanceFanout | null = null;
   let blast: ContainerBlast | null = null;
+  let flowBlast: FlowContainerBlast | null = null;
   try {
     const fan = await io.exec(buildInstanceFanoutEc(`t.${validateBusinessId(pageId)}`));
     if (fan.ok && fan.log) fanout = parseInstanceFanout(fan.log);
@@ -181,5 +194,21 @@ export async function loadBlastRadius(
       if (res.ok && res.log) blast = parseContainerBlast(res.log, fanout.ownFamilyKey);
     } catch (e) { log.debug('blast:container', e); } // fail silent — no shared-structure warning
   }
-  return { fanout, blast };
+  const flowProbes = flowContainers.flatMap(container => {
+    try {
+      const ref = container.rid && container.id === container.rid
+        ? `lookup(${validateRid(container.rid)})`
+        : `t.${validateBusinessId(container.id)}`;
+      return [{ id: container.id, className: container.className, ref }];
+    } catch {
+      return [];
+    }
+  });
+  if (flowProbes.length) {
+    try {
+      const res = await io.exec(buildFlowContainerBlastEc(flowProbes));
+      if (res.ok && res.log) flowBlast = parseFlowContainerBlast(res.log);
+    } catch (e) { log.debug('blast:flow-container', e); }
+  }
+  return { fanout, blast, flowBlast };
 }

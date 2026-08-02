@@ -1003,6 +1003,7 @@ async function executeEc(transactional: boolean) {
   let ok = false
   const response = await sendRequest({
     type: 'EC_EXECUTE',
+    environment: ctx.environment,
     code,
     objectRid: getExecutionRid(ctx),
     property: activeProperty,
@@ -1223,6 +1224,7 @@ async function doSave() {
   try {
     const response = await sendRequest({
       type: 'SAVE_PROPERTY',
+      environment: ctx.environment,
       rid: target.rid,
       objectType: target.type,
       property,

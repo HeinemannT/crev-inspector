@@ -34,6 +34,42 @@ function hasRidShapedRid(v: unknown): v is { rid: string } {
   return typeof v === 'object' && v !== null && isRidShaped((v as { rid?: unknown }).rid);
 }
 
+function parseEditPageFields(value: unknown): EditPageContext['fields'] | null {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 500) return null;
+  const fields: NonNullable<EditPageContext['fields']> = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) return null;
+    const raw = entry as Record<string, unknown>;
+    for (const key of ['key', 'pageIndex', 'columnIndex'] as const) {
+      const index = raw[key];
+      if (index !== undefined && (
+        typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= 10_000
+      )) return null;
+    }
+    if (
+      raw.kind !== undefined
+      && raw.kind !== 'field'
+      && raw.kind !== 'info'
+    ) return null;
+    for (const key of ['propertyRef', 'objectRef', 'displayName'] as const) {
+      const text = raw[key];
+      if (text !== undefined && (typeof text !== 'string' || text.length > 500)) return null;
+    }
+    if (raw.objectRef !== undefined && !isRidShaped(raw.objectRef)) return null;
+    fields.push({
+      kind: raw.kind as 'field' | 'info' | undefined,
+      key: raw.key as number | undefined,
+      propertyRef: raw.propertyRef as string | undefined,
+      objectRef: raw.objectRef as string | undefined,
+      displayName: raw.displayName as string | undefined,
+      pageIndex: raw.pageIndex as number | undefined,
+      columnIndex: raw.columnIndex as number | undefined,
+    });
+  }
+  return fields;
+}
+
 export function parseInterceptorMessage(detail: unknown): InterceptorMsg | null {
   if (typeof detail !== 'object' || detail === null) return null;
   const d = detail as Record<string, unknown>;
@@ -65,6 +101,8 @@ export function parseInterceptorMessage(detail: unknown): InterceptorMsg | null 
     }
     if (raw.objectName !== undefined && typeof raw.objectName !== 'string') return null;
     if (raw.objectType !== undefined && typeof raw.objectType !== 'string') return null;
+    const fields = parseEditPageFields(raw.fields);
+    if (fields === null) return null;
     return {
       type: 'EDIT_PAGE_CONTEXT',
       context: {
@@ -76,6 +114,7 @@ export function parseInterceptorMessage(detail: unknown): InterceptorMsg | null 
         objectRid: raw.objectRid as string | undefined,
         objectName: raw.objectName as string | undefined,
         objectType: raw.objectType as string | undefined,
+        ...(fields === undefined ? {} : { fields }),
       },
     };
   }

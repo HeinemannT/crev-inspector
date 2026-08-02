@@ -16,7 +16,9 @@
  * (set by openObjectViewWindow).
  */
 
-import type { ObjectPaneIdentity, ObjectPaneSiblingMsg, TypeSchemaProp } from '../lib/types';
+import type {
+  EditFieldPropertyResolution, ObjectPaneIdentity, ObjectPaneSiblingMsg, TypeSchemaProp,
+} from '../lib/types';
 import { getTypeColor } from '../lib/types';
 import { intersectTypeSchemas } from '../lib/type-schema-utils';
 import { typeBadge } from '../lib/type-badge';
@@ -29,7 +31,8 @@ import {
 import { identityBusinessIdError } from '../lib/object-identity';
 import { appendEcPreview } from '../lib/ec-format';
 import { installDirtyGuards } from '../editor-core/overlay';
-import { RuntimeRequestError, sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging';
+import { sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging';
+import { LOOKUP_WATCHDOG_TIMEOUT } from '../lib/constants';
 import { findPropDef } from '../sidepanel/pane-schema';
 import { paneValueEquals } from '../sidepanel/pane-edit';
 import { displayValue } from '../sidepanel/property-editors';
@@ -48,6 +51,7 @@ import { confirmModal } from '../lib/modal';
 import { clearCommittedDraft, reconcileInstanceOverrides } from './saved-state';
 import { replacePropertyElement, syncOptionalElement } from './local-update';
 import { syncObjectViewInteractionLock } from './interaction-lock';
+import { editFieldPropertyRelation } from '../lib/edit-field-property';
 
 // The Access Trace overlay is shared with the side panel. The SW replies to the
 // sender (respond()), so here we bridge its fire-and-forget sends through
@@ -81,6 +85,7 @@ document.addEventListener('keydown', (event) => {
 });
 
 interface PaneState {
+  environment: string;
   rid: string;
   identity: ObjectPaneIdentity;
   parent: ObjectPaneIdentity | null;
@@ -107,6 +112,8 @@ interface PaneState {
   editFieldProperties: TypeSchemaProp[] | null;
   editFieldPropertiesLoading: boolean;
   editFieldPropertiesError: string | null;
+  editFieldProperty: EditFieldPropertyResolution | null;
+  editFieldPropertyError: string | null;
 }
 
 type SaveTarget = 'instance' | 'template';
@@ -166,19 +173,19 @@ async function reloadPane(): Promise<void> {
   }, 3_000));
   loadTimers.push(setTimeout(() => {
     if (attempt === loadAttempt) {
-      renderObjectLoading('Still loading. BMP is slow. Cancelling in a few seconds if it doesn’t respond.', 'verySlow');
+      renderObjectLoading('Still loading. BMP is slow; waiting for the command to finish.', 'verySlow');
     }
   }, 7_000));
 
   let msg: Awaited<ReturnType<typeof sendRequestBounded>>;
   try {
-    msg = await sendRequestBounded({ type: 'FETCH_OBJECT_PANE', rid }, { timeoutMs: 15_000 });
+    msg = await sendRequestBounded(
+      { type: 'FETCH_OBJECT_PANE', rid },
+      { timeoutMs: LOOKUP_WATCHDOG_TIMEOUT },
+    );
   } catch (e) {
     if (attempt !== loadAttempt) return;
     clearLoadTimers();
-    if (e instanceof RuntimeRequestError && e.kind === 'timeout') {
-      sendFireForget({ type: 'CANCEL_FETCH_OBJECT_PANE', rid });
-    }
     renderObjectLoadError(e instanceof Error ? e.message : 'Failed to load object');
     return;
   }
@@ -189,6 +196,7 @@ async function reloadPane(): Promise<void> {
     return;
   }
   state = {
+    environment: msg.environment,
     rid,
     identity: msg.instance,
     parent: msg.parent,
@@ -207,6 +215,8 @@ async function reloadPane(): Promise<void> {
     editFieldPropertiesError: msg.instance.type === 'EditField' && !msg.editFieldClassNames?.length
       ? 'No owning CreateObjectView type found'
       : null,
+    editFieldProperty: msg.editFieldProperty ?? null,
+    editFieldPropertyError: msg.editFieldPropertyError ?? null,
     references: msg.references ?? {},
     loaded: true,
     error: (msg as any).error ?? null,
@@ -228,11 +238,12 @@ async function loadEditFieldProperties(): Promise<void> {
   const current = state;
   if (!current || current.identity.type !== 'EditField' || current.editFieldClassNames.length === 0) return;
   const expectedRid = current.rid;
-  let responses: Awaited<ReturnType<typeof sendRequestBounded>>[];
+  let response: Awaited<ReturnType<typeof sendRequestBounded>>;
   try {
-    responses = await Promise.all(current.editFieldClassNames.map(className =>
-      sendRequestBounded({ type: 'FETCH_TYPE_SCHEMA', className }, { timeoutMs: 10_000 }),
-    ));
+    response = await sendRequestBounded(
+      { type: 'FETCH_TYPE_SCHEMAS', classNames: current.editFieldClassNames },
+      { timeoutMs: Math.max(15_000, current.editFieldClassNames.length * 10_000) },
+    );
   } catch {
     if (!state || state.rid !== expectedRid) return;
     state.editFieldPropertiesLoading = false;
@@ -241,13 +252,12 @@ async function loadEditFieldProperties(): Promise<void> {
     renderPane();
     return;
   }
-  if (!state || state.rid !== expectedRid) return;
+  if (!state || state.rid !== expectedRid || state.environment !== current.environment) return;
 
-  const schemas = responses.flatMap(response =>
-    response?.type === 'FETCH_TYPE_SCHEMA_RESULT' && response.ok && response.props
-      ? [response.props]
-      : [],
-  );
+  const schemas = response?.type === 'FETCH_TYPE_SCHEMAS_RESULT'
+    && response.environment === current.environment
+    ? response.results.flatMap(result => result.ok && result.props ? [result.props] : [])
+    : [];
   state.editFieldPropertiesLoading = false;
   if (schemas.length !== current.editFieldClassNames.length) {
     state.editFieldPropertiesError = 'Could not load the object property schema';
@@ -455,6 +465,7 @@ async function commitSave(): Promise<void> {
   try {
     const reply = await sendRequest({
       type: 'APPLY_OBJECT_CHANGES',
+      environment: savingState.environment,
       rid: savingState.rid,
       target: saveTarget,
       changes,
@@ -858,23 +869,26 @@ function renderSectionHeadingContent(label: string): Array<HTMLElement | string>
 
 function renderRelationsSection(): HTMLElement {
   const s = state!;
-  const path = h('div', { class: 'ov-relation-path' },
-    s.parent
-      ? h('button', {
-          class: 'ov-relation-node',
-          type: 'button',
-          'data-open-rid': s.parent.rid,
-          title: `Open parent ${s.parent.name || s.parent.businessId || s.parent.rid}`,
-        },
-          h('span', { class: 'ov-relation-node-label' }, 'Parent'),
-          h('span', { class: 'ov-relation-node-value' },
-            typeBadge(s.parent.type, { size: 'xs' }),
-            h('span', null, s.parent.name || '(unnamed)'),
-            s.parent.businessId ? h('code', null, s.parent.businessId) : null,
-          ),
-        )
-      : null,
-    s.parent ? h('span', { class: 'ov-relation-arrow', 'aria-hidden': 'true' }, '→') : null,
+  const relationItems: HTMLElement[] = [];
+  if (s.parent) {
+    relationItems.push(
+      h('button', {
+        class: 'ov-relation-node',
+        type: 'button',
+        'data-open-rid': s.parent.rid,
+        title: `Open parent ${s.parent.name || s.parent.businessId || s.parent.rid}`,
+      },
+        h('span', { class: 'ov-relation-node-label' }, 'Parent'),
+        h('span', { class: 'ov-relation-node-value' },
+          typeBadge(s.parent.type, { size: 'xs' }),
+          h('span', null, s.parent.name || '(unnamed)'),
+          s.parent.businessId ? h('code', null, s.parent.businessId) : null,
+        ),
+      ),
+      h('span', { class: 'ov-relation-arrow', 'aria-hidden': 'true' }, '→'),
+    );
+  }
+  relationItems.push(
     h('div', { class: 'ov-relation-node ov-relation-node--current' },
       h('span', { class: 'ov-relation-node-label' }, 'Current object'),
       h('span', { class: 'ov-relation-node-value' },
@@ -884,6 +898,57 @@ function renderRelationsSection(): HTMLElement {
       ),
     ),
   );
+  const propertyRelation = editFieldPropertyRelation(
+    s.identity.type,
+    s.instanceProps.propertyMapping,
+    s.editFieldProperty,
+    s.editFieldPropertyError,
+  );
+  if (propertyRelation.kind !== 'absent') {
+    relationItems.push(h('span', {
+      class: 'ov-relation-arrow ov-relation-arrow--property',
+      'aria-label': 'maps to property',
+      title: 'propertyMapping',
+    }, '→'));
+    const resolved = propertyRelation.kind === 'resolved'
+      ? propertyRelation.resolution
+      : null;
+    const propertyName = resolved?.property.name || propertyRelation.accessor;
+    const meta = propertyRelation.kind === 'resolved'
+      ? 'Property definition'
+      : propertyRelation.error;
+    relationItems.push(resolved
+      ? h('button', {
+          class: 'ov-relation-node ov-relation-node--property',
+          type: 'button',
+          'data-open-rid': resolved.property.rid,
+          title: `Open mapped property ${propertyName}`,
+        },
+          h('span', { class: 'ov-relation-node-label' }, 'Mapped property'),
+          h('span', { class: 'ov-relation-node-value' },
+            typeBadge(resolved.property.type, { size: 'xs' }),
+            h('span', null, propertyName),
+            h('code', null, propertyRelation.accessor),
+          ),
+          h('span', { class: 'ov-relation-node-meta' }, meta),
+        )
+      : h('div', {
+          class: 'ov-relation-node ov-relation-node--property is-unresolved',
+          'aria-disabled': 'true',
+          title: meta,
+        },
+          h('span', { class: 'ov-relation-node-label' }, 'Mapped property'),
+          h('span', { class: 'ov-relation-node-value' },
+            typeBadge('Property', { size: 'xs' }),
+            h('span', null, propertyRelation.accessor),
+            h('code', null, propertyRelation.accessor),
+          ),
+          h('span', { class: 'ov-relation-node-meta' }, meta),
+        ));
+  }
+  const path = h('div', {
+    class: `ov-relation-path ov-relation-path--${relationItems.length}`,
+  }, ...relationItems);
 
   return h('section', {
     class: 'ov-document-section ov-relations-section',

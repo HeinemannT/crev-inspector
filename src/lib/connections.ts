@@ -79,6 +79,13 @@ function isSafeAccessor(a: string): boolean {
 const ROW = (v: string) =>
   `${v}.rid.whenMissing("") + "|" + ${v}.id.whenMissing("") + "|" + ${v}.name.whenMissing("") + "|" + ${v}.className.whenMissing("")`;
 
+/** Declared reverse refs are loaded only on demand, but they still need hard
+ * payload bounds: one relationship can point at thousands of objects and a
+ * type can declare several such fields. The +1 emitted by the builder lets
+ * the parser report truncation without a separate count query. */
+export const REVERSE_REF_FIELD_CAP = 50;
+export const REVERSE_REF_TOTAL_CAP = 100;
+
 /**
  * Build the EC that reads every ref field's endpoint(s) for `ref`. Each field
  * emits a `{sep}f:<accessor>{sep}` header followed by zero or more
@@ -90,6 +97,7 @@ export function buildConnectionsEc(ref: string, fields: RefField[]): string {
     `_sep := "${FLOW_SEP}"`,
     `_o := ${ref}`,
     '_r := ""',
+    '_reverseN := 0',
   ];
   for (const f of fields) {
     if (!isSafeAccessor(f.accessor)) continue;
@@ -99,9 +107,23 @@ export function buildConnectionsEc(ref: string, fields: RefField[]): string {
     // ref. One uniform read sidesteps both the single-vs-multi ambiguity and
     // EC's IF-is-an-expression rule (a guard block is a parse error).
     lines.push(`_r := _r + _sep + "f:${f.accessor}" + _sep + "\\n"`);
+    if (f.direction === 'in') lines.push('_fieldN := 0');
     lines.push(`_o.${f.accessor}.forEach(_t:`);
-    lines.push(`     _r := _r + ${ROW('_t')} + "\\n"`);
+    if (f.direction === 'in') {
+      lines.push('     _fieldN := _fieldN + 1');
+      lines.push('     _reverseN := _reverseN + 1');
+      lines.push(`     IF _fieldN <= ${REVERSE_REF_FIELD_CAP + 1} AND _reverseN <= ${REVERSE_REF_TOTAL_CAP + 1} THEN`);
+      lines.push(`          _r := _r + ${ROW('_t')} + "\\n"`);
+      lines.push('     ELSE');
+      lines.push('          _r := _r');
+      lines.push('     ENDIF');
+    } else {
+      lines.push(`     _r := _r + ${ROW('_t')} + "\\n"`);
+    }
     lines.push(`)`);
+    if (f.direction === 'in') {
+      lines.push(`_r := _r + _sep + "n:${f.accessor}" + _sep + str(_fieldN) + "\\n"`);
+    }
   }
   lines.push(`_r := _r + _sep + "DONE" + _sep`);
   lines.push('_r');
@@ -128,6 +150,7 @@ function parseRow(line: string): ConnTarget | null {
  */
 export function parseConnections(log: string, fields: RefField[]): ConnGroup[] {
   const byAccessor = new Map<string, ConnTarget[]>();
+  const counts = new Map<string, number>();
   // Split into [header, body, header, body, ...] on the separator.
   const chunks = log.split(FLOW_SEP);
   for (let i = 0; i < chunks.length - 1; i++) {
@@ -141,14 +164,30 @@ export function parseConnections(log: string, fields: RefField[]): ConnGroup[] {
       if (t) targets.push(t);
     }
     byAccessor.set(accessor, targets);
+    continue;
+  }
+  for (let i = 0; i < chunks.length - 1; i++) {
+    const head = chunks[i].trim();
+    if (!head.startsWith('n:')) continue;
+    const accessor = head.slice(2);
+    const count = Number((chunks[i + 1] ?? '').trim().split('\n')[0]);
+    if (Number.isSafeInteger(count) && count >= 0) counts.set(accessor, count);
   }
 
-  return fields.map(f => ({
-    field: f.accessor,
-    label: f.label,
-    direction: f.direction,
-    targets: byAccessor.get(f.accessor) ?? [],
-  }));
+  return fields.map(f => {
+    const rawTargets = byAccessor.get(f.accessor) ?? [];
+    const targets = f.direction === 'in'
+      ? rawTargets.slice(0, REVERSE_REF_FIELD_CAP)
+      : rawTargets;
+    const total = counts.get(f.accessor) ?? rawTargets.length;
+    return {
+      field: f.accessor,
+      label: f.label,
+      direction: f.direction,
+      targets,
+      ...(f.direction === 'in' && total > targets.length ? { capped: true } : {}),
+    };
+  });
 }
 
 // ── Junction inlining (C2) ──────────────────────────────────────────

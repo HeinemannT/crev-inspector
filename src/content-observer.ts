@@ -87,6 +87,7 @@ export function startObserver(
       // Form definition can change even when BMP keeps the same parent `rid`
       // and only rewrites create/edit parameters.
       s.editPageContext = null;
+      s.resetEditPageInspection();
       refreshDetection();
       if (ownerChanged) {
         // The page owner changed — drop the stale fiber context and tell the

@@ -8,6 +8,7 @@ import { log, errorMessage } from './logger';
 import { HEALTH_POLL_INTERVAL } from './constants';
 import { updateBadge } from './badge';
 import { incrementGeneration, registerConnectionDisplayFn } from './enrichment';
+import { environmentToken } from './environment';
 
 // Register connection display accessor for enrichment module (breaks circular dependency)
 registerConnectionDisplayFn(() => computeConnectionState().display);
@@ -104,7 +105,7 @@ export function computeConnectionState(): ConnectionState {
   const profile = ctx.settings.profiles.find(p => p.id === ctx.settings.activeProfileId);
   // A URL alone configures a profile now — `session` profiles have no username.
   if (!profile?.bmpUrl) {
-    return { display: 'not-configured', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, authVia: null, networkOffline: false, lastUpdate: Date.now() };
+    return { display: 'not-configured', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, authVia: null, networkOffline: false, lastUpdate: Date.now(), environment: environmentToken(ctx) };
   }
 
   let display: ConnectionState['display'];
@@ -146,6 +147,7 @@ export function computeConnectionState(): ConnectionState {
     authVia: authResult === 'ok' ? authVia : null,
     networkOffline,
     lastUpdate: Date.now(),
+    environment: environmentToken(ctx),
   };
 }
 
@@ -169,6 +171,25 @@ export function bindConnectionClient(client: BmpClient, profileId: string): void
   client.setTransportOutcomeObserver((outcome: BmpTransportOutcome) => {
     const ctx = getCtx();
     if (ctx.client !== client || ctx.settings.activeProfileId !== profileId) return;
+    const stressed = outcome.durationMs >= 10_000
+      || outcome.queueWaitMs >= 2_000
+      || outcome.attempts > 1
+      || outcome.requestBytes >= 256 * 1024
+      || outcome.responseBytes >= 1024 * 1024;
+    if (stressed) {
+      const result = outcome.ok ? 'completed' : `failed (${outcome.error.kind})`;
+      ctx.logActivity(
+        outcome.ok ? 'warn' : 'error',
+        `BMP ${outcome.operation} ${result} under load`,
+        [
+          `run ${outcome.durationMs}ms`,
+          `queue ${outcome.queueWaitMs}ms (depth ${outcome.queueDepth})`,
+          `${outcome.attempts} attempt${outcome.attempts === 1 ? '' : 's'}`,
+          `${outcome.requestBytes}B request`,
+          `${outcome.responseBytes}B response`,
+        ].join(' · '),
+      );
+    }
     if (outcome.ok) {
       commandResult = 'ok';
       commandError = null;

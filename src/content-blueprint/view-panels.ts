@@ -26,11 +26,24 @@ import { bp, model, type ApplyOutcome } from './state';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
 import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, toggleSettings, closeSettings, discard, armDiscard, disarmDiscard, openApplyPreview, exitBlueprint, setMode, dismissApplyOutcome } from './actions';
 import { setEditTarget } from '../content-blueprint'; // runtime-only (click handler) — no init-time cycle
+import { setNativeEditPageSuppressed } from './edit-page-native';
 import {
   persistPortableIdPattern,
+  portableIdsAvailable,
   setPortableIdPatternDraft,
   setPortableIdsEnabled,
 } from './id-config';
+
+function setPeekPresentation(active: boolean): void {
+  const layer = bp.layer;
+  if (!layer) return;
+  layer.classList.toggle('bp-peek', active);
+  setNativeEditPageSuppressed(!active);
+  const workspace = layer.querySelector<HTMLElement>('.bp-editpage-workspace');
+  if (!workspace) return;
+  workspace.inert = active;
+  workspace.setAttribute('aria-hidden', String(active));
+}
 
 const VERB_ICON: Record<PlanNote['verb'], string> = { create: ICON_PLUS, update: ICON_PENCIL, move: ICON_ARROW_RIGHT, reorder: ICON_SWAP, delete: ICON_TRASH };
 
@@ -203,6 +216,13 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
     warn(`Some containers here are shared with ${xfam.otherFamilies} page${xfam.otherFamilies === 1 ? '' : 's'} `
       + `outside this template${names ? ` (${names}${xfam.otherFamilies > 2 ? ', …' : ''})` : ''}. Your structural changes affect them too.`);
   }
+  const flowBlast = bp.blast?.flowBlast;
+  if (flowBlast && flowBlast.sharedContainers > 0) {
+    const usages = flowBlast.containers.flatMap(container => container.usages);
+    const names = usages.map(usage => usage.name).filter(Boolean).slice(0, 2).join(', ');
+    warn(`${flowBlast.sharedContainers} edited form definition${flowBlast.sharedContainers === 1 ? ' is' : 's are'} shared by multiple views`
+      + `${names ? ` (${names}${usages.length > 2 ? ', …' : ''})` : ''}. Child changes appear in every referencing form.`);
+  }
   // Shared Result-tab warning. The Result tab lives in the SHARED default_tabset, so structural edits
   // there (above all a new/moved container) land on every scorecard that uses it — louder than a normal
   // widget edit, which only touches this scorecard's own objects. Computed locally (no probe needed).
@@ -259,15 +279,15 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
 
 /** A minimal PlanNote for one step — the tray's fallback when compile() rejects the plan (e.g. a
  *  malformed colour id). Same verbs/actions as the compiler, just without where/detail/ec. */
-const STEP_ACTION: Record<PlanStep['kind'], PlanNote['action']> = { create: 'Add', update: 'Change', reparent: 'Move', reorder: 'Reorder', delete: 'Delete', flowCreate: 'Add', flowReorder: 'Reorder', flowFlag: 'Change', flowWire: 'Change', flowRename: 'Change' };
-const STEP_VERB: Record<PlanStep['kind'], PlanNote['verb']> = { create: 'create', update: 'update', reparent: 'move', reorder: 'reorder', delete: 'delete', flowCreate: 'create', flowReorder: 'reorder', flowFlag: 'update', flowWire: 'update', flowRename: 'update' };
+const STEP_ACTION: Record<PlanStep['kind'], PlanNote['action']> = { create: 'Add', update: 'Change', reparent: 'Move', reorder: 'Reorder', delete: 'Delete', flowCreate: 'Add', flowReorder: 'Reorder', flowDelete: 'Delete', flowFlag: 'Change', flowWire: 'Change', flowRename: 'Change', flowProperty: 'Change' };
+const STEP_VERB: Record<PlanStep['kind'], PlanNote['verb']> = { create: 'create', update: 'update', reparent: 'move', reorder: 'reorder', delete: 'delete', flowCreate: 'create', flowReorder: 'reorder', flowDelete: 'delete', flowFlag: 'update', flowWire: 'update', flowRename: 'update', flowProperty: 'update' };
 function stepNote(base: LModel, m: LModel, s: PlanStep): PlanNote {
   const id = planStepId(s);
   // create/flowCreate carry their subject on `node`; flow steps otherwise name their subject by id
   // (flow rows live outside the LNode tree, so findNode can't see them).
   const node = s.kind === 'create' ? s.node
     : s.kind === 'flowCreate' ? { name: s.node.name, className: s.node.className }
-    : s.kind === 'flowReorder' || s.kind === 'flowFlag' || s.kind === 'flowWire' || s.kind === 'flowRename' ? { name: s.kind === 'flowRename' ? s.name : id, className: s.kind === 'flowFlag' || s.kind === 'flowRename' ? s.className : undefined }
+    : s.kind === 'flowReorder' || s.kind === 'flowDelete' || s.kind === 'flowFlag' || s.kind === 'flowWire' || s.kind === 'flowRename' || s.kind === 'flowProperty' ? { name: s.kind === 'flowRename' ? s.name : s.kind === 'flowDelete' ? s.name ?? id : id, className: s.kind === 'flowFlag' || s.kind === 'flowRename' || s.kind === 'flowDelete' ? s.className : s.kind === 'flowProperty' ? 'EditField' : undefined }
     : (findNode(m, id)?.node ?? findNode(base, id)?.node ?? null);
   return { verb: STEP_VERB[s.kind], id, text: node?.name ?? id, action: STEP_ACTION[s.kind], object: node?.name ?? id, objectType: node?.className };
 }
@@ -294,7 +314,7 @@ export function trayPanel(base: LModel, m: LModel): HTMLElement {
   // entry. Revert that entry; other flow/layout steps already use their own subject id.
   const revertTarget = new Map(plan.map(step => [
     planStepId(step),
-    step.kind === 'flowReorder' ? step.parentId : planStepId(step),
+    step.kind === 'flowReorder' || step.kind === 'flowDelete' ? step.parentId : planStepId(step),
   ]));
   const seen = new Set<string>();
   for (const note of notes) {
@@ -384,8 +404,8 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   peek.title = 'Show live page. Hover to peek; click to keep it visible.';
   peek.setAttribute('aria-label', 'Show live page');
   peek.setAttribute('aria-pressed', String(bp.peek));
-  peek.addEventListener('mouseenter', () => bp.layer?.classList.add('bp-peek'));
-  peek.addEventListener('mouseleave', () => { if (!bp.peek) bp.layer?.classList.remove('bp-peek'); });
+  peek.addEventListener('mouseenter', () => setPeekPresentation(true));
+  peek.addEventListener('mouseleave', () => setPeekPresentation(bp.peek));
   c.appendChild(peek);
   // Undo/redo are borderless: frequent, low-stakes nudges that should not crowd out Exit.
   const undoB = mkIconBtn(ICON_ARROW_UNDO, undo); undoB.title = 'Undo'; undoB.disabled = !bp.history?.canUndo(); undoB.classList.add('plain'); c.appendChild(undoB);
@@ -437,14 +457,14 @@ export function settingsPanel(anchor: { left: number; top: number }): HTMLElemen
 
   const idSection = document.createElement('div');
   idSection.className = 'bp-settings-section';
-  const templateEligible = bp.ctx?.target === 'template';
+  const idsEligible = portableIdsAvailable(bp.ctx);
   const idsLoading = bp.idConfigStatus === 'loading';
   const idRow = document.createElement('button');
   idRow.className = 'bp-settings-row';
   idRow.type = 'button';
   idRow.setAttribute('role', 'switch');
   idRow.setAttribute('aria-checked', String(bp.idConfig.enabled));
-  idRow.disabled = !templateEligible || idsLoading;
+  idRow.disabled = !idsEligible || idsLoading;
   idRow.addEventListener('click', () => setPortableIdsEnabled(!bp.idConfig.enabled));
   const idCopy = document.createElement('span');
   idCopy.className = 'bp-settings-copy';
@@ -455,8 +475,10 @@ export function settingsPanel(anchor: { left: number; top: number }): HTMLElemen
   idHelp.className = 'bp-settings-help';
   idHelp.textContent = idsLoading
     ? 'Loading ID settings…'
-    : templateEligible
-      ? 'Assign readable IDs to new template and Shared Web Items.'
+    : idsEligible
+      ? bp.ctx?.surface === 'edit-page'
+        ? 'Assign readable IDs to new fields and breaks on this EditPage.'
+        : 'Assign readable IDs to new template and Shared Web Items.'
       : 'Available while editing Template; instances keep BMP-generated IDs.';
   idCopy.append(idLabel, idHelp);
   const idToggle = document.createElement('span');
@@ -466,7 +488,7 @@ export function settingsPanel(anchor: { left: number; top: number }): HTMLElemen
   idRow.append(idCopy, idToggle);
   idSection.appendChild(idRow);
 
-  if (templateEligible && bp.idConfig.enabled) {
+  if (idsEligible && bp.idConfig.enabled) {
     const form = document.createElement('div');
     form.className = 'bp-id-form';
     const formLabel = document.createElement('label');

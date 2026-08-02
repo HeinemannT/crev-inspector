@@ -13,6 +13,7 @@ import { errorMessage, log } from '../logger';
 import type { PlanNote } from '../layout/types';
 import type { ApplyResult } from '../layout/sync';
 import type { ActivityMeta } from '../types';
+import { environmentToken } from '../environment';
 
 const BLUEPRINT_VERSION_ERROR = 'Blueprint requires BMP 5.6.3 or newer.';
 
@@ -175,8 +176,6 @@ register('BLUEPRINT_RESUME', async (_msg, _respond, meta) => {
 /** Environment fingerprint stamped at load and re-checked at apply. Combines the active profile id
  *  with the live server URL, so a profile reconfigured to a different workspace under the same id
  *  can't silently receive a commit meant for the old one. */
-const envToken = (ctx: SwContext): string => `${ctx.settings.activeProfileId}@${ctx.client?.serverUrl ?? ''}`;
-
 // LAYOUT_LOAD/APPLY are request/response: the content overlay sends them via `sendRequest`
 // (one-shot), so the handler's `respond` IS sendResponse and goes straight back to the sender.
 
@@ -194,7 +193,7 @@ register('LAYOUT_LOAD', async (msg, respond) => {
       return;
     }
     respond({
-      type: 'LAYOUT_LOAD_RESULT', ok: true, env: envToken(ctx),
+      type: 'LAYOUT_LOAD_RESULT', ok: true, env: environmentToken(ctx),
       ctx: res.ctx, model: res.load.model, baseline: res.load.baseline, orphans: res.load.orphans,
     });
     ctx.logActivity('success', `Blueprint loaded ${res.ctx.pageClass} ${res.ctx.pageId}${res.ctx.resultOnly ? ' (result-only, no tabset)' : ''} (${Date.now() - t0}ms)`, `EC calls: ${timings.join(' | ')}`);
@@ -213,10 +212,10 @@ register('LAYOUT_APPLY', async (msg, respond) => {
   }
   // Wrong-env guard: refuse a commit whose load happened against a different profile than the one
   // now active (the user switched environments between load and apply).
-  if (msg.env !== envToken(ctx)) {
+  if (msg.env !== environmentToken(ctx)) {
     respond({ type: 'LAYOUT_APPLY_RESULT', ok: false, noop: false,
       error: 'Environment changed since this layout was loaded. Reload the page before applying.' });
-    ctx.logActivity('warn', `Blueprint apply blocked: env ${msg.env} != active ${envToken(ctx)}`);
+    ctx.logActivity('warn', `Blueprint apply blocked: env ${msg.env} != active ${environmentToken(ctx)}`);
     return;
   }
   if (msg.portableIds && Object.keys(msg.portableIds).length && msg.ctx.target !== 'template') {
@@ -282,9 +281,17 @@ register('LAYOUT_PORTABLE_ID_PREFLIGHT', async (msg, respond) => {
 // fails silently to nulls), so the preview shows warnings only when the rref walk came back in time.
 register('LAYOUT_BLAST', async (msg, respond) => {
   const ctx = getCtx();
-  if (!ctx.client) { respond({ type: 'LAYOUT_BLAST_RESULT', fanout: null, blast: null }); return; }
-  const res = await loadBlastRadius(ctx.client, msg.pageId, msg.containers);
-  respond({ type: 'LAYOUT_BLAST_RESULT', fanout: res.fanout, blast: res.blast });
+  if (!ctx.client) {
+    respond({ type: 'LAYOUT_BLAST_RESULT', fanout: null, blast: null, flowBlast: null });
+    return;
+  }
+  const res = await loadBlastRadius(ctx.client, msg.pageId, msg.containers, msg.flowContainers);
+  respond({
+    type: 'LAYOUT_BLAST_RESULT',
+    fanout: res.fanout,
+    blast: res.blast,
+    flowBlast: res.flowBlast,
+  });
 });
 
 // Flow "wire to existing" picker: the workspace's InputSets / EditPages, fetched lean at picker-open

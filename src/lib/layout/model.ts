@@ -280,6 +280,7 @@ export function cloneFlowEdits(fe: Record<string, FlowEdit>): Record<string, Flo
   for (const [k, e] of Object.entries(fe)) {
     out[k] = {
       ...(e.adds ? { adds: e.adds.map(cloneFlowNode) } : {}),
+      ...(e.removes ? { removes: [...e.removes] } : {}),
       ...(e.order ? { order: [...e.order] } : {}),
       ...(e.displayOnActionMenu !== undefined ? { displayOnActionMenu: e.displayOnActionMenu } : {}),
       ...(e.displayOnAllTabs !== undefined ? { displayOnAllTabs: e.displayOnAllTabs } : {}),
@@ -291,6 +292,7 @@ export function cloneFlowEdits(fe: Record<string, FlowEdit>): Record<string, Flo
       // edit clones again, and dropping it here silently reverted the rename (and left a phantom empty
       // entry inflating the pending count). Every FlowEdit field must be carried, no exceptions.
       ...(e.rename !== undefined ? { rename: e.rename } : {}),
+      ...(e.propertyMapping !== undefined ? { propertyMapping: e.propertyMapping } : {}),
     };
   }
   return out;

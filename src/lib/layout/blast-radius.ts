@@ -1,7 +1,7 @@
 /**
  * Blast-radius queries for the blueprint apply-preview — PURE (builders + parsers, no I/O).
  *
- * Two questions the preview answers before the user commits, both driven by `rref()` (reverse
+ * Three questions the preview answers before the user commits, all driven by `rref()` (reverse
  * reference) against live BMP via the LayoutIO seam:
  *
  *   (A) INSTANCE FAN-OUT — is the page being edited a TEMPLATE MASTER? `page.rref(linkedTo)` returns
@@ -11,6 +11,8 @@
  *       `container.rref(container)` → the widgets → `widget.scorecard` → the distinct scorecards.
  *       Collapsed by TEMPLATE-FAMILY so a master and its own instances count as ONE thing (not N
  *       scary "places"); only families OTHER than the page's own are an external blast.
+ *   (C) SHARED FORM DEFINITION — an EditPage or InputSet can itself be referenced by multiple
+ *       views. Structural child edits therefore warn when the same definition is reused elsewhere.
  *
  * `name` is the LAST pipe field everywhere (free-text, parsed as the remainder) — a name containing
  * `|` can't shift the structural fields (same rule as the layout wire format). See
@@ -21,6 +23,7 @@
  */
 
 import { buildRowEc } from '../ec-row-codec';
+import { formatEcLiteral } from '../ec-guards';
 import { markerLines, safeWireTextEc } from '../layout-wire';
 
 const SEP = '<<<CREV_BLAST>>>';
@@ -45,6 +48,26 @@ export interface ContainerBlast {
   otherFamilies: number;
   /** One representative page per other family (for the warning text). */
   families: SharedFamily[];
+}
+
+export interface FlowContainerProbe {
+  id: string;
+  className: 'InputSet' | 'EditPage';
+  ref: string;
+}
+
+export interface FlowContainerBlast {
+  sharedContainers: number;
+  containers: Array<{
+    id: string;
+    className: 'InputSet' | 'EditPage';
+    usages: Array<{
+      rid: string;
+      businessId?: string;
+      name?: string;
+      className?: string;
+    }>;
+  }>;
 }
 
 /** (A) Build the fan-out probe for the page being edited. Emits one SELF row (own rid + linkedTo)
@@ -128,4 +151,58 @@ export function parseContainerBlast(log: string, ownFamilyKey: string): Containe
     }
   }
   return { otherFamilies: byFamily.size, families: [...byFamily.values()] };
+}
+
+/** (C) Probe whether an edited InputSet/EditPage is referenced by more than
+ * one InputView/CreateObjectView. These configuration objects are shared by
+ * reference, so a child add/reorder/delete affects every referencing form. */
+export function buildFlowContainerBlastEc(probes: FlowContainerProbe[]): string {
+  const lines: string[] = ['_r := ""'];
+  probes.forEach((probe, index) => {
+    const property = probe.className === 'EditPage' ? 'editPage' : 'inputSet';
+    const id = formatEcLiteral(probe.id);
+    const className = formatEcLiteral(probe.className);
+    lines.push(`_f${index} := ${probe.ref}`);
+    lines.push(`_f${index}.rref(${property}).forEach(_w:`);
+    lines.push(
+      `     _r := _r + "${SEP}FLOW|${id}|${className}|" + _w.rid.whenMissing("") + "|" + _w.id.whenMissing("") + "|" + _w.className.whenMissing("") + "|" + ${safeWireTextEc('_w.name.whenMissing("")')} + "\\n"`,
+    );
+    lines.push(')');
+  });
+  lines.push('_r');
+  return lines.join('\n');
+}
+
+export function parseFlowContainerBlast(log: string): FlowContainerBlast {
+  const byContainer = new Map<string, FlowContainerBlast['containers'][number]>();
+  const seen = new Map<string, Set<string>>();
+  for (const line of markerLines(log, SEP)) {
+    if (!line.startsWith('FLOW|')) continue;
+    const parts = line.split('|');
+    const id = parts[1];
+    const className = parts[2];
+    const rid = parts[3];
+    if (
+      !id
+      || (className !== 'InputSet' && className !== 'EditPage')
+      || !rid
+    ) continue;
+    let container = byContainer.get(id);
+    if (!container) {
+      container = { id, className, usages: [] };
+      byContainer.set(id, container);
+      seen.set(id, new Set());
+    }
+    const containerSeen = seen.get(id)!;
+    if (containerSeen.has(rid)) continue;
+    containerSeen.add(rid);
+    container.usages.push({
+      rid,
+      businessId: parts[4] || undefined,
+      className: parts[5] || undefined,
+      name: parts.slice(6).join('|') || undefined,
+    });
+  }
+  const containers = [...byContainer.values()].filter(container => container.usages.length > 1);
+  return { sharedContainers: containers.length, containers };
 }

@@ -28,6 +28,9 @@ export interface ConnectionState {
   authError: string | null;
   networkOffline: boolean;
   lastUpdate: number;
+  /** Active profile + resolved server identity. Writable views retain this
+   * token and the service worker rejects saves after an environment switch. */
+  environment?: string;
 }
 
 /** Metadata about a BMP object discovered via DOM, fiber, or server */
@@ -94,6 +97,41 @@ export interface EditPageContext {
   objectRid?: string;
   objectName?: string;
   objectType?: string;
+  /** Rendered property editors in DOM order. `key` is BMP's stable index in
+   *  the EditPage field stream; Inspect uses it to join a native form control
+   *  back to its EditField configuration without inventing DOM RIDs. */
+  fields?: EditPageFieldContext[];
+}
+
+export interface EditPageFieldContext {
+  kind?: 'field' | 'info';
+  key?: number;
+  propertyRef?: string;
+  /** Configuration RID carried by an EditPageInfo React slot. */
+  objectRef?: string;
+  displayName?: string;
+  pageIndex?: number;
+  columnIndex?: number;
+}
+
+export interface EditFieldPropertyResolution {
+  /** Exact accessor stored in EditField.propertyMapping. */
+  accessor: string;
+  /** Stable master property configuration under root.property. */
+  property: ObjectPaneIdentity;
+}
+
+/** One ClassConfig application of a master property. The application is a
+ * delta over the master: an empty `overrides` object means every field
+ * inherits live from the property definition. */
+export interface PropertyApplication {
+  /** Short BMP object-type ID, e.g. `CeRiskAssessment`. */
+  classId: string;
+  /** Real ClassConfig child, retained as an addressable BMP object. */
+  application: ObjectPaneIdentity;
+  /** Explicit per-class delta as emitted by application.genedit(). Values are
+   * EC literals so code/string/list fidelity is preserved across the wire. */
+  overrides: Record<string, string>;
 }
 
 export interface TypeSchemaProp {
@@ -113,6 +151,14 @@ export interface TypeSchemaProp {
   systemobject: boolean;
   /** Optional help text supplied by BMP's concrete-object `help()` output. */
   description?: string;
+  /** Stable master MethodConfig identity under `root.property`. Present on
+   * the ClassConfig enumeration path; absent on the `help()` fallback. */
+  propertyRid?: string;
+  propertyId?: string;
+  /** Concrete class of the linked master property (e.g.
+   * `ReferenceMethodConfig`). This intentionally differs from `configClass`,
+   * which describes the per-object-type ClassConfig application. */
+  propertyConfigClass?: string;
 }
 
 /** One allowed value of a list/tag property — a ListPropertySetItem or Tag,
@@ -270,6 +316,35 @@ export interface ObjectPaneSiblingMsg {
   type: string;
   isCurrent: boolean;
 }
+
+/** Canonical serializable object-pane payload shared by the query service,
+ * runtime message, handler, and inspector views. */
+export interface ObjectPanePayload {
+  instance: ObjectPaneIdentity;
+  parent: ObjectPaneIdentity | null;
+  template: ObjectPaneIdentity | null;
+  card: ObjectPaneCard | null;
+  instanceProps: Record<string, string>;
+  templateProps: Record<string, string>;
+  instanceOverrideProps: string[];
+  siblings: ObjectPaneSiblingMsg[];
+  siblingTotal: number;
+  codeFields: Record<string, string>;
+  isPropertyDefinition: boolean;
+  references: Record<string, ObjectPaneIdentity | null>;
+  indirectCode: Record<string, string>;
+  indirectCodeRids: Record<string, string>;
+  contextValues: Record<string, string>;
+  gateValues: Record<string, string>;
+  lists: Record<string, ObjectPaneIdentity[]>;
+  editFieldClassNames?: string[];
+  editFieldProperty?: EditFieldPropertyResolution;
+  editFieldPropertyError?: string;
+  propertyApplications?: PropertyApplication[];
+  propertyApplicationsError?: string;
+  propertyApplicationsTotal?: number;
+  propertyApplicationsTruncated?: boolean;
+}
 // ── Connections (generic reference relationships) ───────────────────
 
 /** A resolved endpoint of a relationship edge. */
@@ -291,6 +366,8 @@ export interface ConnGroup {
   /** out = forward ref (this → target); in = reverse ref (target → this). */
   direction: 'out' | 'in';
   targets: ConnTarget[];
+  /** More reverse-reference targets exist than were safe to return. */
+  capped?: boolean;
 }
 
 // Flow walker — InputView/ActionButton/Label downstream graph

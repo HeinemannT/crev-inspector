@@ -13,7 +13,15 @@
  * Works for model (.linkedTo) and enterprise (.template) objects alike.
  */
 
-import type { BmpObject, InspectorMessage, ObjectPaneIdentity, ObjectPaneCard, ObjectPaneSiblingMsg } from '../lib/types';
+import type {
+  BmpObject,
+  EditFieldPropertyResolution,
+  InspectorMessage,
+  ObjectPaneIdentity,
+  ObjectPaneCard,
+  ObjectPaneSiblingMsg,
+  PropertyApplication,
+} from '../lib/types';
 import { h, render, svg, statusFlash } from '../lib/dom';
 import { ICON_FILE_JS, ICON_CODE, ICON_LAYOUT, ICON_SHIELD, ICON_STAR_FILLED, ICON_STAR_HOLLOW, ICON_COPY, ICON_ARROW_OUT, ICON_CROSSHAIR, ICON_CHEVRON } from '../lib/icons';
 import { resolveLayoutShortcut } from '../lib/layout-target';
@@ -24,7 +32,14 @@ import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
 import { objectChip } from '../lib/object-chip';
 import { openAccessTrace } from './access-trace';
 import { renderCodeSection } from './sections/code-fields';
-import { renderLinks, connectionsToLinks, referencesToLinks, type LinkInbound, type LinksModel } from './sections/links';
+import {
+  renderLinks,
+  connectionsToLinks,
+  referencesToLinks,
+  type LinkInbound,
+  type LinksModel,
+  type LinkTarget,
+} from './sections/links';
 import { referencesFor } from '../lib/widget-metadata';
 import { renderFlowSection } from './sections/flow-walker';
 import { hasStudio, modeForType } from '../studio/studio-mode';
@@ -33,11 +48,16 @@ import { S } from './state';
 import { LOOKUP_WATCHDOG_TIMEOUT } from '../lib/constants';
 import { hasFlow, normalizeBmpEnum } from '../lib/widget-metadata';
 import type { FlowChainMsg, ConnGroup } from '../lib/types';
+import { renderPropertyView } from './sections/property-view';
+import { panePresentation } from './pane-presentation';
+import { editFieldPropertyRelation } from '../lib/edit-field-property';
+import { intersectTypeSchemas } from '../lib/type-schema-utils';
 
 type SendFn = (msg: InspectorMessage) => void;
 type SaveTarget = 'instance' | 'template';
 
 interface PaneState {
+  environment: string;
   rid: string;
   identity: ObjectPaneIdentity;
   parent: ObjectPaneIdentity | null;
@@ -48,17 +68,26 @@ interface PaneState {
   siblings: ObjectPaneSiblingMsg[];
   siblingTotal: number;
   codeFields: Record<string, string>;
+  isPropertyDefinition: boolean;
   references: Record<string, ObjectPaneIdentity | null>;
   indirectCode: Record<string, string>;
   indirectCodeRids: Record<string, string>;
   /** Slow-load progress stage. Starts at 'normal'; bumps to 'slow' after 3s,
-   *  'verySlow' after 7s. Watchdog fires at 15s and replaces loading with the
+   *  'verySlow' after 7s. Watchdog fires after the transport deadline and replaces loading with the
    *  timeout error. Tells the user the inspector is alive when BMP is slow,
    *  instead of staring at a silent "Loading…" for fifteen seconds. */
   loadingStage: 'normal' | 'slow' | 'verySlow';
   contextValues: Record<string, string>;
   gateValues: Record<string, string>;
   lists: Record<string, ObjectPaneIdentity[]>;
+  editFieldProperty: EditFieldPropertyResolution | null;
+  editFieldPropertyError: string | null;
+  editFieldClassNames: string[];
+  propertyApplications: PropertyApplication[];
+  propertyApplicationsError: string | null;
+  propertyApplicationsLoading: boolean;
+  propertyApplicationsTotal: number;
+  propertyApplicationsTruncated: boolean;
   loaded: boolean;
   error: string | null;
   /** Flow walker state. Populated when type is in FLOW_TYPES. */
@@ -82,9 +111,9 @@ interface PaneChildren {
 
 // Property schema lives in pane-schema.ts so the full-view popout can reuse it.
 import { buildChangesPayload, paneValueEquals } from './pane-edit';
-import { isPropAvailable, requestSchema, subscribePaneSchema } from './pane-schema-runtime';
+import { consumeSchemaResult, isPropAvailable, requestSchema, requestSchemas, schemaError, schemaProps, subscribePaneSchema } from './pane-schema-runtime';
 import { showToast } from '../lib/toast';
-import type { PaneGroupsCtx } from './sections/property-groups';
+import { renderPropertyGroups, type PaneGroupsCtx } from './sections/property-groups';
 
 export class DetailView {
   private state: PaneState | null = null;
@@ -251,6 +280,7 @@ export class DetailView {
         type: hintObj.type ?? '',
         name: hintObj.name ?? '',
       } : { rid, businessId: '', type: '', name: '' },
+      environment: '',
       parent: null,
       template: null,
       card: null,
@@ -259,6 +289,7 @@ export class DetailView {
       siblings: [],
       siblingTotal: 0,
       codeFields: {},
+      isPropertyDefinition: false,
       references: {},
       indirectCode: {},
       indirectCodeRids: {},
@@ -266,6 +297,14 @@ export class DetailView {
       contextValues: {},
       gateValues: {},
       lists: {},
+      editFieldProperty: null,
+      editFieldPropertyError: null,
+      editFieldClassNames: [],
+      propertyApplications: [],
+      propertyApplicationsError: null,
+      propertyApplicationsLoading: false,
+      propertyApplicationsTotal: 0,
+      propertyApplicationsTruncated: false,
       loaded: false,
       error: null,
       flow: null,
@@ -298,6 +337,7 @@ export class DetailView {
     if (msg.type === 'OBJECT_PANE_DATA' && msg.rid === rid) {
       this.clearLookupWatchdog();
       this.state.identity = msg.instance;
+      this.state.environment = msg.environment;
       this.state.parent = msg.parent;
       this.state.template = msg.template;
       this.state.card = msg.card;
@@ -306,12 +346,23 @@ export class DetailView {
       this.state.siblings = msg.siblings;
       this.state.siblingTotal = msg.siblingTotal ?? msg.siblings.length;
       this.state.codeFields = msg.codeFields ?? {};
+      this.state.isPropertyDefinition = msg.isPropertyDefinition ?? false;
       this.state.references = msg.references ?? {};
       this.state.indirectCode = msg.indirectCode ?? {};
       this.state.indirectCodeRids = msg.indirectCodeRids ?? {};
       this.state.contextValues = msg.contextValues ?? {};
       this.state.gateValues = msg.gateValues ?? {};
       this.state.lists = msg.lists ?? {};
+      this.state.editFieldProperty = msg.editFieldProperty ?? null;
+      this.state.editFieldPropertyError = msg.editFieldPropertyError ?? null;
+      this.state.editFieldClassNames = msg.editFieldClassNames ?? [];
+      this.state.propertyApplications = msg.propertyApplications ?? [];
+      this.state.propertyApplicationsError = msg.propertyApplicationsError ?? null;
+      this.state.propertyApplicationsLoading = this.state.isPropertyDefinition
+        && msg.propertyApplications === undefined
+        && !msg.propertyApplicationsError;
+      this.state.propertyApplicationsTotal = msg.propertyApplicationsTotal ?? this.state.propertyApplications.length;
+      this.state.propertyApplicationsTruncated = msg.propertyApplicationsTruncated ?? false;
       this.state.loaded = true;
       this.state.error = msg.error ?? null;
       // If no template available, force target back to instance
@@ -329,12 +380,29 @@ export class DetailView {
       // hardcoded mixin sets once the schema lands. The response is
       // consumed in pane-schema-runtime's broadcast subscriber; we
       // re-render via subscribePaneSchema.
-      if (msg.instance.type) requestSchema(msg.instance.type, this.sendMessage);
+      // The Property view is read-only and has its own fixed definition
+      // fields. MethodConfig schema lookup is both unused here and unsupported
+      // by some BMP versions, where it would leave a misleading
+      // "Field load failed" status after an otherwise successful load.
+      const presentation = panePresentation(
+        msg.instance.type,
+        this.state.isPropertyDefinition,
+      );
+      if (msg.instance.type && presentation.requestSchema) {
+        requestSchema(msg.instance.type, this.sendMessage);
+      }
+      if (msg.instance.type === 'EditField') {
+        requestSchemas(this.state.editFieldClassNames, this.sendMessage);
+      }
       // Connections (generic ref relationships) — for domain objects only;
       // widget types keep the curated References section instead.
       this.state.connections = null;
       this.state.inbound = null;
-      if (msg.instance.type && referencesFor(msg.instance.type).length === 0) {
+      if (
+        msg.instance.type
+        && referencesFor(msg.instance.type).length === 0
+        && !presentation.customRelationships
+      ) {
         this.state.connectionsLoading = true;
         // Offer the inbound ("referenced by") scan as a lazy button.
         this.state.inbound = { loaded: false, targets: [] };
@@ -342,6 +410,30 @@ export class DetailView {
       } else {
         this.state.connectionsLoading = false;
       }
+      this.renderDetail(panel);
+      if (this.state.propertyApplicationsLoading) {
+        this.sendMessage({ type: 'FETCH_PROPERTY_APPLICATIONS', rid, environment: this.state.environment });
+      }
+      return true;
+    }
+
+    if (msg.type === 'PROPERTY_APPLICATIONS_RESULT' && msg.rid === rid) {
+      if (msg.environment !== this.state.environment) return true;
+      this.state.propertyApplicationsLoading = false;
+      this.state.propertyApplications = msg.ok ? (msg.applications ?? []) : [];
+      this.state.propertyApplicationsTotal = msg.total ?? this.state.propertyApplications.length;
+      this.state.propertyApplicationsTruncated = msg.truncated ?? false;
+      this.state.propertyApplicationsError = msg.ok ? null : (msg.error ?? 'Property applications unavailable');
+      this.renderDetail(panel);
+      return true;
+    }
+
+    if (
+      msg.type === 'FETCH_TYPE_SCHEMA_RESULT'
+      && this.state.identity.type === 'EditField'
+      && this.state.editFieldClassNames.includes(msg.className)
+    ) {
+      if (!schemaProps(msg.className) && !schemaError(msg.className)) consumeSchemaResult(msg);
       this.renderDetail(panel);
       return true;
     }
@@ -354,6 +446,10 @@ export class DetailView {
     }
 
     if (msg.type === 'INBOUND_RESULT' && msg.rid === rid) {
+      const outgoing = (this.state.connections ?? [])
+        .filter(group => group.direction === 'out');
+      const incoming = msg.ok ? (msg.groups ?? []) : [];
+      this.state.connections = [...outgoing, ...incoming];
       // Dedupe against edges already shown as declared reverse refs — the
       // inbound section should surface the EXTRA (often undeclared) referrers.
       const shown = new Set<string>();
@@ -439,12 +535,10 @@ export class DetailView {
     this.lookupTimeout = setTimeout(() => {
       this.lookupTimeout = null;
       if (!this.state || this.state.rid !== rid || this.state.loaded) return;
-      // Tell the SW to abort the in-flight EC — otherwise it keeps running
-      // (and burning a bridge slot) for the full 30s EC timeout while the
-      // user already sees the timed-out error in the pane.
-      this.sendMessage({ type: 'CANCEL_FETCH_OBJECT_PANE', rid });
+      // This is a lost-response guard, not a server cancellation. BMP has no
+      // reliable EC timeout and can keep running after the client detaches.
       this.state.loaded = true;
-      this.state.error = 'Request timed out';
+      this.state.error = 'Request timed out locally after 35 seconds. BMP may still be finishing it; retrying will reuse the active request.';
       this.renderDetail(panel);
     }, LOOKUP_WATCHDOG_TIMEOUT);
   }
@@ -548,6 +642,7 @@ export class DetailView {
     this.renderDetail(panel);
     this.sendMessage({
       type: 'APPLY_OBJECT_CHANGES',
+      environment: this.state.environment,
       rid: this.state.rid,
       target,
       changes,
@@ -705,7 +800,9 @@ export class DetailView {
       h('div', { class: 'dv-idrow' },
         this.identityBadge(s.rid, s.identity.businessId, s.identity.type),
         h('span', { class: 'dv-idname', title: s.identity.name }, curLabel),
-        this.renderTargetToggle(hasTemplate, panel),
+        panePresentation(s.identity.type, s.isPropertyDefinition).showTargetToggle
+          ? this.renderTargetToggle(hasTemplate, panel)
+          : null,
       ),
       h('div', { class: 'dv-subrow' },
         h('span', { class: 'dv-subtype' }, s.identity.type ?? ''),
@@ -723,9 +820,9 @@ export class DetailView {
     if (!s.loaded) {
       // Loading-progress copy bumps at 3s and 7s so a slow BMP doesn't look
       // like a frozen inspector. Watchdog at 15s replaces this with the
-      // timeout error and cancels the in-flight EC.
+      // lost-response guard without claiming server-side cancellation.
       const loadingMsg = s.loadingStage === 'verySlow'
-        ? 'Still loading. BMP is slow. Cancelling in a few seconds if it doesn’t respond.'
+        ? 'Still loading. BMP is slow; waiting for the command to finish.'
         : s.loadingStage === 'slow'
           ? 'Still loading…'
           : 'Loading…';
@@ -875,7 +972,30 @@ export class DetailView {
 
 
   private renderPropertiesArea(panel: HTMLElement): HTMLElement {
+    if (panePresentation(
+      this.state!.identity.type,
+      this.state!.isPropertyDefinition,
+    ).body === 'property') {
+      return renderPropertyView({
+        identity: this.state!.identity,
+        props: this.state!.instanceProps,
+        codeFields: this.state!.codeFields,
+        applications: this.state!.propertyApplications,
+        applicationsError: this.state!.propertyApplicationsError,
+        applicationsLoading: this.state!.propertyApplicationsLoading,
+        applicationsTotal: this.state!.propertyApplicationsTotal,
+        applicationsTruncated: this.state!.propertyApplicationsTruncated,
+        sendMessage: this.sendMessage,
+      });
+    }
+
     const wrap = h('div');
+
+    if (this.state!.identity.type === 'EditField') {
+      const fields = renderPropertyGroups(this.makeEditFieldEditor(panel));
+      fields.classList.add('dv-edit-field-properties');
+      wrap.appendChild(fields);
+    }
 
     const typeIsFlow = hasFlow(this.state!.identity.type);
 
@@ -987,7 +1107,11 @@ export class DetailView {
       onNavigate: (rid) => { this.swapTo(rid, null, panel, true).catch(() => {}); },
       onScanInbound: () => {
         this.state!.inbound = { loaded: false, scanning: true, targets: [] };
-        this.sendMessage({ type: 'FETCH_INBOUND', rid: this.state!.rid });
+        this.sendMessage({
+          type: 'FETCH_INBOUND',
+          rid: this.state!.rid,
+          className: this.state!.identity.type,
+        });
         this.renderDetail(panel);
       },
     });
@@ -1103,18 +1227,90 @@ export class DetailView {
     };
   }
 
+  private makeEditFieldEditor(panel: HTMLElement): PaneGroupsCtx {
+    const state = this.state!;
+    const schemas = state.editFieldClassNames.flatMap(type => {
+      const schema = schemaProps(type);
+      return schema ? [schema] : [];
+    });
+    const complete = state.editFieldClassNames.length > 0
+      && schemas.length === state.editFieldClassNames.length;
+    const properties = complete
+      ? intersectTypeSchemas(schemas)
+        .sort((a, b) =>
+          Number(a.systemobject) - Number(b.systemobject)
+          || (a.label || a.accessor).localeCompare(b.label || b.accessor))
+      : undefined;
+    return {
+      objectType: 'EditField',
+      isAvailable: def => isPropAvailable('EditField', def.prop, def.availableOn),
+      displayValue: prop => this.draft[prop] ?? this.currentServerValue(prop),
+      serverValue: prop => this.currentServerValue(prop),
+      isDirty: prop => this.draft[prop] != null,
+      setDraft: (prop, value) => {
+        if (paneValueEquals(prop, value, this.currentServerValue(prop))) delete this.draft[prop];
+        else this.draft[prop] = value;
+        this.renderDetail(panel);
+      },
+      propertyChoices: prop => {
+        if (prop !== 'propertyMapping') return {};
+        const error = state.editFieldClassNames.length === 0
+          ? 'No owning object type found'
+          : state.editFieldClassNames.map(type => schemaError(type)).find(Boolean);
+        return {
+          options: properties?.map(property => ({
+            value: property.accessor,
+            label: property.label || property.accessor,
+            propertyId: property.propertyId || property.accessor,
+            configClass: property.propertyConfigClass || property.configClass,
+          })),
+          loading: !complete && !error,
+          source: state.editFieldClassNames.join(' + '),
+          ...(error ? { error } : {}),
+        };
+      },
+      openColorPicker: () => {},
+    };
+  }
+
   /** Normalize this object's links into the unified model: widget types use
    *  their curated bindings (outgoing only); domain types use discovered
    *  relationships plus the lazy inbound scan. The two are mutually exclusive
    *  (curated refs exist iff the type has reference metadata). */
   private buildLinksModel(): LinksModel {
     const type = this.state!.identity.type;
+    const relation = editFieldPropertyRelation(
+      type,
+      this.state!.instanceProps.propertyMapping,
+      this.state!.editFieldProperty,
+      this.state!.editFieldPropertyError,
+    );
+    const mappedProperty: LinkTarget[] = relation.kind === 'resolved'
+      ? [{
+          rid: relation.resolution.property.rid,
+          businessId: relation.resolution.property.businessId,
+          name: relation.resolution.property.name,
+          type: relation.resolution.property.type,
+          field: 'Property',
+        }]
+      : relation.kind === 'unresolved'
+        ? [{
+            rid: relation.accessor,
+            businessId: relation.accessor,
+            field: 'Property',
+            unavailableReason: relation.error,
+          }]
+        : [];
     const curated = referencesToLinks(type, this.state!.references);
     if (curated.length > 0) {
-      return { outgoing: curated, incoming: [] };
+      return { outgoing: [...mappedProperty, ...curated], incoming: [] };
     }
     const { outgoing, incoming } = connectionsToLinks(this.state!.connections ?? []);
-    return { outgoing, incoming, inbound: this.state!.inbound ?? undefined };
+    return {
+      outgoing: [...mappedProperty, ...outgoing],
+      incoming,
+      inbound: this.state!.inbound ?? undefined,
+    };
   }
 
   /** Build the controller the shared property-group renderer needs. */

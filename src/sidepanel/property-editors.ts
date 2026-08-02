@@ -6,6 +6,10 @@
 
 import { h } from '../lib/dom';
 import { enumMember } from '../lib/color-util';
+import { propertyPicker } from '../lib/property-picker';
+
+let editorId = 0;
+const nextEditorId = (kind: string): string => `crev-prop-${kind}-${++editorId}`;
 
 export type PropValue = string;
 
@@ -54,6 +58,7 @@ export function booleanEditor(ctx: PropEditorContext): HTMLElement {
 
 export function numberEditor(ctx: PropEditorContext, opts: { unit?: string; min?: number; max?: number; step?: number } = {}): HTMLElement {
   const input = h('input', {
+    id: nextEditorId('number'),
     class: `prop-number-input${ctx.dirty ? ' prop-cell--dirty' : ''}`,
     type: 'number',
     value: ctx.value,
@@ -74,6 +79,7 @@ export function numberEditor(ctx: PropEditorContext, opts: { unit?: string; min?
  * renderer, which deliberately presents structured/opaque values read-only. */
 export function stringEditor(ctx: PropEditorContext, placeholder = ''): HTMLElement {
   const input = h('input', {
+    id: nextEditorId('string'),
     class: `prop-string-input${ctx.dirty ? ' prop-cell--dirty' : ''}`,
     type: 'text',
     value: ctx.value,
@@ -88,8 +94,12 @@ export function stringEditor(ctx: PropEditorContext, placeholder = ''): HTMLElem
   return h('div', { class: `prop-cell prop-cell--string${ctx.dirty ? ' prop-cell--dirty' : ''}` }, input);
 }
 
-export interface EnumOption { value: string; label?: string }
-let propertyListId = 0;
+export interface EnumOption {
+  value: string;
+  label?: string;
+  propertyId?: string;
+  configClass?: string;
+}
 
 // BMP returns enum values qualified ("HeaderStyle.INSIDE") while the schema lists bare tokens ("INSIDE"),
 // which is what `_o.change(headerStyle := "INSIDE")` accepts on save. enumMember (shared, color-util)
@@ -98,7 +108,10 @@ let propertyListId = 0;
 const enumCompareKey = enumMember;
 
 export function enumEditor(ctx: PropEditorContext, options: EnumOption[]): HTMLElement {
-  const select = h('select', { class: 'prop-select' }) as HTMLSelectElement;
+  const select = h('select', {
+    id: nextEditorId('enum'),
+    class: 'prop-select',
+  }) as HTMLSelectElement;
   const normalized = enumCompareKey(ctx.value);
   const matching = options.find(opt => enumCompareKey(opt.value) === normalized);
   for (const opt of options) {
@@ -124,50 +137,34 @@ export function enumEditor(ctx: PropEditorContext, options: EnumOption[]): HTMLE
   return h('div', { class: `prop-cell prop-cell--enum${ctx.dirty ? ' prop-cell--dirty' : ''}` }, select);
 }
 
-/** EditField propertyMapping picker. A native datalist keeps the control compact
- *  and keyboard-searchable; validation prevents arbitrary free text from being
- *  staged. Empty remains valid so an existing mapping can be cleared. */
+/** EditField propertyMapping picker. The shared combobox keeps the exact BMP
+ * accessor as its value while presenting the master property ID and type badge. */
 export function propertyAccessorEditor(
   ctx: PropEditorContext,
   options: EnumOption[] | undefined,
   opts: { loading?: boolean; source?: string; error?: string } = {},
 ): HTMLElement {
-  const listId = `crev-property-options-${++propertyListId}`;
   const effectiveOptions = [...(options ?? [])];
   if (ctx.value && !effectiveOptions.some(opt => opt.value === ctx.value)) {
-    effectiveOptions.unshift({ value: ctx.value, label: `${ctx.value} (current)` });
+    effectiveOptions.unshift({
+      value: ctx.value,
+      propertyId: ctx.value,
+      label: `${ctx.value} (current)`,
+    });
   }
-  const ready = options !== undefined && effectiveOptions.length > 0;
-  const input = h('input', {
-    class: `prop-property-input${ctx.dirty ? ' prop-cell--dirty' : ''}`,
-    type: 'text',
+  const ready = options !== undefined;
+  const picker = propertyPicker({
     value: ctx.value,
-    list: listId,
-    autocomplete: 'off',
-    spellcheck: 'false',
     disabled: !ready,
     placeholder: opts.loading ? 'Loading properties…' : opts.error ? 'Properties unavailable' : 'Select property',
     title: opts.source ? `Properties shared by ${opts.source}` : 'Business-object property',
-  }) as HTMLInputElement;
-  const datalist = h('datalist', { id: listId });
-  for (const opt of effectiveOptions) {
-    const option = document.createElement('option');
-    option.value = opt.value;
-    option.label = opt.label ?? opt.value;
-    datalist.appendChild(option);
-  }
-  input.addEventListener('change', () => {
-    const next = input.value.trim();
-    if (next === '' || effectiveOptions.some(opt => opt.value === next)) {
-      input.setCustomValidity('');
-      ctx.onChange(next);
-      return;
-    }
-    input.setCustomValidity('Choose a property from the list.');
-    input.reportValidity();
-    input.value = ctx.value;
+    options: effectiveOptions,
+    onChange: ctx.onChange,
+    density: 'standard',
   });
-  return h('div', { class: `prop-cell prop-cell--property${ctx.dirty ? ' prop-cell--dirty' : ''}` }, input, datalist);
+  return h('div', {
+    class: `prop-cell prop-cell--property${ctx.dirty ? ' prop-cell--dirty' : ''}`,
+  }, picker);
 }
 
 export function sliderEditor(
@@ -175,6 +172,7 @@ export function sliderEditor(
   opts: { min: number; max: number; step?: number; unit?: string },
 ): HTMLElement {
   const slider = h('input', {
+    id: nextEditorId('slider'),
     class: 'prop-slider',
     type: 'range',
     min: opts.min,

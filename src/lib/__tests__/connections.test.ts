@@ -3,6 +3,7 @@ import {
   refFieldsFromSchema, buildConnectionsEc, parseConnections,
   buildJunctionEc, parseJunctions, pickFarSide,
   buildInboundEc, parseInbound, INBOUND_CAP,
+  REVERSE_REF_FIELD_CAP, REVERSE_REF_TOTAL_CAP,
   type SchemaProp, type RefField, type ConnTarget,
 } from '../connections';
 import { FLOW_SEP } from '../ec-codegen';
@@ -46,14 +47,15 @@ describe('buildConnectionsEc', () => {
     { accessor: 'risk_mitigations', label: 'risk mitigations', direction: 'in' },
   ];
 
-  it('reads every ref (forward + reverse) uniformly via forEach', () => {
+  it('reads every ref via forEach and bounds reverse-ref payloads', () => {
     const ec = buildConnectionsEc('t.99', fields);
     expect(ec).toContain('_o := t.99');
     // both directions → forEach (verified live to handle single + multi)
     expect(ec).toContain('_o.mitigated_risk.forEach(_t:');
     expect(ec).toContain('_o.risk_mitigations.forEach(_t:');
-    // no IF guard — EC's IF is an expression, not a statement
-    expect(ec).not.toContain('IF ');
+    // Reverse rows are emitted only inside the per-field + total caps.
+    expect(ec).toContain(`IF _fieldN <= ${REVERSE_REF_FIELD_CAP + 1} AND _reverseN <= ${REVERSE_REF_TOTAL_CAP + 1} THEN`);
+    expect(ec).toContain('"n:risk_mitigations"');
     // headers + terminator
     expect(ec).toContain('"f:mitigated_risk"');
     expect(ec).toContain('"f:risk_mitigations"');
@@ -106,6 +108,23 @@ describe('parseConnections', () => {
     const groups = parseConnections('', fields);
     expect(groups.every(g => g.targets.length === 0)).toBe(true);
     expect(groups).toHaveLength(3);
+  });
+
+  it('caps declared reverse groups and reports additional targets', () => {
+    const reverse = fields[2];
+    const rows = Array.from(
+      { length: REVERSE_REF_FIELD_CAP + 1 },
+      (_, i) => `${i}|b${i}|Target ${i}|CeIssue`,
+    ).join('\n');
+    const cappedLog = [
+      '', `f:${reverse.accessor}`, `\n${rows}\n`,
+      `n:${reverse.accessor}`, `\n${REVERSE_REF_FIELD_CAP + 20}\n`,
+      'DONE', '',
+    ].join(FLOW_SEP);
+
+    const [group] = parseConnections(cappedLog, [reverse]);
+    expect(group.targets).toHaveLength(REVERSE_REF_FIELD_CAP);
+    expect(group.capped).toBe(true);
   });
 });
 

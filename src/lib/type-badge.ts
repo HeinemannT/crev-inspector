@@ -25,8 +25,14 @@ import {
   ICON_NOTE_PENCIL, ICON_CIRCLE, ICON_ARTICLE, ICON_IMAGE, ICON_FILE_PDF,
   ICON_BOULES, ICON_SQUARES_FOUR, ICON_GRID_NINE, ICON_GLOBE, ICON_PAPERCLIP,
   ICON_CHECK_CIRCLE,
+  ICON_PROP_SYSTEM, ICON_PROP_TEXT, ICON_PROP_RICH_TEXT, ICON_PROP_BOOLEAN,
+  ICON_PROP_NUMBER, ICON_PROP_DATE, ICON_PROP_URL, ICON_PROP_LIST, ICON_PROP_TAG,
+  ICON_PROP_REFERENCE, ICON_PROP_REVERSE_REFERENCE, ICON_PROP_EXTENDED,
+  ICON_PROP_FILE, ICON_PROP_TOKEN, ICON_PROP_FUNCTION, ICON_PROP_NODE_FUNCTION,
+  ICON_PROP_PROGRESS, ICON_PROP_STATUS, ICON_PROP_HISTORY,
 } from './icons';
 import { getTypeAbbr, getTypeColor, CHART_TYPES } from './types';
+import { isHistoricalPropertyConfigClass, isPropertyConfigClass } from './property-config';
 
 /** BMP type → its role glyph. Colour comes from getTypeColor (the domain band);
  *  this map is only the icon. Anything absent falls back to the cube. */
@@ -94,6 +100,35 @@ const TYPE_ICON: Record<string, string> = {
   // Content + status
   TextElement: ICON_BOOK,
   StatusType: ICON_CHECK,
+
+  // Property objects — Phosphor Fill glyphs. Historical variants reuse the
+  // base value-kind glyph and receive the shared ClockCountdown seam mark in
+  // typeBadge(); this preserves both type identity and temporal state.
+  SystemMethodConfig: ICON_PROP_SYSTEM,
+  TextMethodConfig: ICON_PROP_TEXT,
+  HistoricalTextMethodConfig: ICON_PROP_TEXT,
+  RichTextMethodConfig: ICON_PROP_RICH_TEXT,
+  HistoricalRichTextMethodConfig: ICON_PROP_RICH_TEXT,
+  BooleanMethodConfig: ICON_PROP_BOOLEAN,
+  HistoricalBooleanMethodConfig: ICON_PROP_BOOLEAN,
+  NumberMethodConfig: ICON_PROP_NUMBER,
+  HistoricalNumberMethodConfig: ICON_PROP_NUMBER,
+  DateMethodConfig: ICON_PROP_DATE,
+  HistoricalDateMethodConfig: ICON_PROP_DATE,
+  UrlMethodConfig: ICON_PROP_URL,
+  ListMethodConfig: ICON_PROP_LIST,
+  HistoricalListMethodConfig: ICON_PROP_LIST,
+  TagMethodConfig: ICON_PROP_TAG,
+  ReferenceMethodConfig: ICON_PROP_REFERENCE,
+  HistoricalReferenceMethodConfig: ICON_PROP_REFERENCE,
+  ReverseReferenceMethodConfig: ICON_PROP_REVERSE_REFERENCE,
+  ExtendedMethodConfig: ICON_PROP_EXTENDED,
+  FileMethodConfig: ICON_PROP_FILE,
+  TokenMethodConfig: ICON_PROP_TOKEN,
+  FunctionMethodConfig: ICON_PROP_FUNCTION,
+  NodeTypeFunctionMethodConfig: ICON_PROP_NODE_FUNCTION,
+  HistoricalProgressMethodConfig: ICON_PROP_PROGRESS,
+  HistoricalStatusMethodConfig: ICON_PROP_STATUS,
 
   // ── Expanded coverage — colours come from getTypeColor (the domain band);
   //    one glyph per group (Views + EnterpriseTemplate get individual ones). ──
@@ -260,12 +295,26 @@ export function wireBadgeCopy(
  */
 export function typeBadge(type?: string, opts: BadgeOpts = {}): HTMLElement {
   const mapped = isMapped(type);
+  const property = isPropertyConfigClass(type ?? '');
+  const historical = isHistoricalPropertyConfigClass(type ?? '');
+  const tile = h('span', { class: 'tile' }, svg(typeIcon(type)));
+  if (historical) {
+    tile.appendChild(h('span', {
+      class: 'bdg-history',
+      'aria-label': 'Historical property',
+    }, svg(ICON_PROP_HISTORY)));
+  }
   const badge = h('span', {
-    class: `bdg${opts.size === 'xs' ? ' xs' : ''}`,
+    class: [
+      'bdg',
+      property ? 'bdg-property' : '',
+      historical ? 'bdg-historical' : '',
+      opts.size === 'xs' ? 'xs' : '',
+    ].filter(Boolean).join(' '),
     style: `--c:${getTypeColor(type)}`,
     title: type ?? '',
   },
-    h('span', { class: 'tile' }, svg(typeIcon(type))),
+    tile,
     h('span', { class: 'lbl' }, mapped ? getTypeAbbr(type) : 'OBJ'),
   );
 

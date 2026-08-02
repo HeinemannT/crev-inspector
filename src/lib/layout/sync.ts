@@ -12,11 +12,10 @@
  * Both are emitted into a single pipe-delimited list in the exact 9-field wire shape that
  * `reconstruct` already consumes (rid|bid|name|type|parentRid|containerRid|L|M|S).
  *
- * The full Blueprint projection walks org descendants because it also needs nested composite
- * children and rich editing channels, then strips content below leaf widgets client-side. The
- * lean AI projection never materializes that content: it starts at page children and expands
- * only ButtonContainer/ButtonGroup children. A widget's phantom RESULT placement is mapped to
- * an empty containerRid so it falls through to its org parent.
+ * Both projections start at direct page children and descend only through objects that can own
+ * layout (Container plus the known composite classes). Content below leaf widgets therefore never
+ * enters the server-side working set. A widget's phantom RESULT placement is mapped to an empty
+ * containerRid so it falls through to its org parent.
  *
  * Apply is diff → compile → exec → RE-FETCH. We never map temp ids to real rids: the
  * re-fetch is the new source of truth, which also makes apply idempotent (a second apply of
@@ -37,6 +36,7 @@ import { normalizeBmpEnum, FLOW_DOT_SLOTS, FLOW_DOT_PROPS } from '../widget-meta
 import type { LayoutNode as WireNode } from '../types';
 import { OVERRIDABLE_PROPS } from './types';
 import type { LModel, PlanNote, PlanStep, NodeStyle, FlowProjection, FlowNode, FlowKind } from './types';
+import { COMPOSITE_TYPES } from './constraints';
 
 /** The single I/O capability sync needs: run an EC program, get its log back. Injected so the
  *  service worker can wire it to `bmp-client.executeEc` while tests pass a fake. `commit` selects
@@ -110,6 +110,9 @@ const STRUCTURE_LIMIT = '<<<CREV_LAYOUT_LIMIT>>>';
 const EDIT_PAGE_TITLE = '<<<CREV_EDIT_PAGE_TITLE>>>';
 const EDIT_PAGE_TYPE = '<<<CREV_EDIT_PAGE_TYPE>>>';
 export const STRUCTURE_FETCH_NODE_CAP = 600;
+/** Structural nesting is shallow in BMP (the deepest verified page is three levels).
+ * Twelve bounded passes leave generous headroom without ever entering leaf-widget content. */
+export const ORG_LAYOUT_MAX_DEPTH = 12;
 // Shared EC id/rid sanitisation (the same guards the other EC generators use).
 const ecBid = validateBusinessId;
 const ecRid = validateRid;
@@ -305,25 +308,36 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
   const styleEmit = [
     `          _l := _l + "${STYLE}" + _w.id.whenMissing("") + "|" + _w.headerColor.id.whenMissing("") + "|" + _w.fontColor.id.whenMissing("") + "|" + _w.shadow.whenMissing("") + "|" + _w.headerStyle.whenMissing("") + "|" + _w.borderStyle.whenMissing("") + "|" + _w.transparency.whenMissing("") + "|" + _w.visibility.whenMissing("") + "|" + _w.showToolMenu.whenMissing("") + "|" + _w.disableSearch.whenMissing("") + "|" + _w.shownOnLargeDisplay.whenMissing("") + "|" + _w.shownOnMediumDisplay.whenMissing("") + "|" + _w.shownOnSmallDisplay.whenMissing("") + "\\n"`,
   ];
+  const structuralOwnerClasses = ['Container', ...COMPOSITE_TYPES];
+  const structuralOwnerCondition = structuralOwnerClasses
+    .map(className => `_layoutClass = "${className}"`)
+    .join(' OR ');
+  const targetedOrgCollection = [
+    `_layoutNodes := _sc.children()`,
+    `_layoutLevel := _layoutNodes`,
+    `_layoutPasses := LIST(${Array.from({ length: ORG_LAYOUT_MAX_DEPTH }, (_, index) => index + 1).join(',')})`,
+    `_layoutPasses.forEach(_layoutPass:`,
+    `     _layoutNext := LIST()`,
+    `     _layoutLevel.forEach(_layoutParent:`,
+    `          _layoutClass := _layoutParent.className.whenMissing("")`,
+    `          IF ${structuralOwnerCondition} THEN`,
+    `               _layoutNext := _layoutNext.union(_layoutParent.children())`,
+    `          ELSE`,
+    `               _layoutNext := _layoutNext`,
+    `          ENDIF`,
+    `     )`,
+    `     _layoutNodes := _layoutNodes.union(_layoutNext)`,
+    `     _layoutLevel := _layoutNext`,
+    `)`,
+  ];
   const orgLoop = [
     `_c := ""`,
     `_i := 0`,
-    ...(projection === 'structure' ? [
-      // Do not materialize every descendant for an AI outline. Start with
-      // page-owned children and expand only the two layout-composite classes;
-      // table rows, list members, indicator internals, and detail portals
-      // therefore never enter the working collection.
-      `_layoutNodes := _sc.children()`,
-      `_sc.descendants(ButtonContainer).forEach(_composite:`,
-      `     _layoutNodes := _layoutNodes.union(_composite.children())`,
-      `)`,
-      `_sc.descendants(ButtonGroup).forEach(_composite:`,
-      `     _layoutNodes := _layoutNodes.union(_composite.children())`,
-      `)`,
-      `_layoutNodes.forEach(_w:`,
-    ] : [
-      `_sc.descendants().forEach(_w:`,
-    ]),
+    // Start with page-owned objects, then traverse only structural owners.
+    // A list/table/chart is a leaf here: its members and detail portals are
+    // content, not Blueprint cells, and are never visited.
+    ...targetedOrgCollection,
+    `_layoutNodes.forEach(_w:`,
     `     _l := ""`,
     ...(projection === 'structure' ? [
       `     _layoutNode := "1"`,

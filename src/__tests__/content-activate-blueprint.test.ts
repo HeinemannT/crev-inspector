@@ -220,6 +220,20 @@ describe('Blueprint target resolution on standalone edit routes', () => {
     expect((window as any).__crevBpResolver()).toBe('4081032302720082045');
     expect(scans).toBe(1);
   });
+
+  it('keeps the ModelPage RID when an EditPage is only nested in a CreateObjectView', async () => {
+    extractUrlRids.mockReturnValue({ rid: '7145523037880784711' });
+    document.body.innerHTML = '<div class="edit-page-main-container"></div>';
+    await loadContent();
+
+    let scans = 0;
+    document.addEventListener('crev-content', ((event: CustomEvent) => {
+      if (event.detail?.type === 'EXTRACT_FIBERS') scans++;
+    }) as EventListener);
+
+    expect((window as any).__crevBpResolver()).toBe('7145523037880784711');
+    expect(scans).toBe(0);
+  });
 });
 
 describe('post-apply Blueprint resume (content.ts:620-639)', () => {

@@ -11,15 +11,17 @@ import { findNode, isTempId, isResultTab, editableTabsets } from '../lib/layout/
 import { bandInsertIndex } from '../lib/layout/placement';
 import { resize, setHeight, rename, remove, restoreNode, addWidget, addContainer, moveInto, swap, insertRelative, addTab, createTabset, toggleReset, setStyle } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
-import { addFlowChild, reorderFlowChild, removeFlowAdd, setActionFlag, addActionButton, flowDiff, flowChangeCount, stageNewFlowContainer, wireFlowRef, unwireFlowRef, renameFlowObject } from '../lib/layout/flow';
+import { addFlowChild, reorderFlowChild, removeFlowAdd, deleteFlowChild, setActionFlag, addActionButton, flowDiff, flowChangeCount, stageNewFlowContainer, wireFlowRef, unwireFlowRef, renameFlowObject, findFlowContainer, setEditFieldProperty } from '../lib/layout/flow';
 import { compile } from '../lib/layout/ec';
 import { portableIdPatternError, portableIdRequests, type PortableIdPlan } from '../lib/layout/portable-ids';
 import { History } from '../lib/layout/history';
 import { maskStyle, type LModel, type PlanStep, type NodeStyle } from '../lib/layout/types';
 import { sendToSW } from '../lib/content-port';
+import { sendFireForget } from '../lib/messaging';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { render } from './view';
+import { portableIdsAvailable } from './id-config';
 import { applyPage, fetchBlast, fetchFlowRefs, fetchFlowRefChildren, fetchEditPageSchemas, preflightPortableIds } from './service';
 import { ensureColorSets } from './colors';
 import { loadPresets, savePreset, deletePreset } from './presets';
@@ -37,12 +39,21 @@ export function selectEditPageField(id: string, types: readonly string[]): void 
   void fetchEditPageSchemas(types);
   render();
 }
+export function inspectMappedProperty(rid: string): void {
+  sendFireForget({ type: 'SELECT_OBJECT', rid, openPanel: true });
+}
+export function changeEditFieldProperty(parentId: string, id: string, accessor: string): void {
+  const m = model();
+  if (!m) return;
+  mutate(setEditFieldProperty(m, parentId, id, accessor));
+}
 /** Begin renaming a node: select it and flag the next render to open its inline-rename field. The one
  *  entry point — used by BOTH double-click on a cell name and the toolbar pencil. */
 export function beginRename(id: string): void { bp.selectedId = id; bp.renameId = id; render(); }
-export function viewEditPage(id: string, offset = 0): void {
-  bp.viewTabId = id;
-  if (offset !== 0) {
+export function viewEditPage(pageId: string, id: string, offset = 0, drivesNativeForm = false): void {
+  bp.editPageViewKeys.set(pageId, id);
+  if (drivesNativeForm) bp.editPageNativeTabId = id;
+  if (drivesNativeForm && offset !== 0) {
     const direction = offset > 0 ? 'Next' : 'Previous';
     const advanceNativeForm = async (): Promise<void> => {
       for (let index = 0; index < Math.abs(offset); index++) {
@@ -54,7 +65,7 @@ export function viewEditPage(id: string, offset = 0): void {
         // looking up the next button when jumping across more than one page.
         await new Promise(resolve => window.setTimeout(resolve, 90));
       }
-      if (bp.active && bp.viewTabId === id) render();
+      if (bp.active && bp.editPageViewKeys.get(pageId) === id) render();
     };
     void advanceNativeForm();
   }
@@ -250,7 +261,7 @@ export function addTabTo(tabsetId: string): void {
 /** Open the flow add picker for a flow container (InputSet/EditPage/ButtonGroup referenced by a flow
  *  widget). These live OUTSIDE the layout tree, so bp.picker can't address them — flowPicker carries
  *  the container key + className (palette) instead. */
-export function openFlowPicker(key: string, className: string, opts?: { afterId?: string; at?: { x: number; y: number }; isAction?: boolean }): void {
+export function openFlowPicker(key: string, className: string, opts?: { afterId?: string | null; at?: { x: number; y: number }; isAction?: boolean }): void {
   bp.flowPicker = { key, className, ...opts };
   bp.picker = null; bp.pickerOpts = null; bp.selectedId = null;
   render();
@@ -275,10 +286,15 @@ export function doFlowReorder(key: string, id: string, afterId: string | null): 
   const m = model(); if (!m) return;
   mutate(reorderFlowChild(m, key, id, afterId));
 }
-/** Cancel a STAGED flow add (the only flow "delete" — existing children aren't deletable here). */
+/** Cancel a staged flow add before it reaches BMP. */
 export function cancelFlowAdd(key: string, id: string): void {
   const m = model(); if (!m) return;
   mutate(removeFlowAdd(m, key, id));
+}
+export function doDeleteFlowChild(key: string, id: string): void {
+  const m = model(); if (!m) return;
+  bp.selectedId = null;
+  mutate(deleteFlowChild(m, key, id));
 }
 /** Placement control / tray toggles: stage an action-button flag flip. */
 export function setActionButtonFlag(id: string, prop: 'displayOnActionMenu' | 'displayOnAllTabs', value: boolean): void {
@@ -510,10 +526,36 @@ function touchedContainers(plan: PlanStep[], m: LModel): { id: string; rid?: str
   const out = new Map<string, { id: string; rid?: string }>();
   for (const s of plan) {
     // creates aren't shared yet; flow steps touch InputSets/EditPages, not layout containers
-    if (s.kind === 'create' || s.kind === 'flowCreate' || s.kind === 'flowReorder' || s.kind === 'flowFlag' || s.kind === 'flowRename') continue;
+    if (s.kind === 'create' || s.kind === 'flowCreate' || s.kind === 'flowReorder' || s.kind === 'flowFlag' || s.kind === 'flowRename' || s.kind === 'flowProperty' || s.kind === 'flowDelete') continue;
     const node = findNode(m, s.id)?.node;
     const kind = s.kind === 'reparent' || s.kind === 'delete' ? s.nodeKind : node?.kind;
     if (kind === 'container' && !isTempId(s.id)) out.set(s.id, { id: s.id, rid: node?.rid });
+  }
+  return [...out.values()];
+}
+
+function touchedFlowContainers(
+  plan: PlanStep[],
+  m: LModel,
+): Array<{ id: string; rid?: string; className: 'InputSet' | 'EditPage' }> {
+  const out = new Map<string, { id: string; rid?: string; className: 'InputSet' | 'EditPage' }>();
+  for (const step of plan) {
+    const parentId = step.kind === 'flowCreate'
+      || step.kind === 'flowReorder'
+      || step.kind === 'flowDelete'
+      || step.kind === 'flowProperty'
+      ? step.parentId
+      : null;
+    if (!parentId || isTempId(parentId)) continue;
+    const container = findFlowContainer(m, parentId);
+    if (!container || (container.className !== 'InputSet' && container.className !== 'EditPage')) {
+      continue;
+    }
+    out.set(parentId, {
+      id: parentId,
+      ...(container.rid ? { rid: container.rid } : {}),
+      className: container.className,
+    });
   }
   return [...out.values()];
 }
@@ -540,7 +582,7 @@ async function prepareApplyPreview(): Promise<void> {
   // so the previewed EC matches the committed EC exactly.
   const plan = [...diff(bp.baseline, m), ...flowDiff(bp.baseline, m)];
   if (plan.length === 0) { showToast('Blueprint: nothing to apply', 'info'); return; }
-  const usePortableIds = bp.idConfig.enabled && bp.ctx.target === 'template';
+  const usePortableIds = bp.idConfig.enabled && portableIdsAvailable(bp.ctx);
   let portableIds: PortableIdPlan = {};
   if (usePortableIds) {
     const patternError = portableIdPatternError(bp.idConfig.pattern);
@@ -579,7 +621,12 @@ async function prepareApplyPreview(): Promise<void> {
   // Async: the modal renders now with Confirm disabled ("Checking impact…"); fetchBlast clears
   // `blastPending` (and fills the fan-out / shared-structure warnings) when the rref walk returns —
   // or fails, so a dead probe can't wedge Confirm shut.
-  void fetchBlast(seq, bp.ctx.pageId, touchedContainers(plan, m));
+  void fetchBlast(
+    seq,
+    bp.ctx.pageId,
+    touchedContainers(plan, m),
+    touchedFlowContainers(plan, m),
+  );
 }
 export function closePreview(): void { bp.preview = null; bp.previewScript = ''; bp.portableIdPlan = null; bp.blast = null; bp.blastPending = false; render(); }
 /** Dismiss the docked stale/partial/failed outcome panel (the user has acknowledged it). */

@@ -8,7 +8,11 @@ import type { LModel, PlanNote, NodeStyle, FlowNode } from '../lib/layout/types'
 import type { StylePreset } from '../lib/style-presets';
 import { PAINT_STYLE_PROPS } from '../lib/style-props';
 import type { BlueprintCtx } from '../lib/layout/sync';
-import type { InstanceFanout, ContainerBlast } from '../lib/layout/blast-radius';
+import type {
+  InstanceFanout,
+  ContainerBlast,
+  FlowContainerBlast,
+} from '../lib/layout/blast-radius';
 import { History } from '../lib/layout/history';
 import { DEFAULT_PORTABLE_ID_CONFIG, type PortableIdConfig, type PortableIdPlan } from '../lib/layout/portable-ids';
 
@@ -33,8 +37,14 @@ export interface BpState {
   history: History | null;     // undo/redo over the edited model
   layer: HTMLElement | null;
   selectedId: string | null;
-  /** Lazy schemas used by standalone EditPage fields. The initial page read stays lean; selecting
-   *  an EditField requests only its configured object class(es) through the shared schema service. */
+  /** Last real BMP EditPage step driven through Previous/Next on a standalone form. A staged page
+   * has no native counterpart, while embedded editors never drive the native form. */
+  editPageNativeTabId: string | null;
+  /** Page/step selection is local to each EditPage surface. A normal Blueprint can contain multiple
+   * CreateObjectViews, so sharing `viewTabId` with the root page tabs would make those editors fight. */
+  editPageViewKeys: Map<string, string>;
+  /** Schemas used by standalone and embedded EditPage fields, fetched once per configured object
+   * class through the shared schema service. */
   editPageSchemas: Map<string, TypeSchemaProp[]>;
   editPageSchemaPending: Set<string>;
   editPageSchemaErrors: Map<string, string>;
@@ -42,7 +52,11 @@ export interface BpState {
   preview: PlanNote[] | null;   // non-null → the apply-preview modal is open
   applyOutcome: ApplyOutcome | null; // non-null → a persistent stale/partial/failed outcome panel is docked (cleared on dismiss / new apply / discard / reset)
   previewScript: string;        // the FULL compiled EC behind the open preview (the modal's "Copy EC")
-  blast: { fanout: InstanceFanout | null; blast: ContainerBlast | null } | null; // preview blast radius (async, best-effort)
+  blast: {
+    fanout: InstanceFanout | null;
+    blast: ContainerBlast | null;
+    flowBlast: FlowContainerBlast | null;
+  } | null; // preview blast radius (async, best-effort)
   blastSeq: number;             // bumped per openApplyPreview; a late blast reply for an older seq is dropped
   blastPending: boolean;        // an impact (blast-radius) probe is in flight for the open preview — Confirm waits for it so a shared-master warning can't be skipped by a fast click
   discardArm: boolean;          // Discard button armed ("Sure?"): first click arms, second discards; auto-disarms after a few seconds
@@ -61,7 +75,7 @@ export interface BpState {
   // isAction = the tray's "Add action" (creates a page-level menu ActionButton instead);
   // wireExisting = the "wire to existing" variant: key = the WIDGET id, className names the ref class
   // (InputSet/EditPage), rows come from bp.flowRefList (fetched at open; null = loading).
-  flowPicker: { key: string; className: string; afterId?: string; at?: { x: number; y: number }; isAction?: boolean; wireExisting?: boolean } | null;
+  flowPicker: { key: string; className: string; afterId?: string | null; at?: { x: number; y: number }; isAction?: boolean; wireExisting?: boolean } | null;
   flowRefList: import('../lib/layout/sync').FlowRefListItem[] | null; // wire-to-existing rows (null = loading)
   // Wire-to-existing children cache (FIX 2): the real current children of an EXISTING off-page
   // InputSet/EditPage the user wired to, keyed by ref businessId. Session-scoped (survives edits/undo);
@@ -127,7 +141,7 @@ export interface BpState {
 function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
-    layer: null, selectedId: null, editPageSchemas: new Map(), editPageSchemaPending: new Set(), editPageSchemaErrors: new Map(), applying: false, preview: null, applyOutcome: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, discardArm: false, discardTimer: 0, actionMenuOpen: false, settingsOpen: false, idConfig: { ...DEFAULT_PORTABLE_ID_CONFIG }, idConfigStatus: 'idle', preparingPreview: false, portableIdPlan: null, picker: null, pickerOpts: null,
+    layer: null, selectedId: null, editPageNativeTabId: null, editPageViewKeys: new Map(), editPageSchemas: new Map(), editPageSchemaPending: new Set(), editPageSchemaErrors: new Map(), applying: false, preview: null, applyOutcome: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, discardArm: false, discardTimer: 0, actionMenuOpen: false, settingsOpen: false, idConfig: { ...DEFAULT_PORTABLE_ID_CONFIG }, idConfigStatus: 'idle', preparingPreview: false, portableIdPlan: null, picker: null, pickerOpts: null,
     flowPicker: null, flowRefList: null, flowRefChildren: new Map(), flowRefChildrenPending: new Set(), flowFolds: new Set(), trayCardsOpen: new Set(),
     movePicker: null, tabMenu: null, tabsetPickerOpen: false, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], presetStatus: 'idle', renameId: null,
@@ -152,6 +166,7 @@ export function resetState(): void { Object.assign(bp, freshState()); }
 export function resetModel(): void {
   bp.baseline = null; bp.ctx = null; bp.history = null;
   bp.selectedId = null; bp.viewTabId = null; bp.unusedTabsOpen = false; bp.tabsetPickerOpen = false; bp.ridSig = ''; bp.peek = false;
+  bp.editPageViewKeys = new Map(); bp.editPageNativeTabId = null;
   bp.editPageSchemas = new Map(); bp.editPageSchemaPending = new Set(); bp.editPageSchemaErrors = new Map();
   bp.resultAnchor = null; bp.actionMenuOpen = false; bp.settingsOpen = false; bp.preparingPreview = false; bp.portableIdPlan = null;
   // In-flight apply / preview state is tied to the page being left. A reload mid-apply (a popstate/

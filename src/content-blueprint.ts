@@ -19,6 +19,7 @@ import { cancelGesture } from './content-blueprint/gestures';
 import { loadPage } from './content-blueprint/service';
 import { resetColorSets } from './content-blueprint/colors';
 import { loadPortableIdConfig } from './content-blueprint/id-config';
+import { releaseNativeEditPage } from './content-blueprint/edit-page-native';
 
 export { isBlueprintActive };
 
@@ -251,6 +252,7 @@ export function disableBlueprint(): void {
   if (bp.discardTimer) clearTimeout(bp.discardTimer);
   bp.observer?.disconnect();
   bp.resizeObs?.disconnect();
+  releaseNativeEditPage();
   bp.layer?.remove();
   bp.scrollSpacer?.remove(); // drop the page-scroll-extension spacer (it lives on body, outside the layer)
   document.getElementById(STYLE_ID)?.remove(); // don't leak the injected stylesheet past teardown

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { FlowNode } from '../../lib/layout/types';
 import { projectEditPage } from '../edit-page-model';
 import { editPageFieldLabel } from '../edit-page-result';
+import type { LModel } from '../../lib/layout/types';
+import { deleteFlowChild, effectiveFlowChildren } from '../../lib/layout/flow';
 
 const node = (id: string, className = 'EditField', name = id): FlowNode => ({
   id, className, name, isBreak: className.includes('Break'),
@@ -39,6 +41,38 @@ describe('projectEditPage', () => {
     const result = projectEditPage(children);
     expect(result).toHaveLength(1);
     expect(result[0].columns[0].nodes).toHaveLength(10_000);
+  });
+
+  it('merges the right column into the left when its real ColumnBreak is staged for deletion', () => {
+    const children = [
+      node('p1', 'EditPageBreak', 'Details'),
+      node('a'),
+      node('col', 'EditPageColumnBreak', 'Classification'),
+      node('b'),
+    ];
+    const model: LModel = {
+      pageId: 'edit_page',
+      pageClass: 'EditPage',
+      tabsetId: '',
+      tabs: [],
+      target: 'instance',
+      hasTemplate: false,
+      flows: {
+        edit_page: {
+          ownerId: 'edit_page',
+          ownerClass: 'EditPage',
+          kind: 'editpage',
+          refId: 'edit_page',
+          refClass: 'EditPage',
+          children,
+        },
+      },
+      flowEdits: {},
+    };
+
+    const desired = deleteFlowChild(model, 'edit_page', 'col');
+    expect(projectEditPage(effectiveFlowChildren(desired, 'edit_page'))[0].columns)
+      .toMatchObject([{ nodes: [{ id: 'a' }, { id: 'b' }] }]);
   });
 });
 

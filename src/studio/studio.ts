@@ -934,7 +934,9 @@ function renderChildRow(c: StudioChild): HTMLElement {
 }
 
 async function doSaveChild(c: StudioChild, key: string, fields: ChildFields): Promise<void> {
-  const resp = await sendRequest({ type: 'STUDIO_SAVE_CHILD', childId: c.id, childType: c.type, key: key || c.key, fields })
+  const current = ctx
+  if (!current) return
+  const resp = await sendRequest({ type: 'STUDIO_SAVE_CHILD', childId: c.id, childType: c.type, key: key || c.key, fields, environment: current.environment })
   if (resp?.type === 'STUDIO_CHILD_SAVED' && resp.ok) { logConsole('info', `Saved input "${key || c.key}"`); await fetchChildren() }
   else logConsole('error', `Save failed: ${respError(resp)}`)
 }
@@ -944,12 +946,14 @@ async function doAddChild(childType: StudioChildType): Promise<void> {
   const n = children.filter(c => c.type === childType).length + 1
   const key = `${childType === 'expression' ? 'input' : childType}_${n}`
   const childId = `${CHILD_PREFIX[childType]}_${(ctx.instance.businessId || 'cvo').replace(/[^\w-]/g, '')}_${key}`
-  const resp = await sendRequest({ type: 'STUDIO_ADD_CHILD', cvoBid: ctx.instance.businessId, childId, key, childType })
+  const resp = await sendRequest({ type: 'STUDIO_ADD_CHILD', cvoBid: ctx.instance.businessId, childId, key, childType, environment: ctx.environment })
   if (resp?.type === 'STUDIO_CHILD_ADDED' && resp.ok) { logConsole('info', `Added ${childType} "${key}"`); await fetchChildren() }
   else logConsole('error', `Add failed: ${respError(resp)}`)
 }
 
 async function doRemoveChild(c: StudioChild): Promise<void> {
+  const current = ctx
+  if (!current) return
   const ok = await confirmModal({
     title: 'Remove input?',
     body: `Delete the "${c.key}" ${c.type} input (${c.id}) from this CVO? This removes the _data.${CHILD_MAP[c.type]}.${c.key} slot.`,
@@ -957,7 +961,7 @@ async function doRemoveChild(c: StudioChild): Promise<void> {
     confirmVariant: 'danger',
   })
   if (!ok) return
-  const resp = await sendRequest({ type: 'STUDIO_DELETE_CHILD', childId: c.id })
+  const resp = await sendRequest({ type: 'STUDIO_DELETE_CHILD', childId: c.id, environment: current.environment })
   if (resp?.type === 'STUDIO_CHILD_DELETED' && resp.ok) { logConsole('info', `Removed input "${c.key}"`); await fetchChildren() }
   else logConsole('error', `Remove failed: ${respError(resp)}`)
 }
@@ -1028,10 +1032,12 @@ function doHostResource(): void {
     const file = input.files?.[0]
     if (!file) return
     const bytes = new Uint8Array(await file.arrayBuffer())
+    const current = ctx
+    if (!current) return
     const resId = 'fr_' + file.name.replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48)
     const mime = file.type || 'application/octet-stream'
     logConsole('info', `Hosting ${file.name} (${Math.round(bytes.length / 1024)} KB)…`)
-    const resp = await sendRequest({ type: 'STUDIO_WRITE_RESOURCE', resId, name: file.name, mime, base64: bytesToBase64(bytes) })
+    const resp = await sendRequest({ type: 'STUDIO_WRITE_RESOURCE', resId, name: file.name, mime, base64: bytesToBase64(bytes), environment: current.environment })
     if (resp?.type === 'STUDIO_RESOURCE_WRITTEN' && resp.ok && resp.rid) {
       const resourceId = resp.id || resId
       // The download servlet keys on rid (a hard BMP constraint), so the URL
@@ -1087,7 +1093,8 @@ async function doSave() {
 }
 
 async function doSaveInner(target: StudioContext['instance'], dirty: StudioCodeProp[]): Promise<void> {
-  if (!surface) return
+  const current = ctx
+  if (!surface || !current) return
   const ok = await confirmModal({
     title: dirty.length > 1 ? `Save ${dirty.join(' + ')}` : `Save ${dirty[0]}`,
     body: `Write ${dirty.join(' and ')} to "${target.name || target.businessId || target.rid}"?`,
@@ -1101,6 +1108,7 @@ async function doSaveInner(target: StudioContext['instance'], dirty: StudioCodeP
     const value = surface.textFor(p)
     const resp = await sendRequest({
       type: 'SAVE_PROPERTY',
+      environment: current.environment,
       rid: target.rid,
       objectType: target.type || (mode.key === 'text' ? 'TextElement' : 'CustomVisualization'),
       property: p,

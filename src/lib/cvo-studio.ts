@@ -11,6 +11,7 @@ import { launchFrame } from './frame-launcher'
 import { resolveTabPageContext } from './page-context-resolver'
 import { STUDIO_CTX_PREFIX, type StudioContext, type StudioCodeProp } from '../studio/studio-types'
 import { modeForType, ALL_STUDIO_PROPS } from '../studio/studio-mode'
+import { ENVIRONMENT_CHANGED_ERROR, environmentToken } from './environment'
 
 /** The object the BMP page is currently rendering — the default render context
  *  for the live-`_data` fetch (the data servlet is gated on it being org-rooted).
@@ -41,18 +42,22 @@ export async function openStudioWindow(
 ): Promise<void> {
   const swCtx = getCtx()
   await swCtx.settingsReady
+  const environment = environmentToken(swCtx)
+  const client = swCtx.client
+  const saveTarget = swCtx.settings.saveTarget
 
   // One EC round-trip: identity + template + the code maps. The object's type
   // (and so its mode/file list) isn't known yet, so fetch the union of every
   // mode's props — absent ones come back empty and are trimmed below.
   let data: import('./bmp-client').EditorContextData | null = null
-  if (swCtx.client) {
+  if (client) {
     try {
-      data = await swCtx.client.fetchEditorContext(rid, [...ALL_STUDIO_PROPS])
+      data = await client.fetchEditorContext(rid, [...ALL_STUDIO_PROPS])
     } catch (e) {
       log.swallow('cvo-studio:fetchContext', e)
     }
   }
+  if (environmentToken(swCtx) !== environment) throw new Error(ENVIRONMENT_CHANGED_ERROR)
 
   if (!data) {
     const cached = swCtx.cache.get(rid)
@@ -73,14 +78,16 @@ export async function openStudioWindow(
     ? preferredProperty
     : modeProps[0]
   const renderContextRid = mode.hasSandbox ? await getRenderContextRid(target) : undefined
+  if (environmentToken(swCtx) !== environment) throw new Error(ENVIRONMENT_CHANGED_ERROR)
 
   const ctx: StudioContext = {
+    environment,
     mode: mode.key,
     instance,
     template,
     instanceCode: trim(instanceCode),
     templateCode: trim(templateCode),
-    saveTarget: swCtx.settings.saveTarget,
+    saveTarget,
     property,
     renderContextRid,
   }

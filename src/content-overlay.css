@@ -77,6 +77,30 @@
   color: #fff;
 }
 .crev-tile svg { width: 13px; height: 13px; display: block; }
+.crev-stub--property {
+  border-radius: 999px;
+}
+.crev-stub--property .crev-tile {
+  position: relative;
+}
+.crev-history-indicator {
+  position: absolute;
+  z-index: 2;
+  right: -4px;
+  bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 9px;
+  height: 9px;
+  color: #fff;
+  filter: drop-shadow(0 0 1px rgba(22,22,22,0.72));
+}
+.crev-tile .crev-history-indicator svg {
+  display: block;
+  width: 9px;
+  height: 9px;
+}
 /* Meta row — the squares under the stub. */
 .crev-meta {
   display: inline-flex;
@@ -98,6 +122,13 @@
 .crev-sub--flow { background: #0f62fe; }
 .crev-sub--code { background: #7b5cff; cursor: pointer; }
 .crev-sub--code:hover { background: #6a48f0; }
+.crev-sub--property {
+  background: var(--crev-property-color, #525252);
+  cursor: pointer;
+}
+.crev-sub--property:hover {
+  filter: brightness(0.88);
+}
 .crev-cascade {
   display: inline-flex;
   align-items: center;
@@ -500,6 +531,7 @@
 /* ── Focus States (content overlay can't use base.css) ── */
 
 .crev-sub--code:focus-visible,
+.crev-sub--property:focus-visible,
 
 .crev-label-text:focus-visible {
   outline: 2px solid #8b5cf6;

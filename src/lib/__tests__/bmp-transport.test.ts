@@ -12,6 +12,81 @@ function mockAuth() {
 }
 
 describe('BmpTransport command requests', () => {
+  it('serializes concurrent command posts sharing one transport session', async () => {
+    let releaseFirst: ((response: Response) => void) | undefined
+    const firstResponse = new Promise<Response>((resolve) => {
+      releaseFirst = resolve
+    })
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => firstResponse)
+      .mockResolvedValueOnce(new Response(new Uint8Array([2]), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const transport = new BmpTransport(
+      'https://bmp.test/Workspace/',
+      mockAuth() as never,
+    )
+
+    const first = transport.sendRequest(new Uint8Array([1]), 1_000, 'read')
+    const second = transport.sendRequest(new Uint8Array([2]), 1_000, 'read')
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    releaseFirst?.(new Response(new Uint8Array([1]), { status: 200 }))
+    await first
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await second
+
+    expect(new Uint8Array(fetchMock.mock.calls[0][1].body as ArrayBuffer)).toEqual(
+      new Uint8Array([1]),
+    )
+    expect(new Uint8Array(fetchMock.mock.calls[1][1].body as ArrayBuffer)).toEqual(
+      new Uint8Array([2]),
+    )
+  })
+
+  it('drops a cancelled queued command before it posts to BMP', async () => {
+    let releaseFirst: ((response: Response) => void) | undefined
+    const firstResponse = new Promise<Response>((resolve) => {
+      releaseFirst = resolve
+    })
+    const fetchMock = vi.fn().mockImplementationOnce(() => firstResponse)
+    vi.stubGlobal('fetch', fetchMock)
+    const transport = new BmpTransport(
+      'https://bmp.test/Workspace/',
+      mockAuth() as never,
+    )
+    const controller = new AbortController()
+
+    const first = transport.sendRequest(new Uint8Array([1]), 1_000, 'read')
+    const queued = transport.sendRequest(new Uint8Array([2]), 1_000, 'read', controller.signal)
+      .catch(error => error)
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    controller.abort()
+    releaseFirst?.(new Response(new Uint8Array([1]), { status: 200 }))
+    await first
+
+    await expect(queued).resolves.toMatchObject({ kind: 'cancelled', attempts: 0 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('continues the request queue after a failed command', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(new Response(new Uint8Array([2]), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const transport = new BmpTransport(
+      'https://bmp.test/Workspace/',
+      mockAuth() as never,
+    )
+
+    const failed = transport.sendRequest(new Uint8Array([1]), 1_000, 'write').catch(error => error)
+    const succeeded = transport.sendRequest(new Uint8Array([2]), 1_000, 'read')
+
+    await expect(failed).resolves.toMatchObject({ kind: 'network', attempts: 1 })
+    await expect(succeeded).resolves.toBeInstanceOf(ArrayBuffer)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('uses the cross-version LoginTicket path with required command flags', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(new Uint8Array([1, 2, 3]), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
@@ -140,6 +215,38 @@ describe('BmpTransport command requests', () => {
 
     await transport.sendRequest(new Uint8Array([0xac]), 1_000, 'read')
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports command identity, queue pressure, sizes, and retry count', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const transport = new BmpTransport('https://bmp.test/Workspace/', mockAuth() as never)
+    const outcomes: any[] = []
+    transport.setOutcomeObserver(outcome => outcomes.push(outcome))
+
+    await transport.sendRequest(
+      new Uint8Array([0xac]),
+      1_000,
+      'read',
+      undefined,
+      { operation: 'TreeItemCommand', commandCount: 1 },
+    )
+
+    expect(outcomes).toHaveLength(1)
+    expect(outcomes[0]).toMatchObject({
+      ok: true,
+      intent: 'read',
+      operation: 'TreeItemCommand',
+      commandCount: 1,
+      queueDepth: 0,
+      attempts: 2,
+      responseBytes: 3,
+    })
+    expect(outcomes[0].requestBytes).toBeGreaterThan(0)
+    expect(outcomes[0].queueWaitMs).toBeGreaterThanOrEqual(0)
+    expect(outcomes[0].durationMs).toBeGreaterThanOrEqual(0)
   })
 
   it('classifies malformed binary responses as protocol failures', () => {

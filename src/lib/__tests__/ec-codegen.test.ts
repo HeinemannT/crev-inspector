@@ -13,6 +13,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildActionButtonFlowEc, buildTransportGroupFlowEc,
   buildInputViewFlowEc, buildInputSetFlowEc, buildObjectPaneEc,
+  buildEditFieldPropertyEc, buildPropertyApplicationsEc,
 } from '../ec-codegen';
 
 // ── EC code generators (must match bmp-client.ts EXACTLY) ──
@@ -338,3 +339,45 @@ describe('object-pane EC (EAV query) — conditional emission', () => {
     expect(styled).not.toContain('_v := output(_o.transparency');
   });
 })
+
+describe('EditField property resolver EC', () => {
+  it('walks validated class applications and opens their master property config', () => {
+    const code = buildEditFieldPropertyEc('lookup(9001)', ['CeRiskAssessment', 'CeRiskAssessment']);
+
+    expect(code.match(/c\.get\(CeRiskAssessment\.name\)/g)).toHaveLength(1);
+    expect(code).toContain('_accessor := _o.propertyMapping.whenMissing("")');
+    expect(code).toContain('IF _app.linkedTo.id = _accessor THEN');
+    expect(code).toContain('_property := _app.linkedTo');
+    expect(code).toContain('"propertyRid"');
+    expect(code).not.toContain('"applicationRid"');
+    expect(code).not.toContain('"ownerClassName"');
+    expect(code).toContain('_r := _r + _sep + "DONE"');
+  });
+
+  it('rejects a class name that could inject Extended Code', () => {
+    expect(() => buildEditFieldPropertyEc('lookup(9001)', ['CeRiskAssessment); output("owned")']))
+      .toThrow();
+  });
+});
+
+describe('Property application scan EC', () => {
+  it('keeps the reverse-reference scan out of the initial object pane query', () => {
+    const code = buildObjectPaneEc('k.get("bucket_1_max")', []);
+    expect(code).not.toContain('.rref(linkedTo)');
+    expect(code).not.toContain('propertyApplications');
+  });
+
+  it('walks direct linkedTo reverse references and captures each delta', () => {
+    const code = buildPropertyApplicationsEc('k.get("bucket_1_max")');
+
+    expect(code).toContain('_applications := _property.rref(linkedTo)');
+    expect(code).toContain('_applications.first(100).forEach(_application:');
+    expect(code).toContain('_application.parent.id.whenMissing("")');
+    expect(code).toContain('_application.genedit()');
+    expect(code).toContain('IF _genedit = "*<<<CREV_*" THEN');
+    expect(code).toContain('<<<CREV_PROPERTY_ERROR>>>');
+    expect(code).toContain('<<<CREV_PROPERTY_END>>>');
+    expect(code).not.toContain('root.classConfig');
+    expect(code).not.toContain('CeRiskAssessment');
+  });
+});

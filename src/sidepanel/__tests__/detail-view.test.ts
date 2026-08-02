@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DetailView } from '../detail-view';
+import { _resetForTests as resetPaneSchema } from '../pane-schema-runtime';
 import type { BmpObject, InspectorMessage } from '../../lib/types';
 
 vi.mock('../state', () => ({
@@ -64,7 +65,16 @@ function paneData(rid: string, over: Partial<{
   instanceProps: Record<string, string>;
   templateProps: Record<string, string>;
   objectType: string;
+  identityName: string;
+  businessId: string;
   contextValues: Record<string, string>;
+  codeFields: Record<string, string>;
+  isPropertyDefinition: boolean;
+  editFieldProperty: Extract<InspectorMessage, { type: 'OBJECT_PANE_DATA' }>['editFieldProperty'];
+  editFieldPropertyError: string;
+  editFieldClassNames: string[];
+  propertyApplications: Extract<InspectorMessage, { type: 'OBJECT_PANE_DATA' }>['propertyApplications'];
+  propertyApplicationsError: string;
   siblings: Array<{ rid: string; isCurrent: boolean }>;
   error: string;
 }> = {}): InspectorMessage {
@@ -72,7 +82,13 @@ function paneData(rid: string, over: Partial<{
   return {
     type: 'OBJECT_PANE_DATA',
     rid,
-    instance: { rid, businessId: `bid-${rid}`, type: objectType, name: `Obj-${rid}` },
+    environment: 'test@https://bmp.test',
+    instance: {
+      rid,
+      businessId: over.businessId ?? `bid-${rid}`,
+      type: objectType,
+      name: over.identityName ?? `Obj-${rid}`,
+    },
     parent: over.parentRid
       ? { rid: over.parentRid, businessId: `bid-${over.parentRid}`, type: 'EditPage', name: 'Parent' }
       : null,
@@ -84,17 +100,24 @@ function paneData(rid: string, over: Partial<{
       : null,
     instanceProps: over.instanceProps ?? emptyProps({ width: '200', height: '100', headerColor: '#ff0000', shadow: 'false' }),
     templateProps: over.templateProps ?? emptyProps(),
+    instanceOverrideProps: [],
     siblings: (over.siblings ?? [{ rid, isCurrent: true }]).map(s => ({
       rid: s.rid, businessId: `bid-${s.rid}`, name: `Sib-${s.rid}`, type: 'ExtendedTable', isCurrent: s.isCurrent,
     })),
     siblingTotal: (over.siblings ?? [{ rid, isCurrent: true }]).length,
-    codeFields: {},
+    codeFields: over.codeFields ?? {},
+    isPropertyDefinition: over.isPropertyDefinition ?? false,
     references: {},
     indirectCode: {},
     indirectCodeRids: {},
     contextValues: over.contextValues ?? {},
     gateValues: {},
     lists: {},
+    editFieldProperty: over.editFieldProperty,
+    editFieldPropertyError: over.editFieldPropertyError,
+    editFieldClassNames: over.editFieldClassNames,
+    propertyApplications: over.propertyApplications,
+    propertyApplicationsError: over.propertyApplicationsError,
     ...(over.error ? { error: over.error } : {}),
   };
 }
@@ -128,7 +151,10 @@ function labelFlowData(rid: string, firstLine = '"<strong>Banner</strong>"'): In
   };
 }
 
-beforeEach(() => { document.body.innerHTML = ''; });
+beforeEach(() => {
+  document.body.innerHTML = '';
+  resetPaneSchema();
+});
 afterEach(() => { vi.useRealTimers(); });
 
 describe('DetailView — fetch flow', () => {
@@ -158,6 +184,144 @@ describe('DetailView — fetch flow', () => {
     // Property editors no longer render in this view (Blueprint's job now).
     expect(panel.querySelector('.prop-number-input')).toBeFalsy();
     expect(panel.querySelector('.prop-group-title-text')).toBeFalsy();
+  });
+
+  it('shows an EditField property as a normal navigable reference', () => {
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('100', { type: 'EditField' }), panel);
+    dv.handleMessage(paneData('100', {
+      objectType: 'EditField',
+      instanceProps: emptyProps({ propertyMapping: 'bucket_1_max' }),
+      editFieldClassNames: ['CeRiskAssessment'],
+      editFieldProperty: {
+        accessor: 'bucket_1_max',
+        property: {
+          rid: '700',
+          businessId: 'bucket_1_max',
+          name: 'Bucket 1 Max',
+          type: 'HistoricalNumberMethodConfig',
+        },
+      },
+    }), panel);
+
+    const row = panel.querySelector<HTMLElement>('.lk-row');
+    expect(row?.textContent).toContain('Bucket 1 Max');
+    expect(row?.textContent).toContain('Property');
+    expect(sent.some(m => m.type === 'FETCH_TYPE_SCHEMAS' && m.classNames.includes('CeRiskAssessment'))).toBe(true);
+    row!.click();
+    expect(sent.find(m => m.type === 'FETCH_OBJECT_PANE' && m.rid === '700')).toBeTruthy();
+  });
+
+  it('shows an unresolved EditField property instead of silently dropping it', () => {
+    const { dv, panel } = makeDetailView();
+    dv.show(makeObj('100', { type: 'EditField' }), panel);
+    dv.handleMessage(paneData('100', {
+      objectType: 'EditField',
+      instanceProps: emptyProps({ propertyMapping: 'missing_property' }),
+      editFieldClassNames: ['CeRiskAssessment'],
+      editFieldPropertyError: 'No property configuration resolved',
+    }), panel);
+
+    const row = panel.querySelector<HTMLElement>('.lk-row--broken');
+    expect(row?.textContent).toContain('missing_property');
+    expect(row?.textContent).toContain('Property');
+    expect(row?.title).toContain('No property configuration resolved');
+  });
+
+  it('shows editable EditField settings and loads property choices from its owning object type', () => {
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('100', { type: 'EditField' }), panel);
+    dv.handleMessage(paneData('100', {
+      objectType: 'EditField',
+      instanceProps: emptyProps({
+        propertyMapping: 'name',
+        required: 'false',
+        placeholder: '',
+        propertyHint: '',
+      }),
+      editFieldClassNames: ['CeRiskAssessment'],
+    }), panel);
+    dv.handleMessage({
+      type: 'FETCH_TYPE_SCHEMA_RESULT',
+      className: 'CeRiskAssessment',
+      ok: true,
+      props: [{
+        accessor: 'name',
+        label: 'Name',
+        configClass: 'TextMethodConfig',
+        systemobject: true,
+        propertyRid: '700',
+        propertyId: 'ceRiskAssessmentName',
+      }, {
+        accessor: 'risk_owner',
+        label: 'Risk owner',
+        configClass: 'ReferenceMethodConfig',
+        systemobject: false,
+        propertyRid: '701',
+        propertyId: 'ceRiskAssessmentOwner',
+      }],
+    }, panel);
+
+    expect(panel.querySelector('[data-section-label="Field"]')).toBeTruthy();
+    expect(panel.querySelector('[data-property-prop="required"]')).toBeTruthy();
+    const input = panel.querySelector<HTMLInputElement>('.crev-property-picker__input')!;
+    expect(input.disabled).toBe(false);
+    expect(input.value).toBe('ceRiskAssessmentName');
+    input.click();
+    panel.querySelector<HTMLElement>('[data-value="risk_owner"]')!
+      .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(panel.querySelector('.pane-actionbar')).toBeTruthy();
+    expect(sent.some(message =>
+      message.type === 'FETCH_TYPE_SCHEMAS' && message.classNames.includes('CeRiskAssessment'))).toBe(true);
+  });
+
+  it('renders a compact neutral Property view with one dropdown per object type', () => {
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('700', { type: 'ExtendedMethodConfig' }), panel);
+    dv.handleMessage(paneData('700', {
+      objectType: 'ExtendedMethodConfig',
+      identityName: 'Calculated risk',
+      businessId: 'calculated_risk',
+      instanceProps: emptyProps({ category: 'Risk' }),
+      codeFields: { expression: 'risk.score().whenMissing(0)\n + control.score()' },
+      isPropertyDefinition: true,
+      propertyApplications: [
+        {
+          classId: 'CeRiskAssessment',
+          application: { rid: '701', businessId: 'calculated_risk', name: '', type: 'ExtendedMethod' },
+          overrides: {
+            name: "'Assessment risk'",
+            description: "'Operational description'",
+            expression: "'override()'",
+          },
+        },
+        {
+          classId: 'CeControlMeasure',
+          application: { rid: '702', businessId: 'calculated_risk', name: '', type: 'ExtendedMethod' },
+          overrides: {},
+        },
+      ],
+    }), panel);
+
+    expect(panel.querySelector('.property-detail')).toBeTruthy();
+    expect(panel.querySelector('.dv-segs')).toBeNull();
+    expect(panel.querySelector('.pane-target-toggle')).toBeNull();
+    expect(panel.textContent).toContain('Calculated risk');
+    expect(panel.textContent).toContain('calculated_risk');
+    expect(panel.textContent).toContain('1 overridden · 1 inherited');
+    expect(panel.textContent).not.toContain('Accessor');
+    expect(panel.querySelectorAll('details.property-app')).toHaveLength(2);
+    expect([...panel.querySelectorAll('.property-app-id')].map(el => el.textContent))
+      .toEqual(['CeRiskAssessment', 'CeControlMeasure']);
+    expect(panel.querySelector('.property-app-inherited')?.textContent)
+      .toContain('None · inherits the property definition');
+    expect(panel.querySelector('.code-row-preview')?.textContent)
+      .toContain('risk.score().whenMissing(0)');
+    expect(panel.querySelector('.property-delta-code')?.textContent).toContain('override()');
+    expect([...panel.querySelectorAll('.property-delta-value')].some(el =>
+      el.textContent === 'Operational description')).toBe(true);
+    expect(panel.querySelector('.property-applications input[type="search"]')).toBeNull();
+    expect(sent.some(m => m.type === 'FETCH_TYPE_SCHEMA')).toBe(false);
   });
 
   it('ignores OBJECT_PANE_DATA for the wrong RID', () => {
@@ -250,11 +414,12 @@ describe('DetailView — fetch flow', () => {
       very?.cb();
       expect(panel.querySelector('.pane-loading')?.classList.contains('pane-loading--verySlow')).toBe(true);
       expect(panel.querySelector('.pane-loading')?.textContent).toContain('BMP is slow');
-      // Fire the 15s watchdog
+      // Fire the post-transport lost-response watchdog.
       const wd = timers.find(t => t.ms >= 10000);
       wd?.cb();
       expect(panel.querySelector('.pane-error')).toBeTruthy();
-      expect(sent.some(m => m.type === 'CANCEL_FETCH_OBJECT_PANE')).toBe(true);
+      expect(panel.querySelector('.pane-error')?.textContent).toContain('may still be finishing');
+      expect(sent.map(m => String(m.type))).not.toContain('CANCEL_FETCH_OBJECT_PANE');
 
       const reconnect = Array.from(panel.querySelectorAll<HTMLButtonElement>('.pane-error .btn'))
         .find(button => button.textContent === 'Reconnect')!;

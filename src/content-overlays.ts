@@ -8,15 +8,25 @@ import { getTypeColor, getTypeAbbr } from './lib/types';
 import { typeAffordances } from './lib/widget-metadata';
 import { hasStudio, modeForType } from './studio/studio-mode';
 import { typeIcon } from './lib/type-badge';
+import { isHistoricalPropertyConfigClass, isPropertyConfigClass } from './lib/property-config';
 import { getAllRidElements } from './lib/dom-scanner';
 import { log } from './lib/logger';
-import { ICON_CODE, ICON_CHECK, ICON_ARROW_FAT_LINE } from './lib/icons';
+import { ICON_CODE, ICON_CHECK, ICON_ARROW_FAT_LINE, ICON_VARIABLE, ICON_PROP_HISTORY } from './lib/icons';
 import { svg } from './lib/dom';
 import { DISCOVERED_RIDS_CAP } from './lib/constants';
 import { resolveCopyText, getModifier } from './lib/namespace';
 import { sendToSW } from './lib/content-port';
 import { sendFireForget } from './lib/messaging';
-import type { ContentState } from './content-state';
+import type { CascadeTarget, ContentState } from './content-state';
+
+export interface AdditionalOverlayTarget {
+  element: Element;
+  rid: string;
+  labelClassName?: string;
+  propertyTarget?: CascadeTarget;
+}
+
+const labelPropertyTargets = new WeakMap<HTMLElement, CascadeTarget>();
 
 /** Is there room above `el` for an upward-overhanging edge pill (~11px), or
  *  would it be clipped? Clipping happens when the host sits flush against the
@@ -92,6 +102,11 @@ function renderLabelContent(
     label.prepend(stub);
     if (existingText) stub.appendChild(existingText);
   }
+  const propertyType = isPropertyConfigClass(type ?? '');
+  const historicalProperty = isHistoricalPropertyConfigClass(type ?? '');
+  stub.classList.toggle('crev-stub--property', propertyType);
+  stub.classList.toggle('crev-stub--historical', historicalProperty);
+
   let tile = stub.querySelector<HTMLElement>('.crev-tile');
   if (!tile) {
     tile = document.createElement('span');
@@ -99,6 +114,13 @@ function renderLabelContent(
     stub.prepend(tile);
   }
   tile.replaceChildren(svg(typeIcon(type)));
+  if (historicalProperty) {
+    const history = document.createElement('span');
+    history.className = 'crev-history-indicator';
+    history.setAttribute('aria-label', 'Historical property');
+    history.appendChild(svg(ICON_PROP_HISTORY));
+    tile.appendChild(history);
+  }
 
   const text = stub.querySelector<HTMLElement>('.crev-label-text');
   if (text) text.textContent = enrichment?.businessId ?? enrichment?.name ?? getTypeAbbr(type);
@@ -108,7 +130,8 @@ function renderLabelContent(
   label.querySelector('.crev-meta')?.remove();
   const aff = typeAffordances(type);
   const cascade = enrichment?.cascade;
-  if (!aff.code && !aff.flow && !cascade) return;
+  const property = labelPropertyTargets.get(label);
+  if (!aff.code && !aff.flow && !cascade && !property) return;
 
   const meta = document.createElement('span');
   meta.className = 'crev-meta';
@@ -146,6 +169,20 @@ function renderLabelContent(
     });
     meta.appendChild(btn);
   }
+  if (property) {
+    const btn = document.createElement('button');
+    btn.className = 'crev-sub crev-sub--property';
+    btn.setAttribute('aria-label', `Open property ${property.businessId ?? property.name ?? ''}`.trim());
+    btn.title = `Property: ${property.businessId ?? property.name ?? property.rid}`;
+    btn.style.setProperty('--crev-property-color', getTypeColor(property.type));
+    btn.appendChild(svg(property.type ? typeIcon(property.type) : ICON_VARIABLE));
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      sendFireForget({ type: 'SELECT_OBJECT', rid: property.rid, openPanel: true });
+    });
+    meta.appendChild(btn);
+  }
   if (cascade) meta.appendChild(createCascadeChip(cascade));
 
   label.appendChild(meta);
@@ -167,7 +204,7 @@ function applyCompactMode(label: HTMLElement, host: HTMLElement): void {
  * header identity share this exact renderer and gesture contract; placement is
  * deliberately left to the caller.
  */
-export function createIdentityLabel(s: ContentState, rid: string, className?: string): HTMLElement {
+export function createIdentityLabel(s: ContentState, rid: string, className?: string, propertyTarget?: CascadeTarget): HTMLElement {
   const enrichment = s.enrichments.get(rid);
   const label = document.createElement('span');
   label.className = ['crev-label', className].filter(Boolean).join(' ');
@@ -179,6 +216,7 @@ export function createIdentityLabel(s: ContentState, rid: string, className?: st
   // The click-modifier hints live in the hover info card. A native title
   // paints over that card, so the label intentionally has none.
   label.appendChild(labelText);
+  if (propertyTarget) labelPropertyTargets.set(label, propertyTarget);
 
   renderLabelContent(label, rid, enrichment);
   const stubEl = label.querySelector<HTMLElement>('.crev-stub')!;
@@ -194,14 +232,14 @@ export function createIdentityLabel(s: ContentState, rid: string, className?: st
     e.stopPropagation();
 
     if (s.paintPhase === 'picking') {
-      sendToSW({ type: 'PAINT_PICK', rid });
+      sendToSW({ type: 'PAINT_PICK', rid, environment: s.environment ?? undefined });
       label.classList.add('crev-label-flash-pick');
       setTimeout(() => { label.classList.remove('crev-label-flash-pick'); }, 400);
       return;
     }
 
     if (s.paintPhase === 'applying') {
-      sendToSW({ type: 'PAINT_APPLY', rid });
+      sendToSW({ type: 'PAINT_APPLY', rid, environment: s.environment ?? undefined });
       return;
     }
 
@@ -274,17 +312,41 @@ export function createIdentityLabel(s: ContentState, rid: string, className?: st
   return label;
 }
 
-/** Incremental overlay sync: clean stale, add new badges, request enrichment. */
-export function syncOverlays(s: ContentState) {
+/** Incremental overlay sync: clean stale, add new badges, request enrichment.
+ *  `additionalTargets` supplies identities known through React/configuration
+ *  joins even though BMP did not place a RID on the rendered DOM element. */
+export function syncOverlays(s: ContentState, additionalTargets: readonly AdditionalOverlayTarget[] = []) {
+  const additionalByElement = new Map(additionalTargets.map(target => [target.element, target]));
+
   // 1. Clean stale labels (detached parents or elements no longer in DOM)
   for (const label of document.querySelectorAll('.crev-label')) {
     if (!label.parentElement || !document.body.contains(label.parentElement)) {
       label.remove();
+      continue;
+    }
+    if (label.classList.contains('crev-edit-field-label')) {
+      const target = additionalByElement.get(label.parentElement);
+      if (!target || target.rid !== label.getAttribute('data-crev-label')) {
+        const parent = label.parentElement;
+        label.remove();
+        s.badgedElements.delete(parent);
+        if (!parent.querySelector('.crev-label')) {
+          parent.classList.remove('crev-outline');
+          parent.style.removeProperty('--crev-color');
+        }
+      }
     }
   }
 
   const includeLinks = s.enrichMode === 'all';
-  const elements = getAllRidElements(includeLinks);
+  const elements: AdditionalOverlayTarget[] = [...getAllRidElements(includeLinks)];
+  const seenElements = new Set(elements.map(item => item.element));
+  for (const target of additionalTargets) {
+    if (!seenElements.has(target.element)) {
+      elements.push(target);
+      seenElements.add(target.element);
+    }
+  }
   const linkCount = includeLinks ? elements.filter(({ element }) => element.tagName === 'A').length : 0;
   log.debug('sync', `syncOverlays: ${elements.length} elements (${linkCount} links), enrichMode=${s.enrichMode}`);
   const ridsToEnrich: string[] = [];
@@ -293,21 +355,25 @@ export function syncOverlays(s: ContentState) {
   const newElements = elements.filter(({ element }) => !s.badgedElements.has(element));
 
   // Write pass: apply DOM changes
-  for (const { element, rid } of newElements) {
+  for (const { element, rid, labelClassName, propertyTarget } of newElements) {
     const enrichment = s.enrichments.get(rid);
     const color = getTypeColor(enrichment?.type);
 
     element.classList.add('crev-outline');
     (element as HTMLElement).style.setProperty('--crev-color', color);
 
-    const label = createIdentityLabel(s, rid);
+    const label = createIdentityLabel(s, rid, labelClassName, propertyTarget);
 
     // Short, inline targets (breadcrumbs, nav links) are mostly text, so the
     // top-right corner pill lands on top of that text. Tag those to overhang
     // the top edge instead of covering content (see .crev-label--edge). Tall
     // widgets keep the in-corner placement — it sits in their header padding.
     const elHeight = (element as HTMLElement).offsetHeight;
-    if (element.tagName === 'A' || (elHeight > 0 && elHeight <= 26)) {
+    if (
+      labelClassName === 'crev-edit-field-label'
+      || element.tagName === 'A'
+      || (elHeight > 0 && elHeight <= 26)
+    ) {
       // The overhang gets sliced off when the host is flush against a
       // clipping ancestor's top (tab strips, the BMP header, breadcrumb
       // bars) or the viewport top. Detect that and tuck the pill just

@@ -19,22 +19,14 @@
 import type { LModel, LNode, FlowNode, FlowProjection } from '../lib/layout/types';
 import { isTempId } from '../lib/layout/model';
 import { effectiveFlowChildren, effectiveRef, findFlowContainer, trayButtons, isStagedActionButtonAdd } from '../lib/layout/flow';
-import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { flowDotTitle } from '../lib/widget-metadata';
-
-/** Readable ink for a HEX badge colour (registry colours are hex; lib/color-util.contrastInk parses
- *  rgb() strings only). Rec. 601 luma, same threshold. */
-function hexInk(hex: string): string {
-  const h = hex.replace('#', '');
-  const v = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
-  const r = parseInt(v.slice(0, 2), 16), g = parseInt(v.slice(2, 4), 16), b = parseInt(v.slice(4, 6), 16);
-  return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#1c1b16' : '#fff';
-}
 import { ICON_PLUS, ICON_LIGHTNING, ICON_ARROW_RIGHT, ICON_PENCIL, ICON_TABS, ICON_LAYOUT, ICON_TRAY, ICON_ARROW_UNDO } from '../lib/icons';
 import { setIcon } from './geometry';
 import { bp } from './state';
 import { openFlowPicker, toggleFlowFold, toggleTrayCard, toggleActionMenu, setActionButtonFlag, openPicker, cancelFlowAdd, stageNewRef, openWireExisting, doUnwire, beginRename } from './actions';
 import { armFlowRow } from './gestures';
+import { flowBadge } from './flow-badge';
+import { embeddedEditPage } from './edit-page-result';
 
 /** mousedown handler that suppresses the drag-start / focus-steal (these controls sit inside a draggable
  *  result cell), then runs `fn`. Every interactive control in a flow row / band / tray card funnels
@@ -74,21 +66,6 @@ function tabScopeControl(buttonId: string, allTabs: boolean): HTMLButtonElement 
 function renamePencil(id: string, title: string): HTMLElement {
   const b = document.createElement('button'); b.className = 'bp-fedit'; setIcon(b, ICON_PENCIL); b.title = title;
   onTap(b, () => beginRename(id));
-  return b;
-}
-
-/** The 34×17 mono type chip that leads every flow row / band (v6 "badge"). Dashed = staged (NEW).
- *  Exported so the add-element picker leads each item with the SAME badge it'll get as a row. */
-export function flowBadge(className: string, staged = false, small = false): HTMLElement {
-  const b = document.createElement('span');
-  b.className = 'bp-fbadge' + (staged ? ' newb' : '') + (small ? ' sm' : '');
-  b.textContent = getTypeAbbr(className);
-  const c = getTypeColor(className);
-  b.style.setProperty('--fb', c);
-  // Contrast ink per badge colour — the gold ACT / light-blue field chips need dark ink (v6). Dashed
-  // staged badges keep the colour itself as ink (transparent fill), handled in CSS.
-  if (!staged) b.style.color = hexInk(c);
-  b.title = className;
   return b;
 }
 
@@ -144,12 +121,16 @@ function addRow(label: string, onOpen: (at: { x: number; y: number }) => void): 
 
 /** Rows for a child list, nesting a ButtonGroup's children as an indented sub-block with its own add
  *  row. `keyFor` maps a group child to its reorder container key (its own bid for flow, same for grid). */
-function childRows(children: FlowNode[], key: string, grid: boolean, into: HTMLElement): void {
+function childRows(m: LModel, children: FlowNode[], key: string, grid: boolean, into: HTMLElement): void {
   for (const c of children) {
     into.appendChild(flowRow(c, key, { grid }));
     if (c.className === 'ButtonGroup') {
       const nest = document.createElement('div'); nest.className = 'bp-fnest';
-      for (const gc of c.children ?? []) nest.appendChild(flowRow(gc, c.id, { grid, nested: true }));
+      // Flow groups keep their staged additions in `flowEdits[groupId]`, not on the fetched node's
+      // `children`. Rendering only c.children made Add button increment the pending counter while the
+      // new ButtonInput appeared to vanish. Grid composites use the edited LNode tree directly.
+      const groupChildren = grid ? (c.children ?? []) : effectiveFlowChildren(m, c.id);
+      for (const gc of groupChildren) nest.appendChild(flowRow(gc, c.id, { grid, nested: true }));
       nest.appendChild(addRow('Add button', at => grid
         ? openPicker(c.id, { at })
         : openFlowPicker(c.id, 'ButtonGroup', { at })));
@@ -251,7 +232,7 @@ export function hasFlowPanel(m: LModel, node: LNode): boolean {
 
 /** The two affordances of a reference-less InputView/COV: "wire to existing" + "+ new". */
 function noRefBand(widgetId: string, prop: 'inputSet' | 'editPage', editingTemplate: boolean): HTMLElement {
-  const band = document.createElement('div'); band.className = 'bp-fband';
+  const band = document.createElement('div'); band.className = 'bp-fband bp-fband-emptyref';
   const what = prop === 'inputSet' ? 'Input set' : 'Edit page';
   const lbl = document.createElement('span');
   lbl.textContent = editingTemplate && prop === 'editPage'
@@ -326,8 +307,20 @@ export function flowPanel(m: LModel, node: LNode): HTMLElement | null {
           : 'Existing elements are not loaded here; new elements stage below.';
         wrap.appendChild(note);
       }
-      childRows(effectiveFlowChildren(m, ref.id), ref.id, false, wrap);
-      wrap.appendChild(addRow('Add element', at => openFlowPicker(ref.id, ref.className, { at })));
+      const editPage = p?.ownerClass === 'CreateObjectView' && ref.className === 'EditPage'
+        ? embeddedEditPage(m, {
+          ...p,
+          refId: ref.id,
+          refClass: ref.className,
+          refName: ref.name,
+        })
+        : null;
+      if (editPage) {
+        wrap.appendChild(editPage);
+      } else {
+        childRows(m, effectiveFlowChildren(m, ref.id), ref.id, false, wrap);
+        wrap.appendChild(addRow('Add element', at => openFlowPicker(ref.id, ref.className, { at })));
+      }
     }
   } else if (prop && p?.kind !== 'action' && p?.kind !== 'add' && p?.kind !== 'navigate') {
     // Reference-less InputView/COV (typical for a widget freshly staged from the grid picker):
@@ -340,11 +333,11 @@ export function flowPanel(m: LModel, node: LNode): HTMLElement | null {
 /** A grid-placed composite's children in the same row grammar (source = LNode.children; staging =
  *  the EXISTING layout pipeline: openPicker → addWidget → diff create/reorder → ec composite branch).
  *  No EC dots — the layout wire doesn't project code presence for grid children (honest omission). */
-export function compositeFlowRows(node: LNode): HTMLElement {
+export function compositeFlowRows(m: LModel, node: LNode): HTMLElement {
   const wrap = document.createElement('div'); wrap.className = 'bp-fpanel';
   const toFlow = (c: LNode): FlowNode => ({ id: c.id, className: c.className, name: c.name, ...(c.rid ? { rid: c.rid } : {}),
     ...(c.children.length ? { children: c.children.map(toFlow) } : {}) });
-  childRows(node.children.map(toFlow), node.id, true, wrap);
+  childRows(m, node.children.map(toFlow), node.id, true, wrap);
   wrap.appendChild(addRow('Add element', at => openPicker(node.id, { at })));
   return wrap;
 }

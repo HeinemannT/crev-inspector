@@ -18,7 +18,10 @@ import {
 } from './bmp-types';
 import { colorLinkBid } from './color-util';
 import { styleAssignRhs, INVALID_COLOR_BID } from './style-ec';
-import type { ColorSetData, ObjectPaneCard, AccessTraceAction, AccessTraceNode, AccessSubject, BmpObject, LayoutNode } from './types';
+import type {
+  ColorSetData, AccessTraceAction, AccessTraceNode, AccessSubject, BmpObject,
+  LayoutNode, ObjectPanePayload,
+} from './types';
 import { log } from './logger';
 import { HEALTH_TIMEOUT, EC_TIMEOUT } from './constants';
 import { BmpAuth, AuthError } from './bmp-auth';
@@ -88,61 +91,7 @@ export interface EditorContextData {
 
 /** Object pane data: identity + parent + template + style props + siblings.
  *  Used by the sidepanel DetailView's split-pane editor. */
-export interface ObjectPaneSibling {
-  rid: string;
-  businessId: string;
-  name: string;
-  type: string;
-  isCurrent: boolean;
-}
-
-export interface ObjectPaneRef {
-  rid: string;
-  businessId: string;
-  name: string;
-  type: string;
-}
-
-export interface ObjectPaneData {
-  instance: { rid: string; businessId: string; type: string; name: string };
-  parent: { rid: string; businessId: string; type: string; name: string } | null;
-  template: { rid: string; businessId: string; type: string; name: string } | null;
-  /** Effective detail card — the object's own `.card`, else the template's
-   *  `.card` (enterprise objects carry the card on their EnterpriseTemplate,
-   *  not the instance). `viaTemplate` is true when it was inherited. */
-  card: ObjectPaneCard | null;
-  /** Property values keyed by name. Empty string means "not set" on server. */
-  instanceProps: Record<string, string>;
-  templateProps: Record<string, string>;
-  /** Explicit instance overrides from BMP ObjectData, not value comparison. */
-  instanceOverrideProps: string[];
-  /** Siblings under the same parent — empty if parent is null. Capped at
-   *  SIBLING_CAP rows; `siblingTotal` carries the true count. */
-  siblings: ObjectPaneSibling[];
-  /** True number of children under the parent (siblings may be a capped
-   *  slice). Equals siblings.length when nothing was truncated. */
-  siblingTotal: number;
-  /** Code field full content keyed by property (only non-empty entries). */
-  codeFields: Record<string, string>;
-  /** Reference edges keyed by property → target identity (or null if unset). */
-  references: Record<string, ObjectPaneRef | null>;
-  /** Indirect code reached via ref→target; key is `<prop>_<targetProp>`. */
-  indirectCode: Record<string, string>;
-  /** RID of the reference target for each indirectCode entry. Keyed by the
-   *  same `<prop>_<targetProp>` so the Edit button can target the right
-   *  object instead of trying to edit the Reference handle itself. */
-  indirectCodeRids: Record<string, string>;
-  /** Enum / boolean values that shape interpretation (actionType, persistence…). */
-  contextValues: Record<string, string>;
-  /** Boolean gates referenced by `enabledBy` on a code field. */
-  gateValues: Record<string, string>;
-  /** List-typed refs (e.g. addableItems). */
-  lists: Record<string, ObjectPaneRef[]>;
-  /** For an EditField, the distinct business-object classes of every
-   *  CreateObjectView that points at its owning EditPage. Usually one class;
-   *  multiple classes are supported by intersecting their property schemas. */
-  editFieldClassNames?: string[];
-}
+export type ObjectPaneData = ObjectPanePayload;
 
 // Flow walker types + parsing helpers live in lib/flow-parser.ts.
 // Re-export the types we hand back from fetchFlowChain so callers don't
@@ -152,6 +101,8 @@ export type { FlowChain, FlowStep, FlowCodeField, FlowIdentity } from './flow-pa
 /** Properties surfaced by the object pane. Allowlisted to prevent EC injection
  *  via attacker-controlled keys and to gate UI editors per property type. */
 export const PANE_PROPS = [
+  // Property-definition metadata. Missing safely on non-property objects.
+  'description', 'category',
   'width', 'height',
   // Responsive width — verified live via bmp_type_fields on Scorecard subtypes;
   // ResponsiveWidth mixin attaches these to layout-bearing widgets. 0-6 each,
@@ -590,8 +541,9 @@ export class BmpClient {
   async batchFetchCode(
     rids: string[],
     properties: string[],
+    signal?: AbortSignal,
   ): Promise<Map<string, Record<string, string>>> {
-    return this.ecQuery.batchFetchCode(rids, properties);
+    return this.ecQuery.batchFetchCode(rids, properties, signal);
   }
 
   /** Walk the layout subtree of a Scorecard / TabSet / Tab / Container.
@@ -634,10 +586,14 @@ export class BmpClient {
    *  Returns identity + parent + template + allowlisted style props + siblings.
    *  Handles both model (.linkedTo) and enterprise (.template) objects. */
   async fetchObjectPane(rid: string, signal?: AbortSignal): Promise<ObjectPaneData | null> {
-    const overridePropsPromise = this.fetchObjectOverrideProps(rid, signal);
     const data = await this.ecQuery.fetchObjectPane(rid, signal);
     if (!data) return null;
-    const overrideProps = await overridePropsPromise;
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    // Master properties use a compact, read-only pane and have no instance
+    // override delta. Avoid the otherwise redundant binary GetObject command.
+    if (data.isPropertyDefinition) return data;
+
+    const overrideProps = await this.fetchObjectOverrideProps(rid, signal);
     if (overrideProps) {
       data.instanceOverrideProps = overrideProps;
     } else {
@@ -649,7 +605,12 @@ export class BmpClient {
         && data.instanceProps[prop] !== data.templateProps[prop],
       );
     }
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     return data;
+  }
+
+  async fetchPropertyApplications(rid: string, signal?: AbortSignal) {
+    return this.ecQuery.fetchPropertyApplications(rid, signal);
   }
 
   private async fetchObjectOverrideProps(rid: string, signal?: AbortSignal): Promise<string[] | null> {

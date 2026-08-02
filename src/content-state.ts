@@ -19,6 +19,17 @@ export type EnrichmentData = {
   cascade?: CascadeTarget;
 };
 
+export type EditPageInspectField = {
+  rid: string;
+  businessId: string;
+  name: string;
+  className: 'EditField' | 'EditPageInfo';
+  /** Index in the complete EditPage child stream, including non-EditField rows. */
+  streamIndex: number;
+  property?: string;
+  propertyObject?: CascadeTarget;
+};
+
 export class ContentState {
   inspectActive = false;
   enrichMode: EnrichMode = 'widgets';
@@ -28,6 +39,7 @@ export class ContentState {
   technicalOverlay = false;
   fromSync = false;
   prevConnDisplay: string | null = null;
+  environment: string | null = null;
   lastUrl = typeof window !== 'undefined' ? window.location.href : '';
   lastDetection: DetectionResult | null = null;
 
@@ -41,6 +53,14 @@ export class ContentState {
    * fiberPageContext so showing the EditPage chip cannot change execution
    * context for Blueprint or Extended Code. */
   editPageContext: EditPageContext | null = null;
+  /** Ordered EditField identities resolved from the standalone EditPage.
+   *  The DOM carries only native form controls, so this is the join table
+   *  Inspect uses to project configuration badges onto those controls. */
+  editPageInspectRid: string | null = null;
+  editPageInspectFields: EditPageInspectField[] = [];
+  editPageInspectLoadingRid: string | null = null;
+  editPageInspectRequest = 0;
+  editPageInspectRetryAt = 0;
 
   // Enrichment data from server (RID → identity)
   enrichments = new Map<string, EnrichmentData>();
@@ -108,6 +128,14 @@ export class ContentState {
     this.discoveredRids.clear();
   }
 
+  resetEditPageInspection() {
+    this.editPageInspectRid = null;
+    this.editPageInspectFields = [];
+    this.editPageInspectLoadingRid = null;
+    this.editPageInspectRequest++;
+    this.editPageInspectRetryAt = 0;
+  }
+
   /** Full reset for re-injection guard */
   resetAll() {
     this.inspectActive = false;
@@ -118,10 +146,12 @@ export class ContentState {
     this.technicalOverlay = false;
     this.fromSync = false;
     this.prevConnDisplay = null;
+    this.environment = null;
     this.lastUrl = typeof window !== 'undefined' ? window.location.href : '';
     this.lastDetection = null;
     this.fiberPageContext = null;
     this.editPageContext = null;
+    this.resetEditPageInspection();
     this.enrichments.clear();
     this.resetOverlays();
     this.pageHeaderElement = null;

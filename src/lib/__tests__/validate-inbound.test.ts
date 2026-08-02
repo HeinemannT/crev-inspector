@@ -101,6 +101,41 @@ describe('parseInterceptorMessage — EDIT_PAGE_CONTEXT', () => {
       context: { editPageRid: RID, initializerRid: 'bad' },
     })).toBeNull();
   });
+
+  it('validates rendered edit-field metadata without accepting arbitrary payloads', () => {
+    expect(parseInterceptorMessage({
+      type: 'EDIT_PAGE_CONTEXT',
+      context: {
+        editPageRid: RID,
+        fields: [{
+          kind: 'info',
+          key: 4,
+          objectRef: '7808624541928645082',
+          displayName: 'Obligation Text',
+          pageIndex: 0,
+          columnIndex: 0,
+        }],
+      },
+    })).toMatchObject({
+      type: 'EDIT_PAGE_CONTEXT',
+      context: {
+        fields: [{
+          kind: 'info',
+          key: 4,
+          objectRef: '7808624541928645082',
+          displayName: 'Obligation Text',
+        }],
+      },
+    });
+    expect(parseInterceptorMessage({
+      type: 'EDIT_PAGE_CONTEXT',
+      context: { editPageRid: RID, fields: [{ key: -1 }] },
+    })).toBeNull();
+    expect(parseInterceptorMessage({
+      type: 'EDIT_PAGE_CONTEXT',
+      context: { editPageRid: RID, fields: [{ kind: 'info', objectRef: 'not-a-rid' }] },
+    })).toBeNull();
+  });
 });
 
 describe('parseInterceptorMessage — BMP_SIGNALS_RESULT', () => {

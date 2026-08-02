@@ -37,6 +37,8 @@
   font:12px/1.35 'BPInter',system-ui,-apple-system,sans-serif;
   color:var(--bp-text);pointer-events:none;
 }
+/* Standalone EditPages use an opaque model canvas while Blueprint is active. BMP's form remains
+   mounted but suppressed; the document stays the single native scroll owner. */
 /* the move-menu floats like the picker but has no fixed backdrop, so pin it to the viewport itself */
 #crev-blueprint-layer .bp-pick.bp-move{position:fixed}
 /* tab-strip right-click reorder menu — floats to the cursor like the move-menu; compact fixed width */
@@ -361,82 +363,115 @@
    demand instead — hover the peek (slashed-eye) control in the header to fade the canvas. */
 #crev-blueprint-layer .bp-result{position:absolute;z-index:6;padding:12px;background:transparent;transition:opacity .12s}
 
-/* Standalone EditPage Blueprint. BMP persists one flat child stream; this surface projects the
-   PageBreak/ColumnBreak markers into the step navigation and form columns users actually see. */
-#crev-blueprint-layer .bp-editpage{--ep-accent:var(--bp-cyan-hi);--ep-accent-soft:rgba(21,101,192,.075);position:absolute;z-index:6;padding:18px 20px 22px;background-color:var(--bp-ground);background-image:linear-gradient(var(--bp-grid) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid) 1px,transparent 1px),linear-gradient(var(--bp-grid-2) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid-2) 1px,transparent 1px);background-size:10px 10px,10px 10px,40px 40px,40px 40px;border:var(--bp-hair) solid var(--bp-line-1);border-top:2px solid var(--ep-accent);box-shadow:var(--bp-shadow);pointer-events:auto}
-#crev-blueprint-layer .bp-editpage.is-measured{padding:0}
-#crev-blueprint-layer .bp-editpage-header{min-width:min(440px,94vw);border-color:var(--bp-cyan-hi)}
+/* EditPage surface. Standalone mode is hosted in a document-absolute workspace; embedded mode is
+   localized inside its owning CreateObjectView cell. Both use the same model-driven component. */
+#crev-blueprint-layer .bp-editpage-workspace{position:absolute;z-index:5;overflow:visible;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);box-shadow:var(--bp-shadow);pointer-events:none;transition:opacity .12s}
+#crev-blueprint-layer .bp-editpage{--ep-accent:var(--bp-cyan-hi);--ep-accent-soft:rgba(21,101,192,.075);position:relative;min-height:inherit;padding:14px;background:var(--bp-ground);background-image:linear-gradient(var(--bp-grid-2) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid-2) 1px,transparent 1px),linear-gradient(var(--bp-grid) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid) 1px,transparent 1px);background-size:40px 40px,40px 40px,10px 10px,10px 10px;pointer-events:none}
+#crev-blueprint-layer .bp-editpage.is-embedded{min-width:0;margin:6px;padding:8px;border:var(--bp-hair) solid var(--bp-line-2);background-color:#f4f7fa;background-size:40px 40px,40px 40px,10px 10px,10px 10px}
+#crev-blueprint-layer .bp-editpage.is-embedded .bp-ep-pages{min-width:0;padding:0 3px;overflow-x:auto;overflow-y:hidden}
+#crev-blueprint-layer .bp-editpage.is-embedded .bp-ep-page{min-width:72px;max-width:150px;padding:0 9px}
+#crev-blueprint-layer .bp-editpage.is-embedded .bp-ep-model-surface{min-height:0;padding:8px}
+#crev-blueprint-layer .bp-editpage.is-embedded .bp-ep-columns{gap:8px}
+#crev-blueprint-layer .bp-editpage.is-embedded .bp-ep-column{padding:6px}
+#crev-blueprint-layer .bp-editpage.is-embedded .bp-ep-field{height:38px}
+#crev-blueprint-layer .bp-editpage-header{width:min(720px,calc(100vw - 32px));min-width:0;border-color:var(--bp-cyan-hi)}
 #crev-blueprint-layer .bp-editpage-header .bp-chip.inst button.apply{background:var(--bp-cyan);border-color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-editpage-header .bp-chip .bp-target-b:last-child.on{background:var(--bp-cyan);border-color:var(--bp-cyan);color:var(--bp-ground)}
-#crev-blueprint-layer .bp-ep-title{display:flex;align-items:center;min-height:30px;margin-bottom:10px;padding:0 8px;background:var(--bp-ground);border-bottom:var(--bp-hair) solid var(--bp-line-2)}
-#crev-blueprint-layer .bp-ep-kicker{color:var(--bp-muted);font:700 9px var(--bp-mono);letter-spacing:.09em}
-#crev-blueprint-layer .bp-editpage.is-measured .bp-ep-title,#crev-blueprint-layer .bp-editpage.is-measured .bp-ep-nav,#crev-blueprint-layer .bp-editpage.is-measured .bp-ep-columns,#crev-blueprint-layer .bp-editpage.is-measured .bp-ep-add{position:absolute;margin:0}
-#crev-blueprint-layer .bp-editpage.is-measured .bp-ep-nav{display:grid}
-#crev-blueprint-layer .bp-ep-width{margin-left:auto;color:var(--bp-muted);font:500 9.5px var(--bp-mono);letter-spacing:.02em}
-#crev-blueprint-layer .bp-ep-nav{display:flex;align-items:stretch;gap:0;margin-bottom:18px;border-bottom:var(--bp-hair) solid var(--bp-line-2);overflow-x:auto}
-#crev-blueprint-layer .bp-ep-page{position:relative;display:flex;align-items:stretch;min-width:0;border-bottom:2px solid transparent;color:var(--bp-muted)}
-#crev-blueprint-layer .bp-ep-page:hover{color:var(--bp-text);background:rgba(21,101,192,.055)}
-#crev-blueprint-layer .bp-ep-page.on{color:var(--bp-text);border-bottom-color:var(--ep-accent)}
-#crev-blueprint-layer .bp-ep-view{display:flex;align-items:center;gap:7px;min-width:0;flex:1;padding:8px 8px 8px 12px;border:0;background:transparent;color:inherit;font:500 11px 'BPInter',system-ui,sans-serif;cursor:pointer;white-space:nowrap}
-#crev-blueprint-layer .bp-ep-view>b{display:grid;place-items:center;width:18px;height:18px;flex:0 0 18px;border:var(--bp-div) solid currentColor;border-radius:50%;font:600 9px var(--bp-mono)}
-#crev-blueprint-layer .bp-ep-page.on .bp-ep-view>b{background:var(--ep-accent);border-color:var(--ep-accent);color:#fff}
+#crev-blueprint-layer .bp-ep-context{display:flex;align-items:center;gap:12px;min-height:32px;margin-bottom:10px;padding:0 6px 0 10px;border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r-ui);background:rgba(255,255,255,.96);color:var(--bp-text);pointer-events:auto}
+#crev-blueprint-layer .bp-ep-context-identity{display:flex;align-items:center;min-width:0;gap:2px}
+#crev-blueprint-layer .bp-ep-context strong{min-width:0;overflow:hidden;font:600 12px 'BPInter',sans-serif;text-overflow:ellipsis;white-space:nowrap}
+#crev-blueprint-layer .bp-ep-context strong[contenteditable=true]{min-width:120px;padding:2px 4px;overflow:visible;border:var(--bp-hair) solid var(--bp-cyan);outline:none;text-overflow:clip}
+#crev-blueprint-layer .bp-ep-context-identity .bp-ep-tool-action{opacity:.55}
+#crev-blueprint-layer .bp-ep-context-identity:hover .bp-ep-tool-action{opacity:1}
+#crev-blueprint-layer .bp-ep-context code{margin-left:auto;color:var(--bp-muted);font:500 9.5px var(--bp-mono)}
+#crev-blueprint-layer .bp-ep-pages{display:flex;align-items:flex-end;gap:3px;min-height:28px;padding:0 6px;border-bottom:var(--bp-hair) solid var(--bp-line-1);pointer-events:auto}
+#crev-blueprint-layer .bp-ep-page{position:relative;display:flex;align-items:center;justify-content:center;min-width:92px;max-width:190px;height:27px;padding:0 12px;border:var(--bp-hair) solid var(--bp-line-2);border-bottom:0;border-radius:var(--bp-r-ui) var(--bp-r-ui) 0 0;background:#eef2f7;color:var(--bp-muted);outline:none;pointer-events:auto;cursor:pointer}
+#crev-blueprint-layer .bp-ep-page:hover{border-color:var(--bp-cyan);color:var(--bp-text)}
+#crev-blueprint-layer .bp-ep-page.on{height:29px;margin-bottom:-1px;background:#fff;color:var(--bp-text);border-color:var(--bp-line-1);border-bottom-color:#fff}
+#crev-blueprint-layer .bp-ep-page.selected{box-shadow:inset 0 2px 0 var(--ep-accent)}
+#crev-blueprint-layer .bp-ep-page-label{max-width:calc(100% - 12px);overflow:hidden;color:var(--bp-text);font:500 10.5px 'BPInter',sans-serif;text-overflow:ellipsis;white-space:nowrap}
 #crev-blueprint-layer .bp-ep-page.bp-ep-page-drop{background:var(--ep-accent-soft);outline:var(--bp-emph) solid var(--ep-accent);outline-offset:-2px;color:var(--ep-accent)}
-#crev-blueprint-layer .bp-ep-pencil{display:grid;place-items:center;width:20px;height:20px;padding:0;border:0;background:transparent;color:var(--bp-muted);opacity:0;cursor:pointer}
-#crev-blueprint-layer .bp-ep-pencil svg{width:11px;height:11px}
-#crev-blueprint-layer .bp-ep-page:hover .bp-ep-pencil,#crev-blueprint-layer .bp-ep-label:hover .bp-ep-pencil{opacity:.7}
-#crev-blueprint-layer .bp-ep-cancel{display:grid;place-items:center;width:18px;height:18px;padding:0;border:0;background:transparent;color:var(--bp-red);cursor:pointer}
-#crev-blueprint-layer .bp-ep-cancel svg{width:10px;height:10px}
-#crev-blueprint-layer .bp-ep-columns{display:grid;grid-template-columns:repeat(var(--ep-cols),minmax(0,1fr));gap:0}
-#crev-blueprint-layer .bp-ep-column{position:relative;min-width:0;padding:0 11px}
-#crev-blueprint-layer .bp-ep-column:first-child{padding-left:0}
-#crev-blueprint-layer .bp-ep-column:last-child{padding-right:0}
-#crev-blueprint-layer .bp-ep-column.has-guide{border-left:var(--bp-hair) dashed rgba(21,101,192,.55)}
-#crev-blueprint-layer .bp-editpage.is-measured .bp-ep-column{padding:0}
-#crev-blueprint-layer .bp-editpage.is-measured .bp-ep-column.has-guide{border-left-color:rgba(21,101,192,.55)}
-#crev-blueprint-layer .bp-ep-field{display:grid;grid-template-columns:12px minmax(0,1fr);gap:7px;margin:0;padding:8px;border:var(--bp-hair) solid rgba(21,101,192,.17);border-left:2px solid rgba(21,101,192,.28);background:rgba(255,255,255,.86);outline:none}
-#crev-blueprint-layer .bp-ep-field:hover{border-color:rgba(21,101,192,.38);border-left-color:var(--ep-accent);background:#fff}
-#crev-blueprint-layer .bp-ep-field.selected{border-color:var(--ep-accent);background:rgba(238,244,251,.98);box-shadow:inset 2px 0 0 var(--ep-accent)}
+#crev-blueprint-layer .bp-ep-model-surface{position:relative;min-height:300px;padding:12px;background:#fff;border:var(--bp-hair) solid var(--bp-line-1);border-top:0;pointer-events:none}
+#crev-blueprint-layer .bp-ep-columns{display:grid;align-items:start;gap:12px}
+#crev-blueprint-layer .bp-ep-column{position:relative;min-width:0;padding:8px;border:var(--bp-hair) dashed var(--bp-line-2);background:rgba(248,250,252,.88);pointer-events:none}
+#crev-blueprint-layer .bp-ep-column.has-break:before{content:"Column break";display:block;height:15px;margin:0 0 3px;color:var(--bp-muted);font:600 10px var(--bp-mono);font-variant-caps:all-small-caps;letter-spacing:.05em}
+#crev-blueprint-layer .bp-ep-column.has-break{border-left:2px solid #8793a0;background:#f2f5f7}
+#crev-blueprint-layer .bp-ep-column-object{position:relative;display:flex;align-items:center;gap:7px;height:30px;margin:-2px -2px 6px;padding:0 8px 0 30px;border:var(--bp-hair) solid #9aa6b3;background:#dde3e8;color:var(--bp-text);outline:none;pointer-events:auto;cursor:grab}
+#crev-blueprint-layer .bp-ep-column-object code{min-width:0;overflow:hidden;font:600 9.5px var(--bp-mono);text-overflow:ellipsis;white-space:nowrap}
+#crev-blueprint-layer .bp-ep-column-object:hover,#crev-blueprint-layer .bp-ep-column-object.selected{border-color:var(--ep-accent);color:var(--bp-text)}
+#crev-blueprint-layer .bp-ep-field{position:relative;display:flex;align-items:center;gap:8px;min-width:0;height:44px;margin:0;padding:0 9px 0 30px;border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r-ui);background:#fff;outline:none;pointer-events:auto;cursor:grab}
+#crev-blueprint-layer .bp-ep-field:hover{border-color:rgba(21,101,192,.5);background:#f8fafc}
+#crev-blueprint-layer .bp-ep-field.selected{border:var(--bp-emph) solid var(--ep-accent);background:#f8fafc}
 #crev-blueprint-layer .bp-ep-field:focus-visible{border-color:var(--ep-accent)}
-#crev-blueprint-layer .bp-ep-drag{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:12px;min-height:24px;opacity:.32;cursor:grab}
+#crev-blueprint-layer .bp-ep-field.kind-EditPageInfo{border-style:dashed;border-color:#9b8f79;background:#f5f1e8;color:#403a31}
+#crev-blueprint-layer .bp-ep-field.kind-EditPageInfo:hover,#crev-blueprint-layer .bp-ep-field.kind-EditPageInfo.selected{border-color:#756a58;background:#f1ecdf}
+#crev-blueprint-layer .bp-ep-field-id{min-width:0;overflow:hidden;color:var(--bp-text);font:500 10.5px var(--bp-mono);text-overflow:ellipsis;white-space:nowrap}
+#crev-blueprint-layer .bp-ep-field-property{flex:none;margin-left:auto;color:var(--bp-muted);font:500 9.5px var(--bp-mono);white-space:nowrap}
+#crev-blueprint-layer .bp-ep-duplicate{display:inline-flex;flex:none;width:14px;height:14px;color:var(--bp-amber)}
+#crev-blueprint-layer .bp-ep-duplicate svg{width:14px;height:14px}
+#crev-blueprint-layer .bp-ep-drag{position:absolute;left:5px;top:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:14px;height:18px;color:var(--bp-muted);opacity:0;cursor:grab;transform:translateY(-50%)}
 #crev-blueprint-layer .bp-ep-drag i{display:block;width:3px;height:3px;border-radius:50%;background:currentColor}
-#crev-blueprint-layer .bp-ep-field:hover .bp-ep-drag{opacity:.72}
-#crev-blueprint-layer .bp-ep-label{display:flex;align-items:center;gap:7px;min-height:20px;margin-bottom:5px;font:600 11px 'BPInter',system-ui,sans-serif}
-#crev-blueprint-layer .bp-ep-label>b{color:var(--bp-red)}
-#crev-blueprint-layer .bp-ep-label>code{margin-left:auto;color:var(--bp-muted);font:500 9.5px var(--bp-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#crev-blueprint-layer .bp-ep-control{min-height:24px}
-#crev-blueprint-layer .bp-ep-control.wire{position:relative;height:24px;min-height:24px;border:var(--bp-hair) dashed rgba(21,101,192,.24);background:repeating-linear-gradient(135deg,rgba(21,101,192,.026) 0,rgba(21,101,192,.026) 3px,transparent 3px,transparent 7px)}
-#crev-blueprint-layer .bp-ep-control.wire>span{position:absolute;left:9px;right:42%;top:50%;height:1px;background:rgba(21,101,192,.22)}
-#crev-blueprint-layer .bp-ep-control.info,#crev-blueprint-layer .bp-ep-control.validation{padding:8px 10px;border-left:3px solid var(--ep-accent);background:var(--ep-accent-soft);color:var(--bp-muted);font:11px/1.4 'BPInter',system-ui,sans-serif}
-#crev-blueprint-layer .bp-ep-control.validation{border-left-color:var(--bp-amber);background:rgba(217,119,6,.07)}
-#crev-blueprint-layer .bp-ep-control>button{height:30px;padding:0 12px;border:var(--bp-div) solid var(--bp-line-2);border-radius:var(--bp-r);background:#fff;color:var(--bp-text);font:500 11px 'BPInter',system-ui,sans-serif}
-#crev-blueprint-layer .bp-ep-details{display:flex;align-items:center;gap:8px;min-height:25px;margin-top:7px;padding-top:6px;border-top:var(--bp-hair) solid var(--bp-line-2);color:var(--bp-muted);font:500 9.5px var(--bp-mono)}
-#crev-blueprint-layer .bp-ep-details>span+span:before{content:"·";margin-right:8px;color:var(--bp-line-1)}
-#crev-blueprint-layer .bp-ep-detail-main{color:var(--bp-text);font-family:'BPInter',system-ui,sans-serif;font-weight:600}
-#crev-blueprint-layer .bp-ep-schema-state.is-error{color:var(--bp-amber)}
-#crev-blueprint-layer .bp-ep-help{display:grid;place-items:center;width:17px;height:17px;margin-left:auto;padding:0;border:var(--bp-hair) solid var(--bp-line-2);border-radius:50%;background:transparent;color:var(--bp-muted);font:700 9px var(--bp-mono);cursor:help}
-#crev-blueprint-layer .bp-ep-colguide{position:absolute;z-index:2;left:-8px;top:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:3px 1px;background:rgba(255,255,255,.98);color:var(--ep-accent)}
-#crev-blueprint-layer .bp-ep-colguide:after{content:"COLUMN";position:absolute;top:25px;padding:2px 4px;border:var(--bp-hair) solid rgba(21,101,192,.3);background:var(--bp-ground);color:var(--ep-accent);font:600 7px var(--bp-mono);letter-spacing:.08em;opacity:0;transform:rotate(90deg) translateX(100%);transform-origin:right top;transition:opacity .12s;pointer-events:none}
-#crev-blueprint-layer .bp-ep-colguide:hover:after{opacity:.8}
-#crev-blueprint-layer .bp-ep-colguide .bp-ep-drag{min-height:18px}
-#crev-blueprint-layer .bp-ep-insert{position:relative;z-index:1;display:grid;grid-template-columns:1fr 18px 1fr;place-items:center;width:100%;height:12px;margin:-2px 0;padding:0;border:0;background:transparent;color:var(--ep-accent);opacity:0;cursor:pointer;transition:opacity .12s}
-#crev-blueprint-layer .bp-editpage.is-measured .bp-ep-insert{margin:0}
-#crev-blueprint-layer .bp-editpage.is-measured .bp-ep-insert.is-start{position:absolute;top:-8px;height:16px!important}
+#crev-blueprint-layer .bp-ep-field:hover>.bp-ep-drag,#crev-blueprint-layer .bp-ep-column-object:hover>.bp-ep-drag{opacity:.72}
+#crev-blueprint-layer .bp-ep-toolbar{position:absolute;z-index:8;left:-2px;top:-34px;display:flex;align-items:center;max-width:min(620px,calc(100vw - 40px));height:31px;padding:3px 4px;gap:4px;border:1px solid var(--bp-line-1);background:#fff;color:var(--bp-text);box-shadow:var(--bp-shadow);pointer-events:auto;white-space:nowrap}
+#crev-blueprint-layer .bp-ep-page .bp-ep-toolbar{top:auto;bottom:calc(100% + 4px)}
+#crev-blueprint-layer .bp-ep-object-id{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--bp-text);font:600 10px var(--bp-mono)}
+#crev-blueprint-layer .bp-ep-property-control{display:flex;align-items:center;min-width:0;height:24px;background:#f5f7fa}
+#crev-blueprint-layer .bp-ep-property-picker{position:relative;width:156px;min-width:156px}
+#crev-blueprint-layer .crev-property-picker__field{display:grid;grid-template-columns:53px minmax(0,1fr) 20px;align-items:center;gap:3px;height:22px;padding-left:2px;border:var(--bp-div) solid var(--bp-line-2);border-radius:var(--bp-r);background:#fff}
+#crev-blueprint-layer .crev-property-picker__field:focus-within{border-color:var(--bp-cyan-hi);outline:1px solid rgba(21,101,192,.2)}
+#crev-blueprint-layer .crev-property-picker__badge,#crev-blueprint-layer .crev-property-picker__option-badge{display:inline-flex;width:53px;min-width:53px}
+#crev-blueprint-layer .crev-property-picker__input{min-width:0;height:20px;padding:0;border:0;outline:0;background:transparent;color:var(--bp-text);font:500 9.5px/1 var(--bp-mono)}
+#crev-blueprint-layer .crev-property-picker__input::placeholder{color:var(--bp-muted)}
+#crev-blueprint-layer .crev-property-picker__toggle{display:grid;align-self:stretch;place-items:center;padding:0;border:0;border-left:var(--bp-div) solid var(--bp-line-2);background:transparent;color:var(--bp-muted);cursor:pointer}
+#crev-blueprint-layer .crev-property-picker__toggle:hover{background:#eef4fb;color:var(--bp-cyan-hi)}
+#crev-blueprint-layer .crev-property-picker__toggle svg{width:9px;height:9px;fill:currentColor}
+#crev-blueprint-layer .crev-property-picker.is-open .crev-property-picker__toggle svg{transform:rotate(180deg)}
+#crev-blueprint-layer .crev-property-picker__list{position:absolute;z-index:30;top:calc(100% + 2px);right:0;width:min(292px,calc(100vw - 40px));max-height:174px;overflow-y:auto;border:var(--bp-div) solid var(--bp-line-1);border-radius:var(--bp-r);background:#fff;box-shadow:0 4px 16px rgba(0,33,71,.18)}
+#crev-blueprint-layer .crev-property-picker__option{display:grid;grid-template-columns:53px minmax(0,1fr);align-items:center;gap:6px;min-height:26px;padding:2px 9px 2px 5px;border-bottom:var(--bp-div) solid #e2e8f0;color:var(--bp-text);cursor:pointer}
+#crev-blueprint-layer .crev-property-picker__option:last-child{border-bottom:0}
+#crev-blueprint-layer .crev-property-picker__option.is-selected{background:#e9f1fa}
+#crev-blueprint-layer .crev-property-picker__option.is-active{background:#eef4fb}
+#crev-blueprint-layer .crev-property-picker__option.is-selected.is-active{background:#e9f1fa}
+#crev-blueprint-layer .crev-property-picker__option.is-clear{display:flex;min-height:25px;padding-left:9px;color:var(--bp-muted)}
+#crev-blueprint-layer .crev-property-picker__option.is-clear .crev-property-picker__id{font-family:'BPInter',sans-serif;font-weight:500}
+#crev-blueprint-layer .crev-property-picker__copy{display:flex;align-items:baseline;gap:6px;min-width:0;overflow:hidden;white-space:nowrap}
+#crev-blueprint-layer .crev-property-picker__id,#crev-blueprint-layer .crev-property-picker__name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#crev-blueprint-layer .crev-property-picker__id{flex:0 0 auto;max-width:100%;font:500 9.5px/1 var(--bp-mono)}
+#crev-blueprint-layer .crev-property-picker__name{flex:1 1 auto;min-width:0;color:var(--bp-muted);font:500 9px/1 'BPInter',sans-serif}
+#crev-blueprint-layer .crev-property-picker__empty{display:flex;align-items:center;min-height:28px;padding:3px 10px;color:var(--bp-muted);font:500 9px var(--bp-mono)}
+#crev-blueprint-layer .crev-property-picker__input:disabled,#crev-blueprint-layer .crev-property-picker__toggle:disabled{color:var(--bp-muted);cursor:default;opacity:.62}
+/* Property badges use the same split capsule geometry as shared extension UI;
+   this scoped copy is required because Blueprint is injected into BMP rather
+   than loading components.css into the host page. */
+#crev-blueprint-layer .crev-property-picker .bdg.bdg-property{display:inline-flex;align-items:stretch;flex:none;width:57px;height:20px;overflow:hidden;border:var(--bp-div) solid var(--bp-line-2);border-radius:999px;color:var(--bp-text)}
+#crev-blueprint-layer .crev-property-picker .bdg.bdg-property .tile{position:relative;display:flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;padding:0;background:var(--c,var(--bp-muted));color:#fff}
+#crev-blueprint-layer .crev-property-picker .bdg.bdg-property .tile>svg{width:12px;height:12px;transform:translateX(1px)}
+#crev-blueprint-layer .crev-property-picker .bdg.bdg-property .lbl{display:flex;align-items:center;justify-content:center;flex:0 0 31px;width:31px;padding-left:1px;background:#f5f7fa;color:var(--bp-text);font:600 9px/1 var(--bp-mono)}
+#crev-blueprint-layer .crev-property-picker .bdg-history{position:absolute;z-index:2;bottom:0;left:19px;display:inline-flex;align-items:center;justify-content:center;width:9px;height:9px;color:#fff;filter:drop-shadow(0 0 1px rgba(0,33,71,.45))}
+#crev-blueprint-layer .crev-property-picker .bdg-history svg{width:9px;height:9px}
+#crev-blueprint-layer .crev-property-picker .bdg.bdg-property.xs{width:53px;height:18px}
+#crev-blueprint-layer .crev-property-picker .bdg.bdg-property.xs .tile{flex-basis:22px;width:22px}
+#crev-blueprint-layer .crev-property-picker .bdg.bdg-property.xs .tile>svg{width:11px;height:11px}
+#crev-blueprint-layer .crev-property-picker .bdg.bdg-property.xs .lbl{flex-basis:29px;width:29px}
+#crev-blueprint-layer .crev-property-picker .bdg.bdg-property.xs .bdg-history{left:18px;width:8px;height:8px}
+#crev-blueprint-layer .crev-property-picker .bdg.bdg-property.xs .bdg-history svg{width:8px;height:8px}
+#crev-blueprint-layer .bp-ep-property-open{border-left:var(--bp-hair) solid var(--bp-line-2)}
+#crev-blueprint-layer .bp-ep-property-open:disabled{opacity:.35;cursor:default}
+#crev-blueprint-layer .bp-ep-tool-action{display:grid;place-items:center;width:20px;height:20px;padding:0;border:0;background:transparent;color:var(--bp-muted);cursor:pointer}
+#crev-blueprint-layer .bp-ep-tool-action:hover{background:#eef4fb;color:var(--bp-cyan-hi)}
+#crev-blueprint-layer .bp-ep-tool-action.is-delete:hover{color:var(--bp-red)}
+#crev-blueprint-layer .bp-ep-tool-action svg{width:11px;height:11px}
+#crev-blueprint-layer .bp-ep-column-object .bp-ep-toolbar{left:0;top:31px}
+#crev-blueprint-layer .bp-ep-insert{position:relative;z-index:6;display:grid;grid-template-columns:1fr 18px 1fr;place-items:center;width:100%;height:14px;margin:0;padding:0;border:0;background:transparent;color:var(--ep-accent);opacity:.16;pointer-events:auto;cursor:pointer;transition:opacity .12s}
 #crev-blueprint-layer .bp-ep-insert:before,#crev-blueprint-layer .bp-ep-insert:after{content:"";width:100%;height:var(--bp-hair);background:currentColor;opacity:.45}
 #crev-blueprint-layer .bp-ep-insert>span{display:grid;place-items:center;width:16px;height:16px;border:var(--bp-hair) solid currentColor;border-radius:50%;background:rgba(255,255,255,.98)}
 #crev-blueprint-layer .bp-ep-insert svg{width:9px;height:9px}
-#crev-blueprint-layer .bp-ep-field:hover+.bp-ep-insert,#crev-blueprint-layer .bp-ep-insert:focus-visible{opacity:.72}
+#crev-blueprint-layer .bp-ep-insert:focus-visible{opacity:.72}
 #crev-blueprint-layer .bp-ep-insert:hover{opacity:1!important}
-#crev-blueprint-layer .bp-ep-add{display:flex;align-items:center;gap:6px;margin:6px 0 0 19px;padding:6px 9px;border:var(--bp-hair) dashed var(--bp-line-2);border-radius:var(--bp-r);background:transparent;color:var(--bp-muted);font:500 11px 'BPInter',system-ui,sans-serif;cursor:pointer}
+#crev-blueprint-layer .bp-editpage:hover .bp-ep-insert{opacity:.35}
+#crev-blueprint-layer .bp-ep-add{display:grid;height:30px;margin-top:6px;opacity:.65;border:var(--bp-hair) dashed var(--bp-line-2);background:rgba(255,255,255,.82)}
 #crev-blueprint-layer .bp-ep-add:hover{border-color:var(--bp-cyan);color:var(--bp-cyan-hi)}
 #crev-blueprint-layer .bp-ep-add svg{width:12px;height:12px}
-@media (max-width:600px){
-  #crev-blueprint-layer .bp-ep-columns{grid-template-columns:1fr}
-  #crev-blueprint-layer .bp-editpage{padding-left:12px;padding-right:12px}
-  #crev-blueprint-layer .bp-ep-column{padding:0}
-  #crev-blueprint-layer .bp-ep-column.has-guide{margin-top:12px;padding-top:12px;border-top:var(--bp-hair) dashed rgba(74,144,217,.55);border-left:0}
-  #crev-blueprint-layer .bp-ep-colguide{left:50%;top:-8px;flex-direction:row;transform:translateX(-50%)}
-  #crev-blueprint-layer .bp-ep-insert{opacity:.45}
-}
 /* Full-bleed editor backdrop: the white + two-tier grid fills the WHOLE editor width (edge to edge,
    like the draft), not just the content panel. It sits BEHIND the cards (z 5 < 6) and is purely
    decorative (pointer-events:none), so it never affects hit-testing or resizing. Sized in renderResult
@@ -444,7 +479,7 @@
 #crev-blueprint-layer .bp-canvas-bg{position:absolute;z-index:5;left:0;width:100%;background:var(--bp-ground);background-image:linear-gradient(var(--bp-grid-2) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid-2) 1px,transparent 1px),linear-gradient(var(--bp-grid) 1px,transparent 1px),linear-gradient(90deg,var(--bp-grid) 1px,transparent 1px);background-size:40px 40px,40px 40px,10px 10px,10px 10px;pointer-events:none;transition:opacity .12s}
 /* Peek: while hovering (or toggling) the slashed-eye control, fully hide the overlay so the real widgets show. */
 #crev-blueprint-layer.bp-peek .bp-result,#crev-blueprint-layer.bp-peek .bp-canvas-bg,#crev-blueprint-layer.bp-peek .bp-tools{opacity:0}
-#crev-blueprint-layer.bp-peek .bp-editpage{opacity:0}
+#crev-blueprint-layer.bp-peek .bp-editpage-workspace{opacity:0;pointer-events:none}
 /* align-items:start so each cell keeps its OWN (measured/authored) height instead of stretching to
    the row's tallest — the wireframe then reflects real widget heights, not a uniform grid. */
 #crev-blueprint-layer .bp-rgrid{display:grid;grid-template-columns:repeat(12,1fr);gap:8px;align-content:start;align-items:start}
@@ -748,7 +783,7 @@
    tokens (the v6 HTML's colours were approximations; translate, don't import). Row grammar is the
    locked strict grid: drag 14 · lead 38(badge) · name 1fr · prop 110 · dots 30. ── */
 #crev-blueprint-layer .bp-rcell.bp-rflow{height:auto}
-#crev-blueprint-layer .bp-fpanel{display:flex;flex-direction:column;pointer-events:auto}
+#crev-blueprint-layer .bp-fpanel{container:bp-flow/inline-size;display:flex;flex-direction:column;pointer-events:auto}
 
 /* type badge — the 34×17 mono chip that leads rows and bands. Dashed = staged (NEW). */
 #crev-blueprint-layer .bp-fbadge{width:34px;height:17px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--bp-r);font:700 8.5px var(--bp-mono);letter-spacing:.03em;color:#fff;background:var(--fb,var(--bp-muted))}
@@ -873,3 +908,15 @@
 #crev-blueprint-layer .bp-fwire.x{padding:4px 6px;color:var(--bp-text-dim)}
 #crev-blueprint-layer .bp-fwire.x:hover{color:var(--bp-red);border-color:var(--bp-red);background:rgba(220,38,38,.08)}
 #crev-blueprint-layer .bp-fnote{padding:6px 14px;font:500 10.5px 'BPInter',sans-serif;color:var(--bp-muted);font-style:italic;border-top:var(--bp-div) solid rgba(148,163,184,.28)}
+/* An unlinked InputView can be only one Blueprint column wide. Its label and two reference actions
+   cannot share one line at that size, so let the band respond to its CELL width (not the viewport).
+   Two-column cells get a clean second action row; the narrowest one-column cells stack the buttons. */
+@container bp-flow (max-width:330px){
+  #crev-blueprint-layer .bp-fband-emptyref{align-items:stretch;flex-direction:column;gap:6px;padding:8px}
+  #crev-blueprint-layer .bp-fband-emptyref .end{width:100%;margin-left:0;gap:6px}
+  #crev-blueprint-layer .bp-fband-emptyref .bp-fwire{flex:1;justify-content:center;min-width:0;padding-left:6px;padding-right:6px}
+}
+@container bp-flow (max-width:190px){
+  #crev-blueprint-layer .bp-fband-emptyref .end{align-items:stretch;flex-direction:column}
+  #crev-blueprint-layer .bp-fband-emptyref .bp-fwire{width:100%}
+}

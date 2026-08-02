@@ -48,8 +48,13 @@ export async function grantedOrigins(): Promise<string[]> {
  *  called at SW boot and on every permission grant/revoke. Unregister-then-register keeps the
  *  logic trivially correct (the set is tiny; churn is a no-op for the running pages). */
 export async function syncRegisteredScripts(): Promise<void> {
-  const granted = new Set(await grantedOrigins());
-  const origins = [...pageOrigins].filter(origin => granted.has(origin));
+  const origins = (await Promise.all([...pageOrigins].map(async origin => {
+    try {
+      return await chrome.permissions.contains({ origins: [origin] }) ? origin : null;
+    } catch {
+      return null;
+    }
+  }))).filter((origin): origin is string => origin !== null);
   try {
     const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [CONTENT_ID, INTERCEPTOR_ID] });
     if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: existing.map(s => s.id) });

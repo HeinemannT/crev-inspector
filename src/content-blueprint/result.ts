@@ -340,7 +340,7 @@ function cell(base: BaselineIndex, m: LModel, node: LNode, parentId: string | nu
   } else if (composite) {
     // Composite placed IN THE GRID (ButtonContainer/ButtonGroup/InputSet/…): its LNode children in the
     // same flow row grammar — adds/reorders ride the EXISTING layout pipeline (ec composite branch).
-    el.appendChild(compositeFlowRows(node));
+    el.appendChild(compositeFlowRows(m, node));
   } else {
     // Pure line-art: a faint type glyph fills the cell body with a small mono type caption beneath, so a
     // tall empty box reads as a typed placeholder (the dominant name + this glyph carry recognisability —

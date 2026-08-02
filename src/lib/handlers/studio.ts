@@ -10,6 +10,7 @@ import { errorMessage, log } from '../logger'
 import { formatEcLiteral } from '../ec-guards'
 import { ecActivityDetail } from '../activity-format'
 import type { StudioChildType } from '../types'
+import { ENVIRONMENT_CHANGED_ERROR, environmentMatches } from '../environment'
 
 // CVO child kind -> BMP class. Each populates a different `_data.*` map.
 const CHILD_CLASS: Record<StudioChildType, string> = {
@@ -94,6 +95,8 @@ register('STUDIO_FETCH_CHILDREN', async (msg, respond) => {
 register('STUDIO_ADD_CHILD', async (msg, respond) => {
   const ctx = getCtx()
   if (!ctx.client) { respond({ type: 'STUDIO_CHILD_ADDED', ok: false, error: 'Not connected' }); return }
+  if (!environmentMatches(ctx, msg.environment)) { respond({ type: 'STUDIO_CHILD_ADDED', ok: false, error: ENVIRONMENT_CHANGED_ERROR }); return }
+  const client = ctx.client
   // Add the child with id + key only (simple identifiers — no escaping). The
   // expression is set afterward via SAVE_PROPERTY. key is re-set via .change
   // because a key passed at add() time is stored prefixed (verified footgun).
@@ -109,7 +112,7 @@ register('STUDIO_ADD_CHILD', async (msg, respond) => {
   ].join('\n')
   const startedAt = Date.now()
   try {
-    const res = await ctx.client.executeEc(code, undefined, true)
+    const res = await client.executeEc(code, undefined, true)
     const durationMs = Date.now() - startedAt
     if (!res.ok) {
       respond({ type: 'STUDIO_CHILD_ADDED', ok: false, error: res.error })
@@ -143,6 +146,8 @@ register('STUDIO_FETCH_RESOURCE', async (msg, respond) => {
 register('STUDIO_WRITE_RESOURCE', async (msg, respond) => {
   const ctx = getCtx()
   if (!ctx.client) { respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: 'Not connected' }); return }
+  if (!environmentMatches(ctx, msg.environment)) { respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: ENVIRONMENT_CHANGED_ERROR }); return }
+  const client = ctx.client
   // ';' is the content-triplet delimiter the download servlet splits on, so it
   // must be stripped from name/mime. Everything else interpolated into an EC
   // string literal is escaped through formatEcLiteral (the value-slot guard) —
@@ -183,7 +188,7 @@ register('STUDIO_WRITE_RESOURCE', async (msg, respond) => {
   ].join('\n')
   const startedAt = Date.now()
   try {
-    const res = await ctx.client.executeEc(code, undefined, true)
+    const res = await client.executeEc(code, undefined, true)
     const durationMs = Date.now() - startedAt
     if (!res.ok) {
       respond({ type: 'STUDIO_RESOURCE_WRITTEN', ok: false, error: res.error })
@@ -231,6 +236,8 @@ function resolveChildLines(idVar: string, childId: string): string[] {
 register('STUDIO_SAVE_CHILD', async (msg, respond) => {
   const ctx = getCtx()
   if (!ctx.client) { respond({ type: 'STUDIO_CHILD_SAVED', ok: false, error: 'Not connected' }); return }
+  if (!environmentMatches(ctx, msg.environment)) { respond({ type: 'STUDIO_CHILD_SAVED', ok: false, error: ENVIRONMENT_CHANGED_ERROR }); return }
+  const client = ctx.client
   const f = msg.fields
   const lines = [
     `_r := SELECT ${CHILD_CLASS[msg.childType]} WHERE id = "${ident(msg.childId)}"`,
@@ -253,7 +260,7 @@ register('STUDIO_SAVE_CHILD', async (msg, respond) => {
   lines.push(`output("ok")`)
   const startedAt = Date.now()
   try {
-    const res = await ctx.client.executeEc(lines.join('\n'), undefined, true)
+    const res = await client.executeEc(lines.join('\n'), undefined, true)
     const durationMs = Date.now() - startedAt
     respond({ type: 'STUDIO_CHILD_SAVED', ok: res.ok, error: res.error })
     ctx.logActivity(
@@ -276,6 +283,8 @@ register('STUDIO_SAVE_CHILD', async (msg, respond) => {
 register('STUDIO_DELETE_CHILD', async (msg, respond) => {
   const ctx = getCtx()
   if (!ctx.client) { respond({ type: 'STUDIO_CHILD_DELETED', ok: false, error: 'Not connected' }); return }
+  if (!environmentMatches(ctx, msg.environment)) { respond({ type: 'STUDIO_CHILD_DELETED', ok: false, error: ENVIRONMENT_CHANGED_ERROR }); return }
+  const client = ctx.client
   const code = [
     ...resolveChildLines('_o', msg.childId),
     `_o.delete()`,
@@ -283,7 +292,7 @@ register('STUDIO_DELETE_CHILD', async (msg, respond) => {
   ].join('\n')
   const startedAt = Date.now()
   try {
-    const res = await ctx.client.executeEc(code, undefined, true)
+    const res = await client.executeEc(code, undefined, true)
     const durationMs = Date.now() - startedAt
     respond({ type: 'STUDIO_CHILD_DELETED', ok: res.ok, error: res.error })
     ctx.logActivity(

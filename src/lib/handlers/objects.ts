@@ -5,21 +5,21 @@
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import { activityObject, activityObjectLabel } from '../activity-format';
-import { CODE_PROPS_FOR_TYPE } from '../types';
 import { incrementGeneration, invalidateRid } from '../enrichment';
 import { clearActivityLog } from '../activity';
-import { clearAllContextRids, setContextRid } from '../context-rid';
+import { clearAllContextRids } from '../context-rid';
 import { errorMessage, log } from '../logger';
 import { CODE_BEARING_TYPES } from '../namespace';
 import { loadColorSets } from '../color-set-cache';
-import type { BmpObject, TypeOptionSet } from '../types';
-import type { TemplateResolution } from '../bmp-client';
+import type { BmpObject, ObjectPanePayload, TypeOptionSet } from '../types';
 import * as schemaCache from '../type-schema-cache';
 import { refFieldsFromSchema, buildConnectionsEc, parseConnections, buildJunctionEc, parseJunctions, pickFarSide, buildInboundEc, parseInbound, type SchemaProp } from '../connections';
 import type { ConnGroup } from '../types';
 import { buildRowEc } from '../ec-row-codec';
 import { isRidShaped } from '../validate-inbound';
 import { ID_SPACE_PREFIXES } from '../ec-grammar';
+import { BATCH_CHUNK_SIZE } from '../constants';
+import { ENVIRONMENT_CHANGED_ERROR, environmentMatches, environmentToken } from '../environment';
 
 // ── EC builders (exported for tests) ─────────────────────────────
 
@@ -53,29 +53,20 @@ async function lookupObject(rid: string): Promise<BmpObject> {
   const ctx = getCtx();
   if (!ctx.client) throw new Error('Not connected');
 
+  const cached = ctx.cache.get(rid);
+  if (cached?.type && (cached.name || cached.businessId)) return cached;
+
   const identity = await ctx.client.lookupIdentity(rid);
   if (!identity) throw new Error('Object not found');
 
   const now = Date.now();
-  const properties: Record<string, unknown> = {};
-  const type = identity.type ?? '';
-  const propsToFetch = CODE_PROPS_FOR_TYPE[type];
-  if (propsToFetch) {
-    try {
-      const codeProps = await ctx.client.fetchCodeViaEc(rid, [...propsToFetch]);
-      Object.assign(properties, codeProps);
-    } catch (e) {
-      log.swallow('handler:fetchCodeProps', e);
-    }
-  }
-
   const obj: BmpObject = {
     rid,
     name: identity.name,
     type: identity.type,
     businessId: identity.businessId,
     templateBusinessId: identity.templateBusinessId,
-    properties,
+    properties: {},
     source: 'server',
     discoveredAt: now,
     updatedAt: now,
@@ -242,12 +233,12 @@ register('HOVER_RESOLVE', async (msg, respond) => {
 // one-step `.as(linkedTo.id)` which returns display names).
 //
 // Cache lives in type-schema-cache.ts. We re-export the active
-// serverId from settings.activeProfileId so two profiles never share
-// schema state.
+// environment token so neither distinct profiles nor a reconfigured profile
+// can share schema state.
 
 register('FETCH_COLOR_SETS', async (msg, respond) => {
   const ctx = getCtx();
-  const serverId = ctx.settings.activeProfileId || '';
+  const serverId = environmentToken(ctx);
   // Serve from the persistent cache unless a manual refresh forced a reload.
   // This is the speed win: a panel reopen or SW idle-reset no longer re-runs
   // the BMP round-trip — the colours come straight from storage.session.
@@ -272,7 +263,8 @@ register('FETCH_COLOR_SETS', async (msg, respond) => {
 
 /**
  * EC that enumerates a class's property configs:
- * `accessor|||label|||configClass|||systemobject` per property, with a leading
+ * `accessor|||label|||configClass|||systemobject|||propertyRid|||propertyId|||propertyConfigClass`
+ * per property, with a leading
  * `__canon__|||<fq>` line carrying the canonical class name. `c.get(X.name)`
  * resolves the ClassConfig case-insensitively; the two-step `.linkedTo.id`
  * yields the accessor (the one-step form returns display names). Triple-pipe
@@ -285,7 +277,7 @@ function buildSchemaEc(className: string): string {
     '_out := "__canon__|||" + _cls.id.whenMissing("") + "\\n"',
     '_kids := _cls.children()',
     '_kids.forEach(_k:',
-    '     _out := _out + _k.linkedTo.id + "|||" + _k.name + "|||" + _k.className + "|||" + _k.systemobject + "\\n"',
+    '     _out := _out + _k.linkedTo.id + "|||" + _k.name + "|||" + _k.className + "|||" + _k.systemobject + "|||" + _k.linkedTo.rid + "|||" + _k.linkedTo.id + "|||" + _k.linkedTo.className + "\\n"',
     ')',
     '_out',
   ].join('\n');
@@ -304,9 +296,17 @@ export function parseSchemaPropsLog(log: string): { props: SchemaProp[]; canonic
       continue;
     }
     if (parts.length < 4) continue;
-    const [accessor, label, configClass, sysFlag] = parts;
+    const [accessor, label, configClass, sysFlag, propertyRid, propertyId, propertyConfigClass] = parts;
     if (!accessor || !configClass) continue;
-    props.push({ accessor: accessor.trim(), label: label.trim(), configClass: configClass.trim(), systemobject: sysFlag.trim() === 'true' });
+    props.push({
+      accessor: accessor.trim(),
+      label: label.trim(),
+      configClass: configClass.trim(),
+      systemobject: sysFlag.trim() === 'true',
+      ...(propertyRid?.trim() ? { propertyRid: propertyRid.trim() } : {}),
+      ...(propertyId?.trim() ? { propertyId: propertyId.trim() } : {}),
+      ...(propertyConfigClass?.trim() ? { propertyConfigClass: propertyConfigClass.trim() } : {}),
+    });
   }
   return { props, canonical };
 }
@@ -344,13 +344,22 @@ function safeConcreteObjectRef(ref: string | undefined): string | null {
   return ref;
 }
 
+type SchemaLoadResult =
+  | { ok: true; props: SchemaProp[]; canonical?: string }
+  | { ok: false; error: string };
+
+/** Same-type schema reads commonly arrive together from the picker, property
+ * pane, connections, and editor completion. One authoritative BMP command is
+ * enough; every caller can share its immutable result. */
+const inFlightSchemaLoads = new Map<string, Promise<SchemaLoadResult>>();
+
 /** Cache-or-fetch a type's schema props. `refresh` bypasses the cache.
  *  Exported for the AI read_type tool, which reuses this exact live path. */
 export async function loadSchemaProps(className: string, refresh = false, exampleRef?: string): Promise<
-  { ok: true; props: SchemaProp[]; canonical?: string } | { ok: false; error: string }
+  SchemaLoadResult
 > {
   const ctx = getCtx();
-  const serverId = ctx.settings.activeProfileId || '';
+  const serverId = environmentToken(ctx);
   if (!ctx.client) return { ok: false, error: 'Not connected' };
   if (!refresh) {
     await schemaCache.load();
@@ -360,35 +369,71 @@ export async function loadSchemaProps(className: string, refresh = false, exampl
   // BMP class names are PascalCase — guard against shipping an arbitrary
   // string into EC.
   if (!/^[A-Z][A-Za-z0-9]{0,63}$/.test(className)) return { ok: false, error: `Invalid class name: ${className}` };
-  const result = await ctx.client.executeEc(buildSchemaEc(className), undefined, false);
-  const parsed = result.ok ? parseSchemaPropsLog(result.log ?? '') : { props: [] as SchemaProp[] };
-  let { props } = parsed;
-  const canonical = parsed.canonical ?? className;
   const concreteRef = safeConcreteObjectRef(exampleRef);
-  if (props.length === 0 && concreteRef) {
-    const help = await ctx.client.executeEc(`help(${concreteRef})`, undefined, false);
-    if (help.ok) props = parseReferenceHelp(help.log ?? '');
+  const requestKey = `${serverId}::${className}::${concreteRef ?? ''}`;
+  const existing = inFlightSchemaLoads.get(requestKey);
+  if (existing) return existing;
+
+  const request = (async (): Promise<SchemaLoadResult> => {
+    const result = await ctx.client!.executeEc(buildSchemaEc(className), undefined, false);
+    const parsed = result.ok ? parseSchemaPropsLog(result.log ?? '') : { props: [] as SchemaProp[] };
+    let { props } = parsed;
+    const canonical = parsed.canonical ?? className;
+    if (props.length === 0 && concreteRef) {
+      const help = await ctx.client!.executeEc(`help(${concreteRef})`, undefined, false);
+      if (help.ok) props = parseReferenceHelp(help.log ?? '');
+    }
+    if (props.length === 0) {
+      return {
+        ok: false,
+        error: result.ok
+          ? 'No properties returned (unknown class?)'
+          : result.error || result.log || 'EC execution failed',
+      };
+    }
+    schemaCache.set(serverId, className, props, canonical);
+    return { ok: true, props, canonical };
+  })();
+  inFlightSchemaLoads.set(requestKey, request);
+  try {
+    return await request;
+  } finally {
+    if (inFlightSchemaLoads.get(requestKey) === request) {
+      inFlightSchemaLoads.delete(requestKey);
+    }
   }
-  if (props.length === 0) {
-    return {
-      ok: false,
-      error: result.ok
-        ? 'No properties returned (unknown class?)'
-        : result.error || result.log || 'EC execution failed',
-    };
-  }
-  schemaCache.set(serverId, className, props, canonical);
-  return { ok: true, props, canonical };
 }
 
 register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
+  const environment = environmentToken(getCtx());
   try {
     const r = await loadSchemaProps(msg.className, msg.refresh, msg.exampleRef);
-    if (r.ok) respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: true, props: r.props, canonicalClassName: r.canonical });
-    else respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: r.error });
+    if (r.ok) respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: true, props: r.props, canonicalClassName: r.canonical, environment });
+    else respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: r.error, environment });
   } catch (e) {
-    respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: errorMessage(e) });
+    respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: errorMessage(e), environment });
   }
+});
+
+register('FETCH_TYPE_SCHEMAS', async (msg, respond) => {
+  const environment = environmentToken(getCtx());
+  const classNames = [...new Set(msg.classNames.filter(Boolean))];
+  const results = [];
+  for (const className of classNames) {
+    if (environmentToken(getCtx()) !== environment) {
+      results.push({ className, ok: false as const, error: ENVIRONMENT_CHANGED_ERROR });
+      continue;
+    }
+    try {
+      const result = await loadSchemaProps(className);
+      results.push(result.ok
+        ? { className, ok: true as const, props: result.props, canonicalClassName: result.canonical }
+        : { className, ok: false as const, error: result.error });
+    } catch (error) {
+      results.push({ className, ok: false as const, error: errorMessage(error) });
+    }
+  }
+  respond({ type: 'FETCH_TYPE_SCHEMAS_RESULT', results, environment });
 });
 
 /**
@@ -484,7 +529,7 @@ async function loadTypeOptions(className: string, refresh = false): Promise<
 > {
   const ctx = getCtx();
   if (!ctx.client) return { ok: false, error: 'Not connected' };
-  const key = `${ctx.settings.activeProfileId || ''}::${className.toLowerCase()}`;
+  const key = `${environmentToken(ctx)}::${className.toLowerCase()}`;
   if (!refresh) {
     const cached = optionsCache.get(key);
     if (cached) return { ok: true, options: cached };
@@ -514,7 +559,8 @@ register('FETCH_CONNECTIONS', async (msg, respond) => {
     // 1. Discover the type's reference fields (cached schema).
     const schema = await loadSchemaProps(msg.className);
     if (!schema.ok) { respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: false, error: schema.error }); return; }
-    const fields = refFieldsFromSchema(schema.props);
+    const fields = refFieldsFromSchema(schema.props)
+      .filter(field => field.direction === 'out');
     if (fields.length === 0) { respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: true, groups: [] }); return; }
     // 2. Read the current endpoints for this object.
     const ref = await ctx.client.resolveRef(msg.rid);
@@ -522,7 +568,6 @@ register('FETCH_CONNECTIONS', async (msg, respond) => {
     if (!result.ok) { respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: false, error: result.error || result.log || 'EC execution failed' }); return; }
     const groups = parseConnections(result.log ?? '', fields);
     // 3. Inline junction far-sides (e.g. risk → [workflow] → control).
-    await inlineJunctions(msg.rid, groups);
     respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: true, groups });
   } catch (e) {
     respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: false, error: errorMessage(e) });
@@ -534,10 +579,43 @@ register('FETCH_INBOUND', async (msg, respond) => {
   if (!ctx.client) { respond({ type: 'INBOUND_RESULT', rid: msg.rid, ok: false, error: 'Not connected' }); return; }
   try {
     const ref = await ctx.client.resolveRef(msg.rid);
+    const schema = await loadSchemaProps(msg.className);
+    if (!schema.ok) {
+      respond({ type: 'INBOUND_RESULT', rid: msg.rid, ok: false, error: schema.error });
+      return;
+    }
+    const reverseFields = refFieldsFromSchema(schema.props)
+      .filter(field => field.direction === 'in');
+    let groups: ConnGroup[] = [];
+    if (reverseFields.length > 0) {
+      const declared = await ctx.client.executeEc(
+        buildConnectionsEc(ref, reverseFields),
+        undefined,
+        false,
+      );
+      if (!declared.ok) {
+        respond({
+          type: 'INBOUND_RESULT',
+          rid: msg.rid,
+          ok: false,
+          error: declared.error || declared.log || 'Declared reverse-reference fetch failed',
+        });
+        return;
+      }
+      groups = parseConnections(declared.log ?? '', reverseFields);
+      await inlineJunctions(msg.rid, groups);
+    }
     const result = await ctx.client.executeEc(buildInboundEc(ref), undefined, false);
     if (!result.ok) { respond({ type: 'INBOUND_RESULT', rid: msg.rid, ok: false, error: result.error || result.log || 'EC execution failed' }); return; }
-    const { targets, capped } = parseInbound(result.log ?? '');
-    respond({ type: 'INBOUND_RESULT', rid: msg.rid, ok: true, targets, capped });
+    const inbound = parseInbound(result.log ?? '');
+    respond({
+      type: 'INBOUND_RESULT',
+      rid: msg.rid,
+      ok: true,
+      groups,
+      targets: inbound.targets,
+      capped: inbound.capped || groups.some(group => group.capped),
+    });
   } catch (e) {
     respond({ type: 'INBOUND_RESULT', rid: msg.rid, ok: false, error: errorMessage(e) });
   }
@@ -585,7 +663,7 @@ async function inlineJunctions(sourceRid: string, groups: ConnGroup[]): Promise<
 
 register('RESOLVE_ROOT_CATEGORY', async (msg, respond) => {
   const ctx = getCtx();
-  const serverId = ctx.settings.activeProfileId || '';
+  const serverId = environmentToken(ctx);
   if (!ctx.client) {
     respond({ type: 'RESOLVE_ROOT_CATEGORY_RESULT', category: msg.category, ok: false });
     return;
@@ -722,6 +800,74 @@ register('SERVER_LOOKUP', async (msg) => {
   }
 });
 
+register('SERVER_LOOKUP_BATCH', async (msg) => {
+  const ctx = getCtx();
+  const requested = [...new Set(msg.rids)];
+  const rids = requested.filter(isRidShaped);
+  const objects: Record<string, BmpObject | null> = {};
+  for (const rid of requested) objects[rid] = null;
+  if (!ctx.client) {
+    ctx.sendToPanel({ type: 'SERVER_LOOKUP_BATCH_RESULT', objects, error: 'Not connected' });
+    return;
+  }
+  const environment = environmentToken(ctx);
+  const client = ctx.client;
+
+  const missing: string[] = [];
+  for (const rid of rids) {
+    const cached = ctx.cache.get(rid);
+    if (cached?.type && (cached.name || cached.businessId)) objects[rid] = cached;
+    else missing.push(rid);
+  }
+
+  const errors: string[] = [];
+  for (let i = 0; i < missing.length; i += BATCH_CHUNK_SIZE) {
+    const chunk = missing.slice(i, i + BATCH_CHUNK_SIZE);
+    if (!environmentMatches(getCtx(), environment)) {
+      errors.push(ENVIRONMENT_CHANGED_ERROR);
+      break;
+    }
+    try {
+      const enriched = await client.batchEnrich(chunk);
+      if (!environmentMatches(getCtx(), environment)) {
+        errors.push(ENVIRONMENT_CHANGED_ERROR);
+        break;
+      }
+      if (enriched.error) errors.push(enriched.error);
+      for (const rid of chunk) {
+        const identity = enriched.results[rid];
+        if (!identity) {
+          objects[rid] = null;
+          continue;
+        }
+        const now = Date.now();
+        const object: BmpObject = {
+          rid,
+          name: identity.name,
+          type: identity.type,
+          businessId: identity.businessId,
+          templateBusinessId: identity.templateBusinessId,
+          properties: {},
+          source: 'server',
+          discoveredAt: now,
+          updatedAt: now,
+        };
+        objects[rid] = object;
+        ctx.cache.put(object);
+      }
+    } catch (error) {
+      errors.push(errorMessage(error));
+      for (const rid of chunk) objects[rid] = null;
+    }
+  }
+
+  ctx.sendToPanel({
+    type: 'SERVER_LOOKUP_BATCH_RESULT',
+    objects,
+    ...(errors.length > 0 ? { error: [...new Set(errors)].join('; ') } : {}),
+  });
+});
+
 register('LINKED_LOOKUP', async (msg) => {
   const ctx = getCtx();
   const defs = getLinkedDefs(msg.objectType);
@@ -760,21 +906,12 @@ register('LINKED_LOOKUP', async (msg) => {
 });
 
 register('FULL_LOOKUP', async (msg, respond) => {
-  const ctx = getCtx();
   try {
-    // Parallelize: object lookup + template resolution
-    const [obj, tmplResult] = await Promise.all([
-      lookupObject(msg.rid),
-      ctx.client ? ctx.client.resolveTemplate(msg.rid) : Promise.resolve<TemplateResolution>({ templateRid: null }),
-    ]);
-    let template: { rid: string; name: string; type: string; businessId?: string } | undefined;
-    if (tmplResult.templateRid) {
-      template = { rid: tmplResult.templateRid, name: tmplResult.templateName ?? '', type: tmplResult.templateType ?? '', businessId: tmplResult.templateBusinessId };
-    }
-    // Fetch children of the template (config hierarchy), falling back to the object itself
-    const childrenRid = template?.rid ?? msg.rid;
-    const children = ctx.client ? await ctx.client.fetchChildren(childrenRid) : [];
-    respond({ type: 'FULL_LOOKUP_RESULT', rid: msg.rid, object: obj, template, children });
+    // Workshop consumes identity only. The former implementation also fetched
+    // code, template identity and template children (three or four commands)
+    // even though none of those fields are rendered by the current pane.
+    const obj = await lookupObject(msg.rid);
+    respond({ type: 'FULL_LOOKUP_RESULT', rid: msg.rid, object: obj });
   } catch (e) {
     respond({ type: 'FULL_LOOKUP_RESULT', rid: msg.rid, object: null, error: errorMessage(e) });
   }
@@ -825,72 +962,86 @@ register('GET_OVERLAY_PROPS', (msg, respond) => {
   respond({ type: 'OVERLAY_PROPS_DATA', props: result });
 });
 
-function emptyPaneResponse(rid: string, error?: string) {
+function emptyPaneResponse(rid: string, error?: string, environment = environmentToken(getCtx())) {
   return {
     type: 'OBJECT_PANE_DATA' as const,
     rid,
+    environment,
     instance: { rid, businessId: '', type: '', name: '' },
     parent: null, template: null, card: null,
     instanceProps: {}, templateProps: {}, instanceOverrideProps: [], siblings: [], siblingTotal: 0,
     codeFields: {}, references: {},
+    isPropertyDefinition: false,
     indirectCode: {}, indirectCodeRids: {}, contextValues: {}, gateValues: {}, lists: {},
     ...(error ? { error } : {}),
   };
 }
 
-/** In-flight pane/flow fetches keyed by rid. When the sidepanel watchdog
- *  fires (15s) we send a CANCEL_FETCH_OBJECT_PANE so the SW can abort the
- *  EC (which otherwise keeps the bridge busy for the full 30s EC timeout).
- *  Without this the late response is harmless (sidepanel ignores stale
- *  rids) but we burn CPU + a bridge slot we don't need. */
-const inFlightPaneFetches = new Map<string, AbortController>();
+/** Coalesce duplicate pane reads by RID. Aborting a browser fetch only
+ * detaches the client; BMP may continue executing the EC server-side. Sharing
+ * the existing promise prevents a retry from launching a duplicate command
+ * while the original request is still alive. */
+const inFlightPaneFetches = new Map<string, Promise<ObjectPanePayload | null>>();
 const inFlightFlowFetches = new Map<string, AbortController>();
 
 register('FETCH_OBJECT_PANE', async (msg, respond) => {
   const ctx = getCtx();
   if (!ctx.client) { respond(emptyPaneResponse(msg.rid, 'Not connected')); return; }
-  // Replace any prior in-flight fetch for this rid — the new one supersedes.
-  inFlightPaneFetches.get(msg.rid)?.abort();
-  const controller = new AbortController();
-  inFlightPaneFetches.set(msg.rid, controller);
+  const environment = environmentToken(ctx);
+  const client = ctx.client;
+  // A second consumer of the same RID shares the authoritative request.
+  const requestKey = `${environment}::${msg.rid}`;
+  let request = inFlightPaneFetches.get(requestKey);
+  const ownsRequest = !request;
+  if (!request) {
+    request = client.fetchObjectPane(msg.rid);
+    inFlightPaneFetches.set(requestKey, request);
+  }
   try {
-    const data = await ctx.client.fetchObjectPane(msg.rid, controller.signal);
-    if (!data) { respond(emptyPaneResponse(msg.rid, 'Object not found')); return; }
+    const data = await request;
+    if (!environmentMatches(getCtx(), environment)) {
+      respond(emptyPaneResponse(msg.rid, ENVIRONMENT_CHANGED_ERROR, environment));
+      return;
+    }
+    if (!data) { respond(emptyPaneResponse(msg.rid, 'Object not found', environment)); return; }
     respond({
       type: 'OBJECT_PANE_DATA',
       rid: msg.rid,
-      instance: data.instance,
-      parent: data.parent,
-      template: data.template,
-      card: data.card,
-      instanceProps: data.instanceProps,
-      templateProps: data.templateProps,
-      instanceOverrideProps: data.instanceOverrideProps,
-      siblings: data.siblings,
-      siblingTotal: data.siblingTotal,
-      codeFields: data.codeFields,
-      references: data.references,
-      indirectCode: data.indirectCode,
-      indirectCodeRids: data.indirectCodeRids,
-      contextValues: data.contextValues,
-      gateValues: data.gateValues,
-      lists: data.lists,
-      editFieldClassNames: data.editFieldClassNames,
+      environment,
+      ...data,
     });
   } catch (e) {
-    if (controller.signal.aborted) return; // caller cancelled — sidepanel already moved on
-    respond(emptyPaneResponse(msg.rid, errorMessage(e)));
+    respond(emptyPaneResponse(msg.rid, errorMessage(e), environment));
   } finally {
-    // Only delete if this controller is still the active one for the rid.
-    if (inFlightPaneFetches.get(msg.rid) === controller) inFlightPaneFetches.delete(msg.rid);
+    // Only the creator removes the shared request.
+    if (ownsRequest && inFlightPaneFetches.get(requestKey) === request) {
+      inFlightPaneFetches.delete(requestKey);
+    }
   }
 });
 
-register('CANCEL_FETCH_OBJECT_PANE', (msg) => {
-  inFlightPaneFetches.get(msg.rid)?.abort();
-  inFlightPaneFetches.delete(msg.rid);
-  inFlightFlowFetches.get(msg.rid)?.abort();
-  inFlightFlowFetches.delete(msg.rid);
+register('FETCH_PROPERTY_APPLICATIONS', async (msg, respond) => {
+  const ctx = getCtx();
+  const environment = environmentToken(ctx);
+  if (!ctx.client) {
+    respond({ type: 'PROPERTY_APPLICATIONS_RESULT', rid: msg.rid, ok: false, error: 'Not connected', environment });
+    return;
+  }
+  if (!environmentMatches(ctx, msg.environment)) {
+    respond({ type: 'PROPERTY_APPLICATIONS_RESULT', rid: msg.rid, ok: false, error: ENVIRONMENT_CHANGED_ERROR, environment });
+    return;
+  }
+  const client = ctx.client;
+  try {
+    const result = await client.fetchPropertyApplications(msg.rid);
+    if (!environmentMatches(getCtx(), environment)) {
+      respond({ type: 'PROPERTY_APPLICATIONS_RESULT', rid: msg.rid, ok: false, error: ENVIRONMENT_CHANGED_ERROR, environment });
+      return;
+    }
+    respond({ type: 'PROPERTY_APPLICATIONS_RESULT', rid: msg.rid, ok: true, ...result, environment });
+  } catch (error) {
+    respond({ type: 'PROPERTY_APPLICATIONS_RESULT', rid: msg.rid, ok: false, error: errorMessage(error), environment });
+  }
 });
 
 register('FETCH_FLOW_CHAIN', async (msg, respond) => {
@@ -919,11 +1070,16 @@ register('APPLY_OBJECT_CHANGES', async (msg, respond) => {
     respond({ type: 'APPLY_CHANGES_RESULT', rid: msg.rid, ok: false, error: 'Not connected' });
     return;
   }
+  if (!environmentMatches(ctx, msg.environment)) {
+    respond({ type: 'APPLY_CHANGES_RESULT', rid: msg.rid, ok: false, error: ENVIRONMENT_CHANGED_ERROR });
+    return;
+  }
+  const client = ctx.client;
   const startedAt = Date.now();
   const object = activityObject(msg.rid, ctx.cache.get(msg.rid));
   const label = activityObjectLabel(object, msg.rid);
   try {
-    const result = await ctx.client.applyObjectChanges(msg.rid, msg.target, msg.changes, msg.resetProps ?? []);
+    const result = await client.applyObjectChanges(msg.rid, msg.target, msg.changes, msg.resetProps ?? []);
     const durationMs = Date.now() - startedAt;
     respond({ type: 'APPLY_CHANGES_RESULT', rid: msg.rid, ok: result.ok, error: result.error });
     // Activity log: edits are the most-clicked surface; the Log tab was
@@ -969,13 +1125,14 @@ register('APPLY_OBJECT_CHANGES', async (msg, respond) => {
 // sendRequest) AND mirror to the panel (for fire-forget callers). The
 // panel's onPortMessage already calls navigateToDetail() on receipt.
 //
-// Audit (v0.20.1): SELECT_OBJECT used to JUST open the detail view —
-// the Page-tab "Context" section stayed on whatever was set before,
-// decoupling "what I'm looking at" from "what's my current
-// context". Now SELECT_OBJECT ALSO updates context via the
-// CONTEXT_RID_DATA broadcast. Right-click + cascade-pill-click +
-// search-jump all converge on the same context shape.
-register('SELECT_OBJECT', async (msg, respond, meta) => {
+// Object selection and layout context are intentionally separate:
+// - SELECT_OBJECT opens the detail pane.
+// - SET_CONTEXT_RID (right-click / explicit context picker) retargets Workshop's layout half.
+//
+// Coupling these used to launch FETCH_OBJECT_PANE plus FULL_LOOKUP's identity/template/children
+// commands at once. BMP can return an incomplete identity under that burst, making a valid property
+// report "Object not found". Keeping selection detail-only leaves one authoritative pane request.
+register('SELECT_OBJECT', (msg, respond, meta) => {
   if (!('rid' in msg)) return;
   respond({ type: 'SELECT_OBJECT', rid: msg.rid });
   const ctx = getCtx();
@@ -986,34 +1143,6 @@ register('SELECT_OBJECT', async (msg, respond, meta) => {
   if ('openPanel' in msg && msg.openPanel && meta.senderTabId != null) {
     chrome.sidePanel.open({ tabId: meta.senderTabId }).catch(e => log.swallow('sw:openPanel', e));
   }
-  // Resolve the BMP tab to associate context with. Sources, in order of
-  // reliability:
-  //   1. meta.senderTabId — content-script senders
-  //   2. lastFocused active tab — sidepanel-originated clicks
-  let bmpTabId: number | undefined = meta.senderTabId;
-  if (bmpTabId == null) {
-    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    bmpTabId = tabs[0]?.id;
-  }
-  if (bmpTabId != null) {
-    // Resolve identity for the context entry. The enrichment cache
-    // usually has it; if not, fall through with rid-only — the
-    // CONTEXT_RID_DATA broadcast still fires.
-    const cached = ctx.cache?.get(msg.rid);
-    setContextRid(bmpTabId, {
-      rid: msg.rid,
-      name: cached?.name,
-      type: cached?.type,
-      businessId: cached?.businessId,
-    });
-  }
-  ctx.sendToPanel({
-    type: 'CONTEXT_RID_DATA',
-    rid: msg.rid,
-    name: ctx.cache?.get(msg.rid)?.name,
-    objectType: ctx.cache?.get(msg.rid)?.type,
-    businessId: ctx.cache?.get(msg.rid)?.businessId,
-  });
   // If no side panel is currently connected (closed everywhere), try
   // to open it for this tab.
   if (!ctx.hasPanel) void openSidePanelForActiveTab();

@@ -352,8 +352,14 @@ function startFlowDrag(
     showLine(r, best.before ? 'top' : 'bottom');
     if (best.before) {
       // insert before best → after best's predecessor in the filtered list
-      const i = list.indexOf(best.el);
-      afterId = i > 0 ? list[i - 1].dataset.flowid ?? null : null;
+      // A first-in-column card owns its structural predecessor. The previous
+      // row in the full canvas can belong to another column or page.
+      if (best.el.dataset.flowfirst === 'true') {
+        afterId = best.el.dataset.flowstart ?? null;
+      } else {
+        const i = list.indexOf(best.el);
+        afterId = i > 0 ? list[i - 1].dataset.flowid ?? null : null;
+      }
     } else {
       afterId = best.el.dataset.flowid ?? null;
     }
@@ -371,7 +377,7 @@ function startFlowDrag(
       // The model mutation below re-renders immediately; native React
       // navigation completes asynchronously and triggers one final measured
       // render through viewEditPage.
-      viewEditPage(pageDrop.key, pageDrop.offset);
+      viewEditPage(key, pageDrop.key, pageDrop.offset, bp.ctx?.surface === 'edit-page');
       doFlowReorder(key, id, pageDrop.afterId);
       return;
     }

@@ -22,9 +22,8 @@ import type {
   HistoryEntry,
   InspectorSettings,
   LayoutNode,
-  ObjectPaneCard,
-  ObjectPaneIdentity,
-  ObjectPaneSiblingMsg,
+  ObjectPanePayload,
+  PropertyApplication,
   PageContextSource,
   PaintPhase,
   ScriptHistoryEntry,
@@ -44,7 +43,7 @@ import type { LModel, PlanNote, NodeStyle, FlowNode } from './layout/types';
 import type { StylePreset } from './style-presets';
 import type { BlueprintCtx, FlowRefListItem } from './layout/sync';
 import type { PortableIdPlan, PortableIdRequest } from './layout/portable-ids';
-import type { InstanceFanout, ContainerBlast } from './layout/blast-radius';
+import type { InstanceFanout, ContainerBlast, FlowContainerBlast } from './layout/blast-radius';
 
 // ── Page & Object Discovery ──────────────────────────────────────
 export type PageMessage =
@@ -76,7 +75,31 @@ export type PageMessage =
 export type InspectMessage =
   | { type: 'TOGGLE_INSPECT' }
   | { type: 'SET_INSPECT_STATE'; active: boolean }
-  | { type: 'INSPECT_STATE'; active: boolean };
+  | { type: 'INSPECT_STATE'; active: boolean }
+  // Standalone create/edit routes render native property editors without
+  // data-rid attributes. Resolve the owning EditPage's ordered EditFields so
+  // the content script can badge those controls like normal page widgets.
+  | { type: 'INSPECT_EDIT_PAGE_FIELDS'; editPageRid: string }
+  | {
+      type: 'INSPECT_EDIT_PAGE_FIELDS_RESULT';
+      ok: boolean;
+      fields?: Array<{
+        rid: string;
+        businessId: string;
+        name: string;
+        className: 'EditField' | 'EditPageInfo';
+        /** Index in the complete EditPage child stream, including break/info rows. */
+        streamIndex: number;
+        property?: string;
+        propertyObject?: {
+          rid: string;
+          businessId?: string;
+          name?: string;
+          type?: string;
+        };
+      }>;
+      error?: string;
+    };
 
 // ── Cache ────────────────────────────────────────────────────────
 export type CacheMessage =
@@ -123,6 +146,8 @@ export type CacheMessage =
 export type ServerLookupMessage =
   | { type: 'SERVER_LOOKUP'; rid: string }
   | { type: 'SERVER_LOOKUP_RESULT'; rid: string; object: BmpObject | null; error?: string }
+  | { type: 'SERVER_LOOKUP_BATCH'; rids: string[] }
+  | { type: 'SERVER_LOOKUP_BATCH_RESULT'; objects: Record<string, BmpObject | null>; error?: string }
   | { type: 'LINKED_LOOKUP'; rid: string; objectType: string }
   | { type: 'LINKED_LOOKUP_RESULT'; rid: string; key: string; label: string; linkedId?: string; linkedName?: string; linkedRid?: string; error?: string }
   | { type: 'HOVER_LOOKUP'; rid: string }
@@ -142,7 +167,9 @@ export type ServerLookupMessage =
   // and config-class. Cached in the SW; refresh=true bypasses the
   // cache and re-fetches. See type-schema-cache.ts.
   | { type: 'FETCH_TYPE_SCHEMA'; className: string; refresh?: boolean; exampleRef?: string }
-  | { type: 'FETCH_TYPE_SCHEMA_RESULT'; className: string; ok: boolean; props?: TypeSchemaProp[]; canonicalClassName?: string; error?: string }
+  | { type: 'FETCH_TYPE_SCHEMA_RESULT'; className: string; ok: boolean; props?: TypeSchemaProp[]; canonicalClassName?: string; error?: string; environment?: string }
+  | { type: 'FETCH_TYPE_SCHEMAS'; classNames: string[] }
+  | { type: 'FETCH_TYPE_SCHEMAS_RESULT'; results: Array<{ className: string; ok: boolean; props?: TypeSchemaProp[]; canonicalClassName?: string; error?: string }>; environment: string }
   // Allowed values for a class's list/tag properties — drives value
   // autocomplete (WHERE/filter `<listprop> = t.<id>`) and the Vars panel's
   // option dropdowns. Separate from FETCH_TYPE_SCHEMA so a failure here can't
@@ -174,14 +201,14 @@ export type ProfileMessage =
 
 // ── EC Execution ─────────────────────────────────────────────────
 export type EcMessage =
-  | { type: 'EC_EXECUTE'; code: string; objectRid?: string; property?: string; transactional?: boolean }
+  | { type: 'EC_EXECUTE'; code: string; objectRid?: string; property?: string; transactional?: boolean; environment?: string }
   // `durationMs` is the SW-measured EC round-trip. The panel surfaces it in
   // the status bar latency chip — it's the user-perceived signal of how
   // responsive BMP is to actual work (vs health-check pings).
   | { type: 'EC_RESULT'; ok: boolean; log?: string; outputEntries?: EcOutputEntry[]; hasError?: boolean; hasWarning?: boolean; error?: string; durationMs?: number }
-  | { type: 'SAVE_PROPERTY'; rid: string; objectType: string; property: string; value: string }
+  | { type: 'SAVE_PROPERTY'; rid: string; objectType: string; property: string; value: string; environment?: string }
   | { type: 'SAVE_RESULT'; ok: boolean; error?: string }
-  | ({ type: 'SAVE_IDENTITY'; rid: string } & IdentityEditInput)
+  | ({ type: 'SAVE_IDENTITY'; rid: string; environment?: string } & IdentityEditInput)
   | ({ type: 'SAVE_IDENTITY_RESULT' } & IdentitySaveResult)
   | { type: 'OPEN_EDITOR'; rid: string; property?: string; scrollToLine?: number; scrollToText?: string }
   | { type: 'FETCH_EDITOR_CONTEXT'; rid: string; property?: string }
@@ -209,13 +236,13 @@ export type StudioMessage =
   // add (id+key) and delete (childId) need generated EC, on simple identifiers.
   | { type: 'STUDIO_FETCH_CHILDREN'; cvoBid: string }
   | { type: 'STUDIO_CHILDREN'; ok: boolean; children?: StudioChild[]; error?: string }
-  | { type: 'STUDIO_ADD_CHILD'; cvoBid: string; childId: string; key: string; childType: StudioChildType }
+  | { type: 'STUDIO_ADD_CHILD'; cvoBid: string; childId: string; key: string; childType: StudioChildType; environment?: string }
   | { type: 'STUDIO_CHILD_ADDED'; ok: boolean; rid?: string; error?: string }
   // Save a child's key + its type-specific fields in one EC (handles the table
   // reference + the int timeout that a plain SAVE_PROPERTY can't).
-  | { type: 'STUDIO_SAVE_CHILD'; childId: string; childType: StudioChildType; key: string; fields: Partial<Record<'expression' | 'table' | 'url' | 'urlParameters' | 'headers' | 'timeout', string>> }
+  | { type: 'STUDIO_SAVE_CHILD'; childId: string; childType: StudioChildType; key: string; fields: Partial<Record<'expression' | 'table' | 'url' | 'urlParameters' | 'headers' | 'timeout', string>>; environment?: string }
   | { type: 'STUDIO_CHILD_SAVED'; ok: boolean; error?: string }
-  | { type: 'STUDIO_DELETE_CHILD'; childId: string }
+  | { type: 'STUDIO_DELETE_CHILD'; childId: string; environment?: string }
   | { type: 'STUDIO_CHILD_DELETED'; ok: boolean; error?: string }
   // Download a FileResource's decoded content (a hosted JS library) to inject
   // into the sandbox preview.
@@ -223,7 +250,7 @@ export type StudioMessage =
   | { type: 'STUDIO_RESOURCE'; ok: boolean; rid: string; text?: string; error?: string }
   // Host a file as a FileResource: write content via EC .change(content :=
   // "name;mime;base64") — the GraphQL path silently writes empty (footgun).
-  | { type: 'STUDIO_WRITE_RESOURCE'; resId: string; name: string; mime: string; base64: string }
+  | { type: 'STUDIO_WRITE_RESOURCE'; resId: string; name: string; mime: string; base64: string; environment?: string }
   | { type: 'STUDIO_RESOURCE_WRITTEN'; ok: boolean; rid?: string; id?: string; error?: string }
   // Resolve a configurator-friendly business id (or a rid) to {rid, id, name}.
   | { type: 'STUDIO_RESOLVE_REF'; ref: string }
@@ -259,8 +286,8 @@ export type EnrichMessage =
 export type PaintMessage =
   | { type: 'TOGGLE_PAINT' }
   | { type: 'PAINT_STATE'; phase: PaintPhase; sourceRid?: string; sourceName?: string }
-  | { type: 'PAINT_PICK'; rid: string }
-  | { type: 'PAINT_APPLY'; rid: string }
+  | { type: 'PAINT_PICK'; rid: string; environment?: string }
+  | { type: 'PAINT_APPLY'; rid: string; environment?: string }
   | { type: 'PAINT_APPLY_RESULT'; rid: string; ok: boolean; error?: string };
 
 // ── Detection ────────────────────────────────────────────────────
@@ -309,41 +336,27 @@ export type ObjectViewMessage =
   | { type: 'FETCH_LAYOUT_TREE'; rid: string }
   | { type: 'LAYOUT_TREE_RESULT'; rid: string; nodes: LayoutNode[]; truncated?: boolean; error?: string };
 
+export type ObjectPaneDataMessage = {
+  type: 'OBJECT_PANE_DATA';
+  rid: string;
+  environment: string;
+  error?: string;
+} & ObjectPanePayload;
+
 export type ObjectPaneMessage =
   | { type: 'FETCH_OBJECT_PANE'; rid: string }
-  | { type: 'CANCEL_FETCH_OBJECT_PANE'; rid: string }
-  | { type: 'OBJECT_PANE_DATA'; rid: string;
-      instance: ObjectPaneIdentity;
-      parent: ObjectPaneIdentity | null;
-      template: ObjectPaneIdentity | null;
-      card: ObjectPaneCard | null;
-      instanceProps: Record<string, string>;
-      templateProps: Record<string, string>;
-      /** Explicit per-property overrides on the instance. */
-      instanceOverrideProps?: string[];
-      siblings: ObjectPaneSiblingMsg[];
-      /** True child count under the parent; `siblings` may be a capped slice. */
-      siblingTotal: number;
-      codeFields: Record<string, string>;
-      references: Record<string, ObjectPaneIdentity | null>;
-      indirectCode: Record<string, string>;
-      /** Target rids for indirect code edits. See ObjectPaneData. */
-      indirectCodeRids: Record<string, string>;
-      contextValues: Record<string, string>;
-      gateValues: Record<string, string>;
-      lists: Record<string, ObjectPaneIdentity[]>;
-      /** Owning CreateObjectView object classes for an EditField. */
-      editFieldClassNames?: string[];
-      error?: string }
-  | { type: 'APPLY_OBJECT_CHANGES'; rid: string; target: 'instance' | 'template'; changes: Record<string, string | number | boolean>; resetProps?: string[] }
+  | ObjectPaneDataMessage
+  | { type: 'APPLY_OBJECT_CHANGES'; rid: string; target: 'instance' | 'template'; changes: Record<string, string | number | boolean>; resetProps?: string[]; environment?: string }
+  | { type: 'FETCH_PROPERTY_APPLICATIONS'; rid: string; environment?: string }
+  | { type: 'PROPERTY_APPLICATIONS_RESULT'; rid: string; ok: boolean; applications?: PropertyApplication[]; total?: number; truncated?: boolean; error?: string; environment: string }
   | { type: 'APPLY_CHANGES_RESULT'; rid: string; ok: boolean; error?: string }
   // Connections — generic reference relationships (forward + reverse) resolved
   // from the object's class config. The relationship view for domain objects.
   | { type: 'FETCH_CONNECTIONS'; rid: string; className: string }
   | { type: 'CONNECTIONS_RESULT'; rid: string; ok: boolean; groups?: ConnGroup[]; error?: string }
   // Inbound scan — "who references me" via rref(), incl. undeclared edges.
-  | { type: 'FETCH_INBOUND'; rid: string }
-  | { type: 'INBOUND_RESULT'; rid: string; ok: boolean; targets?: ConnTarget[]; capped?: boolean; error?: string }
+  | { type: 'FETCH_INBOUND'; rid: string; className: string }
+  | { type: 'INBOUND_RESULT'; rid: string; ok: boolean; groups?: ConnGroup[]; targets?: ConnTarget[]; capped?: boolean; error?: string }
   | { type: 'FETCH_FLOW_CHAIN'; rid: string; objectType: string }
   | { type: 'FLOW_CHAIN_DATA'; rid: string; chain: FlowChainMsg | null; error?: string }
   // Access trace (admin permission test)
@@ -433,8 +446,22 @@ export type LayoutMessage =
   | { type: 'LAYOUT_PORTABLE_ID_PREFLIGHT_RESULT'; ok: boolean; portableIds?: PortableIdPlan; error?: string }
   // Apply-preview blast radius: is the page a template master (fan-out), and do any touched shared
   // containers reach pages outside the page's own template-family. Best-effort — both may be null.
-  | { type: 'LAYOUT_BLAST'; pageId: string; containers: { id: string; rid?: string }[] }
-  | { type: 'LAYOUT_BLAST_RESULT'; fanout: InstanceFanout | null; blast: ContainerBlast | null }
+  | {
+      type: 'LAYOUT_BLAST';
+      pageId: string;
+      containers: { id: string; rid?: string }[];
+      flowContainers: {
+        id: string;
+        rid?: string;
+        className: 'InputSet' | 'EditPage';
+      }[];
+    }
+  | {
+      type: 'LAYOUT_BLAST_RESULT';
+      fanout: InstanceFanout | null;
+      blast: ContainerBlast | null;
+      flowBlast: FlowContainerBlast | null;
+    }
   // Flow "wire to existing" picker: the workspace's InputSets/EditPages (lean list — bid/rid/class/
   // category/name only), fetched at picker-open, never in the main layout fetch.
   | { type: 'LAYOUT_FLOW_REFS'; refClass: 'InputSet' | 'EditPage' }

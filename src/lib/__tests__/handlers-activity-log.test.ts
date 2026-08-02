@@ -39,6 +39,27 @@ beforeEach(() => {
 });
 
 describe('action activity logging', () => {
+  it('rejects an editor command loaded from a different BMP environment', async () => {
+    const ctx = makeContext({ ok: true });
+    ctx.settings = { activeProfileId: 'current' };
+    ctx.client.serverUrl = 'https://current.test/BMP';
+    const respond = vi.fn();
+
+    await (await handler('EC_EXECUTE'))({
+      type: 'EC_EXECUTE',
+      code: 'output("must not run")',
+      transactional: true,
+      environment: 'old@https://old.test/BMP',
+    } as any, respond, { isOneShot: true });
+
+    expect(ctx.client.executeEc).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'EC_RESULT',
+      ok: false,
+      error: expect.stringContaining('environment changed'),
+    }));
+  });
+
   it('records useful EC output but excludes noisy BMP warnings', async () => {
     const ctx = makeContext({
       ok: true,

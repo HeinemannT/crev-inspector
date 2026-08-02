@@ -11,6 +11,7 @@ import { invalidateRid } from '../enrichment';
 import type { ActivityMeta } from '../types';
 import { activityObject, activityObjectLabel, ecActivityDetail } from '../activity-format';
 import { normalizeAndValidateIdentity, type IdentityChangeSet } from '../object-identity';
+import { ENVIRONMENT_CHANGED_ERROR, environmentMatches, environmentToken } from '../environment';
 
 // Props saved as EC string literals (saveCodeViaEc). SCRIPT_PROPS plus the
 // TextElement HTML bodies — their typed binary save path rejects the value
@@ -20,9 +21,14 @@ const SCRIPT_PROPS_SET = new Set<string>([...SCRIPT_PROPS, 'text', 'longText']);
 register('EC_EXECUTE', async (msg, respond) => {
   const ctx = getCtx();
   if (!ctx.client) { respond({ type: 'EC_RESULT', ok: false, error: 'Not connected' }); return; }
+  if (!environmentMatches(ctx, msg.environment)) {
+    respond({ type: 'EC_RESULT', ok: false, error: ENVIRONMENT_CHANGED_ERROR });
+    return;
+  }
+  const client = ctx.client;
   const startTime = Date.now();
   try {
-    const result = await ctx.client.executeEc(msg.code, msg.objectRid, msg.transactional ?? false);
+    const result = await client.executeEc(msg.code, msg.objectRid, msg.transactional ?? false);
     const durationMs = Date.now() - startTime;
     respond({ type: 'EC_RESULT', ...result, durationMs });
     ctx.scriptHistory.record({
@@ -73,12 +79,17 @@ register('EC_EXECUTE', async (msg, respond) => {
 register('SAVE_PROPERTY', async (msg, respond) => {
   const ctx = getCtx();
   if (!ctx.client) { respond({ type: 'SAVE_RESULT', ok: false, error: 'Not connected' }); return; }
+  if (!environmentMatches(ctx, msg.environment)) {
+    respond({ type: 'SAVE_RESULT', ok: false, error: ENVIRONMENT_CHANGED_ERROR });
+    return;
+  }
+  const client = ctx.client;
   const isCodeProp = SCRIPT_PROPS_SET.has(msg.property);
   const startTime = Date.now();
   try {
     const result = isCodeProp
-      ? await ctx.client.saveCodeViaEc(msg.rid, msg.property, msg.value)
-      : await ctx.client.saveProperty(msg.rid, msg.objectType, msg.property, msg.value);
+      ? await client.saveCodeViaEc(msg.rid, msg.property, msg.value)
+      : await client.saveProperty(msg.rid, msg.objectType, msg.property, msg.value);
     const durationMs = Date.now() - startTime;
     // Log the save outcome — useful when the editor reports failure but BMP
     // actually saved. If you see ok=true here but the UI says "save failed",
@@ -124,6 +135,11 @@ register('SAVE_IDENTITY', async (msg, respond) => {
     respond({ type: 'SAVE_IDENTITY_RESULT', ok: false, error: 'Not connected' });
     return;
   }
+  if (!environmentMatches(ctx, msg.environment)) {
+    respond({ type: 'SAVE_IDENTITY_RESULT', ok: false, error: ENVIRONMENT_CHANGED_ERROR });
+    return;
+  }
+  const client = ctx.client;
 
   const validation = normalizeAndValidateIdentity(msg);
   if (!validation.ok) {
@@ -139,7 +155,7 @@ register('SAVE_IDENTITY', async (msg, respond) => {
 
   const startTime = Date.now();
   try {
-    const before = await ctx.client.lookupIdentity(msg.rid);
+    const before = await client.lookupIdentity(msg.rid);
     if (!before) {
       respond({ type: 'SAVE_IDENTITY_RESULT', ok: false, error: 'Could not read the current identity.' });
       return;
@@ -152,13 +168,13 @@ register('SAVE_IDENTITY', async (msg, respond) => {
       changes.templateBusinessId = templateBusinessId;
     }
 
-    const saved = await ctx.client.applyIdentityChanges(msg.rid, changes);
+    const saved = await client.applyIdentityChanges(msg.rid, changes);
     if (!saved.ok && !saved.writeAttempted) {
       respond({ type: 'SAVE_IDENTITY_RESULT', ok: false, error: saved.error ?? 'Identity save failed' });
       return;
     }
 
-    const stored = await ctx.client.lookupIdentity(msg.rid);
+    const stored = await client.lookupIdentity(msg.rid);
     if (!stored) {
       respond({
         type: 'SAVE_IDENTITY_RESULT',
@@ -253,6 +269,7 @@ register('FETCH_EDITOR_CONTEXT', (msg, respond, meta) => {
       type: 'EDITOR_CONTEXT_DATA',
       rid: msg.rid,
       context: {
+        environment: environmentToken(getCtx()),
         instance: { rid: msg.rid, businessId: '', type: '', name: '' },
         template: null,
         instanceCode: {},

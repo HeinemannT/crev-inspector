@@ -14,6 +14,8 @@ import type { SaveTarget } from '../lib/types'
 export type StudioCodeProp = string
 
 export interface StudioContext {
+  /** Profile/server identity this editable context was loaded from. */
+  environment: string
   /** Which studio mode drives the shell (file list + capabilities). */
   mode: 'cvo' | 'text'
   /** The object being edited. */
