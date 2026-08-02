@@ -57,8 +57,9 @@ vi.mock('../content-paint', () => ({
   flashApplyResult: vi.fn(),
 }));
 vi.mock('../content-tooltip', () => ({
-  showTooltipForElement: vi.fn(),
+  scheduleTooltipForElement: vi.fn(),
   hideTooltip: vi.fn(),
+  wireObjectPopover: vi.fn(),
   applyTechnicalOverlay: vi.fn(),
   renderOverlayCards: vi.fn(),
 }));

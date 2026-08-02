@@ -689,7 +689,17 @@
   display: none;
   width: 264px;
 }
-.object-preview-host--visible { display: block; }
+.object-preview-host--visible {
+  display: block;
+  animation: object-preview-in 110ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes object-preview-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .object-preview-host--visible { animation: none; }
+}
 
 /* Shared object-card shell. Content-script CSS keeps a standalone copy because
    it is injected into the BMP host page and cannot consume extension tokens. */

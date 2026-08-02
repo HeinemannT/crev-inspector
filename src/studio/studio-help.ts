@@ -9,9 +9,34 @@ import { anchorPopover } from '../lib/popover-anchor'
 
 interface HelpTab { id: string; label: string; rows: Array<[string, string]> }
 
+function installDismissal(popover: HTMLElement, anchor: HTMLElement): void {
+  anchor.setAttribute('aria-expanded', 'true')
+  const close = (event?: Event) => {
+    if (event && popover.contains(event.target as Node)) return
+    popover.remove()
+    anchor.setAttribute('aria-expanded', 'false')
+    document.removeEventListener('mousedown', close)
+    document.removeEventListener('keydown', onKey)
+  }
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') return
+    event.stopPropagation()
+    close()
+    anchor.focus()
+  }
+  setTimeout(() => {
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', onKey)
+  }, 0)
+}
+
 export function showStudioHelp(anchor: HTMLElement, mod: string): void {
   const existing = document.getElementById('studio-help-popover')
-  if (existing) { existing.remove(); return }
+  if (existing) {
+    existing.remove()
+    anchor.setAttribute('aria-expanded', 'false')
+    return
+  }
 
   const tabs: HelpTab[] = [
     { id: 'run', label: 'Run', rows: [
@@ -70,16 +95,45 @@ export function showStudioHelp(anchor: HTMLElement, mod: string): void {
   draw()
   document.body.appendChild(popover)
   anchorPopover(popover, anchor)
+  installDismissal(popover, anchor)
+}
 
-  const close = (e?: Event) => {
-    if (e && popover.contains(e.target as Node)) return
-    popover.remove()
-    document.removeEventListener('mousedown', close)
-    document.removeEventListener('keydown', onKey)
+/**
+ * Explains the studio's bottom-panel concepts where they are encountered.
+ * This deliberately stays separate from the shortcut reference: Inputs and
+ * dependency hosting are product workflows, not keyboard commands.
+ */
+export function showStudioPanelHelp(anchor: HTMLElement): void {
+  const existing = document.getElementById('studio-panel-help-popover')
+  if (existing) {
+    existing.remove()
+    anchor.setAttribute('aria-expanded', 'false')
+    return
   }
-  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close() } }
-  setTimeout(() => {
-    document.addEventListener('mousedown', close)
-    document.addEventListener('keydown', onKey)
-  }, 0)
+
+  const popover = h('div', {
+    id: 'studio-panel-help-popover',
+    class: 'studio-help-popover studio-panel-help-popover',
+    role: 'dialog',
+    'aria-label': 'Inputs and dependencies help',
+    style: 'top:-9999px; left:-9999px;',
+  },
+    h('div', { class: 'studio-help-title' }, 'Inputs and dependencies'),
+    h('section', { class: 'studio-panel-help-section' },
+      h('h3', null, 'Inputs'),
+      h('p', null, 'Inputs are child objects of this CVO. At render time BMP exposes them through _data, including expressions, tables, and connections.'),
+      h('p', null, 'Add, Save, and Remove update the child objects in BMP. Mock values affect only your local preview; they are not saved as production data.'),
+    ),
+    h('section', { class: 'studio-panel-help-section' },
+      h('h3', null, 'Deps'),
+      h('p', null, 'Deps scans the current HTML and JavaScript for FileResource references and external CDN URLs. Re-render retries dependencies that previously failed.'),
+      h('p', null, 'Host resource opens a local file picker. The selected file is created or updated as a FileResource under Resources > CREV Studio Assets, then the studio gives you a rid-based snippet to insert into the CVO.'),
+      h('p', { class: 'studio-panel-help-note' }, 'CDN URLs require network access from the BMP browser. Host critical libraries as FileResources for air-gapped or restricted environments.'),
+    ),
+    h('div', { class: 'studio-help-footer' }, 'Press Esc to close'),
+  )
+
+  document.body.appendChild(popover)
+  anchorPopover(popover, anchor)
+  installDismissal(popover, anchor)
 }

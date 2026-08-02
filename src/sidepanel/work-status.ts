@@ -72,7 +72,7 @@ export function workStatusForMessage(msg: InspectorMessage): WorkStatus | null {
     case 'FETCH_TYPE_SCHEMAS_RESULT':
     case 'FETCH_TYPE_OPTIONS_RESULT':
       return settled('ok' in msg && !msg.ok ? 'Field load failed' : 'Fields loaded');
-    case 'FETCH_PROPERTY_APPLICATIONS': return working('Loading applicationsâ€¦');
+    case 'FETCH_PROPERTY_APPLICATIONS': return working('Loading applications…');
     case 'PROPERTY_APPLICATIONS_RESULT':
       return settled(msg.ok ? 'Applications loaded' : 'Application load failed');
 

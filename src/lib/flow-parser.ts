@@ -40,6 +40,9 @@ export interface FlowStep {
   edgeLabel?: string;
   /** *Input.key value when this step is an input field. */
   inputKey?: string;
+  /** Exact EditField.propertyMapping accessor. This is a linked property,
+   * never an input key. */
+  propertyMapping?: string;
   codeFields?: FlowCodeField[];
   /** Nested sub-steps (InputSet's children, Workflow's EC children). */
   children?: FlowStep[];
@@ -49,6 +52,8 @@ export interface FlowStep {
 
 export interface FlowChain {
   steps: FlowStep[];
+  /** Object-type schemas configured on an EditPage. */
+  objectTypes?: string[];
 }
 
 /** Split a `|`-delimited identity row, anchoring the free-text `name` between

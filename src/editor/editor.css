@@ -1618,6 +1618,17 @@ body {
   background: transparent;
   border: none;
 }
+
+.cm-tooltip:has(.crev-tt-card) {
+  animation: editor-object-card-in 110ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes editor-object-card-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-tooltip:has(.crev-tt-card) { animation: none; }
+}
 /* Confirm modal styles live in styles/components.css (.crev-modal*), shared
  * via lib/modal — editor.html loads components.css. */
 

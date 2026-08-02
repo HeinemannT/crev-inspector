@@ -42,7 +42,7 @@ import { isCvoSandboxOutbound, type CvoRenderRequest, type CvoConsoleLevel, type
 import { StudioConsole } from './studio-console'
 import { syntaxErrorLinter, makeCvoApiSource } from './studio-editor-ext'
 import { formatCode } from './studio-format'
-import { showStudioHelp } from './studio-help'
+import { showStudioHelp, showStudioPanelHelp } from './studio-help'
 import { reconcileSavedSlots } from './studio-save'
 import { makeDataHover } from './data-hover'
 
@@ -824,6 +824,15 @@ function updatePanelTabs(): void {
     tab('console', 'Console', studioConsole.count, errCount > 0),
     tab('inputs', 'Inputs', children.length),
     tab('deps', 'Deps', depCount),
+    h('span', { class: 'studio-ptabs-spacer' }),
+    h('button', {
+      class: 'studio-panel-help',
+      title: 'About Inputs and Deps',
+      'aria-label': 'About Inputs and Deps',
+      'aria-expanded': 'false',
+      'aria-controls': 'studio-panel-help-popover',
+      onClick: (event: Event) => showStudioPanelHelp(event.currentTarget as HTMLElement),
+    }, '?'),
   )
 }
 

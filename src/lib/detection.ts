@@ -1,6 +1,7 @@
 import type { DetectionPhase } from './types';
 import { debounce } from './util';
 import { log } from './logger';
+import { activeActionIconData, DEFAULT_ACTION_ICONS } from './action-icon';
 
 export type TabDetectionEntry = { phase: DetectionPhase; confidence: number; signals: string[] };
 
@@ -41,11 +42,29 @@ export async function loadTabDetection() {
   } catch (e) { log.swallow('detection:load', e); }
 }
 
-export function updateBadge(tabId: number, isBmp: boolean) {
-  if (isBmp) {
-    chrome.action.setBadgeText({ tabId, text: ' ' }).catch(e => log.swallow('detection:badge', e));
-    chrome.action.setBadgeBackgroundColor({ tabId, color: '#42be65' }).catch(e => log.swallow('detection:badgeColor', e));
-  } else {
-    chrome.action.setBadgeText({ tabId, text: '' }).catch(e => log.swallow('detection:clearBadge', e));
+const actionStateVersion = new Map<number, number>();
+
+export async function updateBadge(tabId: number, isBmp: boolean): Promise<void> {
+  const version = (actionStateVersion.get(tabId) ?? 0) + 1;
+  actionStateVersion.set(tabId, version);
+
+  await chrome.action.setBadgeText({ tabId, text: '' })
+    .catch(e => log.swallow('detection:clearBadge', e));
+
+  if (!isBmp) {
+    await chrome.action.setIcon({ tabId, path: DEFAULT_ACTION_ICONS })
+      .catch(e => log.swallow('detection:defaultIcon', e));
+    return;
+  }
+
+  try {
+    const imageData = await activeActionIconData();
+    if (actionStateVersion.get(tabId) !== version) return;
+    await chrome.action.setIcon({ tabId, imageData });
+  } catch (e) {
+    log.swallow('detection:activeIcon', e);
+    if (actionStateVersion.get(tabId) !== version) return;
+    await chrome.action.setIcon({ tabId, path: DEFAULT_ACTION_ICONS })
+      .catch(iconError => log.swallow('detection:defaultIcon', iconError));
   }
 }

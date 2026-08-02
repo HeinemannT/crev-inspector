@@ -21,7 +21,7 @@ import { removePageHeaderIdentity, syncPageHeaderIdentity } from './content-page
 import { editPageOverlayTargets, ensureEditPageInspection } from './content-edit-page-inspect';
 import { hasStandaloneEditPage, renderedEditPageHosts } from './lib/edit-page-dom';
 import { updatePaintCursors, flashApplyResult } from './content-paint';
-import { showTooltipForElement, hideTooltip, wireObjectPopover, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
+import { scheduleTooltipForElement, hideTooltip, wireObjectPopover, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
 import { mountFrameOverlay, teardownFrameOverlayModule } from './content-frame-overlay';
 import { BP_RESUME_KEY } from './lib/blueprint-resume';
@@ -235,7 +235,7 @@ function injectStyles() {
     s.hoveredLabelEl = pill;
     const rid = pill?.getAttribute('data-crev-label');
     if (pill && rid) {
-      showTooltipForElement(s, pill, rid);
+      scheduleTooltipForElement(s, pill, rid);
     } else {
       hideTooltip(s);
     }

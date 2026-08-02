@@ -39,6 +39,13 @@ import {
 import type { FlowChainMsg, FlowStepMsg, FlowCodeFieldMsg, InspectorMessage } from '../../lib/types';
 
 type SendFn = (msg: InspectorMessage) => void;
+export interface FlowPropertyOption {
+  accessor: string;
+  propertyId?: string;
+  label?: string;
+  configClass?: string;
+  propertyRid?: string;
+}
 
 export interface FlowSectionInput {
   chain: FlowChainMsg | null;
@@ -51,6 +58,8 @@ export interface FlowSectionInput {
   rootContent?: HTMLElement | null;
   /** Code properties that are configured but currently inactive, with reason. */
   inactiveCodeFields?: Readonly<Record<string, string>>;
+  /** Shared EditPage property schema, resolved once per owning object type. */
+  propertyOptions?: readonly FlowPropertyOption[];
 }
 
 /** Trigger-encoding glyph per code property. The prop name is still spelled
@@ -136,7 +145,7 @@ function renderTopStep(step: FlowStepMsg, input: FlowSectionInput, rootContent?:
   // The root usually IS the inspected object — its identity already heads the
   // pane, so a bare repeat row is noise. Render it as a step ONLY when it
   // carries its own fields (ActionButton expression / Label default / …).
-  if (rootContent || root.inputKey || (root.codeFields && root.codeFields.length > 0)) {
+  if (rootContent || root.inputKey || root.propertyMapping || (root.codeFields && root.codeFields.length > 0)) {
     frag.appendChild(renderStep(root, input, /* open */ true, rootContent));
   }
   if (root.hint && (!root.codeFields || root.codeFields.length === 0)) {
@@ -195,7 +204,9 @@ function renderStep(
 
   // The scent: ONE grey mark, never a value. Key glyph wins (the binding is
   // the step's role); otherwise the EC slot count.
-  const scent = node.inputKey
+  const scent = node.propertyMapping
+    ? h('span', { class: 'flow-scent', title: `Linked property ${node.propertyMapping}` }, svg(ICON_VARIABLE))
+    : node.inputKey
     ? h('span', { class: 'flow-scent', title: `Binds input key ${node.inputKey}` }, svg(ICON_KEY))
     : codes.length > 0
       ? h('span', { class: 'flow-scent', title: `${codes.length} Extended Code slot${codes.length === 1 ? '' : 's'}` },
@@ -351,12 +362,43 @@ function icon(svgStr: string, cls: string): HTMLElement {
   return h('span', { class: `flow-ic ${cls}` }, svg(svgStr));
 }
 
-/** Key binding + code fields for a node, or null when it has neither. */
+/** Property reference, key binding, and code fields for a node. */
 function renderFields(node: FlowStepMsg, input: FlowSectionInput): HTMLElement | null {
   const codes = node.codeFields ?? [];
-  if (!node.inputKey && codes.length === 0) return null;
+  if (!node.propertyMapping && !node.inputKey && codes.length === 0) return null;
 
   const b = h('div', { class: 'flow-fields' });
+  if (node.propertyMapping) {
+    const mapping = node.propertyMapping;
+    const option = input.propertyOptions?.find(candidate => candidate.accessor === mapping);
+    const primary = option?.propertyId || mapping;
+    const label = option?.label && option.label !== primary ? option.label : '';
+    const configClass = option?.configClass;
+    const content = [
+      configClass
+        ? typeBadge(configClass.endsWith('PropertyConfig')
+          ? `${configClass.slice(0, -'PropertyConfig'.length)}MethodConfig`
+          : configClass, { size: 'xs' })
+        : h('span', { class: 'flow-property-generic' }, svg(ICON_VARIABLE)),
+      h('span', { class: 'flow-property-copy' },
+        h('span', { class: 'flow-property-id mono' }, primary),
+        label ? h('span', { class: 'flow-property-name' }, label) : null,
+      ),
+    ];
+    b.appendChild(h('div', { class: 'flow-line flow-property-line' },
+      icon(ICON_VARIABLE, 'flow-ic--property'),
+      h(option?.propertyRid ? 'button' : 'div', {
+        class: 'flow-property-ref',
+        type: option?.propertyRid ? 'button' : undefined,
+        title: option?.propertyRid
+          ? `Open property ${primary}`
+          : `Linked property ${primary}${option ? '' : ' (not resolved)'}`,
+        onClick: option?.propertyRid
+          ? () => input.onNavigate(option.propertyRid!)
+          : undefined,
+      }, ...content),
+    ));
+  }
   if (node.inputKey) {
     b.appendChild(h('div', { class: 'flow-line flow-keyline' },
       icon(ICON_KEY, 'flow-ic--key'),

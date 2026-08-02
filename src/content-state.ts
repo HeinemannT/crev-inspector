@@ -84,7 +84,9 @@ export class ContentState {
   observer: MutationObserver | null = null;
 
   // Timers
+  tooltipShowTimer: ReturnType<typeof setTimeout> | null = null;
   tooltipHideTimer: ReturnType<typeof setTimeout> | null = null;
+  tooltipWarmUntil = 0;
   debounceTimer: ReturnType<typeof setTimeout> | null = null;
   /** Coalesced BMP render/context refresh owned by content-observer. It lives
    *  here (rather than in the observer closure) so reinjection can cancel it. */
@@ -161,7 +163,9 @@ export class ContentState {
     this.favoriteRids.clear();
     if (this.debounceTimer) { clearTimeout(this.debounceTimer); this.debounceTimer = null; }
     if (this.renderRefreshTimer) { clearTimeout(this.renderRefreshTimer); this.renderRefreshTimer = null; }
+    if (this.tooltipShowTimer) { clearTimeout(this.tooltipShowTimer); this.tooltipShowTimer = null; }
     if (this.tooltipHideTimer) { clearTimeout(this.tooltipHideTimer); this.tooltipHideTimer = null; }
+    this.tooltipWarmUntil = 0;
     this.observer?.disconnect();
     this.observer = null;
     // Detach every page-lifetime listener in one shot, then arm a

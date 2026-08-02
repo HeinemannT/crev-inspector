@@ -1,10 +1,8 @@
 /**
  * Compact sidebar view for master Property definitions.
  *
- * A property is not a normal widget: its useful anatomy is the definition
- * plus every ClassConfig application (and the small delta each application
- * carries). Keeping that in one flat accordion makes 10+ object types
- * scannable without turning the sidebar into a flow diagram.
+ * The definition is useful immediately. The reverse-reference scan that finds
+ * ClassConfig applications is deliberately opt-in because it can be expensive.
  */
 
 import { h, svg } from '../../lib/dom';
@@ -25,9 +23,10 @@ export interface PropertyViewInput {
   codeFields: Record<string, string>;
   applications: PropertyApplication[];
   applicationsError?: string | null;
-  applicationsLoading?: boolean;
+  applicationsState: 'idle' | 'loading' | 'loaded' | 'error';
   applicationsTotal?: number;
   applicationsTruncated?: boolean;
+  onLoadApplications: () => void;
   sendMessage: SendFn;
 }
 
@@ -81,24 +80,50 @@ function renderApplications(input: PropertyViewInput): HTMLElement {
   });
   const overridden = applications.filter(a => Object.keys(a.overrides).length > 0).length;
   const inherited = applications.length - overridden;
+  const loaded = input.applicationsState === 'loaded';
+  const actionLabel = input.applicationsState === 'error'
+    ? 'Retry'
+    : loaded
+      ? 'Refresh'
+      : 'Load applications';
 
   const section = h('section', { class: 'prop-group property-applications' },
     h('div', { class: 'property-apps-head' },
-      h('span', { class: 'property-apps-title' },
-        'Object type applications',
-        h('span', { class: 'property-apps-total' }, String(input.applicationsTotal ?? applications.length)),
+      h('div', { class: 'property-apps-head-main' },
+        h('span', { class: 'property-apps-title' },
+          'Object type applications',
+          loaded
+            ? h('span', { class: 'property-apps-total' }, String(input.applicationsTotal ?? applications.length))
+            : null,
+        ),
+        h('button', {
+          class: 'property-apps-action',
+          type: 'button',
+          disabled: input.applicationsState === 'loading',
+          onClick: input.onLoadApplications,
+        }, input.applicationsState === 'loading' ? 'Loading…' : actionLabel),
       ),
-      h('span', { class: 'property-apps-summary' }, `${overridden} overridden · ${inherited} inherited`),
+      loaded
+        ? h('span', { class: 'property-apps-summary' }, `${overridden} overridden · ${inherited} inherited`)
+        : null,
     ),
   );
 
-  if (input.applicationsLoading) {
-    section.appendChild(h('div', { class: 'property-apps-note' }, 'Loading applicationsâ€¦'));
+  if (input.applicationsState === 'idle') {
+    section.appendChild(h('div', { class: 'property-apps-note' },
+      'Find which object types inherit or override this property.',
+    ));
     return section;
   }
-  if (input.applicationsError) {
+  if (input.applicationsState === 'loading') {
+    section.appendChild(h('div', { class: 'property-apps-note' },
+      applications.length ? 'Refreshing applications…' : 'Loading applications…',
+    ));
+    return section;
+  }
+  if (input.applicationsState === 'error') {
     section.appendChild(h('div', { class: 'property-apps-note property-apps-note--error' },
-      input.applicationsError,
+      input.applicationsError || 'Property applications unavailable.',
     ));
     return section;
   }
@@ -107,9 +132,7 @@ function renderApplications(input: PropertyViewInput): HTMLElement {
     return section;
   }
 
-  for (const application of applications) {
-    section.appendChild(renderApplication(application, input));
-  }
+  for (const application of applications) section.appendChild(renderApplication(application, input));
   if (input.applicationsTruncated) {
     section.appendChild(h('div', { class: 'property-apps-note' },
       `Showing the first ${applications.length} of ${input.applicationsTotal ?? applications.length} applications.`,
@@ -155,10 +178,7 @@ function renderDelta(field: string, literal: string, master: string): HTMLElemen
     || normalizedField === 'code';
   const value = codeLike
     ? ecPreviewSpan(firstNonEmptyLine(override) || '(empty)', 'property-delta-code mono')
-    : h('span', {
-        class: 'property-delta-value',
-        title: override,
-      }, override || '—');
+    : h('span', { class: 'property-delta-value', title: override }, override || '(empty)');
   const before = master
     ? h('span', { class: 'property-delta-before', title: master }, master)
     : null;

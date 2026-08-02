@@ -23,7 +23,7 @@ register('DETECTION_RESULT', (msg, respond, meta) => {
   }
   if (senderTabId != null) {
     setTabDetection(senderTabId, { phase, confidence: msg.confidence, signals: msg.signals });
-    updateBadge(senderTabId, msg.isBmp);
+    void updateBadge(senderTabId, msg.isBmp);
   }
   // Route the DETECTION_STATE to the panel in the SAME window as the
   // tab that fired the result — and only if the tab is the active tab

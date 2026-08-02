@@ -240,6 +240,10 @@ describe('standalone EditPage Blueprint', () => {
       .toContain('has-break');
     expect(layer.querySelector('[data-flowid="info"]')?.classList)
       .toContain('kind-EditPageInfo');
+    expect(layer.querySelector('[data-flowid="info"] [aria-label="Information (read-only content)"]'))
+      .not.toBeNull();
+    expect(layer.querySelector('[data-flowid="column"] [aria-label="Column break (layout structure)"]'))
+      .not.toBeNull();
     expect(layer.querySelector('[data-flowid="field"]')?.getAttribute('data-flowfirst')).toBe('true');
   });
 

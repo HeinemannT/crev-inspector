@@ -41,7 +41,7 @@ import {
   type LinkTarget,
 } from './sections/links';
 import { referencesFor } from '../lib/widget-metadata';
-import { renderFlowSection } from './sections/flow-walker';
+import { renderFlowSection, type FlowPropertyOption } from './sections/flow-walker';
 import { hasStudio, modeForType } from '../studio/studio-mode';
 import { renderContextSection } from './sections/context-fields';
 import { S } from './state';
@@ -85,7 +85,7 @@ interface PaneState {
   editFieldClassNames: string[];
   propertyApplications: PropertyApplication[];
   propertyApplicationsError: string | null;
-  propertyApplicationsLoading: boolean;
+  propertyApplicationsState: 'idle' | 'loading' | 'loaded' | 'error';
   propertyApplicationsTotal: number;
   propertyApplicationsTruncated: boolean;
   loaded: boolean;
@@ -302,7 +302,7 @@ export class DetailView {
       editFieldClassNames: [],
       propertyApplications: [],
       propertyApplicationsError: null,
-      propertyApplicationsLoading: false,
+      propertyApplicationsState: 'idle',
       propertyApplicationsTotal: 0,
       propertyApplicationsTruncated: false,
       loaded: false,
@@ -358,9 +358,11 @@ export class DetailView {
       this.state.editFieldClassNames = msg.editFieldClassNames ?? [];
       this.state.propertyApplications = msg.propertyApplications ?? [];
       this.state.propertyApplicationsError = msg.propertyApplicationsError ?? null;
-      this.state.propertyApplicationsLoading = this.state.isPropertyDefinition
-        && msg.propertyApplications === undefined
-        && !msg.propertyApplicationsError;
+      this.state.propertyApplicationsState = msg.propertyApplications !== undefined
+        ? 'loaded'
+        : msg.propertyApplicationsError
+          ? 'error'
+          : 'idle';
       this.state.propertyApplicationsTotal = msg.propertyApplicationsTotal ?? this.state.propertyApplications.length;
       this.state.propertyApplicationsTruncated = msg.propertyApplicationsTruncated ?? false;
       this.state.loaded = true;
@@ -411,16 +413,13 @@ export class DetailView {
         this.state.connectionsLoading = false;
       }
       this.renderDetail(panel);
-      if (this.state.propertyApplicationsLoading) {
-        this.sendMessage({ type: 'FETCH_PROPERTY_APPLICATIONS', rid, environment: this.state.environment });
-      }
       return true;
     }
 
     if (msg.type === 'PROPERTY_APPLICATIONS_RESULT' && msg.rid === rid) {
       if (msg.environment !== this.state.environment) return true;
-      this.state.propertyApplicationsLoading = false;
-      this.state.propertyApplications = msg.ok ? (msg.applications ?? []) : [];
+      this.state.propertyApplicationsState = msg.ok ? 'loaded' : 'error';
+      if (msg.ok) this.state.propertyApplications = msg.applications ?? [];
       this.state.propertyApplicationsTotal = msg.total ?? this.state.propertyApplications.length;
       this.state.propertyApplicationsTruncated = msg.truncated ?? false;
       this.state.propertyApplicationsError = msg.ok ? null : (msg.error ?? 'Property applications unavailable');
@@ -466,6 +465,9 @@ export class DetailView {
       this.state.flow = msg.chain;
       this.state.flowLoading = false;
       this.state.flowError = msg.error ?? null;
+      if (msg.chain?.objectTypes?.length) {
+        requestSchemas(msg.chain.objectTypes, this.sendMessage);
+      }
       this.renderDetail(panel);
       return true;
     }
@@ -950,6 +952,18 @@ export class DetailView {
     });
   }
 
+  private loadPropertyApplications(panel: HTMLElement): void {
+    if (!this.state || this.state.propertyApplicationsState === 'loading') return;
+    this.state.propertyApplicationsState = 'loading';
+    this.state.propertyApplicationsError = null;
+    this.renderDetail(panel);
+    this.sendMessage({
+      type: 'FETCH_PROPERTY_APPLICATIONS',
+      rid: this.state.rid,
+      environment: this.state.environment,
+    });
+  }
+
   /** Pop the history stack and navigate back. Single-source for the Back
    *  button click + the Backspace shortcut so both paths stay in sync. */
   private goBack(panel: HTMLElement): void {
@@ -982,9 +996,10 @@ export class DetailView {
         codeFields: this.state!.codeFields,
         applications: this.state!.propertyApplications,
         applicationsError: this.state!.propertyApplicationsError,
-        applicationsLoading: this.state!.propertyApplicationsLoading,
+        applicationsState: this.state!.propertyApplicationsState,
         applicationsTotal: this.state!.propertyApplicationsTotal,
         applicationsTruncated: this.state!.propertyApplicationsTruncated,
+        onLoadApplications: () => this.loadPropertyApplications(panel),
         sendMessage: this.sendMessage,
       });
     }
@@ -1080,6 +1095,7 @@ export class DetailView {
         sendMessage: this.sendMessage,
         rootContent,
         inactiveCodeFields,
+        propertyOptions: this.flowPropertyOptions(),
       }));
       return wrap;
     }
@@ -1271,6 +1287,23 @@ export class DetailView {
       },
       openColorPicker: () => {},
     };
+  }
+
+  private flowPropertyOptions(): FlowPropertyOption[] | undefined {
+    const objectTypes = this.state?.flow?.objectTypes ?? [];
+    if (objectTypes.length === 0) return undefined;
+    const schemas = objectTypes.flatMap(type => {
+      const schema = schemaProps(type);
+      return schema ? [schema] : [];
+    });
+    if (schemas.length !== objectTypes.length) return undefined;
+    return intersectTypeSchemas(schemas).map(property => ({
+      accessor: property.accessor,
+      label: property.label || property.accessor,
+      propertyId: property.propertyId || property.accessor,
+      configClass: property.propertyConfigClass || property.configClass,
+      propertyRid: property.propertyRid,
+    }));
   }
 
   /** Normalize this object's links into the unified model: widget types use

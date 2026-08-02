@@ -324,6 +324,45 @@ describe('DetailView — fetch flow', () => {
     expect(sent.some(m => m.type === 'FETCH_TYPE_SCHEMA')).toBe(false);
   });
 
+  it('shows property facts immediately and loads applications only on request', () => {
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('700', { type: 'ExtendedMethodConfig' }), panel);
+    dv.handleMessage(paneData('700', {
+      objectType: 'ExtendedMethodConfig',
+      identityName: 'Description',
+      businessId: 'description',
+      instanceProps: emptyProps({ category: 'System' }),
+      isPropertyDefinition: true,
+    }), panel);
+
+    expect(panel.textContent).toContain('Description');
+    expect(panel.textContent).toContain('System');
+    expect(panel.textContent).toContain('Find which object types');
+    expect(sent.some(m => m.type === 'FETCH_PROPERTY_APPLICATIONS')).toBe(false);
+
+    panel.querySelector<HTMLButtonElement>('.property-apps-action')!.click();
+    expect(sent.find(m => m.type === 'FETCH_PROPERTY_APPLICATIONS')).toMatchObject({
+      type: 'FETCH_PROPERTY_APPLICATIONS',
+      rid: '700',
+      environment: 'test@https://bmp.test',
+    });
+    expect(panel.querySelector<HTMLButtonElement>('.property-apps-action')!.disabled).toBe(true);
+    expect(panel.textContent).toContain('Loading applications…');
+
+    dv.handleMessage({
+      type: 'PROPERTY_APPLICATIONS_RESULT',
+      rid: '700',
+      environment: 'test@https://bmp.test',
+      ok: true,
+      applications: [],
+      total: 0,
+      truncated: false,
+    }, panel);
+    expect(panel.textContent).toContain('No object type applications.');
+    expect(panel.querySelector<HTMLButtonElement>('.property-apps-action')!.textContent).toBe('Refresh');
+    expect(panel.textContent).not.toMatch(/[âÃ]/);
+  });
+
   it('ignores OBJECT_PANE_DATA for the wrong RID', () => {
     const { dv, panel } = makeDetailView();
     dv.show(makeObj('100'), panel);

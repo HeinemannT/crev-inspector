@@ -439,4 +439,38 @@ describe('renderFlowSection', () => {
     expect(chip!.textContent).toContain('likelihood');
     expect(chip!.getAttribute('data-source-rid')).toBe('55');
   });
+
+  it('renders EditField propertyMapping as a resolved property reference, not an input key', () => {
+    const onNavigate = vi.fn();
+    const chain: FlowChainMsg = { steps: [step({
+      identity: { rid: '1', businessId: 'ep', name: 'Risk Workshop', type: 'EditPage' },
+      children: [
+        step({
+          identity: { rid: '2', businessId: 'risk_owner_field', name: 'Owner', type: 'EditField' },
+          propertyMapping: 'risk_owner',
+        }),
+        step({ identity: { rid: '3', businessId: 'info', name: 'Info', type: 'EditPageInfo' } }),
+      ],
+    })] };
+    const el = renderFlowSection(inputs({
+      chain,
+      onNavigate,
+      propertyOptions: [{
+        accessor: 'risk_owner',
+        propertyId: 'ceRiskAssessmentOwner',
+        label: 'Risk owner',
+        configClass: 'ReferenceMethodConfig',
+        propertyRid: '9007199254740993',
+      }],
+    }));
+
+    const property = el.querySelector<HTMLButtonElement>('.flow-property-ref');
+    expect(property).toBeTruthy();
+    expect(property!.textContent).toContain('ceRiskAssessmentOwner');
+    expect(property!.textContent).toContain('Risk owner');
+    expect(property!.querySelector('.bdg-property')).toBeTruthy();
+    expect(el.querySelector('.flow-keyline')).toBeNull();
+    property!.click();
+    expect(onNavigate).toHaveBeenCalledWith('9007199254740993');
+  });
 });

@@ -41,6 +41,12 @@ const EXPECTED: [string, string, string][] = [
 ];
 
 describe('expanded type-badge coverage', () => {
+  it('keeps ModelPage visually aligned with Scorecard while preserving its label', () => {
+    expect(getTypeColor('ModelPage')).toBe(getTypeColor('Scorecard'));
+    expect(getTypeAbbr('ModelPage')).toBe('MPG');
+    expect(typeIcon('ModelPage')).toBe(typeIcon('Scorecard'));
+  });
+
   it.each(EXPECTED)('%s → code %s, colour %s', (type, code, colour) => {
     expect(getTypeAbbr(type)).toBe(code);
     expect(getTypeColor(type)).toBe(colour);

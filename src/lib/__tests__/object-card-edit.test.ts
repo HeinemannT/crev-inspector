@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it, vi } from 'vitest'
-import { buildObjectCard } from '../object-card'
+import { buildObjectCard, supportsObjectCardCode } from '../object-card'
 
 function editableCard(onSave = vi.fn(async (identity: { businessId: string; name: string; templateBusinessId?: string }) => ({
   ok: true,
@@ -21,6 +21,12 @@ function editableCard(onSave = vi.fn(async (identity: { businessId: string; name
 }
 
 describe('object card identity editor', () => {
+  it('derives code actions from type capability, not RID or preview presence', () => {
+    expect(supportsObjectCardCode('ExtendedExpression')).toBe(true)
+    expect(supportsObjectCardCode('ModelPage')).toBe(false)
+    expect(supportsObjectCardCode(undefined)).toBe(false)
+  })
+
   it('opens from the pencil and discards with Escape', () => {
     const { card, onSave } = editableCard()
     card.querySelector<HTMLButtonElement>('.crev-tt-edit-open')!.click()

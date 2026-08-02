@@ -2,7 +2,12 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ContentState } from '../content-state';
-import { showTooltipForElement, wireObjectPopover } from '../content-tooltip';
+import {
+  OBJECT_CARD_INITIAL_DELAY,
+  scheduleTooltipForElement,
+  showTooltipForElement,
+  wireObjectPopover,
+} from '../content-tooltip';
 
 vi.mock('../lib/messaging', () => ({
   sendRequest: vi.fn(),
@@ -26,6 +31,7 @@ describe('rich object popover', () => {
   let tooltip: HTMLElement;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     document.body.innerHTML = '';
     document.querySelector('#crev-tooltip')?.remove();
     state = new ContentState();
@@ -43,6 +49,7 @@ describe('rich object popover', () => {
   afterEach(() => {
     state.resetAll();
     tooltip.remove();
+    vi.useRealTimers();
   });
 
   it('opens from keyboard focus with dialog semantics', () => {
@@ -73,5 +80,17 @@ describe('rich object popover', () => {
     expect(tooltip.classList.contains('crev-visible')).toBe(false);
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it('ignores pointer fly-over until the intent delay completes', async () => {
+    const { label } = mountLabel('123');
+    state.hoveredLabelEl = label;
+
+    scheduleTooltipForElement(state, label, '123');
+    await vi.advanceTimersByTimeAsync(OBJECT_CARD_INITIAL_DELAY - 1);
+    expect(tooltip.classList.contains('crev-visible')).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(tooltip.classList.contains('crev-visible')).toBe(true);
   });
 });

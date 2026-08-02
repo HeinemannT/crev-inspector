@@ -399,12 +399,15 @@
 #crev-blueprint-layer .bp-ep-column-object{position:relative;display:flex;align-items:center;gap:7px;height:30px;margin:-2px -2px 6px;padding:0 8px 0 30px;border:var(--bp-hair) solid #9aa6b3;background:#dde3e8;color:var(--bp-text);outline:none;pointer-events:auto;cursor:grab}
 #crev-blueprint-layer .bp-ep-column-object code{min-width:0;overflow:hidden;font:600 9.5px var(--bp-mono);text-overflow:ellipsis;white-space:nowrap}
 #crev-blueprint-layer .bp-ep-column-object:hover,#crev-blueprint-layer .bp-ep-column-object.selected{border-color:var(--ep-accent);color:var(--bp-text)}
+#crev-blueprint-layer .bp-ep-structural-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;height:16px;margin-left:auto;color:var(--bp-muted)}
+#crev-blueprint-layer .bp-ep-structural-icon svg{width:14px;height:14px}
 #crev-blueprint-layer .bp-ep-field{position:relative;display:flex;align-items:center;gap:8px;min-width:0;height:44px;margin:0;padding:0 9px 0 30px;border:var(--bp-hair) solid var(--bp-line-2);border-radius:var(--bp-r-ui);background:#fff;outline:none;pointer-events:auto;cursor:grab}
 #crev-blueprint-layer .bp-ep-field:hover{border-color:rgba(21,101,192,.5);background:#f8fafc}
 #crev-blueprint-layer .bp-ep-field.selected{border:var(--bp-emph) solid var(--ep-accent);background:#f8fafc}
 #crev-blueprint-layer .bp-ep-field:focus-visible{border-color:var(--ep-accent)}
-#crev-blueprint-layer .bp-ep-field.kind-EditPageInfo{border-style:dashed;border-color:#9b8f79;background:#f5f1e8;color:#403a31}
-#crev-blueprint-layer .bp-ep-field.kind-EditPageInfo:hover,#crev-blueprint-layer .bp-ep-field.kind-EditPageInfo.selected{border-color:#756a58;background:#f1ecdf}
+#crev-blueprint-layer .bp-ep-field.kind-EditPageInfo{height:36px;border-color:var(--bp-line-2);background:#f2f5f7;color:var(--bp-text)}
+#crev-blueprint-layer .bp-ep-field.kind-EditPageInfo:hover{border-color:#9aa6b3;background:#eef2f5}
+#crev-blueprint-layer .bp-ep-field.kind-EditPageInfo.selected{border-color:var(--ep-accent);background:#eef2f5}
 #crev-blueprint-layer .bp-ep-field-id{min-width:0;overflow:hidden;color:var(--bp-text);font:500 10.5px var(--bp-mono);text-overflow:ellipsis;white-space:nowrap}
 #crev-blueprint-layer .bp-ep-field-property{flex:none;margin-left:auto;color:var(--bp-muted);font:500 9.5px var(--bp-mono);white-space:nowrap}
 #crev-blueprint-layer .bp-ep-duplicate{display:inline-flex;flex:none;width:14px;height:14px;color:var(--bp-amber)}

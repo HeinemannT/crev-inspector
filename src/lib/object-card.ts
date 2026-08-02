@@ -16,6 +16,13 @@ import {
   type IdentityField,
   type IdentitySaveResult,
 } from './object-identity'
+import { typeAffordances } from './widget-metadata'
+
+/** Shared capability policy for every object-card surface. A resolved rid or a
+ * preview string does not make a non-code BMP type editable. */
+export function supportsObjectCardCode(type?: string): boolean {
+  return !!type && typeAffordances(type).code
+}
 
 export interface ObjectCardData {
   name?: string

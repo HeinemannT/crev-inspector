@@ -3,8 +3,7 @@
  */
 
 import { getTypeColor, getTypeAbbr } from './lib/types';
-import { buildObjectCard } from './lib/object-card';
-import { typeAffordances } from './lib/widget-metadata';
+import { buildObjectCard, supportsObjectCardCode } from './lib/object-card';
 import { hasStudio } from './studio/studio-mode';
 import { render } from './lib/dom';
 import { sendRequest, sendFireForget } from './lib/messaging';
@@ -17,6 +16,10 @@ const OVERLAY_SKIP_PROPS = new Set(['rid', 'id', 'name', 'type', '__typename', '
 const OVERLAY_CODE_PROPS = new Set(['expression', 'html', 'javascript']);
 const OVERLAY_MAX_PROP_LINES = 6;
 const POPOVER_FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+export const OBJECT_CARD_INITIAL_DELAY = 450;
+export const OBJECT_CARD_WARM_DELAY = 100;
+export const OBJECT_CARD_WARM_WINDOW = 300;
+export const OBJECT_CARD_LEAVE_DELAY = 220;
 
 function popoverTrigger(label: HTMLElement): HTMLElement {
   return label.querySelector<HTMLElement>('.crev-stub') ?? label;
@@ -37,6 +40,12 @@ function clearHideTimer(s: ContentState): void {
   if (!s.tooltipHideTimer) return;
   clearTimeout(s.tooltipHideTimer);
   s.tooltipHideTimer = null;
+}
+
+function clearShowTimer(s: ContentState): void {
+  if (!s.tooltipShowTimer) return;
+  clearTimeout(s.tooltipShowTimer);
+  s.tooltipShowTimer = null;
 }
 
 /** Give the portalled rich object card proper popover semantics and a complete
@@ -116,6 +125,7 @@ export function wireObjectPopover(s: ContentState, tooltip: HTMLElement): void {
 }
 
 export function showTooltipForElement(s: ContentState, el: HTMLElement, rid: string) {
+  clearShowTimer(s);
   clearHideTimer(s);
 
   const tooltip = document.getElementById('crev-tooltip');
@@ -137,7 +147,7 @@ export function showTooltipForElement(s: ContentState, el: HTMLElement, rid: str
   // Open EC only for code-bearing types; route to the studio when the type
   // has one (CVO / TextElement), else the floating editor — same rule the
   // stub's code square uses.
-  const codeBearing = typeAffordances(type).code;
+  const codeBearing = supportsObjectCardCode(type);
   render(tooltip, buildObjectCard(
     {
       name: enrichment?.name,
@@ -182,6 +192,7 @@ export function showTooltipForElement(s: ContentState, el: HTMLElement, rid: str
   tooltip.style.left = '-9999px';
   tooltip.style.display = 'block';
   tooltip.classList.add('crev-visible');
+  s.tooltipWarmUntil = Date.now() + OBJECT_CARD_WARM_WINDOW;
 
   const rect = el.getBoundingClientRect();
   const ttRect = tooltip.getBoundingClientRect();
@@ -210,6 +221,22 @@ export function showTooltipForElement(s: ContentState, el: HTMLElement, rid: str
   }
 }
 
+/** Pointer-intent entry point. Keyboard focus calls showTooltipForElement
+ * directly, while pointer fly-over must dwell before any card work begins. */
+export function scheduleTooltipForElement(s: ContentState, el: HTMLElement, rid: string): void {
+  clearShowTimer(s);
+  clearHideTimer(s);
+  const visible = document.getElementById('crev-tooltip')?.classList.contains('crev-visible') ?? false;
+  const delay = visible || Date.now() < s.tooltipWarmUntil
+    ? OBJECT_CARD_WARM_DELAY
+    : OBJECT_CARD_INITIAL_DELAY;
+  s.tooltipShowTimer = setTimeout(() => {
+    s.tooltipShowTimer = null;
+    if (!el.isConnected || s.hoveredLabelEl !== el) return;
+    showTooltipForElement(s, el, rid);
+  }, delay);
+}
+
 function updateLabelsAfterIdentitySave(s: ContentState): void {
   for (const label of document.querySelectorAll<HTMLElement>('[data-crev-label]')) {
     const rid = label.dataset.crevLabel;
@@ -221,6 +248,7 @@ function updateLabelsAfterIdentitySave(s: ContentState): void {
 }
 
 export function hideTooltip(s: ContentState) {
+  clearShowTimer(s);
   clearHideTimer(s);
   s.tooltipHideTimer = setTimeout(() => {
     const tooltip = document.getElementById('crev-tooltip');
@@ -234,10 +262,11 @@ export function hideTooltip(s: ContentState) {
       return;
     }
     dismissTooltip(s);
-  }, 400);
+  }, OBJECT_CARD_LEAVE_DELAY);
 }
 
 export function dismissTooltip(s: ContentState, restoreFocus = false): void {
+  clearShowTimer(s);
   clearHideTimer(s);
   const tooltip = document.getElementById('crev-tooltip');
   const trigger = s.tooltipTriggerEl;
@@ -256,6 +285,7 @@ export function dismissTooltip(s: ContentState, restoreFocus = false): void {
     tooltip.style.display = 'none';
     tooltip.classList.remove('crev-visible');
   }
+  s.tooltipWarmUntil = Date.now() + OBJECT_CARD_WARM_WINDOW;
   trigger?.setAttribute('aria-expanded', 'false');
   s.hoveredLabelEl = null;
   s.tooltipLabelEl = null;

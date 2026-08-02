@@ -1168,6 +1168,10 @@ export class EcQueryService {
     };
     const pageAfter = data.page_afterExpression;
     if (pageAfter) pageStep.codeFields = [makeCodeField('afterExpression', pageAfter, [])];
+    const objectTypes = [...new Set((data.page_types ?? '')
+      .split('\n')
+      .map(value => value.trim())
+      .filter(Boolean))];
 
     const childRows = (data.children ?? '').split('\n')
       .map(parsePipeRow)
@@ -1175,7 +1179,7 @@ export class EcQueryService {
     for (const childIdentity of childRows) {
       const child: FlowStep = { identity: childIdentity };
       const mapping = data[`child_propertyMapping_${childIdentity.rid}`];
-      if (mapping) child.inputKey = mapping;
+      if (mapping) child.propertyMapping = mapping;
       const code = buildChildCodeFields(data, childIdentity.rid, []);
       const required = data[`child_requiredExpression_${childIdentity.rid}`];
       if (required) code.splice(1, 0, makeCodeField('requiredExpression', required, []));
@@ -1189,9 +1193,9 @@ export class EcQueryService {
 
     if (sourceType === 'CreateObjectView') {
       rootStep.children = [pageStep];
-      return { steps: [rootStep] };
+      return { steps: [rootStep], objectTypes };
     }
-    return { steps: [pageStep] };
+    return { steps: [pageStep], objectTypes };
   }
 
   private async fetchInputViewFlow(rid: string, signal?: AbortSignal): Promise<FlowChain | null> {

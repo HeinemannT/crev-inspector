@@ -76,4 +76,13 @@ describe('injected CSS integrity', () => {
     expect(m, `${selector} base rule missing in ${file}`).toBeTruthy();
     for (const token of must) expect(m![0], `${selector} lost "${token}"`).toContain(token);
   });
+
+  it('keeps only the linked-property sub-badge in the pill language', () => {
+    const css = stripComments(read('src/content-overlay.css'), 'src/content-overlay.css');
+    const property = css.match(/\.crev-sub--property\s*\{[^}]*\}/)?.[0] ?? '';
+    const base = css.match(/\.crev-sub\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(property).toContain('border-radius: 999px');
+    expect(property).toContain('width: 20px');
+    expect(base).toContain('border-radius: 2px');
+  });
 });

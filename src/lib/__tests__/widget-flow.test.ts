@@ -305,6 +305,7 @@ describe('fetchFlowChain — EditPage / CreateObjectView', () => {
     const log = [
       `${SEP}root${SEP}9000|ep_risk|Create Risk|EditPage`,
       `${SEP}page_afterExpression${SEP}\nthis.object.refresh()\n`,
+      `${SEP}page_types${SEP}\nCeRiskAssessment\n`,
       `${SEP}children${SEP}\n9001|ef_title|Edit field|EditField\n9002|ep_info|Guidance|EditPageInfo\n9003|ep_break|Details|EditPageBreak\n`,
       `${SEP}childTotal${SEP}3`,
       `${SEP}child_propertyMapping_9001${SEP}title`,
@@ -322,7 +323,9 @@ describe('fetchFlowChain — EditPage / CreateObjectView', () => {
     expect(page.codeFields?.map(f => f.prop)).toEqual(['afterExpression']);
     expect(page.children).toHaveLength(3);
     const field = page.children![0];
-    expect(field.inputKey).toBe('title');
+    expect(field.propertyMapping).toBe('title');
+    expect(field.inputKey).toBeUndefined();
+    expect(chain!.objectTypes).toEqual(['CeRiskAssessment']);
     expect(field.codeFields?.map(f => f.prop)).toEqual([
       'defaultExpression', 'showExpression',
     ]);
@@ -338,6 +341,7 @@ describe('fetchFlowChain — EditPage / CreateObjectView', () => {
       `${SEP}root${SEP}8000|cov_add|Add Risk|CreateObjectView`,
       `${SEP}root_initExpression${SEP}\nthis.input.clear()\n`,
       `${SEP}page${SEP}9000|ep_risk|Create Risk|EditPage`,
+      `${SEP}page_types${SEP}\nCeRiskAssessment\n`,
       `${SEP}children${SEP}\n9001|ef_title|Edit field|EditField\n`,
       `${SEP}childTotal${SEP}1`,
       `${SEP}child_propertyMapping_9001${SEP}title`,
@@ -353,7 +357,7 @@ describe('fetchFlowChain — EditPage / CreateObjectView', () => {
       identity: { type: 'EditPage', businessId: 'ep_risk' },
       edgeLabel: 'editPage',
     });
-    expect(cov.children![0].children?.[0].inputKey).toBe('title');
+    expect(cov.children![0].children?.[0].propertyMapping).toBe('title');
   });
 
   it('surfaces EC failure rather than showing an empty flow', async () => {

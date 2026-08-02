@@ -19,7 +19,7 @@ import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { isValidNamespace } from '../../lib/namespace'
 import { sendFireForget, sendRequest } from '../../lib/messaging'
 import { hasStudio } from '../../studio/studio-mode'
-import { buildObjectCard } from '../../lib/object-card'
+import { buildObjectCard, supportsObjectCardCode } from '../../lib/object-card'
 import { getTypeColor } from '../../lib/types'
 
 interface HoverInfo { name?: string; type?: string; rid?: string; businessId?: string; codePreview?: string }
@@ -171,10 +171,13 @@ function buildTooltipDom(info: HoverInfo): HTMLElement {
       // Route a type with a dedicated studio (CVO, TextElement) to that studio,
       // matching the badge/tooltip paths (content-tooltip.ts, content-overlays.ts);
       // everything else opens the EC editor.
-      onOpenEc: info.rid
+      onOpenEc: info.rid && supportsObjectCardCode(info.type)
         ? () => sendFireForget(hasStudio(info.type)
           ? { type: 'OPEN_STUDIO', rid: info.rid! }
           : { type: 'OPEN_EDITOR', rid: info.rid! })
+        : undefined,
+      onOpenFull: info.rid
+        ? () => sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid: info.rid! })
         : undefined,
     },
   )
@@ -286,5 +289,5 @@ export const bmpObjectHover = hoverTooltip(
 
     return null;
   },
-  { hoverTime: 300, hideOnChange: true },
+  { hoverTime: 450, hideOnChange: true },
 );

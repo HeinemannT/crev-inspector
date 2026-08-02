@@ -4,6 +4,8 @@ import { effectiveFlowChildren } from '../lib/layout/flow';
 import { intersectTypeSchemas } from '../lib/type-schema-utils';
 import { propertyPicker } from '../lib/property-picker';
 import {
+  ICON_COLUMNS,
+  ICON_INFO,
   ICON_PENCIL,
   ICON_PLUS,
   ICON_TRASH,
@@ -272,6 +274,13 @@ function fieldCard(
       ? `${property?.label || node.prop} · propertyMapping`
       : 'This EditField has no property mapping';
     card.appendChild(mapping);
+  } else if (node.className === 'EditPageInfo') {
+    const icon = document.createElement('span');
+    icon.className = 'bp-ep-structural-icon bp-ep-info-icon';
+    icon.title = 'Information (read-only content)';
+    icon.setAttribute('aria-label', 'Information (read-only content)');
+    setIcon(icon, ICON_INFO);
+    card.appendChild(icon);
   }
 
   if (duplicateIds) {
@@ -298,6 +307,12 @@ function columnObject(
   const id = document.createElement('code');
   id.textContent = node.id;
   object.appendChild(id);
+  const icon = document.createElement('span');
+  icon.className = 'bp-ep-structural-icon bp-ep-column-icon';
+  icon.title = 'Column break (layout structure)';
+  icon.setAttribute('aria-label', 'Column break (layout structure)');
+  setIcon(icon, ICON_COLUMNS);
+  object.appendChild(icon);
   const drag = dragHandle();
   armFlowRow(drag, object, pageId, node.id, false, true);
   object.appendChild(drag);

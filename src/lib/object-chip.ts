@@ -44,6 +44,12 @@ let showTimer: ReturnType<typeof setTimeout> | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 let requestSequence = 0;
 let viewportListenersWired = false;
+let warmUntil = 0;
+
+const INITIAL_DELAY = 450;
+const WARM_DELAY = 100;
+const WARM_WINDOW = 300;
+const LEAVE_DELAY = 220;
 
 function clearTimer(timer: ReturnType<typeof setTimeout> | null): void {
   if (timer) clearTimeout(timer);
@@ -103,6 +109,7 @@ function hidePreview(): void {
   activeAnchor = null;
   requestSequence += 1;
   previewHost?.classList.remove('object-preview-host--visible');
+  warmUntil = Date.now() + WARM_WINDOW;
 }
 
 function scheduleHide(): void {
@@ -110,7 +117,7 @@ function scheduleHide(): void {
   hideTimer = setTimeout(() => {
     if (previewHost?.matches(':hover')) return;
     hidePreview();
-  }, 180);
+  }, LEAVE_DELAY);
 }
 
 function mergedIdentity(identity: ObjectReference, resolved?: ResolvedPreview): ObjectReference {
@@ -146,6 +153,7 @@ function renderPreview(
     onOpenFull: openFull,
   }));
   host.classList.add('object-preview-host--visible');
+  warmUntil = Date.now() + WARM_WINDOW;
   positionPreview(anchor, host);
 }
 
@@ -188,7 +196,10 @@ function wirePreview(anchor: HTMLElement, identity: ObjectReference, options: Ob
     }, delay);
   };
 
-  anchor.addEventListener('pointerenter', () => scheduleShow(220));
+  anchor.addEventListener('pointerenter', () => {
+    const visible = previewHost?.classList.contains('object-preview-host--visible') ?? false;
+    scheduleShow(visible || Date.now() < warmUntil ? WARM_DELAY : INITIAL_DELAY);
+  });
   anchor.addEventListener('pointerleave', scheduleHide);
   anchor.addEventListener('focusin', () => scheduleShow(0));
   anchor.addEventListener('focusout', (event) => {
@@ -240,6 +251,7 @@ export function objectChip(identity: ObjectReference, options: ObjectChipOptions
 /** Test/lifecycle hook: extension documents are normally destroyed wholesale. */
 export function resetObjectPreview(): void {
   hidePreview();
+  warmUntil = 0;
   previewCache.clear();
   previewHost?.remove();
   previewHost = null;

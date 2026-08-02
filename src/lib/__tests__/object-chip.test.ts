@@ -53,7 +53,10 @@ describe('objectChip', () => {
     document.body.appendChild(chip);
 
     chip.dispatchEvent(new Event('pointerenter'));
-    await vi.advanceTimersByTimeAsync(220);
+    await vi.advanceTimersByTimeAsync(449);
+    expect(document.querySelector('.object-preview-host')).toBeNull();
+    expect(sendMessage).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
 
     const host = document.querySelector('.object-preview-host');
     expect(host?.classList.contains('object-preview-host--visible')).toBe(true);

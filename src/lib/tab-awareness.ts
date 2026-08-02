@@ -125,7 +125,7 @@ export function registerTabListeners() {
           if (hasCookie && !getTabDetection(tabId)) {
             const entry = { phase: 'detected' as DetectionPhase, confidence: 0.7, signals: ['JSESSIONID'] };
             setTabDetection(tabId, entry);
-            updateBadge(tabId, true);
+            void updateBadge(tabId, true);
             ctx.sendToPanelByWindow(windowId!, { type: 'DETECTION_STATE', ...entry });
           }
         });

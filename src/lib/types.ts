@@ -390,12 +390,14 @@ export interface FlowStepMsg {
   identity: ObjectPaneIdentity;
   edgeLabel?: string;
   inputKey?: string;
+  propertyMapping?: string;
   codeFields?: FlowCodeFieldMsg[];
   children?: FlowStepMsg[];
   hint?: string;
 }
 export interface FlowChainMsg {
   steps: FlowStepMsg[];
+  objectTypes?: string[];
 }
 
 // ── Code Search ──────────────────────────────────────────────────
