@@ -12,8 +12,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:extension-load": "node scripts/browser.mjs --check",
-    "browser:open": "node scripts/browser.mjs",
     "qa:devtools-package": "npm run build && node scripts/prepare-devtools-package.mjs"
   },
   "devDependencies": {
@@ -22,7 +20,6 @@
     "@types/js-beautify": "^1.14.3",
     "eslint": "^10.6.0",
     "happy-dom": "^20.8.9",
-    "playwright": "1.58.2",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.63.0",
     "vite": "^6.1.0",

@@ -143,4 +143,6 @@ CI runs the same four gates. A `v*.*.*` tag publishes the packaged extension aft
 For Chrome DevTools extension QA, run `npm run qa:devtools-package` once and
 install the printed directory as an unpacked extension. Normal and watch builds
 then refresh that same directory automatically; Chrome's **Reload** button
-always picks up the newest successful local build.
+always picks up the newest successful local build. The Connect footer shows the
+loaded build ID beside the manifest version; the same value is available as
+`globalThis.__CREV_BUILD_ID__` in the service-worker console.

@@ -32,6 +32,7 @@ import { contextFromData } from './context-state';
 import { provisionalConnectionSnapshot } from '../lib/connection-snapshot';
 import { objectChip } from '../lib/object-chip';
 import { workStatusForMessage } from './work-status';
+import { runtimeVersion } from '../lib/build-info';
 
 // ── Tab instances ────────────────────────────────────────────────
 
@@ -1006,7 +1007,7 @@ function showBrandMenu(anchor: HTMLElement): void {
     h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://crev.theinemann.de', target: '_blank', rel: 'noopener' }, 'Open crev.theinemann.de'),
     h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://github.com/HeinemannT/crev-inspector', target: '_blank', rel: 'noopener' }, 'GitHub repo'),
     h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://github.com/HeinemannT/crev-inspector/releases', target: '_blank', rel: 'noopener' }, 'Releases'),
-    h('div', { class: 'brand-menu-meta' }, `v${chrome.runtime.getManifest().version}`),
+    h('div', { class: 'brand-menu-meta' }, runtimeVersion(chrome.runtime.getManifest().version)),
   );
   document.body.appendChild(menu);
 

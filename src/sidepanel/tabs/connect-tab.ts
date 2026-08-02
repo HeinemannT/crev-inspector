@@ -17,6 +17,7 @@ import { requestOriginsInGesture } from '../site-access-strip';
 import { PROVIDERS, AI_PROVIDER_IDS, parseCustomProviderJson, resolveProvider } from '../../lib/ai/providers';
 import type { AiCustomProvider, AiProviderId } from '../../lib/ai/types';
 import type { Tab, SendFn } from './tab-types';
+import { BUILD_ID } from '../../lib/build-info';
 
 type EditingProfile = { id: string | null; label: string; bmpUrl: string; bmpUser: string; bmpPass: string; authMode?: AuthMode };
 
@@ -978,24 +979,28 @@ export class ConnectTab implements Tab {
   private renderUpdateBanner(): HTMLElement {
     const s = this.updateStatus;
     const current = chrome.runtime.getManifest().version;
+    const build = h('span', { class: 'update-build', title: `Loaded build ${BUILD_ID}` }, BUILD_ID);
 
     let body: (HTMLElement | string | null)[];
     let cls = 'update-banner';
     if (!s) {
       body = [
         h('span', { class: 'update-version' }, `v${current}`),
+        build,
         h('span', { class: 'update-status' }, 'Checking for updates…'),
       ];
     } else if (s.error) {
       cls += ' update-banner--warn';
       body = [
         h('span', { class: 'update-version' }, `v${current}`),
+        build,
         h('span', { class: 'update-status', title: s.error }, "Couldn't check for updates"),
       ];
     } else if (s.isUpdate && s.latest) {
       cls += ' update-banner--available';
       body = [
         h('span', { class: 'update-version' }, `v${current}`),
+        build,
         h('span', { class: 'update-arrow' }, '→'),
         h('span', { class: 'update-latest' }, `v${s.latest}`),
         h('span', { class: 'update-status' }, 'available'),
@@ -1003,6 +1008,7 @@ export class ConnectTab implements Tab {
     } else {
       body = [
         h('span', { class: 'update-version' }, `v${current}`),
+        build,
         h('span', { class: 'update-status update-status--ok' }, 'Up to date'),
       ];
     }

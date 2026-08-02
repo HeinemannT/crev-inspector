@@ -14,6 +14,7 @@ import { StylePresetStore } from './lib/style-presets';
 import type { SwContext } from './lib/sw-context';
 import { setSwContext } from './lib/sw-context';
 import { log } from './lib/logger';
+import { BUILD_ID } from './lib/build-info';
 
 // Modules
 import { loadTabDetection, getTabDetection } from './lib/detection';
@@ -28,6 +29,10 @@ import { openEditorWindow, openExtendedWindow } from './lib/editor';
 import { openCodeSearchWindow } from './lib/codesearch-launcher';
 import { initSiteAccess, reconcileProfileOrigins } from './lib/site-access';
 import { openDiffWindow } from './lib/diff-launcher';
+
+// Deliberately global so the exact loaded build is visible from the service
+// worker DevTools console, even when manifest.version has not changed.
+(globalThis as typeof globalThis & { __CREV_BUILD_ID__?: string }).__CREV_BUILD_ID__ = BUILD_ID;
 
 // ── State ───────────────────────────────────────────────────────
 

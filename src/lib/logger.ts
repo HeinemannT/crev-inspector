@@ -15,8 +15,11 @@ let debugEnabled = false;
 
 // Synchronous read for window contexts; async warm-up for SW.
 try {
-  if (typeof localStorage !== 'undefined') {
-    debugEnabled = !!localStorage.getItem('crev_debug');
+  // Node 24 exposes an experimental global `localStorage` getter that warns
+  // when merely inspected. Browser windows already give us the correct
+  // capability boundary, while service workers intentionally have no window.
+  if (typeof window !== 'undefined') {
+    debugEnabled = !!window.localStorage.getItem('crev_debug');
   }
 } catch { /* ignore — security errors on cross-origin storage */ }
 

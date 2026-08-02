@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, normalizePath, type Plugin } from 'vite';
 import { resolve } from 'path';
 import { copyFileSync, mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, readdirSync } from 'fs';
 import { execFileSync } from 'child_process';
@@ -8,6 +8,38 @@ const BUILD_TARGET = 'esnext' as const;
 const contentEntry = resolve(__dirname, 'src/content.ts');
 const blueprintEntry = resolve(__dirname, 'src/content-blueprint-entry.ts');
 const interceptorEntry = resolve(__dirname, 'src/interceptor.ts');
+const buildInfoEntry = normalizePath(resolve(__dirname, 'src/lib/build-info.ts'));
+const BUILD_ID_TOKEN = '__CREV_BUILD_ID__';
+
+function createBuildId(): string {
+  const commit = process.env.GITHUB_SHA?.trim();
+  if (commit) return commit.slice(0, 7);
+  return `dev-${Date.now().toString(36).slice(-6)}`;
+}
+
+/**
+ * Bake a compact identity into every runtime build. Unlike manifest.version,
+ * this changes for each local watch build, so Chrome DevTools can prove which
+ * bundle is actually loaded.
+ */
+function buildInfoPlugin(): Plugin {
+  let buildId = createBuildId();
+
+  return {
+    name: 'crev-build-info',
+    buildStart() {
+      buildId = createBuildId();
+    },
+    transform(code, id) {
+      if (normalizePath(id.split('?')[0]) === buildInfoEntry) {
+        return code.replace(BUILD_ID_TOKEN, buildId);
+      }
+    },
+    shouldTransformCachedModule({ id }) {
+      return normalizePath(id.split('?')[0]) === buildInfoEntry;
+    },
+  };
+}
 
 /**
  * Content scripts run as classic scripts (not ES modules), so they
@@ -195,5 +227,5 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
-  plugins: [bundleContentScript(), extensionPlugin()],
+  plugins: [buildInfoPlugin(), bundleContentScript(), extensionPlugin()],
 });
