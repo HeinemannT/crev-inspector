@@ -20,6 +20,8 @@ import { isRidShaped } from '../validate-inbound';
 import { ID_SPACE_PREFIXES } from '../ec-grammar';
 import { BATCH_CHUNK_SIZE } from '../constants';
 import { ENVIRONMENT_CHANGED_ERROR, environmentMatches, environmentToken } from '../environment';
+import { markHostAccessRequired } from '../connection';
+import { HostAccessError } from '../site-access';
 
 // ── EC builders (exported for tests) ─────────────────────────────
 
@@ -150,6 +152,11 @@ register('BROWSE_SEARCH', async (msg, respond) => {
     for (const o of objects) ctx.cache.put(o);
     respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: true, objects, totalHits });
   } catch (e) {
+    if (e instanceof HostAccessError) {
+      markHostAccessRequired();
+      respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: false, error: 'Grant site access to search this BMP workspace' });
+      return;
+    }
     respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: false, error: e instanceof Error ? e.message : 'Search failed' });
   }
 });

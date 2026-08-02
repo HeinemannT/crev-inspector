@@ -142,4 +142,34 @@ describe('site access registration boundaries', () => {
       ],
     });
   });
+
+  it('rejects before network work when BMP host access is missing', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    globalThis.chrome = {
+      permissions: {
+        contains: vi.fn(async () => false),
+      },
+    } as unknown as typeof chrome;
+
+    const { assertHostAccess, HostAccessError } = await import('../site-access');
+    await expect(assertHostAccess('https://bmp.example.test/Workspace/graphql'))
+      .rejects.toBeInstanceOf(HostAccessError);
+    expect(chrome.permissions.contains).toHaveBeenCalledWith({
+      origins: ['https://bmp.example.test/*'],
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('allows the exact BMP origin when its grant exists', async () => {
+    globalThis.chrome = {
+      permissions: {
+        contains: vi.fn(async () => true),
+      },
+    } as unknown as typeof chrome;
+
+    const { assertHostAccess } = await import('../site-access');
+    await expect(assertHostAccess('https://bmp.example.test/Workspace/graphql'))
+      .resolves.toBeUndefined();
+  });
 });

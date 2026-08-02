@@ -45,9 +45,13 @@ export function mockChromeStorage() {
     action: {
       setBadgeText: vi.fn(async () => {}),
       setBadgeBackgroundColor: vi.fn(async () => {}),
+      setIcon: vi.fn(async () => {}),
     },
     tabs: { query: vi.fn() },
-    runtime: { lastError: null },
+    runtime: {
+      lastError: null,
+      getURL: vi.fn((path: string) => `chrome-extension://test/${path}`),
+    },
   } as any;
   return store;
 }

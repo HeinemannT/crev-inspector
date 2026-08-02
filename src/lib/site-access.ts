@@ -36,6 +36,39 @@ export function originPatternFor(url: string | undefined): string | null {
   } catch { return null; }
 }
 
+/** Typed preflight failure for BMP HTTP calls. Callers can surface the existing
+ * site-access repair UI without matching Chrome's browser-specific CORS text. */
+export class HostAccessError extends Error {
+  readonly code = 'needs-access';
+  readonly origin: string;
+
+  constructor(origin: string) {
+    super(`Site access required for ${origin}`);
+    this.name = 'HostAccessError';
+    this.origin = origin;
+  }
+}
+
+/** Whether the extension may fetch the supplied HTTP(S) URL. Test/Node
+ * environments without Chrome's permissions API retain permissive behavior. */
+export async function hasHostAccess(url: string): Promise<boolean> {
+  const origin = originPatternFor(url);
+  if (!origin) return false;
+  if (typeof chrome === 'undefined' || !chrome.permissions?.contains) return true;
+  try {
+    return await chrome.permissions.contains({ origins: [origin] });
+  } catch {
+    return false;
+  }
+}
+
+/** Guard an extension-origin BMP fetch before it reaches the network. */
+export async function assertHostAccess(url: string): Promise<void> {
+  const origin = originPatternFor(url);
+  if (!origin) throw new HostAccessError(url);
+  if (!(await hasHostAccess(url))) throw new HostAccessError(origin);
+}
+
 /** All granted host patterns (the optional_host_permissions the user has approved). */
 export async function grantedOrigins(): Promise<string[]> {
   try {

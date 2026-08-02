@@ -5,6 +5,7 @@
 
 import { log } from './logger';
 import { AUTH_TIMEOUT } from './constants';
+import { assertHostAccess, HostAccessError } from './site-access';
 
 /** How a profile obtains its BMP session.
  *  - `session`  — borrow the browser's existing JSESSIONID only (no creds).
@@ -190,6 +191,7 @@ export class BmpAuth {
    *  session was obtained and is set BEFORE the token is persisted, so the
    *  stored blob carries the correct `via` from the very first login. */
   private async _completeTokenExchange(via: AuthVia): Promise<string | null> {
+    await assertHostAccess(this.bmpUrl);
     const gqlResp = await fetch(`${this.bmpUrl}graphql`, {
       method: 'POST',
       credentials: 'include',
@@ -270,6 +272,7 @@ export class BmpAuth {
    *  exactly when there's no live session worth preserving. Documented so it's
    *  a known trade-off, not a surprise. */
   private async _passwordLogin(): Promise<void> {
+    await assertHostAccess(this.bmpUrl);
     const body = `username=${encodeURIComponent(this.bmpUser)}&password=${encodeURIComponent(this.bmpPass)}`;
     const authResp = await fetch(`${this.bmpUrl}cs/authentication`, {
       method: 'POST',
@@ -318,6 +321,7 @@ export class BmpAuth {
 
   private async _doRefresh(): Promise<string | null> {
     try {
+      await assertHostAccess(this.bmpUrl);
       const resp = await fetch(`${this.bmpUrl}cstoken`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -342,6 +346,7 @@ export class BmpAuth {
       this._persistTokens();
       return this._jwt;
     } catch (e) {
+      if (e instanceof HostAccessError) throw e;
       log.warn('auth:refresh', e, 'token refresh failed — will retry via full login');
       return null;
     }
@@ -508,7 +513,8 @@ export class BmpAuth {
     return ticket;
   }
 
-  private _fetchLoginTicket(jwt: string): Promise<Response> {
+  private async _fetchLoginTicket(jwt: string): Promise<Response> {
+    await assertHostAccess(this.bmpUrl);
     return fetch(`${this.bmpUrl}ticket`, {
       headers: { 'Authorization': `Bearer ${jwt}` },
       signal: AbortSignal.timeout(AUTH_TIMEOUT),

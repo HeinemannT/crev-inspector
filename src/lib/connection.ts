@@ -1,7 +1,7 @@
 import type { ConnectionState } from './types';
 import type { AuthErrorCode, AuthVia } from './bmp-auth';
 import { getCtx } from './sw-context';
-import { originPatternFor } from './site-access';
+import { hasHostAccess, HostAccessError } from './site-access';
 import { BmpClient } from './bmp-client';
 import type { BmpTransportOutcome } from './bmp-transport';
 import { log, errorMessage } from './logger';
@@ -38,13 +38,6 @@ let lastConfirmedConnected = false;
  *  un-granted host are CORS-blocked (BMP sends no Access-Control-Allow-Origin), so we gate the health +
  *  auth probes on this and surface a 'needs-access' state instead of the misleading 'unreachable'.
  *  Degrades to true when the permissions API is unavailable (tests / older runtimes) — unchanged there. */
-async function hasHostAccess(bmpUrl: string): Promise<boolean> {
-  const origin = originPatternFor(bmpUrl);
-  if (!origin || typeof chrome === 'undefined' || !chrome.permissions?.contains) return true;
-  try { return await chrome.permissions.contains({ origins: [origin] }); }
-  catch { return true; }
-}
-
 // Granting host access (site-access strip or Chrome's site settings) fires this — clear the gate and
 // re-probe at once so a 'needs-access' connection flips to connected without waiting for the next poll.
 if (typeof chrome !== 'undefined' && chrome.permissions?.onAdded) {
@@ -53,6 +46,24 @@ if (typeof chrome !== 'undefined' && chrome.permissions?.onAdded) {
     lastPollTime = 0; // bypass the poll throttle
     void runAuthTest().finally(() => { void pollHealth(); });
   });
+}
+
+if (typeof chrome !== 'undefined' && chrome.permissions?.onRemoved) {
+  chrome.permissions.onRemoved.addListener(() => {
+    lastPollTime = 0;
+    void runAuthTest().finally(() => { void pollHealth(true); });
+  });
+}
+
+/** Move the connection into the existing repairable access state after a
+ * feature-level HTTP guard detects a revoked or stale grant. */
+export function markHostAccessRequired(): void {
+  needsAccess = true;
+  authResult = 'pending';
+  commandResult = 'unknown';
+  commandError = null;
+  lastConfirmedConnected = false;
+  pushConnectionState();
 }
 
 /** Apply BMP version flags to client. When /buildNum is unavailable, prefer
@@ -300,6 +311,10 @@ async function runAuthTestInternal(generationAtStart: number, clientAtStart: Bmp
     }
   } catch (e) {
     if (connectionGeneration !== generationAtStart || ctx.client !== clientAtStart) return;
+    if (e instanceof HostAccessError) {
+      markHostAccessRequired();
+      return;
+    }
     authResult = 'failed';
     authError = errorMessage(e);
     authErrorCode = null;
@@ -381,6 +396,10 @@ async function pollHealthInternal(generationAtStart: number, clientAtStart: BmpC
     }
   } catch (e) {
     if (connectionGeneration !== generationAtStart || ctx.client !== clientAtStart) return;
+    if (e instanceof HostAccessError) {
+      markHostAccessRequired();
+      return;
+    }
     log.swallow('connection:pollHealth', e);
     healthUp = 'unreachable';
     healthResponseMs = null;

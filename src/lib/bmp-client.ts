@@ -23,6 +23,7 @@ import type {
   LayoutNode, ObjectPanePayload,
 } from './types';
 import { log } from './logger';
+import { assertHostAccess } from './site-access';
 import { HEALTH_TIMEOUT, EC_TIMEOUT } from './constants';
 import { BmpAuth, AuthError } from './bmp-auth';
 import type { AuthMode, AuthErrorCode, AuthVia } from './bmp-auth';
@@ -405,6 +406,7 @@ export class BmpClient {
     u.searchParams.set('ytd', 'false');
     u.searchParams.set('_t', String(Date.now())); // cache-buster
     try {
+      await assertHostAccess(u.toString());
       const res = await fetch(u.toString(), { credentials: 'include', cache: 'no-store' });
       if (!res.ok) {
         return {
@@ -432,6 +434,7 @@ export class BmpClient {
     u.searchParams.set('propName', 'content');
     u.searchParams.set('rid', rid);
     try {
+      await assertHostAccess(u.toString());
       const res = await fetch(u.toString(), { credentials: 'include', cache: 'no-store' });
       if (!res.ok) return { ok: false, status: res.status, error: `Download HTTP ${res.status}` };
       return { ok: true, text: await res.text() };
@@ -839,6 +842,7 @@ export class BmpClient {
       'query quickSearch($text: String, $pageSize: Int, $pageNumber: Int, $searchSlotConfigurationRid: String) {' +
       ' quickSearch(text: $text, pageSize: $pageSize, pageNumber: $pageNumber, searchSlotConfigurationRid: $searchSlotConfigurationRid) {' +
       ' totalHits hits { epmObject { rid name type webParentRid webParentName hasChildren tabRid } pageLocationInfo { rid name } } } }';
+    await assertHostAccess(this.bmpUrl);
     const res = await fetch(`${this.bmpUrl}graphql`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -883,6 +887,7 @@ export class BmpClient {
   static async checkHealth(bmpUrl: string): Promise<{ up: boolean; reachable: boolean; responseMs: number }> {
     const start = performance.now();
     try {
+      await assertHostAccess(bmpUrl);
       const res = await fetch(`${bmpUrl}health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT) });
       const ms = Math.round(performance.now() - start);
       if (res.status === 401 || res.status === 404 || res.status === 403) {
@@ -900,6 +905,7 @@ export class BmpClient {
 
   static async getBuildNumber(bmpUrl: string, jwt?: string): Promise<string | null> {
     try {
+      await assertHostAccess(bmpUrl);
       const headers: Record<string, string> = {};
       if (jwt) headers['Authorization'] = `Bearer ${jwt}`;
       const res = await fetch(`${bmpUrl}buildNum`, { headers, signal: AbortSignal.timeout(HEALTH_TIMEOUT) });
