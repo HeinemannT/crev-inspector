@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite';
 import { resolve } from 'path';
 import { copyFileSync, mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, readdirSync } from 'fs';
+import { execFileSync } from 'child_process';
 import * as esbuild from 'esbuild';
 
 const BUILD_TARGET = 'esnext' as const;
@@ -140,6 +141,18 @@ function extensionPlugin(): Plugin {
         const src = resolve(dist, dir);
         if (existsSync(src)) copyDirSync(src, resolve(root, dir));
       }
+
+      // Chrome keeps an unpacked extension pinned to the directory originally
+      // selected in chrome://extensions. Once qa:devtools-package has created
+      // that stable temp directory, refresh it after every normal/watch build
+      // so Chrome's Reload button always picks up the newest local manifest and
+      // bundles. On CI and fresh checkouts the directory does not exist, so the
+      // helper exits without creating local QA state.
+      execFileSync(
+        process.execPath,
+        [resolve(root, 'scripts/prepare-devtools-package.mjs'), '--if-present'],
+        { stdio: 'inherit' },
+      );
     },
   };
 }

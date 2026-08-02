@@ -139,3 +139,8 @@ npm run build
 ```
 
 CI runs the same four gates. A `v*.*.*` tag publishes the packaged extension after they pass.
+
+For Chrome DevTools extension QA, run `npm run qa:devtools-package` once and
+install the printed directory as an unpacked extension. Normal and watch builds
+then refresh that same directory automatically; Chrome's **Reload** button
+always picks up the newest successful local build.
