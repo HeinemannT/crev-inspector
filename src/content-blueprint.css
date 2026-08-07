@@ -149,7 +149,7 @@
 #crev-blueprint-layer .bp-vsw-b.style.on{background:var(--bp-accent,#8a3ffc);color:#fff}
 #crev-blueprint-layer .bp-chip{display:flex;gap:9px;align-items:center;padding:8px 10px 8px 12px}
 #crev-blueprint-layer .bp-loading{color:var(--bp-muted);font:500 11px var(--bp-mono)}
-#crev-blueprint-layer .bp-page-chip{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;max-width:min(260px,28vw);padding:2px 4px 2px 2px;border:1px solid transparent;border-radius:var(--bp-r);color:var(--bp-text)}
+#crev-blueprint-layer .bp-page-chip{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;min-width:0;max-width:min(260px,28vw);padding:2px 4px 2px 2px;border:1px solid transparent;border-radius:var(--bp-r);color:var(--bp-text)}
 #crev-blueprint-layer .bp-page-chip:hover{background:rgba(74,144,217,.08);border-color:var(--bp-line-2)}
 #crev-blueprint-layer .bp-page-chip .object-chip-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 11px/1 var(--bp-mono)}
 #crev-blueprint-layer .bp-page-chip .bdg{display:inline-flex;align-items:stretch;flex:none;height:20px;border:1px solid var(--bp-line-2);border-radius:var(--bp-r);overflow:hidden}

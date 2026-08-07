@@ -34,6 +34,9 @@ const LOAD_BEARING: Array<{ file: string; selector: string; must: string[] }> = 
   { file: 'src/content-overlay.css',   selector: '#crev-toast-container',  must: ['position: fixed', 'z-index'] },
   // content-blueprint.css — the full-page editing layer
   { file: 'src/content-blueprint.css', selector: '#crev-blueprint-layer', must: ['position:absolute', 'z-index'] },
+  // The command bar may overflow at narrow BMP widths, but this chip must retain its intrinsic
+  // width. Otherwise its badge paints outside the shrunken flex box and overlaps the edit target.
+  { file: 'src/content-blueprint.css', selector: '#crev-blueprint-layer .bp-page-chip', must: ['flex:0 0 auto'] },
 ];
 
 function read(p: string): string {
