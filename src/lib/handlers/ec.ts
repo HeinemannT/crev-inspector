@@ -37,7 +37,15 @@ register('EC_EXECUTE', async (msg, respond) => {
     });
     if (msg.objectRid && result.ok) {
       const cached = ctx.cache.get(msg.objectRid);
-      ctx.history.record({ rid: msg.objectRid, name: cached?.name, type: cached?.type, businessId: cached?.businessId, action: 'ec-executed', timestamp: Date.now() });
+      ctx.history.record({
+        rid: msg.objectRid,
+        name: cached?.name,
+        type: cached?.type,
+        businessId: cached?.businessId,
+        templateBusinessId: cached?.templateBusinessId,
+        action: 'ec-executed',
+        timestamp: Date.now(),
+      });
     }
     // Activity log: EC runs are first-class actions worth surfacing in the Log
     // tab — previously only enrichment / connection / detection touched it.
@@ -254,7 +262,15 @@ register('OPEN_EDITOR', (msg, _respond, meta) => {
   const ctx = getCtx();
   const cached = ctx.cache.get(msg.rid);
   if (cached) {
-    ctx.history.record({ rid: msg.rid, name: cached.name, type: cached.type, businessId: cached.businessId, action: 'edited', timestamp: Date.now() });
+    ctx.history.record({
+      rid: msg.rid,
+      name: cached.name,
+      type: cached.type,
+      businessId: cached.businessId,
+      templateBusinessId: cached.templateBusinessId,
+      action: 'edited',
+      timestamp: Date.now(),
+    });
   }
 });
 

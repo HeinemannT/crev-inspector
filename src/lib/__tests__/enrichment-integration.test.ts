@@ -1516,6 +1516,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     harness.cache.putAll([{
       rid: RIDS.risk,
       businessId: 'risk.42',
+      templateBusinessId: 'risk_template',
       type: 'CeRiskAssessment',
       name: 'Cached operational risk',
       source: 'server',
@@ -1536,8 +1537,39 @@ describe('Editor Context — What The Code Popup Shows', () => {
     expect(setCall?.[0].crev_editor_ctx_extended.instance).toMatchObject({
       rid: RIDS.risk,
       businessId: 'risk.42',
+      templateBusinessId: 'risk_template',
       type: 'CeRiskAssessment',
       name: 'Cached operational risk',
     });
+  });
+
+  it('does not hold a cold standalone editor behind a slow identity lookup', async () => {
+    vi.useFakeTimers();
+    try {
+      harness.client.lookupIdentity = vi.fn(() => new Promise(() => {})) as any;
+
+      const { openExtendedWindow } = await import('../editor');
+      const opening = openExtendedWindow(RIDS.risk);
+      await vi.advanceTimersByTimeAsync(249);
+      expect((globalThis.chrome.storage.local.set as any).mock.calls.some(
+        (call: any) => call[0]?.crev_editor_ctx_extended,
+      )).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await opening;
+
+      const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+        (call: any) => call[0]?.crev_editor_ctx_extended,
+      );
+      expect(setCall?.[0].crev_editor_ctx_extended.instance).toEqual({
+        rid: RIDS.risk,
+        businessId: '',
+        type: '',
+        name: '',
+      });
+      expect(harness.client.lookupIdentity).toHaveBeenCalledWith(RIDS.risk);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

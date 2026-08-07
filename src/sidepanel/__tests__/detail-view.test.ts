@@ -324,6 +324,21 @@ describe('DetailView — fetch flow', () => {
     expect(sent.some(m => m.type === 'FETCH_TYPE_SCHEMA')).toBe(false);
   });
 
+  it('shows a property template first without hiding its instance ID', () => {
+    const { dv, panel } = makeDetailView();
+    dv.show(makeObj('700', { type: 'ExtendedMethodConfig' }), panel);
+    dv.handleMessage(paneData('700', {
+      objectType: 'ExtendedMethodConfig',
+      businessId: 'property_instance',
+      templateRid: '701',
+      isPropertyDefinition: true,
+    }), panel);
+
+    const facts = [...panel.querySelectorAll('.property-fact')].map(row => row.textContent);
+    expect(facts).toContain('Template IDtmpl-701');
+    expect(facts).toContain('Instance IDproperty_instance');
+  });
+
   it('shows property facts immediately and loads applications only on request', () => {
     const { dv, panel, sent } = makeDetailView();
     dv.show(makeObj('700', { type: 'ExtendedMethodConfig' }), panel);
@@ -719,6 +734,18 @@ describe('DetailView — target toggle', () => {
 });
 
 describe('DetailView — tree navigation', () => {
+  it('shows and copies the current template first while retaining the instance ID', () => {
+    const { dv, panel } = makeDetailView();
+    dv.show(makeObj('100'), panel);
+    dv.handleMessage(paneData('100', { templateRid: '200' }), panel);
+
+    clickSegment(panel, 'Structure');
+    const current = panel.querySelector<HTMLElement>('.pane-tree-row--current')!;
+    expect(current.querySelector('.pane-tree-bid')?.textContent).toBe('tmpl-200');
+    expect(current.getAttribute('title')).toContain('Instance ID: bid-100');
+    expect(current.querySelector('.bdg-copy')?.getAttribute('title')).toContain('Shift: instance');
+  });
+
   it('the Structure segment renders siblings and emits FETCH_OBJECT_PANE on click', () => {
     const { dv, panel, sent } = makeDetailView();
     dv.show(makeObj('100'), panel);

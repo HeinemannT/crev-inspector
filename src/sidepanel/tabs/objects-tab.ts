@@ -129,7 +129,7 @@ export class ObjectsTab implements Tab {
     if (this.searchInputEl) return this.searchInputEl;
     const input = h('input', {
       class: 'bx-input', id: 'objects-search', type: 'text',
-      placeholder: 'Search the workspace by name, type, ID, or RID',
+      placeholder: 'Search by name, type, template, instance, or RID',
       autocomplete: 'off', autocorrect: 'off', spellcheck: 'false',
     }) as HTMLInputElement;
     input.addEventListener('input', () => {
@@ -408,35 +408,68 @@ export class ObjectsTab implements Tab {
     // empty/home state reads continuously with a query result set.
     if (pinned.length > 0) {
       sections.push(h('div', { class: 'bx-rail-h' }, 'Pinned'));
-      sections.push(h('div', { class: 'bx-list' }, ...pinned.map(f => this.renderHomeRow(f.rid, f.name, f.type, f.businessId))));
+      sections.push(h('div', { class: 'bx-list' }, ...pinned.map(f =>
+        this.renderHomeRow(f.rid, f.name, f.type, f.businessId, f.templateBusinessId))));
     }
     if (recent.length > 0) {
       sections.push(h('div', { class: 'bx-rail-h' }, 'Recent'));
-      sections.push(h('div', { class: 'bx-list' }, ...recent.map(e => this.renderHomeRow(e.rid, e.name, e.type, e.businessId))));
+      sections.push(h('div', { class: 'bx-list' }, ...recent.map(e =>
+        this.renderHomeRow(e.rid, e.name, e.type, e.businessId, e.templateBusinessId))));
     }
 
     if (sections.length === 0) {
       return emptyState({
         variant: 'hero',
         title: 'Browse the workspace',
-        body: 'Search every object by name, type, business ID, or RID: pages, scorecards, tasks, and Ce* enterprise objects. Pinned and recent items appear here as you go.',
+        body: 'Search every object by name, type, template ID, instance ID, or RID: pages, scorecards, tasks, and Ce* enterprise objects. Pinned and recent items appear here as you go.',
         hint: 'Tip: toggle Inspect on a BMP page to harvest visible widgets into your cache.',
       });
     }
     return h('div', { class: 'bx-home' }, ...sections.filter(Boolean) as HTMLElement[]);
   }
 
-  /** A pinned/recent entry as a result-style row (chip · name · id · copy). Uses
+  /** A pinned/recent entry as a result-style row (chip · name · primary id · copy). Uses
    *  the shared row-click handler to navigate. */
-  private renderHomeRow(rid: string, name?: string, type?: string, businessId?: string): HTMLElement {
-    return h('div', { class: 'bx-row', 'data-action': 'row-click', 'data-rid': rid, title: name ?? truncRid(rid) },
-      typeBadge(type, { size: 'xs' }),
-      h('span', { class: 'bx-name' }, name ?? '(unnamed)'),
-      businessId ? h('span', { class: 'bx-crumb', title: businessId }, businessId) : null,
+  private renderHomeRow(
+    rid: string,
+    name?: string,
+    type?: string,
+    businessId?: string,
+    templateBusinessId?: string,
+  ): HTMLElement {
+    // Older stored pins/history predate template metadata. The cache refresh
+    // upgrades them in place for display without a storage migration.
+    const cached = this.findObject(rid);
+    const effectiveName = cached?.name ?? name;
+    const effectiveType = cached?.type ?? type;
+    const effectiveBusinessId = cached?.businessId ?? businessId;
+    const effectiveTemplateId = cached?.templateBusinessId ?? templateBusinessId;
+    const display = resolveDisplayIdentity({
+      rid,
+      businessId: effectiveBusinessId,
+      templateBusinessId: effectiveTemplateId,
+    });
+    const identityTitle = [
+      `${display.primaryLabel}: ${display.primary}`,
+      display.secondary ? `Instance ID: ${display.secondary}` : '',
+      `RID: ${rid}`,
+    ].filter(Boolean).join('\n');
+    return h('div', {
+      class: 'bx-row',
+      'data-action': 'row-click',
+      'data-rid': rid,
+      title: [effectiveName ?? truncRid(rid), identityTitle].filter(Boolean).join('\n'),
+    },
+      typeBadge(effectiveType, { size: 'xs' }),
+      h('span', { class: 'bx-name' }, effectiveName ?? '(unnamed)'),
+      display.primary ? h('span', { class: 'bx-crumb', title: identityTitle }, display.primary) : null,
       h('div', { class: 'bx-row-actions' },
         h('button', {
           class: 'icon-btn icon-btn--accent', 'data-action': 'copy',
-          'data-copy': businessId ?? rid, 'data-copy-rid': rid, 'data-copy-type': type ?? '',
+          'data-copy': effectiveBusinessId ?? rid,
+          'data-copy-rid': rid,
+          'data-copy-type': effectiveType ?? '',
+          'data-copy-tmpl': effectiveTemplateId ?? '',
           title: COPY_TOOLTIP,
         }, svg(ICON_COPY)),
       ),

@@ -915,10 +915,13 @@ export class EcQueryService {
     if (!result.log) throw new Error('Empty EC response');
 
     const data = parseSepBlocks(result.log, FLOW_SEP);
-    const instance = parseIdentityBlock(data, 'inst');
-    if (!instance) return null;
+    const parsedInstance = parseIdentityBlock(data, 'inst');
+    if (!parsedInstance) return null;
     const parent = parseIdentityBlock(data, 'par');
     const template = parseIdentityBlock(data, 'tmpl');
+    const instance: ObjectPaneIdentity = template?.businessId
+      ? { ...parsedInstance, templateBusinessId: template.businessId }
+      : parsedInstance;
     const propertyDefinition = data.isPropertyDefinition === 'true'
       || isMasterPropertyDefinition(instance.type, template);
 

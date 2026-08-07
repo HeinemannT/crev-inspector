@@ -11,6 +11,7 @@ export interface FavoriteEntry {
   name?: string;
   type?: string;
   businessId?: string;
+  templateBusinessId?: string;
   addedAt: number;
 }
 
@@ -46,7 +47,12 @@ export class FavoritesManager {
   }
 
   /** Toggle favorite state. Returns new isFavorite state. */
-  toggle(rid: string, meta?: { name?: string; type?: string; businessId?: string }): boolean {
+  toggle(rid: string, meta?: {
+    name?: string;
+    type?: string;
+    businessId?: string;
+    templateBusinessId?: string;
+  }): boolean {
     const idx = this.entries.findIndex(e => e.rid === rid);
     if (idx >= 0) {
       // Remove
@@ -61,6 +67,7 @@ export class FavoritesManager {
       name: meta?.name,
       type: meta?.type,
       businessId: meta?.businessId,
+      templateBusinessId: meta?.templateBusinessId,
       addedAt: Date.now(),
     });
     this.scheduleSave();

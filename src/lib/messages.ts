@@ -311,7 +311,14 @@ export type HistoryMessage =
 
 // ── Favorites ────────────────────────────────────────────────────
 export type FavoritesMessage =
-  | { type: 'TOGGLE_FAVORITE'; rid: string; name?: string; objectType?: string; businessId?: string }
+  | {
+      type: 'TOGGLE_FAVORITE';
+      rid: string;
+      name?: string;
+      objectType?: string;
+      businessId?: string;
+      templateBusinessId?: string;
+    }
   | { type: 'GET_FAVORITES' }
   | { type: 'FAVORITES_DATA'; entries: FavoriteEntry[] };
 

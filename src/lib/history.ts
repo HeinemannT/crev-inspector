@@ -11,6 +11,7 @@ export interface HistoryEntry {
   name?: string;
   type?: string;
   businessId?: string;
+  templateBusinessId?: string;
   action: 'viewed' | 'edited' | 'painted' | 'ec-executed';
   timestamp: number;
 }

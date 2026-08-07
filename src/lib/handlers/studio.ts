@@ -25,7 +25,15 @@ register('OPEN_STUDIO', (msg, _respond, meta) => {
   const ctx = getCtx()
   const cached = ctx.cache.get(msg.rid)
   if (cached) {
-    ctx.history.record({ rid: msg.rid, name: cached.name, type: cached.type, businessId: cached.businessId, action: 'edited', timestamp: Date.now() })
+    ctx.history.record({
+      rid: msg.rid,
+      name: cached.name,
+      type: cached.type,
+      businessId: cached.businessId,
+      templateBusinessId: cached.templateBusinessId,
+      action: 'edited',
+      timestamp: Date.now(),
+    })
   }
 })
 

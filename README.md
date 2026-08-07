@@ -25,19 +25,19 @@ Turn on **Inspect** from the header or press `Ctrl+Shift+X`. CREV outlines rende
 
 | Gesture | Result |
 |---|---|
-| Click | Open the object in the side panel |
+| Click | Open the object in the side panel; copy buttons copy the primary ID (template when available) |
 | Double-click | Open the quick inspector |
 | Alt-click | Copy the RID |
-| Shift-click | Copy the template business ID |
-| Ctrl-click | Copy a reference such as `t.some_id` |
+| Shift-click | Copy the concrete instance ID |
+| Ctrl-click | Copy an instance reference such as `t.some_id` |
 | Right-click an element | Use it as the current context |
 
 The object view groups what you can do:
 
 - **Code** lists direct and referenced code properties. Click **Edit** to open the correct editor.
 - **Structure** shows parents, children, linked objects, siblings, and supported action or input flows.
-- **Info** shows the type, business ID, RID, web link, access test, and favourite action.
-- **instance / template** chooses where a supported property or name change is saved.
+- **Info** shows the template ID first when known, while retaining the instance ID, RID, web link, access test, and favourite action.
+- **Template / This instance** chooses where a supported property or name change is saved. The instance remains available as an explicit target.
 
 Use the pencil beside a supported object name to rename it. CREV asks for confirmation before saving.
 

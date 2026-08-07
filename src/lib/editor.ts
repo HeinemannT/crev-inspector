@@ -5,6 +5,7 @@ import { type EditorContext, type ObjectIdentity } from '../editor/editor-types'
 import { computeOverrides } from '../editor/editor-types';
 import { launchFrame } from './frame-launcher';
 import { ENVIRONMENT_CHANGED_ERROR, environmentToken } from './environment';
+import { EXTENDED_IDENTITY_LOOKUP_BUDGET } from './constants';
 
 // ── Public API ────────────────────────────────────────────────────
 
@@ -37,6 +38,24 @@ async function getCurrentPageRid(
     return rid && /^-?\d+$/.test(rid) ? rid : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/** Resolve standalone-editor decoration without turning a cold BMP request
+ * into editor startup latency. A late lookup is safely ignored. */
+async function lookupExtendedIdentity(
+  client: NonNullable<ReturnType<typeof getCtx>['client']>,
+  rid: string,
+): Promise<Awaited<ReturnType<typeof client.lookupIdentity>> | null> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const lookup = client.lookupIdentity(rid).catch(() => null);
+  const budget = new Promise<null>((resolve) => {
+    timeoutId = setTimeout(() => resolve(null), EXTENDED_IDENTITY_LOOKUP_BUDGET);
+  });
+  try {
+    return await Promise.race([lookup, budget]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
 }
 
@@ -209,6 +228,7 @@ export async function openExtendedWindow(
   let name = '';
   let type = '';
   let businessId = '';
+  let templateBusinessId: string | undefined;
 
   // The scratch window needs identity only for its title/context chip. Prefer
   // the already-enriched page cache so opening it does not block on a cosmetic
@@ -219,12 +239,14 @@ export async function openExtendedWindow(
       name = cached.name ?? '';
       type = cached.type ?? '';
       businessId = cached.businessId ?? '';
+      templateBusinessId = cached.templateBusinessId;
     } else if (client) {
-      const identity = await client.lookupIdentity(pageRid).catch(() => null);
+      const identity = await lookupExtendedIdentity(client, pageRid);
       if (identity) {
         name = identity.name ?? '';
         type = identity.type ?? '';
         businessId = identity.businessId ?? '';
+        templateBusinessId = identity.templateBusinessId;
       }
     }
   }
@@ -232,7 +254,13 @@ export async function openExtendedWindow(
 
   const ctx: EditorContext = {
     environment,
-    instance: { rid: pageRid ?? '', businessId, type, name },
+    instance: {
+      rid: pageRid ?? '',
+      businessId,
+      type,
+      name,
+      ...(templateBusinessId ? { templateBusinessId } : {}),
+    },
     template: null,
     instanceCode: {},
     templateCode: {},

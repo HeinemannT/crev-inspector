@@ -284,8 +284,9 @@ chrome.windows.onRemoved.addListener((id) => {
 
 async function rebuildContextMenus() {
   const items: Array<chrome.contextMenus.CreateProperties> = [
+    { id: 'crev-copy-primary-id', title: 'Copy Primary ID (template first)' },
+    { id: 'crev-copy-bid', title: 'Copy Instance ID' },
     { id: 'crev-copy-rid', title: 'Copy RID' },
-    { id: 'crev-copy-bid', title: 'Copy Business ID' },
     { id: 'crev-copy-name', title: 'Copy Name' },
     { id: 'crev-sep-1', type: 'separator' },
     { id: 'crev-view-props', title: 'View Properties' },
@@ -365,11 +366,20 @@ async function handleContextMenuClick(info: chrome.contextMenus.OnClickData, tab
     ctx.logActivity('error', `${action} failed`, e instanceof Error ? e.message : String(e));
   };
   switch (menuId) {
+    case 'crev-copy-primary-id': {
+      const cached = ctx.cache.get(ctxRid.rid);
+      const primaryId = cached?.templateBusinessId ?? ctxRid.businessId ?? cached?.businessId ?? ctxRid.rid;
+      chrome.tabs.sendMessage(tabId, { type: 'COPY_TO_CLIPBOARD', text: primaryId }).catch(reportFail('Copy primary ID'));
+      break;
+    }
     case 'crev-copy-rid':
       chrome.tabs.sendMessage(tabId, { type: 'COPY_TO_CLIPBOARD', text: ctxRid.rid }).catch(reportFail('Copy RID'));
       break;
     case 'crev-copy-bid':
-      chrome.tabs.sendMessage(tabId, { type: 'COPY_TO_CLIPBOARD', text: ctxRid.businessId ?? ctxRid.rid }).catch(reportFail('Copy ID'));
+      chrome.tabs.sendMessage(tabId, {
+        type: 'COPY_TO_CLIPBOARD',
+        text: ctxRid.businessId ?? ctx.cache.get(ctxRid.rid)?.businessId ?? ctxRid.rid,
+      }).catch(reportFail('Copy instance ID'));
       break;
     case 'crev-copy-name':
       chrome.tabs.sendMessage(tabId, { type: 'COPY_TO_CLIPBOARD', text: ctxRid.name ?? '' }).catch(reportFail('Copy name'));

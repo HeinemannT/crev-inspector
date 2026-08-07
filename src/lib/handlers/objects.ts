@@ -809,7 +809,15 @@ register('SERVER_LOOKUP', async (msg) => {
   const ctx = getCtx();
   try {
     const obj = await lookupObject(msg.rid);
-    ctx.history.record({ rid: msg.rid, name: obj.name, type: obj.type, businessId: obj.businessId, action: 'viewed', timestamp: Date.now() });
+    ctx.history.record({
+      rid: msg.rid,
+      name: obj.name,
+      type: obj.type,
+      businessId: obj.businessId,
+      templateBusinessId: obj.templateBusinessId,
+      action: 'viewed',
+      timestamp: Date.now(),
+    });
     ctx.sendToPanel({ type: 'SERVER_LOOKUP_RESULT', rid: msg.rid, object: obj });
   } catch (e) {
     ctx.sendToPanel({ type: 'SERVER_LOOKUP_RESULT', rid: msg.rid, object: null, error: errorMessage(e) });

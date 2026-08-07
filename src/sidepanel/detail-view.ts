@@ -764,13 +764,14 @@ export class DetailView {
         this.sendMessage({
           type: 'TOGGLE_FAVORITE', rid: s.rid, name: s.identity.name,
           objectType: s.identity.type, businessId: s.identity.businessId,
+          templateBusinessId: s.template?.businessId,
         });
       },
     }, svg(isPinned ? ICON_STAR_FILLED : ICON_STAR_HOLLOW));
 
     // Header per the Path-Spine sign-off (inspect-ledger.html):
     //   Path bar:  ‹ · parent / Current(bold)
-    //   Identity:  [badge] Name ············ instance|template
+    //   Identity:  [badge] Name ············ template|instance target
     //   Sub row:   Type ·················· open · layout · edit · access · ★
     const curLabel = s.identity.name || s.identity.businessId || '(unnamed)';
     const parentLabel = s.parent ? (s.parent.name || s.parent.businessId || '(unnamed)') : null;
@@ -998,6 +999,7 @@ export class DetailView {
     ).body === 'property') {
       return renderPropertyView({
         identity: this.state!.identity,
+        templateBusinessId: this.state!.template?.businessId,
         props: this.state!.instanceProps,
         codeFields: this.state!.codeFields,
         applications: this.state!.propertyApplications,
@@ -1220,6 +1222,7 @@ export class DetailView {
         () => this.sendMessage({
           type: 'TOGGLE_FAVORITE', rid: this.state!.rid, name: this.state!.identity.name,
           objectType: this.state!.identity.type, businessId: this.state!.identity.businessId,
+          templateBusinessId: this.state!.template?.businessId,
         })),
     ));
 
@@ -1363,7 +1366,10 @@ export class DetailView {
     const s = this.state!;
     const treeData: PaneTreeData = {
       parent: s.parent,
-      current: s.identity,
+      current: {
+        ...s.identity,
+        ...(s.template?.businessId ? { templateBusinessId: s.template.businessId } : {}),
+      },
       siblings: s.siblings,
       siblingTotal: s.siblingTotal,
       children: this.childrenState?.items,

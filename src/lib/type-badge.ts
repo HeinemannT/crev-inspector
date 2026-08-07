@@ -250,23 +250,23 @@ export interface BadgeCopyOpts {
 }
 
 /**
- * Wire the panel-wide badge gesture onto a stub badge: click copies `id`
- * (business id by convention) with a green \u2713 flash. Host CSS needs the
+ * Wire the panel-wide badge gesture onto a stub badge: click copies the
+ * surface-resolved identity with a green \u2713 flash. Host CSS needs the
  * shared `.bdg-copied` rules (sidepanel.css and the window CSS copies).
  */
 export function wireBadgeCopy(
   badge: HTMLElement,
-  id: () => string,
+  id: (event?: Event) => string,
   opts: BadgeCopyOpts = {},
 ): HTMLElement {
   badge.classList.add('bdg-copy');
   badge.setAttribute('role', 'button');
   badge.tabIndex = 0;
-  const current = () => id();
+  const current = (event?: Event) => id(event);
   badge.title = `${badge.title} \u00b7 click to copy ${current()}`;
   const copy = (e: Event) => {
     e.stopPropagation();
-    const val = current();
+    const val = current(e);
     if (!val) return;
     navigator.clipboard?.writeText(val).catch(() => { /* clipboard blocked */ });
     opts.onCopied?.(val);

@@ -223,6 +223,7 @@ export interface HistoryEntry {
   name?: string;
   type?: string;
   businessId?: string;
+  templateBusinessId?: string;
   action: 'viewed' | 'edited' | 'painted' | 'ec-executed';
   timestamp: number;
 }
@@ -233,6 +234,7 @@ export interface FavoriteEntry {
   name?: string;
   type?: string;
   businessId?: string;
+  templateBusinessId?: string;
   addedAt: number;
 }
 
@@ -267,6 +269,8 @@ export interface ObjectIdentity {
   businessId: string;
   type: string;
   name: string;
+  /** Reusable definition identity, when the concrete object is template-backed. */
+  templateBusinessId?: string;
 }
 
 /** Sparse identity accepted at UI boundaries while enrichment is pending. */

@@ -109,10 +109,54 @@ describe('ObjectsTab — search wiring', () => {
 
   it('empty query shows the home rail, not a search', () => {
     const { tab, panel, sent } = setup();
-    tab.handleMessage({ type: 'HISTORY_DATA', entries: [{ rid: '9', name: 'Recent Thing', type: 'Scorecard', action: 'viewed', timestamp: 0 }] } as InspectorMessage);
+    tab.handleMessage({
+      type: 'HISTORY_DATA',
+      entries: [{
+        rid: '9',
+        name: 'Recent Thing',
+        type: 'Scorecard',
+        businessId: 'recent_instance',
+        templateBusinessId: 'recent_template',
+        action: 'viewed',
+        timestamp: 0,
+      }],
+    } as InspectorMessage);
     tab.render(panel);
     expect(panel.querySelector('.bx-home')).toBeTruthy();
     expect(panel.textContent).toContain('Recent Thing');
+    expect(panel.querySelector('.bx-crumb')?.textContent).toBe('recent_template');
+    expect(panel.querySelector('.bx-crumb')?.getAttribute('title')).toContain('Instance ID: recent_instance');
+    expect(panel.querySelector<HTMLElement>('[data-action="copy"]')?.dataset.copyTmpl).toBe('recent_template');
+    expect(panel.querySelector<HTMLElement>('[data-action="copy"]')?.dataset.copy).toBe('recent_instance');
     expect(sent.find(m => m.type === 'BROWSE_SEARCH')).toBeFalsy();
+  });
+
+  it('upgrades an older recent entry from cached template metadata', () => {
+    const { tab, panel } = setup();
+    tab.handleMessage({
+      type: 'CACHE_DATA',
+      filter: '',
+      objects: [obj('9', {
+        name: 'Cached Thing',
+        type: 'Scorecard',
+        businessId: 'cached_instance',
+        templateBusinessId: 'cached_template',
+      })],
+    } as InspectorMessage);
+    tab.handleMessage({
+      type: 'HISTORY_DATA',
+      entries: [{
+        rid: '9',
+        name: 'Recent Thing',
+        type: 'Scorecard',
+        businessId: 'old_instance',
+        action: 'viewed',
+        timestamp: 0,
+      }],
+    } as InspectorMessage);
+
+    tab.render(panel);
+    expect(panel.querySelector('.bx-crumb')?.textContent).toBe('cached_template');
+    expect(panel.querySelector<HTMLElement>('[data-action="copy"]')?.dataset.copy).toBe('cached_instance');
   });
 });

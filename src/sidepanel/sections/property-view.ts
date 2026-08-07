@@ -14,11 +14,13 @@ import type {
   PropertyApplication,
 } from '../../lib/types';
 import { firstNonEmptyLine, renderCodeRow } from './code-fields';
+import { resolveDisplayIdentity } from '../../lib/object-identity';
 
 type SendFn = (msg: InspectorMessage) => void;
 
 export interface PropertyViewInput {
   identity: ObjectPaneIdentity;
+  templateBusinessId?: string;
   props: Record<string, string>;
   codeFields: Record<string, string>;
   applications: PropertyApplication[];
@@ -31,9 +33,14 @@ export interface PropertyViewInput {
 }
 
 export function renderPropertyView(input: PropertyViewInput): HTMLElement {
+  const display = resolveDisplayIdentity({
+    ...input.identity,
+    templateBusinessId: input.templateBusinessId ?? input.identity.templateBusinessId,
+  });
   const rows = [
     ['Name', input.identity.name || '—'],
-    ['ID', input.identity.businessId || '—'],
+    [display.primaryLabel, display.primary || '—'],
+    ...(display.secondary ? [['Instance ID', display.secondary] as const] : []),
     ['Type', humanizePropertyType(input.identity.type)],
     ['Category', input.props.category || '—'],
   ] as const;
@@ -44,7 +51,7 @@ export function renderPropertyView(input: PropertyViewInput): HTMLElement {
       ...rows.map(([label, value]) => h('div', { class: 'property-fact' },
         h('span', { class: 'property-fact-label' }, label),
         h('span', {
-          class: `property-fact-value${label === 'ID' ? ' mono' : ''}`,
+          class: `property-fact-value${label.includes('ID') || label === 'RID' ? ' mono' : ''}`,
           title: value,
         }, value),
       )),

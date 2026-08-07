@@ -24,7 +24,12 @@ register('TOGGLE_FAVORITE', (msg, respond) => {
   // Snapshot pre-state so we can tell the user whether they pinned or unpinned —
   // toggle returns the new state but the activity log reads better as a verb.
   const wasPinned = ctx.favorites.getAll().some(f => f.rid === msg.rid);
-  ctx.favorites.toggle(msg.rid, { name: msg.name, type: msg.objectType, businessId: msg.businessId });
+  ctx.favorites.toggle(msg.rid, {
+    name: msg.name,
+    type: msg.objectType,
+    businessId: msg.businessId,
+    templateBusinessId: msg.templateBusinessId,
+  });
   respond({ type: 'FAVORITES_DATA', entries: ctx.favorites.getAll() });
   const label = msg.name || msg.businessId || msg.rid;
   ctx.logActivity('info', wasPinned ? `Unpinned ${label}` : `Pinned ${label}`, undefined, {

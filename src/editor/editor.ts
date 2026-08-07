@@ -16,6 +16,8 @@ import { closeOverlayKeyBinding, installDirtyGuards, OVERLAY_CLOSE_MESSAGE } fro
 
 // Shared types + context helpers
 import { type FrameActivation, type SaveTarget, type ScriptHistoryEntry, type InspectorMessage, getTypeColor } from '../lib/types'
+import { resolveDisplayIdentity } from '../lib/object-identity'
+import { COPY_TOOLTIP, getModifier, resolveCopyText } from '../lib/namespace'
 import type { EcOutputEntry } from '../lib/bmp-types'
 import { typeBadge, wireBadgeCopy } from '../lib/type-badge'
 import { objectChip } from '../lib/object-chip'
@@ -469,17 +471,26 @@ function renderShell() {
   const propKeys = Object.keys(activeCode)
   const identity = isExtended ? ctx.instance : getActiveIdentity(ctx)
   const typeColor = getTypeColor(identity.type)
-  const bid = identity.businessId || identity.rid
+  const display = resolveDisplayIdentity(identity)
+  const bid = display.primary
 
   // Identity strip at top of window \u2014 replaces redundant info from old toolbar
   const headerChildren: (HTMLElement | string | false)[] = []
   if (isExtended) {
+    const badge = identity.type
+      ? wireBadgeCopy(typeBadge(identity.type, { size: 'xs' }), (event) => {
+          const modifier = event instanceof MouseEvent ? getModifier(event) : 'plain'
+          return resolveCopyText(identity, modifier).text
+        })
+      : h('span', { class: 'editor-id-chip', style: `--type-color:${typeColor}` }, 'EC')
+    if (identity.type) badge.title = COPY_TOOLTIP
     headerChildren.push(
-      identity.type
-        ? wireBadgeCopy(typeBadge(identity.type, { size: 'xs' }), () => bid)
-        : h('span', { class: 'editor-id-chip', style: `--type-color:${typeColor}` }, 'EC'),
+      badge,
       h('span', { class: 'editor-id-name' }, identity.name || 'Extended Code'),
-      identity.businessId && h('span', { class: 'editor-id-bid' }, identity.businessId),
+      display.primary && h('span', {
+        class: 'editor-id-bid',
+        title: display.secondary ? `Instance ID: ${display.secondary}` : display.primary,
+      }, display.primary),
     )
   } else {
     // EC execution context (`this`) — the object the BMP page renders for,
@@ -942,7 +953,9 @@ function aiContextSource(): AiContextSource | null {
       businessId: identity.businessId ?? '',
       name: identity.name ?? '',
       type: identity.type ?? '',
-      ...(ctx.template?.businessId ? { templateBusinessId: ctx.template.businessId } : {}),
+      ...((ctx.template?.businessId ?? identity.templateBusinessId)
+        ? { templateBusinessId: ctx.template?.businessId ?? identity.templateBusinessId }
+        : {}),
     },
     slot: { name: slotName, lang, code },
   }
@@ -975,7 +988,7 @@ function aiContext(): AiObjectContext {
     objectType: identity.type,
     businessId: identity.businessId,
     name: identity.name,
-    templateBusinessId: ctx.template?.businessId,
+    templateBusinessId: ctx.template?.businessId ?? identity.templateBusinessId,
     slotName: ctx.extended ? undefined : activeProperty,
     otherSlots: otherSlots.length ? otherSlots : undefined,
   }

@@ -25,6 +25,22 @@ describe('HistoryManager', () => {
     expect(all[1].rid).toBe('1');
   });
 
+  it('retains template and concrete instance identities together', async () => {
+    const mgr = await createManager();
+    mgr.record({
+      rid: '1',
+      businessId: 'risk_instance_1',
+      templateBusinessId: 'risk_template',
+      action: 'viewed',
+      timestamp: 100,
+    });
+
+    expect(mgr.getAll()[0]).toMatchObject({
+      businessId: 'risk_instance_1',
+      templateBusinessId: 'risk_template',
+    });
+  });
+
   it('deduplicates by RID (newest wins)', async () => {
     const mgr = await createManager();
     mgr.record({ rid: '1', name: 'OldName', action: 'viewed', timestamp: 100 });
@@ -112,6 +128,19 @@ describe('FavoritesManager', () => {
     expect(off).toBe(false);
     expect(mgr.isFavorite('1')).toBe(false);
     expect(mgr.getAll()).toHaveLength(0);
+  });
+
+  it('retains template and concrete instance identities together', async () => {
+    const mgr = await createManager();
+    mgr.toggle('1', {
+      businessId: 'risk_instance_1',
+      templateBusinessId: 'risk_template',
+    });
+
+    expect(mgr.getAll()[0]).toMatchObject({
+      businessId: 'risk_instance_1',
+      templateBusinessId: 'risk_template',
+    });
   });
 
   it('caps at FAVORITES_MAX (20) entries', async () => {

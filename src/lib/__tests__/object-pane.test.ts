@@ -140,6 +140,10 @@ describe('object override metadata', () => {
       vi.fn(async () => null);
 
     const data = await c.fetchObjectPane('100');
+    expect(data?.instance).toMatchObject({
+      businessId: 'text_instance',
+      templateBusinessId: 'text_template',
+    });
     expect(data?.instanceOverrideProps).toContain('disableSearch');
   });
 

@@ -11,6 +11,8 @@ import { ICON_CHEVRON, ICON_ARROW_ELBOW_UP, ICON_FLOW_ARROW } from '../lib/icons
 import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
 import type { ObjectPaneIdentity, ObjectPaneSiblingMsg } from '../lib/types';
 import { hasFlow } from '../lib/widget-metadata';
+import { getModifier, resolveCopyText, COPY_TOOLTIP } from '../lib/namespace';
+import { resolveDisplayIdentity } from '../lib/object-identity';
 
 export interface PaneTreeData {
   parent: ObjectPaneIdentity | null;
@@ -38,13 +40,22 @@ export interface PaneTreeHandlers {
 }
 
 
-/** Stub badge with the panel-wide copy gesture: click copies the business id
- *  (green ✓ flash) without triggering the row's navigate. */
-function copyBadge(identity: { rid: string; businessId?: string; type?: string }): HTMLElement {
-  const id = identity.businessId || identity.rid;
-  return wireBadgeCopy(typeBadge(identity.type, { size: 'xs' }), () => id, {
+/** Stub badge with the panel-wide template-first copy gesture. Shift retains
+ *  the concrete instance path and Alt retains the raw RID. */
+function copyBadge(identity: {
+  rid: string;
+  businessId?: string;
+  templateBusinessId?: string;
+  type?: string;
+}): HTMLElement {
+  const badge = wireBadgeCopy(typeBadge(identity.type, { size: 'xs' }), (event) => {
+    const modifier = event instanceof MouseEvent ? getModifier(event) : 'plain';
+    return resolveCopyText(identity, modifier).text;
+  }, {
     onCopied: copied => statusFlash(`Copied ${copied} \u2713`),
   });
+  badge.title = COPY_TOOLTIP;
+  return badge;
 }
 
 export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): HTMLElement {
@@ -52,13 +63,17 @@ export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): 
 
   // Breadcrumb of the parent — clickable, escapes to parent's pane
   if (data.parent) {
+    const parentDisplay = resolveDisplayIdentity(data.parent);
     root.appendChild(
       h('div', { class: 'pane-tree-crumb', 'data-rid': data.parent.rid, role: 'button', tabindex: '0',
-        title: `Open parent: ${data.parent.name || data.parent.businessId}` },
+        title: `Open parent: ${data.parent.name || parentDisplay.primary}` },
         h('span', { class: 'pane-tree-crumb-arrow' }, svg(ICON_ARROW_ELBOW_UP)),
         copyBadge(data.parent),
         h('span', { class: 'pane-tree-name' }, data.parent.name || '(unnamed)'),
-        data.parent.businessId ? h('span', { class: 'pane-tree-bid' }, data.parent.businessId) : null,
+        parentDisplay.primary ? h('span', {
+          class: 'pane-tree-bid',
+          title: parentDisplay.secondary ? `Instance ID: ${parentDisplay.secondary}` : parentDisplay.primary,
+        }, parentDisplay.primary) : null,
       ),
     );
   } else {
@@ -78,16 +93,27 @@ export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): 
 
   for (const s of siblings) {
     const isCurrent = s.isCurrent || s.rid === data.current.rid;
+    const identity = isCurrent
+      ? { ...s, templateBusinessId: data.current.templateBusinessId }
+      : s;
+    const display = resolveDisplayIdentity(identity);
     const row = h('div', {
       class: `pane-tree-row${isCurrent ? ' pane-tree-row--current' : ''}`,
       'data-rid': s.rid,
       role: 'listitem',
       tabindex: '0',
-      title: `${s.type} · ${s.businessId || s.rid}`,
+      title: [
+        s.type,
+        `${display.primaryLabel}: ${display.primary}`,
+        display.secondary ? `Instance ID: ${display.secondary}` : '',
+      ].filter(Boolean).join(' · '),
     },
-      copyBadge(s),
+      copyBadge(identity),
       h('span', { class: 'pane-tree-name' }, s.name || '(unnamed)'),
-      s.businessId ? h('span', { class: 'pane-tree-bid' }, s.businessId) : null,
+      display.primary ? h('span', {
+        class: 'pane-tree-bid',
+        title: display.secondary ? `Instance ID: ${display.secondary}` : display.primary,
+      }, display.primary) : null,
     );
     siblingList.appendChild(row);
 
@@ -124,16 +150,17 @@ export function renderPaneTree(data: PaneTreeData, handlers: PaneTreeHandlers): 
         } else if (data.children && data.children.length > 0) {
           const childList = h('div', { class: 'pane-tree-children' });
           for (const c of data.children) {
+            const display = resolveDisplayIdentity(c);
             const cRow = h('div', {
               class: 'pane-tree-row pane-tree-row--child',
               'data-rid': c.rid,
               role: 'listitem',
               tabindex: '0',
-              title: `${c.type ?? ''} · ${c.businessId ?? c.rid}`,
+              title: `${c.type ?? ''} · ${display.primary}`,
             },
               copyBadge(c),
               h('span', { class: 'pane-tree-name' }, c.name || '(unnamed)'),
-              c.businessId ? h('span', { class: 'pane-tree-bid' }, c.businessId) : null,
+              display.primary ? h('span', { class: 'pane-tree-bid' }, display.primary) : null,
             );
             childList.appendChild(cRow);
           }

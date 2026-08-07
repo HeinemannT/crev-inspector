@@ -127,7 +127,7 @@ describe('renderFlowSection', () => {
     const stepEl = el.querySelector<HTMLElement>('.flow-step')!;
     const badge = stepEl.querySelector<HTMLElement>('.flow-step-h .bdg')!;
     badge.click();
-    expect(writes).toContain('bizId42'); // plain click = copy business id
+    expect(writes).toContain('bizId42'); // no template known, so the instance ID is primary
     expect(onNavigate).not.toHaveBeenCalled();
     expect(stepEl.classList.contains('flow-step--open')).toBe(true); // no toggle
   });
