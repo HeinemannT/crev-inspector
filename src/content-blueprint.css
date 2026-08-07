@@ -311,6 +311,8 @@
 /* create-tabset prompt (RESULT-only page) */
 /* the plan log — a tight table: every row one line (28px), columns icon|ACTION|object|where|detail|ec */
 #crev-blueprint-layer .bp-modal-list{overflow:auto;padding:6px 8px;display:flex;flex-direction:column}
+#crev-blueprint-layer .bp-modal-actor{padding:8px 14px;border-top:var(--bp-hair) solid var(--bp-line-2);color:var(--bp-dim);font:10px/1.35 'BPMono',monospace}
+#crev-blueprint-layer .bp-modal-actor.unverified{color:var(--bp-amber)}
 #crev-blueprint-layer .bp-prow{display:flex;align-items:center;gap:8px;height:28px;flex:none;padding:0 8px;border-radius:var(--bp-r);font:12px 'BPInter',sans-serif}
 #crev-blueprint-layer .bp-prow:nth-child(even){background:rgba(0,33,71,.03)}
 #crev-blueprint-layer .bp-prow:hover{background:rgba(21,101,192,.08)}

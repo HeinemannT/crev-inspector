@@ -6,6 +6,7 @@ import { h, render } from './lib/dom';
 import { showToast } from './lib/toast';
 import { PICK_CURSOR, APPLY_CURSOR } from './lib/cursors';
 import type { ContentState } from './content-state';
+import { currentCommandActor } from './lib/command-actor';
 
 // Phase-distinct cursors over inspect labels: an eyedropper while picking the
 // source (you're sampling), a paintbrush while applying to targets. Shared
@@ -29,11 +30,16 @@ export function updatePaintBanner(s: ContentState) {
   banner.classList.add('crev-visible');
 
   if (s.paintPhase === 'picking') {
-    render(bannerText, 'Paint Format: ', h('b', null, 'click a widget to pick its style'));
+    render(bannerText,
+      'Paint Format: ', h('b', null, 'click a widget to pick its style'),
+      actorHint(),
+    );
   } else {
     render(bannerText,
       'Paint Format from ', h('b', null, s.paintSourceName ?? '?'),
-      ': click widgets to apply (Esc to stop)');
+      ': click widgets to apply (Esc to stop)',
+      actorHint(),
+    );
   }
 }
 
@@ -59,7 +65,8 @@ export function flashApplyResult(rid: string, ok: boolean, error?: string) {
     // BMP's React DOM doesn't re-render on out-of-band EC writes, so the
     // painted style is invisible until a full reload. Offer one-click reload —
     // mirrors the object-detail save toast (detail-view.ts).
-    showToast('Style painted. Reload the BMP page to see it.', 'success', {
+    const actor = currentCommandActor();
+    showToast(`Style painted${actor ? ` as ${actor.user}` : ''}. Reload the BMP page to see it.`, 'success', {
       label: 'Reload',
       onClick: () => location.reload(),
     });
@@ -69,4 +76,10 @@ export function flashApplyResult(rid: string, ok: boolean, error?: string) {
       : `Paint error: ${error ?? 'unknown'}`;
     showToast(msg, 'error');
   }
+}
+
+function actorHint(): HTMLElement {
+  const actor = currentCommandActor();
+  return h('span', { class: `crev-paint-actor${actor ? '' : ' is-unverified'}` },
+    actor?.text ?? 'Command identity not verified');
 }

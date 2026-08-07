@@ -13,7 +13,12 @@ Current Chromium browsers are supported (Chrome or Edge 114+).
 
 ## Connect to BMP
 
-Sign in to BMP with an account that has Configuration Access (normally an administrator or configurator), then add the workspace URL under **Connect** and approve Chrome's site-access prompt. CREV normally borrows the active browser session; stored credentials are an optional fallback.
+Add the workspace URL under **Connect**, approve Chrome's site-access prompt, and choose the identity used for Configuration Studio commands:
+
+- **Use browser login** runs commands as the user signed into the BMP page and supports SSO.
+- **Use stored configuration login** obtains an independent BMP command ticket. The website stays signed in as the portal user, while configuration reads and writes run as the stored account.
+
+Connect shows the verified **Portal** and **Commands** identities separately. Workspace search, live CVO data, downloads, page navigation, and visible portal content retain the portal identity. Configuration lookup, Extended Code, property saves, Paint, and Blueprint use the command identity. A stored command account does not broaden what portal search or live data can see.
 
 ## Inspect objects
 
@@ -122,8 +127,9 @@ See the [privacy policy](PRIVACY.md) for the data the extension handles and wher
 
 ## Data and security
 
-- Borrowed tokens live in `chrome.storage.session` and disappear when the browser closes.
+- Borrowed tokens and independent command tickets live in `chrome.storage.session` and disappear when the browser closes.
 - Stored passwords and AI keys are AES-GCM encrypted in `chrome.storage.local`.
+- Stored command login uses BMP's legacy direct-login route over the configured HTTPS connection. BMP places those credentials in that request's query string; use HTTPS and ensure server/proxy access logs are appropriately protected.
 - A borrowed token is separate from the token used by the BMP tab.
 - HTTP profile URLs show a warning.
 - **Reset all state** clears cache, logs, context, and history while keeping profiles and favourites.

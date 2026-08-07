@@ -5,6 +5,7 @@
 
 import type { InspectorMessage, InspectorSettings, ConnectionState, FavoriteEntry, PaintPhase } from '../lib/types';
 import { DEFAULT_SETTINGS } from '../lib/types';
+import { unknownIdentityMap } from '../lib/identity-map';
 import { log } from '../lib/logger';
 import { createReconnectingPort, type ReconnectingPort } from '../lib/reconnecting-port';
 import type { PanelObjectContext } from './context-state';
@@ -19,7 +20,7 @@ export const S = {
 
   // Shared across tabs + header
   settings: { ...DEFAULT_SETTINGS } as InspectorSettings,
-  connState: { display: 'checking', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, networkOffline: false, lastUpdate: 0 } as ConnectionState,
+  connState: { display: 'checking', identities: unknownIdentityMap(), version: null, responseMs: null, profileLabel: null, workspace: null, authError: null, networkOffline: false, lastUpdate: 0 } as ConnectionState,
   // Whether the ACTIVE tab is a BMP page (from per-tab detection). null = unknown/checking. The
   // connState above is a PROFILE/auth indicator (do we hold a session to the configured server) and is
   // orthogonal to "is the page I'm looking at BMP" — the header combines both so a non-BMP tab doesn't

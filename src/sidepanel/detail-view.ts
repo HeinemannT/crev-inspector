@@ -25,7 +25,7 @@ import type {
 import { h, render, svg, statusFlash } from '../lib/dom';
 import { ICON_FILE_JS, ICON_CODE, ICON_LAYOUT, ICON_SHIELD, ICON_STAR_FILLED, ICON_STAR_HOLLOW, ICON_COPY, ICON_ARROW_OUT, ICON_CROSSHAIR, ICON_CHEVRON } from '../lib/icons';
 import { resolveLayoutShortcut } from '../lib/layout-target';
-import { confirmModal } from '../lib/modal';
+import { confirmCommandModal, confirmModal } from '../lib/modal';
 import { displayValue } from './property-editors';
 import { renderPaneTree, type PaneTreeData } from './pane-tree';
 import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
@@ -615,7 +615,7 @@ export class DetailView {
       ? `template "${tmpl.name || tmpl.businessId}"`
       : `instance "${identity.name || identity.businessId}"`;
 
-    const ok = await confirmModal({
+    const ok = await confirmCommandModal({
       title: `Save ${props.length} change${props.length === 1 ? '' : 's'}`,
       body: [
         `Apply changes to ${label}?`,

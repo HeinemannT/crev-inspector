@@ -47,7 +47,7 @@ import { hasFlow } from '../lib/widget-metadata';
 import { hasStudio, modeForType } from '../studio/studio-mode';
 import { openAccessTrace, routeAccessMessage, initAccessTrace } from '../sidepanel/access-trace';
 import { openColorPicker } from '../sidepanel/color-picker';
-import { confirmModal } from '../lib/modal';
+import { confirmCommandModal, confirmModal } from '../lib/modal';
 import { clearCommittedDraft, reconcileInstanceOverrides } from './saved-state';
 import { replacePropertyElement, syncOptionalElement } from './local-update';
 import { syncObjectViewInteractionLock } from './interaction-lock';
@@ -415,7 +415,7 @@ async function commitSave(): Promise<void> {
   }
   const changesBusinessId = props.includes('id');
 
-  const ok = await confirmModal({
+  const ok = await confirmCommandModal({
     title: changesBusinessId
       ? `Confirm business ID change${diffRows.length === 1 ? '' : 's'}`
       : `Save ${diffRows.length} change${diffRows.length === 1 ? '' : 's'}`,

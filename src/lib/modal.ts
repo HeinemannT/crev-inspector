@@ -5,6 +5,7 @@
  */
 
 import { h } from './dom';
+import { readCommandActor } from './command-actor';
 
 export interface ConfirmOpts {
   title: string;
@@ -13,6 +14,16 @@ export interface ConfirmOpts {
   confirmLabel?: string;
   cancelLabel?: string;
   confirmVariant?: 'accent' | 'danger' | 'success';
+  /** Verified actor for command-backed writes. */
+  actor?: string;
+}
+
+export async function confirmCommandModal(opts: Omit<ConfirmOpts, 'actor'>): Promise<boolean> {
+  const actor = await readCommandActor();
+  return confirmModal({
+    ...opts,
+    actor: actor?.text ?? 'Command identity is not currently verified',
+  });
 }
 
 export function confirmModal(opts: ConfirmOpts): Promise<boolean> {
@@ -74,6 +85,9 @@ export function confirmModal(opts: ConfirmOpts): Promise<boolean> {
     },
       h('h2', { class: 'crev-modal-title', id: 'crev-modal-title' }, opts.title),
       h('div', { class: 'crev-modal-body' }, ...bodyEls),
+      opts.actor
+        ? h('div', { class: 'crev-modal-actor', role: 'note' }, opts.actor)
+        : null,
       h('div', { class: 'crev-modal-actions' }, cancelBtn, confirmBtn),
     );
 

@@ -33,6 +33,7 @@ import { provisionalConnectionSnapshot } from '../lib/connection-snapshot';
 import { objectChip } from '../lib/object-chip';
 import { workStatusForMessage } from './work-status';
 import { runtimeVersion } from '../lib/build-info';
+import { unknownIdentityMap } from '../lib/identity-map';
 
 // ── Tab instances ────────────────────────────────────────────────
 
@@ -766,7 +767,8 @@ function statusStripText(): string {
       if (s.profileLabel) parts[0] = s.profileLabel;
       if (s.workspace) parts.push(s.workspace);
       if (s.version) parts.push(`BMP ${s.version}`);
-      if (s.authVia) parts.push(s.authVia === 'session' ? 'via browser session' : 'via stored login');
+      const actor = (s.identities ?? unknownIdentityMap()).command;
+      if (actor.status === 'connected' && actor.user) parts.push(`commands as ${actor.user}`);
       return parts.join(' \u00b7 ');
     }
     case 'online': return 'Online (not authenticated)';

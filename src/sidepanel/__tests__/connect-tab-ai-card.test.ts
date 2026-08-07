@@ -17,7 +17,16 @@ vi.mock('../state', () => ({
   S: {
     activeTab: 'connect',
     settings: { schemaVersion: 3, profiles: [], activeProfileId: '', autoDetect: true, saveTarget: 'template', enrichMode: 'widgets' },
-    connState: { display: 'connected', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, networkOffline: false, lastUpdate: 0 },
+    connState: {
+      display: 'connected',
+      identities: {
+        portal: { status: 'connected', user: 'portal.user', source: 'portal-session' },
+        command: { status: 'connected', user: 'config.user', source: 'stored-login' },
+        sameUser: false,
+      },
+      version: null, responseMs: null, profileLabel: null, workspace: null,
+      authError: null, networkOffline: false, lastUpdate: 0,
+    },
     cacheCount: 0,
     context: null,
     lastEcMs: null,
@@ -247,5 +256,56 @@ describe('AI Assistant card states', () => {
     expect(el.querySelector('.footer-actions')?.textContent).toContain('27 cached');
     expect(el.querySelector('.footer-actions')?.textContent).toContain('Clear cache');
     expect(el.querySelector('.footer-actions')?.textContent).toContain('Reset all');
+  });
+});
+
+describe('Command identity profile UI', () => {
+  it('shows portal and command identities as separate verified rows', () => {
+    shared.settings = {
+      ...freshSettings(),
+      profiles: [{
+        id: 'p1',
+        label: 'Steadfast',
+        bmpUrl: 'https://bmp.test/Steadfast/',
+        bmpUser: 'config.user',
+        bmpPass: 'encrypted-in-real-storage',
+        commandAuthMode: 'stored',
+      }],
+      activeProfileId: 'p1',
+    };
+    const { el } = renderTab();
+    const rows = [...el.querySelectorAll('.prof-identity-row')].map(row => row.textContent);
+    expect(rows).toEqual([
+      expect.stringContaining('Portalportal.userBrowser session'),
+      expect.stringContaining('Commandsconfig.userStored configuration login'),
+    ]);
+  });
+
+  it('uses an explicit browser/stored selector and expands credentials only for stored mode', () => {
+    shared.settings = {
+      ...freshSettings(),
+      profiles: [{
+        id: 'p1',
+        label: 'Steadfast',
+        bmpUrl: 'https://bmp.test/Steadfast/',
+        bmpUser: '',
+        bmpPass: '',
+        commandAuthMode: 'portal',
+      }],
+      activeProfileId: 'p1',
+    };
+    const { el } = renderTab();
+    (el.querySelector('[data-action="edit-profile"]') as HTMLButtonElement).click();
+
+    const browser = el.querySelector<HTMLInputElement>('input[value="portal"]')!;
+    const stored = el.querySelector<HTMLInputElement>('input[value="stored"]')!;
+    const credentials = el.querySelector<HTMLElement>('.command-auth-credentials')!;
+    expect(browser.checked).toBe(true);
+    expect(credentials.hidden).toBe(true);
+    expect(el.textContent).toContain('Commands run as the user signed into this BMP page. Supports SSO.');
+
+    stored.click();
+    expect(credentials.hidden).toBe(false);
+    expect(el.textContent).toContain('workspace search, live CVO data, and downloads remain signed in as your browser user');
   });
 });

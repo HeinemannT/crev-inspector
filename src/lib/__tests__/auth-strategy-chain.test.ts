@@ -1,153 +1,164 @@
 /**
- * Tests for the BmpAuth strategy chain: session-first ordering, password
- * fallback (including the no-config-access case that must NOT abort the chain),
- * the surfaced `via`, and the failure surfaced when every strategy is exhausted.
- *
- * There is NO cookie precheck — the session strategy tries the token exchange and
- * lets the graphql response classify the session (401 / SSO redirect / HTML → no
- * session; empty code → no Configuration Access; code → win). So these tests drive
- * the outcome entirely through the mocked graphql response, and deliberately run
- * without any `chrome.cookies` mock to prove the auth path no longer depends on it.
+ * Explicit command-auth strategies. There is no runtime fallback: portal mode
+ * never submits a password and stored mode never touches /cs/authentication.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockChromeStorage } from './chrome-mock';
+import { JavaEnum, JavaWriter, type JavaClassDesc } from '../java-serial';
+import { registerBmpTypes } from '../bmp-types';
 
-// What the BORROWED browser session yields from /graphql (before any password login).
-type Borrowed = 'code' | 'no-access' | 'none' | 'redirect' | 'html';
-let borrowed: Borrowed = 'code';
-let passwordPosted = false;   // flips once /cs/authentication is POSTed
-let csAuthCalls = 0;
+const enumDesc = (name: string): JavaClassDesc => ({
+  name,
+  uid: 0n,
+  flags: 0x12,
+  fields: [],
+  parent: null,
+});
 
-// A normal, access-granted graphql response (also what a fresh password session returns).
-const okCode = () => ({ ok: true, status: 200, redirected: false, url: 'https://bmp.test/graphql',
-  json: async () => ({ data: { authorizationCode: { code: 'code-1' } }, errors: [] }) } as any);
+function directTicketBytes(user = 'config.user'): Uint8Array {
+  registerBmpTypes();
+  const writer = new JavaWriter();
+  writer.writeStreamHeader();
+  writer.writeObject({
+    $type: 'com.corporater.bmp.base.system.auth.LoginTicket',
+    key: 9223372036854775707n,
+    clientUserAgent: new JavaEnum(enumDesc('com.corporater.bmp.base.system.auth.ClientUserAgent'), 'STUDIO'),
+    onBehalfOfId: user,
+    onBehalfOfType: new JavaEnum(enumDesc('com.corporater.bmp.base.system.auth.OnBehalfOfType'), 'USER'),
+    principalId: user,
+    principalType: new JavaEnum(enumDesc('com.corporater.bmp.base.system.auth.PrincipalType'), 'USER'),
+  });
+  return writer.toBytes();
+}
 
 beforeEach(() => {
   mockChromeStorage();
-  borrowed = 'code';
-  passwordPosted = false;
-  csAuthCalls = 0;
-  // Intentionally NO chrome.cookies mock — the auth path must not touch it.
-
-  globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
-    const u = typeof url === 'string' ? url : url.toString();
-
-    if (u.includes('cs/authentication')) {
-      csAuthCalls++;
-      passwordPosted = true; // now the workspace session is the credentialed user
-      return { ok: true, status: 200, type: 'basic',
-        headers: { getSetCookie: () => [], get: () => null } as any,
-        text: async () => JSON.stringify({ userId: 'admin' }),
-        json: async () => ({ userId: 'admin' }) } as any;
-    }
-    if (u.includes('graphql')) {
-      // A password login establishes a fresh, access-granted session.
-      if (passwordPosted) return okCode();
-      // Otherwise the BORROWED session's outcome is what the knob says.
-      switch (borrowed) {
-        case 'none':      // no session → graphql 401
-          return { ok: false, status: 401, redirected: false, url: 'https://bmp.test/graphql', json: async () => ({}) } as any;
-        case 'redirect':  // SSO: /graphql 302s to the IdP; fetch chased it to an HTML page
-          return { ok: true, status: 200, redirected: true, url: 'https://idp.example/login',
-            text: async () => '<html>login</html>', json: async () => { throw new Error('not json'); } } as any;
-        case 'html':      // SSO: 200 HTML interstitial in place, no redirect
-          return { ok: true, status: 200, redirected: false, url: 'https://bmp.test/graphql',
-            text: async () => '<html>sso</html>', json: async () => { throw new Error('not json'); } } as any;
-        case 'no-access': // logged in, but the provider returned no code
-          return { ok: true, status: 200, redirected: false, url: 'https://bmp.test/graphql',
-            json: async () => ({ data: { authorizationCode: null }, errors: [] }) } as any;
-        case 'code':
-        default:
-          return okCode();
-      }
-    }
-    if (u.includes('cstoken')) {
-      return { ok: true, status: 200,
-        json: async () => ({ accessToken: 'jwt-1', refreshToken: 'rt-1' }) } as any;
-    }
-    return { ok: false, status: 404, text: async () => '' } as any;
-  });
+  vi.restoreAllMocks();
 });
 
-async function BmpAuth() {
-  return (await import('../bmp-auth')).BmpAuth;
-}
+describe('BmpAuth explicit strategies', () => {
+  it('portal mode borrows the browser session and never posts stored credentials', async () => {
+    const fetchSpy = vi.fn(async (input: string | URL | Request) => {
+      const url = input.toString();
+      if (url.endsWith('graphql')) {
+        return { ok: true, status: 200, redirected: false, url,
+          json: async () => ({ data: { authorizationCode: { code: 'code-1' } } }) } as Response;
+      }
+      if (url.endsWith('cstoken')) {
+        return { ok: true, status: 200, json: async () => ({ accessToken: 'jwt-1', refreshToken: 'rt-1' }) } as Response;
+      }
+      if (url.endsWith('ticket')) return new Response('portal.user;STUDIO;42');
+      return new Response('', { status: 404 });
+    });
+    globalThis.fetch = fetchSpy;
+    const { BmpAuth } = await import('../bmp-auth');
+    const auth = new BmpAuth('https://bmp.test/', 'dormant', 'secret', 'p1', 'portal');
 
-describe('BmpAuth strategy chain', () => {
-  it('session-first: a usable browser session wins and the password is never POSTed', async () => {
-    const A = await BmpAuth();
-    const auth = new A('https://bmp.test/', 'admin', 'pass', 'p1', 'auto');
-    const jwt = await auth.login();
-    expect(jwt).toBe('jwt-1');
-    expect(auth.via).toBe('session');
-    expect(csAuthCalls).toBe(0); // never touched the password path
+    expect(await auth.getLoginTicket()).toBe('portal.user;STUDIO;42');
+    expect(auth.commandUser).toBe('portal.user');
+    expect(fetchSpy.mock.calls.some(([url]) => url.toString().includes('cs/authentication'))).toBe(false);
+    expect(fetchSpy.mock.calls.some(([url]) => url.toString().includes('cs/login'))).toBe(false);
   });
 
-  it('no cookie inspection: the session is borrowed with no chrome.cookies present', async () => {
-    expect((globalThis.chrome as any).cookies).toBeUndefined(); // guard: nothing mocked cookies
-    const A = await BmpAuth();
-    const auth = new A('https://bmp.test/', 'admin', 'pass', 'p1b', 'auto');
-    expect(await auth.login()).toBe('jwt-1');
-    expect(auth.via).toBe('session'); // exchange succeeded without ever reading a cookie
+  it('stored mode obtains a direct ticket with cookies omitted and never probes portal auth', async () => {
+    const bytes = directTicketBytes();
+    const fetchSpy = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      expect(init?.credentials).toBe('omit');
+      return new Response(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, { status: 200 });
+    });
+    globalThis.fetch = fetchSpy;
+    const { BmpAuth } = await import('../bmp-auth');
+    const auth = new BmpAuth('https://bmp.test/', 'config.user', 'secret', 'p2', 'stored', 'rev-1');
+
+    expect(await auth.getLoginTicket()).toBe('config.user;STUDIO;9223372036854775707');
+    expect(auth.commandUser).toBe('config.user');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [input, init] = fetchSpy.mock.calls[0];
+    const loginUrl = new URL(input.toString());
+    expect(loginUrl.pathname).toBe('/cs/login');
+    expect(loginUrl.searchParams.get('username')).toBe('config.user');
+    expect(loginUrl.searchParams.get('password')).toBe('secret');
+    expect(init?.body).toBeUndefined();
+    expect(fetchSpy.mock.calls.some(([url]) => url.toString().includes('cs/authentication'))).toBe(false);
+    expect(fetchSpy.mock.calls.some(([url]) => url.toString().includes('graphql'))).toBe(false);
   });
 
-  it('auto: a borrowed session lacking Configuration Access falls back to the password', async () => {
-    borrowed = 'no-access'; // logged into BMP as a no-access user
-    const A = await BmpAuth();
-    const auth = new A('https://bmp.test/', 'admin', 'pass', 'p2', 'auto');
-    const jwt = await auth.login();
-    expect(jwt).toBe('jwt-1');
-    expect(auth.via).toBe('password'); // fell through to credentials
-    expect(csAuthCalls).toBe(1);
+  it('stored mode rejects HTML without falling back to the portal identity', async () => {
+    const fetchSpy = vi.fn(async () => new Response('<html>login</html>', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    }));
+    globalThis.fetch = fetchSpy;
+    const { BmpAuth } = await import('../bmp-auth');
+    const auth = new BmpAuth('https://bmp.test/', 'config.user', 'wrong', 'p3', 'stored', 'rev-1');
+
+    await expect(auth.getLoginTicket()).rejects.toMatchObject({ code: 'auth-failed' });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('auto with no browser session at all uses the password', async () => {
-    borrowed = 'none';
-    const A = await BmpAuth();
-    const auth = new A('https://bmp.test/', 'admin', 'pass', 'p3', 'auto');
-    expect(await auth.login()).toBe('jwt-1');
-    expect(auth.via).toBe('password');
+  it('deduplicates direct login and restores only the matching credential revision', async () => {
+    const bytes = directTicketBytes('config.user');
+    const fetchSpy = vi.fn(async () =>
+      new Response(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer));
+    globalThis.fetch = fetchSpy;
+    const { BmpAuth } = await import('../bmp-auth');
+    const first = new BmpAuth('https://bmp.test/', 'config.user', 'secret', 'p5', 'stored', 'rev-1');
+
+    const tickets = await Promise.all([
+      first.getLoginTicket(),
+      first.getLoginTicket(),
+      first.getLoginTicket(),
+    ]);
+    expect(new Set(tickets)).toEqual(new Set(['config.user;STUDIO;9223372036854775707']));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    await vi.waitFor(async () => {
+      const stored = await chrome.storage.session.get('crev_command_auth_v2_p5');
+      expect(stored.crev_command_auth_v2_p5).toMatchObject({ kind: 'direct-ticket' });
+    });
+
+    const restored = new BmpAuth('https://bmp.test/', 'config.user', 'secret', 'p5', 'stored', 'rev-1');
+    expect(await restored.getLoginTicket()).toBe(tickets[0]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    const rotated = new BmpAuth('https://bmp.test/', 'config.user', 'new-secret', 'p5', 'stored', 'rev-2');
+    expect(await rotated.getLoginTicket()).toBe(tickets[0]);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('session-only: no fallback — a no-access session surfaces no-config-access', async () => {
-    borrowed = 'no-access';
-    const A = await BmpAuth();
-    const auth = new A('https://bmp.test/', '', '', 'p4', 'session');
-    await expect(auth.login()).rejects.toMatchObject({ code: 'no-config-access' });
-    expect(csAuthCalls).toBe(0); // no credentials to fall back to
+  it('portal mode reports the browser-session problem instead of using dormant credentials', async () => {
+    const fetchSpy = vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      redirected: false,
+      url: 'https://bmp.test/graphql',
+    } as Response));
+    globalThis.fetch = fetchSpy;
+    const { BmpAuth } = await import('../bmp-auth');
+    const auth = new BmpAuth('https://bmp.test/', 'dormant', 'secret', 'p4', 'portal');
+
+    await expect(auth.getLoginTicket()).rejects.toMatchObject({ code: 'needs-login' });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('session-only with no session surfaces needs-login', async () => {
-    borrowed = 'none';
-    const A = await BmpAuth();
-    const auth = new A('https://bmp.test/', '', '', 'p5', 'session');
-    await expect(auth.login()).rejects.toMatchObject({ code: 'needs-login' });
-  });
+  it('portal mode rejects a successful HTML ticket response', async () => {
+    const fetchSpy = vi.fn(async (input: string | URL | Request) => {
+      const url = input.toString();
+      if (url.endsWith('graphql')) {
+        return { ok: true, status: 200, redirected: false, url,
+          json: async () => ({ data: { authorizationCode: { code: 'code-1' } } }) } as Response;
+      }
+      if (url.endsWith('cstoken')) {
+        return { ok: true, status: 200, json: async () => ({ accessToken: 'jwt-1' }) } as Response;
+      }
+      return new Response('<html>sign in</html>', { status: 200 });
+    });
+    globalThis.fetch = fetchSpy;
+    const { BmpAuth } = await import('../bmp-auth');
+    const auth = new BmpAuth('https://bmp.test/', '', '', 'p6', 'portal');
 
-  // --- SSO robustness: a graphql redirect / HTML interstitial is "no session"
-  // (fall through), never a false no-config-access. ---
-
-  it('SSO: a /graphql redirect to the IdP reads as needs-login, not no-config-access', async () => {
-    borrowed = 'redirect';
-    const A = await BmpAuth();
-    const auth = new A('https://bmp.test/', '', '', 'sso1', 'session'); // session-only, no creds
-    await expect(auth.login()).rejects.toMatchObject({ code: 'needs-login' });
-  });
-
-  it('SSO: an in-place HTML 200 (no redirect) also reads as needs-login', async () => {
-    borrowed = 'html';
-    const A = await BmpAuth();
-    const auth = new A('https://bmp.test/', '', '', 'sso2', 'session');
-    await expect(auth.login()).rejects.toMatchObject({ code: 'needs-login' });
-  });
-
-  it('SSO: an IdP redirect on the borrowed session falls through to the password', async () => {
-    borrowed = 'redirect'; // the borrowed-session exchange bounces to the IdP...
-    const A = await BmpAuth();
-    const auth = new A('https://bmp.test/', 'admin', 'pass', 'sso3', 'auto');
-    const jwt = await auth.login();
-    expect(jwt).toBe('jwt-1');
-    expect(auth.via).toBe('password'); // ...so the chain used credentials
-    expect(csAuthCalls).toBe(1);
+    await expect(auth.getLoginTicket()).rejects.toMatchObject({
+      code: 'exchange-failed',
+      message: expect.stringContaining('invalid command ticket'),
+    });
   });
 });

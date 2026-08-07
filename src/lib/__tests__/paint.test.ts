@@ -50,7 +50,7 @@ async function createPaintHarness(opts?: { withClient?: boolean }): Promise<Pain
     cache,
     settings: {
       schemaVersion: 1,
-      profiles: [{ id: 'p1', label: 'P1', bmpUrl: 'https://bmp.test/', bmpUser: 'a', bmpPass: 'b' }],
+      profiles: [{ id: 'p1', label: 'P1', bmpUrl: 'https://bmp.test/', bmpUser: 'a', bmpPass: 'b', commandAuthMode: 'portal' }],
       activeProfileId: 'p1',
       autoDetect: true,
       saveTarget: 'instance' as const,

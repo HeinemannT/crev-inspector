@@ -164,7 +164,7 @@ async function createHarness(): Promise<TestHarness> {
     cache,
     settings: {
       schemaVersion: 1,
-      profiles: [{ id: 'test-profile', label: 'Test', bmpUrl: 'https://bmp.test/', bmpUser: 'admin', bmpPass: 'pass' }],
+      profiles: [{ id: 'test-profile', label: 'Test', bmpUrl: 'https://bmp.test/', bmpUser: 'admin', bmpPass: 'pass', commandAuthMode: 'portal' }],
       activeProfileId: 'test-profile',
       autoDetect: true,
       saveTarget: 'template' as const,

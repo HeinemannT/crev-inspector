@@ -23,7 +23,7 @@ import { MAX_PERMANENTLY_FAILED } from '../constants';
 function makeSettings(): InspectorSettings {
   return {
     schemaVersion: 1,
-    profiles: [{ id: 'p1', label: 'Test', bmpUrl: 'https://bmp.test/', bmpUser: 'admin', bmpPass: 'pass' }],
+    profiles: [{ id: 'p1', label: 'Test', bmpUrl: 'https://bmp.test/', bmpUser: 'admin', bmpPass: 'pass', commandAuthMode: 'portal' }],
     activeProfileId: 'p1',
     autoDetect: true,
     saveTarget: 'template' as const,

@@ -86,6 +86,30 @@ describe('logActivity tags entries with the active profileId', () => {
     const log = h.activity.getActivityLog();
     expect(log[0].profileId).toBeUndefined();
   });
+
+  it('attributes command work without mislabeling local change events', async () => {
+    const h = await createActivityHarness('sbx');
+    const { setCurrentIdentities } = await import('../command-actor');
+    setCurrentIdentities({
+      portal: { status: 'connected', user: 'portal.user', source: 'portal-session' },
+      command: { status: 'connected', user: 'config.user', source: 'stored-login' },
+      sameUser: false,
+    });
+
+    h.activity.logActivity('info', 'Pinned locally', undefined, {
+      category: 'change', action: 'pin',
+    });
+    h.activity.logActivity('success', 'Saved on BMP', undefined, {
+      category: 'change', action: 'save-property',
+    });
+
+    const log = h.activity.getActivityLog();
+    expect(log[0].commandActor).toBeUndefined();
+    expect(log[1]).toMatchObject({
+      commandActor: 'config.user',
+      commandAuthSource: 'stored-login',
+    });
+  });
 });
 
 describe('compare pivot storage key — per-profile scope', () => {

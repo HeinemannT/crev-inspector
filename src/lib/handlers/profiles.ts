@@ -7,7 +7,7 @@ import { getCtx } from '../sw-context';
 import { clearAllContextRids } from '../context-rid';
 import { invalidateColorSets } from '../color-set-cache';
 import { saveSettings, rebuildClient, setManualOverride, snapshotSettings, evictPooledClient, fireProfileSwitch } from '../settings';
-import { pushConnectionState, runAuthTest } from '../connection';
+import { computeConnectionState, pushConnectionState, runAuthTest } from '../connection';
 import { reconcileProfileOrigins } from '../site-access';
 import { log } from '../logger';
 
@@ -25,7 +25,11 @@ register('GET_SETTINGS', (msg, respond) => {
 
 // Settings that don't affect the BMP client/auth — changing only these skips
 // the (re-auth) client rebuild.
-const CLIENT_IRRELEVANT_SETTINGS = new Set(['enrichMode', 'paintProps']);
+const CLIENT_IRRELEVANT_SETTINGS = new Set([
+  'enrichMode',
+  'paintProps',
+  'commandAuthMigrationNotices',
+]);
 
 register('SAVE_SETTINGS', async (msg) => {
   const ctx = getCtx();
@@ -44,9 +48,23 @@ register('SAVE_PROFILE', async (msg, respond) => {
   const ctx = getCtx();
   const profiles = [...ctx.settings.profiles];
   const idx = profiles.findIndex(p => p.id === msg.profile.id);
-  if (idx >= 0) profiles[idx] = msg.profile; else profiles.push(msg.profile);
+  const previous = idx >= 0 ? profiles[idx] : undefined;
+  const authChanged = !previous
+    || previous.bmpUrl !== msg.profile.bmpUrl
+    || previous.bmpUser !== msg.profile.bmpUser
+    || previous.bmpPass !== msg.profile.bmpPass
+    || (previous.commandAuthMode ?? 'portal') !== (msg.profile.commandAuthMode ?? 'portal');
+  const profile = {
+    ...msg.profile,
+    commandAuthMode: msg.profile.commandAuthMode ?? 'portal',
+    commandAuthRevision: authChanged
+      ? crypto.randomUUID()
+      : previous?.commandAuthRevision ?? msg.profile.commandAuthRevision ?? crypto.randomUUID(),
+  };
+  if (authChanged && previous) evictPooledClient(previous.id);
+  if (idx >= 0) profiles[idx] = profile; else profiles.push(profile);
   let activeId = ctx.settings.activeProfileId;
-  if (!activeId || profiles.length === 1) activeId = msg.profile.id;
+  if (!activeId || profiles.length === 1) activeId = profile.id;
   ctx.settings = { ...ctx.settings, profiles, activeProfileId: activeId };
   void saveSettings();
   reconcileAccess(); // an edited URL orphans its old origin; the new one was requested in the panel
@@ -107,6 +125,7 @@ register('CONNECTION_TEST', () => {
   void runAuthTest();
 });
 
-register('GET_CONNECTION_STATE', () => {
+register('GET_CONNECTION_STATE', (_msg, respond) => {
+  respond({ type: 'CONNECTION_STATE', state: computeConnectionState() });
   pushConnectionState();
 });

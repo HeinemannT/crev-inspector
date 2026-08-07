@@ -26,7 +26,7 @@ import { log } from './logger';
 import { assertHostAccess } from './site-access';
 import { HEALTH_TIMEOUT, EC_TIMEOUT } from './constants';
 import { BmpAuth, AuthError } from './bmp-auth';
-import type { AuthMode, AuthErrorCode, AuthVia } from './bmp-auth';
+import type { CommandAuthMode, AuthErrorCode } from './bmp-auth';
 import { BmpTransport, type BmpTransportOutcome } from './bmp-transport';
 import { compareVersions } from './util';
 import { validateBusinessId, validateRid, validateEcIdentifier, formatEcLiteral } from './ec-guards';
@@ -246,9 +246,10 @@ export class BmpClient {
     bmpUser: string,
     bmpPass: string,
     profileId?: string,
-    authMode: AuthMode = 'auto',
+    authMode: CommandAuthMode = 'portal',
+    credentialRevision = '',
   ) {
-    this.auth = new BmpAuth(bmpUrl, bmpUser, bmpPass, profileId, authMode);
+    this.auth = new BmpAuth(bmpUrl, bmpUser, bmpPass, profileId, authMode, credentialRevision);
     this.transport = new BmpTransport(bmpUrl, this.auth);
     // Dynamic-dispatch wrappers (not `.bind()`) so tests that monkey-patch
     // `client.executeEc` / `client.resolveRef` on the instance after
@@ -264,16 +265,12 @@ export class BmpClient {
   get jwt(): string | null { return this.auth.jwt; }
   get serverUrl(): string { return this.bmpUrl; }
   get username(): string { return this.auth.username; }
-  get authMode(): AuthMode { return this.auth.authMode; }
-  /** How the live session was actually obtained (session-borrow vs password). */
-  get authVia(): AuthVia | null { return this.auth.via; }
+  get authMode(): CommandAuthMode { return this.auth.authMode; }
+  get commandUser(): string | null { return this.auth.commandUser; }
+  passwordMatches(pass: string): boolean { return this.auth.passwordMatches(pass); }
   setTransportOutcomeObserver(observer: ((outcome: BmpTransportOutcome) => void) | null): void {
     this.transport.setOutcomeObserver(observer);
   }
-  updateCredentials(user: string, pass: string, authMode?: AuthMode): void {
-    this.auth.updateCredentials(user, pass, authMode);
-  }
-
   /** Inject enrichment cache for resolveRef lookups. */
   set cache(c: IdentityCache) { this._cache = c; }
 
@@ -297,7 +294,7 @@ export class BmpClient {
   async testConnection(): Promise<ConnectionResult> {
     let authenticated = false;
     try {
-      await this.auth.ensureAuth();
+      await this.auth.getLoginTicket();
       authenticated = true;
       const probe = await this.executeEc('1', undefined, false);
       if (!probe.ok) {
@@ -412,7 +409,9 @@ export class BmpClient {
         return {
           ok: false,
           status: res.status,
-          error: res.status === 400
+          error: res.status === 401 || res.status === 403
+            ? 'Portal login required for live CVO data. The stored command identity does not authenticate portal data.'
+            : res.status === 400
             ? 'Data servlet returned 400: the render context is not org-rooted. The CVO must resolve under an Organisation; pick an org-rooted scorecard or page rid as the render context.'
             : `Data servlet HTTP ${res.status}`,
         };
@@ -436,7 +435,15 @@ export class BmpClient {
     try {
       await assertHostAccess(u.toString());
       const res = await fetch(u.toString(), { credentials: 'include', cache: 'no-store' });
-      if (!res.ok) return { ok: false, status: res.status, error: `Download HTTP ${res.status}` };
+      if (!res.ok) {
+        return {
+          ok: false,
+          status: res.status,
+          error: res.status === 401 || res.status === 403
+            ? 'Portal login required for resource downloads. The stored command identity does not authenticate portal files.'
+            : `Download HTTP ${res.status}`,
+        };
+      }
       return { ok: true, text: await res.text() };
     } catch (e) {
       return { ok: false, error: this.transport.formatError(e) };
@@ -854,7 +861,15 @@ export class BmpClient {
       }),
       signal: opts.signal,
     });
+    if (res.status === 401 || res.status === 403 || res.redirected
+      || (res.url && new URL(res.url).origin !== new URL(this.bmpUrl).origin)) {
+      throw new Error('Portal login required for workspace search. Stored command access does not broaden portal search.');
+    }
     if (!res.ok) throw new Error(`quickSearch HTTP ${res.status}`);
+    const contentType = res.headers?.get?.('content-type') ?? '';
+    if (contentType && !contentType.includes('json')) {
+      throw new Error('Portal login required for workspace search.');
+    }
     const json = await res.json();
     if (json.errors?.length) throw new Error(json.errors[0]?.message ?? 'GraphQL error');
     const q: QuickSearchData = json?.data?.quickSearch ?? { totalHits: 0, hits: [] };

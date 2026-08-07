@@ -7,8 +7,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { mockChromeStorage } from './chrome-mock';
 import { ObjectCache } from '../object-cache';
-import { sessionTokenKey } from '../bmp-auth';
-import type { InspectorSettings, ServerProfile, AuthMode } from '../types';
+import { commandAuthSessionKey } from '../bmp-auth';
+import type { InspectorSettings, ServerProfile, CommandAuthMode } from '../types';
 
 function cookieInfo(opts: { cause: string; removed: boolean; name?: string }): chrome.cookies.CookieChangeInfo {
   return {
@@ -21,7 +21,7 @@ function cookieInfo(opts: { cause: string; removed: boolean; name?: string }): c
   } as unknown as chrome.cookies.CookieChangeInfo;
 }
 
-async function setup(opts: { authMode: AuthMode; cookieStillPresent: boolean }) {
+async function setup(opts: { authMode: CommandAuthMode; cookieStillPresent: boolean }) {
   vi.resetModules();
   vi.clearAllMocks();
   mockChromeStorage();
@@ -33,9 +33,9 @@ async function setup(opts: { authMode: AuthMode; cookieStillPresent: boolean }) 
 
   const profile: ServerProfile = {
     id: 'p1', label: 'P1', bmpUrl: 'https://bmp.test/Workspace/',
-    bmpUser: opts.authMode === 'session' ? '' : 'admin',
-    bmpPass: opts.authMode === 'session' ? '' : 'pass',
-    authMode: opts.authMode,
+    bmpUser: opts.authMode === 'portal' ? '' : 'admin',
+    bmpPass: opts.authMode === 'portal' ? '' : 'pass',
+    commandAuthMode: opts.authMode,
   };
   const settings: InspectorSettings = {
     schemaVersion: 2, profiles: [profile], activeProfileId: 'p1',
@@ -52,44 +52,44 @@ async function setup(opts: { authMode: AuthMode; cookieStillPresent: boolean }) 
   return { settingsMod, removeSpy: chrome.storage.session.remove as any };
 }
 
-const KEY = sessionTokenKey('p1');
+const KEY = commandAuthSessionKey('p1');
 
 describe('handleSessionCookieRemoved', () => {
   it('tears down a session-mode profile when its cookie is gone (explicit logout)', async () => {
-    const { settingsMod, removeSpy } = await setup({ authMode: 'session', cookieStillPresent: false });
+    const { settingsMod, removeSpy } = await setup({ authMode: 'portal', cookieStillPresent: false });
     await settingsMod.handleSessionCookieRemoved(cookieInfo({ removed: true, cause: 'explicit' }));
-    expect(removeSpy).toHaveBeenCalledWith(KEY);
+    expect(removeSpy).toHaveBeenCalledWith(expect.arrayContaining([KEY]));
   });
 
   it('tears down on true expiry too', async () => {
-    const { settingsMod, removeSpy } = await setup({ authMode: 'session', cookieStillPresent: false });
+    const { settingsMod, removeSpy } = await setup({ authMode: 'portal', cookieStillPresent: false });
     await settingsMod.handleSessionCookieRemoved(cookieInfo({ removed: true, cause: 'expired' }));
-    expect(removeSpy).toHaveBeenCalledWith(KEY);
+    expect(removeSpy).toHaveBeenCalledWith(expect.arrayContaining([KEY]));
   });
 
   it('does NOT tear down on overwrite/expired_overwrite/evicted (cookie refresh, not logout)', async () => {
     for (const cause of ['overwrite', 'expired_overwrite', 'evicted']) {
-      const { settingsMod, removeSpy } = await setup({ authMode: 'session', cookieStillPresent: false });
+      const { settingsMod, removeSpy } = await setup({ authMode: 'portal', cookieStillPresent: false });
       await settingsMod.handleSessionCookieRemoved(cookieInfo({ removed: true, cause }));
       expect(removeSpy).not.toHaveBeenCalledWith(KEY);
     }
   });
 
   it('does NOT tear down when the cookie is still present (re-probe guards path/host collisions)', async () => {
-    const { settingsMod, removeSpy } = await setup({ authMode: 'session', cookieStillPresent: true });
+    const { settingsMod, removeSpy } = await setup({ authMode: 'portal', cookieStillPresent: true });
     await settingsMod.handleSessionCookieRemoved(cookieInfo({ removed: true, cause: 'explicit' }));
     expect(removeSpy).not.toHaveBeenCalledWith(KEY);
   });
 
   it('ignores non-JSESSIONID cookies and add events', async () => {
-    const { settingsMod, removeSpy } = await setup({ authMode: 'session', cookieStillPresent: false });
+    const { settingsMod, removeSpy } = await setup({ authMode: 'portal', cookieStillPresent: false });
     await settingsMod.handleSessionCookieRemoved(cookieInfo({ removed: true, cause: 'explicit', name: 'other' }));
     await settingsMod.handleSessionCookieRemoved(cookieInfo({ removed: false, cause: 'explicit' }));
     expect(removeSpy).not.toHaveBeenCalledWith(KEY);
   });
 
   it('leaves a password-mode profile alone (it holds its own credentials)', async () => {
-    const { settingsMod, removeSpy } = await setup({ authMode: 'password', cookieStillPresent: false });
+    const { settingsMod, removeSpy } = await setup({ authMode: 'stored', cookieStillPresent: false });
     await settingsMod.handleSessionCookieRemoved(cookieInfo({ removed: true, cause: 'explicit' }));
     expect(removeSpy).not.toHaveBeenCalledWith(KEY);
   });

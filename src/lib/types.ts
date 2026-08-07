@@ -1,5 +1,5 @@
-import type { AuthMode, AuthVia } from './bmp-auth';
-export type { AuthMode, AuthVia };
+import type { CommandAuthMode, IdentityMap } from './identity-map';
+export type { CommandAuthMode, CommandAuthSource, EffectiveActor, IdentityMap } from './identity-map';
 import type { AiSettings } from './ai/types';
 export type { AiSettings };
 // Style-prop catalog is single-sourced in style-props.ts; imported for DEFAULT_SETTINGS below and
@@ -16,14 +16,13 @@ export * from './type-registry';
 /** Unified connection state — single source of truth for health + auth */
 export interface ConnectionState {
   display: 'not-configured' | 'checking' | 'reconnecting' | 'connected' | 'online' | 'command-failed' | 'auth-failed' | 'server-down' | 'unreachable' | 'needs-login' | 'no-config-access' | 'needs-access';
-  /** How the live connection was established (only meaningful when connected). */
-  authVia: AuthVia | null;
+  /** Verified portal and Configuration Studio actors. */
+  identities: IdentityMap;
   version: string | null;
   /** Blueprint requires EC lookup(). Missing means capability is not yet known. */
   blueprintSupported?: boolean;
   responseMs: number | null;
   profileLabel: string | null;
-  user: string | null;
   workspace: string | null;
   authError: string | null;
   networkOffline: boolean;
@@ -444,19 +443,21 @@ export interface ServerProfile {
   id: string;
   label: string;
   bmpUrl: string;
-  /** Username/password are optional — a `session` profile carries neither and
-   *  borrows the browser's live BMP session instead. Empty string = unset. */
+  /** Stored command credentials. Empty when commands use the portal login. */
   bmpUser: string;
   bmpPass: string;
-  /** How this profile authenticates. Defaults to `auto` (session-first, then
-   *  password) for migrated profiles; `session` for credential-less ones. */
-  authMode?: AuthMode;
+  /** Explicit identity used for Configuration Studio commands. */
+  commandAuthMode: CommandAuthMode;
+  /** Rotated whenever command auth material changes. */
+  commandAuthRevision?: string;
 }
 
 export interface InspectorSettings {
   schemaVersion: number;
   profiles: ServerProfile[];
   activeProfileId: string;
+  /** One-time notices for legacy auto profiles migrated to stored commands. */
+  commandAuthMigrationNotices?: Array<{ profileId: string; user: string }>;
   autoDetect: boolean;
   saveTarget: SaveTarget;
   enrichMode: EnrichMode;
@@ -471,7 +472,7 @@ export interface InspectorSettings {
 }
 
 export const DEFAULT_SETTINGS: InspectorSettings = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   profiles: [],
   activeProfileId: '',
   autoDetect: true,
@@ -489,6 +490,9 @@ export interface ActivityMeta {
   action?: string;
   object?: ObjectReference;
   durationMs?: number;
+  /** Verified command actor at the time of the operation. */
+  commandActor?: string;
+  commandAuthSource?: import('./identity-map').CommandAuthSource;
 }
 
 export interface ActivityEntry {
@@ -502,6 +506,8 @@ export interface ActivityEntry {
   action?: string;
   object?: ObjectReference;
   durationMs?: number;
+  commandActor?: string;
+  commandAuthSource?: import('./identity-map').CommandAuthSource;
   /** Profile the action ran against. Used to filter the Log tab when
    *  the user has multiple environments configured. Missing on legacy
    *  entries — UI treats them as belonging to the active profile. */

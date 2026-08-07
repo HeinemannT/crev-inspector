@@ -1,5 +1,5 @@
 import type { ConnectionState } from './types';
-import type { AuthErrorCode, AuthVia } from './bmp-auth';
+import type { AuthErrorCode } from './bmp-auth';
 import { getCtx } from './sw-context';
 import { hasHostAccess, HostAccessError } from './site-access';
 import { BmpClient } from './bmp-client';
@@ -9,6 +9,9 @@ import { HEALTH_POLL_INTERVAL } from './constants';
 import { updateBadge } from './badge';
 import { incrementGeneration, registerConnectionDisplayFn } from './enrichment';
 import { environmentToken } from './environment';
+import { probePortalIdentity } from './portal-identity';
+import { unknownIdentityMap, withSameUser, type IdentityMap } from './identity-map';
+import { setCurrentIdentities } from './command-actor';
 
 // Register connection display accessor for enrichment module (breaks circular dependency)
 registerConnectionDisplayFn(() => computeConnectionState().display);
@@ -19,7 +22,7 @@ let healthResponseMs: number | null = null;
 let authResult: 'pending' | 'ok' | 'failed' = 'pending';
 let authError: string | null = null;
 let authErrorCode: AuthErrorCode | null = null;
-let authVia: AuthVia | null = null;
+let identities: IdentityMap = unknownIdentityMap();
 let commandResult: 'unknown' | 'probing' | 'ok' | 'failed' = 'unknown';
 let commandError: string | null = null;
 let healthTimer: ReturnType<typeof setInterval> | null = null;
@@ -66,6 +69,22 @@ export function markHostAccessRequired(): void {
   pushConnectionState();
 }
 
+/** Browser logout affects the portal actor even when commands use an
+ * independent stored ticket. It must not tear that command ticket down. */
+export function markPortalSignedOut(): void {
+  identities = withSameUser({
+    portal: {
+      status: 'unavailable',
+      user: null,
+      source: 'portal-session',
+      error: 'No active BMP portal login.',
+    },
+    command: identities.command,
+  });
+  setCurrentIdentities(identities);
+  pushConnectionState();
+}
+
 /** Apply BMP version flags to client. When /buildNum is unavailable, prefer
  *  modern capabilities: current deployments may hide that endpoint. */
 function applyVersionFlags(version: string | null, reason?: string) {
@@ -97,7 +116,9 @@ export function resetConnectionState() {
   authResult = 'pending';
   authError = null;
   authErrorCode = null;
-  authVia = null;
+  const profile = getCtx().settings.profiles.find(p => p.id === getCtx().settings.activeProfileId);
+  identities = unknownIdentityMap(profile?.commandAuthMode ?? 'portal');
+  setCurrentIdentities(identities);
   commandResult = 'unknown';
   commandError = null;
   needsAccess = false;
@@ -116,7 +137,7 @@ export function computeConnectionState(): ConnectionState {
   const profile = ctx.settings.profiles.find(p => p.id === ctx.settings.activeProfileId);
   // A URL alone configures a profile now — `session` profiles have no username.
   if (!profile?.bmpUrl) {
-    return { display: 'not-configured', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, authVia: null, networkOffline: false, lastUpdate: Date.now(), environment: environmentToken(ctx) };
+    return { display: 'not-configured', identities: unknownIdentityMap(), version: null, responseMs: null, profileLabel: null, workspace: null, authError: null, networkOffline: false, lastUpdate: Date.now(), environment: environmentToken(ctx) };
   }
 
   let display: ConnectionState['display'];
@@ -152,10 +173,9 @@ export function computeConnectionState(): ConnectionState {
     blueprintSupported: ctx.client?.supportsLookup !== false,
     responseMs: healthResponseMs,
     profileLabel: profile.label,
-    user: authResult === 'ok' ? (profile.bmpUser || null) : null,
+    identities,
     workspace,
     authError: authResult === 'failed' ? authError : commandResult === 'failed' ? commandError : null,
-    authVia: authResult === 'ok' ? authVia : null,
     networkOffline,
     lastUpdate: Date.now(),
     environment: environmentToken(ctx),
@@ -295,12 +315,41 @@ async function runAuthTestInternal(generationAtStart: number, clientAtStart: Bmp
   pushConnectionState();
   ctx.logActivity('info', 'Testing command connection\u2026');
   try {
-    const result = await clientAtStart.testConnection();
+    const [portalActor, probedResult] = await Promise.all([
+      probePortalIdentity(bmpUrl),
+      clientAtStart.testConnection(),
+    ]);
     if (connectionGeneration !== generationAtStart || ctx.client !== clientAtStart) return;
+    let result = probedResult;
+    // Portal mode is explicitly tied to the current browser login. A command
+    // ticket minted earlier must not survive a verified browser logout.
+    if (profile.commandAuthMode === 'portal' && portalActor.status === 'unavailable') {
+      clientAtStart.logout();
+      result = {
+        ok: false,
+        authenticated: false,
+        code: 'needs-login',
+        message: portalActor.error ?? 'No active BMP portal login.',
+      };
+    }
+    const commandSource = profile.commandAuthMode === 'stored' ? 'stored-login' : 'portal-session';
+    const commandUser = clientAtStart.commandUser
+      ?? (profile.commandAuthMode !== 'stored' && portalActor.status === 'connected' ? portalActor.user : null);
+    identities = withSameUser({
+      portal: portalActor,
+      command: result.authenticated && commandUser
+        ? { status: 'connected', user: commandUser, source: commandSource }
+        : {
+            status: result.authenticated ? 'failed' : 'unavailable',
+            user: null,
+            source: commandSource,
+            error: result.ok ? undefined : result.message,
+          },
+    });
+    setCurrentIdentities(identities);
     authResult = result.authenticated ? 'ok' : 'failed';
     authError = result.ok ? null : result.message;
     authErrorCode = result.authenticated ? null : (result.code ?? null);
-    authVia = result.authenticated ? clientAtStart.authVia : null;
     commandResult = result.ok ? 'ok' : result.authenticated ? 'failed' : 'unknown';
     commandError = result.ok ? null : result.authenticated ? result.message : null;
     ctx.logActivity(result.ok ? 'success' : 'warn', result.ok ? `Connected to ${profile.label}` : 'Connection failed', result.message);
@@ -318,7 +367,16 @@ async function runAuthTestInternal(generationAtStart: number, clientAtStart: Bmp
     authResult = 'failed';
     authError = errorMessage(e);
     authErrorCode = null;
-    authVia = null;
+    identities = withSameUser({
+      portal: identities.portal,
+      command: {
+        status: 'failed',
+        user: null,
+        source: profile.commandAuthMode === 'stored' ? 'stored-login' : 'portal-session',
+        error: errorMessage(e),
+      },
+    });
+    setCurrentIdentities(identities);
     commandResult = 'unknown';
     commandError = null;
   }
@@ -377,8 +435,27 @@ async function pollHealthInternal(generationAtStart: number, clientAtStart: BmpC
   if (connectionGeneration !== generationAtStart || ctx.client !== clientAtStart) return;
   needsAccess = false;
   try {
-    const result = await BmpClient.checkHealth(bmpUrl);
+    const [result, portalActor] = await Promise.all([
+      BmpClient.checkHealth(bmpUrl),
+      probePortalIdentity(bmpUrl),
+    ]);
     if (connectionGeneration !== generationAtStart || ctx.client !== clientAtStart) return;
+    identities = withSameUser({ portal: portalActor, command: identities.command });
+    setCurrentIdentities(identities);
+    // Portal mode promises one actor. If the browser was switched to another
+    // account, retire the old borrowed command chain and re-authenticate as the
+    // newly verified portal user. Stored mode intentionally remains separate.
+    if ((profile.commandAuthMode ?? 'portal') === 'portal'
+      && (identities.sameUser === false || portalActor.status === 'unavailable')) {
+      clientAtStart?.logout();
+      authResult = 'pending';
+      commandResult = 'unknown';
+      identities = withSameUser({
+        portal: portalActor,
+        command: { status: 'unknown', user: null, source: 'portal-session' },
+      });
+      setCurrentIdentities(identities);
+    }
     if (result.up) {
       if (!healthVersion) {
         healthVersion = await BmpClient.getBuildNumber(bmpUrl, ctx.client?.jwt ?? undefined) ?? '';

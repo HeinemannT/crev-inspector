@@ -30,7 +30,9 @@ function entries(): ActivityEntry[] {
 function configureProfiles(active: string, ids: string[] = ['sbx', 'dev', 'prod']) {
   S.settings = {
     ...DEFAULT_SETTINGS,
-    profiles: ids.map(id => ({ id, label: id, bmpUrl: `https://${id}.x.de/`, bmpUser: 'u', bmpPass: 'p' })),
+    profiles: ids.map(id => ({
+      id, label: id, bmpUrl: `https://${id}.x.de/`, bmpUser: 'u', bmpPass: 'p', commandAuthMode: 'portal',
+    })),
     activeProfileId: active,
   };
 }

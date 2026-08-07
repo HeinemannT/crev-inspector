@@ -5,8 +5,8 @@
 import type { InspectorSettings, ServerProfile } from './types';
 import { getCtx } from './sw-context';
 import { BmpClient } from './bmp-client';
-import { resolveAuthMode, sessionTokenKey } from './bmp-auth';
-import { bindConnectionClient, normalizeUrl, resetConnectionState, pushConnectionState, runAuthTest, startHealthPolling, stopHealthPolling } from './connection';
+import { commandAuthSessionKey, legacySessionTokenKey } from './bmp-auth';
+import { bindConnectionClient, markPortalSignedOut, normalizeUrl, resetConnectionState, pushConnectionState, runAuthTest, startHealthPolling, stopHealthPolling } from './connection';
 import { incrementGeneration } from './enrichment';
 import { clearAllContextRids } from './context-rid';
 import { log } from './logger';
@@ -59,8 +59,9 @@ export function createSettingsReady(): { settingsReady: Promise<void>; resolveSe
  *  true if anything changed (so the caller can persist once). Pure + exported
  *  for unit testing — no ctx, no I/O.
  *  - v0 → v1: flat {bmpUrl,bmpUser,bmpPass} → a single profile in `profiles[]`.
- *  - v1 → v2: every profile gains an explicit `authMode` (password → `auto`,
- *    none → `session`). */
+ *  - v1 → v2: legacy auth strategy.
+ *  - v2 → v3: AI settings.
+ *  - v3 → v4: explicit portal-vs-stored command identity. */
 export function migrateStoredSettings(s: Record<string, unknown>): boolean {
   let migrated = false;
   if (!s.profiles && (s.bmpUrl || s.bmpUser)) {
@@ -74,7 +75,10 @@ export function migrateStoredSettings(s: Record<string, unknown>): boolean {
   }
   if (!s.schemaVersion) s.schemaVersion = 1;
   if ((s.schemaVersion as number) < 2 && Array.isArray(s.profiles)) {
-    s.profiles = (s.profiles as ServerProfile[]).map(p => ({ ...p, authMode: resolveAuthMode(p) }));
+    s.profiles = (s.profiles as Array<ServerProfile & { authMode?: 'session' | 'password' | 'auto' }>).map(p => ({
+      ...p,
+      authMode: p.authMode ?? (p.bmpPass?.trim() ? 'auto' : 'session'),
+    }));
     s.schemaVersion = 2;
     migrated = true;
   }
@@ -83,6 +87,33 @@ export function migrateStoredSettings(s: Record<string, unknown>): boolean {
   // stored data advances in lockstep with DEFAULT_SETTINGS.
   if ((s.schemaVersion as number) < 3) {
     s.schemaVersion = 3;
+    migrated = true;
+  }
+  // v3 → v4: command authentication becomes an explicit identity choice.
+  // Legacy `auto` intentionally migrates to stored when complete credentials
+  // exist: these profiles were configured to use that account and must no
+  // longer silently change actor based on browser-session availability.
+  if ((s.schemaVersion as number) < 4) {
+    if (Array.isArray(s.profiles)) {
+      const notices = Array.isArray(s.commandAuthMigrationNotices)
+        ? s.commandAuthMigrationNotices as Array<{ profileId: string; user: string }>
+        : [];
+      s.profiles = (s.profiles as Array<ServerProfile & { authMode?: 'session' | 'password' | 'auto' }>).map(p => {
+        const completeStoredLogin = Boolean(p.bmpUser?.trim() && p.bmpPass?.trim());
+        const commandAuthMode = p.authMode === 'password'
+          || (p.authMode === 'auto' && completeStoredLogin)
+          ? 'stored'
+          : 'portal';
+        if (p.authMode === 'auto' && completeStoredLogin
+          && !notices.some(notice => notice.profileId === p.id)) {
+          notices.push({ profileId: p.id, user: p.bmpUser.trim() });
+        }
+        const { authMode: _legacyAuthMode, ...profile } = p;
+        return { ...profile, commandAuthMode, commandAuthRevision: p.commandAuthRevision || crypto.randomUUID() };
+      });
+      if (notices.length) s.commandAuthMigrationNotices = notices;
+    }
+    s.schemaVersion = 4;
     migrated = true;
   }
   return migrated;
@@ -174,22 +205,26 @@ export async function rebuildClient(clearCache = false) {
  *  same profileId) we evict the stale entry and rebuild. */
 function getOrCreateClient(profile: ServerProfile): BmpClient {
   const bmpUrl = normalizeUrl(profile.bmpUrl);
-  const authMode = resolveAuthMode(profile);
+  const authMode = profile.commandAuthMode ?? 'portal';
   const existing = clientPool.get(profile.id);
-  // Stale if the URL, username, or auth mode changed under the same profileId.
-  // Password changes don't invalidate the in-memory JWT — refresh handles that;
-  // but a mode flip (session ↔ password) changes which strategy runs, so the
-  // mode must match for reuse.
-  if (existing && existing.serverUrl === bmpUrl && existing.username === profile.bmpUser && existing.authMode === authMode) {
-    // Refresh password in case it was rotated since the client was minted.
-    existing.updateCredentials(profile.bmpUser, profile.bmpPass, authMode);
+  // Reuse only when all command-auth material still matches. Credential
+  // changes must retire both direct tickets and borrowed portal token chains.
+  if (existing && existing.serverUrl === bmpUrl && existing.username === profile.bmpUser
+    && existing.authMode === authMode && existing.passwordMatches(profile.bmpPass)) {
     return existing;
   }
   if (existing) {
     existing.logout();
     clientPool.delete(profile.id);
   }
-  const client = new BmpClient(bmpUrl, profile.bmpUser, profile.bmpPass, profile.id, authMode);
+  const client = new BmpClient(
+    bmpUrl,
+    profile.bmpUser,
+    profile.bmpPass,
+    profile.id,
+    authMode,
+    profile.commandAuthRevision ?? '',
+  );
   clientPool.set(profile.id, client);
   return client;
 }
@@ -208,7 +243,7 @@ export function evictPooledClient(profileId: string): void {
  *  Robustness notes:
  *  - Only `explicit` (logout / API removal) and `expired` (true expiry) mean the
  *    session is gone. `overwrite` / `expired_overwrite` (a cookie being
- *    replaced, e.g. on session refresh, or by our own password login) and
+ *    replaced during normal session refresh) and
  *    `evicted` (jar pressure) are NOT logouts and must not tear down.
  *  - Gated on `settingsReady`: a removal arriving during SW boot must not be
  *    evaluated against empty settings (it would be silently dropped, leaving a
@@ -217,9 +252,8 @@ export function evictPooledClient(profileId: string): void {
  *    `/Foo` vs `/Foo2`, ports, and domain cookies), we RE-PROBE each candidate
  *    profile's own cookie via `chrome.cookies.get({url: bmpUrl})` — that applies
  *    RFC-correct host+path scoping for free.
- *  - "Borrowed" = a `session`-mode profile, or an `auto` profile whose pooled
- *    client actually connected via the session (`authVia === 'session'`). A
- *    password-authed connection holds its own chain and is left alone. */
+ *  - Only portal-mode command auth is borrowed from the browser session.
+ *    Stored direct tickets remain independent and are left alone. */
 export async function handleSessionCookieRemoved(info: chrome.cookies.CookieChangeInfo): Promise<void> {
   if (info.cookie.name !== 'JSESSIONID' || !info.removed) return;
   if (info.cause !== 'explicit' && info.cause !== 'expired') return;
@@ -229,8 +263,7 @@ export async function handleSessionCookieRemoved(info: chrome.cookies.CookieChan
 
   for (const p of ctx.settings.profiles) {
     const client = clientPool.get(p.id);
-    const borrowed = resolveAuthMode(p) === 'session' || client?.authVia === 'session';
-    if (!borrowed) continue;
+    const borrowed = (p.commandAuthMode ?? 'portal') === 'portal';
 
     let stillPresent = false;
     try {
@@ -238,10 +271,15 @@ export async function handleSessionCookieRemoved(info: chrome.cookies.CookieChan
     } catch (e) { log.warn('settings:cookieReprobe', e, 'cookie re-probe failed; treating as gone'); }
     if (stillPresent) continue;  // the cookie that changed wasn't this profile's
 
+    if (p.id === ctx.settings.activeProfileId && !borrowed) {
+      markPortalSignedOut();
+    }
+    if (!borrowed) continue;
+
     client?.logout();
     // Clear the persisted chain even when no client is pooled (logout already
     // does this for a pooled client; this covers a warm-but-unpooled profile).
-    chrome.storage.session.remove(sessionTokenKey(p.id)).catch(e => log.swallow('settings:clearTeardownToken', e));
+    chrome.storage.session.remove([commandAuthSessionKey(p.id), legacySessionTokenKey(p.id)]).catch(e => log.swallow('settings:clearTeardownToken', e));
     log.info('settings:sessionCookieGone', `BMP session ended for ${p.label}; cleared the borrowed token`);
     if (p.id === ctx.settings.activeProfileId) {
       resetConnectionState();

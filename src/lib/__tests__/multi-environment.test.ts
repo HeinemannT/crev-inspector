@@ -17,9 +17,9 @@ import type { InspectorSettings, ServerProfile } from '../types';
 
 function makeProfiles(): ServerProfile[] {
   return [
-    { id: 'sbx', label: 'sbx', bmpUrl: 'https://sbx.x.de/Steadfast/', bmpUser: 'u', bmpPass: 'p' },
-    { id: 'dev', label: 'dev', bmpUrl: 'https://dev.x.de/Steadfast/', bmpUser: 'u', bmpPass: 'p' },
-    { id: 'prod', label: 'prod', bmpUrl: 'https://prod.x.de/Steadfast/', bmpUser: 'u', bmpPass: 'p' },
+    { id: 'sbx', label: 'sbx', bmpUrl: 'https://sbx.x.de/Steadfast/', bmpUser: 'u', bmpPass: 'p', commandAuthMode: 'portal' },
+    { id: 'dev', label: 'dev', bmpUrl: 'https://dev.x.de/Steadfast/', bmpUser: 'u', bmpPass: 'p', commandAuthMode: 'portal' },
+    { id: 'prod', label: 'prod', bmpUrl: 'https://prod.x.de/Steadfast/', bmpUser: 'u', bmpPass: 'p', commandAuthMode: 'portal' },
   ];
 }
 
@@ -100,8 +100,8 @@ describe('matchProfile — longest-prefix winner', () => {
 
   it('prefers the longer prefix when one profile URL is a prefix of another', async () => {
     const profiles: ServerProfile[] = [
-      { id: 'short', label: 'short', bmpUrl: 'https://x.de/A/', bmpUser: 'u', bmpPass: 'p' },
-      { id: 'long',  label: 'long',  bmpUrl: 'https://x.de/A/B/', bmpUser: 'u', bmpPass: 'p' },
+      { id: 'short', label: 'short', bmpUrl: 'https://x.de/A/', bmpUser: 'u', bmpPass: 'p', commandAuthMode: 'portal' },
+      { id: 'long',  label: 'long',  bmpUrl: 'https://x.de/A/B/', bmpUser: 'u', bmpPass: 'p', commandAuthMode: 'portal' },
     ];
     const h = await createHarness(profiles, 'short');
     expect(h.settings.matchProfile('https://x.de/A/B/?rid=1', h.ctx.settings.profiles)?.id).toBe('long');

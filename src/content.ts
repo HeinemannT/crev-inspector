@@ -4,6 +4,8 @@
  */
 
 import type { InspectorMessage, ConnectionState, WidgetInfo, PaintPhase, PageContext, EditPageContext } from './lib/types';
+import { setCurrentIdentities } from './lib/command-actor';
+import { unknownIdentityMap } from './lib/identity-map';
 import { extractUrlRids, scanPageWidgets, detectBmpPage, findTabButton, isTabActive } from './lib/dom-scanner';
 import { resolvePageContext } from './lib/page-context';
 import { h } from './lib/dom';
@@ -264,6 +266,7 @@ function injectStyles() {
 // ── Connection state + toasts ────────────────────────────────────
 
 function handleConnectionState(state: ConnectionState) {
+  setCurrentIdentities(state.identities ?? unknownIdentityMap());
   const prev = s.prevConnDisplay;
   s.prevConnDisplay = state.display;
   s.environment = state.environment ?? null;

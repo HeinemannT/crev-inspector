@@ -2,8 +2,7 @@
  * Connect tab — server profiles, connection status, settings.
  */
 
-import type { InspectorMessage, ServerProfile, AuthMode } from '../../lib/types';
-import { resolveAuthMode } from '../../lib/bmp-auth';
+import type { InspectorMessage, ServerProfile, CommandAuthMode } from '../../lib/types';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { ICON_EYE_OPEN, ICON_EYE_CLOSED } from '../utils';
@@ -18,8 +17,17 @@ import { PROVIDERS, AI_PROVIDER_IDS, parseCustomProviderJson, resolveProvider } 
 import type { AiApiType, AiCustomProvider, AiProviderId } from '../../lib/ai/types';
 import type { Tab, SendFn } from './tab-types';
 import { BUILD_ID } from '../../lib/build-info';
+import { unknownIdentityMap } from '../../lib/identity-map';
 
-type EditingProfile = { id: string | null; label: string; bmpUrl: string; bmpUser: string; bmpPass: string; authMode?: AuthMode };
+type EditingProfile = {
+  id: string | null;
+  label: string;
+  bmpUrl: string;
+  bmpUser: string;
+  bmpPass: string;
+  commandAuthMode: CommandAuthMode;
+  commandAuthRevision?: string;
+};
 
 const CUSTOM_PROVIDER_TEMPLATE = `{
   "name": "OpenRouter",
@@ -413,7 +421,8 @@ export class ConnectTab implements Tab {
     if (urlInput && urlWarn) {
       urlInput.addEventListener('input', () => {
         urlWarn.textContent = '';
-        if (isInsecureUrl(urlInput.value)) {
+        const storedSelected = (container.querySelector('input[name="pf-command-auth"]:checked') as HTMLInputElement | null)?.value === 'stored';
+        if (storedSelected && isInsecureUrl(urlInput.value)) {
           urlWarn.append(svg(ICON_WARNING), ' Password will be sent in clear over HTTP. Use https:// when available.');
         }
       });
@@ -421,7 +430,7 @@ export class ConnectTab implements Tab {
 
     delegate(container, {
       'add-profile': () => {
-        this.editing = { id: null, label: '', bmpUrl: '', bmpUser: '', bmpPass: '' };
+        this.editing = { id: null, label: '', bmpUrl: '', bmpUser: '', bmpPass: '', commandAuthMode: 'portal' };
         rerender();
       },
       'select-profile': (el, e) => {
@@ -437,7 +446,10 @@ export class ConnectTab implements Tab {
         const id = el.dataset.editProfile;
         if (!id) return;
         const profile = shared.settings.profiles.find(p => p.id === id);
-        if (profile) { this.editing = { ...profile }; rerender(); }
+        if (profile) {
+          this.editing = { ...profile, commandAuthMode: profile.commandAuthMode ?? 'portal' };
+          rerender();
+        }
       },
       'grant-access': (el, e) => {
         // Re-request a profile origin whose grant was declined/revoked. Runs INSIDE this click —
@@ -456,17 +468,28 @@ export class ConnectTab implements Tab {
         const bmpUrl = urlInput.value || '';
         const bmpUser = userInput.value || '';
         const bmpPass = (container.querySelector('#pf-pass') as HTMLInputElement)?.value || '';
+        const commandAuthMode = ((container.querySelector('input[name="pf-command-auth"]:checked') as HTMLInputElement | null)?.value
+          ?? 'portal') as CommandAuthMode;
 
         if (!bmpUrl.trim()) { flashInvalid(urlInput); return; }
-
-        // Credentials are optional. resolveAuthMode encodes the rule: a password
-        // means session-first with password fallback ('auto'), none means
-        // session-only. There's no UI for a "password-only" mode because
-        // session-first is strictly better (faster, no creds, works under
-        // SSO/VPN/mTLS).
+        if (commandAuthMode === 'stored' && (!bmpUser.trim() || !bmpPass)) {
+          const invalid = !bmpUser.trim()
+            ? userInput
+            : container.querySelector('#pf-pass') as HTMLInputElement;
+          flashInvalid(invalid);
+          return;
+        }
+        const previous = this.editing.id
+          ? shared.settings.profiles.find(p => p.id === this.editing?.id)
+          : undefined;
         const profile: ServerProfile = {
           id: this.editing.id ?? crypto.randomUUID(),
-          label, bmpUrl, bmpUser, bmpPass, authMode: resolveAuthMode({ bmpPass }),
+          label,
+          bmpUrl,
+          bmpUser,
+          bmpPass,
+          commandAuthMode,
+          commandAuthRevision: previous?.commandAuthRevision,
         };
         // Ask for the server origin's host permission INSIDE this click — saving a server IS the
         // moment the extension needs its site, and the standard browser prompt requires the user
@@ -497,6 +520,15 @@ export class ConnectTab implements Tab {
       'clear-cache': () => {
         this.send({ type: 'CLEAR_CACHE' });
         shared.cacheCount = 0;
+        rerender();
+      },
+      'dismiss-auth-migration': (el) => {
+        const profileId = el.dataset.profileId;
+        if (!profileId) return;
+        const notices = (shared.settings.commandAuthMigrationNotices ?? [])
+          .filter(notice => notice.profileId !== profileId);
+        shared.settings = { ...shared.settings, commandAuthMigrationNotices: notices };
+        this.send({ type: 'SAVE_SETTINGS', settings: { commandAuthMigrationNotices: notices } });
         rerender();
       },
       'update-refresh': () => {
@@ -677,7 +709,8 @@ export class ConnectTab implements Tab {
       case 'connected': {
         const bits: string[] = [];
         if (s.version) bits.push(`BMP ${s.version}`);
-        if (s.authVia) bits.push(s.authVia === 'session' ? 'via browser session' : 'via stored login');
+        const actor = (s.identities ?? unknownIdentityMap()).command;
+        if (actor.status === 'connected' && actor.user) bits.push(`commands as ${actor.user}`);
         return { text: 'Connected', cls: 'ok', title: bits.join(' · ') };
       }
       case 'checking': return { text: 'Checking…', cls: 'checking', title: '' };
@@ -702,7 +735,9 @@ export class ConnectTab implements Tab {
   private renderProfileRow(profile: ServerProfile): HTMLElement {
     const isActive = profile.id === shared.settings.activeProfileId;
     const urlDisplay = profile.bmpUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
-    const whoDisplay = profile.bmpUser || 'browser session';
+    const whoDisplay = profile.commandAuthMode === 'stored'
+      ? `${profile.bmpUser || 'stored login'} for commands`
+      : 'browser login for commands';
     const origin = originPatternFor(profile.bmpUrl);
     const noAccess = !!origin && this.accessByOrigin.get(origin) === false;
 
@@ -745,6 +780,8 @@ export class ConnectTab implements Tab {
           isActive ? h('span', { class: 'prof-curtag' }, 'Current') : null,
         ),
         h('div', { class: 'prof-url' }, `${urlDisplay} · ${whoDisplay}`),
+        isActive ? this.renderIdentityRows() : null,
+        this.renderAuthMigrationNotice(profile),
       ),
       right,
       h('button', {
@@ -753,6 +790,42 @@ export class ConnectTab implements Tab {
         'data-edit-profile': profile.id,
         title: 'Edit server',
       }, 'Edit'),
+    );
+  }
+
+  private renderAuthMigrationNotice(profile: ServerProfile): HTMLElement | null {
+    const notice = shared.settings.commandAuthMigrationNotices?.find(item => item.profileId === profile.id);
+    if (!notice) return null;
+    return h('div', { class: 'prof-auth-migration', role: 'status' },
+      h('span', null,
+        `Configuration commands now use the stored login ${notice.user}. Your BMP page remains signed in as the browser user.`),
+      h('button', {
+        type: 'button',
+        'data-action': 'dismiss-auth-migration',
+        'data-profile-id': profile.id,
+        title: 'Dismiss this migration notice',
+      }, 'Dismiss'),
+    );
+  }
+
+  private renderIdentityRows(): HTMLElement {
+    const identity = shared.connState.identities ?? unknownIdentityMap();
+    const row = (label: string, actor: typeof identity.portal, fallback: string) => {
+      const connected = actor.status === 'connected' && Boolean(actor.user);
+      const value = connected ? actor.user! : actor.status === 'unknown' ? 'Checking…' : 'Unavailable';
+      const source = actor.source === 'stored-login' ? 'Stored configuration login' : fallback;
+      return h('div', {
+        class: `prof-identity-row prof-identity-row--${actor.status}`,
+        ...(actor.error ? { title: actor.error } : {}),
+      },
+        h('span', { class: 'prof-identity-label' }, label),
+        h('span', { class: 'prof-identity-user' }, value),
+        h('span', { class: 'prof-identity-source' }, source),
+      );
+    };
+    return h('div', { class: 'prof-identities', 'aria-label': 'Effective identities' },
+      row('Portal', identity.portal, 'Browser session'),
+      row('Commands', identity.command, identity.sameUser ? 'Same as portal' : 'Browser session'),
     );
   }
 
@@ -1227,8 +1300,29 @@ export class ConnectTab implements Tab {
 
     const passInput = h('input', {
       class: 'field-input', id: 'pf-pass', type: 'password',
-      placeholder: 'password', value: ep.bmpPass,
+      placeholder: 'password', value: ep.bmpPass, autocomplete: 'current-password',
     }) as HTMLInputElement;
+    const stored = ep.commandAuthMode === 'stored';
+    const commandMode = h('div', {
+      class: 'command-auth-options',
+      role: 'radiogroup',
+      'aria-label': 'Configuration commands',
+    },
+      h('label', { class: `command-auth-option${stored ? '' : ' selected'}` },
+        h('input', { type: 'radio', name: 'pf-command-auth', value: 'portal', checked: !stored }),
+        h('span', { class: 'command-auth-copy' },
+          h('strong', null, 'Use browser login'),
+          h('span', null, 'Commands run as the user signed into this BMP page. Supports SSO.'),
+        ),
+      ),
+      h('label', { class: `command-auth-option${stored ? ' selected' : ''}` },
+        h('input', { type: 'radio', name: 'pf-command-auth', value: 'stored', checked: stored }),
+        h('span', { class: 'command-auth-copy' },
+          h('strong', null, 'Use stored configuration login'),
+          h('span', null, 'Commands run as this account without changing the BMP page user.'),
+        ),
+      ),
+    );
 
     const card = h('div', { class: 'profile-card editing' },
       h('div', { class: 'profile-form' },
@@ -1245,15 +1339,19 @@ export class ConnectTab implements Tab {
           // on http and forcing TLS would lock users out. The hint nudges
           // toward HTTPS without nagging.
           h('span', { class: 'field-hint field-hint--security', id: 'pf-url-warn' },
-            isInsecureUrl(ep.bmpUrl)
+            stored && isInsecureUrl(ep.bmpUrl)
               ? [svg(ICON_WARNING), ' Password will be sent in clear over HTTP. Use https:// when available.']
               : '',
           ),
         ),
-        h('div', { class: 'field-row' },
+        h('div', { class: 'field-group command-auth-group' },
+          h('span', { class: 'field-label' }, 'Configuration commands'),
+          commandMode,
+        ),
+        h('div', { class: 'field-row command-auth-credentials', hidden: !stored },
           h('div', { class: 'field-group' },
             h('label', { class: 'field-label' }, 'Username'),
-            h('input', { class: 'field-input', id: 'pf-user', value: ep.bmpUser, placeholder: 'optional' }),
+            h('input', { class: 'field-input', id: 'pf-user', value: ep.bmpUser, autocomplete: 'username' }),
           ),
           h('div', { class: 'field-group' },
             h('label', { class: 'field-label' }, 'Password'),
@@ -1278,10 +1376,8 @@ export class ConnectTab implements Tab {
         // the profile borrow whatever BMP session the browser already has —
         // the path that works under SSO / VPN / client-cert without storing
         // anything.
-        h('span', { class: 'field-hint' },
-          ep.bmpPass.trim()
-            ? 'Uses your current BMP login if you have one, otherwise signs in with these credentials.'
-            : 'Leave blank to use your current BMP login in this browser (works with SSO). Add a password to connect even when you are not logged in.'),
+        h('span', { class: 'field-hint command-auth-credentials-note', hidden: !stored },
+          'The BMP page, workspace search, live CVO data, and downloads remain signed in as your browser user.'),
         h('div', { class: 'profile-form-actions' },
           h('button', { class: 'btn btn-accent btn-small', 'data-action': 'pf-save' }, 'Save'),
           h('button', { class: 'btn btn-small', 'data-action': 'pf-cancel' }, 'Cancel'),
@@ -1289,6 +1385,23 @@ export class ConnectTab implements Tab {
         ),
       ),
     );
+    commandMode.querySelectorAll<HTMLInputElement>('input[name="pf-command-auth"]').forEach(input => {
+      input.addEventListener('change', () => {
+        const useStored = input.value === 'stored';
+        card.querySelectorAll<HTMLElement>('.command-auth-credentials, .command-auth-credentials-note')
+          .forEach(el => { el.hidden = !useStored; });
+        commandMode.querySelectorAll('.command-auth-option').forEach(option => option.classList.remove('selected'));
+        input.closest('.command-auth-option')?.classList.add('selected');
+        const warning = card.querySelector('#pf-url-warn');
+        const url = (card.querySelector('#pf-url') as HTMLInputElement | null)?.value ?? '';
+        if (warning) {
+          warning.textContent = '';
+          if (useStored && isInsecureUrl(url)) {
+            warning.append(svg(ICON_WARNING), ' Password will be sent in clear over HTTP. Use https:// when available.');
+          }
+        }
+      });
+    });
     return card;
   }
 }

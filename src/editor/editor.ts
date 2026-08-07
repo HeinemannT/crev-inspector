@@ -33,7 +33,8 @@ import { buildInertHtmlDocument } from '../preview/inert-html'
 import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
 import { sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging'
-import { confirmModal } from '../lib/modal'
+import { confirmCommandModal, confirmModal } from '../lib/modal'
+import { readCommandActor } from '../lib/command-actor'
 import {
   type EditorContext,
   formatLabel,
@@ -539,10 +540,12 @@ function renderShell() {
       )
     : false
 
+  const actorSlot = h('span', { class: 'editor-command-actor' }, 'Checking command identity…')
   const header = h('div', { class: 'editor-header' },
     h('div', { class: 'editor-header-id' },
       h('span', { class: 'editor-id-icon', title: 'Extended Code editor' }, svg(ICON_CODE)),
       ...headerChildren.filter(Boolean) as (HTMLElement | string)[]),
+    actorSlot,
     segToggle
       ? h('div', { class: 'editor-header-target' },
           h('span', { class: 'editor-target-label' }, 'Editing'),
@@ -550,6 +553,12 @@ function renderShell() {
         )
       : h('span'),
   )
+  void readCommandActor().then(actor => {
+    if (!actorSlot.isConnected) return
+    actorSlot.textContent = actor?.text ?? 'Command identity not verified'
+    actorSlot.classList.toggle('is-unverified', !actor)
+    actorSlot.title = actorSlot.textContent
+  })
 
   // Property tabs (tablist with underline indicator)
   const propTabs = (!isExtended && propKeys.length > 1)
@@ -1222,7 +1231,7 @@ async function doSave() {
     ? `template "${formatLabel(target.identity, 'full')}"`
     : `instance "${formatLabel(target.identity, 'full')}"`
 
-  const confirmed = await confirmModal({
+  const confirmed = await confirmCommandModal({
     title: `Save ${property}`,
     body: `Write to ${targetLabel}?`,
     confirmLabel: 'Save',

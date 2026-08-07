@@ -229,6 +229,14 @@
   to   { transform: translateY(0);     opacity: 1; }
 }
 #crev-paint-banner b { font-weight: 800; }
+#crev-paint-banner .crev-paint-actor {
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(255,255,255,.28);
+  font: 600 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: .84;
+}
+#crev-paint-banner .crev-paint-actor.is-unverified { color: #fbbf24; }
 #crev-paint-banner .crev-paint-close {
   position: absolute;
   right: 8px;

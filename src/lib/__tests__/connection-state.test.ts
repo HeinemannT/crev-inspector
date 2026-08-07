@@ -16,9 +16,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { mockChromeStorage } from './chrome-mock';
 import { ObjectCache } from '../object-cache';
 import type { InspectorSettings } from '../types';
-import type { AuthErrorCode, AuthVia } from '../bmp-auth';
+import type { AuthErrorCode } from '../bmp-auth';
 
-type TestConn = { ok: boolean; message: string; authenticated: boolean; code?: AuthErrorCode; via?: AuthVia };
+type TestConn = { ok: boolean; message: string; authenticated: boolean; code?: AuthErrorCode };
 
 interface ConnHarness {
   ctx: any;
@@ -74,14 +74,13 @@ async function createHarness(opts: { withProfile?: boolean; withClient?: boolean
       absorbAuth: vi.fn(),
       refreshAuth: vi.fn(async () => null), // default: refresh fails so full login runs
       jwt: null, // default: no JWT yet
-      get via() { return (this as any)._via ?? null; },
+      commandUser: 'admin',
     };
     vi.spyOn(bmpModule.BmpClient.prototype, 'testConnection').mockImplementation(async function (this: any) {
       // BmpAuth.jwt/via are getters — write to the backing fields. `this` is the
-      // throwaway testClient (a real BmpClient), so authVia reads back from here.
+      // Mark the throwaway test client as authenticated.
       if (testConnResult.ok) {
         this.auth._jwt = 'mock-jwt';
-        this.auth._via = testConnResult.via ?? 'password';
       }
       return testConnResult;
     });
@@ -89,7 +88,7 @@ async function createHarness(opts: { withProfile?: boolean; withClient?: boolean
 
   const settings: InspectorSettings = withProfile ? {
     schemaVersion: 1,
-    profiles: [{ id: 'p1', label: 'P1', bmpUrl: 'https://bmp.test/Workspace/', bmpUser: 'admin', bmpPass: 'pass' }],
+    profiles: [{ id: 'p1', label: 'P1', bmpUrl: 'https://bmp.test/Workspace/', bmpUser: 'admin', bmpPass: 'pass', commandAuthMode: 'portal' }],
     activeProfileId: 'p1',
     autoDetect: true,
     saveTarget: 'instance',
@@ -136,7 +135,7 @@ describe('computeConnectionState — initial states', () => {
     const h = await createHarness({ withProfile: false });
     const state = h.conn.computeConnectionState();
     expect(state.display).toBe('not-configured');
-    expect(state.user).toBeNull();
+    expect(state.identities.command.user).toBeNull();
     expect(state.profileLabel).toBeNull();
   });
 
@@ -156,7 +155,7 @@ describe('computeConnectionState — auth result precedence', () => {
 
     const state = h.conn.computeConnectionState();
     expect(state.display).toBe('connected');
-    expect(state.user).toBe('admin');
+    expect(state.identities.command.user).toBe('admin');
   });
 
   it('authResult=ok + healthUp=up: still connected', async () => {
@@ -282,7 +281,7 @@ describe('command outcome observation', () => {
   });
 });
 
-describe('computeConnectionState — session-piggyback states + authVia', () => {
+describe('computeConnectionState — explicit command identity', () => {
   it('failed + code needs-login + health up → needs-login', async () => {
     const h = await createHarness();
     h.setTestConnection({ ok: false, message: 'no session', authenticated: false, code: 'needs-login' });
@@ -311,25 +310,49 @@ describe('computeConnectionState — session-piggyback states + authVia', () => 
     expect(h.conn.computeConnectionState().display).toBe('unreachable');
   });
 
-  it('connected via session surfaces authVia=session; via=password when bootstrapped', async () => {
+  it('connected portal mode surfaces the verified command actor', async () => {
     const h = await createHarness();
-    h.setTestConnection({ ok: true, message: 'OK', authenticated: true, via: 'session' });
+    h.setTestConnection({ ok: true, message: 'OK', authenticated: true });
     await h.conn.runAuthTest();
-    expect(h.conn.computeConnectionState().authVia).toBe('session');
-
-    const h2 = await createHarness();
-    h2.setTestConnection({ ok: true, message: 'OK', authenticated: true, via: 'password' });
-    await h2.conn.runAuthTest();
-    expect(h2.conn.computeConnectionState().authVia).toBe('password');
+    expect(h.conn.computeConnectionState().identities.command).toMatchObject({
+      status: 'connected',
+      user: 'admin',
+      source: 'portal-session',
+    });
   });
 
-  it('authVia is null when not connected', async () => {
+  it('does not claim a command actor when auth fails', async () => {
     const h = await createHarness();
     h.setTestConnection({ ok: false, message: 'no role', authenticated: false, code: 'no-config-access' });
     h.setHealthResult({ up: true, reachable: true });
     await h.conn.runAuthTest();
     await h.conn.pollHealth();
-    expect(h.conn.computeConnectionState().authVia).toBeNull();
+    expect(h.conn.computeConnectionState().identities.command.user).toBeNull();
+  });
+
+  it('retires a borrowed command ticket after a verified portal logout', async () => {
+    const h = await createHarness();
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      redirected: false,
+      url: 'https://bmp.test/Workspace/cs/authentication',
+    } as Response)));
+    try {
+      h.setTestConnection({ ok: true, message: 'stale ticket still works', authenticated: true });
+      await h.conn.runAuthTest();
+
+      expect(h.ctx.client.auth.logout).toHaveBeenCalledTimes(1);
+      expect(h.conn.computeConnectionState()).toMatchObject({
+        display: 'needs-login',
+        identities: {
+          portal: { status: 'unavailable', user: null },
+          command: { status: 'unavailable', user: null },
+        },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

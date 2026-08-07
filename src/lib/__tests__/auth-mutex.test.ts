@@ -47,7 +47,7 @@ beforeEach(() => {
       } as any;
     }
     if (urlStr.includes('/ticket')) {
-      return new Response('ticket-abc', { status: 200 });
+      return new Response('admin;STUDIO;42', { status: 200 });
     }
     return { ok: false, status: 404, text: async () => '' } as any;
   });
@@ -181,8 +181,12 @@ describe('BmpAuth login mutex', () => {
     expect(await auth.restoreFromSession()).toBe(false);
     expect(auth.jwt).toBeNull();
     await vi.waitFor(async () => {
-      const saved = (await chrome.storage.session.get('crev_jwt_p1')).crev_jwt_p1;
-      expect(saved).toMatchObject({ jwt: null, refreshToken: 'usable-refresh' });
+      const saved = (await chrome.storage.session.get('crev_command_auth_v2_p1')).crev_command_auth_v2_p1;
+      expect(saved).toMatchObject({
+        kind: 'portal-token',
+        jwt: null,
+        refreshToken: 'usable-refresh',
+      });
     });
   });
 
@@ -225,7 +229,7 @@ describe('BmpAuth login mutex', () => {
       auth.refreshLoginTicket(),
     ]);
 
-    expect(tickets).toEqual(['ticket-abc', 'ticket-abc', 'ticket-abc', 'ticket-abc']);
+    expect(tickets).toEqual(['admin;STUDIO;42', 'admin;STUDIO;42', 'admin;STUDIO;42', 'admin;STUDIO;42']);
     expect(fetchCallCount).toBe(1);
   });
 });

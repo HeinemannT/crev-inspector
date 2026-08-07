@@ -30,7 +30,7 @@ import { h, svg, render as renderDom } from '../lib/dom'
 import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
 import { objectChip } from '../lib/object-chip'
 import { sendRequest, sendFireForget } from '../lib/messaging'
-import { confirmModal } from '../lib/modal'
+import { confirmCommandModal, confirmModal } from '../lib/modal'
 import { type StudioChild, type StudioChildType, type InspectorMessage } from '../lib/types'
 import { ICON_PLAY, ICON_REFRESH, ICON_CHECK, ICON_X, ICON_WARNING, ICON_WRAP, ICON_BRACKETS, ICON_SPARKLE } from '../lib/icons'
 import { fetchAiConfig } from '../editor-core/ai-config'
@@ -963,7 +963,7 @@ async function doAddChild(childType: StudioChildType): Promise<void> {
 async function doRemoveChild(c: StudioChild): Promise<void> {
   const current = ctx
   if (!current) return
-  const ok = await confirmModal({
+  const ok = await confirmCommandModal({
     title: 'Remove input?',
     body: `Delete the "${c.key}" ${c.type} input (${c.id}) from this CVO? This removes the _data.${CHILD_MAP[c.type]}.${c.key} slot.`,
     confirmLabel: 'Remove',
@@ -1104,7 +1104,7 @@ async function doSave() {
 async function doSaveInner(target: StudioContext['instance'], dirty: StudioCodeProp[]): Promise<void> {
   const current = ctx
   if (!surface || !current) return
-  const ok = await confirmModal({
+  const ok = await confirmCommandModal({
     title: dirty.length > 1 ? `Save ${dirty.join(' + ')}` : `Save ${dirty[0]}`,
     body: `Write ${dirty.join(' and ')} to "${target.name || target.businessId || target.rid}"?`,
     confirmLabel: 'Save',

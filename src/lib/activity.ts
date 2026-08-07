@@ -13,9 +13,20 @@ import { getCtx } from './sw-context';
 import { debounce } from './util';
 import { log } from './logger';
 import { ACTIVITY_MAX, ACTIVITY_PERSIST_DELAY } from './constants';
+import { currentCommandActor } from './command-actor';
 
 const activityLog: ActivityEntry[] = [];
 let activitySeq = 0;
+const COMMAND_CHANGE_ACTIONS = new Set(['save-property', 'edit-object']);
+
+function describesCommandWork(meta: ActivityMeta | undefined): boolean {
+  if (!meta) return false;
+  if (meta.category === 'execution'
+    || meta.category === 'blueprint'
+    || meta.category === 'paint'
+    || meta.category === 'studio') return true;
+  return meta.category === 'change' && Boolean(meta.action && COMMAND_CHANGE_ACTIONS.has(meta.action));
+}
 
 const persistActivity = debounce(() => {
   chrome.storage.local.set({ crev_activity: { entries: activityLog, seq: activitySeq } }).catch(e => log.swallow('activity:persist', e));
@@ -42,6 +53,8 @@ export async function restoreActivity(): Promise<void> {
 export function logActivity(level: ActivityEntry['level'], message: string, detail?: string, meta?: ActivityMeta) {
   const ctx = getCtx();
   const profileId = ctx.settings?.activeProfileId || undefined;
+  const actor = currentCommandActor();
+  const commandActivity = describesCommandWork(meta);
   const entry: ActivityEntry = {
     id: ++activitySeq,
     time: Date.now(),
@@ -49,6 +62,7 @@ export function logActivity(level: ActivityEntry['level'], message: string, deta
     message,
     detail,
     profileId,
+    ...(actor && commandActivity ? { commandActor: actor.user, commandAuthSource: actor.source } : {}),
     ...meta,
   };
   activityLog.push(entry);

@@ -28,6 +28,7 @@ function makeSettings(overrides: Partial<InspectorSettings> = {}): InspectorSett
       bmpUrl: 'https://bmp.test/Workspace/',
       bmpUser: 'admin',
       bmpPass: 'pass',
+      commandAuthMode: 'portal',
     }],
     activeProfileId: 'prof-1',
     autoDetect: true,
@@ -84,25 +85,27 @@ describe('absorbAuth persists tokens', () => {
     const source = new BmpAuth('https://bmp.test/', 'admin', 'pass', 'prof-src');
     (source as any)._jwt = 'jwt-from-source';
     (source as any)._refreshToken = 'refresh-from-source';
-    (source as any)._via = 'session';
 
     const target = new BmpAuth('https://bmp.test/', 'admin', 'pass', 'prof-tgt');
     target.absorbAuth(source);
 
     expect(target.jwt).toBe('jwt-from-source');
-    // absorbAuth also carries the "how we connected" marker.
-    expect(target.via).toBe('session');
 
     // Wait for the async persist to complete
     await vi.waitFor(() => {
       expect(chrome.storage.session.set).toHaveBeenCalled();
     });
 
-    // Verify the stored data (the via is persisted alongside the tokens so it
-    // survives refresh + SW restart).
+    // Verify the strategy-specific, stamped portal-token envelope.
     const setCall = (chrome.storage.session.set as any).mock.calls[0][0];
     const key = Object.keys(setCall)[0];
-    expect(setCall[key]).toEqual({ jwt: 'jwt-from-source', refreshToken: 'refresh-from-source', via: 'session' });
+    expect(setCall[key]).toMatchObject({
+      version: 2,
+      kind: 'portal-token',
+      jwt: 'jwt-from-source',
+      refreshToken: 'refresh-from-source',
+      stamp: { profileId: 'prof-tgt', mode: 'portal' },
+    });
   });
 
   it('tokens survive session restore after absorbAuth', async () => {
@@ -156,7 +159,7 @@ describe('runAuthTest broadcasts RE_ENRICH after success', () => {
     });
     ctx.client = {
       jwt: 'new-jwt',
-      authVia: 'password',
+      commandUser: 'admin',
       testConnection,
       applyVersionFlags: vi.fn(),
       supportsLookup: true,
@@ -182,7 +185,7 @@ describe('runAuthTest broadcasts RE_ENRICH after success', () => {
     const ctx = makeCtx();
     ctx.client = {
       jwt: 'valid-jwt',
-      authVia: 'password',
+      commandUser: 'admin',
       testConnection: vi.fn().mockResolvedValue({
         ok: false, message: 'Cannot reach command socket', authenticated: true,
       }),
@@ -246,7 +249,7 @@ describe('runAuthTest broadcasts RE_ENRICH after success', () => {
     );
     const oldClient = {
       jwt: 'old-jwt',
-      authVia: 'password',
+      commandUser: 'admin',
       testConnection: vi.fn(() => probe),
       applyVersionFlags: vi.fn(),
     } as any;
@@ -284,7 +287,7 @@ describe('no concurrent logins (race condition prevention)', () => {
 
     ctx.client = {
       jwt: 'old-jwt',
-      authVia: 'password',
+      commandUser: 'admin',
       testConnection,
       applyVersionFlags: vi.fn(),
       supportsLookup: true,

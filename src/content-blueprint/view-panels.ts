@@ -23,6 +23,7 @@ import {
 } from '../lib/layout/portable-ids';
 import { showToast } from '../lib/toast';
 import { bp, model, type ApplyOutcome } from './state';
+import { currentCommandActor } from '../lib/command-actor';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
 import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, toggleSettings, closeSettings, discard, armDiscard, disarmDiscard, openApplyPreview, exitBlueprint, setMode, dismissApplyOutcome } from './actions';
 import { setEditTarget } from '../content-blueprint'; // runtime-only (click handler) — no init-time cycle
@@ -251,6 +252,12 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   const list = document.createElement('div'); list.className = 'bp-modal-list';
   for (const note of notes) list.appendChild(planRow(note));
   card.appendChild(list);
+  const actor = currentCommandActor();
+  const actorRow = document.createElement('div');
+  actorRow.className = 'bp-modal-actor';
+  actorRow.textContent = actor?.text ?? 'Command identity is not currently verified';
+  if (!actor) actorRow.classList.add('unverified');
+  card.appendChild(actorRow);
   const foot = document.createElement('div'); foot.className = 'bp-modal-foot';
   // Copy EC (left) — the WHOLE compiled program, ready to paste into the EC console / a transport script.
   if (bp.previewScript) {

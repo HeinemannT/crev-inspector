@@ -175,6 +175,14 @@ export class LogTab implements Tab {
                   ? h('span', { class: `activity-caret${isOpen ? ' activity-caret--open' : ''}`, 'aria-hidden': 'true' }, svg(ICON_CHEVRON))
                   : null,
                 h('span', { class: 'activity-msg-text' }, entry.message)),
+              entry.commandActor
+                ? h('span', {
+                    class: 'activity-actor',
+                    title: entry.commandAuthSource === 'stored-login'
+                      ? 'Configuration command ran with the stored login'
+                      : 'Configuration command ran with the browser session',
+                  }, `as ${entry.commandActor}`)
+                : null,
               count > 1 ? h('span', { class: 'activity-count', title: `Repeated ${count} times` }, `×${count}`) : null,
               h('span', { class: 'activity-time' }, relativeTime(entry.time)),
               isOpen ? h('pre', { class: 'activity-detail' }, entry.detail) : null,

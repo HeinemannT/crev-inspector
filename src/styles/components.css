@@ -271,6 +271,14 @@
   overflow-y: auto;
 }
 
+.crev-modal-actor {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) 0 0;
+  border-top: 1px solid var(--surface-4);
+  color: var(--text-3);
+  font: 10px/1.35 var(--font-mono);
+}
+
 .crev-modal-diff-list {
   display: flex;
   flex-direction: column;
