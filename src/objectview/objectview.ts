@@ -675,16 +675,16 @@ function renderPane(): void {
   };
   const targetToggle = h('div', { class: 'pane-target-toggle', role: 'tablist', 'aria-label': 'Save target' },
     h('button', {
-      class: `pane-target-btn${target === 'instance' ? ' active' : ''}`,
-      role: 'tab', 'aria-selected': target === 'instance' ? 'true' : 'false',
-      onClick: () => switchTarget('instance'),
-    }, 'Instance'),
-    h('button', {
       class: `pane-target-btn${target === 'template' ? ' active' : ''}`,
       role: 'tab', 'aria-selected': target === 'template' ? 'true' : 'false',
       disabled: !hasTemplate,
       onClick: () => switchTarget('template'),
     }, 'Template'),
+    h('button', {
+      class: `pane-target-btn${target === 'instance' ? ' active' : ''}`,
+      role: 'tab', 'aria-selected': target === 'instance' ? 'true' : 'false',
+      onClick: () => switchTarget('instance'),
+    }, 'Instance'),
   );
 
   // Two-row header: hierarchy + tools, then identity + source.

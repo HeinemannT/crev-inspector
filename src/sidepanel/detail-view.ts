@@ -52,6 +52,7 @@ import { renderPropertyView } from './sections/property-view';
 import { panePresentation } from './pane-presentation';
 import { editFieldPropertyRelation } from '../lib/edit-field-property';
 import { intersectTypeSchemas } from '../lib/type-schema-utils';
+import { resolveDisplayIdentity } from '../lib/object-identity';
 
 type SendFn = (msg: InspectorMessage) => void;
 type SaveTarget = 'instance' | 'template';
@@ -653,11 +654,16 @@ export class DetailView {
 
   // ── Rendering ────────────────────────────────────────────────────
 
-  /** The header type badge — click copies the business id (green ✓ flash),
+  /** The header type badge — click copies the primary display id (green ✓ flash),
    *  the panel-wide badge gesture. */
-  private identityBadge(rid: string, businessId: string | undefined, type: string | undefined): HTMLElement {
-    const id = businessId || rid;
-    const b = wireBadgeCopy(typeBadge(type), () => id, {
+  private identityBadge(
+    rid: string,
+    businessId: string | undefined,
+    templateBusinessId: string | undefined,
+    type: string | undefined,
+  ): HTMLElement {
+    const display = resolveDisplayIdentity({ rid, businessId, templateBusinessId });
+    const b = wireBadgeCopy(typeBadge(type), () => display.primary, {
       onCopied: copied => statusFlash(`Copied ${copied} \u2713`),
     });
     b.classList.add('pane-id-bdg');
@@ -800,7 +806,7 @@ export class DetailView {
     const header = h('div', { class: 'dv-header' },
       pathBar,
       h('div', { class: 'dv-idrow' },
-        this.identityBadge(s.rid, s.identity.businessId, s.identity.type),
+        this.identityBadge(s.rid, s.identity.businessId, s.template?.businessId, s.identity.type),
         h('span', { class: 'dv-idname', title: s.identity.name }, curLabel),
         panePresentation(s.identity.type, s.isPropertyDefinition).showTargetToggle
           ? this.renderTargetToggle(hasTemplate, panel)
@@ -884,27 +890,6 @@ export class DetailView {
   private renderTargetToggle(hasTemplate: boolean, panel: HTMLElement): HTMLElement {
     return h('div', { class: 'pane-target-toggle', role: 'tablist', 'aria-label': 'Save target' },
       h('button', {
-        class: `pane-target-btn${this.target === 'instance' ? ' active' : ''}`,
-        role: 'tab',
-        'aria-selected': this.target === 'instance' ? 'true' : 'false',
-        title: 'Save to this instance only',
-        onClick: async () => {
-          if (this.target === 'instance') return;
-          if (Object.keys(this.draft).length > 0) {
-            const ok = await confirmModal({
-              title: 'Discard draft to switch target?',
-              body: 'Switching between template and instance resets your pending edits.',
-              confirmLabel: 'Switch & discard',
-              confirmVariant: 'danger',
-            });
-            if (!ok) return;
-            this.draft = {};
-          }
-          this.target = 'instance';
-          this.renderDetail(panel);
-        },
-      }, 'instance'),
-      h('button', {
         class: `pane-target-btn${this.target === 'template' ? ' active' : ''}`,
         role: 'tab',
         'aria-selected': this.target === 'template' ? 'true' : 'false',
@@ -926,6 +911,27 @@ export class DetailView {
           this.renderDetail(panel);
         },
       }, 'template'),
+      h('button', {
+        class: `pane-target-btn${this.target === 'instance' ? ' active' : ''}`,
+        role: 'tab',
+        'aria-selected': this.target === 'instance' ? 'true' : 'false',
+        title: 'Save to this instance only',
+        onClick: async () => {
+          if (this.target === 'instance') return;
+          if (Object.keys(this.draft).length > 0) {
+            const ok = await confirmModal({
+              title: 'Discard draft to switch target?',
+              body: 'Switching between template and instance resets your pending edits.',
+              confirmLabel: 'Switch & discard',
+              confirmVariant: 'danger',
+            });
+            if (!ok) return;
+            this.draft = {};
+          }
+          this.target = 'instance';
+          this.renderDetail(panel);
+        },
+      }, 'instance'),
     );
   }
 
@@ -1151,6 +1157,11 @@ export class DetailView {
    *  context fields (persistence, actionType, …). */
   private renderInfoPane(panel: HTMLElement): HTMLElement {
     const { rid, businessId, type } = this.state!.identity;
+    const display = resolveDisplayIdentity({
+      rid,
+      businessId,
+      templateBusinessId: this.state!.template?.businessId,
+    });
     const metaRow = (label: string, value: string | undefined, copyable = false) => {
       const valEl = h('span', { class: 'dv-meta-v mono' }, value ?? '—');
       const cells: HTMLElement[] = [h('span', { class: 'dv-meta-k' }, label), valEl];
@@ -1175,7 +1186,8 @@ export class DetailView {
 
     const meta = h('div', { class: 'dv-meta' },
       ...metaRow('Type', type),
-      ...metaRow('Business ID', businessId, true),
+      ...metaRow(display.primaryLabel, display.primary, true),
+      ...(display.secondary ? metaRow('Instance ID', display.secondary, true) : []),
       ...metaRow('RID', rid, true),
     );
 

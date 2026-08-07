@@ -11,7 +11,7 @@
  * A "container key" (for add/reorder) is an InputSet/EditPage/ButtonGroup businessId. Two InputViews
  * backed by one InputSet share the same key, so an edit from either cell stages once (dedupe by key).
  */
-import { cloneModel, tempId } from './model';
+import { cloneModel, findTabOf, tempId } from './model';
 import { minimalReorder } from './reorder';
 import type { FlowEdit, FlowNode, LModel, PlanStep } from './types';
 
@@ -548,10 +548,11 @@ export interface TrayModel {
 
 /** Which action-menu buttons the tray shows for `viewedTabId` — only menu buttons (staged flag flips
  *  respected via flowEdits), filtered to the viewed tab's own + `displayOnAllTabs` ones. Tab attribution
- *  is the button's `container` binding; a RESULT-bound button renders on every tab (BMP renders the
- *  shared Result tab's widgets under each tab), so it counts as "this tab" everywhere. A fetched menu
- *  button staged to the grid STAYS in the tray flagged `leaving` (it owns no grid cell until the
- *  post-apply reload). Pure — the tray renderer and its test both consume this. */
+ *  starts at the button's `container` binding, which can name the tab itself OR any nested container
+ *  below it. A RESULT-bound button renders on every tab (BMP renders the shared Result tab's widgets
+ *  under each tab), so it counts as "this tab" everywhere. A fetched menu button staged to the grid
+ *  STAYS in the tray flagged `leaving` (it owns no grid cell until the post-apply reload). Pure — the
+ *  tray renderer and its tests both consume this. */
 export function trayButtons(m: LModel, viewedTabId: string | null): TrayModel {
   const shown: TrayEntry[] = [];
   let otherTabs = 0;
@@ -563,7 +564,11 @@ export function trayButtons(m: LModel, viewedTabId: string | null): TrayModel {
     if (!onMenu && !fetched) continue; // never menu-visible
     const allTabs = e?.displayOnAllTabs ?? p.displayOnAllTabs ?? false;
     const boundTab = p.container ?? '';
-    const onThisTab = allTabs || boundTab === 'RESULT' || boundTab === '' || boundTab === viewedTabId;
+    const ownerTabId = boundTab ? findTabOf(m, boundTab)?.id : null;
+    const onThisTab = allTabs
+      || boundTab === 'RESULT'
+      || boundTab === ''
+      || ownerTabId === viewedTabId;
     if (onThisTab) shown.push({ p, ...(fetched && !onMenu ? { leaving: true } : {}) });
     else otherTabs++;
   }

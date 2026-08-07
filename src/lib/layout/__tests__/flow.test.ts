@@ -64,17 +64,25 @@ function flowModel(): LModel {
     },
     // action-menu buttons for the tray
     '50849': { ownerId: '50849', ownerRid: 'r_ab1', ownerClass: 'ActionButton', kind: 'action', actionType: 'ACTION', displayOnActionMenu: true, displayOnAllTabs: true, container: 'RESULT', children: [], transports: [{ className: 'ExtendedTransport', name: 'Extended action', codeSet: true }] },
-    '50863': { ownerId: '50863', ownerRid: 'r_ab2', ownerClass: 'ActionButton', kind: 'add', actionType: 'ADD', displayOnActionMenu: true, addItem: 'Risk Statement', container: 'tab2', children: [] },
+    '50863': { ownerId: '50863', ownerRid: 'r_ab2', ownerClass: 'ActionButton', kind: 'add', actionType: 'ADD', displayOnActionMenu: true, addItem: 'Risk Statement', container: 'tab2-actions', children: [] },
     '50843': { ownerId: '50843', ownerRid: 'r_ab3', ownerClass: 'ActionButton', kind: 'action', actionType: 'ACTION', displayOnActionMenu: false, container: 'RESULT', children: [] },
   };
   return {
     pageId: 'template_example_flow', pageRid: 'r_page', pageClass: 'Scorecard', tabsetId: 'default_tabset',
-    tabs: [n({ id: 'RESULT', kind: 'tab', className: 'Tab', name: 'Result', children: [
-      n({ id: '50844', kind: 'widget', className: 'InputView', name: 'Input view' }),
-      n({ id: '50845', kind: 'widget', className: 'CreateObjectView', name: 'COV Editor Add' }),
-      n({ id: '50848', kind: 'widget', className: 'CreateObjectView', name: 'COV Editor Edit' }),
-      n({ id: '50843', kind: 'widget', className: 'ActionButton', name: 'In page' }),
-    ] })],
+    tabs: [
+      n({ id: 'RESULT', kind: 'tab', className: 'Tab', name: 'Result', children: [
+        n({ id: '50844', kind: 'widget', className: 'InputView', name: 'Input view' }),
+        n({ id: '50845', kind: 'widget', className: 'CreateObjectView', name: 'COV Editor Add' }),
+        n({ id: '50848', kind: 'widget', className: 'CreateObjectView', name: 'COV Editor Edit' }),
+        n({ id: '50843', kind: 'widget', className: 'ActionButton', name: 'In page' }),
+      ] }),
+      n({ id: 'tab1', kind: 'tab', className: 'Tab', name: 'First', children: [] }),
+      n({ id: 'tab2', kind: 'tab', className: 'Tab', name: 'Second', children: [
+        n({ id: 'tab2-column', kind: 'container', className: 'Container', children: [
+          n({ id: 'tab2-actions', kind: 'container', className: 'Container' }),
+        ] }),
+      ] }),
+    ],
     target: 'instance', hasTemplate: false,
     flows,
   };
@@ -415,15 +423,45 @@ describe('parseFlows enum normalization + wire parsing (pitfalls 3/4)', () => {
 
 // ── tray filtering ───────────────────────────────────────────────────────────
 describe('trayButtons tab filtering', () => {
-  it('shows the viewed tab\'s buttons + all-tabs + RESULT-bound; counts the rest honestly', () => {
+  it('resolves a button bound to a deeply nested container onto its real tab', () => {
     const m = flowModel();
     const t1 = trayButtons(m, 'tab1');
-    // 50849 (all tabs, RESULT) shown; 50863 bound to tab2, NOT all-tabs → other count
+    // 50849 (all tabs, RESULT) shown; 50863 is two containers below tab2.
     expect(t1.shown.map(e => e.p.ownerId)).toEqual(['50849']);
     expect(t1.otherTabs).toBe(1);
     const t2 = trayButtons(m, 'tab2');
     expect(t2.shown.map(e => e.p.ownerId).sort()).toEqual(['50849', '50863']);
     expect(t2.otherTabs).toBe(0);
+  });
+
+  it('honours direct-tab, RESULT, unbound, and staged all-tabs scope through the same filter', () => {
+    const base = flowModel();
+    base.flows = {
+      direct: {
+        ownerId: 'direct', ownerClass: 'ActionButton', kind: 'plain',
+        displayOnActionMenu: true, container: 'tab1', children: [],
+      },
+      result: {
+        ownerId: 'result', ownerClass: 'ActionButton', kind: 'plain',
+        displayOnActionMenu: true, container: 'RESULT', children: [],
+      },
+      unbound: {
+        ownerId: 'unbound', ownerClass: 'ActionButton', kind: 'plain',
+        displayOnActionMenu: true, container: '', children: [],
+      },
+      scoped: {
+        ownerId: 'scoped', ownerClass: 'ActionButton', kind: 'plain',
+        displayOnActionMenu: true, displayOnAllTabs: false, container: 'tab2-actions', children: [],
+      },
+    };
+
+    expect(trayButtons(base, 'tab1').shown.map(e => e.p.ownerId)).toEqual(['direct', 'result', 'unbound']);
+    expect(trayButtons(base, 'tab1').otherTabs).toBe(1);
+
+    const allTabs = setActionFlag(base, 'scoped', 'displayOnAllTabs', true);
+    expect(trayButtons(allTabs, 'tab1').shown.map(e => e.p.ownerId))
+      .toEqual(['direct', 'result', 'unbound', 'scoped']);
+    expect(trayButtons(allTabs, 'tab1').otherTabs).toBe(0);
   });
 
   it('excludes in-grid buttons, and respects a STAGED displayOnActionMenu flip both ways', () => {

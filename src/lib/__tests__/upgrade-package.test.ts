@@ -1,6 +1,6 @@
 /**
  * Tests for the upgrade package changes:
- * - Shift-click "No template" fallback (namespace.ts)
+ * - Template-first copy gestures (namespace.ts)
  * - CACHE_DATA empty guard (objects-tab logic)
  * - batchEnrich error when all refs fail
  * - FETCH_CHILDREN handler
@@ -9,40 +9,40 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ── Shift-click "No template" (namespace.ts) ──────────────────────
+// ── Template-first copy gestures (namespace.ts) ───────────────────
 
-describe('resolveCopyText shift-click fallback', () => {
-  it('returns templateBusinessId when available', async () => {
+describe('resolveCopyText template-first semantics', () => {
+  it('returns templateBusinessId on a plain click when available', async () => {
     const { resolveCopyText } = await import('../namespace');
     const result = resolveCopyText(
       { rid: '123', businessId: 'myObj', templateBusinessId: 'myTemplate' },
-      'shift',
+      'plain',
     );
     expect(result.text).toBe('myTemplate');
     expect(result.label).toBe('Template ID');
   });
 
-  it('returns empty text with "No template" label when templateBusinessId missing', async () => {
-    const { resolveCopyText } = await import('../namespace');
-    const result = resolveCopyText(
-      { rid: '123', businessId: 'myObj' },
-      'shift',
-    );
-    expect(result.text).toBe('');
-    expect(result.label).toBe('No template');
-  });
-
-  it('returns empty text when both businessId and templateBusinessId missing', async () => {
-    const { resolveCopyText } = await import('../namespace');
-    const result = resolveCopyText({ rid: '123' }, 'shift');
-    expect(result.text).toBe('');
-    expect(result.label).toBe('No template');
-  });
-
-  it('plain click returns businessId regardless of template', async () => {
+  it('returns the concrete instance on shift when a template is available', async () => {
     const { resolveCopyText } = await import('../namespace');
     const result = resolveCopyText(
       { rid: '123', businessId: 'myObj', templateBusinessId: 'myTemplate' },
+      'shift',
+    );
+    expect(result.text).toBe('myObj');
+    expect(result.label).toBe('Instance ID');
+  });
+
+  it('returns empty text when no concrete instance ID exists', async () => {
+    const { resolveCopyText } = await import('../namespace');
+    const result = resolveCopyText({ rid: '123' }, 'shift');
+    expect(result.text).toBe('');
+    expect(result.label).toBe('No instance ID');
+  });
+
+  it('plain click falls back to businessId without a template', async () => {
+    const { resolveCopyText } = await import('../namespace');
+    const result = resolveCopyText(
+      { rid: '123', businessId: 'myObj' },
       'plain',
     );
     expect(result.text).toBe('myObj');

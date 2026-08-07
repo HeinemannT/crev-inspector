@@ -9,6 +9,7 @@
 import { h } from './dom';
 import { sendFireForget, sendRequest } from './messaging';
 import { buildObjectCard } from './object-card';
+import { resolveDisplayIdentity } from './object-identity';
 import { typeBadge } from './type-badge';
 import { getTypeColor, type ObjectReference } from './types';
 
@@ -34,6 +35,7 @@ interface ResolvedPreview {
   name?: string;
   type?: string;
   businessId?: string;
+  templateBusinessId?: string;
   codePreview?: string;
 }
 
@@ -126,6 +128,7 @@ function mergedIdentity(identity: ObjectReference, resolved?: ResolvedPreview): 
     name: identity.name || resolved?.name,
     type: identity.type || resolved?.type,
     businessId: identity.businessId || resolved?.businessId,
+    templateBusinessId: identity.templateBusinessId || resolved?.templateBusinessId,
   };
 }
 
@@ -179,6 +182,7 @@ async function enrichPreview(
     name: response.name,
     type: response.objectType,
     businessId: response.businessId,
+    templateBusinessId: response.templateBusinessId,
     codePreview: response.codePreview,
   };
   previewCache.set(identity.rid, resolved);
@@ -213,8 +217,9 @@ function wirePreview(anchor: HTMLElement, identity: ObjectReference, options: Ob
 
 export function objectChip(identity: ObjectReference, options: ObjectChipOptions = {}): HTMLElement {
   const interactive = !!options.onActivate;
-  const label = options.label ?? identity.name ?? identity.businessId ?? identity.rid;
-  const shownId = identity.businessId || identity.rid;
+  const display = resolveDisplayIdentity(identity);
+  const label = options.label ?? identity.name ?? display.primary;
+  const shownId = display.primary;
   const className = [
     'object-chip',
     options.size === 'xs' ? 'object-chip--xs' : '',

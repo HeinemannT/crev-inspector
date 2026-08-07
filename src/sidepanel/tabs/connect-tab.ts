@@ -903,12 +903,9 @@ export class ConnectTab implements Tab {
         );
 
     const customFields = provider === 'custom'
-      ? h('div', { class: 'ai-custom' },
-          h('div', { class: 'ai-custom-head' },
-            h('div', {},
-              h('div', { class: 'field-label' }, 'Custom endpoint'),
-              h('div', { class: 'field-hint' }, 'Connect one OpenAI- or Anthropic-compatible endpoint.'),
-            ),
+      ? h('div', { class: 'ai-custom-fields' },
+          h('div', { class: 'ai-custom-intro' },
+            h('span', { class: 'field-hint' }, 'Connect one OpenAI- or Anthropic-compatible endpoint.'),
             h('button', {
               class: 'btn-micro help-btn ai-custom-help',
               type: 'button',
@@ -921,7 +918,7 @@ export class ConnectTab implements Tab {
                 this.aiJsonHelpOpen = !this.aiJsonHelpOpen;
                 const button = event.currentTarget as HTMLButtonElement;
                 button.setAttribute('aria-expanded', this.aiJsonHelpOpen ? 'true' : 'false');
-                const help = button.closest('.ai-custom')?.querySelector<HTMLElement>('#ai-provider-json-help');
+                const help = button.closest('.ai-custom-fields')?.querySelector<HTMLElement>('#ai-provider-json-help');
                 if (help) help.hidden = !this.aiJsonHelpOpen;
               },
             }, '?'),
@@ -1159,11 +1156,11 @@ export class ConnectTab implements Tab {
       {
         title: 'Pill (page badge)',
         rows: [
-          { kind: 'note', action: 'Click', key: 'open in sidebar' },
+          { kind: 'note', action: 'Click', key: 'open + copy primary ID' },
           { kind: 'note', action: 'Double-click', key: 'quick inspector' },
           { kind: 'note', action: 'Alt-click', key: 'copy RID' },
-          { kind: 'note', action: 'Shift-click', key: 'copy template ID' },
-          { kind: 'note', action: 'Ctrl-click', key: 'copy namespace reference' },
+          { kind: 'note', action: 'Shift-click', key: 'copy instance ID' },
+          { kind: 'note', action: 'Ctrl-click', key: 'copy instance reference' },
         ],
       },
       {

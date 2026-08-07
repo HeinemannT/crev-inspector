@@ -167,7 +167,15 @@ register('HOVER_LOOKUP', async (msg, respond) => {
   const cached = ctx.cache.get(msg.rid);
   if (cached?.name || cached?.type) {
     const codePreview = extractCachedCode(cached);
-    respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid, name: cached.name, objectType: cached.type, businessId: cached.businessId, codePreview });
+    respond({
+      type: 'HOVER_LOOKUP_RESULT',
+      rid: msg.rid,
+      name: cached.name,
+      objectType: cached.type,
+      businessId: cached.businessId,
+      templateBusinessId: cached.templateBusinessId,
+      codePreview,
+    });
     return;
   }
   // Slow path: EC lookup (identity only — no code fetch for RID lookups)
@@ -177,6 +185,7 @@ register('HOVER_LOOKUP', async (msg, respond) => {
     respond({
       type: 'HOVER_LOOKUP_RESULT', rid: msg.rid,
       name: identity?.name, objectType: identity?.type, businessId: identity?.businessId,
+      templateBusinessId: identity?.templateBusinessId,
     });
   } catch {
     respond({ type: 'HOVER_LOOKUP_RESULT', rid: msg.rid });

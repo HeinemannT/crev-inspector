@@ -328,6 +328,25 @@ export function findNode(m: LModel, id: string): Found | null {
   return inList(m.tabs, null);
 }
 
+/** Resolve any tab, container, or widget id to its enclosing tab.
+ *
+ * BMP bindings do not consistently point at the tab itself: widgets and action
+ * buttons commonly carry the id of a container nested several levels below it.
+ * Keeping that ownership walk in the model layer gives layout editing and
+ * presentation filters one authoritative answer. */
+export function findTabOf(m: LModel, id: string): LNode | null {
+  const found = findNode(m, id);
+  if (!found) return null;
+  if (found.node.kind === 'tab') return found.node;
+
+  let parent = found.parent;
+  while (parent) {
+    if (parent.kind === 'tab') return parent;
+    parent = findNode(m, parent.id)?.parent ?? null;
+  }
+  return null;
+}
+
 /** Depth-first walk over every node (tabs included). */
 export function walk(m: LModel, fn: (n: LNode, parent: LNode | null) => void): void {
   const rec = (list: LNode[], parent: LNode | null) => {

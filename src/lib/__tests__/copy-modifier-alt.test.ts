@@ -51,13 +51,30 @@ describe('alt-modifier copy semantics', () => {
   });
 
   describe('non-alt paths still work', () => {
-    it('plain returns businessId (label: ID)', () => {
+    it('plain returns the template ID when available', () => {
       const result = resolveCopyText(
-        { rid: '6655481628892308703', businessId: '716' },
+        {
+          rid: '6655481628892308703',
+          businessId: '716',
+          templateBusinessId: 'requirement_template',
+        },
         'plain',
       );
+      expect(result.text).toBe('requirement_template');
+      expect(result.label).toBe('Template ID');
+    });
+
+    it('shift retains the concrete instance ID', () => {
+      const result = resolveCopyText(
+        {
+          rid: '6655481628892308703',
+          businessId: '716',
+          templateBusinessId: 'requirement_template',
+        },
+        'shift',
+      );
       expect(result.text).toBe('716');
-      expect(result.label).toBe('ID');
+      expect(result.label).toBe('Instance ID');
     });
 
     it('ctrl returns namespace reference', () => {

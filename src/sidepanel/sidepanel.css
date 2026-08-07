@@ -4642,20 +4642,17 @@ button.flow-property-ref:hover {
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 }
 
-.ai-custom {
-  margin: 2px 0 4px;
-  padding: 10px;
-  border: 1px solid var(--surface-3);
-  border-radius: var(--radius-sm);
-  background: var(--surface-1);
+.ai-custom-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.ai-custom-head {
+.ai-custom-intro {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 9px;
+  gap: 8px;
 }
 
 .ai-custom-help { flex: none; }
@@ -4667,7 +4664,6 @@ button.flow-property-ref:hover {
 .ai-custom-grid .field-group { min-width: 0; }
 
 .ai-json {
-  margin-top: 10px;
   border-top: 1px solid var(--border-subtle);
   padding-top: 8px;
 }

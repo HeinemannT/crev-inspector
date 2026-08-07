@@ -151,7 +151,7 @@ export type ServerLookupMessage =
   | { type: 'LINKED_LOOKUP'; rid: string; objectType: string }
   | { type: 'LINKED_LOOKUP_RESULT'; rid: string; key: string; label: string; linkedId?: string; linkedName?: string; linkedRid?: string; error?: string }
   | { type: 'HOVER_LOOKUP'; rid: string }
-  | { type: 'HOVER_LOOKUP_RESULT'; rid: string; name?: string; objectType?: string; businessId?: string; codePreview?: string }
+  | { type: 'HOVER_LOOKUP_RESULT'; rid: string; name?: string; objectType?: string; businessId?: string; templateBusinessId?: string; codePreview?: string }
   | { type: 'HOVER_RESOLVE'; ref: string }
   | { type: 'HOVER_RESOLVE_RESULT'; ref: string; name?: string; objectType?: string; rid?: string; businessId?: string; codePreview?: string }
   // Cross-window jump: the popout's "Layout ↗" button asks the side

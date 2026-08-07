@@ -22,7 +22,14 @@ import { hasStudio } from '../../studio/studio-mode'
 import { buildObjectCard, supportsObjectCardCode } from '../../lib/object-card'
 import { getTypeColor } from '../../lib/types'
 
-interface HoverInfo { name?: string; type?: string; rid?: string; businessId?: string; codePreview?: string }
+interface HoverInfo {
+  name?: string
+  type?: string
+  rid?: string
+  businessId?: string
+  templateBusinessId?: string
+  codePreview?: string
+}
 
 /** Local cache: key → identity OR null (negative result).
  *
@@ -128,7 +135,14 @@ async function lookupRid(rid: string): Promise<LookupResult> {
     cacheMiss(rid, `BMP returned no identity for RID ${rid}. The object may not exist.`);
     return { info: null, reason: `BMP returned no identity for RID ${rid}. The object may not exist.` };
   }
-  const info: HoverInfo = { name: r.name, type: r.objectType, rid, businessId: r.businessId, codePreview: r.codePreview };
+  const info: HoverInfo = {
+    name: r.name,
+    type: r.objectType,
+    rid,
+    businessId: r.businessId,
+    templateBusinessId: r.templateBusinessId,
+    codePreview: r.codePreview,
+  };
   tooltipCache.set(rid, { info });
   return { info };
 }
@@ -163,6 +177,7 @@ function buildTooltipDom(info: HoverInfo): HTMLElement {
       name: info.name,
       type: info.type,
       businessId: info.businessId,
+      templateBusinessId: info.templateBusinessId,
       rid: info.rid,
       color: getTypeColor(info.type),
       codePreview: info.codePreview,

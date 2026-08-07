@@ -31,6 +31,7 @@ import {
   type BrowseSource, type BrowseSort, type BrowseResult,
 } from '../../lib/browse-blend';
 import { captureTypingFocus } from '../../lib/focus-keep';
+import { resolveDisplayIdentity } from '../../lib/object-identity';
 import type { Tab, SendFn } from './tab-types';
 
 type DropdownKind = 'ce' | 'web' | null;
@@ -370,11 +371,18 @@ export class ObjectsTab implements Tab {
     // report themselves as their own location, which would just echo the name.
     const rawCrumb = r.pageName || r.webParentName || '';
     const crumb = rawCrumb && rawCrumb !== r.name ? rawCrumb : '';
+    const display = resolveDisplayIdentity(r);
+    const identityMeta = [display.primary, crumb].filter(Boolean).join(' \u00b7 ');
+    const identityTitle = [
+      `${display.primaryLabel}: ${display.primary}`,
+      display.secondary ? `Instance ID: ${display.secondary}` : '',
+      crumb ? `Location: ${crumb}` : '',
+    ].filter(Boolean).join('\n');
     const prov = provenance(r);
     return h('div', { class: 'bx-row', 'data-action': 'row-click', 'data-rid': r.rid },
       typeBadge(r.type, { size: 'xs' }),
       h('span', { class: 'bx-name', title: r.name ?? '' }, r.name ?? '(unnamed)'),
-      crumb ? h('span', { class: 'bx-crumb', title: crumb }, crumb) : null,
+      identityMeta ? h('span', { class: 'bx-crumb', title: identityTitle }, identityMeta) : null,
       h('span', { class: `bx-prov bx-prov--${prov}`, title: prov === 'touched' ? 'In your cache (touched)' : 'From the workspace (live)' }),
       h('div', { class: 'bx-row-actions' },
         h('button', {

@@ -9,6 +9,8 @@
  */
 
 /** className → namespace prefix */
+import { resolveDisplayIdentity } from './object-identity';
+
 const NAMESPACE_MAP: Record<string, string> = {
   // Groups / Access / Roles
   Group: 'g', ROLE: 'role', ACCESSPROFILE: 'ap', DEFAULTS: 'd',
@@ -78,12 +80,16 @@ export function resolveCopyText(
     return { text: `${ns}.${identity.businessId}`, label: 'ref' };
   }
   if (modifier === 'shift') {
-    if (identity.templateBusinessId) {
-      return { text: identity.templateBusinessId, label: 'Template ID' };
+    if (identity.businessId) {
+      return {
+        text: identity.businessId,
+        label: identity.templateBusinessId ? 'Instance ID' : 'ID',
+      };
     }
-    return { text: '', label: 'No template' };
+    return { text: '', label: 'No instance ID' };
   }
-  return { text: identity.businessId ?? identity.rid, label: 'ID' };
+  const display = resolveDisplayIdentity(identity);
+  return { text: display.primary, label: display.primaryLabel };
 }
 
 /** Extract copy modifier from a mouse event. Alt takes precedence over Ctrl/Shift
@@ -96,7 +102,7 @@ export function getModifier(e: MouseEvent): CopyModifier {
 }
 
 /** Standard tooltip text for copy buttons with modifier support. */
-export const COPY_TOOLTIP = 'Copy ID (Alt: RID; Shift: template; Ctrl: reference)';
+export const COPY_TOOLTIP = 'Copy primary ID (Shift: instance; Alt: RID; Ctrl: instance reference)';
 
 // ── Namespace validation ─────────────────────────────────────
 

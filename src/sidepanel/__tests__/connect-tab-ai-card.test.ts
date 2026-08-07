@@ -170,6 +170,8 @@ describe('AI Assistant card states', () => {
     expect(el.querySelector('#ai-custom-url')).toBeTruthy();
     expect(el.querySelector('#ai-custom-model')).toBeTruthy();
     expect(el.querySelector('.ai-custom-help')).toBeTruthy();
+    expect(el.querySelector('.ai-custom-fields')).toBeTruthy();
+    expect(el.querySelector('.ai-custom')).toBeNull();
     expect(el.querySelector('#ai-model')).toBeNull();
   });
 

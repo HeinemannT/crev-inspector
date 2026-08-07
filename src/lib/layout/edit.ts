@@ -8,7 +8,7 @@
  * doMoveInto/doSwap/doInsert controllers). `move` is the shared reparent+position primitive.
  * findNode/findTabOf are shared tree helpers used throughout.
  */
-import { cloneModel, cloneNode, findNode, descendantWidgets, tempId, isChart, hasHeight, normalizeModel } from './model';
+import { cloneModel, cloneNode, findNode, findTabOf, descendantWidgets, tempId, isChart, hasHeight, normalizeModel } from './model';
 import type { Breakpoint, LModel, LNode, NodeStyle } from './types';
 
 const clampCol = (n: number): number => Math.max(0, Math.min(6, Math.round(n)));
@@ -277,16 +277,4 @@ export function restoreNode(m: LModel, baseline: LModel, id: string): LModel {
     else if (predecessor) dest.splice(dest.findIndex(node => node.id === predecessor.id) + 1, 0, restored);
     else dest.splice(Math.max(0, Math.min(baseIndex, dest.length)), 0, restored);
   });
-}
-
-/** The enclosing tab LNode of a node (or the node itself if it is a tab). */
-export function findTabOf(m: LModel, id: string): LNode | null {
-  for (const tab of m.tabs) {
-    if (tab.id === id) return tab;
-    let hit = false;
-    const rec = (n: LNode) => { if (n.id === id) hit = true; else n.children.forEach(rec); };
-    tab.children.forEach(rec);
-    if (hit) return tab;
-  }
-  return null;
 }

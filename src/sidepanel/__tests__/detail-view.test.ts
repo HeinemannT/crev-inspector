@@ -667,6 +667,18 @@ describe('DetailView — draft save pipeline (editors live in Blueprint now)', (
 });
 
 describe('DetailView — target toggle', () => {
+  it('presents Template before Instance while keeping instance as the safe edit target', () => {
+    const { dv, panel } = makeDetailView();
+    dv.show(makeObj('100'), panel);
+    dv.handleMessage(paneData('100', { templateRid: '99' }), panel);
+
+    const labels = Array.from(panel.querySelectorAll<HTMLButtonElement>('.pane-target-btn'))
+      .map(button => button.textContent);
+    expect(labels).toEqual(['template', 'instance']);
+    expect(panel.querySelector<HTMLButtonElement>('.pane-target-btn.active')?.textContent)
+      .toBe('instance');
+  });
+
   it('disables the template button when there is no template', () => {
     const { dv, panel } = makeDetailView();
     dv.show(makeObj('100'), panel);

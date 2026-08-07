@@ -14,6 +14,7 @@ beforeEach(() => {
     name: 'Resolved name',
     objectType: 'ExtendedTable',
     businessId: 't.results',
+    templateBusinessId: 'results_template',
   });
   (globalThis as { chrome?: unknown }).chrome = {
     runtime: { sendMessage },
@@ -68,6 +69,7 @@ describe('objectChip', () => {
 
     await Promise.resolve();
     expect(host?.textContent).toContain('Resolved name');
+    expect(host?.textContent).toContain('results_template');
     expect(host?.textContent).toContain('t.results');
   });
 });

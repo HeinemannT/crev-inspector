@@ -12,6 +12,7 @@ import { h, svg } from './dom'
 import { ICON_ARROWS_OUT_SIMPLE, ICON_CHECK, ICON_CODE, ICON_PENCIL, ICON_X } from './icons'
 import {
   normalizeAndValidateIdentity,
+  resolveDisplayIdentity,
   type IdentityEditInput,
   type IdentityField,
   type IdentitySaveResult,
@@ -100,7 +101,12 @@ export function buildObjectCard(data: ObjectCardData, actions: ObjectCardActions
     }, svg(ICON_ARROWS_OUT_SIMPLE)))
   }
 
-  const nameEl = h('div', { class: 'crev-tt-nm' }, name || businessId || '(unnamed)')
+  const displayedIdentity = () => resolveDisplayIdentity({
+    rid: data.rid,
+    businessId,
+    templateBusinessId,
+  })
+  const nameEl = h('div', { class: 'crev-tt-nm' }, name || displayedIdentity().primary || '(unnamed)')
   const actionBar = h('div', { class: 'crev-tt-actions' }, ...headActions)
   const body = h('div', { class: 'crev-tt-body' })
   const band = h('div', { class: 'crev-tt-band' },
@@ -121,12 +127,13 @@ export function buildObjectCard(data: ObjectCardData, actions: ObjectCardActions
 
   const renderReadMode = (): void => {
     card.classList.remove('crev-tt-card--editing')
-    nameEl.textContent = name || businessId || '(unnamed)'
+    const display = displayedIdentity()
+    nameEl.textContent = name || display.primary || '(unnamed)'
     actionBar.replaceChildren(...headActions)
     body.replaceChildren(
       ...[
-        copyRow('ID', businessId),
-        copyRow('Template', templateBusinessId),
+        copyRow(display.primaryLabel, display.primary),
+        display.primaryKind === 'template' ? copyRow('Instance ID', display.secondary, true) : null,
         copyRow('RID', data.rid, true),
       ].filter((row): row is HTMLElement => row !== null),
     )
@@ -142,7 +149,7 @@ export function buildObjectCard(data: ObjectCardData, actions: ObjectCardActions
       value: businessId,
       autocomplete: 'off',
       spellcheck: 'false',
-      'aria-label': 'Object ID',
+      'aria-label': templateBusinessId ? 'Instance ID' : 'Object ID',
     }) as HTMLInputElement
     const nameInput = h('input', {
       class: 'crev-tt-edit-input crev-tt-edit-name',
@@ -277,18 +284,18 @@ export function buildObjectCard(data: ObjectCardData, actions: ObjectCardActions
     actionBar.replaceChildren(saveButton, discardButton)
     nameEl.replaceChildren(nameInput)
     body.replaceChildren(
-      h('div', { class: 'crev-tt-cprow crev-tt-edit-idrow' },
-        h('span', { class: 'crev-tt-k' }, 'ID'),
-        idInput,
-      ),
       ...[
         templateInput
           ? h('div', { class: 'crev-tt-cprow crev-tt-edit-idrow' },
-              h('span', { class: 'crev-tt-k' }, 'Template'),
+              h('span', { class: 'crev-tt-k' }, 'Template ID'),
               templateInput,
             )
           : null,
       ].filter((row): row is HTMLElement => row !== null),
+      h('div', { class: 'crev-tt-cprow crev-tt-edit-idrow' },
+        h('span', { class: 'crev-tt-k' }, templateInput ? 'Instance ID' : 'ID'),
+        idInput,
+      ),
       ...[
         copyRow('RID', data.rid, true),
       ].filter((row): row is HTMLElement => row !== null),

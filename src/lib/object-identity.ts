@@ -1,5 +1,64 @@
 import { validateBusinessId } from './ec-guards';
 
+export interface DisplayIdentityInput {
+  rid?: string;
+  businessId?: string;
+  templateBusinessId?: string;
+}
+
+export type PrimaryIdentityKind = 'template' | 'instance' | 'rid' | 'missing';
+
+export interface DisplayIdentity {
+  /** Template when available, otherwise the concrete instance id, then RID. */
+  primary: string;
+  primaryKind: PrimaryIdentityKind;
+  primaryLabel: 'Template ID' | 'ID' | 'RID';
+  /** Concrete instance id retained as secondary context when template is primary. */
+  secondary?: string;
+  templateId?: string;
+  instanceId?: string;
+  rid?: string;
+}
+
+/** Product-wide display policy: reusable definitions are the primary identity.
+ *
+ * The concrete instance remains available as secondary context and continues to
+ * drive instance-scoped references and mutations. Older BMP versions cannot
+ * resolve template IDs, so the policy degrades to the instance ID without
+ * inventing a placeholder. */
+export function resolveDisplayIdentity(input: DisplayIdentityInput): DisplayIdentity {
+  const templateId = input.templateBusinessId?.trim() || undefined;
+  const instanceId = input.businessId?.trim() || undefined;
+  const rid = input.rid?.trim() || undefined;
+
+  if (templateId) {
+    return {
+      primary: templateId,
+      primaryKind: 'template',
+      primaryLabel: 'Template ID',
+      ...(instanceId && instanceId !== templateId ? { secondary: instanceId } : {}),
+      templateId,
+      ...(instanceId ? { instanceId } : {}),
+      ...(rid ? { rid } : {}),
+    };
+  }
+  if (instanceId) {
+    return {
+      primary: instanceId,
+      primaryKind: 'instance',
+      primaryLabel: 'ID',
+      instanceId,
+      ...(rid ? { rid } : {}),
+    };
+  }
+  return {
+    primary: rid ?? '',
+    primaryKind: rid ? 'rid' : 'missing',
+    primaryLabel: 'RID',
+    ...(rid ? { rid } : {}),
+  };
+}
+
 export interface IdentityEditInput {
   businessId: string;
   name: string;

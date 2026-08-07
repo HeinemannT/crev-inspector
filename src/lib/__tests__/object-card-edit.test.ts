@@ -27,6 +27,18 @@ describe('object card identity editor', () => {
     expect(supportsObjectCardCode(undefined)).toBe(false)
   })
 
+  it('presents template identity first and retains the instance as secondary context', () => {
+    const { card } = editableCard()
+    const rows = Array.from(card.querySelectorAll<HTMLElement>('.crev-tt-cprow'))
+      .map(row => row.textContent)
+
+    expect(rows[0]).toContain('Template ID')
+    expect(rows[0]).toContain('old_template')
+    expect(rows[1]).toContain('Instance ID')
+    expect(rows[1]).toContain('old_id')
+    expect(rows[2]).toContain('RID')
+  })
+
   it('opens from the pencil and discards with Escape', () => {
     const { card, onSave } = editableCard()
     card.querySelector<HTMLButtonElement>('.crev-tt-edit-open')!.click()

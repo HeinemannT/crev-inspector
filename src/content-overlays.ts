@@ -17,6 +17,7 @@ import { DISCOVERED_RIDS_CAP } from './lib/constants';
 import { resolveCopyText, getModifier } from './lib/namespace';
 import { sendToSW } from './lib/content-port';
 import { sendFireForget } from './lib/messaging';
+import { resolveDisplayIdentity } from './lib/object-identity';
 import type { CascadeTarget, ContentState } from './content-state';
 
 export interface AdditionalOverlayTarget {
@@ -90,7 +91,7 @@ function createCascadeChip(cascade: { rid: string; businessId?: string; type?: s
 function renderLabelContent(
   label: HTMLElement,
   rid: string,
-  enrichment?: { type?: string; businessId?: string; name?: string; cascade?: { rid: string; businessId?: string; type?: string; name?: string } },
+  enrichment?: { type?: string; businessId?: string; templateBusinessId?: string; name?: string; cascade?: { rid: string; businessId?: string; type?: string; name?: string } },
 ): void {
   const type = enrichment?.type;
 
@@ -123,7 +124,8 @@ function renderLabelContent(
   }
 
   const text = stub.querySelector<HTMLElement>('.crev-label-text');
-  if (text) text.textContent = enrichment?.businessId ?? enrichment?.name ?? getTypeAbbr(type);
+  const display = resolveDisplayIdentity({ rid, ...enrichment });
+  if (text) text.textContent = display.primary || enrichment?.name || getTypeAbbr(type);
 
   // Meta row — rebuilt every call so late enrichment can only ever add the
   // correct squares (never stale ones from a previous unknown-type render).
@@ -225,7 +227,7 @@ export function createIdentityLabel(s: ContentState, rid: string, className?: st
   stubEl.setAttribute('aria-label', 'Inspect this BMP object');
 
   // The stub is the affordance for "open this in the sidebar". Modifiers keep
-  // the copy paths (Alt = RID, Shift = template, Ctrl = ref); paint mode owns
+  // the secondary copy paths (Shift = instance, Alt = RID, Ctrl = instance ref); paint mode owns
   // clicks first.
   stubEl.addEventListener('click', (e) => {
     e.preventDefault();
@@ -245,16 +247,16 @@ export function createIdentityLabel(s: ContentState, rid: string, className?: st
 
     const mod = getModifier(e as MouseEvent);
 
-    // Plain click copies the business ID and selects the object. Sparse/loading
-    // identities still select immediately and simply skip the clipboard write.
+    // Plain click copies the displayed primary identity (template when known)
+    // and selects the concrete object. Sparse identities still select immediately.
     if (mod === 'plain') {
       const enriched = s.enrichments.get(rid);
-      const bid = enriched?.businessId;
-      if (bid && !label.classList.contains('crev-label-flash-ok')) {
-        navigator.clipboard.writeText(bid).then(() => {
+      const { text: copyText } = resolveCopyText({ rid, ...enriched }, mod);
+      if (copyText && !label.classList.contains('crev-label-flash-ok')) {
+        navigator.clipboard.writeText(copyText).then(() => {
           const originalText = labelText.textContent;
           labelText.textContent = '';
-          labelText.append(svg(ICON_CHECK), ` ${bid}`);
+          labelText.append(svg(ICON_CHECK), ` ${copyText}`);
           label.classList.add('crev-label-flash-ok');
           setTimeout(() => {
             labelText.textContent = originalText;

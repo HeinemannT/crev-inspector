@@ -13,7 +13,7 @@
  * grey mono (blank-name objects promote the id into the name slot).
  *
  * Interactions: clicking a STEP ROW toggles it; clicking any BADGE copies the
- * business id (green flash; Alt → RID, Shift → template, Ctrl → reference).
+ * primary id (green flash; Shift → instance, Alt → RID, Ctrl → instance reference).
  * Group rows keep the whole-row copy+navigate gesture; navigation into a leaf
  * happens via the Structure segment (the mock has no per-step open).
  *
@@ -256,13 +256,13 @@ function renderStep(
   return stepEl;
 }
 
-/** The stub badge as the copy affordance: plain click copies the business id
- *  (green tile flash), Alt → RID, Shift → template, Ctrl → reference. */
+/** The stub badge as the copy affordance: plain click copies the primary id
+ *  (green tile flash), Shift → instance, Alt → RID, Ctrl → instance reference. */
 function badgeFor(node: FlowStepMsg): HTMLElement {
   const { rid, businessId, type } = node.identity;
   const b = typeBadge(type, { size: 'xs' });
   b.classList.add('flow-bdg');
-  b.title = `Copy ${businessId || rid} (Alt: RID; Shift: template; Ctrl: reference)`;
+  b.title = `Copy ${businessId || rid} (Shift: instance; Alt: RID; Ctrl: instance reference)`;
   b.setAttribute('role', 'button');
   b.setAttribute('tabindex', '0');
   b.addEventListener('click', (e: MouseEvent) => {
@@ -282,9 +282,7 @@ function badgeFor(node: FlowStepMsg): HTMLElement {
 
 function copyFromBadge(badge: HTMLElement, node: FlowStepMsg, mod: CopyModifier): void {
   const { rid, businessId, type } = node.identity;
-  const { text } = mod === 'plain'
-    ? { text: businessId || rid }
-    : resolveCopyText({ rid, businessId, type }, mod);
+  const { text } = resolveCopyText({ rid, businessId, type }, mod);
   if (!text) return;
   copyToClipboard(text);
   statusFlash(`Copied ${text} \u2713`);
@@ -300,7 +298,7 @@ function copyFromBadge(badge: HTMLElement, node: FlowStepMsg, mod: CopyModifier)
 }
 
 const FLOW_COPY_HINT =
-  'Click: copy ID and open (Alt: RID; Shift: template; Ctrl: reference)';
+  'Click: copy primary ID and open (Shift: instance; Alt: RID; Ctrl: instance reference)';
 
 function navAttrs(node: FlowStepMsg, input: FlowSectionInput) {
   const { rid, businessId, type } = node.identity;
@@ -324,13 +322,14 @@ function navAttrs(node: FlowStepMsg, input: FlowSectionInput) {
 
 /** Click/activate a group row. Mirrors the in-page overlay's gesture so the
  *  sidebar's explore behaviour is consistent: a plain click is the
- *  configurator's "I want this object" — copy its business id AND drill in;
- *  a modifier-click copies a variant (Alt → RID, Shift → template, Ctrl → ref)
+ *  configurator's "I want this object" — copy its primary id AND drill in;
+ *  a modifier-click copies a variant (Shift → instance, Alt → RID, Ctrl → instance ref)
  *  without navigating. See src/lib/namespace.ts (resolveCopyText). */
 function activateNode(head: HTMLElement, node: FlowStepMsg, input: FlowSectionInput, mod: CopyModifier): void {
   const { rid, businessId, type } = node.identity;
   if (mod === 'plain') {
-    if (businessId) { copyToClipboard(businessId); flashCopied(head, 'Copied ID'); }
+    const { text, label } = resolveCopyText({ rid, businessId, type }, mod);
+    if (text) { copyToClipboard(text); flashCopied(head, `Copied ${label}`); }
     input.onNavigate(rid);
     return;
   }
