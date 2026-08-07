@@ -140,7 +140,8 @@ export class ObjectCache {
       obj.rid.includes(lower) ||
       obj.name?.toLowerCase().includes(lower) ||
       obj.type?.toLowerCase().includes(lower) ||
-      obj.businessId?.toLowerCase().includes(lower)
+      obj.businessId?.toLowerCase().includes(lower) ||
+      obj.templateBusinessId?.toLowerCase().includes(lower)
     );
   }
 

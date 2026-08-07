@@ -150,6 +150,9 @@ async function lookupRid(rid: string): Promise<LookupResult> {
 async function resolveRef(ref: string): Promise<LookupResult> {
   const cached = getCached(ref);
   if (cached) return cached;
+  // Deliberately keep reference hovers concrete. A token such as `t.foo` (or
+  // an accessor path) queries the resolved instance itself; promoting that
+  // object's template here would misstate what the code actually addresses.
   const r = await sendRequest({ type: 'HOVER_RESOLVE', ref });
   if (!r) {
     cacheMiss(ref, 'No response from the service worker (bridge probably disconnected).');

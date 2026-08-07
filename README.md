@@ -86,7 +86,7 @@ A CreateObjectView can select an existing EditPage or stage a new one. New EditP
 
 ## Find references, code, and differences
 
-- **Browse** searches cached objects by RID, business ID, or name.
+- **Browse** searches by name, type, template ID, instance ID, or RID. Live hits are enriched with both reusable-template and concrete-instance identity when available.
 - **Code Search** scans Extended Code across the workspace and opens the exact source property.
 - **References** answers "Who references this?" from the current object.
 - **Diff** compares RID to RID, instance to template, or two `namespace.businessId` references.

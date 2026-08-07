@@ -185,7 +185,18 @@ export async function enrichBadges(rids: string[]) {
         if (data) {
           chunkHits[rid] = data;
           enrichedRids.add(rid);
-          cacheObjs.push({ rid, businessId: data.businessId, type: data.type, name: data.name, templateBusinessId: data.templateBusinessId, cascade: data.cascade, source: 'server', discoveredAt: now, updatedAt: now });
+          cacheObjs.push({
+            rid,
+            businessId: data.businessId,
+            type: data.type,
+            name: data.name,
+            templateBusinessId: data.templateBusinessId,
+            identityEnriched: true,
+            cascade: data.cascade,
+            source: 'server',
+            discoveredAt: now,
+            updatedAt: now,
+          });
           total++;
         } else {
           failed.push(rid);

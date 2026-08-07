@@ -68,9 +68,6 @@ export const SEARCH_DEBOUNCE = 300;
 /** Longer than the 30s EC transport deadline. This is a lost-response guard,
  * not a server cancellation claim: BMP can keep running after detachment. */
 export const LOOKUP_WATCHDOG_TIMEOUT = 35_000;
-/** A standalone Extended Code window only needs page identity for decoration.
- * Never let a cold BMP lookup hold the usable editor behind network latency. */
-export const EXTENDED_IDENTITY_LOOKUP_BUDGET = 250;
 
 // ── Diff ─────────────────────────────────────────────────────────
 export const COMMON_DIFF_PROPS = [

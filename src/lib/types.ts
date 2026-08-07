@@ -41,6 +41,10 @@ export interface BmpObject {
   typename?: string;
   businessId?: string;
   templateBusinessId?: string;
+  /** True once the server identity query has resolved both the concrete
+   * instance and its optional template. Distinguishes "no template" from
+   * "this quick-search/DOM record has not been enriched yet". */
+  identityEnriched?: boolean;
   /** Cascade target for flow-bearing widgets (InputView → inputSet,
    *  ActionButton → actionObject). Surfaced on the badge as a second pill so
    *  the chain shape is visible without opening the sidebar. */

@@ -42,6 +42,24 @@ describe('ObjectsTab — search wiring', () => {
     expect(search).toMatchObject({ type: 'BROWSE_SEARCH', query: 'risk' });
   });
 
+  it('sends an empty newer generation when the query is cleared', () => {
+    const { panel, sent } = setup();
+    type(panel, 'risk');
+    const started = sent.find(m => m.type === 'BROWSE_SEARCH') as Extract<
+      InspectorMessage,
+      { type: 'BROWSE_SEARCH' }
+    >;
+
+    const input = panel.querySelector<HTMLInputElement>('#objects-search')!;
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    vi.advanceTimersByTime(SEARCH_DEBOUNCE + 1);
+
+    const searches = sent.filter((m): m is Extract<InspectorMessage, { type: 'BROWSE_SEARCH' }> =>
+      m.type === 'BROWSE_SEARCH');
+    expect(searches.at(-1)).toMatchObject({ query: '', gen: started.gen + 1 });
+  });
+
   it('ignores a BROWSE_SEARCH_RESULT with a stale gen', () => {
     const { tab, panel, sent } = setup();
     type(panel, 'risk');

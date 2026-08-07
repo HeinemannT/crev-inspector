@@ -2,7 +2,7 @@
  * Object lookup, cache, and linked object handlers.
  */
 
-import { register } from '../handler-registry';
+import { register, type HandlerMeta } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import { activityObject, activityObjectLabel } from '../activity-format';
 import { incrementGeneration, invalidateRid } from '../enrichment';
@@ -22,6 +22,25 @@ import { BATCH_CHUNK_SIZE } from '../constants';
 import { ENVIRONMENT_CHANGED_ERROR, environmentMatches, environmentToken } from '../environment';
 import { markHostAccessRequired } from '../connection';
 import { HostAccessError } from '../site-access';
+
+const browseSearchControllers = new Map<string, AbortController>();
+
+function browseSearchKey(meta: HandlerMeta): string {
+  if (meta.panelWindowId != null) return `panel:${meta.panelWindowId}`;
+  if (meta.senderTabId != null) return `tab:${meta.senderTabId}`;
+  return meta.isOneShot ? 'oneshot' : 'panel:unknown';
+}
+
+function hydrateBrowseObject(cacheObject: BmpObject | undefined, hit: BmpObject): BmpObject {
+  if (!cacheObject) return hit;
+  return {
+    ...hit,
+    businessId: cacheObject.businessId ?? hit.businessId,
+    templateBusinessId: cacheObject.templateBusinessId ?? hit.templateBusinessId,
+    identityEnriched: cacheObject.identityEnriched ?? hit.identityEnriched,
+    cascade: cacheObject.cascade ?? hit.cascade,
+  };
+}
 
 // ── EC builders (exported for tests) ─────────────────────────────
 
@@ -134,11 +153,15 @@ register('GET_CACHE', (msg, respond) => {
   respond({ type: 'CACHE_DATA', objects, filter: msg.filter ?? '' });
 });
 
-// Live workspace search via BMP's GraphQL quickSearch. Results are also folded
-// into the cache so a hit the user then opens is enriched like any other object.
-register('BROWSE_SEARCH', async (msg, respond) => {
+// Live workspace search via BMP's GraphQL quickSearch. The fast GraphQL result
+// paints first; a cancellable identity pass then hydrates template + instance
+// ids and updates the same generation. Superseded searches abort their work so
+// typing cannot fill BMP's serialized command queue with stale enrichments.
+register('BROWSE_SEARCH', async (msg, respond, meta) => {
   const ctx = getCtx();
   const { query, gen } = msg;
+  const key = browseSearchKey(meta);
+  browseSearchControllers.get(key)?.abort();
   if (!query.trim()) {
     respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: true, objects: [], totalHits: 0 });
     return;
@@ -147,17 +170,82 @@ register('BROWSE_SEARCH', async (msg, respond) => {
     respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: false, error: 'Not connected to BMP' });
     return;
   }
+  const controller = new AbortController();
+  browseSearchControllers.set(key, controller);
+  const client = ctx.client;
+  const environment = environmentToken(ctx);
   try {
-    const { totalHits, objects } = await ctx.client.quickSearch(query, { page: msg.page, pageSize: msg.pageSize });
-    for (const o of objects) ctx.cache.put(o);
-    respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: true, objects, totalHits });
+    const { totalHits, objects } = await client.quickSearch(query, {
+      page: msg.page,
+      pageSize: msg.pageSize,
+      signal: controller.signal,
+    });
+    if (controller.signal.aborted || !environmentMatches(getCtx(), environment)) return;
+
+    ctx.cache.putAll(objects);
+    const immediate = objects.map(hit => hydrateBrowseObject(ctx.cache.get(hit.rid), hit));
+    if (!meta.isOneShot) {
+      respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: true, objects: immediate, totalHits });
+    }
+
+    const missing = immediate.filter(object => !object.identityEnriched);
+    const identities: Record<string, {
+      businessId?: string;
+      type?: string;
+      name?: string;
+      templateBusinessId?: string;
+      cascade?: { rid: string; businessId?: string; type?: string; name?: string };
+    }> = {};
+    try {
+      for (let i = 0; i < missing.length; i += BATCH_CHUNK_SIZE) {
+        const chunk = missing.slice(i, i + BATCH_CHUNK_SIZE).map(object => object.rid);
+        const result = await client.batchEnrich(chunk, controller.signal);
+        if (controller.signal.aborted || !environmentMatches(getCtx(), environment)) return;
+        Object.assign(identities, result.results);
+        if (result.error) break;
+      }
+    } catch (e) {
+      if (controller.signal.aborted || !environmentMatches(getCtx(), environment)) return;
+      // Identity is progressive decoration. A failed EC pass must not erase
+      // quickSearch results that were already valid and visible.
+      log.swallow('handler:browseSearch:enrich', e);
+      if (meta.isOneShot) {
+        respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: true, objects: immediate, totalHits });
+      }
+      return;
+    }
+
+    const now = Date.now();
+    const hydrated = immediate.map((hit): BmpObject => {
+      const identity = identities[hit.rid];
+      if (!identity) return hit;
+      return {
+        ...hit,
+        businessId: identity.businessId,
+        type: identity.type ?? hit.type,
+        name: identity.name ?? hit.name,
+        templateBusinessId: identity.templateBusinessId,
+        identityEnriched: true,
+        cascade: identity.cascade,
+        source: 'server',
+        discoveredAt: hit.discoveredAt,
+        updatedAt: now,
+      };
+    });
+    ctx.cache.putAll(hydrated.filter(object => object.identityEnriched));
+    if (meta.isOneShot || Object.keys(identities).length > 0) {
+      respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: true, objects: hydrated, totalHits });
+    }
   } catch (e) {
+    if (controller.signal.aborted) return;
     if (e instanceof HostAccessError) {
       markHostAccessRequired();
       respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: false, error: 'Grant site access to search this BMP workspace' });
       return;
     }
     respond({ type: 'BROWSE_SEARCH_RESULT', query, gen, ok: false, error: e instanceof Error ? e.message : 'Search failed' });
+  } finally {
+    if (browseSearchControllers.get(key) === controller) browseSearchControllers.delete(key);
   }
 });
 

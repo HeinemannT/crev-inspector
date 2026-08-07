@@ -168,6 +168,9 @@ export class ObjectsTab implements Tab {
       this.liveObjects = [];
       this.totalHits = 0;
       this.searchError = null;
+      // Also cancel any live identity hydration still running for the prior
+      // query; the service worker keys this empty request to the same panel.
+      this.send({ type: 'BROWSE_SEARCH', query: '', gen: this.gen });
       return;
     }
     this.gen++;

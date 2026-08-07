@@ -5,7 +5,6 @@ import { type EditorContext, type ObjectIdentity } from '../editor/editor-types'
 import { computeOverrides } from '../editor/editor-types';
 import { launchFrame } from './frame-launcher';
 import { ENVIRONMENT_CHANGED_ERROR, environmentToken } from './environment';
-import { EXTENDED_IDENTITY_LOOKUP_BUDGET } from './constants';
 
 // ── Public API ────────────────────────────────────────────────────
 
@@ -38,24 +37,6 @@ async function getCurrentPageRid(
     return rid && /^-?\d+$/.test(rid) ? rid : undefined;
   } catch {
     return undefined;
-  }
-}
-
-/** Resolve standalone-editor decoration without turning a cold BMP request
- * into editor startup latency. A late lookup is safely ignored. */
-async function lookupExtendedIdentity(
-  client: NonNullable<ReturnType<typeof getCtx>['client']>,
-  rid: string,
-): Promise<Awaited<ReturnType<typeof client.lookupIdentity>> | null> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const lookup = client.lookupIdentity(rid).catch(() => null);
-  const budget = new Promise<null>((resolve) => {
-    timeoutId = setTimeout(() => resolve(null), EXTENDED_IDENTITY_LOOKUP_BUDGET);
-  });
-  try {
-    return await Promise.race([lookup, budget]);
-  } finally {
-    if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
 }
 
@@ -230,9 +211,10 @@ export async function openExtendedWindow(
   let businessId = '';
   let templateBusinessId: string | undefined;
 
-  // The scratch window needs identity only for its title/context chip. Prefer
-  // the already-enriched page cache so opening it does not block on a cosmetic
-  // BMP lookup; use the network only when the cache has no useful identity.
+  // The scratch window needs identity only for its title/context chip. Keep
+  // startup strictly cache-only: a cosmetic BMP lookup would occupy the
+  // serialized command channel and could delay the editor's first Preview/Run.
+  // The execution RID remains available even when the decoration is sparse.
   if (pageRid) {
     const cached = swCtx.cache.get(pageRid);
     if (cached?.name || cached?.type || cached?.businessId) {
@@ -240,14 +222,6 @@ export async function openExtendedWindow(
       type = cached.type ?? '';
       businessId = cached.businessId ?? '';
       templateBusinessId = cached.templateBusinessId;
-    } else if (client) {
-      const identity = await lookupExtendedIdentity(client, pageRid);
-      if (identity) {
-        name = identity.name ?? '';
-        type = identity.type ?? '';
-        businessId = identity.businessId ?? '';
-        templateBusinessId = identity.templateBusinessId;
-      }
     }
   }
   if (environmentToken(swCtx) !== environment) throw new Error(ENVIRONMENT_CHANGED_ERROR);
