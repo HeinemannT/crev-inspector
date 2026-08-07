@@ -4575,7 +4575,6 @@ button.flow-property-ref:hover {
   border: 1px solid var(--surface-3);
   border-radius: var(--radius-sm);
   overflow: hidden;
-  cursor: pointer;
 }
 .ai-card:hover { background: var(--surface-2); }
 /* Same left health rail as a server card: grey idle by default, green when the
@@ -4631,10 +4630,44 @@ button.flow-property-ref:hover {
   border-radius: var(--radius-sm);
 }
 .ai-card-edit:hover { background: var(--surface-3); color: var(--text-1); }
-.ai-form { padding-top: 8px; }
+.ai-form {
+  padding: 10px 12px 12px;
+  border: 1px solid var(--surface-3);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-1) 76%, var(--surface-0));
+}
+
+.ai-card.expanded {
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.ai-custom {
+  margin: 2px 0 4px;
+  padding: 10px;
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+}
+
+.ai-custom-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+
+.ai-custom-help { flex: none; }
+.ai-custom-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.ai-custom-grid .field-group { min-width: 0; }
 
 .ai-json {
-  margin-top: 4px;
+  margin-top: 10px;
   border-top: 1px solid var(--border-subtle);
   padding-top: 8px;
 }
@@ -4661,14 +4694,12 @@ button.flow-property-ref:hover {
   white-space: pre;
 }
 
-.ai-json-help {
-  flex: none;
-  margin: -4px 0;
-}
-
 .ai-json-help-text {
   margin-top: 6px;
-  padding: 0 2px;
+  margin-bottom: 9px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
   color: var(--text-3);
   font-size: var(--text-xs);
   line-height: 1.45;
@@ -4686,10 +4717,7 @@ button.flow-property-ref:hover {
   line-height: 1.4;
 }
 
-.ai-json-actions {
-  align-items: center;
-  margin-top: 8px;
-}
+.ai-json-note { display: block; margin-top: 7px; }
 
 /* ── AI chat tab ────────────────────────────────────────────────────
    Thread (right-aligned user bubbles, full-width replies, quiet mono tool

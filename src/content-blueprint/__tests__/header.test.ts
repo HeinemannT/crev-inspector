@@ -1,8 +1,10 @@
 /** @vitest-environment happy-dom */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BlueprintCtx } from '../../lib/layout/sync';
 import { bp, resetState } from '../state';
 import { renderChip, settingsPanel } from '../view-panels';
+import { disableBlueprint } from '../../content-blueprint';
+import { resetObjectPreview } from '../../lib/object-chip';
 
 const ctx: BlueprintCtx = {
   pageId: 'sc_risk_register',
@@ -16,8 +18,10 @@ const ctx: BlueprintCtx = {
 };
 
 afterEach(() => {
+  resetObjectPreview();
   resetState();
   document.body.replaceChildren();
+  vi.useRealTimers();
 });
 
 describe('Blueprint command header', () => {
@@ -45,6 +49,35 @@ describe('Blueprint command header', () => {
     settings?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 
     expect(bp.settingsOpen).toBe(true);
+  });
+
+  it('removes the body-level page preview when Blueprint closes', async () => {
+    vi.useFakeTimers();
+    (globalThis as { chrome?: unknown }).chrome = {
+      runtime: {
+        sendMessage: vi.fn().mockResolvedValue({
+          type: 'HOVER_LOOKUP_RESULT',
+          rid: ctx.pageRid,
+          name: ctx.pageId,
+          objectType: ctx.pageClass,
+          businessId: ctx.pageId,
+        }),
+      },
+    };
+    const chip = renderChip(ctx, 0);
+    document.body.appendChild(chip);
+    const page = chip.querySelector<HTMLElement>('.bp-page-chip')!;
+    page.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(document.querySelector('.object-preview-host')).not.toBeNull();
+    bp.active = true;
+    bp.layer = document.createElement('div');
+    document.body.appendChild(bp.layer);
+
+    disableBlueprint();
+
+    expect(document.querySelector('.object-preview-host')).toBeNull();
   });
 
   it('keeps live-page peek in the header rather than settings', () => {

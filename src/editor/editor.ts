@@ -212,11 +212,13 @@ async function init() {
       activeProperty = Object.keys(activeCode)[0] ?? 'expression'
     }
   }
-  await setupAiAssist()
   setJsonCompletionContext(getExecutionRid(ctx))
   updateWindowTitle()
   renderShell()
   ensureSurface()
+  // AI is optional and may require a service-worker wake-up plus a lazy
+  // CodeMirror merge import. It must not hold the editor's first paint.
+  void setupAiAssist()
 
   // Re-render the Vars panel whenever type inferences or schemas
   // change. The subscription is permanent — Vars is the only panel

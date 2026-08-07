@@ -4,7 +4,7 @@
  *   - unconfigured → quiet row with a Set up button, no keyline
  *   - configured + untested → plain card (no keyline, no dot/latency), Edit
  *   - configured + last test ok → green keyline, latency + dot
- *   - row click expands the existing config form; AI_TEST_RESULT persists
+ *   - Edit / Set up expands the configuration form; AI_TEST_RESULT persists
  *     the lastTest into shared settings for the collapsed card.
  *
  * @vitest-environment happy-dom
@@ -47,6 +47,10 @@ function renderTab(): { tab: ConnectTab; el: HTMLElement; sent: InspectorMessage
   document.body.appendChild(el);
   tab.render(el);
   return { tab, el, sent };
+}
+
+function expandAi(el: HTMLElement): void {
+  (el.querySelector('[data-action="ai-expand"]') as HTMLButtonElement).click();
 }
 
 beforeEach(() => {
@@ -107,10 +111,10 @@ describe('AI Assistant card states', () => {
     expect(card.querySelector('.ai-card-dot')).toBeNull();
   });
 
-  it('clicking the row expands the existing config form (provider/model/key)', () => {
+  it('the Edit action expands the existing config form (provider/model/key)', () => {
     shared.settings = freshSettings({ provider: 'deepseek', model: 'deepseek-chat', apiKeyEnc: 'set' });
     const { el } = renderTab();
-    (el.querySelector('.ai-card') as HTMLElement).click();
+    expandAi(el);
     const form = el.querySelector('.ai-form')!;
     expect(form).toBeTruthy();
     expect(form.querySelector('#ai-provider')).toBeTruthy();
@@ -129,14 +133,14 @@ describe('AI Assistant card states', () => {
       },
     });
     const { el } = renderTab();
-    (el.querySelector('.ai-card') as HTMLElement).click();
+    expandAi(el);
     expect(el.querySelector('.ai-card-ln2')?.textContent).toContain('Company Gateway');
     expect((el.querySelector('#ai-provider') as HTMLSelectElement).value).toBe('custom');
     const json = (el.querySelector('#ai-provider-json') as HTMLTextAreaElement).value;
     expect(json).toContain('"Company Gateway"');
     expect(json).toContain('"apiKey": ""');
     expect(json).not.toContain('set');
-    const helpButton = el.querySelector('.ai-json-help') as HTMLButtonElement;
+    const helpButton = el.querySelector('.ai-custom-help') as HTMLButtonElement;
     const helpText = el.querySelector('.ai-json-help-text') as HTMLElement;
     expect(helpButton.textContent).toBe('?');
     expect(helpButton.hasAttribute('title')).toBe(false);
@@ -145,28 +149,80 @@ describe('AI Assistant card states', () => {
     helpButton.click();
     expect(helpButton.getAttribute('aria-expanded')).toBe('true');
     expect(helpText.hidden).toBe(false);
-    expect(helpText.textContent).toContain('max_completion_tokens');
-    expect(helpText.textContent).toContain('DeepSeek');
-    (el.querySelector('.ai-model-caret') as HTMLElement).click();
-    expect(el.querySelector('.ai-model-opt-name')?.textContent).toBe('Agent');
-    expect(el.querySelector('.ai-model-opt-id')?.textContent).toBe('agent');
+    expect(helpText.textContent).toContain('Advanced JSON');
+    expect((el.querySelector('#ai-custom-name') as HTMLInputElement).value).toBe('Company Gateway');
+    expect((el.querySelector('#ai-custom-url') as HTMLInputElement).value).toBe('https://ai.example.test/v1');
+    expect((el.querySelector('#ai-custom-model') as HTMLInputElement).value).toBe('agent');
   });
 
-  it('keeps invalid JSON visible and shows its error beside the editor', () => {
+  it('always offers Custom endpoint and expands its approachable fields', () => {
     shared.settings = freshSettings();
     const { el } = renderTab();
-    (el.querySelector('.ai-card') as HTMLElement).click();
+    expandAi(el);
+    const provider = el.querySelector('#ai-provider') as HTMLSelectElement;
+    expect(Array.from(provider.options).at(-1)?.textContent).toBe('Custom endpoint…');
+    provider.value = 'custom';
+    provider.dispatchEvent(new Event('change'));
+
+    expect(el.querySelector('[data-action="ai-expand"]')?.textContent).toBe('Close');
+    expect(el.querySelector('#ai-custom-name')).toBeTruthy();
+    expect(el.querySelector('#ai-custom-api-type')).toBeTruthy();
+    expect(el.querySelector('#ai-custom-url')).toBeTruthy();
+    expect(el.querySelector('#ai-custom-model')).toBeTruthy();
+    expect(el.querySelector('.ai-custom-help')).toBeTruthy();
+    expect(el.querySelector('#ai-model')).toBeNull();
+  });
+
+  it('keeps invalid advanced JSON visible and shows its error beside the editor', () => {
+    shared.settings = freshSettings();
+    const { el } = renderTab();
+    expandAi(el);
+    const provider = el.querySelector('#ai-provider') as HTMLSelectElement;
+    provider.value = 'custom';
+    provider.dispatchEvent(new Event('change'));
     const details = el.querySelector('.ai-json') as HTMLDetailsElement;
     details.open = true;
     details.dispatchEvent(new Event('toggle'));
     const textarea = el.querySelector('#ai-provider-json') as HTMLTextAreaElement;
     textarea.value = '{bad';
     textarea.dispatchEvent(new Event('input'));
-    (el.querySelector('[data-action="ai-save-json"]') as HTMLElement).click();
+    const key = el.querySelector('#ai-key') as HTMLInputElement;
+    key.value = 'test-key';
+    key.dispatchEvent(new Event('input'));
+    (el.querySelector('[data-action="ai-save"]') as HTMLElement).click();
 
     expect((el.querySelector('.ai-json') as HTMLDetailsElement).open).toBe(true);
     expect(el.querySelector('.ai-json-error')?.textContent).toContain('Invalid JSON');
     expect((el.querySelector('#ai-provider-json') as HTMLTextAreaElement).value).toBe('{bad');
+  });
+
+  it('saves a new custom endpoint from normal fields without repainting its plaintext key', () => {
+    shared.settings = freshSettings();
+    const { el, sent } = renderTab();
+    expandAi(el);
+    const provider = el.querySelector('#ai-provider') as HTMLSelectElement;
+    provider.value = 'custom';
+    provider.dispatchEvent(new Event('change'));
+
+    const name = el.querySelector('#ai-custom-name') as HTMLInputElement;
+    name.value = 'Internal Gateway';
+    const url = el.querySelector('#ai-custom-url') as HTMLInputElement;
+    url.value = 'https://ai.internal.test/v1';
+    const model = el.querySelector('#ai-custom-model') as HTMLInputElement;
+    model.value = 'agent-model';
+    const key = el.querySelector('#ai-key') as HTMLInputElement;
+    key.value = 'plaintext-secret';
+    (el.querySelector('[data-action="ai-save"]') as HTMLButtonElement).click();
+
+    const save = sent.find(message => message.type === 'AI_SAVE_CUSTOM_PROVIDER');
+    expect(save?.type).toBe('AI_SAVE_CUSTOM_PROVIDER');
+    if (save?.type === 'AI_SAVE_CUSTOM_PROVIDER') {
+      expect(save.json).toContain('"name": "Internal Gateway"');
+      expect(save.json).toContain('"id": "agent-model"');
+      expect(save.json).toContain('"apiKey": "plaintext-secret"');
+    }
+    expect((el.querySelector('#ai-provider-json') as HTMLTextAreaElement).value)
+      .not.toContain('plaintext-secret');
   });
 
   it('AI_TEST_RESULT persists lastTest into shared settings for the card', () => {

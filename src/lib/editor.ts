@@ -210,19 +210,21 @@ export async function openExtendedWindow(
   let type = '';
   let businessId = '';
 
-  // Resolve page object identity for context display
-  if (pageRid && client) {
-    const identity = await client.lookupIdentity(pageRid).catch(() => null);
-    if (identity) {
-      name = identity.name ?? '';
-      type = identity.type ?? '';
-      businessId = identity.businessId ?? '';
-    } else {
-      const cached = swCtx.cache.get(pageRid);
-      if (cached) {
-        name = cached.name ?? '';
-        type = cached.type ?? '';
-        businessId = cached.businessId ?? '';
+  // The scratch window needs identity only for its title/context chip. Prefer
+  // the already-enriched page cache so opening it does not block on a cosmetic
+  // BMP lookup; use the network only when the cache has no useful identity.
+  if (pageRid) {
+    const cached = swCtx.cache.get(pageRid);
+    if (cached?.name || cached?.type || cached?.businessId) {
+      name = cached.name ?? '';
+      type = cached.type ?? '';
+      businessId = cached.businessId ?? '';
+    } else if (client) {
+      const identity = await client.lookupIdentity(pageRid).catch(() => null);
+      if (identity) {
+        name = identity.name ?? '';
+        type = identity.type ?? '';
+        businessId = identity.businessId ?? '';
       }
     }
   }

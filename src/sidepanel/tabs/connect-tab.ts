@@ -15,7 +15,7 @@ import { getUpdateStatus, refresh as refreshUpdate, type UpdateStatus } from '..
 import { originPatternFor } from '../../lib/site-access';
 import { requestOriginsInGesture } from '../site-access-strip';
 import { PROVIDERS, AI_PROVIDER_IDS, parseCustomProviderJson, resolveProvider } from '../../lib/ai/providers';
-import type { AiCustomProvider, AiProviderId } from '../../lib/ai/types';
+import type { AiApiType, AiCustomProvider, AiProviderId } from '../../lib/ai/types';
 import type { Tab, SendFn } from './tab-types';
 import { BUILD_ID } from '../../lib/build-info';
 
@@ -48,6 +48,47 @@ function customProviderJson(provider?: AiCustomProvider): string {
     apiKey: '',
     apiType: provider.apiType,
     models: provider.models,
+  }, null, 2);
+}
+
+interface AiCustomDraft {
+  name: string;
+  apiType: AiApiType;
+  baseUrl: string;
+  modelId: string;
+}
+
+function customDraftFromProvider(provider?: AiCustomProvider): AiCustomDraft {
+  const source = provider ?? parseCustomProviderJson(CUSTOM_PROVIDER_TEMPLATE).provider;
+  const model = source.models.find(item => item.toolCalling) ?? source.models[0];
+  return {
+    name: source.name,
+    apiType: source.apiType,
+    baseUrl: model.url,
+    modelId: model.id,
+  };
+}
+
+/** Apply the approachable single-endpoint fields to the advanced JSON without
+ *  discarding extra model metadata a technical user may have added there. */
+function mergeCustomProviderDraft(json: string, draft: AiCustomDraft, apiKey: string): string {
+  const parsed = parseCustomProviderJson(json);
+  const models = parsed.provider.models.map(model => ({ ...model }));
+  const primaryIndex = Math.max(0, models.findIndex(model => model.toolCalling));
+  const primary = models[primaryIndex];
+  models[primaryIndex] = {
+    ...primary,
+    id: draft.modelId.trim(),
+    name: primary.name === primary.id ? draft.modelId.trim() : primary.name,
+    url: draft.baseUrl.trim(),
+    toolCalling: true,
+  };
+  return JSON.stringify({
+    name: draft.name.trim(),
+    vendor: parsed.provider.vendor,
+    apiKey: apiKey.trim(),
+    apiType: draft.apiType,
+    models,
   }, null, 2);
 }
 
@@ -85,6 +126,9 @@ export class ConnectTab implements Tab {
   private aiModelDraft: string | null = null;
   /** Unsaved custom-provider JSON. Plaintext keys live here only until Save. */
   private aiJsonDraft: string | null = null;
+  /** Human-facing fields for the primary custom endpoint. The advanced JSON
+   *  remains the lossless source for extra models/capabilities. */
+  private aiCustomDraft: AiCustomDraft | null = null;
   private aiJsonOpen = false;
   private aiJsonHelpOpen = false;
   private aiJsonError: string | null = null;
@@ -205,7 +249,10 @@ export class ConnectTab implements Tab {
               ...(msg.customProvider ? { customProvider: msg.customProvider } : shared.settings.ai?.customProvider ? { customProvider: shared.settings.ai.customProvider } : {}),
             },
           };
-          if (msg.customProvider) this.aiJsonDraft = customProviderJson(msg.customProvider);
+          if (msg.customProvider) {
+            this.aiJsonDraft = customProviderJson(msg.customProvider);
+            this.aiCustomDraft = customDraftFromProvider(msg.customProvider);
+          }
           if (!msg.configured) shared.settings = { ...shared.settings, ai: undefined };
         } else {
           if (this.aiJsonSaving) {
@@ -315,9 +362,13 @@ export class ConnectTab implements Tab {
     container.querySelector('#ai-provider')?.addEventListener('change', (e) => {
       const provider = (e.target as HTMLSelectElement).value as AiProviderId;
       this.aiProviderDraft = provider;
-      this.aiModelDraft = provider === 'custom'
-        ? shared.settings.ai?.customProvider?.models.find(model => model.toolCalling)?.id ?? null
-        : PROVIDERS[provider].defaultModel;
+      if (provider === 'custom') {
+        this.aiCustomDraft = customDraftFromProvider(shared.settings.ai?.customProvider);
+        this.aiJsonDraft ??= customProviderJson(shared.settings.ai?.customProvider);
+        this.aiModelDraft = this.aiCustomDraft.modelId;
+      } else {
+        this.aiModelDraft = PROVIDERS[provider].defaultModel;
+      }
       this.aiModelOptions = [];
       this.aiModelsLoading = false;
       this.aiModelMenuOpen = false;
@@ -335,6 +386,17 @@ export class ConnectTab implements Tab {
     container.querySelector('#ai-key')?.addEventListener('input', (e) => {
       this.aiKeyDraft = (e.target as HTMLInputElement).value;
     });
+    const updateCustomDraft = () => {
+      const name = (container.querySelector('#ai-custom-name') as HTMLInputElement | null)?.value ?? '';
+      const apiType = (container.querySelector('#ai-custom-api-type') as HTMLSelectElement | null)?.value as AiApiType | undefined;
+      const baseUrl = (container.querySelector('#ai-custom-url') as HTMLInputElement | null)?.value ?? '';
+      const modelId = (container.querySelector('#ai-custom-model') as HTMLInputElement | null)?.value ?? '';
+      if (apiType) this.aiCustomDraft = { name, apiType, baseUrl, modelId };
+    };
+    for (const id of ['#ai-custom-name', '#ai-custom-api-type', '#ai-custom-url', '#ai-custom-model']) {
+      container.querySelector(id)?.addEventListener('input', updateCustomDraft);
+      container.querySelector(id)?.addEventListener('change', updateCustomDraft);
+    }
     container.querySelector('#ai-provider-json')?.addEventListener('input', (e) => {
       this.aiJsonDraft = (e.target as HTMLTextAreaElement).value;
       this.aiJsonError = null;
@@ -452,28 +514,72 @@ export class ConnectTab implements Tab {
       },
       'ai-save': () => {
         const provider = (container.querySelector('#ai-provider') as HTMLSelectElement | null)?.value as AiProviderId | undefined;
-        const model = (container.querySelector('#ai-model') as HTMLInputElement | null)?.value.trim();
         const keyInput = container.querySelector('#ai-key') as HTMLInputElement | null;
         const apiKey = keyInput?.value ?? '';
-        if (!provider || !model) return;
-        // A first-time save needs a key; a provider/model-only re-save keeps the
-        // stored key (apiKey omitted).
-        if (!this.aiConfigured && !apiKey.trim()) { flashInvalid(keyInput!); return; }
+        if (!provider) return;
+        // Keys are provider-specific. Keep the encrypted key only while editing
+        // the current provider; switching provider requires an explicit key.
+        const needsProviderKey = !this.aiConfigured || provider !== shared.settings.ai?.provider;
+        if (needsProviderKey && !apiKey.trim()) {
+          if (keyInput) flashInvalid(keyInput);
+          return;
+        }
         this.aiTestStatus = null;
+        if (provider === 'custom') {
+          const textarea = container.querySelector('#ai-provider-json') as HTMLTextAreaElement | null;
+          const draft: AiCustomDraft = {
+            name: (container.querySelector('#ai-custom-name') as HTMLInputElement | null)?.value ?? '',
+            apiType: (container.querySelector('#ai-custom-api-type') as HTMLSelectElement | null)?.value as AiApiType,
+            baseUrl: (container.querySelector('#ai-custom-url') as HTMLInputElement | null)?.value ?? '',
+            modelId: (container.querySelector('#ai-custom-model') as HTMLInputElement | null)?.value ?? '',
+          };
+          try {
+            const json = mergeCustomProviderDraft(
+              textarea?.value ?? this.aiJsonDraft ?? CUSTOM_PROVIDER_TEMPLATE,
+              draft,
+              apiKey,
+            );
+            const parsed = parseCustomProviderJson(json);
+            if (!parsed.apiKey && shared.settings.ai?.provider !== 'custom') {
+              throw new Error('Add an API key the first time you save this endpoint');
+            }
+            const model = parsed.provider.models.find(item => item.toolCalling)?.id
+              ?? parsed.provider.models[0].id;
+            const origin = resolveProvider({
+              provider: 'custom',
+              model,
+              customProvider: parsed.provider,
+            }).origin;
+            // Do not repaint plaintext credentials back into the form while
+            // the service worker encrypts them.
+            this.aiJsonDraft = customProviderJson(parsed.provider);
+            this.aiCustomDraft = draft;
+            this.aiModelDraft = model;
+            this.aiJsonError = null;
+            this.aiJsonSaving = true;
+            void requestOriginsInGesture([origin]).then((granted) => {
+              if (!granted) {
+                this.aiJsonError = 'Site access to the custom endpoint was declined';
+                rerender();
+              }
+            });
+            this.send({ type: 'AI_SAVE_CUSTOM_PROVIDER', json });
+            rerender();
+          } catch (e) {
+            this.aiJsonError = e instanceof Error ? e.message : String(e);
+            this.aiJsonOpen = true;
+            this.aiJsonSaving = false;
+            rerender();
+          }
+          return;
+        }
+        const model = (container.querySelector('#ai-model') as HTMLInputElement | null)?.value.trim();
+        if (!model) return;
         // Request the provider API origin's host permission INSIDE this click —
         // the SW's cross-origin fetch needs it, and the browser prompt requires
         // a user gesture. Already-granted origins resolve silently; a denial
         // surfaces as an inline status so the user knows why calls will fail.
-        let origin: string;
-        try {
-          origin = provider === 'custom'
-            ? resolveProvider({ provider, model, customProvider: shared.settings.ai?.customProvider }).origin
-            : PROVIDERS[provider].origin;
-        } catch (e) {
-          this.aiTestStatus = { ok: false, text: e instanceof Error ? e.message : String(e) };
-          rerender();
-          return;
-        }
+        const origin = PROVIDERS[provider].origin;
         void requestOriginsInGesture([origin]).then((granted) => {
           if (!granted) {
             this.aiTestStatus = { ok: false, text: 'Site access to the provider was declined' };
@@ -484,41 +590,6 @@ export class ConnectTab implements Tab {
         this.send({ type: 'AI_SAVE_CONFIG', provider, model, ...(apiKey.trim() ? { apiKey } : {}) });
         this.aiModelDraft = model;
         this.aiProviderDraft = provider;
-      },
-      'ai-save-json': () => {
-        const textarea = container.querySelector('#ai-provider-json') as HTMLTextAreaElement | null;
-        const json = textarea?.value ?? this.aiJsonDraft ?? '';
-        try {
-          const parsed = parseCustomProviderJson(json);
-          if (!parsed.apiKey && shared.settings.ai?.provider !== 'custom') {
-            throw new Error('Add apiKey the first time you save this provider');
-          }
-          this.aiJsonOpen = true;
-          this.aiJsonError = null;
-          this.aiJsonSaving = true;
-          this.aiTestStatus = null;
-          const model = parsed.provider.models.find((item) => item.toolCalling)?.id
-            ?? parsed.provider.models[0].id;
-          const origin = resolveProvider({
-            provider: 'custom',
-            model,
-            customProvider: parsed.provider,
-          }).origin;
-          void requestOriginsInGesture([origin]).then((granted) => {
-            if (!granted) {
-              this.aiJsonError = 'Site access to the custom endpoint was declined';
-              this.aiJsonOpen = true;
-              rerender();
-            }
-          });
-          this.send({ type: 'AI_SAVE_CUSTOM_PROVIDER', json });
-        } catch (e) {
-          this.aiJsonError = e instanceof Error ? e.message : String(e);
-          this.aiJsonOpen = true;
-          this.aiJsonSaving = false;
-          if (textarea) flashInvalid(textarea);
-          rerender();
-        }
       },
       'ai-expand': () => { this.aiExpanded = !this.aiExpanded; this.aiTestStatus = null; rerender(); },
       'ai-replace': () => { this.aiReplacingKey = true; this.aiTestStatus = null; this.aiKeyDraft = ''; rerender(); },
@@ -534,6 +605,7 @@ export class ConnectTab implements Tab {
           if (!ok) return;
           this.aiProviderDraft = null;
           this.aiModelDraft = null;
+          this.aiCustomDraft = null;
           this.aiKeyDraft = '';
           this.aiModelOptions = [];
           this.aiModelsLoading = false;
@@ -751,13 +823,15 @@ export class ConnectTab implements Tab {
         title: this.aiExpanded ? 'Close' : 'Edit AI settings',
       }, this.aiExpanded ? 'Close' : 'Edit'));
     } else {
-      right.appendChild(h('button', { class: 'btn btn-small', 'data-action': 'ai-expand' }, 'Set up'));
+      right.appendChild(h('button', {
+        class: 'btn btn-small',
+        'data-action': 'ai-expand',
+        title: this.aiExpanded ? 'Close AI settings' : 'Set up the AI assistant',
+      }, this.aiExpanded ? 'Close' : 'Set up'));
     }
 
     return h('div', {
       class: `ai-card${verified ? ' ready' : ''}${this.aiExpanded ? ' expanded' : ''}`,
-      'data-action': 'ai-expand',
-      role: 'button',
       title: configured ? 'AI assistant settings' : 'Set up the AI assistant',
     },
       spark,
@@ -766,43 +840,40 @@ export class ConnectTab implements Tab {
     );
   }
 
-  /** The expanded configuration form (provider / model / key / test). Reused
-   *  verbatim from the previous inline section; the card above toggles it. */
+  /** Expanded provider configuration. Built-ins use model + key; selecting
+   *  Custom reveals approachable endpoint fields and optional advanced JSON. */
   private renderAiForm(): HTMLElement {
     const stored = shared.settings.ai;
     const provider: AiProviderId = this.aiProviderDraft ?? stored?.provider ?? 'anthropic';
     const custom = stored?.customProvider;
-    const fallbackModel = provider === 'custom'
-      ? custom?.models.find(item => item.toolCalling)?.id ?? ''
-      : PROVIDERS[provider].defaultModel;
-    const model = this.aiModelDraft ?? stored?.model ?? fallbackModel;
-    const meta = provider === 'custom'
-      ? resolveProvider({ provider, model: custom?.models.some(item => item.id === model) ? model : fallbackModel, customProvider: custom })
-      : PROVIDERS[provider];
-    const showKeyInput = !this.aiConfigured || this.aiReplacingKey;
+    const customDraft = this.aiCustomDraft ?? customDraftFromProvider(custom);
+    const model = provider === 'custom'
+      ? customDraft.modelId
+      : this.aiModelDraft ?? stored?.model ?? PROVIDERS[provider].defaultModel;
+    const meta = provider === 'custom' ? null : PROVIDERS[provider];
+    const providerChanged = provider !== stored?.provider;
+    const showKeyInput = !this.aiConfigured || this.aiReplacingKey || providerChanged;
 
     const providerSelect = h('select', { class: 'field-input ai-select', id: 'ai-provider' },
-      ...([...AI_PROVIDER_IDS, ...(custom ? ['custom' as const] : [])]).map(id => h('option', {
+      ...([...AI_PROVIDER_IDS, 'custom' as const]).map(id => h('option', {
         value: id,
         ...(id === provider ? { selected: 'selected' } : {}),
-      }, id === 'custom' ? custom?.name ?? 'Custom' : PROVIDERS[id].label)),
+      }, id === 'custom' ? 'Custom endpoint…' : PROVIDERS[id].label)),
     );
     (providerSelect as HTMLSelectElement).value = provider;
 
     // Model list — provider suggestions plus any live-loaded ids. A native <datalist> FILTERS its
     // options by the input's current value, so once a model is typed you can't see the others; this
     // custom menu (toggled by the caret) always lists them ALL, unfiltered.
-    const modelOptions = [...new Set([...meta.suggestedModels, ...this.aiModelOptions])];
+    const modelOptions = meta ? [...new Set([...meta.suggestedModels, ...this.aiModelOptions])] : [];
     const modelMenu = (this.aiModelMenuOpen && modelOptions.length)
       ? h('div', { class: 'ai-model-menu' },
           ...modelOptions.map(m => {
-            const displayName = provider === 'custom' ? custom?.models.find(item => item.id === m)?.name : undefined;
             return h('button', {
               class: 'ai-model-opt' + (m === model ? ' sel' : ''), type: 'button',
               'data-action': 'ai-model-pick', 'data-model': m,
             },
-              displayName ? h('span', { class: 'ai-model-opt-name' }, displayName) : null,
-              displayName ? h('span', { class: 'ai-model-opt-id' }, m) : m,
+              m,
             );
           }))
       : null;
@@ -818,7 +889,6 @@ export class ConnectTab implements Tab {
           h('label', { class: 'field-label' }, this.aiConfigured ? 'New API key' : 'API key'),
           h('div', { class: 'field-row ai-key-row' },
             h('input', { class: 'field-input', id: 'ai-key', type: 'password', placeholder: 'paste key', autocomplete: 'off', value: this.aiKeyDraft }),
-            h('button', { class: 'btn btn-accent btn-small', 'data-action': 'ai-save' }, 'Save'),
             this.aiReplacingKey ? h('button', { class: 'btn btn-small', 'data-action': 'ai-replace-cancel' }, 'Cancel') : null,
           ),
           h('span', { class: 'field-hint' }, 'Stored encrypted on this device. Sent only to the provider you choose.'),
@@ -832,77 +902,108 @@ export class ConnectTab implements Tab {
           ),
         );
 
+    const customFields = provider === 'custom'
+      ? h('div', { class: 'ai-custom' },
+          h('div', { class: 'ai-custom-head' },
+            h('div', {},
+              h('div', { class: 'field-label' }, 'Custom endpoint'),
+              h('div', { class: 'field-hint' }, 'Connect one OpenAI- or Anthropic-compatible endpoint.'),
+            ),
+            h('button', {
+              class: 'btn-micro help-btn ai-custom-help',
+              type: 'button',
+              'aria-label': 'Custom endpoint help',
+              'aria-expanded': this.aiJsonHelpOpen ? 'true' : 'false',
+              'aria-controls': 'ai-provider-json-help',
+              onClick: (event: Event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                this.aiJsonHelpOpen = !this.aiJsonHelpOpen;
+                const button = event.currentTarget as HTMLButtonElement;
+                button.setAttribute('aria-expanded', this.aiJsonHelpOpen ? 'true' : 'false');
+                const help = button.closest('.ai-custom')?.querySelector<HTMLElement>('#ai-provider-json-help');
+                if (help) help.hidden = !this.aiJsonHelpOpen;
+              },
+            }, '?'),
+          ),
+          h('div', {
+            class: 'ai-json-help-text',
+            id: 'ai-provider-json-help',
+            hidden: !this.aiJsonHelpOpen,
+          },
+            h('p', {}, 'Choose the request format the endpoint implements. The base URL should stop before ', h('code', {}, '/chat/completions'), ' or ', h('code', {}, '/v1/messages'), '.'),
+            h('p', {}, 'Advanced JSON supports additional models, vision limits and token-parameter overrides.'),
+          ),
+          h('div', { class: 'ai-custom-grid' },
+            h('div', { class: 'field-group' },
+              h('label', { class: 'field-label', for: 'ai-custom-name' }, 'Name'),
+              h('input', { class: 'field-input', id: 'ai-custom-name', value: customDraft.name, placeholder: 'Company Gateway' }),
+            ),
+            h('div', { class: 'field-group' },
+              h('label', { class: 'field-label', for: 'ai-custom-api-type' }, 'API format'),
+              h('select', { class: 'field-input', id: 'ai-custom-api-type' },
+                h('option', { value: 'openai', ...(customDraft.apiType === 'openai' ? { selected: 'selected' } : {}) }, 'OpenAI compatible'),
+                h('option', { value: 'anthropic', ...(customDraft.apiType === 'anthropic' ? { selected: 'selected' } : {}) }, 'Anthropic compatible'),
+              ),
+            ),
+          ),
+          h('div', { class: 'field-group' },
+            h('label', { class: 'field-label', for: 'ai-custom-url' }, 'Base URL'),
+            h('input', { class: 'field-input', id: 'ai-custom-url', value: customDraft.baseUrl, placeholder: 'https://api.example.com/v1' }),
+          ),
+          h('div', { class: 'field-group' },
+            h('label', { class: 'field-label', for: 'ai-custom-model' }, 'Model ID'),
+            h('input', { class: 'field-input', id: 'ai-custom-model', value: customDraft.modelId, placeholder: 'model-name' }),
+          ),
+          h('details', { class: 'ai-json', ...(this.aiJsonOpen ? { open: true } : {}) },
+            h('summary', {}, 'Advanced provider JSON'),
+            h('textarea', {
+              class: 'field-input ai-json-input',
+              id: 'ai-provider-json',
+              spellcheck: 'false',
+              value: this.aiJsonDraft ?? customProviderJson(custom),
+            }),
+            this.aiJsonError ? h('div', { class: 'ai-json-error', role: 'alert' }, this.aiJsonError) : null,
+            h('span', { class: 'field-hint ai-json-note' }, 'Extra models and capabilities are preserved when you save the fields above.'),
+          ),
+        )
+      : null;
+
     return h('div', { class: 'ai-form' },
       h('div', { class: 'field-group' },
         h('label', { class: 'field-label' }, 'Provider'),
         providerSelect,
         h('span', { class: 'field-hint' }, 'Messages and attached BMP context are sent directly to this provider.'),
       ),
-      h('div', { class: 'field-group' },
-        h('label', { class: 'field-label' }, 'Model'),
-        h('div', { class: 'field-row ai-key-row' },
-          h('div', { class: 'ai-model-combo' },
-            h('input', { class: 'field-input', id: 'ai-model', value: model, autocomplete: 'off', placeholder: meta.defaultModel }),
-            modelOptions.length
-              ? h('button', { class: 'ai-model-caret' + (this.aiModelMenuOpen ? ' open' : ''), type: 'button', 'data-action': 'ai-model-browse', title: 'Browse all models', 'aria-label': 'Browse all models' }, svg(ICON_CHEVRON))
-              : null,
-            modelMenu,
-          ),
-          meta.openAiCompat && provider !== 'custom'
-            ? h('button', { class: 'footer-action', 'data-action': 'ai-load-models', title: 'Load the provider model list', ...(this.aiModelsLoading ? { disabled: 'disabled' } : {}) }, this.aiModelsLoading ? 'Loading…' : 'Load list')
-            : null,
-        ),
-      ),
-      keyRow,
-      // Save provider/model without re-entering the key (only when configured
-      // and not currently replacing the key).
-      this.aiConfigured && !this.aiReplacingKey
-        ? h('div', { class: 'field-row ai-conn-row' },
-            h('button', { class: 'btn btn-accent btn-small', 'data-action': 'ai-save' }, 'Save changes'),
-            h('button', { class: 'footer-action', 'data-action': 'ai-test' }, 'Test connection'),
-            statusEl,
+      customFields,
+      meta
+        ? h('div', { class: 'field-group' },
+            h('label', { class: 'field-label' }, 'Model'),
+            h('div', { class: 'field-row ai-key-row' },
+              h('div', { class: 'ai-model-combo' },
+                h('input', { class: 'field-input', id: 'ai-model', value: model, autocomplete: 'off', placeholder: meta.defaultModel }),
+                modelOptions.length
+                  ? h('button', { class: 'ai-model-caret' + (this.aiModelMenuOpen ? ' open' : ''), type: 'button', 'data-action': 'ai-model-browse', title: 'Browse all models', 'aria-label': 'Browse all models' }, svg(ICON_CHEVRON))
+                  : null,
+                modelMenu,
+              ),
+              meta.openAiCompat
+                ? h('button', { class: 'footer-action', 'data-action': 'ai-load-models', title: 'Load the provider model list', ...(this.aiModelsLoading ? { disabled: 'disabled' } : {}) }, this.aiModelsLoading ? 'Loading…' : 'Load list')
+                : null,
+            ),
           )
-        : (statusEl ? h('div', { class: 'field-row ai-conn-row' }, statusEl) : null),
-      h('details', { class: 'ai-json', ...(this.aiJsonOpen ? { open: true } : {}) },
-        h('summary', {},
-          h('span', {}, custom ? 'Custom provider JSON' : 'Add custom provider'),
-          h('button', {
-            class: 'btn-micro help-btn ai-json-help',
-            type: 'button',
-            'aria-label': 'Custom provider JSON help',
-            'aria-expanded': this.aiJsonHelpOpen ? 'true' : 'false',
-            'aria-controls': 'ai-provider-json-help',
-            onClick: (event: Event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              this.aiJsonHelpOpen = !this.aiJsonHelpOpen;
-              const button = event.currentTarget as HTMLButtonElement;
-              button.setAttribute('aria-expanded', this.aiJsonHelpOpen ? 'true' : 'false');
-              const help = button.closest('.ai-json')?.querySelector<HTMLElement>('#ai-provider-json-help');
-              if (help) help.hidden = !this.aiJsonHelpOpen;
-            },
-          }, '?'),
-        ),
-        h('div', {
-          class: 'ai-json-help-text',
-          id: 'ai-provider-json-help',
-          hidden: !this.aiJsonHelpOpen,
-        },
-          h('p', {}, h('code', {}, 'apiType'), ' selects the request format: ', h('code', {}, 'openai'), ' uses ', h('code', {}, '/chat/completions'), '; ', h('code', {}, 'anthropic'), ' uses ', h('code', {}, '/v1/messages'), '.'),
-          h('p', {}, h('code', {}, 'url'), ' is the API base URL. OpenAI-format models default to ', h('code', {}, 'max_completion_tokens'), '; set ', h('code', {}, 'maxTokensParam'), ' to ', h('code', {}, 'max_tokens'), ' for DeepSeek or older compatible APIs.'),
-          h('p', {}, 'At least one model must set ', h('code', {}, 'toolCalling'), ' to ', h('code', {}, 'true'), '.'),
-        ),
-        h('textarea', {
-          class: 'field-input ai-json-input',
-          id: 'ai-provider-json',
-          spellcheck: 'false',
-          value: this.aiJsonDraft ?? customProviderJson(custom),
-        }),
-        this.aiJsonError ? h('div', { class: 'ai-json-error', role: 'alert' }, this.aiJsonError) : null,
-        h('div', { class: 'field-row ai-json-actions' },
-          h('button', { class: 'btn btn-small', 'data-action': 'ai-save-json', ...(this.aiJsonSaving ? { disabled: true } : {}) }, this.aiJsonSaving ? 'Saving…' : custom ? 'Update provider' : 'Save provider'),
-          h('span', { class: 'field-hint' }, 'The key is encrypted and removed from this JSON after saving.'),
-        ),
+        : null,
+      keyRow,
+      h('div', { class: 'field-row ai-conn-row' },
+        h('button', {
+          class: 'btn btn-accent btn-small',
+          'data-action': 'ai-save',
+          ...(this.aiJsonSaving ? { disabled: true } : {}),
+        }, this.aiJsonSaving ? 'Saving…' : 'Save configuration'),
+        this.aiConfigured
+          ? h('button', { class: 'footer-action', 'data-action': 'ai-test' }, 'Test connection')
+          : null,
+        statusEl,
       ),
     );
   }

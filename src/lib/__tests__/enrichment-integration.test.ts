@@ -1510,4 +1510,34 @@ describe('Editor Context — What The Code Popup Shows', () => {
     // The garbage rid was rejected → fell back to .location, not bound as `this`.
     expect(ctx.executionContextRid).toBe(RIDS.editPage);
   });
+
+  it('opens the standalone scratch editor from cached page identity without a BMP lookup', async () => {
+    const now = Date.now();
+    harness.cache.putAll([{
+      rid: RIDS.risk,
+      businessId: 'risk.42',
+      type: 'CeRiskAssessment',
+      name: 'Cached operational risk',
+      source: 'server',
+      discoveredAt: now,
+      updatedAt: now,
+    }]);
+    harness.client.lookupIdentity = vi.fn(async () => {
+      throw new Error('scratch editor should not need the network');
+    });
+
+    const { openExtendedWindow } = await import('../editor');
+    await openExtendedWindow(RIDS.risk);
+
+    expect(harness.client.lookupIdentity).not.toHaveBeenCalled();
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+      (call: any) => call[0]?.crev_editor_ctx_extended,
+    );
+    expect(setCall?.[0].crev_editor_ctx_extended.instance).toMatchObject({
+      rid: RIDS.risk,
+      businessId: 'risk.42',
+      type: 'CeRiskAssessment',
+      name: 'Cached operational risk',
+    });
+  });
 });

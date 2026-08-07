@@ -20,6 +20,8 @@ import { loadPage } from './content-blueprint/service';
 import { resetColorSets } from './content-blueprint/colors';
 import { loadPortableIdConfig } from './content-blueprint/id-config';
 import { releaseNativeEditPage } from './content-blueprint/edit-page-native';
+import { ensureOverlayStyle } from './content-overlay-style';
+import { resetObjectPreview } from './lib/object-chip';
 
 export { isBlueprintActive };
 
@@ -89,6 +91,11 @@ export function enableBlueprint(): void {
   bp.active = true;
   bp.gen += 1; // new session — invalidates any in-flight load/apply from a prior toggle
   void loadPortableIdConfig();
+  // Blueprint's page chip uses the shared object preview. Its host positioning
+  // lives in Blueprint CSS, while the card body is part of the shared overlay
+  // sheet, so Blueprint must make that dependency explicit even when Inspect
+  // has never been enabled.
+  ensureOverlayStyle();
   ensureStyle();
   const layer = document.createElement('div');
   layer.id = 'crev-blueprint-layer';
@@ -253,6 +260,10 @@ export function disableBlueprint(): void {
   bp.observer?.disconnect();
   bp.resizeObs?.disconnect();
   releaseNativeEditPage();
+  // The preview is portalled to document.body rather than the Blueprint layer.
+  // Dispose it before removing Blueprint's host-positioning rules or it drops
+  // into normal page flow at the bottom of the BMP page.
+  resetObjectPreview();
   bp.layer?.remove();
   bp.scrollSpacer?.remove(); // drop the page-scroll-extension spacer (it lives on body, outside the layer)
   document.getElementById(STYLE_ID)?.remove(); // don't leak the injected stylesheet past teardown
