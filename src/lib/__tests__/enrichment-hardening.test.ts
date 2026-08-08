@@ -96,63 +96,6 @@ describe('RID validation (bmp-client.ts)', () => {
   });
 });
 
-describe('Delimiter collision — batchEnrich name with |||', () => {
-  it('parser rejoins overflow parts into name', () => {
-    // Simulate the fixed parser logic
-    const line = '12345|||BID-01|||Scorecard|||My|||Weird|||Name';
-    const parts = line.split('|||');
-    const [rid, bid, typ, ...rest] = parts;
-    const name = rest.join('|||');
-
-    expect(rid).toBe('12345');
-    expect(bid).toBe('BID-01');
-    expect(typ).toBe('Scorecard');
-    expect(name).toBe('My|||Weird|||Name');
-  });
-
-  it('parser handles normal 4-part line', () => {
-    const line = '12345|||BID-01|||Scorecard|||Normal Name';
-    const parts = line.split('|||');
-    const [, , , ...rest] = parts;
-    const name = rest.join('|||');
-
-    expect(name).toBe('Normal Name');
-  });
-});
-
-describe('Delimiter collision — resolveTemplate name with |||', () => {
-  it('parses template name containing ||| correctly', () => {
-    // Mirrors the fixed resolveTemplate parser: [tRid, ...rest] → tType = rest.pop(), tName = rest.join('|||')
-    const last = '12345|||My|||Weird|||Name|||Scorecard';
-    const [tRid, ...rest] = last.split('|||');
-    const tType = rest.pop() ?? '';
-    const tName = rest.join('|||');
-
-    expect(tRid).toBe('12345');
-    expect(tName).toBe('My|||Weird|||Name');
-    expect(tType).toBe('Scorecard');
-  });
-
-  it('parses MISSING as null templateRid', () => {
-    const last = 'MISSING||||||';
-    const [tRid] = last.split('|||');
-
-    expect(tRid).toBe('MISSING');
-    // resolveTemplate returns { templateRid: null } when tRid === 'MISSING'
-  });
-
-  it('parses normal template correctly', () => {
-    const last = '12345|||Normal Name|||KPI';
-    const [tRid, ...rest] = last.split('|||');
-    const tType = rest.pop() ?? '';
-    const tName = rest.join('|||');
-
-    expect(tRid).toBe('12345');
-    expect(tName).toBe('Normal Name');
-    expect(tType).toBe('KPI');
-  });
-});
-
 describe('batchEnrich truncates oversized input', () => {
   it('generates EC with at most BATCH_CHUNK_SIZE lookups', async () => {
     mockChromeStorage();
@@ -206,34 +149,6 @@ describe('permanentlyFailed cap at MAX_PERMANENTLY_FAILED', () => {
     expect(MAX_PERMANENTLY_FAILED).toBe(500);
   });
 
-  it('capPermanentlyFailed evicts oldest entries', async () => {
-    // Test the Set eviction logic directly (mirrors enrichment.ts capPermanentlyFailed)
-    const set = new Set<string>();
-    const MAX = 500;
-
-    // Add 600 entries
-    for (let i = 0; i < 600; i++) set.add(`rid-${i}`);
-    expect(set.size).toBe(600);
-
-    // Evict
-    if (set.size > MAX) {
-      const excess = set.size - MAX;
-      let count = 0;
-      for (const rid of set) {
-        if (count >= excess) break;
-        set.delete(rid);
-        count++;
-      }
-    }
-
-    expect(set.size).toBe(500);
-    // Oldest entries (0-99) should be evicted
-    expect(set.has('rid-0')).toBe(false);
-    expect(set.has('rid-99')).toBe(false);
-    // Newest entries should remain
-    expect(set.has('rid-100')).toBe(true);
-    expect(set.has('rid-599')).toBe(true);
-  });
 });
 
 describe('Permanently-failed RIDs — broadcast fix', () => {

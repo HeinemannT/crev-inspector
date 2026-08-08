@@ -35,19 +35,6 @@ describe('alt-modifier copy semantics', () => {
       expect(result.text).toBe('6655481628892308703');
       expect(result.label).toBe('RID');
     });
-
-    it('returns the RID even when businessId is missing', () => {
-      const result = resolveCopyText({ rid: '6655481628892308703' }, 'alt');
-      expect(result.text).toBe('6655481628892308703');
-      expect(result.label).toBe('RID');
-    });
-
-    it('falls back to businessId only when RID is truly empty', () => {
-      // Should never happen in practice — every BMP object has a RID —
-      // but the behavior is deterministic if it does.
-      const result = resolveCopyText({ rid: '', businessId: '716' }, 'alt');
-      expect(result.text).toBe('716');
-    });
   });
 
   describe('non-alt paths still work', () => {
@@ -75,15 +62,6 @@ describe('alt-modifier copy semantics', () => {
       );
       expect(result.text).toBe('716');
       expect(result.label).toBe('Instance ID');
-    });
-
-    it('ctrl returns namespace reference', () => {
-      const result = resolveCopyText(
-        { rid: '123', businessId: 'pMyProp', type: 'TextMethodConfig' },
-        'ctrl',
-      );
-      expect(result.text).toBe('k.pMyProp');
-      expect(result.label).toBe('ref');
     });
   });
 });

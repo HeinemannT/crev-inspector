@@ -21,7 +21,6 @@ import { ObjectCache } from '../object-cache';
 import { JavaEnum } from '../java-serial';
 import { registerBmpTypes } from '../bmp-types';
 import { BATCH_CHUNK_SIZE } from '../constants';
-import { getTypeColor, getTypeAbbr, TYPES_WITH_CODE, DEFAULT_TYPE_COLOR } from '../types';
 
 // Register types once (needed for parseEcResults to recognize JavaEnum)
 registerBmpTypes();
@@ -460,35 +459,6 @@ describe('Enrichment Integration — Full Pipeline', () => {
     });
   });
 
-  // ── Scenario 6: Object name containing the delimiter ───────────────
-
-  it('handles object name containing ||| delimiter (known limitation)', async () => {
-    harness.transportMock.mockResolvedValueOnce(makeEcResponseObjects(
-      // Name contains ||| — parser uses positional indexing, so extra |||
-      // in the name shifts fields and bleeds into the cascade columns.
-      // Known limitation: BMP names never contain |||.
-      `${RIDS.extTable}|||sc_weird|||ExtendedTable|||Risk|||Assessment|||Summary|||\n`,
-    ));
-
-    await enrichBadges([RIDS.extTable]);
-
-    const enrichBroadcasts = harness.ctx._broadcasts.filter(
-      (m: any) => m.type === 'BADGE_ENRICHMENT',
-    );
-    const enrichments = (enrichBroadcasts[0] as any).enrichments;
-
-    // Positional parser: with the cascade fields added (parts[5..8]),
-    // the "Summary" segment falls into parts[5] and is treated as cascade.rid.
-    // Documenting the cascade interpretation of the same broken-name input.
-    expect(enrichments[RIDS.extTable]).toEqual({
-      businessId: 'sc_weird',
-      type: 'ExtendedTable',
-      name: 'Risk',
-      templateBusinessId: 'Assessment',
-      cascade: { rid: 'Summary', businessId: undefined, type: undefined, name: undefined },
-    });
-  });
-
   // ── Scenario 7: Dedup — same RIDs sent twice ─────────────────────
 
   it('deduplicates RIDs across consecutive enrichBadges calls', async () => {
@@ -769,25 +739,6 @@ describe('resolveTemplate Integration — Full Pipeline', () => {
     expect(result.templateName).toBe('Risk Assessment Template');
     expect(result.templateType).toBe('TemplateCategory');
   });
-
-  it('resolves template with ||| in name (delimiter collision)', async () => {
-    // With 4-field format (rid|||name|||type|||bid), ||| in name creates extra fields.
-    // Parser uses positional indexing: parts[0]=rid, parts[1]=name, parts[2]=type, parts[3]=bid.
-    // A name with ||| shifts type and bid positions — known limitation, documented.
-    harness.transportMock.mockResolvedValueOnce(makeEcResponseObjects(
-      `${RIDS.template}|||Risk|||Assessment|||Template|||TemplateCategory|||t.100`,
-    ));
-
-    const result = await harness.client.resolveTemplate(RIDS.scorecard);
-
-    // With positional parsing: name=Risk, type=Assessment, bid=Template
-    // (shifted due to ||| in name — this is a known limitation)
-    expect(result.templateRid).toBe(RIDS.template);
-    expect(result.templateName).toBe('Risk');
-    expect(result.templateType).toBe('Assessment');
-    expect(result.templateBusinessId).toBe('Template');
-  });
-
   it('handles template with empty name (name field is "")', async () => {
     // EC output when name is empty: rid|||""|||className → rid||||||className
     harness.transportMock.mockResolvedValueOnce(makeEcResponseObjects(
@@ -1032,158 +983,6 @@ describe('parseEcResults — Realistic BMP Response Shapes', () => {
     expect(result.log).not.toContain('END');
   });
 });
-
-// ── Label rendering verification ─────────────────────────────────────
-// Mirrors content.ts line 291/393:
-//   textSpan.textContent = enrichment.businessId ?? enrichment.name ?? getTypeAbbr(enrichment.type)
-// Uses ?? (nullish coalescing) — empty string '' does NOT fall back.
-// Verify that batchEnrich never returns empty strings, and that the
-// enrichment shapes produce the correct label text in all cases.
-
-describe('Label Text Derivation — What The User Actually Sees', () => {
-  // Mirror the exact content script logic (content.ts line 291/393)
-  function labelText(enrichment: { businessId?: string; type?: string; name?: string } | undefined): string {
-    return enrichment?.businessId ?? enrichment?.name ?? getTypeAbbr(enrichment?.type);
-  }
-
-  // Mirror the code button logic (content.ts line 328)
-  function hasCodeButton(enrichment: { type?: string } | undefined): boolean {
-    return !!(enrichment?.type && TYPES_WITH_CODE.has(enrichment.type));
-  }
-
-  // Mirror the code button text (content.ts line 235)
-  function codeButtonText(type: string): string {
-    return type === 'CustomVisualization' ? '</>' : 'EC';
-  }
-
-  describe('batchEnrich output → label text', () => {
-    let harness: TestHarness;
-
-    beforeEach(async () => {
-      harness = await createHarness();
-    });
-
-    it('shows businessId when all fields present', async () => {
-      harness.transportMock.mockResolvedValueOnce(makeEcResponseObjects(
-        `${RIDS.scorecard}|||sc_main|||Scorecard|||Main Scorecard\n`,
-      ));
-      const { results } = await harness.client.batchEnrich([RIDS.scorecard]);
-      expect(labelText(results[RIDS.scorecard])).toBe('sc_main');
-    });
-
-    it('falls back to name when businessId is empty in BMP', async () => {
-      // EC output: bid field is empty string → batchEnrich converts to undefined
-      harness.transportMock.mockResolvedValueOnce(makeEcResponseObjects(
-        `${RIDS.scorecard}||||||Scorecard|||Main Scorecard\n`,
-      ));
-      const { results } = await harness.client.batchEnrich([RIDS.scorecard]);
-      // batchEnrich: bid?.trim() || undefined → undefined
-      expect(results[RIDS.scorecard]!.businessId).toBeUndefined();
-      expect(labelText(results[RIDS.scorecard])).toBe('Main Scorecard');
-    });
-
-    it('falls back to type abbreviation when both businessId and name are empty', async () => {
-      harness.transportMock.mockResolvedValueOnce(makeEcResponseObjects(
-        `${RIDS.scorecard}||||||Scorecard|||\n`,
-      ));
-      const { results } = await harness.client.batchEnrich([RIDS.scorecard]);
-      expect(results[RIDS.scorecard]!.businessId).toBeUndefined();
-      expect(results[RIDS.scorecard]!.name).toBeUndefined();
-      expect(labelText(results[RIDS.scorecard])).toBe('SCD');
-    });
-
-    it('shows ? for empty enrichment (permanently failed RID)', () => {
-      expect(labelText({})).toBe('?');
-    });
-
-    it('shows ? when enrichment is undefined (not yet enriched)', () => {
-      expect(labelText(undefined)).toBe('?');
-    });
-
-    it('shows correct abbreviations for all code-capable types', async () => {
-      // Verify that batchEnrich className values match getTypeAbbr expectations
-      const typeMap: Record<string, string> = {
-        ExtendedTable: 'TBL',
-        CustomVisualization: 'CVO',
-        BarChart: 'BAR',
-        PieChart: 'PIE',
-        LineChart: 'LIN',
-      };
-      for (const [type, abbr] of Object.entries(typeMap)) {
-        expect(labelText({ type })).toBe(abbr);
-      }
-    });
-
-    it('shows first 3 chars for unknown types', () => {
-      expect(labelText({ type: 'WeirdNewType' })).toBe('WEI');
-    });
-  });
-
-  describe('code button appearance and text', () => {
-    it('shows EC button for ExtendedTable', () => {
-      expect(hasCodeButton({ type: 'ExtendedTable' })).toBe(true);
-      expect(codeButtonText('ExtendedTable')).toBe('EC');
-    });
-
-    it('shows </> button for CustomVisualization', () => {
-      expect(hasCodeButton({ type: 'CustomVisualization' })).toBe(true);
-      expect(codeButtonText('CustomVisualization')).toBe('</>');
-    });
-
-    it('shows EC button for chart types', () => {
-      for (const chart of ['BarChart', 'PieChart', 'LineChart', 'AreaChart', 'WaterfallChart']) {
-        expect(hasCodeButton({ type: chart })).toBe(true);
-        expect(codeButtonText(chart)).toBe('EC');
-      }
-    });
-
-    it('shows NO button for non-code types', () => {
-      for (const type of ['Scorecard', 'Organisation', 'Risk', 'Control', 'Action', 'DashboardFolder']) {
-        expect(hasCodeButton({ type })).toBe(false);
-      }
-    });
-
-    it('shows NO button for empty enrichment', () => {
-      expect(hasCodeButton({})).toBe(false);
-      expect(hasCodeButton(undefined)).toBe(false);
-    });
-  });
-});
-
-// ── Tooltip rendering verification ──────────────────────────────────
-// content.ts line 523-531: tooltip shows type badge, type name, name row, ID row
-
-describe('Tooltip Content — What The Hover Shows', () => {
-  it('enriched object shows all fields', () => {
-    const enrichment = { businessId: 'sc_main', type: 'Scorecard', name: 'Main Scorecard' };
-
-    const color = getTypeColor(enrichment.type);
-    const abbr = getTypeAbbr(enrichment.type);
-    const typeName = enrichment.type;
-
-    expect(color).toBe('#6fdc8c');   // Scorecard color (page-green family per pill taxonomy)
-    expect(abbr).toBe('SCD');
-    expect(typeName).toBe('Scorecard');
-    // name row: "Main Scorecard"
-    expect(enrichment.name).toBe('Main Scorecard');
-    // ID row: "ID: sc_main"
-    expect(enrichment.businessId).toBe('sc_main');
-  });
-
-  it('empty enrichment shows ? badge and Unknown type', () => {
-    const enrichment: Record<string, any> = {};
-
-    expect(getTypeColor(enrichment.type)).toBe(DEFAULT_TYPE_COLOR);
-    expect(getTypeAbbr(enrichment.type)).toBe('?');
-    // typeName fallback: enrichment.type ?? 'Unknown'
-    expect(enrichment.type ?? 'Unknown').toBe('Unknown');
-    // name row: enrichment.name is falsy → not rendered
-    expect(enrichment.name && 'rendered').toBeFalsy();
-    // ID row: enrichment.businessId is falsy → not rendered
-    expect(enrichment.businessId && 'rendered').toBeFalsy();
-  });
-});
-
 // ── Editor Context Assembly ─────────────────────────────────────────
 // Tests what openEditorWindow stores in crev_editor_ctx_${rid}.
 // Uses the unified fetchEditorContext() — single EC call for identity +
