@@ -231,6 +231,16 @@ describe('BmpClient.saveCodeViaEc — escaping', () => {
     expect(ec).toContain('"a\\rb"');
   });
 
+  it('escapes tab-indented HTML and script bodies', async () => {
+    const { client } = await createClientHarness();
+    const code = '<div>Text</div>\n<script>\n\tdocument.body.dataset.ready = "yes";\n</script>';
+    const ec = await captureSaveCode(client, code);
+    const changeLine = ec.split('\n').find(l => l.includes('_o.change'))!;
+
+    expect(changeLine).toContain('<script>\\n\\tdocument.body.dataset.ready = \\"yes\\";\\n</script>');
+    expect(changeLine).not.toContain('\t');
+  });
+
   it('order-of-escapes: backslash escape happens first (no double-escape of injected backslashes)', async () => {
     const { client } = await createClientHarness();
     // Single backslash before quote: the user wrote \" — should become \\" in EC

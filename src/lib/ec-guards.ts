@@ -46,8 +46,8 @@ export function validateBusinessId(id: string): string {
 
 /** Escape a value for embedding inside a double-quoted EC string literal:
  *  `"...${formatEcLiteral(v)}..."`. This is the *value-slot* guard referenced
- *  in the module comment — it escapes the four metacharacters the BMP EC parser
- *  treats specially (backslash, double-quote, CR, LF) so an attacker-influenced
+ *  in the module comment — it escapes the five metacharacters the BMP EC parser
+ *  treats specially (backslash, double-quote, CR, LF, tab) so an attacker-influenced
  *  value (e.g. an uploaded filename) can't break out of the literal. Pair it
  *  with validateEcIdentifier for the identifier slot. Always prefer this over
  *  ad-hoc character-stripping, which protects only by accident. */
@@ -56,5 +56,6 @@ export function formatEcLiteral(value: string): string {
     .replace(/\\/g, '\\\\')
     .replace(/"/g, '\\"')
     .replace(/\r/g, '\\r')
-    .replace(/\n/g, '\\n');
+    .replace(/\n/g, '\\n')
+    .replace(/\t/g, '\\t');
 }

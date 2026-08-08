@@ -502,7 +502,7 @@ function refreshActions() {
       h('button', { class: `seg-btn${layout === 'preview' ? ' active' : ''}`, title: 'Preview only', onClick: () => setLayout('preview') }, 'Preview'),
     ),
     aiConfigured ? h('button', { class: 'btn-micro studio-ai-btn', id: 'studio-ai', title: `Ask or edit with AI (${KBD_MOD}+K)`, 'aria-label': 'AI assistant', onClick: openAiAssist }, svg(ICON_SPARKLE)) : null,
-    h('button', { class: 'btn-micro help-btn', title: 'Quick reference', 'aria-label': 'Quick reference', onClick: (e: Event) => showStudioHelp(e.currentTarget as HTMLElement, KBD_MOD) }, '?'),
+    h('button', { class: 'btn-micro help-btn', title: 'Quick reference', 'aria-label': 'Quick reference', onClick: (e: Event) => showStudioHelp(e.currentTarget as HTMLElement, KBD_MOD, mode) }, '?'),
   )
 }
 
@@ -679,7 +679,7 @@ function updateStrip(): void {
     sandbox && live && renderContextRid && liveError ? h('span', { class: 'studio-strip-err', title: liveError }, h('span', { class: 'studio-status-dot studio-status-dot--err' }), 'Live failed') : null,
     sandbox && live && renderContextRid && !liveError && liveData ? h('span', { class: 'studio-strip-ok', title: 'Rendering against live BMP data' }, h('span', { class: 'studio-status-dot studio-status-dot--ok' }), 'Live') : null,
     mode.rewriteSemantics === 'sanitizer'
-      ? h('span', { class: 'studio-strip-hint' }, 'Preview is raw. BMP sanitizes on save.')
+      ? h('span', { class: 'studio-strip-hint' }, 'Preview is inert. BMP removes active content and unsupported styling on save.')
       : null,
     h('div', { class: 'studio-strip-spacer' }),
     h('div', { class: 'seg', role: 'group', 'aria-label': 'Auto-render' },
@@ -1104,9 +1104,14 @@ async function doSave() {
 async function doSaveInner(target: StudioContext['instance'], dirty: StudioCodeProp[]): Promise<void> {
   const current = ctx
   if (!surface || !current) return
+  const containsScript = mode.key === 'text'
+    && dirty.some(prop => /<\s*script\b/i.test(surface!.textFor(prop)))
+  const saveBody = containsScript
+    ? `Write ${dirty.join(' and ')} to "${target.name || target.businessId || target.rid}"?\n\nTextElements cannot store <script>. BMP will remove it on save; use a Custom Visualization for executable HTML and JavaScript.`
+    : `Write ${dirty.join(' and ')} to "${target.name || target.businessId || target.rid}"?`
   const ok = await confirmCommandModal({
     title: dirty.length > 1 ? `Save ${dirty.join(' + ')}` : `Save ${dirty[0]}`,
-    body: `Write ${dirty.join(' and ')} to "${target.name || target.businessId || target.rid}"?`,
+    body: saveBody,
     confirmLabel: 'Save',
     confirmVariant: 'success',
   })
@@ -1152,7 +1157,7 @@ async function doSaveInner(target: StudioContext['instance'], dirty: StudioCodeP
       // TextElement save that comes back different is the sanitizer doing its
       // documented job (info) — the editor adopts the stored version either way.
       if (mode.rewriteSemantics === 'sanitizer') {
-        logConsole('info', `BMP sanitized ${p} on save (whitelist: no radius / gradients / shadows / transforms). The editor now shows the stored version.`)
+        logConsole('info', `BMP sanitized ${p} on save (active content and unsupported styling were removed). The editor now shows the stored version.`)
       } else {
         logConsole('error', `Warning: BMP's ${p} differs from what was saved. Possible silent rollback; the editor now shows BMP's value.`)
       }
