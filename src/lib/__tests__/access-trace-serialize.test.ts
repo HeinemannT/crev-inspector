@@ -8,7 +8,7 @@
  * was confirmed separately via `serialver` against the real 5.6.7.2 bmp-dto.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
-import { registerBmpTypes, makeAccessTraceCommand } from '../bmp-types';
+import { registerBmpTypes, makeAccessTraceCommand, makeGetObjectCommand } from '../bmp-types';
 import { serializeCommands, JavaWriter, JavaReader } from '../java-serial';
 
 /** Serialize one object (header + object, no command-count prefix) and read it
@@ -80,5 +80,20 @@ describe('AccessTraceCommand serialization', () => {
     expect(req.indexBasedEvaluation).toBe(false);
     // updates is an (empty) map; allowedStatementPaths an (empty) list
     expect(req.allowedStatementPaths?.$elements ?? []).toHaveLength(0);
+  });
+});
+
+describe('IntegrationGetObjectCommand serialization', () => {
+  beforeAll(() => registerBmpTypes());
+
+  it('round-trips with the RID and a complete calculation context', () => {
+    const rid = '602152470325630806';
+    const command = roundTrip(makeGetObjectCommand(rid));
+
+    expect(String(command.rid?.identifier)).toBe(rid);
+    expect(String(command.context?.objectRid?.identifier)).toBe(rid);
+    expect(command.context?.date).toBeDefined();
+    expect(command.context?.end).toBeDefined();
+    expect(command.context?.period?.$class).toContain('Month');
   });
 });

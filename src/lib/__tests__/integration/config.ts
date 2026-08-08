@@ -95,6 +95,17 @@ interface BridgeResponse {
   result?: { log?: string | string[]; has_error?: boolean }
 }
 
+/** Match BmpClient.parseEcResults(): the bridge exposes display-formatted log
+ * lines, while the extension consumes each LogEntry's decoded message and
+ * removes BMP's `Result : ` wrapper. */
+function normalizeBridgeLog(log: string | string[] | undefined): string {
+  const raw = Array.isArray(log) ? log.join('\n') : log ?? ''
+  return raw.split(/\r?\n/).map(line => line
+    .replace(/^(?:Message|Warning|Error|Soft error)\s*:\s*/, '')
+    .replace(/^Result\s*:\s*/, '')
+  ).join('\n')
+}
+
 export async function bridgePreview(target: IntegrationTarget, code: string): Promise<string> {
   let lastError = 'Bridge preview failed'
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -112,7 +123,7 @@ export async function bridgePreview(target: IntegrationTarget, code: string): Pr
       })
       const data = await res.json() as BridgeResponse
       if (res.ok && data.ok && !data.result?.has_error) {
-        return Array.isArray(data.result?.log) ? data.result.log.join('\n') : data.result?.log ?? ''
+        return normalizeBridgeLog(data.result?.log)
       }
       lastError = data.error || (Array.isArray(data.result?.log) ? data.result.log.join('\n') : data.result?.log) || `Bridge HTTP ${res.status}`
     } catch (error) {

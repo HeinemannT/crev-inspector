@@ -478,7 +478,10 @@ export function makeAccessTraceCommand(
 export function makeGetObjectCommand(rid: string): any {
   return {
     $type: 'com.corporater.bmp.dto.command.repository.IntegrationGetObjectCommand',
-    context: null,
+    // Config Studio always sends its current calculation context. A null context
+    // reaches CalculationContext.getStart() on current BMP builds and fails before
+    // the object is read.
+    context: makeContext({ objectRid: BigInt(rid) }),
     rid: makeRid(rid),
   };
 }
