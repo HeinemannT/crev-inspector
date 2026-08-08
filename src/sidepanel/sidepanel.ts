@@ -670,11 +670,15 @@ function renderActiveTab() {
 
 function updateToggle() {
   const btn = document.getElementById('toggle-inspect');
-  if (btn) btn.className = `hdr-mode inspect-toggle ${S.inspectActive ? 'active' : ''}`;
+  if (btn) {
+    btn.className = `hdr-mode inspect-toggle ${S.inspectActive ? 'active' : ''}`;
+    btn.setAttribute('aria-pressed', S.inspectActive ? 'true' : 'false');
+  }
   const bp = document.getElementById('toggle-blueprint');
   if (bp instanceof HTMLButtonElement) {
     const supported = S.connState.blueprintSupported !== false;
     bp.className = `hdr-mode blueprint-toggle ${S.blueprintActive ? 'active' : ''}`;
+    bp.setAttribute('aria-pressed', S.blueprintActive ? 'true' : 'false');
     bp.disabled = !supported;
     bp.title = supported
       ? 'Toggle the blueprint layout editor overlay on the live BMP page'
