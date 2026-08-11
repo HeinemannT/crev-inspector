@@ -235,6 +235,14 @@ export class DetailView {
     this.renderDetail(panel);
   }
 
+  /** Reconcile the current object after this surface was hidden. Results are
+   * normally delivered live, but a port restart or DOM-panel rebuild can lose
+   * one; an authoritative read restores both data and in-flight save state. */
+  reconcile(): void {
+    if (!this.state) return;
+    this.sendMessage({ type: 'FETCH_OBJECT_PANE', rid: this.state.rid });
+  }
+
   /** Navigate to a different RID (used by tree clicks). Internal.
    *  Pushes the current RID onto the history stack before swapping (unless
    *  `skipHistory` is set — used when the Back button itself rewinds), so
@@ -337,6 +345,7 @@ export class DetailView {
 
     if (msg.type === 'OBJECT_PANE_DATA' && msg.rid === rid) {
       this.clearLookupWatchdog();
+      this.saving = false;
       this.state.identity = msg.instance;
       this.state.environment = msg.environment;
       this.state.parent = msg.parent;
@@ -368,6 +377,12 @@ export class DetailView {
       this.state.propertyApplicationsTruncated = msg.propertyApplicationsTruncated ?? false;
       this.state.loaded = true;
       this.state.error = msg.error ?? null;
+      // If a save result was lost while hidden, the authoritative readback is
+      // enough to reconcile it: persisted draft values cease to be dirty;
+      // values BMP rejected remain staged for review/retry.
+      for (const [prop, value] of Object.entries(this.draft)) {
+        if (paneValueEquals(prop, value, this.currentServerValue(prop))) delete this.draft[prop];
+      }
       // If no template available, force target back to instance
       if (!this.state.template) this.target = 'instance';
       // Trigger the flow walker fetch in parallel — only for relevant types

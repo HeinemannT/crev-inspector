@@ -270,7 +270,10 @@ export function createApplySession(
       commitReportedOk: null,
       message: 'Blueprint: the apply result could not be verified — refreshing.',
     })).then(result => {
-      if (!cancelled && input.isCurrent()) transition({ phase: 'settled', resolution: result });
+      // Once the command has been sent, its resolution is authoritative for
+      // this session. `isCurrent` gates preparation/confirmation, but must not
+      // strand an accepted commit in `applying` if surrounding UI state moves.
+      if (!cancelled) transition({ phase: 'settled', resolution: result });
       return result;
     });
     return commit;

@@ -126,6 +126,23 @@ const AI_LIVE_MESSAGES = new Set<InspectorMessage['type']>([
   'PROFILE_SWITCHED',
 ]);
 
+/** Results that settle state owned by one tab must reach that owner even when
+ * it is hidden. Activation refresh remains the default for ordinary data; this
+ * list is reserved for in-flight flags and responses that cannot be inferred
+ * safely from some other message. */
+const LIVE_RESULT_OWNER = new Map<InspectorMessage['type'], PanelTabId>([
+  ['AI_CONFIG_SAVED', 'connect'],
+  ['AI_TEST_RESULT', 'connect'],
+  ['AI_MODELS_RESULT', 'connect'],
+  ['OBJECT_PANE_DATA', 'workshop'],
+  ['PROPERTY_APPLICATIONS_RESULT', 'workshop'],
+  ['APPLY_CHANGES_RESULT', 'workshop'],
+  ['CONNECTIONS_RESULT', 'workshop'],
+  ['INBOUND_RESULT', 'workshop'],
+  ['FLOW_CHAIN_DATA', 'workshop'],
+  ['FETCH_CHILDREN_RESULT', 'workshop'],
+]);
+
 export function createPanelOrchestrator(
   host: PanelOrchestratorHost,
   services: PanelOrchestratorServices = defaultServices,
@@ -249,6 +266,7 @@ export function createPanelOrchestrator(
         break;
       case 'PROFILE_SWITCHED':
         headerChanged = true;
+        S.settings = { ...S.settings, activeProfileId: msg.profileId };
         S.context = null;
         S.page = null;
         S.detailRid = null;
@@ -334,6 +352,12 @@ export function createPanelOrchestrator(
 
     if (claimMessage(msg)) return;
 
+    if (msg.type === 'OBJECT_PANE_DATA' || msg.type === 'PROPERTY_APPLICATIONS_RESULT') {
+      const separator = msg.environment.indexOf('@');
+      const profileId = separator >= 0 ? msg.environment.slice(0, separator) : '';
+      if (profileId && S.settings.activeProfileId && profileId !== S.settings.activeProfileId) return;
+    }
+
     const consequences = reduceSharedState(msg);
     const delivered = new Set<PanelTabId>();
     let liveOnly = false;
@@ -347,6 +371,23 @@ export function createPanelOrchestrator(
       deliver('ai', msg);
       delivered.add('ai');
       if (msg.type !== 'PROFILE_SWITCHED') liveOnly = true;
+    }
+
+    if (msg.type === 'PROFILE_SWITCHED') {
+      // Workspace identity invalidates every tab, including hidden ones. Each
+      // tab clears its own projections before a later activation refreshes.
+      for (const tabId of Object.keys(host.tabs) as PanelTabId[]) {
+        if (!delivered.has(tabId)) deliver(tabId, msg);
+        delivered.add(tabId);
+      }
+      liveOnly = true;
+    } else {
+      const owner = LIVE_RESULT_OWNER.get(msg.type);
+      if (owner && !delivered.has(owner)) {
+        deliver(owner, msg);
+        delivered.add(owner);
+        liveOnly = true;
+      }
     }
 
     const activeTab = S.activeTab as PanelTabId;

@@ -26,11 +26,15 @@ export const closeOverlayKeyBinding: KeyBinding = {
  *  close-request handshake (an in-app confirm) and the browser `beforeunload`
  *  prompt (the only reliable signal when the BMP host page navigates and the
  *  overlay iframe is about to be destroyed). */
-export function installDirtyGuards(opts: { isDirty: () => boolean; bodyText: string }): void {
+export function installDirtyGuards(opts: {
+  isDirty: () => boolean;
+  bodyText: string;
+  onClose?: () => void | Promise<void>;
+}): void {
   installCloseHandshake(async () => {
     if (!opts.isDirty()) return true
     return confirmModal({ title: 'Discard unsaved changes?', body: opts.bodyText, confirmLabel: 'Discard', confirmVariant: 'danger' })
-  })
+  }, opts.onClose)
   window.addEventListener('beforeunload', e => {
     if (!opts.isDirty()) return
     e.preventDefault()

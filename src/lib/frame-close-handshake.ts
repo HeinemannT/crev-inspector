@@ -19,7 +19,10 @@
  * does the host fall back.
  */
 
-export function installCloseHandshake(canClose: () => boolean | Promise<boolean> = () => true): void {
+export function installCloseHandshake(
+  canClose: () => boolean | Promise<boolean> = () => true,
+  onAccepted?: () => void | Promise<void>,
+): void {
   async function handleMessage(e: MessageEvent) {
     // Only the parent frame (the content-script overlay host in the BMP page
     // that framed this view) may request close. The overlay is deliberately
@@ -37,6 +40,10 @@ export function installCloseHandshake(canClose: () => boolean | Promise<boolean>
       ok = await canClose();
     } catch {
       ok = true; // if the predicate throws, default to "ok to close" — don't trap users
+    }
+    if (ok && onAccepted) {
+      try { await onAccepted(); }
+      catch { /* Cleanup failure must not trap an otherwise closable frame. */ }
     }
     // Phase 2: final answer with the user's choice.
     window.parent.postMessage({ type: 'CREV_OVERLAY_CLOSE_RESPONSE', ok }, '*');

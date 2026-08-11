@@ -679,6 +679,20 @@ describe('DetailView — draft save pipeline (editors live in Blueprint now)', (
     expect(bar?.textContent).toContain('BMP is grumpy');
     expect(dv.isDirty()).toBe(true); // draft survives a failed save
   });
+
+  it('reconciles a hidden result through authoritative activation readback', () => {
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('100'), panel);
+    dv.handleMessage(paneData('100'), panel);
+    seedDraft(dv, panel, { width: '320' });
+    sent.length = 0;
+
+    dv.reconcile();
+    expect(sent).toContainEqual({ type: 'FETCH_OBJECT_PANE', rid: '100' });
+
+    dv.handleMessage(paneData('100', { instanceProps: emptyProps({ width: '320' }) }), panel);
+    expect(dv.isDirty()).toBe(false);
+  });
 });
 
 describe('DetailView — target toggle', () => {

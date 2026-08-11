@@ -117,6 +117,17 @@ export class ObjectsTab implements Tab {
         return true;
       case 'FAVORITES_DATA':
         return true; // shared.favoriteEntries updated centrally; re-render
+      case 'PROFILE_SWITCHED':
+        // Rows, generations, and history are workspace-scoped. Clear them
+        // while hidden so activation never flashes the previous profile.
+        this.gen++;
+        this.cacheObjects = [];
+        this.liveObjects = [];
+        this.history = [];
+        this.searching = false;
+        this.searchError = null;
+        this.totalHits = 0;
+        return true;
       default:
         return false;
     }

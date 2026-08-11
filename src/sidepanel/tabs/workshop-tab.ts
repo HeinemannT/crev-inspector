@@ -151,9 +151,8 @@ export class WorkshopTab implements Tab {
   }
 
   activate(): void {
-    // DetailView is event-driven; only the layout half needs an
-    // activate hook (to refresh PAGE_INFO).
     this.layoutPane.activate();
+    this.detailView.reconcile();
   }
 
   deactivate(): void {

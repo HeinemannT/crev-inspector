@@ -107,6 +107,33 @@ describe('Blueprint Apply Session', () => {
     expect(io.apply).toHaveBeenCalledTimes(1);
   });
 
+  it('settles an accepted commit even if the editable draft later stops being current', async () => {
+    const { baseline, desired } = models();
+    const pendingApply = deferred<Awaited<ReturnType<ApplySessionIO['apply']>>>();
+    const io = makeIO();
+    vi.mocked(io.apply).mockReturnValue(pendingApply.promise);
+    let current = true;
+    const session = createApplySession({
+      env: 'profile-a',
+      ctx: { pageId: 'page', pageRid: '1', pageClass: 'Scorecard', tabsetId: 'tabs', target: 'template' },
+      baseline, desired,
+      idConfig: { enabled: false, pattern: '{page}_{class}_{name}' },
+      isCurrent: () => current,
+    }, io, vi.fn());
+    await vi.waitFor(() => {
+      expect(session.state.phase).toBe('review');
+      if (session.state.phase === 'review') expect(session.state.review.impact.status).toBe('ready');
+    });
+
+    const committed = session.confirm();
+    expect(session.state.phase).toBe('applying');
+    current = false;
+    pendingApply.resolve({ type: 'LAYOUT_APPLY_RESULT', ok: true, noop: false });
+
+    await expect(committed).resolves.toMatchObject({ kind: 'applied' });
+    expect(session.state).toMatchObject({ phase: 'settled', resolution: { kind: 'applied' } });
+  });
+
   it('cancels stale preparation and ignores a late impact reply', async () => {
     const { baseline, desired } = models();
     const pendingImpact = deferred<typeof impact>();

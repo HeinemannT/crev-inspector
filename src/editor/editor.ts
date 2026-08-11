@@ -35,7 +35,12 @@ import { anchorPopover } from '../lib/popover-anchor'
 import { sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging'
 import { confirmCommandModal, confirmModal } from '../lib/modal'
 import { readCommandActor } from '../lib/command-actor'
-import { consumeEditorLaunchContext, editorLaunchStorageKey } from '../lib/editor-launch-session'
+import {
+  adoptEditorLaunchContext,
+  persistEditorSessionContext,
+  releaseEditorSessionContext,
+  restoreEditorSessionContext,
+} from '../lib/editor-launch-session'
 import {
   type EditorContext,
   formatLabel,
@@ -175,12 +180,14 @@ const anyDirty = (): boolean => surface?.isDirty() ?? false
 // ── Init ─────────────────────────────────────────────────────────
 
 const root = document.getElementById('editor-root')!
-let activeContextStorageKey: string | null = null
-let activeContextStorageArea: 'local' | 'session' = 'local'
+let activeEditorSessionId: string | null = null
 
 async function storeCurrentEditorContext(context: EditorContext, rid: string): Promise<void> {
-  const storageKey = activeContextStorageKey ?? `crev_editor_ctx_${rid}`
-  await chrome.storage[activeContextStorageArea].set({ [storageKey]: context })
+  if (activeEditorSessionId) {
+    await persistEditorSessionContext(activeEditorSessionId, context)
+    return
+  }
+  await chrome.storage.local.set({ [`crev_editor_ctx_${rid}`]: context })
 }
 
 async function init() {
@@ -189,23 +196,30 @@ async function init() {
   // Load context from per-RID key (hash = RID)
   try {
     const rid = location.hash.slice(1)
-    const launchSessionId = new URLSearchParams(location.search).get('launch')
-    const perRidKey = rid && !launchSessionId ? `crev_editor_ctx_${rid}` : null
+    const search = new URLSearchParams(location.search)
+    const launchSessionId = search.get('launch')
+    const editorSessionId = search.get('session')
+    const perRidKey = rid && !launchSessionId && !editorSessionId ? `crev_editor_ctx_${rid}` : null
     const launchContext = launchSessionId && rid
-      ? consumeEditorLaunchContext(launchSessionId, rid)
+      ? adoptEditorLaunchContext(launchSessionId, rid)
+      : null
+    const restoredContext = editorSessionId && rid
+      ? restoreEditorSessionContext(editorSessionId, rid)
       : null
     const keys = ['crev_editor_output_height', 'crev_editor_decode', 'crev_editor_wrap', 'crev_editor_table']
     if (perRidKey) keys.push(perRidKey)
     const result = await chrome.storage.local.get(keys)
     ctx = launchContext
       ? await launchContext
+      : restoredContext ? await restoredContext
       : perRidKey ? (result[perRidKey] as EditorContext | null) : null
     if (launchSessionId) {
-      activeContextStorageKey = editorLaunchStorageKey(launchSessionId)
-      activeContextStorageArea = 'session'
+      activeEditorSessionId = launchSessionId
+      history.replaceState(null, '', `?session=${encodeURIComponent(launchSessionId)}#${encodeURIComponent(rid)}`)
+    } else if (editorSessionId) {
+      activeEditorSessionId = editorSessionId
     } else {
-      activeContextStorageKey = perRidKey
-      activeContextStorageArea = 'local'
+      activeEditorSessionId = null
     }
     if (typeof result.crev_editor_output_height === 'number') {
       outputHeight = result.crev_editor_output_height
@@ -2156,7 +2170,13 @@ function wireDragHandle() {
 // Guards both exits an overlay editor has: the host close-request (in-app
 // confirm) and host-page navigation (the iframe dies with the page, so the
 // browser's native beforeunload prompt is the only reliable signal).
-installDirtyGuards({ isDirty: anyDirty, bodyText: 'This editor has unsaved changes. Close anyway?' })
+installDirtyGuards({
+  isDirty: anyDirty,
+  bodyText: 'This editor has unsaved changes. Close anyway?',
+  onClose: () => activeEditorSessionId
+    ? releaseEditorSessionContext(activeEditorSessionId)
+    : undefined,
+})
 
 // Window-level F5 fallback: when focus has wandered out of the CodeMirror
 // editor (the user clicked a button, the toolbar, an empty area…), the

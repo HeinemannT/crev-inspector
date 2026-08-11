@@ -177,11 +177,11 @@ export function outcomePanel(outcome: ApplyOutcome, ctx: BlueprintCtx): HTMLElem
 }
 
 /** The apply-preview: the exact plan as a scannable log + the blast-radius warnings, behind a confirm. */
-export function previewModal(review: ApplyReview, ctx: BlueprintCtx): HTMLElement {
+export function previewModal(review: ApplyReview, ctx: BlueprintCtx, applying = false): HTMLElement {
   const notes = review.notes;
   const shared = ctx.target === 'template';
   const back = document.createElement('div'); back.className = 'bp-modal-back';
-  back.addEventListener('mousedown', (e) => { if (e.target === back) closePreview(); });
+  if (!applying) back.addEventListener('mousedown', (e) => { if (e.target === back) closePreview(); });
   const card = document.createElement('div'); card.className = 'bp-modal' + scopeClass(ctx);
   const h = document.createElement('div'); h.className = 'bp-modal-h';
   // Headline = logical changes; "(N actions)" exposes the raw EC step count when it differs (an insert
@@ -266,13 +266,24 @@ export function previewModal(review: ApplyReview, ctx: BlueprintCtx): HTMLElemen
     copy.title = 'Copy the full Extended Code program these changes compile to';
     foot.appendChild(copy);
   }
-  foot.append(mkBtn('Cancel', closePreview), (() => {
+  foot.append((() => {
+    const cancel = mkBtn('Cancel', closePreview);
+    cancel.disabled = applying;
+    return cancel;
+  })(), (() => {
     // While the impact probe runs, Confirm is disabled and labelled — a commit must not race ahead of
     // the fan-out / shared-structure warning (the highest-consequence one). The session clears the gate.
     const pending = review.impact.status === 'checking';
     const b = mkBtn(pending ? 'Checking impact…' : 'Confirm & apply', confirmApply);
     b.className = 'apply';
-    if (pending) { b.disabled = true; b.classList.add('disabled'); b.title = 'Checking how many objects this edit affects before you commit'; }
+    if (applying) b.textContent = 'Applying…';
+    if (applying || pending) {
+      b.disabled = true;
+      b.classList.add('disabled');
+      b.title = applying
+        ? 'The reviewed changes are being committed'
+        : 'Checking how many objects this edit affects before you commit';
+    }
     return b;
   })());
   card.appendChild(foot);

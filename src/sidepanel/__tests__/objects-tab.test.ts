@@ -110,6 +110,22 @@ describe('ObjectsTab — search wiring', () => {
     expect(names).toEqual(expect.arrayContaining(['Shared', 'CacheOnly', 'LiveOnly']));
   });
 
+  it('clears workspace-scoped rows immediately on profile switch', () => {
+    const { tab, panel } = setup();
+    type(panel, 'old');
+    tab.handleMessage({
+      type: 'CACHE_DATA',
+      filter: 'old',
+      objects: [obj('1', { name: 'Old workspace row', type: 'Task' })],
+    });
+    tab.render(panel);
+    expect(panel.textContent).toContain('Old workspace row');
+
+    tab.handleMessage({ type: 'PROFILE_SWITCHED', profileId: 'next', label: 'Next' });
+    tab.render(panel);
+    expect(panel.textContent).not.toContain('Old workspace row');
+  });
+
   it('drops a CACHE_DATA whose filter no longer matches the current query', () => {
     const { tab, panel } = setup();
     type(panel, 'risk'); // this.query === 'risk'

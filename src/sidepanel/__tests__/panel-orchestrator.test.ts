@@ -104,6 +104,7 @@ describe('PanelOrchestrator', () => {
     S.context = null;
     S.page = null;
     S.detailRid = null;
+    S.settings = { ...S.settings, activeProfileId: 'current' };
   });
 
   it('reduces shared state before the active tab and publishes last', () => {
@@ -221,6 +222,19 @@ describe('PanelOrchestrator', () => {
     expect(h.host.tabs.ai.render).toHaveBeenCalledTimes(1);
   });
 
+  it('delivers owner-critical results while their tab is hidden without rendering it', () => {
+    const h = harness();
+    const panel = createPanelOrchestrator(h.host, h.services);
+
+    panel.accept({ type: 'APPLY_CHANGES_RESULT', rid: '9223372036854775807', ok: true });
+    panel.accept({ type: 'AI_TEST_RESULT', ok: true, ms: 12 });
+
+    expect(h.host.tabs.workshop.handleMessage).toHaveBeenCalledTimes(1);
+    expect(h.host.tabs.workshop.render).not.toHaveBeenCalled();
+    expect(h.host.tabs.connect.handleMessage).toHaveBeenCalledTimes(1);
+    expect(h.host.tabs.connect.render).toHaveBeenCalledTimes(1);
+  });
+
   it('invalidates shared profile state before live and active surfaces', () => {
     const h = harness();
     S.context = { rid: '9223372036854775807' };
@@ -243,6 +257,26 @@ describe('PanelOrchestrator', () => {
     expect(S.detailRid).toBeNull();
     expect(h.trace).toContain('handle:ai:context=null');
     expect(h.trace).toContain('handle:connect:context=null');
+    expect(h.host.tabs.workshop.handleMessage).toHaveBeenCalledTimes(1);
+    expect(h.host.tabs.objects.handleMessage).toHaveBeenCalledTimes(1);
+    expect(h.host.tabs.log.handleMessage).toHaveBeenCalledTimes(1);
     expect(h.trace.at(-1)).toBe('broadcast:0');
+  });
+
+  it('rejects a late environment-bound result from the previous profile', () => {
+    const h = harness();
+    const panel = createPanelOrchestrator(h.host, h.services);
+    panel.accept({ type: 'PROFILE_SWITCHED', profileId: 'next', label: 'Next' });
+    vi.clearAllMocks();
+
+    panel.accept({
+      type: 'PROPERTY_APPLICATIONS_RESULT',
+      rid: '42',
+      ok: true,
+      environment: 'current@https://old.example',
+    });
+
+    expect(h.host.tabs.workshop.handleMessage).not.toHaveBeenCalled();
+    expect(h.services.dispatchBroadcast).not.toHaveBeenCalled();
   });
 });

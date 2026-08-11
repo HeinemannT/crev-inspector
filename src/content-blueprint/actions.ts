@@ -28,7 +28,10 @@ import type { StylePreset } from '../lib/style-presets';
 
 /** Push a new model state onto history and re-render. The one write path for staged edits. Flags the
  *  next render to FLIP-animate cells from their old to new positions (so moves/reorders read as motion). */
-export function mutate(next: LModel): void { bp.history?.push(next); bp.flipNext = true; render(); }
+export function mutate(next: LModel): void {
+  if (bp.applySession?.state.phase === 'applying') return;
+  bp.history?.push(next); bp.flipNext = true; render();
+}
 
 export function select(id: string | null): void { bp.selectedId = id; bp.swatch = null; render(); }
 export function selectEditPageField(id: string, types: readonly string[]): void {
@@ -564,7 +567,11 @@ export function openApplyPreview(): void {
   bp.settingsOpen = false;
   render();
 }
-export function closePreview(): void { bp.applySession?.cancel(); bp.applySession = null; render(); }
+export function closePreview(): void {
+  const session = bp.applySession;
+  if (!session || session.state.phase === 'applying') return;
+  session.cancel(); bp.applySession = null; render();
+}
 /** Dismiss the docked stale/partial/failed outcome panel (the user has acknowledged it). */
 export function dismissApplyOutcome(): void { bp.applyOutcome = null; render(); }
 
@@ -616,7 +623,7 @@ export function onKeydown(e: KeyboardEvent): void {
   if (typing) return;
   // Keep the reviewed draft visually stable until it is confirmed or dismissed. The Apply Session
   // already owns a frozen commit snapshot; this guard avoids letting the canvas drift behind its modal.
-  if (bp.applySession?.state.phase === 'review') return;
+  if (bp.applySession?.state.phase === 'review' || bp.applySession?.state.phase === 'applying') return;
   const mod = e.ctrlKey || e.metaKey;
   if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }

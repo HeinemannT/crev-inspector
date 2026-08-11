@@ -68,38 +68,63 @@ describe('editor launch sessions', () => {
 
   it('validates, consumes, and removes one prepared handoff', async () => {
     const {
+      editorSessionStorageKey,
       beginEditorLaunchSession,
-      consumeEditorLaunchContext,
+      adoptEditorLaunchContext,
       publishEditorLaunchContext,
     } = await import('../editor-launch-session');
     const session = await beginEditorLaunchSession('42', context('42', '1001'));
     await publishEditorLaunchContext(session, context('42', '1001'));
 
-    const consumed = await consumeEditorLaunchContext(session.id, '42');
+    const consumed = await adoptEditorLaunchContext(session.id, '42');
 
     expect(consumed).toMatchObject({
-      launchSessionId: session.id,
       executionContextRid: '1001',
-      loading: false,
     });
     expect((await chrome.storage.session.get(session.storageKey))[session.storageKey]).toBeUndefined();
+    expect((await chrome.storage.session.get(editorSessionStorageKey(session.id)))[editorSessionStorageKey(session.id)]).toMatchObject({
+      editorSessionId: session.id,
+      executionContextRid: '1001',
+    });
   });
 
   it('joins a preparing handoff and resolves only its matching final context', async () => {
     const {
+      adoptEditorLaunchContext,
       beginEditorLaunchSession,
-      consumeEditorLaunchContext,
       publishEditorLaunchContext,
     } = await import('../editor-launch-session');
     const session = await beginEditorLaunchSession('42', context('42', '1001'));
 
-    const consuming = consumeEditorLaunchContext(session.id, '42');
+    const consuming = adoptEditorLaunchContext(session.id, '42');
     await publishEditorLaunchContext(session, context('42', '1001'));
 
     await expect(consuming).resolves.toMatchObject({
-      launchSessionId: session.id,
       executionContextRid: '1001',
-      loading: false,
     });
+  });
+
+  it('restores and updates live editor context without recreating the launch handoff', async () => {
+    const {
+      adoptEditorLaunchContext,
+      beginEditorLaunchSession,
+      persistEditorSessionContext,
+      publishEditorLaunchContext,
+      releaseEditorSessionContext,
+      restoreEditorSessionContext,
+    } = await import('../editor-launch-session');
+    const session = await beginEditorLaunchSession('42', context('42', '1001'));
+    await publishEditorLaunchContext(session, context('42', '1001'));
+    await adoptEditorLaunchContext(session.id, '42');
+
+    await persistEditorSessionContext(session.id, context('42', '2002'));
+
+    await expect(restoreEditorSessionContext(session.id, '42')).resolves.toMatchObject({
+      executionContextRid: '2002',
+    });
+    expect((await chrome.storage.session.get(session.storageKey))[session.storageKey]).toBeUndefined();
+
+    await releaseEditorSessionContext(session.id);
+    await expect(restoreEditorSessionContext(session.id, '42')).resolves.toBeNull();
   });
 });

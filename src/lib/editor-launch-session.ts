@@ -1,7 +1,9 @@
 import type { EditorContext } from '../editor/editor-types';
 
 const STORAGE_PREFIX = 'crev_editor_launch_';
-const STALE_AFTER_MS = 5 * 60_000;
+const SESSION_STORAGE_PREFIX = 'crev_editor_session_';
+const LAUNCH_STALE_AFTER_MS = 5 * 60_000;
+const SESSION_STALE_AFTER_MS = 7 * 24 * 60 * 60_000;
 
 export interface EditorLaunchSession {
   id: string;
@@ -17,6 +19,11 @@ type LaunchContext = EditorContext & {
   loading: boolean;
 };
 
+type StoredEditorSessionContext = EditorContext & {
+  editorSessionId: string;
+  editorSessionUpdatedAt: number;
+};
+
 const makeSessionId = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -26,6 +33,9 @@ const makeSessionId = (): string => {
 
 export const editorLaunchStorageKey = (sessionId: string): string =>
   `${STORAGE_PREFIX}${sessionId}`;
+
+export const editorSessionStorageKey = (sessionId: string): string =>
+  `${SESSION_STORAGE_PREFIX}${sessionId}`;
 
 const launchContext = (
   session: EditorLaunchSession,
@@ -38,13 +48,21 @@ const launchContext = (
   loading,
 });
 
-async function removeStaleLaunches(now: number): Promise<void> {
+async function removeStaleEditorContexts(now: number): Promise<void> {
   try {
     const stored = await chrome.storage.session.get(null);
     const stale = Object.entries(stored)
-      .filter(([key, value]) => key.startsWith(STORAGE_PREFIX)
-        && typeof (value as Partial<LaunchContext> | undefined)?.launchCreatedAt === 'number'
-        && (value as LaunchContext).launchCreatedAt < now - STALE_AFTER_MS)
+      .filter(([key, value]) => {
+        if (key.startsWith(STORAGE_PREFIX)) {
+          const createdAt = (value as Partial<LaunchContext> | undefined)?.launchCreatedAt;
+          return typeof createdAt === 'number' && createdAt < now - LAUNCH_STALE_AFTER_MS;
+        }
+        if (key.startsWith(SESSION_STORAGE_PREFIX)) {
+          const updatedAt = (value as Partial<StoredEditorSessionContext> | undefined)?.editorSessionUpdatedAt;
+          return typeof updatedAt === 'number' && updatedAt < now - SESSION_STALE_AFTER_MS;
+        }
+        return false;
+      })
       .map(([key]) => key);
     if (stale.length > 0) await chrome.storage.session.remove(stale);
   } catch {
@@ -60,7 +78,7 @@ export async function beginEditorLaunchSession(
   placeholder: EditorContext,
 ): Promise<EditorLaunchSession> {
   const createdAt = Date.now();
-  await removeStaleLaunches(createdAt);
+  await removeStaleEditorContexts(createdAt);
   const id = makeSessionId();
   const session: EditorLaunchSession = {
     id,
@@ -100,9 +118,53 @@ export async function failEditorLaunchContext(
   });
 }
 
-/** Consume exactly one prepared context. The session id and RID are both
- * validated before the iframe adopts it, then the handoff is removed. */
-export async function consumeEditorLaunchContext(
+function plainEditorContext(value: LaunchContext | StoredEditorSessionContext): EditorContext {
+  const {
+    launchSessionId: _launchSessionId,
+    launchCreatedAt: _launchCreatedAt,
+    loading: _loading,
+    editorSessionId: _editorSessionId,
+    editorSessionUpdatedAt: _editorSessionUpdatedAt,
+    ...context
+  } = value as LaunchContext & Partial<StoredEditorSessionContext>;
+  return context;
+}
+
+export async function persistEditorSessionContext(
+  sessionId: string,
+  context: EditorContext,
+): Promise<void> {
+  await chrome.storage.session.set({
+    [editorSessionStorageKey(sessionId)]: {
+      ...context,
+      editorSessionId: sessionId,
+      editorSessionUpdatedAt: Date.now(),
+    } satisfies StoredEditorSessionContext,
+  });
+}
+
+export async function restoreEditorSessionContext(
+  sessionId: string,
+  rid: string,
+): Promise<EditorContext | null> {
+  const storageKey = editorSessionStorageKey(sessionId);
+  try {
+    const stored = (await chrome.storage.session.get(storageKey))[storageKey] as StoredEditorSessionContext | undefined;
+    if (stored?.editorSessionId !== sessionId || stored.instance?.rid !== rid) return null;
+    return plainEditorContext(stored);
+  } catch {
+    return null;
+  }
+}
+
+export async function releaseEditorSessionContext(sessionId: string): Promise<void> {
+  try { await chrome.storage.session.remove(editorSessionStorageKey(sessionId)); }
+  catch { /* Browser-session expiry remains the final cleanup floor. */ }
+}
+
+/** Adopt exactly one prepared context. The handoff is validated, promoted to
+ * a separately-lived editor session, and only then removed. */
+export async function adoptEditorLaunchContext(
   sessionId: string,
   rid: string,
   timeoutMs = 20_000,
@@ -115,12 +177,20 @@ export async function consumeEditorLaunchContext(
       clearTimeout(timeout);
       chrome.storage.onChanged.removeListener(onChanged);
     };
-    const finish = (value: EditorContext | null) => {
+    const finish = (value: LaunchContext | null) => {
       if (settled) return;
       settled = true;
       cleanup();
-      void chrome.storage.session.remove(storageKey);
-      resolve(value);
+      void (async () => {
+        const context = value ? plainEditorContext(value) : null;
+        if (context) {
+          try { await persistEditorSessionContext(sessionId, context); }
+          catch { /* The adopted in-memory context remains usable. */ }
+        }
+        try { await chrome.storage.session.remove(storageKey); }
+        catch { /* Stale-launch cleanup is retried on the next launch. */ }
+        resolve(context);
+      })();
     };
     const accept = (value: LaunchContext | undefined) => {
       if (!value) return;
