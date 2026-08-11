@@ -223,8 +223,9 @@ export class ConnectTab implements Tab {
       // Swap the banner in place without forcing a whole-tab re-render —
       // avoids losing scroll position / form focus when the check returns
       // while the user is editing a server profile.
+      const mounted = this.updatePanel;
       const fresh = this.renderUpdateBanner();
-      if (fresh) this.updatePanel.replaceWith(fresh);
+      mounted.replaceWith(fresh);
       this.updatePanel = fresh;
     }
   }
@@ -538,8 +539,9 @@ export class ConnectTab implements Tab {
         // fetch can take a few seconds on a cold cache.
         this.updateStatus = null;
         if (this.updatePanel && document.body.contains(this.updatePanel)) {
+          const mounted = this.updatePanel;
           const fresh = this.renderUpdateBanner();
-          this.updatePanel.replaceWith(fresh);
+          mounted.replaceWith(fresh);
           this.updatePanel = fresh;
         }
         void this.loadUpdateStatus(true);
@@ -736,8 +738,8 @@ export class ConnectTab implements Tab {
     const isActive = profile.id === shared.settings.activeProfileId;
     const urlDisplay = profile.bmpUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
     const whoDisplay = profile.commandAuthMode === 'stored'
-      ? `${profile.bmpUser || 'stored login'} for commands`
-      : 'browser login for commands';
+      ? 'Stored login'
+      : 'Browser session';
     const origin = originPatternFor(profile.bmpUrl);
     const noAccess = !!origin && this.accessByOrigin.get(origin) === false;
 
@@ -780,7 +782,6 @@ export class ConnectTab implements Tab {
           isActive ? h('span', { class: 'prof-curtag' }, 'Current') : null,
         ),
         h('div', { class: 'prof-url' }, `${urlDisplay} · ${whoDisplay}`),
-        isActive ? this.renderIdentityRows() : null,
         this.renderAuthMigrationNotice(profile),
       ),
       right,
@@ -805,27 +806,6 @@ export class ConnectTab implements Tab {
         'data-profile-id': profile.id,
         title: 'Dismiss this migration notice',
       }, 'Dismiss'),
-    );
-  }
-
-  private renderIdentityRows(): HTMLElement {
-    const identity = shared.connState.identities ?? unknownIdentityMap();
-    const row = (label: string, actor: typeof identity.portal, fallback: string) => {
-      const connected = actor.status === 'connected' && Boolean(actor.user);
-      const value = connected ? actor.user! : actor.status === 'unknown' ? 'Checking…' : 'Unavailable';
-      const source = actor.source === 'stored-login' ? 'Stored configuration login' : fallback;
-      return h('div', {
-        class: `prof-identity-row prof-identity-row--${actor.status}`,
-        ...(actor.error ? { title: actor.error } : {}),
-      },
-        h('span', { class: 'prof-identity-label' }, label),
-        h('span', { class: 'prof-identity-user' }, value),
-        h('span', { class: 'prof-identity-source' }, source),
-      );
-    };
-    return h('div', { class: 'prof-identities', 'aria-label': 'Effective identities' },
-      row('Portal', identity.portal, 'Browser session'),
-      row('Commands', identity.command, identity.sameUser ? 'Same as portal' : 'Browser session'),
     );
   }
 
@@ -1080,8 +1060,7 @@ export class ConnectTab implements Tab {
 
   /** The quiet footer strip. Consolidates the mostly-informational, low-weight
    *  bits that don't each deserve a section: keyboard reference (expandable),
-   *  the cache/reset utility actions, and the version line. One hairline sets
-   *  it apart from the real controls above. */
+   *  the cache/reset utility actions, and the version line. */
   private renderFooter(rerender: () => void): HTMLElement {
     const cacheInfo: (HTMLElement | string)[] = [`${shared.cacheCount} cached`];
     if (this.cacheBytes != null && this.cacheBytes > 0) {
@@ -1149,6 +1128,7 @@ export class ConnectTab implements Tab {
    *  something so the user knows we're tracking releases. */
   private renderUpdateBanner(): HTMLElement {
     const s = this.updateStatus;
+    const checking = !s;
     const current = chrome.runtime.getManifest().version;
     const build = h('span', { class: 'update-build', title: `Loaded build ${BUILD_ID}` }, BUILD_ID);
 
@@ -1193,10 +1173,11 @@ export class ConnectTab implements Tab {
         title: s?.checkedAt ? `Last checked ${new Date(s.checkedAt).toLocaleString()}` : 'View releases',
       }, ...body.filter(Boolean) as (HTMLElement | string)[]),
       h('button', {
-        class: 'update-refresh',
+        class: `update-refresh${checking ? ' is-checking' : ''}`,
         'data-action': 'update-refresh',
-        title: 'Check now',
-        'aria-label': 'Check for updates now',
+        title: checking ? 'Checking for updates' : 'Check now',
+        'aria-label': checking ? 'Checking for updates' : 'Check for updates now',
+        ...(checking ? { disabled: true } : {}),
       }, svg(ICON_REFRESH)),
     );
     this.updatePanel = panel;

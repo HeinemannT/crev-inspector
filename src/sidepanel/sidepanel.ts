@@ -38,6 +38,14 @@ import { unknownIdentityMap } from '../lib/identity-map';
 // ── Tab instances ────────────────────────────────────────────────
 
 const app = document.getElementById('app')!;
+const initialSessionState = chrome.storage.session.get([
+  'crev_active_tab',
+  'crev_settings_snapshot',
+  'crev_conn_snapshot',
+]).catch((e: unknown) => {
+  log.swallow('panel:initialSessionState', e);
+  return {} as Record<string, unknown>;
+});
 
 // Function declaration — hoisted so the tab constructors below can capture it.
 // The closure reaches `tabs` / `detailView`, which are declared below; safe
@@ -601,6 +609,7 @@ function buildApp(): void {
   });
 
   render(app, header, tabBar, renderSiteAccessStrip(), statusStrip, tabContent, statusBar);
+  app.removeAttribute('aria-busy');
   void refreshSiteAccessStrip();
 
   delegate(app, {
@@ -1044,7 +1053,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-chrome.storage.session.get(['crev_active_tab', 'crev_settings_snapshot', 'crev_conn_snapshot'], (result) => {
+void initialSessionState.then((result) => {
   if (result.crev_active_tab && typeof result.crev_active_tab === 'string') {
     // Migration: legacy 'inspect' / 'page' tab keys map to Workshop.
     // Unknown values fall through to the default ('connect').

@@ -4,12 +4,16 @@ CREV Inspector is a Chrome side-panel extension for inspecting and changing Corp
 
 ## Install
 
-1. Download `crev-inspector-x.y.z.zip` from [Releases](https://github.com/HeinemannT/crev-inspector/releases/latest) and unzip it.
+1. Download `crev-inspector-x.y.z.zip` from [Releases](https://github.com/HeinemannT/crev-inspector/releases/latest) and unzip it into a stable folder that you will reuse for updates.
 2. Open `chrome://extensions/` (Edge: `edge://extensions/`) and enable **Developer mode**.
 3. Click **Load unpacked** and select the unzipped folder.
 4. Pin CREV Inspector and open your BMP workspace.
 
 Current Chromium browsers are supported (Chrome or Edge 114+).
+
+### Update an unpacked installation
+
+Replace the contents of that same stable folder with the new release, then click **Reload** for CREV Inspector on `chrome://extensions/` (Edge: `edge://extensions/`). Keep the folder path unchanged; loading each release from a different versioned folder creates a separate unpacked installation.
 
 ## Connect to BMP
 
@@ -124,6 +128,10 @@ Rebind shortcuts at `chrome://extensions/shortcuts`.
 ## Privacy
 
 See the [privacy policy](PRIVACY.md) for the data the extension handles and where it is sent.
+
+## License
+
+CREV Inspector is proprietary software. Source availability does not grant permission to use, copy, modify, or redistribute it. See [LICENSE](LICENSE) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## Data and security
 

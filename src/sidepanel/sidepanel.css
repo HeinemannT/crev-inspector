@@ -502,6 +502,11 @@ body {
 
 .tab-panel { display: none; padding: 12px 16px 16px; }
 .tab-panel.active { display: block; }
+#panel-connect.active {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
 @keyframes detection-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
@@ -1041,9 +1046,8 @@ body {
 
 /* ── Footer — quiet utility strip (shortcuts · cache · reset · version) ── */
 .connect-footer {
-  margin-top: 24px;
-  padding-top: 12px;
-  border-top: 1px solid var(--surface-3);
+  margin-top: auto;
+  padding-top: 24px;
 }
 
 .footer-actions {
@@ -1400,40 +1404,6 @@ body {
 .command-auth-credentials[hidden],
 .command-auth-credentials-note[hidden] { display: none; }
 
-.prof-identities {
-  display: grid;
-  gap: 3px;
-  margin-top: 7px;
-  padding-top: 6px;
-  border-top: 1px solid color-mix(in srgb, var(--surface-3) 72%, transparent);
-}
-.prof-identity-row {
-  display: grid;
-  grid-template-columns: 54px minmax(56px, auto) 1fr;
-  gap: 6px;
-  align-items: baseline;
-  min-width: 0;
-  font-size: 9px;
-}
-.prof-identity-label {
-  color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: .045em;
-}
-.prof-identity-user {
-  color: var(--text-1);
-  font-family: var(--font-mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.prof-identity-source {
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.prof-identity-row--failed .prof-identity-user,
-.prof-identity-row--unavailable .prof-identity-user { color: var(--danger); }
 .prof-auth-migration {
   display: flex;
   gap: 8px;
@@ -2092,6 +2062,11 @@ body.crev-divider-dragging * { user-select: none; }
 }
 .update-refresh svg { width: 13px; height: 13px; }
 .update-refresh:hover { background: var(--surface-3); color: var(--text-1); }
+.update-refresh.is-checking { cursor: wait; }
+.update-refresh.is-checking svg { animation: detection-spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .update-refresh.is-checking svg { animation: none; }
+}
 
 .reference-card {
   margin-top: var(--space-2);

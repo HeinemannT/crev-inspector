@@ -10,7 +10,9 @@
   <link rel="stylesheet" href="./editor.css">
 </head>
 <body>
-  <div id="editor-root"></div>
+  <div id="editor-root" aria-busy="true">
+    <div class="editor-loading">Loading…</div>
+  </div>
   <script type="module" src="./editor.ts"></script>
 </body>
 </html>

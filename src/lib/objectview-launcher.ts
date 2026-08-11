@@ -16,16 +16,14 @@ export async function openObjectViewWindow(rid: string, target?: { tabId?: numbe
   const type = cached?.type ?? '';
   const businessId = cached?.businessId ?? '';
 
-  try {
-    await chrome.storage.local.set({
+  const contextWrite = chrome.storage.local.set({
       [`crev_objectview_ctx_${rid}`]: { rid, name, type, businessId },
-    });
-  } catch (e) {
+    }).catch((e: unknown) => {
     log.swallow('objectview:ctxStore', e);
-  }
+  });
 
   const label = name ? `${type || 'Object'} · ${name}` : `Object · ${businessId || rid}`;
-  await launchFrame({
+  const frameLaunch = launchFrame({
     kind: 'objectview',
     path: `objectview/objectview.html#${rid}`,
     label,
@@ -34,4 +32,7 @@ export async function openObjectViewWindow(rid: string, target?: { tabId?: numbe
     tabId: target?.tabId,
     windowId: target?.windowId,
   });
+  // The stored context is only a title hint; it must not delay mounting the
+  // frame. The authoritative pane response updates the title again.
+  await Promise.all([contextWrite, frameLaunch]);
 }

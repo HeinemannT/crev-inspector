@@ -1038,6 +1038,50 @@ describe('Editor Context — What The Code Popup Shows', () => {
     };
   });
 
+  it('mounts the editor shell before the BMP context request completes', async () => {
+    let resolveEc!: (value: { ok: boolean; log: string }) => void;
+    harness.client.executeEc = vi.fn(() => new Promise(resolve => { resolveEc = resolve; })) as any;
+    const sendMessage = vi.fn(async () => undefined);
+    (globalThis.chrome as any).tabs = {
+      get: vi.fn(async () => ({ id: 5, url: 'https://bmp.test/app' })),
+      query: vi.fn(async () => [{ id: 5, url: 'https://bmp.test/app' }]),
+      sendMessage,
+    };
+
+    const { openEditorWindow } = await import('../editor');
+    const opening = openEditorWindow(RIDS.extTable, undefined, { tabId: 5 });
+
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(5, expect.objectContaining({
+        type: 'MOUNT_FRAME',
+        kind: 'editor',
+      }));
+    });
+    const firstContextWrite = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+      (call: any) => call[0]?.[`crev_editor_ctx_${RIDS.extTable}`],
+    );
+    expect(firstContextWrite[0][`crev_editor_ctx_${RIDS.extTable}`].loading).toBe(true);
+
+    resolveEc({
+      ok: true,
+      log: buildEditorContextLog({
+        instRid: RIDS.extTable,
+        instId: 'sc_fast',
+        instType: 'ExtendedTable',
+        instName: 'Fast editor',
+        instExpression: 'output("ready")',
+      }),
+    });
+    await opening;
+
+    const finalContextWrite = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
+      (call: any) => call[0]?.[`crev_editor_ctx_${RIDS.extTable}`],
+    );
+    const finalContext = finalContextWrite[0][`crev_editor_ctx_${RIDS.extTable}`];
+    expect(finalContext.loading).toBeUndefined();
+    expect(finalContext.instance.name).toBe('Fast editor');
+  });
+
   it('assembles correct context for ExtendedTable with template', async () => {
     // Single fetchEditorContext EC call returns everything.
     harness.client.executeEc = vi.fn(async () => ({
@@ -1053,7 +1097,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable);
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
       (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
     );
     expect(setCall).toBeDefined();
@@ -1090,7 +1134,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.cvo);
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
       (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
     );
     const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
@@ -1118,7 +1162,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable);
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
       (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
     );
     const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
@@ -1143,7 +1187,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable, 'defaultExpression');
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
       (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
     );
     const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
@@ -1166,7 +1210,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable);
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
       (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
     );
     const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
@@ -1187,7 +1231,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.scorecard);
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
       (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
     );
     const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
@@ -1221,7 +1265,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable, undefined, { tabId: 5 });
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
       (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
     );
     const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
@@ -1230,8 +1274,11 @@ describe('Editor Context — What The Code Popup Shows', () => {
     // ?rid= wins over .location (RIDS.editPage) and over the widget.
     expect(ctx.executionContextRid).toBe(CONTEXT_RID);
     expect(ctx.executionContext.rid).toBe(CONTEXT_RID);
-    expect(ctx.executionContext.type).toBe('CeRiskAssessment');
-    expect(ctx.executionContext.name).toBe('Operational Risk #4');
+    // Context decoration is cache-only during launch. A cache miss retains the
+    // correct RID without adding a second serialized BMP command.
+    expect(ctx.executionContext.type).toBe('');
+    expect(ctx.executionContext.name).toBe('');
+    expect(harness.client.lookupIdentity).not.toHaveBeenCalled();
     // The widget being EDITED is still the table — context is separate.
     expect(ctx.instance.rid).toBe(RIDS.extTable);
   });
@@ -1244,7 +1291,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable);
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
       (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
     );
     const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
@@ -1272,7 +1319,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable, undefined, { tabId: 5 });
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
       (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
     );
     const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
@@ -1300,7 +1347,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable, undefined, { tabId: 5 });
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.find(
+    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
       (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
     );
     const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;

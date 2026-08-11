@@ -1,6 +1,6 @@
 # Privacy Policy — CREV Inspector
 
-Last updated: 7 August 2026
+Last updated: 8 August 2026
 
 CREV Inspector is an independent developer tool by Tassilo Heinemann for inspecting and editing user-chosen Corporater BMP workspaces. It has no analytics, advertising, user accounts, or developer-operated data service.
 
@@ -27,7 +27,3 @@ CREV Inspector's use of information complies with the Chrome Web Store User Data
 Users can delete individual server profiles, remove the AI configuration, clear local working data, or uninstall the extension. “Reset all” clears caches, activity, history, and current context but deliberately keeps server profiles and favourites; those can be deleted separately.
 
 Site access is requested through the browser for configured BMP and AI origins and can be revoked in the browser’s extension settings.
-
-## Contact
-
-Questions can be submitted through the [CREV Inspector GitHub repository](https://github.com/HeinemannT/crev-inspector/issues).

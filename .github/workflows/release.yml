@@ -44,6 +44,12 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+
+      - name: Third-party notices
+        run: npm run notices:check
+
       - name: Verify tag matches manifest version
         # Refuses to ship a release whose tag doesn't match manifest.version —
         # otherwise the update banner in the panel would always think we're
@@ -92,10 +98,14 @@ jobs:
           # scripts reference content.js etc.), so we assemble a pkg/ tree.
           mkdir -p pkg
           cp manifest.json pkg/
+          cp LICENSE PRIVACY.md THIRD-PARTY-NOTICES.md pkg/
           cp -r dist/* pkg/
           cp -r icons pkg/ 2>/dev/null || true
+          npm sbom --omit=dev --sbom-format=cyclonedx > pkg/SBOM.cdx.json
           cd pkg
           zip -r "../crev-inspector-${VERSION}.zip" .
+          cd ..
+          sha256sum "crev-inspector-${VERSION}.zip" > "crev-inspector-${VERSION}.zip.sha256"
 
       - name: Create / update release with asset
         uses: softprops/action-gh-release@v2
@@ -105,7 +115,9 @@ jobs:
           # PR-title-driven and feel noisy when we ship multiple
           # patches per day. Maintainer adds curated notes manually
           # post-publish via `gh release edit`.
-          files: crev-inspector-${{ env.VERSION }}.zip
+          files: |
+            crev-inspector-${{ env.VERSION }}.zip
+            crev-inspector-${{ env.VERSION }}.zip.sha256
           generate_release_notes: false
           draft: false
           # true for -beta/-rc/-alpha tags (see the version step), so GitHub's

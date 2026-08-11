@@ -32,6 +32,10 @@ export interface EditorContext {
   overrides: Record<string, boolean>
   saveTarget: SaveTarget
   property: string | null
+  /** Transient launch placeholder. The frame can paint while the service
+   *  worker prepares the authoritative BMP context, then hydrates from the
+   *  same storage key without issuing a duplicate server request. */
+  loading?: boolean
   /** Present when identity was recovered from cache but the server code fetch
    *  failed. An errored context is never mounted as an editable empty file. */
   loadError?: string

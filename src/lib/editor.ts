@@ -40,27 +40,18 @@ async function getCurrentPageRid(
   }
 }
 
-/** Resolve the identity of the EC execution context for the header chip.
- *  Cache-first (the page object is almost always already enriched), with a
- *  lookup fallback. Returns undefined when there's no distinct context (no
- *  rid, or it's the widget itself) so the chip simply doesn't render. */
-async function resolveContextIdentity(
+/** Resolve launch-time decoration for the EC execution-context chip. Keep this
+ *  cache-only: a missing label must not add another serialized BMP command to
+ *  editor startup. The RID still renders and can be enriched elsewhere. */
+function resolveContextIdentity(
   contextRid: string | undefined,
   instanceRid: string,
-): Promise<ObjectIdentity | undefined> {
+): ObjectIdentity | undefined {
   if (!contextRid || contextRid === instanceRid) return undefined;
   const swCtx = getCtx();
   const cached = swCtx.cache.get(contextRid);
   if (cached?.type || cached?.name) {
     return { rid: contextRid, businessId: cached.businessId ?? '', type: cached.type ?? '', name: cached.name ?? '' };
-  }
-  if (swCtx.client) {
-    try {
-      const id = await swCtx.client.lookupIdentity(contextRid);
-      if (id) return { rid: contextRid, businessId: id.businessId ?? '', type: id.type ?? '', name: id.name ?? '' };
-    } catch (e) {
-      log.swallow('editor:resolveContext', e);
-    }
   }
   // Rid known but identity unresolved — still surface it (rid-only chip).
   return { rid: contextRid, businessId: '', type: '', name: '' };
@@ -72,15 +63,39 @@ export async function openEditorWindow(
   target?: { tabId?: number; windowId?: number },
   opts?: { scrollToLine?: number; scrollToText?: string },
 ) {
-  const ctx = await buildEditorContext(rid, preferredProperty, target, opts);
-  const { instance } = ctx;
+  const swCtx = getCtx();
+  await swCtx.settingsReady;
+  const cached = swCtx.cache.get(rid);
   const storageKey = `crev_editor_ctx_${rid}`;
-  await chrome.storage.local.set({ [storageKey]: ctx });
+  const loadingContext: EditorContext = {
+    environment: environmentToken(swCtx),
+    instance: {
+      rid,
+      businessId: cached?.businessId ?? '',
+      type: cached?.type ?? '',
+      name: cached?.name ?? '',
+    },
+    template: null,
+    instanceCode: {},
+    templateCode: {},
+    overrides: {},
+    saveTarget: swCtx.settings.saveTarget,
+    property: preferredProperty ?? 'expression',
+    loading: true,
+    scrollToLine: opts?.scrollToLine,
+    scrollToText: opts?.scrollToText,
+  };
 
-  const label = instance.name
-    ? `${instance.type || 'Object'} · ${instance.name}`
-    : `Editor · ${instance.businessId || rid}`;
-  await launchFrame({
+  // Start the BMP request before the local handoff. Once the placeholder is
+  // stored, the iframe can mount immediately and wait for this same key to be
+  // replaced with the authoritative context.
+  const contextPromise = buildEditorContext(rid, preferredProperty, target, opts);
+  await chrome.storage.local.set({ [storageKey]: loadingContext });
+
+  const label = cached?.name
+    ? `${cached.type || 'Object'} · ${cached.name}`
+    : `Editor · ${cached?.businessId || rid}`;
+  const launchPromise = launchFrame({
     kind: 'editor',
     path: `editor/editor.html#${rid}`,
     label,
@@ -97,6 +112,17 @@ export async function openEditorWindow(
     tabId: target?.tabId,
     windowId: target?.windowId,
   });
+
+  try {
+    const ctx = await contextPromise;
+    await chrome.storage.local.set({ [storageKey]: ctx });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Failed to load code from BMP';
+    await chrome.storage.local.set({
+      [storageKey]: { ...loadingContext, loading: false, loadError: message },
+    });
+  }
+  await launchPromise;
 }
 
 /** Fetch and compose the complete editor context without opening a frame.
@@ -112,6 +138,9 @@ export async function buildEditorContext(
   const environment = environmentToken(swCtx);
   const client = swCtx.client;
   const saveTarget = swCtx.settings.saveTarget;
+  // Page-context detection is independent of the BMP editor query. Starting it
+  // now removes a tabs/page-resolution waterfall after the server response.
+  const pageRidPromise = getCurrentPageRid(target);
 
   // Single EC call: identity + template + all code properties
   let editorData: import('../lib/bmp-client').EditorContextData | null = null;
@@ -165,9 +194,9 @@ export async function buildEditorContext(
   // enterprise detail page that's the enterprise instance, NOT the
   // page/template that `.location` returns. Fall back to `.location`, then
   // (via getExecutionRid) the widget itself.
-  const pageRid = await getCurrentPageRid(target);
+  const pageRid = await pageRidPromise;
   const executionContextRid = pageRid ?? editorData.locationRid;
-  const executionContext = await resolveContextIdentity(executionContextRid, instance.rid);
+  const executionContext = resolveContextIdentity(executionContextRid, instance.rid);
   if (environmentToken(swCtx) !== environment) throw new Error(ENVIRONMENT_CHANGED_ERROR);
 
   const ctx: EditorContext = {

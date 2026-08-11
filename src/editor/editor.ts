@@ -175,6 +175,37 @@ const anyDirty = (): boolean => surface?.isDirty() ?? false
 
 const root = document.getElementById('editor-root')!
 
+/** Wait for the service worker to replace a launch placeholder with the real
+ *  context. The storage listener avoids polling and is removed on every exit. */
+async function waitForPreparedContext(storageKey: string, initial: EditorContext): Promise<EditorContext> {
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (value: EditorContext) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      chrome.storage.onChanged.removeListener(onChanged)
+      resolve(value)
+    }
+    const onChanged = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
+      if (areaName !== 'local') return
+      const value = changes[storageKey]?.newValue as EditorContext | undefined
+      if (value && !value.loading) finish(value)
+    }
+    const timeout = setTimeout(() => {
+      finish({ ...initial, loading: false, loadError: 'Timed out while loading editor context' })
+    }, 20_000)
+
+    chrome.storage.onChanged.addListener(onChanged)
+    // Close the read/listener race: the worker may have written the final
+    // context between init's first get() and listener registration.
+    void chrome.storage.local.get(storageKey).then(result => {
+      const value = result[storageKey] as EditorContext | undefined
+      if (value && !value.loading) finish(value)
+    }).catch(() => { /* timeout renders the recoverable error */ })
+  })
+}
+
 async function init() {
   renderDom(root, h('div', { class: 'editor-loading' }, 'Loading\u2026'))
 
@@ -186,6 +217,7 @@ async function init() {
     if (perRidKey) keys.push(perRidKey)
     const result = await chrome.storage.local.get(keys)
     ctx = perRidKey ? (result[perRidKey] as EditorContext | null) : null
+    if (ctx?.loading && perRidKey) ctx = await waitForPreparedContext(perRidKey, ctx)
     if (typeof result.crev_editor_output_height === 'number') {
       outputHeight = result.crev_editor_output_height
     }
@@ -193,10 +225,12 @@ async function init() {
     if (typeof result.crev_editor_wrap === 'boolean') wrapLines = result.crev_editor_wrap
     if (typeof result.crev_editor_table === 'boolean') tablePreview = result.crev_editor_table
   } catch {
+    root.removeAttribute('aria-busy')
     renderDom(root, h('div', { class: 'editor-loading' }, 'Failed to load context'))
     return
   }
 
+  root.removeAttribute('aria-busy')
   if (!ctx) {
     renderDom(root, h('div', { class: 'editor-loading' }, 'No editor context found'))
     return
@@ -303,6 +337,7 @@ function isConnectionLoadError(message: string): boolean {
 }
 
 function renderEditorLoadError(message: string, retrying = false): void {
+  root.toggleAttribute('aria-busy', retrying)
   const identity = ctx?.instance
   const label = identity
     ? (identity.name || identity.businessId || identity.rid)

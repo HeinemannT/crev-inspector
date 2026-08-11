@@ -152,12 +152,12 @@ async function init() {
     h('div', { class: 'pane-loading' }, 'Loading…'),
   ));
 
-  // Read initial context from storage (title hint while EC is in flight).
-  try {
-    const stored = await chrome.storage.local.get(`crev_objectview_ctx_${rid}`);
+  // The title hint and authoritative BMP request are independent. Never make
+  // the server request wait for extension storage.
+  void chrome.storage.local.get(`crev_objectview_ctx_${rid}`).then(stored => {
     const ctx = stored[`crev_objectview_ctx_${rid}`] as { name?: string } | undefined;
     if (ctx?.name) document.title = `${ctx.name} - CREV Object View`;
-  } catch { /* storage unavailable */ }
+  }).catch(() => { /* storage unavailable */ });
 
   // Kick off the fetch — the SW responds synchronously with OBJECT_PANE_DATA
   // (no separate port message), so sendRequest is the right pattern here.
@@ -226,6 +226,7 @@ async function reloadPane(): Promise<void> {
   resetDraft.clear();
   if (!state.template) target = 'instance';
   document.title = `${msg.instance.name || msg.instance.businessId || rid} - CREV Object View`;
+  root.removeAttribute('aria-busy');
   renderPane();
   if (state.editFieldPropertiesLoading) void loadEditFieldProperties();
 
@@ -301,12 +302,14 @@ async function loadFlow(): Promise<void> {
 }
 
 function renderObjectLoading(message: string, stage: 'normal' | 'slow' | 'verySlow'): void {
+  root.setAttribute('aria-busy', 'true');
   render(root, h('div', { class: 'ov-shell' },
     h('div', { class: `pane-loading pane-loading--${stage}` }, message),
   ));
 }
 
 function renderObjectLoadError(message: string): void {
+  root.removeAttribute('aria-busy');
   render(root, h('div', { class: 'ov-shell' },
     objectLoadErrorContent(message),
   ));

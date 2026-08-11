@@ -13,7 +13,9 @@
   <link rel="stylesheet" href="./objectview.css">
 </head>
 <body>
-  <div id="objectview-root"></div>
+  <div id="objectview-root" aria-busy="true">
+    <div class="ov-shell"><div class="pane-loading">Loading…</div></div>
+  </div>
   <script type="module" src="./objectview.ts"></script>
 </body>
 </html>

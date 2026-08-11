@@ -23,6 +23,12 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+
+      - name: Third-party notices
+        run: npm run notices:check
+
       - name: Typecheck
         run: npm run typecheck
 

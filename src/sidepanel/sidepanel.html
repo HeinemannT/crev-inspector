@@ -10,7 +10,16 @@
   <link rel="stylesheet" href="./sidepanel.css">
 </head>
 <body>
-  <div id="app"></div>
+  <div id="app" aria-busy="true">
+    <div class="header" aria-hidden="true">
+      <div class="header-brand"><img src="../icons/crev-inspector.svg" alt=""></div>
+      <div class="header-status">
+        <span class="status-dot checking"></span>
+        <span class="header-label">Starting…</span>
+      </div>
+    </div>
+    <div class="pane-loading">Loading…</div>
+  </div>
   <script type="module" src="./sidepanel.ts"></script>
 </body>
 </html>

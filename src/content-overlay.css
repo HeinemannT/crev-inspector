@@ -364,7 +364,7 @@
 }
 .crev-tt-cprow:hover { background: #f4f4f6; }
 .crev-tt-cprow:focus-visible { outline: 2px solid #8a3ffc; outline-offset: -1px; }
-.crev-tt-k { width: 56px; flex: none; font-size: 10px; color: #6e7481; }
+.crev-tt-k { width: 68px; flex: none; font-size: 10px; color: #6e7481; white-space: nowrap; }
 .crev-tt-v {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10.5px; color: #161616;

@@ -256,11 +256,14 @@ describe('AI Assistant card states', () => {
     expect(el.querySelector('.footer-actions')?.textContent).toContain('27 cached');
     expect(el.querySelector('.footer-actions')?.textContent).toContain('Clear cache');
     expect(el.querySelector('.footer-actions')?.textContent).toContain('Reset all');
+    const updateRefresh = el.querySelector<HTMLButtonElement>('.update-refresh');
+    expect(updateRefresh?.classList.contains('is-checking')).toBe(true);
+    expect(updateRefresh?.disabled).toBe(true);
   });
 });
 
 describe('Command identity profile UI', () => {
-  it('shows portal and command identities as separate verified rows', () => {
+  it('keeps the stored-login source on the profile metadata line', () => {
     shared.settings = {
       ...freshSettings(),
       profiles: [{
@@ -274,11 +277,27 @@ describe('Command identity profile UI', () => {
       activeProfileId: 'p1',
     };
     const { el } = renderTab();
-    const rows = [...el.querySelectorAll('.prof-identity-row')].map(row => row.textContent);
-    expect(rows).toEqual([
-      expect.stringContaining('Portalportal.userBrowser session'),
-      expect.stringContaining('Commandsconfig.userStored configuration login'),
-    ]);
+    expect(el.querySelector('.prof-url')?.textContent)
+      .toBe('bmp.test/Steadfast · Stored login');
+    expect(el.querySelector('.prof-identity-row')).toBeNull();
+  });
+
+  it('labels portal authentication as a browser session on the same line', () => {
+    shared.settings = {
+      ...freshSettings(),
+      profiles: [{
+        id: 'p1',
+        label: 'Steadfast',
+        bmpUrl: 'https://bmp.test/Steadfast/',
+        bmpUser: '',
+        bmpPass: '',
+        commandAuthMode: 'portal',
+      }],
+      activeProfileId: 'p1',
+    };
+    const { el } = renderTab();
+    expect(el.querySelector('.prof-url')?.textContent)
+      .toBe('bmp.test/Steadfast · Browser session');
   });
 
   it('uses an explicit browser/stored selector and expands credentials only for stored mode', () => {
