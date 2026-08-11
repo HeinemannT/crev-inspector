@@ -114,6 +114,12 @@ export class AiTab implements Tab {
 
   handleMessage(msg: InspectorMessage): boolean {
     switch (msg.type) {
+      case 'AI_CHAT_EVENT':
+        this.onChatEvent(msg);
+        return false;
+      case 'AI_EDITOR_CONTEXT':
+        this.setEditorSource(msg.source);
+        return false;
       // Selection / context follows these — re-render the chips + suggestions.
       case 'CONTEXT_RID_DATA':
       case 'OBJECT_PANE_DATA':

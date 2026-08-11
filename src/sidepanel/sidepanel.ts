@@ -1,9 +1,7 @@
 /**
- * Side panel orchestrator — boot, tab routing, header/status rendering.
- * Tabs are self-contained components (Tab interface). This module:
- * - Updates shared state (S.connState, S.settings, etc.)
- * - Routes messages to active tab's handleMessage()
- * - Manages header, status strip, status bar, paint button
+ * Side-panel browser adapter — boot and header/status rendering.
+ * Message precedence and tab lifecycle live in panel-orchestrator.ts; this
+ * module supplies the concrete tabs, DOM operations, and Chrome listeners.
  */
 
 import type { InspectorMessage } from '../lib/types';
@@ -14,11 +12,9 @@ import { log } from '../lib/logger';
 import { ICON_REFRESH, ICON_SEARCH, ICON_CROSSHAIR, ICON_BLUEPRINT } from './utils';
 import { ICON_TERMINAL_WINDOW, ICON_PAINT_BROAD, ICON_PULSE } from '../lib/icons';
 import { DetailView } from './detail-view';
-import { onColorSetsData, resetColorSets } from './color-picker';
-import { initReferenceView, showReferenceView, handleReferenceMessage, isReferenceActive } from './reference-view';
+import { initReferenceView } from './reference-view';
 import { S, sendMessage, getActivePanel, getTabPanel, tabPanelId, onPortMessage, onReconnect, onWorkStatus, connectPanel } from './state';
-import { dispatchBroadcast } from '../lib/handler-registry';
-import { routeAccessMessage, initAccessTrace } from './access-trace';
+import { initAccessTrace } from './access-trace';
 import { showProfileSwitcher } from './profile-switcher';
 import { renderSiteAccessStrip, refreshSiteAccessStrip } from './site-access-strip';
 import type { Tab } from './tabs/tab-types';
@@ -28,12 +24,11 @@ import { LogTab } from './tabs/log-tab';
 import { WorkshopTab } from './tabs/workshop-tab';
 import { AiTab } from './tabs/ai-tab';
 import { showToast } from '../lib/toast';
-import { contextFromData } from './context-state';
 import { provisionalConnectionSnapshot } from '../lib/connection-snapshot';
 import { objectChip } from '../lib/object-chip';
-import { workStatusForMessage } from './work-status';
 import { runtimeVersion } from '../lib/build-info';
 import { unknownIdentityMap } from '../lib/identity-map';
+import { createPanelOrchestrator, type PanelTabId } from './panel-orchestrator';
 
 // ── Tab instances ────────────────────────────────────────────────
 
@@ -73,7 +68,7 @@ function navigateToDetail(rid: string) {
   // is elsewhere, switch first; either way load the object. Drilling
   // when DetailView is already populated preserves the back-history.
   const switching = S.activeTab !== 'workshop';
-  if (switching) switchTab('workshop');
+  if (switching) orchestrator.selectTab('workshop');
   const panel = getActivePanel();
   if (!panel) return;
   const asDrillDown = !switching && detailView.isActive();
@@ -99,11 +94,11 @@ const detailView = new DetailView(
   // (with optional highlight) and ensures Workshop is the active tab.
   (rid: string, highlightRid?: string) => {
     (tabs.workshop as WorkshopTab).openLayoutFor(rid, highlightRid);
-    switchTab('workshop');
+    orchestrator.selectTab('workshop');
   },
 );
 
-const tabs: Record<string, Tab> = {
+const tabs: Record<PanelTabId, Tab> = {
   connect: new ConnectTab(sendMessage),
   workshop: new WorkshopTab(sendMessage, navigateToDetail, detailView),
   objects: new ObjectsTab(sendMessage, navigateToDetail),
@@ -133,281 +128,61 @@ initReferenceView(
 // The Access Trace overlay reaches the SW through the panel's port send.
 initAccessTrace(sendMessage);
 
-onPortMessage((msg: InspectorMessage) => {
-  const workStatus = workStatusForMessage(msg);
-  if (workStatus) logTab.showWorkStatus(workStatus);
-
-  // Access-trace overlay claims its own responses regardless of active tab.
-  if ((msg.type === 'ACCESS_SUBJECTS_DATA' || msg.type === 'ACCESS_TRACE_RESULT') && routeAccessMessage(msg)) return;
-
-  // Reference view gets first crack (code search results)
-  if (isReferenceActive()) {
-    const panel = getActivePanel();
-    if (panel && handleReferenceMessage(msg, panel)) return;
-  }
-
-  // Open reference view on SEARCH_REFERENCES
-  if (msg.type === 'SEARCH_REFERENCES') {
-    const panel = getActivePanel();
-    if (panel) showReferenceView(msg, panel);
-    return;
-  }
-
-  // Ephemeral toast: short-lived top-right notification, independent of
-  // any tab. We render here (rather than per-tab) so the user sees the
-  // toast regardless of where focus is. The activity log still gets a
-  // permanent entry — SW.toast() mirrors both.
-  if (msg.type === 'TOAST') {
-    showToast(msg.text, msg.kind);
-    return;
-  }
-
-  // Command-strip handoff (arrives on the port via ctx.sendToPanel, surviving
-  // panel startup via pendingPanelMessages — same path as SELECT_OBJECT). Make
-  // sure the AI tab exists, switch to it, and submit the strip's message as a
-  // turn (with its via-strip eyebrow + quoted code).
-  if (msg.type === 'AI_CHAT_HANDOFF') {
-    if (!aiEnabled) {
-      aiEnabled = true;
-      app.querySelector('.tab-bar')?.replaceWith(buildTabBar());
-      app.querySelector('.tab-content')?.replaceWith(buildTabContent());
+const orchestrator = createPanelOrchestrator({
+  app,
+  tabs,
+  logTab,
+  aiTab,
+  workshopTab: tabs.workshop as WorkshopTab,
+  detailView,
+  getActivePanel,
+  getTabPanel: (tab) => getTabPanel(tab),
+  persistActiveTab: (tab) => {
+    chrome.storage.session.set({ crev_active_tab: tab }).catch(e => log.swallow('panel:persistTab', e));
+  },
+  showSelectedTab: (tab) => {
+    for (const btn of app.querySelectorAll<HTMLElement>('.tab[data-tab]')) {
+      const isActive = btn.dataset.tab === tab;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-selected', String(isActive));
     }
-    switchTab('ai');
-    aiTab.submitHandoff(msg.text, msg.quote, msg.envelope);
-    return;
-  }
-
-  // Shared state updates
-  let headerChanged = false;
-  switch (msg.type) {
-    case 'INSPECT_STATE':
-      S.inspectActive = msg.active;
-      updateToggle();
-      break;
-    case 'BLUEPRINT_STATE':
-      S.blueprintActive = msg.active;
-      updateToggle();
-      break;
-    case 'CACHE_STATS':
-      S.cacheCount = msg.count;
-      updateObjectsBadge();
-      break;
-    case 'SETTINGS_DATA':
-      S.settings = msg.settings;
-      headerChanged = true;
-      syncAiTab(); // full settings may add/remove the AI tab (key configured?)
-      void refreshSiteAccessStrip(); // profile (server origin) may have changed
-      break;
-    case 'CONNECTION_STATE':
-      S.connState = msg.state;
-      headerChanged = true;
-      updateToggle();
-      updateLatencyPill();
-      break;
-    case 'DETECTION_STATE':
-      // Track whether the ACTIVE tab is BMP so the header reflects the page, not just the profile
-      // session. 'checking'/'unknown' leave it null (don't flip the header mid-navigation). Breaks
-      // through to the per-tab forwarding below, so the Workshop pane still gets it.
-      S.bmpDetected = msg.phase === 'detected' ? true : msg.phase === 'not-detected' ? false : null;
-      headerChanged = true;
-      break;
-    case 'PAGE_INFO':
-      // PAGE_INFO carries the same detection verdict; keep the header's page-state in sync on every refresh.
-      if (msg.detection) { S.bmpDetected = msg.detection.isBmp; headerChanged = true; }
-      S.page = msg.rid ? { rid: msg.rid, ...(msg.tabRid ? { tabRid: msg.tabRid } : {}), ...(msg.tabName ? { tabName: msg.tabName } : {}) } : null;
-      break;
-    case 'CONTEXT_RID_DATA':
-      // Canonical page/selection context from the SW. This is global panel
-      // state, not a Workshop-only concern: the status chip and AI envelope
-      // must update even when the AI or Connect tab is currently active.
-      S.context = contextFromData(S.context, msg);
-      updateContextPill();
-      break;
-    case 'OBJECT_PANE_DATA':
-      // The footer context chip tracks the object currently open in the
-      // Workshop detail editor — so "footer context" and "object detail"
-      // are always the same thing. (Page context — scorecard/tab — lives in
-      // the Workshop context strip, not the footer.) This fires for the
-      // initial load AND every drill-down/parent hop.
-      if ('instance' in msg && msg.instance?.rid) {
-        const i = msg.instance;
-        S.context = { rid: i.rid, name: i.name, type: i.type, businessId: i.businessId };
-        updateContextPill();
-      }
-      break;
-    case 'COLOR_SETS_DATA':
-      onColorSetsData(msg.sets);
-      break;
-    case 'EC_RESULT':
-      // Surface user-action latency in the status bar — feels more honest
-      // than the health-poll ping, which is just an HTTP roundtrip.
-      if ('durationMs' in msg && typeof msg.durationMs === 'number') {
-        S.lastEcMs = msg.durationMs;
-        updateLatencyPill();
-      }
-      break;
-    case 'PROFILE_SWITCHED':
-      headerChanged = true;
-      // Workspace changed — everything keyed by the old workspace's RIDs is
-      // now stale. Clear the footer context + the inspected object, and reset
-      // the Workshop's layout context (which re-detects in the new workspace).
-      S.context = null;
-      S.page = null;
-      S.detailRid = null;
-      (tabs.workshop as WorkshopTab).resetContext();
-      // AI chat grounding is per-workspace — reset the transcript even when
-      // the AI tab isn't active (the per-tab routing below only reaches the
-      // active tab, which would leave a stale cross-workspace conversation).
-      if (S.activeTab !== 'ai') aiTab.handleMessage(msg);
-      // Colours are per-workspace — drop the panel's cached swatches so profile B
-      // never shows profile A's colours (the linked-colour picker cache).
-      resetColorSets();
-      updateContextPill();
-      renderActiveTab();
-      break;
-    case 'FAVORITES_DATA':
-      S.favoriteEntries = msg.entries;
-      // Re-render the detail view (specifically the header star) when
-      // it's loaded — even if the user isn't currently looking at the
-      // Inspect tab. When they switch back, the star should be in
-      // sync without a fresh fetch. The Objects tab also picks up
-      // favorites via its own handleMessage return-true below.
-      if (detailView.isActive()) {
-        const panel = getTabPanel('workshop');
-        if (panel) {
-          const detailContainer = panel.querySelector<HTMLElement>('.workshop-detail');
-          if (detailContainer) detailView.refresh(detailContainer);
-        }
-      }
-      break;
-    case 'PAINT_STATE':
-      S.paintPhase = msg.phase;
-      S.paintSourceName = msg.sourceName ?? null;
-      updatePaintButton();
-      break;
-    case 'PAINT_APPLY_RESULT':
-      updatePaintButton();
-      if (!msg.ok && msg.error) showPaintError(msg.error);
-      break;
-    case 'SELECT_OBJECT':
-      if ('rid' in msg) {
-        // Picker mode: Workshop's layout half has a crosshair that
-        // arms a one-shot "pick context" mode. When armed AND the
-        // user is on Workshop, the next SELECT_OBJECT becomes
-        // "set context for the layout half" instead of "load in
-        // detail half". Keeps both behaviours discoverable in one
-        // tab without a separate Page surface.
-        const workshopTab = tabs.workshop as WorkshopTab;
-        if (workshopTab?.isPickingContext?.() && S.activeTab === 'workshop') {
-          const panel = getActivePanel();
-          workshopTab.consumePick(msg.rid, undefined, undefined, undefined, panel ?? undefined);
-        } else {
-          navigateToDetail(msg.rid);
-        }
-      }
-      break;
-    case 'OPEN_LAYOUT_FOR':
-      // Cross-window jump from the popout's "Layout ↗" button.
-      // Workshop already shows both layout + detail, so this just
-      // primes the layout half's context + ensures Workshop is the
-      // active tab.
-      if ('rid' in msg) {
-        (tabs.workshop as WorkshopTab).openLayoutFor(msg.rid, msg.highlightRid);
-        switchTab('workshop');
-      }
-      break;
-  }
-
-  // The activity log is an independent surface — its in-memory state needs
-  // to accumulate regardless of which panel tab is currently visible or
-  // whether the detail view is open. Without this, GET_ACTIVITY responses
-  // get dropped if the detail view is open at the moment the log tab
-  // activates, and per-entry ACTIVITY_ENTRY broadcasts that arrive while
-  // the user is on a different tab vanish into the void. Re-render only
-  // when the log tab is actually visible.
-  if (msg.type === 'ACTIVITY_LOG' || msg.type === 'ACTIVITY_ENTRY') {
-    const logTabInstance = tabs.log;
-    const changed = logTabInstance?.handleMessage(msg) ?? false;
-    if (changed && S.activeTab === 'log') {
-      const panel = getActivePanel();
-      if (panel && document.body.contains(panel)) logTabInstance!.render(panel);
+    for (const panelName of tabOrder()) {
+      getTabPanel(panelName)?.classList.toggle('active', panelName === tab);
     }
-  } else {
-    // Other messages route to the active tab only. The Inspect tab
-    // forwards to detailView.handleMessage internally.
-    const activeTab = tabs[S.activeTab];
-    if (activeTab) {
-      const changed = activeTab.handleMessage(msg);
-      if (changed) {
-        const panel = getActivePanel();
-        if (panel && document.body.contains(panel)) activeTab.render(panel);
-      }
-    }
-  }
-
-  if (headerChanged) {
-    updateHeaderStatus();
-    refreshStatusStrip();
-    updateStatusBar();
-  }
-
-  // Status bar: activity text + cache count (updated after tab processes the message)
-  if (msg.type === 'ACTIVITY_ENTRY' || msg.type === 'CACHE_STATS') {
-    updateStatusBar();
-  }
-
-  // Broadcast subscribers run last — they're for feature modules that want
-  // to listen to a message without owning routing precedence. Tabs and the
-  // detail view still use the raw switch above (their routing depends on
-  // the active surface); new features should prefer subscribe() in their
-  // own module so the consumer is visible to grep.
-  dispatchBroadcast(msg);
+    app.querySelector('#status-strip')?.classList.toggle('hidden', tab !== 'connect');
+  },
+  renderActiveTab,
+  ensureAiTab,
+  syncAiTab,
+  navigateToDetail,
+  updateToggle,
+  updateObjectsBadge,
+  updateContextPill,
+  updateLatencyPill,
+  updatePaintButton,
+  showPaintError,
+  updateHeaderStatus,
+  refreshStatusStrip,
+  updateStatusBar,
+  refreshSiteAccessStrip: () => { void refreshSiteAccessStrip(); },
 });
 
-// On reconnect: re-request shared state, activate active tab
+onPortMessage(orchestrator.accept);
+
+// On reconnect, state.ts re-establishes transport identity. The orchestrator
+// remains responsible only for refreshing the selected surface.
 onReconnect(() => {
   sendMessage({ type: 'GET_CONNECTION_STATE' });
   sendMessage({ type: 'GET_SETTINGS' });
-  sendMessage({ type: 'GET_DETECTION' }); // header's page-state (BMP vs not) for the active tab
-  tabs[S.activeTab]?.activate();
+  sendMessage({ type: 'GET_DETECTION' });
+  tabs[S.activeTab as PanelTabId]?.activate();
 });
 
 connectPanel();
 
-// ── Runtime broadcasts (NOT on the panel port) ───────────────────
-// AI chat streams (AI_CHAT_EVENT), the AI config toggle (AI_CONFIG_CHANGED),
-// and the editor-context signal (AI_EDITOR_CONTEXT) are broadcast by the SW /
-// editor via chrome.runtime.sendMessage, which the panel port does NOT carry.
-// This is the panel's only consumer of those broadcasts.
+// Runtime broadcasts use the same consequence pipeline as port messages.
 chrome.runtime.onMessage.addListener((msg: InspectorMessage) => {
-  switch (msg.type) {
-    case 'AI_CHAT_EVENT':
-      aiTab.onChatEvent(msg);
-      break;
-    case 'AI_EDITOR_CONTEXT':
-      aiTab.setEditorSource(msg.source);
-      break;
-    case 'AI_CONFIG_CHANGED': {
-      // Mirror the change into shared settings so tab visibility + the chat
-      // footer model reflect it, then add / remove the AI tab.
-      S.settings = {
-        ...S.settings,
-        ai: msg.configured
-          ? {
-              provider: msg.provider ?? S.settings.ai?.provider ?? 'anthropic',
-              model: msg.model ?? '',
-              apiKeyEnc: 'set',
-              ...(msg.customProvider
-                ? { customProvider: msg.customProvider }
-                : S.settings.ai?.customProvider ? { customProvider: S.settings.ai.customProvider } : {}),
-            }
-          : undefined,
-      };
-      syncAiTab();
-      if (aiEnabled && S.activeTab === 'ai') renderActiveTab();
-      break;
-    }
-  }
+  orchestrator.accept(msg);
   return undefined;
 });
 
@@ -420,7 +195,7 @@ const ALL_TABS = ['connect', 'workshop', 'objects', 'ai', 'log'] as const;
 
 /** The tabs actually rendered right now: base four, plus AI (before Log) when
  *  a provider key is configured. */
-function tabOrder(): string[] {
+function tabOrder(): PanelTabId[] {
   return aiEnabled
     ? ['connect', 'workshop', 'objects', 'ai', 'log']
     : ['connect', 'workshop', 'objects', 'log'];
@@ -480,13 +255,18 @@ function syncAiTab(): void {
   const wasEnabled = aiEnabled;
   aiEnabled = computeAiEnabled();
   if (aiEnabled === wasEnabled) return;
-  // If the AI tab just vanished while it was active, fall back to Connect.
-  if (!aiEnabled && S.activeTab === 'ai') S.activeTab = 'connect';
   const bar = app.querySelector('.tab-bar');
   const content = app.querySelector('.tab-content');
   if (bar) bar.replaceWith(buildTabBar());
   if (content) content.replaceWith(buildTabContent());
   renderActiveTab();
+}
+
+function ensureAiTab(): void {
+  if (aiEnabled) return;
+  aiEnabled = true;
+  app.querySelector('.tab-bar')?.replaceWith(buildTabBar());
+  app.querySelector('.tab-content')?.replaceWith(buildTabContent());
 }
 
 function buildApp(): void {
@@ -615,7 +395,9 @@ function buildApp(): void {
   delegate(app, {
     tab: (el) => {
       const tabName = el.dataset.tab;
-      if (tabName) switchTab(tabName);
+      if (tabName && (ALL_TABS as readonly string[]).includes(tabName)) {
+        orchestrator.selectTab(tabName as PanelTabId);
+      }
     },
     test: () => {
       const btn = document.querySelector('#status-strip .status-strip-btn');
@@ -641,36 +423,11 @@ function buildApp(): void {
   renderActiveTab();
 }
 
-function switchTab(tab: string) {
-  const prev = S.activeTab;
-  S.activeTab = tab;
-  chrome.storage.session.set({ crev_active_tab: tab }).catch(e => log.swallow('panel:persistTab', e));
-
-  // Deactivate previous, activate new
-  tabs[prev]?.deactivate();
-  tabs[tab]?.activate();
-
-  // Update tab bar + panel visibility
-  for (const btn of app.querySelectorAll<HTMLElement>('.tab[data-tab]')) {
-    const isActive = btn.dataset.tab === tab;
-    btn.classList.toggle('active', isActive);
-    btn.setAttribute('aria-selected', String(isActive));
-  }
-  for (const panelName of tabOrder()) {
-    const panel = getTabPanel(panelName);
-    if (panel) panel.classList.toggle('active', panelName === tab);
-  }
-  // The connection strip is Connect-only (redundant elsewhere with the header + bottom bar).
-  app.querySelector('#status-strip')?.classList.toggle('hidden', tab !== 'connect');
-
-  renderActiveTab();
-}
-
 function renderActiveTab() {
   // Old overlay-era guard ("skip rendering tabs while detail is up")
   // is gone — the InspectTab IS a tab and renders normally. Other
   // tabs only render when active per the tab dispatcher.
-  const tab = tabs[S.activeTab];
+  const tab = tabs[S.activeTab as PanelTabId];
   const panel = getActivePanel();
   if (tab && panel) tab.render(panel);
 }
@@ -1080,5 +837,5 @@ void initialSessionState.then((result) => {
   // of which tab the user lands on. The Workshop layout pane also requests this on its
   // own activate(); the SW handler is idempotent.
   sendMessage({ type: 'GET_CONTEXT_RID' });
-  switchTab(S.activeTab);
+  orchestrator.selectTab(S.activeTab as PanelTabId);
 });
