@@ -19,3 +19,7 @@ _Avoid_: Apply flags, Blueprint editor session
 **Blueprint Apply Review**:
 The immutable proposed changes and known impact accepted by a user before commit. Confirmation must apply that review rather than substitute later editor state.
 _Avoid_: Live preview, current model
+
+**Identity Save**:
+One attempt to change an object's ID, name, and optionally its linked template ID. Success means an authoritative post-write read confirmed every requested value, regardless of the write response itself.
+_Avoid_: EC success, identity update

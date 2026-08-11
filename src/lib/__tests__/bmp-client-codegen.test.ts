@@ -133,6 +133,33 @@ describe('BmpClient.resolveRef — version branches', () => {
     }
   });
 
+  it('fresh identity lookup evicts a pre-5.6.3 business-ID reference before verification', async () => {
+    const { client } = await createClientHarness();
+    client.assumeOldBmp();
+    let cached: { businessId: string; type: string } | undefined = {
+      businessId: 'old_id', type: 'Scorecard',
+    };
+    const invalidate = vi.fn(() => { cached = undefined; });
+    client.cache = { get: vi.fn(() => cached), invalidate };
+    const proto = Object.getPrototypeOf(client);
+    const origGetIdentity = proto.getObjectIdentity;
+    proto.getObjectIdentity = async (rid: string) => ({
+      rid, businessId: 'new_id', type: 'Scorecard', name: 'Renamed',
+    });
+    client.batchEnrich = vi.fn(async (rids: string[]) => {
+      expect(await client.resolveRef(rids[0])).toBe('t.new_id');
+      return { results: { [rids[0]]: { businessId: 'new_id', name: 'Renamed' } } };
+    });
+    try {
+      await expect(client.lookupIdentity('9007199254740993', { fresh: true })).resolves.toMatchObject({
+        businessId: 'new_id',
+      });
+      expect(invalidate).toHaveBeenCalledWith('9007199254740993');
+    } finally {
+      proto.getObjectIdentity = origGetIdentity;
+    }
+  });
+
   it('supportsLookup === false + cache miss + identity fetch fails → throws', async () => {
     const { client } = await createClientHarness();
     client.assumeOldBmp();

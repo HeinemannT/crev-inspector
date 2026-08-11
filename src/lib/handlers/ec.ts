@@ -10,7 +10,7 @@ import { errorMessage, log } from '../logger';
 import { invalidateRid } from '../enrichment';
 import type { ActivityMeta } from '../types';
 import { activityObject, activityObjectLabel, ecActivityDetail } from '../activity-format';
-import { normalizeAndValidateIdentity, type IdentityChangeSet } from '../object-identity';
+import { saveIdentity } from '../identity-save';
 import { ENVIRONMENT_CHANGED_ERROR, environmentMatches, environmentToken } from '../environment';
 
 // Props saved as EC string literals (saveCodeViaEc). SCRIPT_PROPS plus the
@@ -149,77 +149,11 @@ register('SAVE_IDENTITY', async (msg, respond) => {
   }
   const client = ctx.client;
 
-  const validation = normalizeAndValidateIdentity(msg);
-  if (!validation.ok) {
-    respond({
-      type: 'SAVE_IDENTITY_RESULT',
-      ok: false,
-      field: validation.field,
-      error: validation.error,
-    });
-    return;
-  }
-  const { businessId, name, templateBusinessId } = validation.value;
-
   const startTime = Date.now();
   try {
-    const before = await client.lookupIdentity(msg.rid);
-    if (!before) {
-      respond({ type: 'SAVE_IDENTITY_RESULT', ok: false, error: 'Could not read the current identity.' });
-      return;
-    }
-
-    const changes: IdentityChangeSet = {};
-    if (before.businessId !== businessId) changes.businessId = businessId;
-    if (before.name !== name) changes.name = name;
-    if (templateBusinessId !== undefined && before.templateBusinessId !== templateBusinessId) {
-      changes.templateBusinessId = templateBusinessId;
-    }
-
-    const saved = await client.applyIdentityChanges(msg.rid, changes);
-    if (!saved.ok && !saved.writeAttempted) {
-      respond({ type: 'SAVE_IDENTITY_RESULT', ok: false, error: saved.error ?? 'Identity save failed' });
-      return;
-    }
-
-    const stored = await client.lookupIdentity(msg.rid);
-    if (!stored) {
-      respond({
-        type: 'SAVE_IDENTITY_RESULT',
-        ok: false,
-        error: saved.writeAttempted
-          ? 'BMP may have saved some identity values, but the verification read failed. Reload the object before retrying.'
-          : 'Could not verify the current identity.',
-      });
-      return;
-    }
-    const verified = stored?.businessId === businessId
-      && stored.name === name
-      && (templateBusinessId === undefined || stored.templateBusinessId === templateBusinessId);
-    if (!verified) {
-      const requestedValues = [
-        ...(changes.businessId !== undefined
-          ? [{ actual: stored.businessId, expected: changes.businessId }]
-          : []),
-        ...(changes.name !== undefined
-          ? [{ actual: stored.name, expected: changes.name }]
-          : []),
-        ...(changes.templateBusinessId !== undefined
-          ? [{ actual: stored.templateBusinessId, expected: changes.templateBusinessId }]
-          : []),
-      ];
-      const anyRequestedValueLanded = requestedValues.some(value => value.actual === value.expected);
-      const verificationError = anyRequestedValueLanded
-        ? 'BMP applied only part of the identity change. The current values were refreshed; review them before retrying.'
-        : 'BMP did not persist the requested identity values. The current values were refreshed for review.';
-      respond({
-        type: 'SAVE_IDENTITY_RESULT',
-        ok: false,
-        businessId: stored.businessId,
-        name: stored?.name,
-        templateBusinessId: stored?.templateBusinessId,
-        error: saved.error ? `${saved.error} ${verificationError}` : verificationError,
-      });
+    const result = await saveIdentity(client, msg.rid, msg);
+    if (!result.ok) {
+      respond({ type: 'SAVE_IDENTITY_RESULT', ...result });
       return;
     }
 
@@ -231,8 +165,8 @@ register('SAVE_IDENTITY', async (msg, respond) => {
       object,
       durationMs,
     });
-    respond({ type: 'SAVE_IDENTITY_RESULT', ok: true, businessId, name, templateBusinessId });
-    // The explicit lookup above already verified the write. Refreshing the
+    respond({ type: 'SAVE_IDENTITY_RESULT', ...result });
+    // The identity workflow already verified the write. Refreshing the
     // shared cache/badges is best-effort and must not turn a verified save
     // into a UI error if a later enrichment broadcast happens to fail.
     invalidateRid(msg.rid).catch(e => log.swallow('handler:saveIdentity:invalidate', e));

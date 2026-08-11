@@ -227,6 +227,7 @@ export function extractAccessTrace(objects: any[]): AccessTraceNode | null {
 /** Lightweight cache interface — avoids coupling to ObjectCache. */
 export interface IdentityCache {
   get(rid: string): { businessId?: string; type?: string } | undefined;
+  invalidate?(rid: string): void;
 }
 
 export class BmpClient {
@@ -536,8 +537,13 @@ export class BmpClient {
     return this.ecQuery.batchEnrich(rids, signal);
   }
 
-  /** Lightweight identity fetch for a single RID (version-aware) */
-  async lookupIdentity(rid: string): Promise<{ name?: string; type?: string; businessId?: string; templateBusinessId?: string } | null> {
+  /** Lightweight identity fetch for a single RID (version-aware). `fresh` evicts a cached legacy
+   *  business-ID reference first, which is required when verifying an ID-changing write. */
+  async lookupIdentity(
+    rid: string,
+    options?: { fresh?: boolean },
+  ): Promise<{ name?: string; type?: string; businessId?: string; templateBusinessId?: string } | null> {
+    if (options?.fresh) this._cache?.invalidate?.(rid);
     const { results } = await this.batchEnrich([rid]);
     return results[rid] ?? null;
   }
