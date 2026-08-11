@@ -12,7 +12,7 @@ import { findNode, isResultTab, eachInSubtree } from '../lib/layout/model';
 import { getTypeAbbr, getTypeColor } from '../lib/types';
 import { lint } from '../lib/layout/constraints';
 import { diff, summarizeChanges } from '../lib/layout/diff';
-import { flowChangeCount, flowDiff } from '../lib/layout/flow';
+import { flowDiff } from '../lib/layout/flow';
 import { compile } from '../lib/layout/ec';
 import { ICON_PLUS, ICON_PENCIL, ICON_TRASH, ICON_X, ICON_SWAP, ICON_ARROW_RIGHT, ICON_ARROW_UNDO, ICON_ARROW_REDO, ICON_LIST, ICON_BLUEPRINT, ICON_PAINT, ICON_WARNING, ICON_SLIDERS, ICON_COPY, ICON_EYE_SLASH } from '../lib/icons';
 import { objectChip } from '../lib/object-chip';
@@ -23,6 +23,7 @@ import {
 } from '../lib/layout/portable-ids';
 import { showToast } from '../lib/toast';
 import { bp, model, type ApplyOutcome } from './state';
+import type { ApplyReview } from './apply-session';
 import { currentCommandActor } from '../lib/command-actor';
 import { setIcon, mkBtn, mkIconBtn, sp } from './geometry';
 import { closePreview, confirmApply, revertNode, undo, redo, toggleTray, togglePeek, toggleSettings, closeSettings, discard, armDiscard, disarmDiscard, openApplyPreview, exitBlueprint, setMode, dismissApplyOutcome } from './actions';
@@ -77,18 +78,16 @@ function infoRow(text: string): HTMLElement {
 /** Does the staged plan touch the shared Result tab, and does it touch CONTAINERS there? Built from the
  *  union of the Result subtree in baseline + desired (so a move IN, a move OUT, and a staged add are all
  *  caught), then matched against the plan's step ids. Container impact is called out louder. */
-function resultImpact(): { touched: boolean; containers: boolean } {
-  const base = bp.baseline, m = model();
-  if (!base || !m) return { touched: false, containers: false };
+function resultImpact(base: LModel, desired: LModel, plan: readonly PlanStep[]): { touched: boolean; containers: boolean } {
   const subtree = (mm: LModel): Map<string, LNode['kind']> => {
     const ids = new Map<string, LNode['kind']>();
     const t = mm.tabs.find(isResultTab);
     if (t) eachInSubtree(t, n => ids.set(n.id, n.kind));
     return ids;
   };
-  const ids = new Map([...subtree(base), ...subtree(m)]);
+  const ids = new Map([...subtree(base), ...subtree(desired)]);
   let touched = false, containers = false;
-  for (const s of diff(base, m)) {
+  for (const s of plan) {
     const sid = planStepId(s); // create/flowCreate carry the id on `node`
     const k = ids.get(sid);
     if (k !== undefined) { touched = true; if (k === 'container') containers = true; }
@@ -178,7 +177,8 @@ export function outcomePanel(outcome: ApplyOutcome, ctx: BlueprintCtx): HTMLElem
 }
 
 /** The apply-preview: the exact plan as a scannable log + the blast-radius warnings, behind a confirm. */
-export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement {
+export function previewModal(review: ApplyReview, ctx: BlueprintCtx): HTMLElement {
+  const notes = review.notes;
   const shared = ctx.target === 'template';
   const back = document.createElement('div'); back.className = 'bp-modal-back';
   back.addEventListener('mousedown', (e) => { if (e.target === back) closePreview(); });
@@ -186,13 +186,8 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   const h = document.createElement('div'); h.className = 'bp-modal-h';
   // Headline = logical changes; "(N actions)" exposes the raw EC step count when it differs (an insert
   // can compile to a create + a moveAfter chain). The list below still enumerates every action.
-  const lm0 = model();
-  // Logical changes = layout changes + flow changes (per flow object); raw actions = the plan rows
-  // enumerated below (`notes`), which already include the flow steps. Without the flow term the heading
-  // undercounted (e.g. "Apply 1 change" over a 25-row flow-heavy plan).
-  const layoutChanges = lm0 && bp.baseline ? summarizeChanges(diff(bp.baseline, lm0), lm0).changes : notes.length;
-  const changes = layoutChanges + (lm0 ? flowChangeCount(lm0) : 0);
-  const actions = notes.length;
+  const changes = review.changes;
+  const actions = review.actions;
   h.textContent = `Apply ${changes} change${changes === 1 ? '' : 's'}`
     + (actions !== changes ? ` (${actions} actions)` : '')
     + ` to ${ctx.pageClass} ${ctx.pageId}`;
@@ -203,7 +198,8 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   const warn = (text: string) => { strip.appendChild(warnRow(text)); };
   // ONE shared-template warning: the fanout version (with the live instance count) supersedes the static
   // one when the probe has returned — they otherwise both say "this is a template" and read as redundant.
-  const fanout = bp.blast?.fanout;
+  const impact = review.impact.status === 'ready' ? review.impact.value : null;
+  const fanout = impact?.fanout;
   if (fanout?.isMaster) {
     const n = fanout.instances.length;
     warn(`This is a shared template; ${n} linked scorecard${n === 1 ? '' : 's'} inherit from it. `
@@ -211,13 +207,13 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   } else if (shared) {
     warn('This is a shared template. These changes affect every instance that uses it.');
   }
-  const xfam = bp.blast?.blast;
+  const xfam = impact?.blast;
   if (xfam && xfam.otherFamilies > 0) {
     const names = xfam.families.map(f => f.name).filter(Boolean).slice(0, 2).join(', ');
     warn(`Some containers here are shared with ${xfam.otherFamilies} page${xfam.otherFamilies === 1 ? '' : 's'} `
       + `outside this template${names ? ` (${names}${xfam.otherFamilies > 2 ? ', …' : ''})` : ''}. Your structural changes affect them too.`);
   }
-  const flowBlast = bp.blast?.flowBlast;
+  const flowBlast = impact?.flowBlast;
   if (flowBlast && flowBlast.sharedContainers > 0) {
     const usages = flowBlast.containers.flatMap(container => container.usages);
     const names = usages.map(usage => usage.name).filter(Boolean).slice(0, 2).join(', ');
@@ -227,7 +223,7 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   // Shared Result-tab warning. The Result tab lives in the SHARED default_tabset, so structural edits
   // there (above all a new/moved container) land on every scorecard that uses it — louder than a normal
   // widget edit, which only touches this scorecard's own objects. Computed locally (no probe needed).
-  const ri = resultImpact();
+  const ri = resultImpact(review.baseline, review.desired, review.plan);
   if (ri.touched) {
     warn(ri.containers
       ? 'You are changing containers on the shared Result tab. A container added or moved here appears on EVERY scorecard that uses the default tab set, not just this one.'
@@ -242,9 +238,9 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   }
   // Pre-commit lint: empty-tab and structural-on-instance warnings (undo is frozen while this modal
   // is open, so the model behind these matches exactly what Confirm will apply).
-  const lm = model();
-  if (lm && bp.baseline) {
-    for (const msg of lint(lm, lm.target, diff(bp.baseline, lm))) {
+  const lm = review.desired;
+  if (review.baseline) {
+    for (const msg of lint(lm, lm.target, diff(review.baseline, lm))) {
       strip.appendChild(msg.level === 'info' ? infoRow(msg.text) : warnRow(msg.text));
     }
   }
@@ -260,9 +256,9 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   card.appendChild(actorRow);
   const foot = document.createElement('div'); foot.className = 'bp-modal-foot';
   // Copy EC (left) — the WHOLE compiled program, ready to paste into the EC console / a transport script.
-  if (bp.previewScript) {
+  if (review.script) {
     const copy = mkIconBtn(ICON_COPY, () => {
-      navigator.clipboard.writeText(bp.previewScript)
+      navigator.clipboard.writeText(review.script)
         .then(() => showToast('EC copied to clipboard', 'success'))
         .catch(() => showToast('Could not copy to clipboard', 'error'));
     }, 'Copy EC');
@@ -272,8 +268,8 @@ export function previewModal(notes: PlanNote[], ctx: BlueprintCtx): HTMLElement 
   }
   foot.append(mkBtn('Cancel', closePreview), (() => {
     // While the impact probe runs, Confirm is disabled and labelled — a commit must not race ahead of
-    // the fan-out / shared-structure warning (the highest-consequence one). fetchBlast clears the gate.
-    const pending = bp.blastPending;
+    // the fan-out / shared-structure warning (the highest-consequence one). The session clears the gate.
+    const pending = review.impact.status === 'checking';
     const b = mkBtn(pending ? 'Checking impact…' : 'Confirm & apply', confirmApply);
     b.className = 'apply';
     if (pending) { b.disabled = true; b.classList.add('disabled'); b.title = 'Checking how many objects this edit affects before you commit'; }
@@ -424,13 +420,15 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   if (pending === 0 && bp.discardArm) disarmDiscard();
   const armed = bp.discardArm;
   const discardB = mkBtn(armed ? 'Sure?' : 'Discard', armed ? discard : armDiscard);
-  discardB.disabled = pending === 0 || bp.applying || bp.preparingPreview;
+  const applyPhase = bp.applySession?.state.phase;
+  const applyBusy = applyPhase === 'preparing' || applyPhase === 'applying';
+  discardB.disabled = pending === 0 || applyBusy;
   if (armed) discardB.classList.add('bp-danger');
   discardB.title = armed ? 'Click again to discard all staged changes' : 'Discard all staged changes';
   c.appendChild(discardB);
-  const applyLabel = bp.preparingPreview ? 'Checking IDs…' : bp.applying ? 'Applying…' : `Apply${pending ? ` (${pending})` : ''}`;
+  const applyLabel = applyPhase === 'preparing' ? 'Checking IDs…' : applyPhase === 'applying' ? 'Applying…' : `Apply${pending ? ` (${pending})` : ''}`;
   const applyB = mkBtn(applyLabel, openApplyPreview);
-  applyB.className = 'apply'; applyB.disabled = pending === 0 || bp.applying || bp.preparingPreview; c.appendChild(applyB);
+  applyB.className = 'apply'; applyB.disabled = pending === 0 || !!bp.applySession; c.appendChild(applyB);
   const exit = mkIconBtn(ICON_X, exitBlueprint); exit.title = 'Exit blueprint mode'; c.appendChild(exit);
   return c;
 }

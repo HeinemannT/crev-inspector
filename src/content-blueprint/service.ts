@@ -12,13 +12,12 @@ import { showToast } from '../lib/toast';
 import type { InspectorMessage } from '../lib/types';
 import type { LModel } from '../lib/layout/types';
 import type { FlowRefListItem } from '../lib/layout/sync';
-import type { PortableIdPlan, PortableIdRequest } from '../lib/layout/portable-ids';
 import { BP_RESUME_KEY } from '../lib/blueprint-resume';
-import { bp, model } from './state';
+import { bp } from './state';
 import { render } from './view';
+import type { ApplyResolution, ApplySessionIO } from './apply-session';
 
 type LoadResult = Extract<InspectorMessage, { type: 'LAYOUT_LOAD_RESULT' }>;
-type ApplyResult = Extract<InspectorMessage, { type: 'LAYOUT_APPLY_RESULT' }>;
 type BlastResult = Extract<InspectorMessage, { type: 'LAYOUT_BLAST_RESULT' }>;
 type FlowRefsResult = Extract<InspectorMessage, { type: 'LAYOUT_FLOW_REFS_RESULT' }>;
 type FlowRefChildrenResult = Extract<InspectorMessage, { type: 'LAYOUT_FLOW_REF_CHILDREN_RESULT' }>;
@@ -108,12 +107,8 @@ export async function loadPage(rid: string, prefer: 'template' | 'instance' = 't
   return true;
 }
 
-/** Best-effort blast-radius probe for the open apply-preview. Stores the result on `bp.blast` and
- *  re-renders so the modal can show the warnings; silent on failure (the modal just omits them). The
- *  reply is dropped unless it's still the same session, the preview is open, AND it's for the LATEST
- *  preview (`seq`) — a slow walk for an earlier preview must not overwrite a newer one's result. */
-export async function fetchBlast(
-  seq: number,
+/** Best-effort blast-radius probe used by the Apply Session production adapter. */
+async function assessImpact(
   pageId: string,
   containers: { id: string; rid?: string }[],
   flowContainers: {
@@ -121,32 +116,18 @@ export async function fetchBlast(
     rid?: string;
     className: 'InputSet' | 'EditPage';
   }[],
-): Promise<void> {
-  const g = bp.gen;
-  try {
-    const res = await sendRequest<BlastResult>({
-      type: 'LAYOUT_BLAST',
-      pageId,
-      containers,
-      flowContainers,
-    });
-    if (!sameSession(g) || !bp.preview || bp.blastSeq !== seq) return;
-    bp.blast = {
-      fanout: res?.fanout ?? null,
-      blast: res?.blast ?? null,
-      flowBlast: res?.flowBlast ?? null,
-    };
-  } catch { /* fail silent — no blast warning; `finally` still re-enables Confirm */ }
-  finally {
-    // Always clear the pending gate for THIS preview (success, empty reply, or error) so Confirm can
-    // never stay wedged shut. A stale reply for an older/closed preview is ignored via the seq guard.
-    if (sameSession(g) && bp.preview && bp.blastSeq === seq) { bp.blastPending = false; render(); }
-  }
+): Promise<{ fanout: BlastResult['fanout']; blast: BlastResult['blast']; flowBlast: BlastResult['flowBlast'] }> {
+  const res = await sendRequest<BlastResult>({ type: 'LAYOUT_BLAST', pageId, containers, flowContainers });
+  return {
+    fanout: res?.fanout ?? null,
+    blast: res?.blast ?? null,
+    flowBlast: res?.flowBlast ?? null,
+  };
 }
 
-export async function preflightPortableIds(
-  requests: PortableIdRequest[],
-): Promise<{ ok: boolean; portableIds?: PortableIdPlan; error?: string }> {
+async function preflightPortableIds(
+  requests: Parameters<ApplySessionIO['preflightPortableIds']>[0],
+): ReturnType<ApplySessionIO['preflightPortableIds']> {
   try {
     const response = await sendRequestBounded<PortableIdPreflightResult>(
       { type: 'LAYOUT_PORTABLE_ID_PREFLIGHT', requests },
@@ -157,6 +138,13 @@ export async function preflightPortableIds(
     return { ok: false, error: 'Could not check generated IDs.' };
   }
 }
+
+/** Production adapter for the Apply Session's three existing service-worker messages. */
+export const applySessionIO: ApplySessionIO = {
+  preflightPortableIds,
+  assessImpact: request => assessImpact(request.pageId, request.containers, request.flowContainers),
+  apply: request => sendRequest(request),
+};
 
 /** Fetch the flow "wire to existing" list for the OPEN flow picker (lean, at picker-open). Stores the
  *  rows on `bp.flowRefList` and re-renders; a reply for a closed/changed picker is dropped. */
@@ -216,71 +204,31 @@ export async function fetchFlowRefChildren(refId: string, refClass: string): Pro
   }
 }
 
-/** Fire the guarded apply and rebase the editor onto the result. */
-export async function applyPage(portableIds?: PortableIdPlan): Promise<void> {
-  const m = model();
-  if (!bp.ctx || !bp.baseline || !bp.env || !m) return;
-  const g = bp.gen;
-  bp.applying = true; render();
-  const res = await sendRequest<ApplyResult>({
-    type: 'LAYOUT_APPLY',
-    env: bp.env,
-    ctx: bp.ctx,
-    baseline: bp.baseline,
-    desired: m,
-    ...(portableIds && Object.keys(portableIds).length ? { portableIds } : {}),
-  });
-  if (!sameSession(g)) return;
-  bp.applying = false;
-  bp.applyOutcome = null; // a fresh apply supersedes any prior outcome panel
-  // Non-clean outcomes (stale / partial / failed) keep the overlay up (no reload), so they surface a
-  // persistent, dismissible outcome panel — the structured plan `notes` the user can compare against the
-  // refreshed layout — instead of a 3s toast that scrolls away. The durable copy is in the LOG tab.
-  if (res?.unverified) {
-    // D4: the commit ran but the reconcile re-fetch failed, so there is no model to rebase and no way to
-    // confirm exactly what landed. This is NOT "apply failed" — reload to re-discover the real state
-    // (same resume path as success), and report honestly per the commit's own result.
-    stashResume();
-    showToast(res.error || 'Blueprint: applied, but the result could not be verified — refreshing.', res.ok ? 'success' : 'error');
-    sendToSW({ type: 'BLUEPRINT_TOGGLE' });
-    setTimeout(() => location.reload(), 500);
+/** Translate a settled Apply Session into the existing Blueprint presentation and navigation effects. */
+export function presentApplyResolution(result: ApplyResolution): void {
+  bp.applySession = null;
+  bp.applyOutcome = null;
+  if (result.kind === 'cancelled') { render(); return; }
+  if (result.kind === 'stale' || result.kind === 'partial' || result.kind === 'failed') {
+    if (result.model) rebase(result.model);
+    bp.applyOutcome = { kind: result.kind, message: result.message, notes: result.notes };
+    render();
     return;
   }
-  if (res?.stale && res.model) {
-    rebase(res.model);
-    bp.applyOutcome = { kind: 'stale', message: res.error || 'The page changed elsewhere, so it was reloaded. Re-apply your edits.', notes: res.notes ?? [] };
-    render(); return;
+  if (result.kind === 'noop') {
+    if (result.model) rebase(result.model);
+    showToast('Blueprint: nothing to apply', 'info');
+    render();
+    return;
   }
-  // Partial apply — BMP EC is not atomic (see memory/bmp-ec-nonatomic), so a mid-script error or a
-  // WARNING-level soft failure can leave some steps applied and others not. Rebase onto the re-fetched
-  // real state (never keep the stale desired model — its landed adds would re-emit and duplicate) and
-  // warn the user to verify. Covers both ok:false (errored partway) and ok:true+warnings.
-  if (res?.partial && res.model) {
-    rebase(res.model);
-    bp.applyOutcome = { kind: 'partial', message: res.error || 'Some changes may not have applied. The layout was refreshed — check and re-apply what is missing.', notes: res.notes ?? [] };
-    render(); return;
+  if (result.kind === 'unverified') {
+    stashResume();
+    showToast(result.message, result.commitReportedOk ? 'success' : 'error');
+  } else {
+    stashResume();
+    showToast(result.message, 'success');
   }
-  if (!res?.ok) {
-    // Hard failure that returned fresh state (e.g. BMP discarded the whole transaction): rebase so the
-    // editor reflects reality rather than holding a stale desired model with un-landed temp-id creates.
-    if (res?.model) rebase(res.model);
-    bp.applyOutcome = { kind: 'failed', message: res?.error || 'Apply failed.', notes: res?.notes ?? [] };
-    render(); return;
-  }
-  if (res.noop) { if (res.model) rebase(res.model); showToast('Blueprint: nothing to apply', 'info'); render(); return; }
-  // Committed. The live grid can only reflow on a real page load — so refresh to show the new layout,
-  // and turn blueprint OFF (SW state + sidebar toggle + overlay) so we don't reopen onto a stale model.
-  // IMPORTANT: do NOT rebase `res.model` on the success path — reload instead. After a virtual-tabset
-  // apply (a "+ Create tabset" that just created the page's first real tabset), the SW's post-apply
-  // re-fetch ran against the PRE-apply result-only ctx, so the new tabset isn't discoverable through it
-  // and that model is degenerate (empty). Only the fresh loadPage below re-discovers the real tabset.
-  // The session RESUMES after the reload: a sessionStorage flag (page-scoped, survives the refresh)
-  // tells the fresh content script to ask the SW to re-enable blueprint — with the SAME edit target,
-  // so applying to "This instance" doesn't dump the user back into template mode (or, before this,
-  // into nothing at all: the off-toggle used to end the session and the user had to re-enter by hand).
-  stashResume();
-  showToast('Blueprint: changes applied. Refreshing…', 'success');
-  sendToSW({ type: 'BLUEPRINT_TOGGLE' }); // flips per-window state off; updates the sidebar toggle
+  sendToSW({ type: 'BLUEPRINT_TOGGLE' });
   setTimeout(() => location.reload(), 500);
 }
 

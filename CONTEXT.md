@@ -11,3 +11,11 @@ _Avoid_: Editor context key, editor window
 **Editor Resource**:
 The draft-preserving editor identity for one BMP object in a page overlay. Multiple Editor Launch Sessions may address the same Editor Resource without replacing its drafts.
 _Avoid_: Editor Launch Session, iframe
+
+**Blueprint Apply Session**:
+One attempt to review and commit a frozen set of Blueprint edits. It begins when the draft is captured and ends when the attempt is cancelled or settled.
+_Avoid_: Apply flags, Blueprint editor session
+
+**Blueprint Apply Review**:
+The immutable proposed changes and known impact accepted by a user before commit. Confirmation must apply that review rather than substitute later editor state.
+_Avoid_: Live preview, current model

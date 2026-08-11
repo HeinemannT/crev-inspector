@@ -8,13 +8,9 @@ import type { LModel, PlanNote, NodeStyle, FlowNode } from '../lib/layout/types'
 import type { StylePreset } from '../lib/style-presets';
 import { PAINT_STYLE_PROPS } from '../lib/style-props';
 import type { BlueprintCtx } from '../lib/layout/sync';
-import type {
-  InstanceFanout,
-  ContainerBlast,
-  FlowContainerBlast,
-} from '../lib/layout/blast-radius';
 import { History } from '../lib/layout/history';
-import { DEFAULT_PORTABLE_ID_CONFIG, type PortableIdConfig, type PortableIdPlan } from '../lib/layout/portable-ids';
+import { DEFAULT_PORTABLE_ID_CONFIG, type PortableIdConfig } from '../lib/layout/portable-ids';
+import type { ApplySession } from './apply-session';
 
 export const STYLE_ID = 'crev-blueprint-style';
 
@@ -48,25 +44,14 @@ export interface BpState {
   editPageSchemas: Map<string, TypeSchemaProp[]>;
   editPageSchemaPending: Set<string>;
   editPageSchemaErrors: Map<string, string>;
-  applying: boolean;
-  preview: PlanNote[] | null;   // non-null → the apply-preview modal is open
+  applySession: ApplySession | null; // the frozen review-to-commit attempt
   applyOutcome: ApplyOutcome | null; // non-null → a persistent stale/partial/failed outcome panel is docked (cleared on dismiss / new apply / discard / reset)
-  previewScript: string;        // the FULL compiled EC behind the open preview (the modal's "Copy EC")
-  blast: {
-    fanout: InstanceFanout | null;
-    blast: ContainerBlast | null;
-    flowBlast: FlowContainerBlast | null;
-  } | null; // preview blast radius (async, best-effort)
-  blastSeq: number;             // bumped per openApplyPreview; a late blast reply for an older seq is dropped
-  blastPending: boolean;        // an impact (blast-radius) probe is in flight for the open preview — Confirm waits for it so a shared-master warning can't be skipped by a fast click
   discardArm: boolean;          // Discard button armed ("Sure?"): first click arms, second discards; auto-disarms after a few seconds
   discardTimer: number;         // setTimeout id auto-disarming Discard (0 = none)
   actionMenuOpen: boolean;      // the canvas-top-right action-menu dropdown is expanded (collapsed by default, like BMP's own Actions button, so it never covers the canvas until opened)
   settingsOpen: boolean;        // compact Blueprint settings panel, opened from the command header
   idConfig: PortableIdConfig;   // global portable text-ID recipe (applies to new template/SWI objects)
   idConfigStatus: 'idle' | 'loading' | 'ready' | 'error';
-  preparingPreview: boolean;    // live ID collision preflight is running before the Apply modal opens
-  portableIdPlan: PortableIdPlan | null; // exact temp-id → business-id mapping reviewed in the open preview
   picker: string | null;        // containerId/compositeId/tabId the add picker is open for
   pickerOpts: { afterId?: string; cols?: number; at?: { x: number; y: number } } | null; // positional insert (after a sibling, sized to a gap) + the click point to anchor the picker popup at
   // Flow editing: the add picker for a FLOW container (an InputSet/EditPage/ButtonGroup referenced by a
@@ -141,7 +126,7 @@ export interface BpState {
 function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
-    layer: null, selectedId: null, editPageNativeTabId: null, editPageViewKeys: new Map(), editPageSchemas: new Map(), editPageSchemaPending: new Set(), editPageSchemaErrors: new Map(), applying: false, preview: null, applyOutcome: null, previewScript: '', blast: null, blastSeq: 0, blastPending: false, discardArm: false, discardTimer: 0, actionMenuOpen: false, settingsOpen: false, idConfig: { ...DEFAULT_PORTABLE_ID_CONFIG }, idConfigStatus: 'idle', preparingPreview: false, portableIdPlan: null, picker: null, pickerOpts: null,
+    layer: null, selectedId: null, editPageNativeTabId: null, editPageViewKeys: new Map(), editPageSchemas: new Map(), editPageSchemaPending: new Set(), editPageSchemaErrors: new Map(), applySession: null, applyOutcome: null, discardArm: false, discardTimer: 0, actionMenuOpen: false, settingsOpen: false, idConfig: { ...DEFAULT_PORTABLE_ID_CONFIG }, idConfigStatus: 'idle', picker: null, pickerOpts: null,
     flowPicker: null, flowRefList: null, flowRefChildren: new Map(), flowRefChildrenPending: new Set(), flowFolds: new Set(), trayCardsOpen: new Set(),
     movePicker: null, tabMenu: null, tabsetPickerOpen: false, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], presetStatus: 'idle', renameId: null,
@@ -157,7 +142,7 @@ export const bp: BpState = { gen: 0, ...freshState() };
 /** Reset every per-session field to idle (preserving the monotonic `gen`) — called on teardown so no
  *  selection, blast probe, observer, peek, etc. leaks into the next session. Listeners/observers/DOM are
  *  torn down by the caller BEFORE this nulls their references. */
-export function resetState(): void { Object.assign(bp, freshState()); }
+export function resetState(): void { bp.applySession?.cancel(); Object.assign(bp, freshState()); }
 
 /** Reset just the LOADED-MODEL fields (NOT the whole session) — for reloading onto a different page or
  *  toggling the edit target. Keeps the layer/listeners/gen; clears the model + the view state tied to the
@@ -168,12 +153,10 @@ export function resetModel(): void {
   bp.selectedId = null; bp.viewTabId = null; bp.unusedTabsOpen = false; bp.tabsetPickerOpen = false; bp.ridSig = ''; bp.peek = false;
   bp.editPageViewKeys = new Map(); bp.editPageNativeTabId = null;
   bp.editPageSchemas = new Map(); bp.editPageSchemaPending = new Set(); bp.editPageSchemaErrors = new Map();
-  bp.resultAnchor = null; bp.actionMenuOpen = false; bp.settingsOpen = false; bp.preparingPreview = false; bp.portableIdPlan = null;
-  // In-flight apply / preview state is tied to the page being left. A reload mid-apply (a popstate/
-  // link-nav bumps `gen`, so the late apply reply returns early without clearing `applying`) would
-  // otherwise leave "Applying…" stuck and Apply/Discard disabled on the fresh page — M5. Clearing it
-  // here, the single reload chokepoint, also dismisses a preview modal orphaned by the reload.
-  bp.applying = false; bp.preview = null; bp.previewScript = ''; bp.blast = null; bp.blastPending = false;
+  bp.resultAnchor = null; bp.actionMenuOpen = false; bp.settingsOpen = false;
+  // An Apply Session is page-scoped. Cancelling at this reload chokepoint makes its late preflight,
+  // impact, or commit result inert and prevents its review from appearing over the next page.
+  bp.applySession?.cancel(); bp.applySession = null;
   bp.applyOutcome = null; // a stale/partial outcome refers to the page being left
   // The intentional-reload flag is nav-scoped: a real post-apply reload replaces the document (→ fresh
   // false), so if `reloading` is still set here the reload never happened (apply aborted after stashResume).

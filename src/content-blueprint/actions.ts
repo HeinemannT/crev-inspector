@@ -7,22 +7,20 @@
  * actions onto button handlers, and these call render() at click time. All cross-calls happen inside
  * functions (never at module-init), so ESM resolves the cycle cleanly.
  */
-import { findNode, isTempId, isResultTab, editableTabsets } from '../lib/layout/model';
+import { findNode, isResultTab, editableTabsets } from '../lib/layout/model';
 import { bandInsertIndex } from '../lib/layout/placement';
 import { resize, setHeight, rename, remove, restoreNode, addWidget, addContainer, moveInto, swap, insertRelative, addTab, createTabset, toggleReset, setStyle } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
-import { addFlowChild, reorderFlowChild, removeFlowAdd, deleteFlowChild, setActionFlag, addActionButton, flowDiff, flowChangeCount, stageNewFlowContainer, wireFlowRef, unwireFlowRef, renameFlowObject, findFlowContainer, setEditFieldProperty } from '../lib/layout/flow';
-import { compile } from '../lib/layout/ec';
-import { portableIdPatternError, portableIdRequests, type PortableIdPlan } from '../lib/layout/portable-ids';
+import { addFlowChild, reorderFlowChild, removeFlowAdd, deleteFlowChild, setActionFlag, addActionButton, flowChangeCount, stageNewFlowContainer, wireFlowRef, unwireFlowRef, renameFlowObject, setEditFieldProperty } from '../lib/layout/flow';
 import { History } from '../lib/layout/history';
-import { maskStyle, type LModel, type PlanStep, type NodeStyle } from '../lib/layout/types';
+import { maskStyle, type LModel, type NodeStyle } from '../lib/layout/types';
 import { sendToSW } from '../lib/content-port';
 import { sendFireForget } from '../lib/messaging';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { render } from './view';
-import { portableIdsAvailable } from './id-config';
-import { applyPage, fetchBlast, fetchFlowRefs, fetchFlowRefChildren, fetchEditPageSchemas, preflightPortableIds } from './service';
+import { applySessionIO, fetchFlowRefs, fetchFlowRefChildren, fetchEditPageSchemas, presentApplyResolution } from './service';
+import { createApplySession, type ApplySession } from './apply-session';
 import { ensureColorSets } from './colors';
 import { loadPresets, savePreset, deletePreset } from './presets';
 import { PAINT_STYLE_PROPS } from '../lib/style-props';
@@ -518,48 +516,6 @@ export function disarmDiscard(): void {
   bp.discardArm = false;
 }
 
-/** EXISTING containers the plan structurally touches (resize/rename/move/delete) — the shared cells
- *  whose blast radius the preview checks. Returns {id, rid} so the shell can address a businessId-less
- *  container by lookup(rid). New (temp-id) containers are skipped (not shared yet); tab/widget edits
- *  too (only containers reverse-resolve via rref(container)). */
-function touchedContainers(plan: PlanStep[], m: LModel): { id: string; rid?: string }[] {
-  const out = new Map<string, { id: string; rid?: string }>();
-  for (const s of plan) {
-    // creates aren't shared yet; flow steps touch InputSets/EditPages, not layout containers
-    if (s.kind === 'create' || s.kind === 'flowCreate' || s.kind === 'flowReorder' || s.kind === 'flowFlag' || s.kind === 'flowRename' || s.kind === 'flowProperty' || s.kind === 'flowDelete') continue;
-    const node = findNode(m, s.id)?.node;
-    const kind = s.kind === 'reparent' || s.kind === 'delete' ? s.nodeKind : node?.kind;
-    if (kind === 'container' && !isTempId(s.id)) out.set(s.id, { id: s.id, rid: node?.rid });
-  }
-  return [...out.values()];
-}
-
-function touchedFlowContainers(
-  plan: PlanStep[],
-  m: LModel,
-): Array<{ id: string; rid?: string; className: 'InputSet' | 'EditPage' }> {
-  const out = new Map<string, { id: string; rid?: string; className: 'InputSet' | 'EditPage' }>();
-  for (const step of plan) {
-    const parentId = step.kind === 'flowCreate'
-      || step.kind === 'flowReorder'
-      || step.kind === 'flowDelete'
-      || step.kind === 'flowProperty'
-      ? step.parentId
-      : null;
-    if (!parentId || isTempId(parentId)) continue;
-    const container = findFlowContainer(m, parentId);
-    if (!container || (container.className !== 'InputSet' && container.className !== 'EditPage')) {
-      continue;
-    }
-    out.set(parentId, {
-      id: parentId,
-      ...(container.rid ? { rid: container.rid } : {}),
-      className: container.className,
-    });
-  }
-  return [...out.values()];
-}
-
 /** Are there unsaved staged edits (layout or flow)? Staged edits live only in memory (the History +
  *  the working model), so an accidental Ctrl+R or in-portal navigation discards the whole session. This
  *  drives the beforeunload guard in the blueprint lifecycle. */
@@ -569,80 +525,54 @@ export function hasPendingEdits(): boolean {
   return diff(bp.baseline, m).length > 0 || flowChangeCount(m) > 0;
 }
 
-/** Apply opens a preview first — never commit blind. The plan is computed with the SAME diff+compile
- *  the SW will run, so the human-readable notes match exactly what gets executed. */
+/** Open one frozen review-to-commit attempt; the session owns preflight and impact ordering. */
 export function openApplyPreview(): void {
-  void prepareApplyPreview();
-}
-
-async function prepareApplyPreview(): Promise<void> {
   const m = model();
-  if (!bp.ctx || !bp.baseline || !m || bp.applying || bp.preparingPreview) return;
-  // Layout + flow steps compose into the ONE plan — the same composition applyModel (SW-side) runs,
-  // so the previewed EC matches the committed EC exactly.
-  const plan = [...diff(bp.baseline, m), ...flowDiff(bp.baseline, m)];
-  if (plan.length === 0) { showToast('Blueprint: nothing to apply', 'info'); return; }
-  const usePortableIds = bp.idConfig.enabled && portableIdsAvailable(bp.ctx);
-  let portableIds: PortableIdPlan = {};
-  if (usePortableIds) {
-    const patternError = portableIdPatternError(bp.idConfig.pattern);
-    if (patternError) {
-      showToast(`Blueprint IDs: ${patternError}`, 'error');
+  if (!bp.ctx || !bp.baseline || !bp.env || !m || bp.applySession) return;
+  const gen = bp.gen;
+  const revision = bp.history?.revision();
+  let session!: ApplySession;
+  session = createApplySession({
+    env: bp.env,
+    ctx: bp.ctx,
+    baseline: bp.baseline,
+    desired: m,
+    idConfig: bp.idConfig,
+    isCurrent: () => bp.active && bp.gen === gen && bp.history?.revision() === revision,
+  }, applySessionIO, () => {
+    if (bp.applySession !== session) return;
+    const state = session.state;
+    if (state.phase === 'empty' || state.phase === 'blocked') {
+      bp.applySession = null;
+      showToast(state.phase === 'empty' ? 'Blueprint: nothing to apply' : state.message, state.phase === 'empty' ? 'info' : 'error');
+      render();
       return;
     }
-    const requests = portableIdRequests(plan, m, bp.idConfig.pattern);
-    if (requests.length) {
-      const gen = bp.gen;
-      const revision = bp.history?.revision();
-      bp.preparingPreview = true;
-      bp.settingsOpen = false;
+    if (state.phase === 'cancelled') {
+      bp.applySession = null;
       render();
-      const result = await preflightPortableIds(requests);
-      if (!bp.active || bp.gen !== gen) return;
-      bp.preparingPreview = false;
-      if (bp.history?.revision() !== revision) { render(); return; }
-      if (!result.ok || !result.portableIds) {
-        showToast(`Blueprint IDs: ${result.error || 'collision check failed.'}`, 'error');
-        render();
-        return;
-      }
-      portableIds = result.portableIds;
+      return;
     }
-  }
-  const { script, notes } = compile(plan, m, portableIds);
-  bp.preview = notes;
-  bp.previewScript = script; // the modal's "Copy EC" copies the whole program, not per-row fragments
-  bp.portableIdPlan = Object.keys(portableIds).length ? portableIds : null;
-  bp.blast = null;
-  bp.blastPending = true; // Confirm waits for the impact probe — the shared-master / fan-out warning
-                          // is the most consequential one and must not be skippable by a fast click.
-  const seq = ++bp.blastSeq; // invalidates any in-flight probe from an earlier preview
+    if (state.phase === 'applying') bp.applyOutcome = null;
+    if (state.phase === 'settled') {
+      presentApplyResolution(state.resolution);
+      return;
+    }
+    render();
+  });
+  bp.applySession = session;
+  bp.settingsOpen = false;
   render();
-  // Async: the modal renders now with Confirm disabled ("Checking impact…"); fetchBlast clears
-  // `blastPending` (and fills the fan-out / shared-structure warnings) when the rref walk returns —
-  // or fails, so a dead probe can't wedge Confirm shut.
-  void fetchBlast(
-    seq,
-    bp.ctx.pageId,
-    touchedContainers(plan, m),
-    touchedFlowContainers(plan, m),
-  );
 }
-export function closePreview(): void { bp.preview = null; bp.previewScript = ''; bp.portableIdPlan = null; bp.blast = null; bp.blastPending = false; render(); }
+export function closePreview(): void { bp.applySession?.cancel(); bp.applySession = null; render(); }
 /** Dismiss the docked stale/partial/failed outcome panel (the user has acknowledged it). */
 export function dismissApplyOutcome(): void { bp.applyOutcome = null; render(); }
 
-/** Confirmed from the preview modal — fire the guarded SW apply (service owns the round-trip). Blocked
- *  while the impact probe is still running (`blastPending`) so the fan-out / shared-structure warning
- *  always renders before a commit — the UI also disables the Confirm button in that window. */
+/** Confirm the reviewed session. The session enforces the impact gate and one-shot commit. */
 export function confirmApply(): void {
-  if (!bp.ctx || !bp.baseline || !bp.env || !model() || bp.applying || bp.blastPending) return;
-  const portableIds = bp.portableIdPlan ?? undefined;
-  bp.preview = null;
-  bp.previewScript = '';
-  bp.portableIdPlan = null;
-  bp.blast = null;
-  void applyPage(portableIds);
+  const session = bp.applySession;
+  if (session?.state.phase !== 'review' || session.state.review.impact.status === 'checking') return;
+  void session.confirm();
 }
 
 /** Exit is an explicit close, never a toggle. MV3 can restart the worker or briefly disconnect the
@@ -667,7 +597,7 @@ export function onKeydown(e: KeyboardEvent): void {
   const typing = !!t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
   if (e.key === 'Escape') {
     if (typing) return;
-    if (bp.preview) closePreview();
+    if (bp.applySession?.state.phase === 'review') closePreview();
     else if (bp.settingsOpen) closeSettings();
     else if (bp.paintPanel) closePaintPanel();
     else if (bp.swatch) closeSwatch();
@@ -684,14 +614,13 @@ export function onKeydown(e: KeyboardEvent): void {
     return;
   }
   if (typing) return;
-  // While the apply-preview modal is up, the plan shown was frozen at openApplyPreview() time but
-  // confirmApply re-reads the live model — so an undo here would apply a different plan than the one
-  // listed. Freeze history editing until the preview is dismissed (Delete is already gated below).
-  if (bp.preview) return;
+  // Keep the reviewed draft visually stable until it is confirmed or dismissed. The Apply Session
+  // already owns a frozen commit snapshot; this guard avoids letting the canvas drift behind its modal.
+  if (bp.applySession?.state.phase === 'review') return;
   const mod = e.ctrlKey || e.metaKey;
   if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && bp.selectedId && !bp.preview && !bp.picker) {
+  if ((e.key === 'Delete' || e.key === 'Backspace') && bp.selectedId && !bp.picker) {
     const sel = findNode(model() ?? bp.baseline!, bp.selectedId);
     if (sel?.node.kind === 'widget') { e.preventDefault(); doDelete(bp.selectedId); }
   }

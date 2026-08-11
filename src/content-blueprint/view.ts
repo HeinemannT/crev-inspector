@@ -263,7 +263,7 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
   const layer = bp.layer!, base = bp.baseline!, ctx = bp.ctx!;
   // selection toolbar (hidden while a modal/picker is up, or while the paintbrush is armed / a paint
   // popup is open — you're transferring styles in bulk, not editing one cell)
-  if (!bp.preview && !bp.picker && !bp.movePicker && !bp.settingsOpen && bp.brush.mode === 'off' && !bp.paintPanel) {
+  if (bp.applySession?.state.phase !== 'review' && !bp.picker && !bp.movePicker && !bp.settingsOpen && bp.brush.mode === 'off' && !bp.paintPanel) {
     const selBox = bp.selectedId ? findNode(m, bp.selectedId) : null;
     // Tabs own their rename/add/delete on the pill itself — the generic toolbar's Rename targets
     // a `.bp-box .bp-nm` a pill doesn't have, and its W/Delete just duplicate the pill. Skip it.
@@ -299,7 +299,8 @@ function renderFloatingChrome(byRid: Map<string, Element>, m: LModel): void {
   if (bp.flowPicker) layer.appendChild(flowPickerPanel());
   if (bp.trayOpen) layer.appendChild(trayPanel(base, m));
   if (bp.hint) layer.appendChild(hintBar(bp.hint));
-  if (bp.preview) layer.appendChild(previewModal(bp.preview, ctx));
+  const applyState = bp.applySession?.state;
+  if (applyState?.phase === 'review') layer.appendChild(previewModal(applyState.review, ctx));
   if (bp.applyOutcome) layer.appendChild(outcomePanel(bp.applyOutcome, ctx));
   openPendingRename(); // the cell is freshly rendered + selected — safe to make its name editable now
 }
