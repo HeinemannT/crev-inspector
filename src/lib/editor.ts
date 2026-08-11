@@ -3,7 +3,12 @@ import { resolveTabPageContext } from './page-context-resolver';
 import { log } from './logger';
 import { type EditorContext, type ObjectIdentity } from '../editor/editor-types';
 import { computeOverrides } from '../editor/editor-types';
-import { launchFrame } from './frame-launcher';
+import { launchFrame, resolveFrameTargetTabId } from './frame-launcher';
+import {
+  beginEditorLaunchSession,
+  failEditorLaunchContext,
+  publishEditorLaunchContext,
+} from './editor-launch-session';
 import { ENVIRONMENT_CHANGED_ERROR, environmentToken } from './environment';
 
 // ── Public API ────────────────────────────────────────────────────
@@ -65,8 +70,13 @@ export async function openEditorWindow(
 ) {
   const swCtx = getCtx();
   await swCtx.settingsReady;
+  const targetTabId = await resolveFrameTargetTabId(target);
+  if (targetTabId == null) {
+    log.warn('editor:noTargetTab', 'No active tab is available for the editor launch');
+    return;
+  }
+  const frozenTarget = { tabId: targetTabId };
   const cached = swCtx.cache.get(rid);
-  const storageKey = `crev_editor_ctx_${rid}`;
   const loadingContext: EditorContext = {
     environment: environmentToken(swCtx),
     instance: {
@@ -89,15 +99,15 @@ export async function openEditorWindow(
   // Start the BMP request before the local handoff. Once the placeholder is
   // stored, the iframe can mount immediately and wait for this same key to be
   // replaced with the authoritative context.
-  const contextPromise = buildEditorContext(rid, preferredProperty, target, opts);
-  await chrome.storage.local.set({ [storageKey]: loadingContext });
+  const contextPromise = buildEditorContext(rid, preferredProperty, frozenTarget, opts);
+  const launchSession = await beginEditorLaunchSession(rid, loadingContext);
 
   const label = cached?.name
     ? `${cached.type || 'Object'} · ${cached.name}`
     : `Editor · ${cached?.businessId || rid}`;
   const launchPromise = launchFrame({
     kind: 'editor',
-    path: `editor/editor.html#${rid}`,
+    path: launchSession.path,
     label,
     defaultWidth: 960,
     defaultHeight: 640,
@@ -109,18 +119,15 @@ export async function openEditorWindow(
       scrollToLine: opts?.scrollToLine,
       scrollToText: opts?.scrollToText,
     },
-    tabId: target?.tabId,
-    windowId: target?.windowId,
+    tabId: targetTabId,
   });
 
   try {
     const ctx = await contextPromise;
-    await chrome.storage.local.set({ [storageKey]: ctx });
+    await publishEditorLaunchContext(launchSession, ctx);
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to load code from BMP';
-    await chrome.storage.local.set({
-      [storageKey]: { ...loadingContext, loading: false, loadError: message },
-    });
+    await failEditorLaunchContext(launchSession, loadingContext, message);
   }
   await launchPromise;
 }

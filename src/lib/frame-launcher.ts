@@ -35,17 +35,24 @@ export interface LaunchFrameOptions {
   windowId?: number;
 }
 
-async function resolveTargetTab(opts: LaunchFrameOptions): Promise<chrome.tabs.Tab | undefined> {
-  if (opts.tabId != null) {
-    try { return await chrome.tabs.get(opts.tabId); }
+export interface FrameTarget {
+  tabId?: number;
+  windowId?: number;
+}
+
+/** Resolve a window-relative launch once so callers that also prepare
+ * tab-specific context can freeze both operations to the same tab. */
+export async function resolveFrameTargetTabId(target: FrameTarget = {}): Promise<number | undefined> {
+  if (target.tabId != null) {
+    try { return (await chrome.tabs.get(target.tabId))?.id; }
     catch (e) { log.swallow('frame-launcher:resolveTabById', e); return undefined; }
   }
-  const query: chrome.tabs.QueryInfo = opts.windowId != null
-    ? { active: true, windowId: opts.windowId }
+  const query: chrome.tabs.QueryInfo = target.windowId != null
+    ? { active: true, windowId: target.windowId }
     : { active: true, lastFocusedWindow: true };
   try {
     const tabs = await chrome.tabs.query(query);
-    return tabs[0];
+    return tabs[0]?.id;
   } catch (e) {
     log.swallow('frame-launcher:queryTab', e);
     return undefined;
@@ -55,14 +62,14 @@ async function resolveTargetTab(opts: LaunchFrameOptions): Promise<chrome.tabs.T
 /** Send MOUNT_FRAME to the target tab's content script. If no content script
  *  is present (chrome:// page, etc.) the failure is logged and dropped. */
 export async function launchFrame(opts: LaunchFrameOptions): Promise<void> {
-  const tab = await resolveTargetTab(opts);
-  if (!tab?.id) {
+  const tabId = await resolveFrameTargetTabId(opts);
+  if (tabId == null) {
     log.warn('frame-launcher:noActiveTab', 'No active tab to mount frame overlay');
     return;
   }
   const url = chrome.runtime.getURL(opts.path);
   try {
-    await chrome.tabs.sendMessage(tab.id, {
+    await chrome.tabs.sendMessage(tabId, {
       type: 'MOUNT_FRAME',
       kind: opts.kind,
       url,

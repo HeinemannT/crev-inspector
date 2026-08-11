@@ -984,13 +984,25 @@ describe('parseEcResults — Realistic BMP Response Shapes', () => {
   });
 });
 // ── Editor Context Assembly ─────────────────────────────────────────
-// Tests what openEditorWindow stores in crev_editor_ctx_${rid}.
+// Tests what openEditorWindow publishes through a unique launch session.
 // Uses the unified fetchEditorContext() — single EC call for identity +
 // template + code properties.
 
 describe('Editor Context — What The Code Popup Shows', () => {
   let harness: TestHarness;
   const SEP = '<<<CREV_SEP>>>';
+
+  function launchContexts(): any[] {
+    return (globalThis.chrome.storage.session.set as any).mock.calls.flatMap((call: any) =>
+      Object.entries(call[0] ?? {})
+        .filter(([key]) => key.startsWith('crev_editor_launch_'))
+        .map(([, value]) => value),
+    );
+  }
+
+  function lastLaunchContext(): any {
+    return launchContexts().at(-1);
+  }
 
   /** Build a unified fetchEditorContext mock response. */
   function buildEditorContextLog(opts: {
@@ -1036,6 +1048,11 @@ describe('Editor Context — What The Code Popup Shows', () => {
       onBoundsChanged: { addListener: vi.fn(), removeListener: vi.fn() },
       onRemoved: { addListener: vi.fn(), removeListener: vi.fn() },
     };
+    (globalThis.chrome as any).tabs = {
+      get: vi.fn(async (tabId: number) => ({ id: tabId, url: 'https://bmp.test/app' })),
+      query: vi.fn(async () => [{ id: 5, url: 'https://bmp.test/app' }]),
+      sendMessage: vi.fn(async () => undefined),
+    };
   });
 
   it('mounts the editor shell before the BMP context request completes', async () => {
@@ -1057,10 +1074,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
         kind: 'editor',
       }));
     });
-    const firstContextWrite = (globalThis.chrome.storage.local.set as any).mock.calls.find(
-      (call: any) => call[0]?.[`crev_editor_ctx_${RIDS.extTable}`],
-    );
-    expect(firstContextWrite[0][`crev_editor_ctx_${RIDS.extTable}`].loading).toBe(true);
+    expect(launchContexts()[0].loading).toBe(true);
 
     resolveEc({
       ok: true,
@@ -1074,11 +1088,8 @@ describe('Editor Context — What The Code Popup Shows', () => {
     });
     await opening;
 
-    const finalContextWrite = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
-      (call: any) => call[0]?.[`crev_editor_ctx_${RIDS.extTable}`],
-    );
-    const finalContext = finalContextWrite[0][`crev_editor_ctx_${RIDS.extTable}`];
-    expect(finalContext.loading).toBeUndefined();
+    const finalContext = lastLaunchContext();
+    expect(finalContext.loading).toBe(false);
     expect(finalContext.instance.name).toBe('Fast editor');
   });
 
@@ -1097,12 +1108,8 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable);
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
-      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
-    );
-    expect(setCall).toBeDefined();
-    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
-    const ctx = setCall[0][ctxKey];
+    const ctx = lastLaunchContext();
+    expect(ctx).toBeDefined();
 
     expect(ctx.instance.rid).toBe(RIDS.extTable);
     expect(ctx.instance.type).toBe('ExtendedTable');
@@ -1134,11 +1141,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.cvo);
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
-      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
-    );
-    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
-    const ctx = setCall[0][ctxKey];
+    const ctx = lastLaunchContext();
 
     expect(ctx.instance.rid).toBe(RIDS.cvo);
     expect(ctx.instance.type).toBe('CustomVisualization');
@@ -1162,11 +1165,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable);
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
-      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
-    );
-    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
-    const ctx = setCall[0][ctxKey];
+    const ctx = lastLaunchContext();
 
     // Instance code is empty, template code has content
     expect(ctx.instanceCode.expression).toBeUndefined(); // empty values are filtered
@@ -1187,11 +1186,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable, 'defaultExpression');
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
-      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
-    );
-    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
-    const ctx = setCall[0][ctxKey];
+    const ctx = lastLaunchContext();
     expect(ctx.property).toBe('defaultExpression');
     expect(ctx.instanceCode).toHaveProperty('defaultExpression', '');
   });
@@ -1210,11 +1205,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable);
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
-      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
-    );
-    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
-    const ctx = setCall[0][ctxKey];
+    const ctx = lastLaunchContext();
 
     expect(ctx.template?.businessId).toBe('tmpl_001');
     expect(ctx.instance.businessId).toBe('sc_test');
@@ -1231,11 +1222,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.scorecard);
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
-      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
-    );
-    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
-    const ctx = setCall[0][ctxKey];
+    const ctx = lastLaunchContext();
 
     expect(ctx.instance.type).toBe('Scorecard');
     expect(Object.keys(ctx.instanceCode)).toHaveLength(0); // No code props
@@ -1260,16 +1247,13 @@ describe('Editor Context — What The Code Popup Shows', () => {
     (globalThis.chrome as any).tabs = {
       get: vi.fn(async () => ({ id: 5, url: `https://bmp.test/app?rid=${CONTEXT_RID}&x=1` })),
       query: vi.fn(async () => [{ id: 5, url: `https://bmp.test/app?rid=${CONTEXT_RID}` }]),
+      sendMessage: vi.fn(async () => undefined),
     };
 
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable, undefined, { tabId: 5 });
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
-      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
-    );
-    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
-    const ctx = setCall[0][ctxKey];
+    const ctx = lastLaunchContext();
 
     // ?rid= wins over .location (RIDS.editPage) and over the widget.
     expect(ctx.executionContextRid).toBe(CONTEXT_RID);
@@ -1291,11 +1275,7 @@ describe('Editor Context — What The Code Popup Shows', () => {
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable);
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
-      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
-    );
-    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
-    const ctx = setCall[0][ctxKey];
+    const ctx = lastLaunchContext();
 
     expect(ctx.loadError).toContain('Cannot reach BMP command channel');
     expect(ctx.instanceCode).toEqual({});
@@ -1314,16 +1294,13 @@ describe('Editor Context — What The Code Popup Shows', () => {
     (globalThis.chrome as any).tabs = {
       get: vi.fn(async () => ({ id: 5, url: 'https://bmp.test/app' })), // no rid param
       query: vi.fn(async () => [{ id: 5, url: 'https://bmp.test/app' }]),
+      sendMessage: vi.fn(async () => undefined),
     };
 
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable, undefined, { tabId: 5 });
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
-      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
-    );
-    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
-    const ctx = setCall[0][ctxKey];
+    const ctx = lastLaunchContext();
 
     expect(ctx.executionContextRid).toBe(RIDS.editPage); // .location fallback
   });
@@ -1342,16 +1319,13 @@ describe('Editor Context — What The Code Popup Shows', () => {
     (globalThis.chrome as any).tabs = {
       get: vi.fn(async () => ({ id: 5, url: 'https://evil.example/x?rid=not-a-rid' })),
       query: vi.fn(async () => [{ id: 5, url: 'https://evil.example/x?rid=not-a-rid' }]),
+      sendMessage: vi.fn(async () => undefined),
     };
 
     const { openEditorWindow } = await import('../editor');
     await openEditorWindow(RIDS.extTable, undefined, { tabId: 5 });
 
-    const setCall = (globalThis.chrome.storage.local.set as any).mock.calls.findLast(
-      (c: any) => Object.keys(c[0] || {}).some(k => k.startsWith('crev_editor_ctx_')) && c[0],
-    );
-    const ctxKey = Object.keys(setCall[0]).find(k => k.startsWith('crev_editor_ctx_'))!;
-    const ctx = setCall[0][ctxKey];
+    const ctx = lastLaunchContext();
 
     // The garbage rid was rejected → fell back to .location, not bound as `this`.
     expect(ctx.executionContextRid).toBe(RIDS.editPage);

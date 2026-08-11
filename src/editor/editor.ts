@@ -35,6 +35,7 @@ import { anchorPopover } from '../lib/popover-anchor'
 import { sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging'
 import { confirmCommandModal, confirmModal } from '../lib/modal'
 import { readCommandActor } from '../lib/command-actor'
+import { consumeEditorLaunchContext, editorLaunchStorageKey } from '../lib/editor-launch-session'
 import {
   type EditorContext,
   formatLabel,
@@ -174,36 +175,12 @@ const anyDirty = (): boolean => surface?.isDirty() ?? false
 // ── Init ─────────────────────────────────────────────────────────
 
 const root = document.getElementById('editor-root')!
+let activeContextStorageKey: string | null = null
+let activeContextStorageArea: 'local' | 'session' = 'local'
 
-/** Wait for the service worker to replace a launch placeholder with the real
- *  context. The storage listener avoids polling and is removed on every exit. */
-async function waitForPreparedContext(storageKey: string, initial: EditorContext): Promise<EditorContext> {
-  return new Promise((resolve) => {
-    let settled = false
-    const finish = (value: EditorContext) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      chrome.storage.onChanged.removeListener(onChanged)
-      resolve(value)
-    }
-    const onChanged = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
-      if (areaName !== 'local') return
-      const value = changes[storageKey]?.newValue as EditorContext | undefined
-      if (value && !value.loading) finish(value)
-    }
-    const timeout = setTimeout(() => {
-      finish({ ...initial, loading: false, loadError: 'Timed out while loading editor context' })
-    }, 20_000)
-
-    chrome.storage.onChanged.addListener(onChanged)
-    // Close the read/listener race: the worker may have written the final
-    // context between init's first get() and listener registration.
-    void chrome.storage.local.get(storageKey).then(result => {
-      const value = result[storageKey] as EditorContext | undefined
-      if (value && !value.loading) finish(value)
-    }).catch(() => { /* timeout renders the recoverable error */ })
-  })
+async function storeCurrentEditorContext(context: EditorContext, rid: string): Promise<void> {
+  const storageKey = activeContextStorageKey ?? `crev_editor_ctx_${rid}`
+  await chrome.storage[activeContextStorageArea].set({ [storageKey]: context })
 }
 
 async function init() {
@@ -212,12 +189,24 @@ async function init() {
   // Load context from per-RID key (hash = RID)
   try {
     const rid = location.hash.slice(1)
-    const perRidKey = rid ? `crev_editor_ctx_${rid}` : null
+    const launchSessionId = new URLSearchParams(location.search).get('launch')
+    const perRidKey = rid && !launchSessionId ? `crev_editor_ctx_${rid}` : null
+    const launchContext = launchSessionId && rid
+      ? consumeEditorLaunchContext(launchSessionId, rid)
+      : null
     const keys = ['crev_editor_output_height', 'crev_editor_decode', 'crev_editor_wrap', 'crev_editor_table']
     if (perRidKey) keys.push(perRidKey)
     const result = await chrome.storage.local.get(keys)
-    ctx = perRidKey ? (result[perRidKey] as EditorContext | null) : null
-    if (ctx?.loading && perRidKey) ctx = await waitForPreparedContext(perRidKey, ctx)
+    ctx = launchContext
+      ? await launchContext
+      : perRidKey ? (result[perRidKey] as EditorContext | null) : null
+    if (launchSessionId) {
+      activeContextStorageKey = editorLaunchStorageKey(launchSessionId)
+      activeContextStorageArea = 'session'
+    } else {
+      activeContextStorageKey = perRidKey
+      activeContextStorageArea = 'local'
+    }
     if (typeof result.crev_editor_output_height === 'number') {
       outputHeight = result.crev_editor_output_height
     }
@@ -253,6 +242,7 @@ async function init() {
   updateWindowTitle()
   renderShell()
   ensureSurface()
+  window.parent.postMessage({ type: 'CREV_FRAME_READY' }, '*')
   // AI is optional and may require a service-worker wake-up plus a lazy
   // CodeMirror merge import. It must not hold the editor's first paint.
   void setupAiAssist()
@@ -384,7 +374,7 @@ async function retryEditorContext(reconnect: boolean): Promise<void> {
       renderEditorLoadError(ctx.loadError)
       return
     }
-    await chrome.storage.local.set({ [`crev_editor_ctx_${ctx.instance.rid}`]: ctx })
+    await storeCurrentEditorContext(ctx, ctx.instance.rid)
     location.reload()
   } catch (e) {
     if (attempt !== contextRetryGeneration) return
@@ -1351,7 +1341,7 @@ async function acceptSavedValue(
   lastSavedAt = Date.now()
   if (saveLabelTimer) clearTimeout(saveLabelTimer)
   saveLabelTimer = setTimeout(() => { refreshActions() }, 4200)
-  if (storageRid) await chrome.storage.local.set({ [`crev_editor_ctx_${storageRid}`]: saveContext })
+  if (storageRid) await storeCurrentEditorContext(saveContext, storageRid)
 }
 
 /** Copy text to clipboard and briefly flash a button's content with a check icon. */

@@ -47,6 +47,8 @@ interface FrameState {
   onViewportResize: () => void;
   replacementPending: boolean;
   pendingReplacement?: MountFrameOptions;
+  ready: boolean;
+  pendingActivation?: FrameActivation;
 }
 
 const frames = new Map<FrameKind, FrameState>();
@@ -255,7 +257,7 @@ export function unmountAllFrameOverlays(): void {
 export function teardownFrameOverlayModule(): void {
   moduleTorn = true;
   unmountAllFrameOverlays();
-  window.removeEventListener('message', onClosePleaseMessage);
+  window.removeEventListener('message', onFrameMessage);
 }
 
 // ── Construction ──────────────────────────────────────────────
@@ -345,6 +347,8 @@ function createFrame(opts: MountFrameOptions, bounds: Bounds): FrameState {
     onKeydown: () => {},
     onViewportResize: () => {},
     replacementPending: false,
+    ready: false,
+    pendingActivation: opts.activation,
   };
   const dragCleanup = wireDrag(state, titlebar);
   const resizeCleanups = resizeHandles.map(({ el, dir }) => wireResize(state, el, dir));
@@ -401,6 +405,10 @@ function updateFrameLabel(state: FrameState, label: string): void {
 
 function activateFrame(state: FrameState, activation?: FrameActivation): void {
   if (!activation) return;
+  if (!state.ready) {
+    state.pendingActivation = activation;
+    return;
+  }
   state.iframe.contentWindow?.postMessage({ type: 'CREV_FRAME_ACTIVATE', activation }, '*');
 }
 
@@ -411,6 +419,8 @@ function replaceFrame(state: FrameState, opts: MountFrameOptions): void {
   state.iframe = nextIframe;
   state.url = opts.url;
   state.resourceKey = opts.resourceKey ?? opts.url;
+  state.ready = false;
+  state.pendingActivation = opts.activation;
   updateFrameLabel(state, opts.label);
   focus(state);
 }
@@ -461,17 +471,23 @@ function isFocused(state: FrameState): boolean {
 // which kind owns the source contentWindow and run the normal close
 // handshake. Without this, the help text "Close (Esc)" lies — the
 // shortcut only works when the iframe DOESN'T have focus.
-function onClosePleaseMessage(e: MessageEvent): void {
+function onFrameMessage(e: MessageEvent): void {
   const msg = e.data as { type?: string } | undefined;
-  if (msg?.type !== 'CREV_OVERLAY_CLOSE_PLEASE') return;
   for (const [kind, state] of frames) {
     if (state.iframe.contentWindow === e.source) {
-      requestClose(kind);
+      if (msg?.type === 'CREV_FRAME_READY') {
+        state.ready = true;
+        const activation = state.pendingActivation;
+        state.pendingActivation = undefined;
+        activateFrame(state, activation);
+      } else if (msg?.type === 'CREV_OVERLAY_CLOSE_PLEASE') {
+        requestClose(kind);
+      }
       return;
     }
   }
 }
-window.addEventListener('message', onClosePleaseMessage);
+window.addEventListener('message', onFrameMessage);
 
 /** Ask the iframe whether it is safe to close or replace its content.
  *

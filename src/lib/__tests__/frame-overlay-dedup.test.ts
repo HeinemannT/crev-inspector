@@ -31,6 +31,14 @@ function respondFrom(iframe: HTMLIFrameElement, ok: boolean): void {
   window.dispatchEvent(event);
 }
 
+function readyFrom(iframe: HTMLIFrameElement): void {
+  const event = new MessageEvent('message', {
+    data: { type: 'CREV_FRAME_READY' },
+  });
+  Object.defineProperty(event, 'source', { value: iframe.contentWindow });
+  window.dispatchEvent(event);
+}
+
 // about:blank so happy-dom doesn't try to fetch/navigate the overlay iframe
 // (a chrome-extension:// src triggers a noisy unhandled rejection). These
 // tests assert on the host element, not iframe content.
@@ -97,9 +105,13 @@ describe('content-frame-overlay dedup + teardown', () => {
     expect(hosts()).toHaveLength(1);
   });
 
-  it('reuses the same resource, updates its label, and sends in-place activation', async () => {
+  it('queues same-resource activation until the iframe reports ready', async () => {
     const m = await freshModule();
-    const p = m.mountFrameOverlay({ ...OPTS, resourceKey: 'editor:42' });
+    const p = m.mountFrameOverlay({
+      ...OPTS,
+      resourceKey: 'editor:42',
+      activation: { type: 'editor', rid: '42', property: 'expression' },
+    });
     resolveGet!();
     await p;
     const host = hosts()[0] as HTMLElement;
@@ -116,6 +128,10 @@ describe('content-frame-overlay dedup + teardown', () => {
     expect(host.querySelector('iframe')).toBe(iframe);
     expect(host.getAttribute('aria-label')).toBe('ExtendedTable · Results');
     expect(host.querySelector('.crev-eo-titlebar-label')?.textContent).toBe('ExtendedTable · Results');
+    expect(postMessage).not.toHaveBeenCalled();
+
+    readyFrom(iframe);
+
     expect(postMessage).toHaveBeenCalledWith({
       type: 'CREV_FRAME_ACTIVATE',
       activation: { type: 'editor', rid: '42', property: 'afterExpression' },

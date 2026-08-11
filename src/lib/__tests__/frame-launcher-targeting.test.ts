@@ -45,6 +45,19 @@ beforeEach(() => {
 });
 
 describe('launchFrame target resolution', () => {
+  it('freezes a window target to one tab id for downstream launch work', async () => {
+    setupChrome([
+      { id: 1, windowId: 100 },
+      { id: 2, windowId: 100 },
+    ]);
+    const { resolveFrameTargetTabId } = await import('../frame-launcher');
+
+    const tabId = await resolveFrameTargetTabId({ windowId: 100 });
+
+    expect(tabId).toBe(1);
+    expect((chrome.tabs.query as any).mock.calls).toHaveLength(1);
+  });
+
   it('mounts on tabId directly when given', async () => {
     setupChrome([
       { id: 1, windowId: 100 },

@@ -36,6 +36,11 @@ export interface EditorContext {
    *  worker prepares the authoritative BMP context, then hydrates from the
    *  same storage key without issuing a duplicate server request. */
   loading?: boolean
+  /** Opaque identity for one cold editor handoff. It is distinct from the
+   *  draft-preserving editor resource identity. */
+  launchSessionId?: string
+  /** Creation time used to reap abandoned launch handoffs. */
+  launchCreatedAt?: number
   /** Present when identity was recovered from cache but the server code fetch
    *  failed. An errored context is never mounted as an editable empty file. */
   loadError?: string
