@@ -9,7 +9,7 @@ import { ensureContentScript } from '../tab-awareness';
 import { togglePaint } from '../paint';
 import { setBlueprintActive } from './layout';
 import { loadPage } from '../layout-service';
-import { loadSchemaProps } from './objects';
+import { bmpTypeKnowledge } from '../bmp-type-knowledge';
 import { intersectTypeSchemas } from '../type-schema-utils';
 import { errorMessage, log } from '../logger';
 import type { InspectorMessage } from '../types';
@@ -139,9 +139,9 @@ register('INSPECT_EDIT_PAGE_FIELDS', async (msg, respond) => {
       });
       return;
     }
-    const objectTypes = model?.editPageTypes ?? [];
-    const schemaResults = await Promise.all(objectTypes.map(type => loadSchemaProps(type)));
-    const schemas = schemaResults.flatMap(result => result.ok ? [result.props] : []);
+    const objectTypes = [...new Set(model?.editPageTypes ?? [])];
+    const schemaResults = await bmpTypeKnowledge.propertiesFor(objectTypes);
+    const schemas = schemaResults.results.flatMap(result => result.ok ? [result.props] : []);
     const properties = schemas.length === objectTypes.length
       ? intersectTypeSchemas(schemas)
       : [];

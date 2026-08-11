@@ -11,17 +11,17 @@ import { clearAllContextRids } from '../context-rid';
 import { errorMessage, log } from '../logger';
 import { CODE_BEARING_TYPES } from '../namespace';
 import { loadColorSets } from '../color-set-cache';
-import type { BmpObject, ObjectPanePayload, TypeOptionSet } from '../types';
+import type { BmpObject, ObjectPanePayload } from '../types';
 import * as schemaCache from '../type-schema-cache';
-import { refFieldsFromSchema, buildConnectionsEc, parseConnections, buildJunctionEc, parseJunctions, pickFarSide, buildInboundEc, parseInbound, type SchemaProp } from '../connections';
+import { refFieldsFromSchema, buildConnectionsEc, parseConnections, buildJunctionEc, parseJunctions, pickFarSide, buildInboundEc, parseInbound } from '../connections';
 import type { ConnGroup } from '../types';
 import { buildRowEc } from '../ec-row-codec';
 import { isRidShaped } from '../validate-inbound';
-import { ID_SPACE_PREFIXES } from '../ec-grammar';
 import { BATCH_CHUNK_SIZE } from '../constants';
 import { ENVIRONMENT_CHANGED_ERROR, environmentMatches, environmentToken } from '../environment';
 import { markHostAccessRequired } from '../connection';
 import { HostAccessError } from '../site-access';
+import { bmpTypeKnowledge } from '../bmp-type-knowledge';
 
 const browseSearchControllers = new Map<string, AbortController>();
 
@@ -121,7 +121,7 @@ export function getLinkedDefs(objectType: string): LinkedObjectDef[] {
 /** Build the EC that reads a linked object off `ref.<ecProperty>`, emitting
  *  `id|||name|||rid` (or "" when the link is MISSING). The mandatory ELSE is an
  *  EC requirement. Exported so a regression test asserts against the shipped
- *  builder — kept next to the sibling builders (`buildSchemaEc`, `buildOptionsEc`). */
+ *  builder — type schema/options knowledge lives in bmp-type-knowledge.ts. */
 export function buildLinkedEc(ref: string, ecProperty: string): string {
   return [
     `_p := ${ref}`,
@@ -365,295 +365,66 @@ register('FETCH_COLOR_SETS', async (msg, respond) => {
   respond(result);
 });
 
-/**
- * EC that enumerates a class's property configs:
- * `accessor|||label|||configClass|||systemobject|||propertyRid|||propertyId|||propertyConfigClass`
- * per property, with a leading
- * `__canon__|||<fq>` line carrying the canonical class name. `c.get(X.name)`
- * resolves the ClassConfig case-insensitively; the two-step `.linkedTo.id`
- * yields the accessor (the one-step form returns display names). Triple-pipe
- * so user labels containing `|` don't shift columns. Live-verified.
- * Shared by FETCH_TYPE_SCHEMA and FETCH_CONNECTIONS so the EC can't drift.
- */
-function buildSchemaEc(className: string): string {
-  return [
-    `_cls := c.get(${className}.name)`,
-    '_out := "__canon__|||" + _cls.id.whenMissing("") + "\\n"',
-    '_kids := _cls.children()',
-    '_kids.forEach(_k:',
-    '     _out := _out + _k.linkedTo.id + "|||" + _k.name + "|||" + _k.className + "|||" + _k.systemobject + "|||" + _k.linkedTo.rid + "|||" + _k.linkedTo.id + "|||" + _k.linkedTo.className + "\\n"',
-    ')',
-    '_out',
-  ].join('\n');
-}
-
-export function parseSchemaPropsLog(log: string): { props: SchemaProp[]; canonical?: string } {
-  const props: SchemaProp[] = [];
-  let canonical: string | undefined;
-  for (const line of (log || '').split('\n')) {
-    const parts = line.split('|||');
-    // Canonical-name marker — require exactly 2 fields so a real `__canon__`
-    // accessor can't be swallowed.
-    if (parts.length === 2 && parts[0] === '__canon__') {
-      const seg = parts[1].trim().split('.').pop();
-      if (seg) canonical = seg;
-      continue;
-    }
-    if (parts.length < 4) continue;
-    const [accessor, label, configClass, sysFlag, propertyRid, propertyId, propertyConfigClass] = parts;
-    if (!accessor || !configClass) continue;
-    props.push({
-      accessor: accessor.trim(),
-      label: label.trim(),
-      configClass: configClass.trim(),
-      systemobject: sysFlag.trim() === 'true',
-      ...(propertyRid?.trim() ? { propertyRid: propertyRid.trim() } : {}),
-      ...(propertyId?.trim() ? { propertyId: propertyId.trim() } : {}),
-      ...(propertyConfigClass?.trim() ? { propertyConfigClass: propertyConfigClass.trim() } : {}),
-    });
-  }
-  return { props, canonical };
-}
-
-const GENERIC_SYSTEM_PROPERTIES = new Set([
-  'rid', 'id', 'name', 'description', 'parent', 'model', 'self', 'sortIndex',
-  'className', 'available', 'showExpression', 'useShowExpression',
-]);
-
-/** Parse BMP's human-readable `help(reference)` property table. This fallback
- * cannot expose config-class metadata, so entries are intentionally typed as
- * generic Property and cannot be mistaken for reference fields downstream. */
-export function parseReferenceHelp(log: string): SchemaProp[] {
-  const props: SchemaProp[] = [];
-  const seen = new Set<string>();
-  for (const line of (log || '').split('\n')) {
-    const match = /^\|\s*\.([A-Za-z_][A-Za-z0-9_]*)\s*\|\s*([^|]*)\|\s*([^|]*)\|?/.exec(line);
-    if (!match || seen.has(match[1])) continue;
-    seen.add(match[1]);
-    props.push({
-      accessor: match[1],
-      label: match[2].trim(),
-      description: match[3].trim() || undefined,
-      configClass: 'Property',
-      systemobject: GENERIC_SYSTEM_PROPERTIES.has(match[1]),
-    });
-  }
-  return props;
-}
-
-function safeConcreteObjectRef(ref: string | undefined): string | null {
-  if (!ref) return null;
-  const match = /^([a-z]{1,6})\.([A-Za-z0-9_]+)$/.exec(ref);
-  if (!match || match[1] === 'o' || !ID_SPACE_PREFIXES.has(match[1])) return null;
-  return ref;
-}
-
-type SchemaLoadResult =
-  | { ok: true; props: SchemaProp[]; canonical?: string }
-  | { ok: false; error: string };
-
-/** Same-type schema reads commonly arrive together from the picker, property
- * pane, connections, and editor completion. One authoritative BMP command is
- * enough; every caller can share its immutable result. */
-const inFlightSchemaLoads = new Map<string, Promise<SchemaLoadResult>>();
-
-/** Cache-or-fetch a type's schema props. `refresh` bypasses the cache.
- *  Exported for the AI read_type tool, which reuses this exact live path. */
-export async function loadSchemaProps(className: string, refresh = false, exampleRef?: string): Promise<
-  SchemaLoadResult
-> {
-  const ctx = getCtx();
-  const serverId = environmentToken(ctx);
-  if (!ctx.client) return { ok: false, error: 'Not connected' };
-  if (!refresh) {
-    await schemaCache.load();
-    const cached = schemaCache.get(serverId, className);
-    if (cached) return { ok: true, props: cached, canonical: schemaCache.getCanonical(serverId, className) };
-  }
-  // BMP class names are PascalCase — guard against shipping an arbitrary
-  // string into EC.
-  if (!/^[A-Z][A-Za-z0-9]{0,63}$/.test(className)) return { ok: false, error: `Invalid class name: ${className}` };
-  const concreteRef = safeConcreteObjectRef(exampleRef);
-  const requestKey = `${serverId}::${className}::${concreteRef ?? ''}`;
-  const existing = inFlightSchemaLoads.get(requestKey);
-  if (existing) return existing;
-
-  const request = (async (): Promise<SchemaLoadResult> => {
-    const result = await ctx.client!.executeEc(buildSchemaEc(className), undefined, false);
-    const parsed = result.ok ? parseSchemaPropsLog(result.log ?? '') : { props: [] as SchemaProp[] };
-    let { props } = parsed;
-    const canonical = parsed.canonical ?? className;
-    if (props.length === 0 && concreteRef) {
-      const help = await ctx.client!.executeEc(`help(${concreteRef})`, undefined, false);
-      if (help.ok) props = parseReferenceHelp(help.log ?? '');
-    }
-    if (props.length === 0) {
-      return {
-        ok: false,
-        error: result.ok
-          ? 'No properties returned (unknown class?)'
-          : result.error || result.log || 'EC execution failed',
-      };
-    }
-    schemaCache.set(serverId, className, props, canonical);
-    return { ok: true, props, canonical };
-  })();
-  inFlightSchemaLoads.set(requestKey, request);
-  try {
-    return await request;
-  } finally {
-    if (inFlightSchemaLoads.get(requestKey) === request) {
-      inFlightSchemaLoads.delete(requestKey);
-    }
-  }
-}
-
 register('FETCH_TYPE_SCHEMA', async (msg, respond) => {
   const environment = environmentToken(getCtx());
-  try {
-    const r = await loadSchemaProps(msg.className, msg.refresh, msg.exampleRef);
-    if (r.ok) respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: true, props: r.props, canonicalClassName: r.canonical, environment });
-    else respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: r.error, environment });
-  } catch (e) {
-    respond({ type: 'FETCH_TYPE_SCHEMA_RESULT', className: msg.className, ok: false, error: errorMessage(e), environment });
-  }
+  const result = await bmpTypeKnowledge.properties({
+    className: msg.className,
+    refresh: msg.refresh,
+    exampleRef: msg.exampleRef,
+  });
+  respond(result.ok
+    ? {
+        type: 'FETCH_TYPE_SCHEMA_RESULT',
+        className: msg.className,
+        ok: true,
+        props: result.props,
+        canonicalClassName: result.canonical,
+        environment,
+      }
+    : {
+        type: 'FETCH_TYPE_SCHEMA_RESULT',
+        className: msg.className,
+        ok: false,
+        error: result.error,
+        environment,
+      });
 });
 
 register('FETCH_TYPE_SCHEMAS', async (msg, respond) => {
-  const environment = environmentToken(getCtx());
-  const classNames = [...new Set(msg.classNames.filter(Boolean))];
-  const results = [];
-  for (const className of classNames) {
-    if (environmentToken(getCtx()) !== environment) {
-      results.push({ className, ok: false as const, error: ENVIRONMENT_CHANGED_ERROR });
-      continue;
-    }
-    try {
-      const result = await loadSchemaProps(className);
-      results.push(result.ok
-        ? { className, ok: true as const, props: result.props, canonicalClassName: result.canonical }
-        : { className, ok: false as const, error: result.error });
-    } catch (error) {
-      results.push({ className, ok: false as const, error: errorMessage(error) });
-    }
-  }
-  respond({ type: 'FETCH_TYPE_SCHEMAS_RESULT', results, environment });
+  const batch = await bmpTypeKnowledge.propertiesFor(msg.classNames);
+  respond({
+    type: 'FETCH_TYPE_SCHEMAS_RESULT',
+    environment: batch.environment,
+    results: batch.results.map(result => result.ok
+      ? {
+          className: result.className,
+          ok: true as const,
+          props: result.props,
+          canonicalClassName: result.canonical,
+        }
+      : {
+          className: result.className,
+          ok: false as const,
+          error: result.error,
+        }),
+  });
 });
 
-/**
- * Enumerate the allowed values of a class's list/tag properties. Branches on
- * the property-config class (ListMethodConfig/HistoricalListMethodConfig read
- * `.listPropertySet`; TagMethodConfig reads `.tagList` — reading the wrong one
- * THROWS, hence the strict branch). Emits `__prop__|||<accessor>|||list|tag`
- *
- * Coverage is COMPLETE for option-bearing (t.<businessId>) properties, verified
- * against the decompiled 5.6.10.0 MethodConfig taxonomy + live introspection:
- *   - ListMethodConfig + HistoricalListMethodConfig  → .listPropertySet
- *   - TagMethodConfig                                 → .tagList
- * There is NO HistoricalTagMethodConfig (tags aren't historized — Historical*
- * variants exist for Boolean/Date/List/Number/Progress/Reference/RichText/
- * Status/Text but not Tag), so "historical list/tag" = historical-LIST + tag.
- * Deliberately excluded: StatusMethodConfig (no ListPropertySet — its values are
- * a fixed runtime status type, not t.<id> objects), Boolean (TRUE/FALSE, not a
- * ref), and Reference/ReverseReference (target arbitrary objects, not a fixed
- * option set — navigation is handled by the .ref()/.rref() completion instead).
- * then `__opt__|||<id>|||<name>` per member. ELSE branches are filled because EC
- * rejects an empty ELSE. Live-verified against CeRiskAssessment (76ms, 11 sets).
- *
- * A member with no display name falls back to its id (`.name.whenMissing(_i.id)`)
- * so one nameless item can't throw and wipe the class's whole option fetch.
- *
- * Limitation: if a malformed prop has its listPropertySet/tagList unset, the
- * whole forEach throws and value autocomplete degrades to nothing for THAT class
- * (property-name completion is a separate fetch, so it's unaffected). A defensive
- * `.isMissing` guard was tried but spams missing-value warnings without being
- * verifiable against a real malformed prop, so it's omitted — well-formed BMP
- * configs always have the set, and the failure path is already graceful.
- */
-export function buildOptionsEc(className: string): string {
-  return [
-    `_cls := c.get(${className}.name)`,
-    '_out := ""',
-    '_kids := _cls.children()',
-    '_kids.forEach(_k:',
-    '     _cn := _k.className',
-    '     _kind := ""',
-    '     IF _cn = "ListMethodConfig" OR _cn = "HistoricalListMethodConfig" THEN',
-    '          _kind := "list"',
-    '     ELSE',
-    '          IF _cn = "TagMethodConfig" THEN',
-    '               _kind := "tag"',
-    '          ELSE',
-    '               _kind := ""',
-    '          ENDIF',
-    '     ENDIF',
-    '     IF _kind != "" THEN',
-    '          IF _kind = "list" THEN',
-    '               _set := _k.listPropertySet',
-    '          ELSE',
-    '               _set := _k.tagList',
-    '          ENDIF',
-    '          _out := _out + "__prop__|||" + _k.linkedTo.id + "|||" + _kind + "\\n"',
-    '          _set.children().forEach(_i:',
-    '               _out := _out + "__opt__|||" + _i.id + "|||" + _i.name.whenMissing(_i.id) + "\\n"',
-    '          )',
-    '     ELSE',
-    '          _out := _out',
-    '     ENDIF',
-    ')',
-    '_out',
-  ].join('\n');
-}
-
-export function parseOptionsLog(log: string): TypeOptionSet[] {
-  const sets: TypeOptionSet[] = [];
-  let current: TypeOptionSet | null = null;
-  for (const line of (log || '').split('\n')) {
-    const parts = line.split('|||');
-    if (parts[0] === '__prop__' && parts.length === 3) {
-      current = { accessor: parts[1].trim(), multi: parts[2].trim() === 'tag', items: [] };
-      sets.push(current);
-    } else if (parts[0] === '__opt__' && parts.length >= 3 && current) {
-      const id = parts[1].trim();
-      // Rejoin the tail so a display name that itself contains `|||` isn't
-      // dropped (ids never do). `>= 3` rather than `=== 3` for the same reason.
-      if (id) current.items.push({ ref: `t.${id}`, name: parts.slice(2).join('|||').trim() });
-    }
-  }
-  // Drop sets that resolved to zero members (defensive — nothing to suggest).
-  return sets.filter(s => s.items.length > 0);
-}
-
-// In-memory per (server, class) cache. Options change rarely and are cheap to
-// re-fetch (~76ms), so we don't persist them across SW restarts.
-const optionsCache = new Map<string, TypeOptionSet[]>();
-
-async function loadTypeOptions(className: string, refresh = false): Promise<
-  { ok: true; options: TypeOptionSet[] } | { ok: false; error: string }
-> {
-  const ctx = getCtx();
-  if (!ctx.client) return { ok: false, error: 'Not connected' };
-  const key = `${environmentToken(ctx)}::${className.toLowerCase()}`;
-  if (!refresh) {
-    const cached = optionsCache.get(key);
-    if (cached) return { ok: true, options: cached };
-  }
-  if (!/^[A-Z][A-Za-z0-9]{0,63}$/.test(className)) return { ok: false, error: `Invalid class name: ${className}` };
-  const result = await ctx.client.executeEc(buildOptionsEc(className), undefined, false);
-  if (!result.ok) return { ok: false, error: result.error || result.log || 'EC execution failed' };
-  const options = parseOptionsLog(result.log ?? '');
-  optionsCache.set(key, options);
-  return { ok: true, options };
-}
-
 register('FETCH_TYPE_OPTIONS', async (msg, respond) => {
-  try {
-    const r = await loadTypeOptions(msg.className, msg.refresh);
-    if (r.ok) respond({ type: 'FETCH_TYPE_OPTIONS_RESULT', className: msg.className, ok: true, options: r.options });
-    else respond({ type: 'FETCH_TYPE_OPTIONS_RESULT', className: msg.className, ok: false, error: r.error });
-  } catch (e) {
-    respond({ type: 'FETCH_TYPE_OPTIONS_RESULT', className: msg.className, ok: false, error: errorMessage(e) });
-  }
+  const result = await bmpTypeKnowledge.options(msg.className, msg.refresh);
+  respond(result.ok
+    ? {
+        type: 'FETCH_TYPE_OPTIONS_RESULT',
+        className: msg.className,
+        ok: true,
+        options: result.options,
+      }
+    : {
+        type: 'FETCH_TYPE_OPTIONS_RESULT',
+        className: msg.className,
+        ok: false,
+        error: result.error,
+      });
 });
 
 register('FETCH_CONNECTIONS', async (msg, respond) => {
@@ -661,7 +432,7 @@ register('FETCH_CONNECTIONS', async (msg, respond) => {
   if (!ctx.client) { respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: false, error: 'Not connected' }); return; }
   try {
     // 1. Discover the type's reference fields (cached schema).
-    const schema = await loadSchemaProps(msg.className);
+    const schema = await bmpTypeKnowledge.properties({ className: msg.className });
     if (!schema.ok) { respond({ type: 'CONNECTIONS_RESULT', rid: msg.rid, ok: false, error: schema.error }); return; }
     const fields = refFieldsFromSchema(schema.props)
       .filter(field => field.direction === 'out');
@@ -683,7 +454,7 @@ register('FETCH_INBOUND', async (msg, respond) => {
   if (!ctx.client) { respond({ type: 'INBOUND_RESULT', rid: msg.rid, ok: false, error: 'Not connected' }); return; }
   try {
     const ref = await ctx.client.resolveRef(msg.rid);
-    const schema = await loadSchemaProps(msg.className);
+    const schema = await bmpTypeKnowledge.properties({ className: msg.className });
     if (!schema.ok) {
       respond({ type: 'INBOUND_RESULT', rid: msg.rid, ok: false, error: schema.error });
       return;
@@ -750,7 +521,7 @@ async function inlineJunctions(sourceRid: string, groups: ConnGroup[]): Promise<
   }
   for (const [type, entries] of byType) {
     try {
-      const schema = await loadSchemaProps(type);
+      const schema = await bmpTypeKnowledge.properties({ className: type });
       if (!schema.ok) continue;
       const fwd = refFieldsFromSchema(schema.props).filter(f => f.direction === 'out');
       if (fwd.length === 0) continue;

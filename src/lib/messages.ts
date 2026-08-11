@@ -174,7 +174,7 @@ export type ServerLookupMessage =
   // autocomplete (WHERE/filter `<listprop> = t.<id>`) and the Vars panel's
   // option dropdowns. Separate from FETCH_TYPE_SCHEMA so a failure here can't
   // regress property-name completion. One EC round trip per class, cached in
-  // the SW. See handlers/objects.ts buildOptionsEc.
+  // the SW. See bmp-type-knowledge.ts.
   | { type: 'FETCH_TYPE_OPTIONS'; className: string; refresh?: boolean }
   | { type: 'FETCH_TYPE_OPTIONS_RESULT'; className: string; ok: boolean; options?: TypeOptionSet[]; error?: string }
   // Resolve a `root.<lcCategory>.children()` style reference to the

@@ -42,7 +42,7 @@ const mem = new Map<string, CacheEntry>();
 let loadPromise: Promise<void> | null = null;
 
 function key(serverId: string, className: string): string {
-  return `${serverId}::${className}`;
+  return `${serverId}::${className.toLowerCase()}`;
 }
 
 /** Load the persisted cache into memory. Idempotent + concurrency-safe:
@@ -57,11 +57,14 @@ export function load(): Promise<void> {
       const entries = raw[STORAGE_KEY] as Record<string, CacheEntry> | undefined;
       if (!entries) return;
       const now = Date.now();
-      for (const [k, e] of Object.entries(entries)) {
+      for (const e of Object.values(entries)) {
         // Drop expired entries on load — keeps storage from growing
         // unbounded when types fall out of use.
         if (now - e.fetchedAt > TTL_MS) continue;
-        mem.set(k, e);
+        // Normalize legacy case-sensitive v2 keys while loading. BMP resolves
+        // class names case-insensitively; one canonical description must back
+        // every spelling a caller uses.
+        mem.set(key(e.serverId, e.className), e);
       }
     } catch {
       // chrome.storage failure → start with an empty cache, no toast.

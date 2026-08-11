@@ -17,7 +17,7 @@ import type { ToolCall, ToolResult } from '../ai/tools';
 import { TOOL_NAMES, toolResultWithObjects, truncateToolResult } from '../ai/tools';
 import type { AiContextEnvelope, AiContextSource } from '../ai/types';
 import type { ObjectReference } from '../types';
-import { loadSchemaProps } from './objects';
+import { bmpTypeKnowledge } from '../bmp-type-knowledge';
 import { collectCodeSearch } from '../code-search';
 import { codeFieldsFor, referencesFor, contextFieldsFor, typeAffordances } from '../widget-metadata';
 import { errorMessage, log } from '../logger';
@@ -366,7 +366,7 @@ async function readType(input: Record<string, unknown>): Promise<ToolResult> {
   if (ctxF.length) lines.push(`Context fields (metadata): ${ctxF.map(c => `${c.prop} (${c.kind})`).join(', ')}`);
 
   // Live schema probe — the exact path the Vars panel uses.
-  const schema = await loadSchemaProps(type);
+  const schema = await bmpTypeKnowledge.properties({ className: type });
   if (schema.ok) {
     const canonical = schema.canonical && schema.canonical !== type ? ` (canonical: ${schema.canonical})` : '';
     lines.push(`Live properties${canonical}:`);
