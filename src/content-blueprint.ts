@@ -201,9 +201,12 @@ function mountLoadingShell(): void {
 /** Reload the overlay for `rid` — used by the page-change handler (C) and the template/instance toggle
  *  (F, same rid, different `prefer`). Drops the stale model + any staged edits. */
 function reloadForRid(rid: string, prefer: 'template' | 'instance' = 'template'): void {
+  // An accepted Apply owns this overlay until BMP answers. The successful or
+  // unverified outcome reloads the current URL, so a navigation that arrived
+  // meanwhile is naturally picked up without orphaning the commit result.
+  if (!resetModel()) return;
   bp.loadedRid = rid;
   bp.gen += 1;                            // 1. invalidate any in-flight load/apply for the old page
-  resetModel();                           // 2. clear the loaded model + page-specific view state
   bp.layer?.classList.remove('bp-peek');
   mountLoadingShell();                    // 3. clear the old canvas to a loading chip (render() won't, with no baseline)
   void loadPage(rid, prefer).then((ok) => { if (!ok) disableBlueprint(); }); // 4. fetch the new page
@@ -247,6 +250,10 @@ export function disableBlueprint(): void {
   if (enableRetryTimer) { clearTimeout(enableRetryTimer); enableRetryTimer = null; }
   enableRetries = 0;
   if (!bp.active) return;
+  // A confirmed Apply may already be mutating BMP. Keep its result sink and
+  // review surface mounted until it settles; tearing down now would discard
+  // the only authoritative outcome even though cancel() correctly no-ops.
+  if (bp.applySession?.state.phase === 'applying') return;
   cancelGesture(); // rip out any in-flight drag/resize listeners + body-level ghost/line elements
   clearHintTimer(); // a pending flashHint render() must not fire after teardown
   if (bp.onResize) window.removeEventListener('resize', bp.onResize, true);

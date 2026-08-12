@@ -134,6 +134,32 @@ describe('Blueprint Apply Session', () => {
     expect(session.state).toMatchObject({ phase: 'settled', resolution: { kind: 'applied' } });
   });
 
+  it('does not cancel an accepted commit while its result is pending', async () => {
+    const { baseline, desired } = models();
+    const pendingApply = deferred<Awaited<ReturnType<ApplySessionIO['apply']>>>();
+    const io = makeIO();
+    vi.mocked(io.apply).mockReturnValue(pendingApply.promise);
+    const session = createApplySession({
+      env: 'profile-a',
+      ctx: { pageId: 'page', pageRid: '1', pageClass: 'Scorecard', tabsetId: 'tabs', target: 'template' },
+      baseline, desired,
+      idConfig: { enabled: false, pattern: '{page}_{class}_{name}' },
+      isCurrent: () => true,
+    }, io, vi.fn());
+    await vi.waitFor(() => {
+      expect(session.state.phase).toBe('review');
+      if (session.state.phase === 'review') expect(session.state.review.impact.status).toBe('ready');
+    });
+
+    const committed = session.confirm();
+    session.cancel();
+    expect(session.state.phase).toBe('applying');
+
+    pendingApply.resolve({ type: 'LAYOUT_APPLY_RESULT', ok: true, noop: false });
+    await expect(committed).resolves.toMatchObject({ kind: 'applied' });
+    expect(session.state).toMatchObject({ phase: 'settled', resolution: { kind: 'applied' } });
+  });
+
   it('cancels stale preparation and ignores a late impact reply', async () => {
     const { baseline, desired } = models();
     const pendingImpact = deferred<typeof impact>();
@@ -261,5 +287,25 @@ describe('Blueprint Apply Session', () => {
     });
 
     await expect(session.confirm()).resolves.toMatchObject({ kind: 'unverified', commitReportedOk: null });
+  });
+
+  it('treats the production no-response shape as an unverified commit', async () => {
+    const { baseline, desired } = models();
+    const io = makeIO();
+    vi.mocked(io.apply).mockResolvedValue(undefined);
+    const session = createApplySession({
+      env: 'profile-a',
+      ctx: { pageId: 'page', pageRid: '1', pageClass: 'Scorecard', tabsetId: 'tabs', target: 'template' },
+      baseline, desired,
+      idConfig: { enabled: false, pattern: '{page}_{class}_{name}' },
+      isCurrent: () => true,
+    }, io, vi.fn());
+    await vi.waitFor(() => {
+      expect(session.state.phase).toBe('review');
+      if (session.state.phase === 'review') expect(session.state.review.impact.status).toBe('ready');
+    });
+
+    await expect(session.confirm()).resolves.toMatchObject({ kind: 'unverified', commitReportedOk: null });
+    expect(session.state).toMatchObject({ phase: 'settled', resolution: { kind: 'unverified' } });
   });
 });

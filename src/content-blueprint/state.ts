@@ -148,7 +148,11 @@ export function resetState(): void { bp.applySession?.cancel(); Object.assign(bp
  *  toggling the edit target. Keeps the layer/listeners/gen; clears the model + the view state tied to the
  *  page being left. The single place that knows which fields "are the loaded model", so a new model field
  *  can't be forgotten at a reload site. */
-export function resetModel(): void {
+export function resetModel(): boolean {
+  // Once Apply has been confirmed, keep its reviewed page/model alive until
+  // the response is classified. The caller will retry navigation from the
+  // resulting page reload; clearing now would orphan the accepted commit.
+  if (bp.applySession?.state.phase === 'applying') return false;
   bp.baseline = null; bp.ctx = null; bp.history = null;
   bp.selectedId = null; bp.viewTabId = null; bp.unusedTabsOpen = false; bp.tabsetPickerOpen = false; bp.ridSig = ''; bp.peek = false;
   bp.editPageViewKeys = new Map(); bp.editPageNativeTabId = null;
@@ -169,6 +173,7 @@ export function resetModel(): void {
   bp.flowPicker = null; bp.flowRefList = null; bp.flowFolds = new Set(); bp.trayCardsOpen = new Set();
   // the ref-children cache is keyed by page-unique businessIds — stale on a page change / target toggle
   bp.flowRefChildren = new Map(); bp.flowRefChildrenPending = new Set();
+  return true;
 }
 
 export function isBlueprintActive(): boolean { return bp.active; }

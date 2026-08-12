@@ -115,6 +115,13 @@ function touchedFlowContainers(
 }
 
 function resolution(response: ApplyResponse | undefined): ApplyResolution {
+  if (!response) {
+    return {
+      kind: 'unverified',
+      commitReportedOk: null,
+      message: 'Blueprint: the apply result could not be verified — refreshing.',
+    };
+  }
   if (response?.unverified) {
     return {
       kind: 'unverified',
@@ -245,6 +252,10 @@ export function createApplySession(
   };
 
   const cancel = (): void => {
+    // Confirmation is the point of no return: BMP may already be committing
+    // the non-atomic EC program. Keep this session authoritative until its
+    // result settles instead of letting a page/model reset suppress it.
+    if (state.phase === 'applying') return;
     if (cancelled) return;
     cancelled = true;
     state = { phase: 'cancelled' };
@@ -273,7 +284,7 @@ export function createApplySession(
       // Once the command has been sent, its resolution is authoritative for
       // this session. `isCurrent` gates preparation/confirmation, but must not
       // strand an accepted commit in `applying` if surrounding UI state moves.
-      if (!cancelled) transition({ phase: 'settled', resolution: result });
+      transition({ phase: 'settled', resolution: result });
       return result;
     });
     return commit;

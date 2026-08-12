@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InspectorMessage } from '../../lib/types';
-import { bp, resetState } from '../state';
+import type { LModel } from '../../lib/layout/types';
+import type { ApplySession } from '../apply-session';
+import { disableBlueprint } from '../../content-blueprint';
+import { bp, resetModel, resetState } from '../state';
 
 const sendRequest = vi.fn<() => Promise<InspectorMessage | undefined>>();
 const render = vi.fn();
@@ -21,6 +24,38 @@ beforeEach(async () => {
 });
 
 describe('Blueprint auxiliary-data states', () => {
+  it('defers a page-model reset while an accepted apply is pending', () => {
+    const baseline = { pageId: 'page' } as LModel;
+    bp.baseline = baseline;
+    bp.applySession = {
+      state: { phase: 'applying' },
+      confirm: vi.fn(),
+      cancel: vi.fn(),
+    } as unknown as ApplySession;
+
+    expect(resetModel()).toBe(false);
+    expect(bp.baseline).toBe(baseline);
+    expect(bp.applySession?.state.phase).toBe('applying');
+  });
+
+  it('defers full Blueprint teardown while an accepted apply is pending', () => {
+    const layer = document.createElement('div');
+    document.body.appendChild(layer);
+    bp.layer = layer;
+    bp.applySession = {
+      state: { phase: 'applying' },
+      confirm: vi.fn(),
+      cancel: vi.fn(),
+    } as unknown as ApplySession;
+
+    disableBlueprint();
+
+    expect(bp.active).toBe(true);
+    expect(bp.layer).toBe(layer);
+    expect(layer.isConnected).toBe(true);
+    expect(bp.applySession?.state.phase).toBe('applying');
+  });
+
   it('keeps a failed colour request distinct from a valid empty workspace', async () => {
     sendRequest.mockResolvedValueOnce(undefined);
     const { colorSets, colorSetsStatus, ensureColorSets } = await import('../colors');
