@@ -12,7 +12,6 @@ import { errorMessage, log } from '../logger';
 import { CODE_BEARING_TYPES } from '../namespace';
 import { loadColorSets } from '../color-set-cache';
 import type { BmpObject, ObjectPanePayload } from '../types';
-import * as schemaCache from '../type-schema-cache';
 import { refFieldsFromSchema, buildConnectionsEc, parseConnections, buildJunctionEc, parseJunctions, pickFarSide, buildInboundEc, parseInbound } from '../connections';
 import type { ConnGroup } from '../types';
 import { buildRowEc } from '../ec-row-codec';
@@ -22,6 +21,7 @@ import { ENVIRONMENT_CHANGED_ERROR, environmentMatches, environmentToken } from 
 import { markHostAccessRequired } from '../connection';
 import { HostAccessError } from '../site-access';
 import { bmpTypeKnowledge } from '../bmp-type-knowledge';
+import { sendPageInfoToPanel } from '../content-script-injection';
 
 const browseSearchControllers = new Map<string, AbortController>();
 
@@ -537,57 +537,15 @@ async function inlineJunctions(sourceRid: string, groups: ConnGroup[]): Promise<
 }
 
 register('RESOLVE_ROOT_CATEGORY', async (msg, respond) => {
-  const ctx = getCtx();
-  const serverId = environmentToken(ctx);
-  if (!ctx.client) {
-    respond({ type: 'RESOLVE_ROOT_CATEGORY_RESULT', category: msg.category, ok: false });
-    return;
-  }
-  await schemaCache.loadRootCache();
-  const cached = schemaCache.getRoot(serverId, msg.category);
-  // undefined = never asked; null = asked and BMP said empty (don't re-ask)
-  if (cached !== undefined) {
-    respond({ type: 'RESOLVE_ROOT_CATEGORY_RESULT', category: msg.category, ok: true, className: cached ?? undefined });
-    return;
-  }
-  if (!/^[a-z][A-Za-z0-9]{0,63}$/.test(msg.category)) {
-    respond({ type: 'RESOLVE_ROOT_CATEGORY_RESULT', category: msg.category, ok: false });
-    return;
-  }
-  try {
-    const ec = `root.${msg.category}.children().first().className.whenMissing("")`;
-    const result = await ctx.client.executeEc(ec, undefined, false);
-    if (!result.ok) {
-      // Discriminate: did BMP run the EC and reject it (definitive —
-      // `hasError` set by parseEcResults from an ERROR log entry), or
-      // did the transport fail / time out (transient)? The current
-      // user-visible case ("root.X.children is unrecognized" while
-      // typing) is the definitive branch; without negative caching
-      // here, every doc scan re-fires the BMP roundtrip for the
-      // same misspelling. Transient failures stay uncached so
-      // recovery after BMP comes back doesn't require a manual refresh.
-      if (result.hasError) {
-        schemaCache.setRoot(serverId, msg.category, null);
-        respond({ type: 'RESOLVE_ROOT_CATEGORY_RESULT', category: msg.category, ok: true, className: undefined });
-      } else {
-        respond({ type: 'RESOLVE_ROOT_CATEGORY_RESULT', category: msg.category, ok: false });
+  const result = await bmpTypeKnowledge.rootCategory(msg.category);
+  respond(result.ok
+    ? {
+        type: 'RESOLVE_ROOT_CATEGORY_RESULT',
+        category: msg.category,
+        ok: true,
+        ...(result.className ? { className: result.className } : {}),
       }
-      return;
-    }
-    // `result.log` is parseEcResults-clean: "Result : " prefix already
-    // stripped, multi-line value joined with the Duration line.
-    // The single value we want is on the first line.
-    const body = (result.log || '').trim().split('\n')[0]?.trim() || '';
-    const className = body && /^[A-Z][A-Za-z0-9]+$/.test(body) ? body : null;
-    // Only cache the negative result (`null`) when BMP definitively
-    // answered with no className — i.e. the category exists but is
-    // empty. Genuine "no such category" answers are stable enough to
-    // cache and avoid re-asking on every doc scan.
-    schemaCache.setRoot(serverId, msg.category, className);
-    respond({ type: 'RESOLVE_ROOT_CATEGORY_RESULT', category: msg.category, ok: true, className: className ?? undefined });
-  } catch {
-    respond({ type: 'RESOLVE_ROOT_CATEGORY_RESULT', category: msg.category, ok: false });
-  }
+    : { type: 'RESOLVE_ROOT_CATEGORY_RESULT', category: msg.category, ok: false });
 });
 
 register('GET_CACHE_BYTES', (msg, respond) => {
@@ -609,11 +567,12 @@ register('CLEAR_CACHE', (msg, respond) => {
 // gets into a bad state and the user wants a clean slate without losing their
 // server profiles. We deliberately leave favorites + settings untouched so the
 // reset doesn't punish the user for using it.
-register('RESET_ALL', (msg, respond) => {
+register('RESET_ALL', async (msg, respond) => {
   const ctx = getCtx();
   // Object cache + enrichment (same as CLEAR_CACHE)
   ctx.cache.clear();
   incrementGeneration();
+  await bmpTypeKnowledge.clear();
   // Activity log
   clearActivityLog();
   // Compare pivot (lives in chrome.storage.session, scoped per-profile —
@@ -628,7 +587,7 @@ register('RESET_ALL', (msg, respond) => {
   ctx.history.clear();
   // Script history
   ctx.scriptHistory.clear();
-  ctx.logActivity('warn', 'State reset (object cache, enrichment, activity, context)');
+  ctx.logActivity('warn', 'State reset (object cache, type knowledge, enrichment, activity, context)');
   respond({ type: 'CACHE_STATS', count: 0 });
   ctx.broadcastToContent({ type: 'RE_ENRICH' });
   ctx.broadcastToContent({ type: 'RESET_OVERLAY_CACHES' }); // also drop the blueprint overlay's colour + InputSet caches
@@ -647,7 +606,7 @@ register('RESET_ALL', (msg, respond) => {
   chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
     const tabId = tabs[0]?.id;
     if (tabId != null) {
-      import('../content-script-injection').then(m => m.sendPageInfoToPanel(tabId)).catch(() => {});
+      sendPageInfoToPanel(tabId);
     }
   });
 });

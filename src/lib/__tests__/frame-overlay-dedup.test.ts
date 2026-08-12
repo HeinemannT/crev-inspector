@@ -99,9 +99,9 @@ describe('content-frame-overlay dedup + teardown', () => {
   it('appends exactly one host for two concurrent same-kind mounts', async () => {
     const m = await freshModule();
     const p1 = m.mountFrameOverlay(OPTS);
-    const p2 = m.mountFrameOverlay(OPTS); // guard: mounting.has(kind) → dropped
+    const p2 = m.mountFrameOverlay(OPTS);
     resolveGet!();
-    await Promise.all([p1, p2]);
+    await expect(Promise.all([p1, p2])).resolves.toEqual(['mounted', 'activated']);
     expect(hosts()).toHaveLength(1);
   });
 
@@ -118,13 +118,14 @@ describe('content-frame-overlay dedup + teardown', () => {
     const iframe = host.querySelector('iframe')!;
     const postMessage = vi.spyOn(iframe.contentWindow!, 'postMessage');
 
-    await m.mountFrameOverlay({
+    const disposition = await m.mountFrameOverlay({
       ...OPTS,
       resourceKey: 'editor:42',
       label: 'ExtendedTable · Results',
       activation: { type: 'editor', rid: '42', property: 'afterExpression' },
     });
 
+    expect(disposition).toBe('activated');
     expect(host.querySelector('iframe')).toBe(iframe);
     expect(host.getAttribute('aria-label')).toBe('ExtendedTable · Results');
     expect(host.querySelector('.crev-eo-titlebar-label')?.textContent).toBe('ExtendedTable · Results');

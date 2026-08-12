@@ -168,6 +168,7 @@
 /* Borderless icon nudges stay compact so they do not crowd out Exit. */
 #crev-blueprint-layer .bp-chip button.plain{border-color:transparent;padding:0 6px}
 #crev-blueprint-layer .bp-chip button.plain:hover:not(:disabled){background:rgba(74,144,217,.12)}
+#crev-blueprint-layer .bp-chip button.bp-exit{width:28px;padding:0;justify-content:center}
 #crev-blueprint-layer .bp-chip button.apply{background:var(--bp-cyan);color:var(--bp-ground);border-color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-chip button.apply:hover:not(:disabled){background:var(--bp-cyan-hi);color:var(--bp-ground)}
 #crev-blueprint-layer .bp-chip button.bp-danger{background:var(--bp-amber);color:var(--bp-ground);border-color:var(--bp-amber);font-weight:700}
@@ -183,6 +184,23 @@
 #crev-blueprint-layer .bp-chip .bp-target-b:hover:not(.on){color:var(--bp-text)}
 #crev-blueprint-layer .bp-chip .bp-target-b.on{background:var(--bp-cyan);color:var(--bp-ground)}            /* Template active = shared definition (blue) */
 #crev-blueprint-layer .bp-chip .bp-target-b:last-child.on{background:var(--bp-amber);color:var(--bp-ground)} /* This instance active = local override (orange) */
+
+/* At browser zoom or a narrow BMP pane the fixed header has fewer CSS pixels
+   available. Keep every command inside the header: the chip becomes a normal
+   wrapping toolbar, and Style's four paint actions occupy a contained row
+   instead of competing with Apply/Exit for horizontal space. */
+@media (max-width:900px){
+  #crev-blueprint-layer .bp-header{width:calc(100vw - 16px);min-width:0;max-width:none}
+  #crev-blueprint-layer .bp-chip{flex-wrap:wrap;gap:5px;padding:7px 8px}
+  #crev-blueprint-layer .bp-chip .sp{display:none}
+  #crev-blueprint-layer .bp-page-chip{flex:1 1 140px;max-width:none}
+  #crev-blueprint-layer .bp-header.style{display:grid;grid-template-columns:46px minmax(0,1fr)}
+  #crev-blueprint-layer .bp-header.style .bp-vswitch{grid-column:1;grid-row:1/span 2}
+  #crev-blueprint-layer .bp-header.style .bp-header-main{grid-column:2;grid-row:1;min-width:0}
+  #crev-blueprint-layer .bp-header.style .bp-paint{grid-column:2;grid-row:2;grid-template-columns:repeat(4,minmax(0,1fr));min-height:36px;border-left:0;border-top:var(--bp-hair) solid var(--bp-line-2);border-radius:0 0 calc(var(--bp-r-ui) - 1px) 0}
+  #crev-blueprint-layer .bp-header.style .bp-paint-c{width:auto;min-height:36px;border-top:0;border-left:0}
+  #crev-blueprint-layer .bp-header.style .bp-paint-c+.bp-paint-c{border-left:var(--bp-hair) solid var(--bp-line-2)}
+}
 
 #crev-blueprint-layer .bp-settings-back{position:fixed;inset:0;z-index:51;background:transparent;pointer-events:auto}
 #crev-blueprint-layer .bp-settings-panel{position:fixed;z-index:52;width:340px;max-width:calc(100vw - 16px);max-height:calc(100vh - 80px);overflow:auto;background:var(--bp-ground);border:var(--bp-hair) solid var(--bp-line-1);border-radius:var(--bp-r-ui);pointer-events:auto}

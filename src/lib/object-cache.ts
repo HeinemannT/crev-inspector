@@ -2,6 +2,7 @@ import type { BmpObject } from './types';
 import { mergeBmpObject } from './merge';
 import { log } from './logger';
 import { CACHE_MAX_SIZE, CACHE_SAVE_DELAY } from './constants';
+import { getCtx } from './sw-context';
 
 /**
  * In-memory object cache backed by chrome.storage.local.
@@ -247,8 +248,7 @@ export class ObjectCache {
         // Swallowed if no panel is listening; the next CACHE_STATS broadcast
         // also carries the count so the user sees the eviction effect.
         try {
-          const ctx = (await import('./sw-context')).getCtx();
-          ctx.sendToPanel({ type: 'CACHE_QUOTA_WARNING', size: this.cache.size });
+          getCtx().sendToPanel({ type: 'CACHE_QUOTA_WARNING', size: this.cache.size });
         } catch { /* ignore */ }
       }
       // Evict 20% of entries (LRU — oldest in Map insertion order) and retry once

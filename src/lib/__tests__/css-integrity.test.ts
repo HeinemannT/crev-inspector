@@ -88,4 +88,13 @@ describe('injected CSS integrity', () => {
     expect(property).toContain('width: 20px');
     expect(base).toContain('border-radius: 2px');
   });
+
+  it('keeps Blueprint header controls contained at narrow and zoomed viewport widths', () => {
+    const css = stripComments(read('src/content-blueprint.css'), 'src/content-blueprint.css');
+    const responsive = css.match(/@media\s*\(max-width:900px\)\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+    expect(responsive).toContain('.bp-header{width:calc(100vw - 16px);min-width:0;max-width:none}');
+    expect(responsive).toContain('.bp-chip{flex-wrap:wrap');
+    expect(responsive).toContain('.bp-page-chip{flex:1 1 140px');
+    expect(responsive).toContain('.bp-header.style .bp-paint{grid-column:2;grid-row:2');
+  });
 });

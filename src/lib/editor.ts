@@ -8,6 +8,7 @@ import {
   beginEditorLaunchSession,
   failEditorLaunchContext,
   publishEditorLaunchContext,
+  releaseEditorLaunchContext,
 } from './editor-launch-session';
 import { ENVIRONMENT_CHANGED_ERROR, environmentToken } from './environment';
 
@@ -96,22 +97,20 @@ export async function openEditorWindow(
     scrollToText: opts?.scrollToText,
   };
 
-  // Start the BMP request before the local handoff. Once the placeholder is
-  // stored, the iframe can mount immediately and wait for this same key to be
-  // replaced with the authoritative context.
-  const contextPromise = buildEditorContext(rid, preferredProperty, frozenTarget, opts);
   const launchSession = await beginEditorLaunchSession(rid, loadingContext);
 
   const label = cached?.name
     ? `${cached.type || 'Object'} · ${cached.name}`
     : `Editor · ${cached?.businessId || rid}`;
-  const launchPromise = launchFrame({
+  const disposition = await launchFrame({
     kind: 'editor',
     path: launchSession.path,
     label,
     defaultWidth: 960,
     defaultHeight: 640,
-    resourceKey: `editor:${rid}`,
+    // Resource identity includes the BMP environment. Same-profile launches
+    // preserve drafts; a profile switch must never reuse stale editor context.
+    resourceKey: `editor:${loadingContext.environment}:${rid}`,
     activation: {
       type: 'editor',
       rid,
@@ -122,14 +121,18 @@ export async function openEditorWindow(
     tabId: targetTabId,
   });
 
+  if (disposition === 'activated' || disposition === 'superseded' || disposition === 'dropped' || disposition === 'failed') {
+    await releaseEditorLaunchContext(launchSession);
+    return;
+  }
+
   try {
-    const ctx = await contextPromise;
+    const ctx = await buildEditorContext(rid, preferredProperty, frozenTarget, opts);
     await publishEditorLaunchContext(launchSession, ctx);
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to load code from BMP';
     await failEditorLaunchContext(launchSession, loadingContext, message);
   }
-  await launchPromise;
 }
 
 /** Fetch and compose the complete editor context without opening a frame.
@@ -290,7 +293,7 @@ export async function openExtendedWindow(
     label: name ? `Extended Code · ${name}` : 'Extended Code',
     defaultWidth: 960,
     defaultHeight: 640,
-    resourceKey: 'editor:extended',
+    resourceKey: `editor:extended:${environment}`,
     // A code handoff is a new scratch document, not merely a request to focus
     // the existing one. Replacing it must therefore use the dirty guard.
     replaceExisting: !!initialCode,

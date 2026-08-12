@@ -271,7 +271,8 @@ export type FrameOverlayMessage =
       resourceKey?: string;
       replaceExisting?: boolean;
       activation?: FrameActivation;
-    };
+    }
+  | { type: 'FRAME_MOUNT_RESULT'; disposition: import('./types').FrameMountDisposition };
 
 // ── Enrichment ───────────────────────────────────────────────────
 export type EnrichMessage =

@@ -77,9 +77,13 @@ describe('launchFrame target resolution', () => {
 
   it('forwards resource identity and in-place activation to the content frame', async () => {
     setupChrome([{ id: 1, windowId: 100 }]);
+    (chrome.tabs.sendMessage as any).mockResolvedValueOnce({
+      type: 'FRAME_MOUNT_RESULT',
+      disposition: 'activated',
+    });
     const { launchFrame } = await import('../frame-launcher');
 
-    await launchFrame({
+    const disposition = await launchFrame({
       kind: 'editor',
       path: 'editor/editor.html#42',
       label: 'Editor',
@@ -95,6 +99,7 @@ describe('launchFrame target resolution', () => {
       resourceKey: 'editor:42',
       activation: { type: 'editor', rid: '42', property: 'expression' },
     });
+    expect(disposition).toBe('activated');
   });
 
   it('mounts on windowId\'s active tab when only windowId is given', async () => {

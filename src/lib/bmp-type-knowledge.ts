@@ -1,10 +1,11 @@
 /**
  * Authoritative BMP type knowledge.
  *
- * Callers ask for properties, property batches, or list/tag options. This
- * module owns the recipe: validation, canonical class discovery, persistent
- * schema caching, reference-help fallback, environment safety, option caching,
- * and in-flight coalescing.
+ * Callers ask for properties, property batches, list/tag options, or the
+ * concrete class behind a root category. This module owns the recipe:
+ * validation, canonical class discovery, persistent caching, reference-help
+ * fallback, environment safety, negative-cache policy, and in-flight
+ * coalescing.
  */
 
 import type { TypeOptionSet, TypeSchemaProp } from './types';
@@ -19,6 +20,10 @@ export type TypePropertiesResult =
 
 export type TypeOptionsResult =
   | { ok: true; options: TypeOptionSet[] }
+  | { ok: false; error: string };
+
+export type RootCategoryResult =
+  | { ok: true; className?: string }
   | { ok: false; error: string };
 
 export interface TypePropertiesRequest {
@@ -39,12 +44,15 @@ export interface BmpTypeKnowledge {
   properties(request: TypePropertiesRequest): Promise<TypePropertiesResult>;
   propertiesFor(classNames: readonly string[]): Promise<TypeKnowledgeBatchResult>;
   options(className: string, refresh?: boolean): Promise<TypeOptionsResult>;
+  rootCategory(category: string): Promise<RootCategoryResult>;
+  clear(): Promise<void>;
 }
 
 interface EcResult {
   ok: boolean;
   log?: string;
   error?: string;
+  hasError?: boolean;
 }
 
 export interface TypeKnowledgeSource {
@@ -61,6 +69,10 @@ export interface TypeKnowledgeCache {
     props: TypeSchemaProp[],
     canonicalClassName: string,
   ): void;
+  loadRootCategories(): Promise<void>;
+  getRootCategory(environment: string, category: string): string | null | undefined;
+  setRootCategory(environment: string, category: string, className: string | null): void;
+  clear(): Promise<void>;
 }
 
 export interface TypeKnowledgeDependencies {
@@ -70,6 +82,8 @@ export interface TypeKnowledgeDependencies {
 }
 
 const VALID_CLASS_NAME = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
+const VALID_ROOT_CATEGORY = /^[a-z][A-Za-z0-9]{0,63}$/;
+const VALID_CANONICAL_CLASS = /^[A-Z][A-Za-z0-9]+$/;
 const GENERIC_SYSTEM_PROPERTIES = new Set([
   'rid', 'id', 'name', 'description', 'parent', 'model', 'self', 'sortIndex',
   'className', 'available', 'showExpression', 'useShowExpression',
@@ -199,10 +213,31 @@ function parseOptions(log: string): TypeOptionSet[] {
   return sets.filter(set => set.items.length > 0);
 }
 
+function rootCategoryEc(category: string): string {
+  return `root.${category}.children().first().className.whenMissing("")`;
+}
+
+function parseRootCategory(log: string): string | undefined {
+  const value = log.trim().split('\n')[0]?.trim() ?? '';
+  return VALID_CANONICAL_CLASS.test(value) ? value : undefined;
+}
+
 export function createBmpTypeKnowledge(deps: TypeKnowledgeDependencies): BmpTypeKnowledge {
   const propertyLoads = new Map<string, Promise<TypePropertiesResult>>();
   const optionLoads = new Map<string, Promise<TypeOptionsResult>>();
+  const rootCategoryLoads = new Map<string, Promise<RootCategoryResult>>();
   const optionCache = new Map<string, TypeOptionSet[]>();
+  let generation = 0;
+  let clearPromise: Promise<void> | null = null;
+
+  const waitForClear = async (): Promise<void> => {
+    if (clearPromise) await clearPromise;
+  };
+
+  const staleError = (environment: string, requestGeneration: number): string | null => {
+    if (deps.environment() !== environment) return ENVIRONMENT_CHANGED_ERROR;
+    return generation === requestGeneration ? null : 'Type knowledge was reset';
+  };
 
   const validate = (className: string): string | null => {
     const trimmed = className.trim();
@@ -210,17 +245,18 @@ export function createBmpTypeKnowledge(deps: TypeKnowledgeDependencies): BmpType
   };
 
   const properties = async (request: TypePropertiesRequest): Promise<TypePropertiesResult> => {
+    await waitForClear();
     const className = request.className.trim();
     const validationError = validate(className);
     if (validationError) return { ok: false, error: validationError };
     const environment = deps.environment();
+    const requestGeneration = generation;
 
     if (!request.refresh) {
       try {
         await deps.cache.load();
-        if (deps.environment() !== environment) {
-          return { ok: false, error: ENVIRONMENT_CHANGED_ERROR };
-        }
+        const stale = staleError(environment, requestGeneration);
+        if (stale) return { ok: false, error: stale };
         const cached = deps.cache.get(environment, className);
         if (cached) {
           return {
@@ -241,13 +277,15 @@ export function createBmpTypeKnowledge(deps: TypeKnowledgeDependencies): BmpType
 
     const load = (async (): Promise<TypePropertiesResult> => {
       const result = await deps.source.execute(schemaEc(className));
-      if (deps.environment() !== environment) return { ok: false, error: ENVIRONMENT_CHANGED_ERROR };
+      const stale = staleError(environment, requestGeneration);
+      if (stale) return { ok: false, error: stale };
       const parsed = result.ok ? parseSchema(result.log ?? '') : { props: [] as TypeSchemaProp[] };
       let { props } = parsed;
       const canonical = parsed.canonical ?? className;
       if (props.length === 0 && concreteRef) {
         const help = await deps.source.execute(`help(${concreteRef})`);
-        if (deps.environment() !== environment) return { ok: false, error: ENVIRONMENT_CHANGED_ERROR };
+        const helpStale = staleError(environment, requestGeneration);
+        if (helpStale) return { ok: false, error: helpStale };
         if (help.ok) props = parseReferenceHelp(help.log ?? '');
       }
       if (props.length === 0) {
@@ -293,10 +331,12 @@ export function createBmpTypeKnowledge(deps: TypeKnowledgeDependencies): BmpType
   };
 
   const options = async (rawClassName: string, refresh = false): Promise<TypeOptionsResult> => {
+    await waitForClear();
     const className = rawClassName.trim();
     const validationError = validate(className);
     if (validationError) return { ok: false, error: validationError };
     const environment = deps.environment();
+    const requestGeneration = generation;
     const key = `${environment}::${className.toLowerCase()}`;
     if (!refresh) {
       const cached = optionCache.get(key);
@@ -307,7 +347,8 @@ export function createBmpTypeKnowledge(deps: TypeKnowledgeDependencies): BmpType
 
     const load = (async (): Promise<TypeOptionsResult> => {
       const result = await deps.source.execute(optionsEc(className));
-      if (deps.environment() !== environment) return { ok: false, error: ENVIRONMENT_CHANGED_ERROR };
+      const stale = staleError(environment, requestGeneration);
+      if (stale) return { ok: false, error: stale };
       if (!result.ok) {
         return { ok: false, error: result.error || result.log || 'EC execution failed' };
       }
@@ -325,7 +366,73 @@ export function createBmpTypeKnowledge(deps: TypeKnowledgeDependencies): BmpType
     }
   };
 
-  return { properties, propertiesFor, options };
+  const rootCategory = async (rawCategory: string): Promise<RootCategoryResult> => {
+    await waitForClear();
+    const category = rawCategory.trim();
+    if (!VALID_ROOT_CATEGORY.test(category)) {
+      return { ok: false, error: `Invalid root category: ${rawCategory}` };
+    }
+    const environment = deps.environment();
+    const requestGeneration = generation;
+    try {
+      await deps.cache.loadRootCategories();
+      const stale = staleError(environment, requestGeneration);
+      if (stale) return { ok: false, error: stale };
+      const cached = deps.cache.getRootCategory(environment, category);
+      if (cached !== undefined) {
+        return cached === null ? { ok: true } : { ok: true, className: cached };
+      }
+    } catch (error) {
+      return { ok: false, error: errorText(error) };
+    }
+
+    const key = `${environment}::${category}`;
+    const existing = rootCategoryLoads.get(key);
+    if (existing) return existing;
+
+    const load = (async (): Promise<RootCategoryResult> => {
+      const result = await deps.source.execute(rootCategoryEc(category));
+      const stale = staleError(environment, requestGeneration);
+      if (stale) return { ok: false, error: stale };
+      if (!result.ok) {
+        // An EC error is a definitive negative answer. Cache it so editor
+        // scans do not repeat the same command on every keystroke. Transport
+        // failures stay retryable and are deliberately not cached.
+        if (result.hasError) {
+          deps.cache.setRootCategory(environment, category, null);
+          return { ok: true };
+        }
+        return { ok: false, error: result.error || result.log || 'EC execution failed' };
+      }
+      const className = parseRootCategory(result.log ?? '');
+      deps.cache.setRootCategory(environment, category, className ?? null);
+      return className ? { ok: true, className } : { ok: true };
+    })();
+    rootCategoryLoads.set(key, load);
+    try {
+      return await load;
+    } catch (error) {
+      return { ok: false, error: errorText(error) };
+    } finally {
+      if (rootCategoryLoads.get(key) === load) rootCategoryLoads.delete(key);
+    }
+  };
+
+  const clear = async (): Promise<void> => {
+    generation += 1;
+    propertyLoads.clear();
+    optionLoads.clear();
+    rootCategoryLoads.clear();
+    optionCache.clear();
+    const work = deps.cache.clear();
+    clearPromise = work;
+    try { await work; }
+    finally {
+      if (clearPromise === work) clearPromise = null;
+    }
+  };
+
+  return { properties, propertiesFor, options, rootCategory, clear };
 }
 
 const productionCache: TypeKnowledgeCache = {
@@ -333,6 +440,10 @@ const productionCache: TypeKnowledgeCache = {
   get: persistentSchemaCache.get,
   getCanonical: persistentSchemaCache.getCanonical,
   set: persistentSchemaCache.set,
+  loadRootCategories: persistentSchemaCache.loadRootCache,
+  getRootCategory: persistentSchemaCache.getRoot,
+  setRootCategory: persistentSchemaCache.setRoot,
+  clear: persistentSchemaCache.clear,
 };
 
 export const bmpTypeKnowledge = createBmpTypeKnowledge({

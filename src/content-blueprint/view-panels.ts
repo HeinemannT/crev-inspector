@@ -440,7 +440,11 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   const applyLabel = applyPhase === 'preparing' ? 'Checking IDs…' : applyPhase === 'applying' ? 'Applying…' : `Apply${pending ? ` (${pending})` : ''}`;
   const applyB = mkBtn(applyLabel, openApplyPreview);
   applyB.className = 'apply'; applyB.disabled = pending === 0 || !!bp.applySession; c.appendChild(applyB);
-  const exit = mkIconBtn(ICON_X, exitBlueprint); exit.title = 'Exit blueprint mode'; c.appendChild(exit);
+  const exit = mkIconBtn(ICON_X, exitBlueprint);
+  exit.classList.add('bp-exit');
+  exit.title = 'Exit blueprint mode';
+  exit.setAttribute('aria-label', 'Exit blueprint mode');
+  c.appendChild(exit);
   return c;
 }
 

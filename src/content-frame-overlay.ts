@@ -12,7 +12,7 @@ import { h, svg } from './lib/dom';
 import { log } from './lib/logger';
 import { ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_X } from './lib/icons';
 import { ensureOverlayStyle } from './content-overlay-style';
-import type { FrameActivation, FrameKind } from './lib/types';
+import type { FrameActivation, FrameKind, FrameMountDisposition } from './lib/types';
 import {
   centeredFrameBounds,
   detectFrameSnapZone,
@@ -61,7 +61,12 @@ const frames = new Map<FrameKind, FrameState>();
 const mounting = new Set<FrameKind>();
 /** Latest request received while a kind is still reading its saved bounds.
  * Replayed after the first mount so rapid clicks never disappear. */
-const pendingMounts = new Map<FrameKind, MountFrameOptions>();
+interface PendingMount {
+  opts: MountFrameOptions;
+  resolve: (disposition: FrameMountDisposition) => void;
+}
+
+const pendingMounts = new Map<FrameKind, PendingMount>();
 
 // Set by teardownFrameOverlayModule(). A mount that was awaiting readBounds()
 // when re-injection tore the module down must NOT append its host afterwards —
@@ -176,7 +181,7 @@ export interface MountFrameOptions {
 
 // ── Public API ─────────────────────────────────────────────────
 
-export async function mountFrameOverlay(opts: MountFrameOptions): Promise<void> {
+export async function mountFrameOverlay(opts: MountFrameOptions): Promise<FrameMountDisposition> {
   const existing = frames.get(opts.kind);
   if (existing) {
     const resourceKey = opts.resourceKey ?? opts.url;
@@ -184,24 +189,28 @@ export async function mountFrameOverlay(opts: MountFrameOptions): Promise<void> 
       updateFrameLabel(existing, opts.label);
       activateFrame(existing, opts.activation);
       focus(existing);
-      return;
+      return 'activated';
     }
     requestReplace(existing, opts);
-    return;
+    return 'replacement-pending';
   }
 
   // Another mount for this kind is already resolving its bounds. Retain only
   // the latest intent and replay it once the reserved frame exists.
   if (mounting.has(opts.kind)) {
-    pendingMounts.set(opts.kind, opts);
-    return;
+    pendingMounts.get(opts.kind)?.resolve('superseded');
+    return new Promise(resolve => pendingMounts.set(opts.kind, { opts, resolve }));
   }
   mounting.add(opts.kind);
+  let disposition: FrameMountDisposition = 'mounted';
   try {
     const bounds = await readBounds(opts);
     // Re-injection tore the module down while we were resolving bounds —
     // drop this mount so we don't append a host to a dead module.
-    if (moduleTorn) return;
+    if (moduleTorn) {
+      disposition = 'dropped';
+      return disposition;
+    }
     // Guarantee the overlay stylesheet exists before the host enters the DOM: `.crev-eo-host` is
     // position:fixed in that sheet, and a frame surface (EC editor / diff / object view / code
     // search) can be opened WITHOUT Inspect — which is what used to inject it. Without this the host
@@ -220,12 +229,16 @@ export async function mountFrameOverlay(opts: MountFrameOptions): Promise<void> 
     ensureOverlapObserver();
     updateOverlayBlockState();
     focus(state);
+    return disposition;
   } finally {
     mounting.delete(opts.kind);
     const pending = pendingMounts.get(opts.kind);
     if (pending) {
       pendingMounts.delete(opts.kind);
-      if (!moduleTorn) void mountFrameOverlay(pending);
+      if (moduleTorn) pending.resolve('dropped');
+      else {
+        void mountFrameOverlay(pending.opts).then(pending.resolve, () => pending.resolve('failed'));
+      }
     }
   }
 }

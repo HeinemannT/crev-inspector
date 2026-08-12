@@ -10,8 +10,11 @@ import * as persistentSchemaCache from '../type-schema-cache';
 
 function memoryCache(): TypeKnowledgeCache {
   const entries = new Map<string, { props: TypeSchemaProp[]; canonical: string }>();
+  const rootEntries = new Map<string, string | null>();
   const key = (environment: string, className: string) =>
     `${environment}::${className.toLowerCase()}`;
+  const rootKey = (environment: string, category: string) =>
+    `${environment}::${category}`;
   return {
     load: vi.fn(async () => undefined),
     get: (environment, className) => entries.get(key(environment, className))?.props ?? null,
@@ -19,6 +22,15 @@ function memoryCache(): TypeKnowledgeCache {
     set: (environment, className, props, canonical) => {
       entries.set(key(environment, className), { props, canonical });
     },
+    loadRootCategories: vi.fn(async () => undefined),
+    getRootCategory: (environment, category) => rootEntries.get(rootKey(environment, category)),
+    setRootCategory: (environment, category, className) => {
+      rootEntries.set(rootKey(environment, category), className);
+    },
+    clear: vi.fn(async () => {
+      entries.clear();
+      rootEntries.clear();
+    }),
   };
 }
 
@@ -216,6 +228,90 @@ describe('BMP type knowledge', () => {
     expect(code).toContain('_i.name.whenMissing(_i.id)');
   });
 
+  it('resolves and caches root-category type knowledge through the same interface', async () => {
+    const execute = vi.fn(async () => ({ ok: true, log: 'CeRiskAssessment\nDuration : 12 ms' }));
+    const module = knowledge(execute);
+
+    await expect(module.rootCategory('ceRiskAssessments')).resolves.toEqual({
+      ok: true,
+      className: 'CeRiskAssessment',
+    });
+    await expect(module.rootCategory('ceRiskAssessments')).resolves.toEqual({
+      ok: true,
+      className: 'CeRiskAssessment',
+    });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledWith(
+      'root.ceRiskAssessments.children().first().className.whenMissing("")',
+    );
+  });
+
+  it('negative-caches definitive root failures but retries transport failures', async () => {
+    const definitive = vi.fn(async () => ({ ok: false, hasError: true, log: 'Unknown root category' }));
+    const definitiveModule = knowledge(definitive);
+
+    await expect(definitiveModule.rootCategory('missingThings')).resolves.toEqual({ ok: true });
+    await expect(definitiveModule.rootCategory('missingThings')).resolves.toEqual({ ok: true });
+    expect(definitive).toHaveBeenCalledTimes(1);
+
+    const transient = vi.fn(async () => ({ ok: false, error: 'bridge unavailable' }));
+    const transientModule = knowledge(transient);
+    await expect(transientModule.rootCategory('ceRisks')).resolves.toEqual({
+      ok: false,
+      error: 'bridge unavailable',
+    });
+    await transientModule.rootCategory('ceRisks');
+    expect(transient).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears every facet and refetches type knowledge after reset', async () => {
+    const cache = memoryCache();
+    const execute = vi.fn(async (code: string) => code.startsWith('root.')
+      ? { ok: true, log: 'CeRisk' }
+      : { ok: true, log: '__prop__|||kind|||list\n__opt__|||plain|||Plain' });
+    const module = createBmpTypeKnowledge({
+      environment: () => 'server-a',
+      source: { execute },
+      cache,
+    });
+
+    await module.options('CeRisk');
+    await module.rootCategory('ceRisks');
+    await module.options('CeRisk');
+    await module.rootCategory('ceRisks');
+    expect(execute).toHaveBeenCalledTimes(2);
+
+    await module.clear();
+    await module.options('CeRisk');
+    await module.rootCategory('ceRisks');
+
+    expect(cache.clear).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledTimes(4);
+  });
+
+  it('validates, coalesces, and environment-guards root-category reads', async () => {
+    let currentEnvironment = 'server-a';
+    let release: ((value: { ok: true; log: string }) => void) | undefined;
+    const execute = vi.fn(() => new Promise<{ ok: true; log: string }>(resolve => {
+      release = resolve;
+    }));
+    const module = knowledge(execute, () => currentEnvironment);
+
+    await expect(module.rootCategory('Risk; output("owned")')).resolves.toEqual({
+      ok: false,
+      error: 'Invalid root category: Risk; output("owned")',
+    });
+    const first = module.rootCategory('ceRisks');
+    const second = module.rootCategory('ceRisks');
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    currentEnvironment = 'server-b';
+    release?.({ ok: true, log: 'CeRisk' });
+
+    await expect(first).resolves.toEqual({ ok: false, error: ENVIRONMENT_CHANGED_ERROR });
+    await expect(second).resolves.toEqual({ ok: false, error: ENVIRONMENT_CHANGED_ERROR });
+  });
+
   it('coalesces option reads and translates source exceptions', async () => {
     let release: ((value: { ok: true; log: string }) => void) | undefined;
     const execute = vi.fn(() => new Promise<{ ok: true; log: string }>(resolve => {
@@ -250,6 +346,10 @@ describe('BMP type knowledge', () => {
         get: () => null,
         getCanonical: () => undefined,
         set: () => undefined,
+        loadRootCategories: async () => undefined,
+        getRootCategory: () => undefined,
+        setRootCategory: () => undefined,
+        clear: async () => undefined,
       },
     });
 

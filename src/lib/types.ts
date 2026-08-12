@@ -220,6 +220,17 @@ export interface FrameActivation {
   scrollToText?: string;
 }
 
+/** Result of asking the content script to mount a frame. Callers that prepare
+ * one-shot launch state use this to distinguish a cold mount from activating
+ * an already-live, draft-preserving frame. */
+export type FrameMountDisposition =
+  | 'mounted'
+  | 'activated'
+  | 'replacement-pending'
+  | 'superseded'
+  | 'dropped'
+  | 'failed';
+
 // ── History ──────────────────────────────────────────────────────
 export interface HistoryEntry {
   rid: string;

@@ -79,4 +79,23 @@ describe('editor launch targeting', () => {
     expect(mocks.resolveTabPageContext).toHaveBeenCalledWith(1);
     expect((chrome.tabs.sendMessage as any).mock.calls[0][0]).toBe(1);
   });
+
+  it('reuses a live same-environment editor without fetching or orphaning a launch context', async () => {
+    (chrome.tabs.sendMessage as any).mockResolvedValueOnce({
+      type: 'FRAME_MOUNT_RESULT',
+      disposition: 'activated',
+    });
+    const { openEditorWindow } = await import('../editor');
+
+    await openEditorWindow('42', 'afterExpression', { tabId: 1 });
+
+    expect(fetchEditorContext).not.toHaveBeenCalled();
+    const mount = (chrome.tabs.sendMessage as any).mock.calls[0][1];
+    expect(mount.resourceKey).toMatch(/^editor:.+:42$/);
+    const launchSet = vi.mocked(chrome.storage.session.set).mock.calls
+      .find(call => Object.keys(call[0]).some(key => key.startsWith('crev_editor_launch_')));
+    const launchKey = Object.keys(launchSet?.[0] ?? {})[0];
+    expect(launchKey).toBeTruthy();
+    expect(chrome.storage.session.remove).toHaveBeenCalledWith(launchKey);
+  });
 });

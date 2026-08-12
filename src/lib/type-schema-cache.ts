@@ -16,10 +16,8 @@
  * Lazy by design — nothing is ever pre-fetched. First lookup of a
  * (serverId, className) pair pays the round-trip; second is instant.
  *
- * Invalidation:
- *   - manual via `invalidate(serverId, className)` from the UI
- *   - server change via `invalidateServer(serverId)` on profile switch
- *   - TTL fallback at 7 days for defensive freshness
+ * Freshness is bounded by a seven-day TTL. RESET_ALL clears both schema and
+ * root-category knowledge through the single `clear()` recovery operation.
  */
 import type { TypeSchemaProp } from './types';
 
@@ -122,22 +120,6 @@ export function getCanonical(serverId: string, className: string): string | unde
   return e.canonicalClassName;
 }
 
-/** Manual single-type invalidation (Refresh button). */
-export function invalidate(serverId: string, className: string): void {
-  if (mem.delete(key(serverId, className))) scheduleFlush();
-}
-
-/** Drop every entry for a server — used when the active profile
- *  changes, since cached schemas from server A might mislead a script
- *  running against server B. */
-export function invalidateServer(serverId: string): void {
-  let changed = false;
-  for (const k of mem.keys()) {
-    if (k.startsWith(`${serverId}::`)) { mem.delete(k); changed = true; }
-  }
-  if (changed) scheduleFlush();
-}
-
 // ── Root-category → className mappings ──────────────────────────
 //
 // Same lazy cache shape for `root.<lcCategory>` patterns. Resolved via
@@ -155,7 +137,11 @@ export function loadRootCache(): Promise<void> {
       const raw = await chrome.storage.local.get(ROOT_KEY);
       const entries = raw[ROOT_KEY] as Record<string, RootEntry> | undefined;
       if (!entries) return;
-      for (const [k, e] of Object.entries(entries)) rootMem.set(k, e);
+      const now = Date.now();
+      for (const e of Object.values(entries)) {
+        if (typeof e.resolvedAt !== 'number' || now - e.resolvedAt > TTL_MS) continue;
+        rootMem.set(rootKey(e.serverId, e.category), e);
+      }
     } catch { /* see load() */ }
   })();
   return rootLoadPromise;
@@ -182,7 +168,13 @@ function rootKey(serverId: string, category: string): string {
 }
 
 export function getRoot(serverId: string, category: string): string | null | undefined {
-  const e = rootMem.get(rootKey(serverId, category));
+  const cacheKey = rootKey(serverId, category);
+  const e = rootMem.get(cacheKey);
+  if (e && (typeof e.resolvedAt !== 'number' || Date.now() - e.resolvedAt > TTL_MS)) {
+    rootMem.delete(cacheKey);
+    scheduleRootFlush();
+    return undefined;
+  }
   // null means "we asked and BMP said empty" — DON'T re-ask every keystroke
   // for known-bad categories. undefined means "we've never asked".
   return e ? e.className : undefined;
@@ -191,4 +183,17 @@ export function getRoot(serverId: string, category: string): string | null | und
 export function setRoot(serverId: string, category: string, className: string | null): void {
   rootMem.set(rootKey(serverId, category), { serverId, category, className, resolvedAt: Date.now() });
   scheduleRootFlush();
+}
+
+/** Clear every persisted and in-memory type-knowledge facet. Await any initial
+ * storage reads first so a late load cannot repopulate memory after reset. */
+export async function clear(): Promise<void> {
+  const loads: Promise<void>[] = [];
+  if (loadPromise) loads.push(loadPromise);
+  if (rootLoadPromise) loads.push(rootLoadPromise);
+  await Promise.allSettled(loads);
+  mem.clear();
+  rootMem.clear();
+  try { await chrome.storage.local.remove([STORAGE_KEY, ROOT_KEY]); }
+  catch { /* Reset remains useful even when persistence is temporarily unavailable. */ }
 }

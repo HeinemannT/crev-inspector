@@ -593,7 +593,7 @@ function oneShotMessageListener(msg: InspectorMessage, _sender: chrome.runtime.M
     return false;
   }
   if (msg.type === 'MOUNT_FRAME') {
-    mountFrameOverlay({
+    void mountFrameOverlay({
       kind: msg.kind,
       url: msg.url,
       label: msg.label,
@@ -602,8 +602,13 @@ function oneShotMessageListener(msg: InspectorMessage, _sender: chrome.runtime.M
       resourceKey: msg.resourceKey,
       replaceExisting: msg.replaceExisting,
       activation: msg.activation,
-    }).catch(e => log.swallow('content:mountFrame', e));
-    return false;
+    }).then(disposition => {
+      sendResponse({ type: 'FRAME_MOUNT_RESULT', disposition });
+    }).catch(e => {
+      log.swallow('content:mountFrame', e);
+      sendResponse({ type: 'FRAME_MOUNT_RESULT', disposition: 'failed' });
+    });
+    return true;
   }
   if (msg.type === 'BMP_GOTO') {
     // In-place BMP navigation (from the Extended Code editor's "go to this

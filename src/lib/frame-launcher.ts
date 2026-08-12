@@ -10,7 +10,7 @@
  */
 
 import { log } from './logger';
-import type { FrameActivation, FrameKind } from './types';
+import type { FrameActivation, FrameKind, FrameMountDisposition } from './types';
 
 export interface LaunchFrameOptions {
   kind: FrameKind;
@@ -61,15 +61,15 @@ export async function resolveFrameTargetTabId(target: FrameTarget = {}): Promise
 
 /** Send MOUNT_FRAME to the target tab's content script. If no content script
  *  is present (chrome:// page, etc.) the failure is logged and dropped. */
-export async function launchFrame(opts: LaunchFrameOptions): Promise<void> {
+export async function launchFrame(opts: LaunchFrameOptions): Promise<FrameMountDisposition> {
   const tabId = await resolveFrameTargetTabId(opts);
   if (tabId == null) {
     log.warn('frame-launcher:noActiveTab', 'No active tab to mount frame overlay');
-    return;
+    return 'failed';
   }
   const url = chrome.runtime.getURL(opts.path);
   try {
-    await chrome.tabs.sendMessage(tabId, {
+    const response = await chrome.tabs.sendMessage(tabId, {
       type: 'MOUNT_FRAME',
       kind: opts.kind,
       url,
@@ -80,7 +80,12 @@ export async function launchFrame(opts: LaunchFrameOptions): Promise<void> {
       replaceExisting: opts.replaceExisting,
       activation: opts.activation,
     });
+    if (response?.type === 'FRAME_MOUNT_RESULT') return response.disposition;
+    // Compatibility floor for a content script from just before an extension
+    // reload. It accepted the mount but did not yet return an outcome.
+    return 'mounted';
   } catch (e) {
     log.warn('frame-launcher:mountFailed', `Cannot mount frame overlay (kind=${opts.kind}): ${(e as Error).message}`);
+    return 'failed';
   }
 }

@@ -118,6 +118,13 @@ export async function failEditorLaunchContext(
   });
 }
 
+/** Discard a prepared handoff that was never adopted because the content
+ * layer activated an already-live editor instead of mounting this launch. */
+export async function releaseEditorLaunchContext(session: EditorLaunchSession): Promise<void> {
+  try { await chrome.storage.session.remove(session.storageKey); }
+  catch { /* Stale-launch cleanup is retried on the next launch. */ }
+}
+
 function plainEditorContext(value: LaunchContext | StoredEditorSessionContext): EditorContext {
   const {
     launchSessionId: _launchSessionId,
