@@ -60,7 +60,7 @@ function copyRow(k: string, value: string | undefined, dim = false): HTMLElement
       e.stopPropagation()
       navigator.clipboard?.writeText(value).catch(() => { /* blocked — silent */ })
       const orig = v.textContent
-      v.textContent = '✓ copied'
+      v.textContent = 'Copied'
       v.classList.add('crev-tt-v--ok')
       setTimeout(() => { v.textContent = orig; v.classList.remove('crev-tt-v--ok') }, 700)
     },

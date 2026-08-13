@@ -25,7 +25,7 @@ import type {
 import { h, svg, statusFlash } from '../../lib/dom';
 import { typeBadge } from '../../lib/type-badge';
 import { objectChip } from '../../lib/object-chip';
-import { ICON_SPARKLE, ICON_X, ICON_COPY, ICON_PIN, ICON_REFRESH, ICON_PENCIL } from '../../lib/icons';
+import { ICON_SPARKLE, ICON_X, ICON_COPY, ICON_PIN, ICON_REFRESH, ICON_PENCIL, ICON_CHECK_CIRCLE, ICON_X_CIRCLE } from '../../lib/icons';
 import { sendFireForget, sendRequest } from '../../lib/messaging';
 import { showToast } from '../../lib/toast';
 import { S } from '../state';
@@ -523,7 +523,7 @@ export class AiTab implements Tab {
     const trace = d.turn.toolTrace ?? [];
     const anyFailed = trace.some(t => t.ok === false);
     const n = trace.length;
-    const tick = anyFailed ? '✕' : '✓';
+    const tick = svg(anyFailed ? ICON_X_CIRCLE : ICON_CHECK_CIRCLE);
     const detail = this.buildToolTrace(
       trace.map(t => ({ name: t.name, summary: t.summary, status: t.ok === false ? 'err' as const : 'ok' as const })),
     );
@@ -551,7 +551,7 @@ export class AiTab implements Tab {
   private buildToolTrace(tools: { name: string; summary: string; status: 'pending' | 'ok' | 'err' }[]): HTMLElement {
     const wrap = h('div', { class: 'ai-tools' });
     for (const t of tools) {
-      const tick = t.status === 'pending' ? '·' : t.status === 'ok' ? '✓' : '✕';
+      const tick = t.status === 'pending' ? '·' : svg(t.status === 'ok' ? ICON_CHECK_CIRCLE : ICON_X_CIRCLE);
       wrap.appendChild(h('div', { class: `ai-tl ai-tl--${t.status}` },
         h('span', { class: 'ai-tl-tick' }, tick),
         h('span', { class: 'ai-tl-name' }, t.name),
@@ -649,7 +649,7 @@ export class AiTab implements Tab {
 
   private buildPreviewStrip(ok: boolean, text: string): HTMLElement {
     const strip = h('div', { class: `ai-pv ${ok ? 'ai-pv--ok' : 'ai-pv--err'}` },
-      h('span', { class: 'ai-pv-mark' }, ok ? '✓' : '✕'),
+      h('span', { class: 'ai-pv-mark' }, svg(ok ? ICON_CHECK_CIRCLE : ICON_X_CIRCLE)),
       h('span', { class: 'ai-pv-text' }, ok ? `preview · ${oneLine(text)}` : oneLine(text)),
     );
     if (!ok) {

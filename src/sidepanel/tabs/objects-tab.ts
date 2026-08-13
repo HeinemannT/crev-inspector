@@ -20,7 +20,7 @@ import { typeBadge } from '../../lib/type-badge';
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { truncRid, copyText, ICON_COPY, ICON_SEARCH } from '../utils';
-import { ICON_CHEVRON, ICON_CHECK } from '../../lib/icons';
+import { ICON_CHEVRON, ICON_CHECK, ICON_X } from '../../lib/icons';
 import { resolveCopyText, getModifier, COPY_TOOLTIP } from '../../lib/namespace';
 import { DISPLAY_LIMIT_STEP, SEARCH_DEBOUNCE } from '../../lib/constants';
 import { S as shared } from '../state';
@@ -254,7 +254,7 @@ export class ObjectsTab implements Tab {
       input,
       this.searching ? h('span', { class: 'bx-spin', title: 'Searching the workspace…' }) : null,
       count ? h('span', { class: 'bx-count', title: `${blended} shown${this.totalHits > blended ? ` · ${this.totalHits} total index matches` : ''}` }, count) : null,
-      hasQuery ? h('button', { class: 'bx-clear', 'data-action': 'clear-search', title: 'Clear (Esc)' }, '✕') : null,
+      hasQuery ? h('button', { class: 'bx-clear', 'data-action': 'clear-search', title: 'Clear (Esc)', 'aria-label': 'Clear search' }, svg(ICON_X)) : null,
     );
   }
 

@@ -162,7 +162,7 @@ function markTarget(ev: MouseEvent): void {
     const kids = findNode(m, targetId)?.node.children ?? [];
     const place = src ? resolveGapPlacement(kids, after && after !== dragId ? after : undefined, src.node.kind) : null;
     if (!place) { setAct(''); return; }
-    if (!place.ok) { hit.classList.add('bp-drop-no'); setAct(`✕ ${place.reason}`); return; } // action stays null → drop is a no-op
+    if (!place.ok) { hit.classList.add('bp-drop-no'); setAct(`Cannot place: ${place.reason}`); return; } // action stays null → drop is a no-op
     hit.classList.add('bp-drop');
     const free = Number(hit.dataset.bpfree) || undefined;
     const fit = free != null && src != null && src.node.cols.L > free ? free : undefined;

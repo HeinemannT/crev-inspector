@@ -218,9 +218,14 @@ body {
 }
 .ps-check {
   color: var(--success);
-  font-size: var(--text-base);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
 }
+.ps-check svg { width: 14px; height: 14px; }
 .ps-hint {
   padding: 4px 12px 2px;
   font-size: var(--text-xs);
@@ -863,6 +868,7 @@ body {
   display: inline-flex; align-items: center; justify-content: center;
 }
 .bx-clear:hover { background: var(--surface-4); color: var(--text-1); }
+.bx-clear svg { width: 11px; height: 11px; }
 .bx-spin {
   flex-shrink: 0; width: 12px; height: 12px; border: 2px solid var(--surface-4);
   border-top-color: var(--accent); border-radius: 50%; animation: bx-sp .7s linear infinite;
@@ -4259,7 +4265,8 @@ button.flow-property-ref:hover {
 .atrace-title { font-size: var(--text-lg); font-weight: var(--weight-semi); color: var(--text-1); }
 .atrace-obj { display: inline-flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
 .atrace-obj-name { color: var(--text-2); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.atrace-close { margin-left: auto; background: none; border: none; color: var(--text-3); cursor: pointer; font-size: var(--text-lg); }
+.atrace-close { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; background: none; border: none; color: var(--text-3); cursor: pointer; }
+.atrace-close svg { width: 14px; height: 14px; }
 .atrace-close:hover { color: var(--text-1); }
 
 .atrace-body { padding: 12px; overflow: auto; }
@@ -4928,6 +4935,7 @@ button.flow-property-ref:hover {
   min-width: 0;
 }
 .ai-tl-tick { flex: none; font-family: var(--font-body); }
+.ai-tl-tick svg { display: block; width: 12px; height: 12px; }
 .ai-tl--ok .ai-tl-tick { color: var(--success); }
 .ai-tl--err .ai-tl-tick { color: var(--danger); }
 .ai-tl--pending .ai-tl-tick { color: var(--text-3); }
@@ -4950,6 +4958,7 @@ button.flow-property-ref:hover {
   color: var(--text-3);
 }
 .ai-tg-tick { flex: none; color: var(--success); }
+.ai-tg-tick svg { display: block; width: 12px; height: 12px; }
 .ai-tg-sum--err .ai-tg-tick { color: var(--danger); }
 .ai-tg-sum:hover .ai-tg-label { color: var(--text-2); }
 .ai-tg-detail { display: none; }
@@ -5041,6 +5050,7 @@ button.flow-property-ref:hover {
 .ai-pv--ok { color: var(--success); background: color-mix(in srgb, var(--success) 8%, var(--surface-0)); }
 .ai-pv--err { color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface-0)); }
 .ai-pv-mark { flex: none; }
+.ai-pv-mark svg { display: block; width: 13px; height: 13px; }
 .ai-pv-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-pv-fix {
   margin-left: auto;

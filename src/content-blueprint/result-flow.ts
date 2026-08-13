@@ -20,7 +20,7 @@ import type { LModel, LNode, FlowNode, FlowProjection } from '../lib/layout/type
 import { isTempId } from '../lib/layout/model';
 import { effectiveFlowChildren, effectiveRef, findFlowContainer, trayButtons, isStagedActionButtonAdd } from '../lib/layout/flow';
 import { flowDotTitle } from '../lib/widget-metadata';
-import { ICON_PLUS, ICON_LIGHTNING, ICON_ARROW_RIGHT, ICON_PENCIL, ICON_TABS, ICON_LAYOUT, ICON_TRAY, ICON_ARROW_UNDO } from '../lib/icons';
+import { ICON_PLUS, ICON_LIGHTNING, ICON_ARROW_RIGHT, ICON_PENCIL, ICON_TABS, ICON_LAYOUT, ICON_TRAY, ICON_ARROW_UNDO, ICON_X } from '../lib/icons';
 import { setIcon } from './geometry';
 import { bp } from './state';
 import { openFlowPicker, toggleFlowFold, toggleTrayCard, toggleActionMenu, setActionButtonFlag, openPicker, cancelFlowAdd, stageNewRef, openWireExisting, doUnwire, beginRename } from './actions';
@@ -270,7 +270,7 @@ function stagedRefBand(m: LModel, widgetId: string, ref: { id: string; className
     : 'Staged: linked to this widget on Apply.';
   end.appendChild(tag);
   const x = document.createElement('button'); x.className = 'bp-fwire x';
-  x.textContent = '✕';
+  setIcon(x, ICON_X);
   x.title = ref.isNew ? 'Cancel the new reference (and its staged elements)' : 'Cancel the staged link';
   onTap(x, () => doUnwire(widgetId));
   end.appendChild(x);

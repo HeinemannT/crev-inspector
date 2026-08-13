@@ -25,7 +25,7 @@ import { typeBadge } from '../lib/type-badge';
 import { h, render, svg } from '../lib/dom';
 import {
   ICON_ARROWS_LEFT_RIGHT, ICON_CARET_DOWN, ICON_CHEVRON, ICON_CODE,
-  ICON_COLUMNS, ICON_COPY, ICON_EYE, ICON_IDENTIFICATION_CARD, ICON_PENCIL,
+  ICON_COLUMNS, ICON_COPY, ICON_CHECK, ICON_EYE, ICON_IDENTIFICATION_CARD, ICON_PENCIL,
   ICON_SHIELD_PH, ICON_SLIDERS_HORIZONTAL, ICON_TREE_STRUCTURE,
 } from '../lib/icons';
 import { identityBusinessIdError } from '../lib/object-identity';
@@ -1114,7 +1114,7 @@ function renderPropertiesArea(): HTMLElement {
         navigator.clipboard?.writeText(value).catch(() => { /* blocked — silent */ });
         if (timer) clearTimeout(timer);
         button.classList.add('is-copied');
-        button.replaceChildren('✓');
+        button.replaceChildren(svg(ICON_CHECK));
         timer = setTimeout(() => {
           button.classList.remove('is-copied');
           button.replaceChildren(svg(ICON_COPY));

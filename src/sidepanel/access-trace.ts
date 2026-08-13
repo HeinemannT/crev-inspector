@@ -10,7 +10,7 @@
  * `routeAccessMessage`.
  */
 import { h, render, svg } from '../lib/dom';
-import { ICON_X_CIRCLE, ICON_CHECK_CIRCLE, ICON_MINUS_CIRCLE, ICON_CHECK, ICON_CHEVRON } from '../lib/icons';
+import { ICON_X_CIRCLE, ICON_CHECK_CIRCLE, ICON_MINUS_CIRCLE, ICON_CHECK, ICON_CHEVRON, ICON_X } from '../lib/icons';
 import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
 import type { AccessSubject, AccessTraceAction, AccessTraceNode, InspectorMessage } from '../lib/types';
 
@@ -189,7 +189,7 @@ function renderHeader(): HTMLElement {
       wireBadgeCopy(typeBadge(o.type, { size: 'xs' }), () => o.rid),
       h('span', { class: 'atrace-obj-name', title: o.name }, o.name || '(unnamed)'),
     ),
-    h('button', { class: 'atrace-close', title: 'Close (Esc)', onClick: () => closeAccessTrace() }, '✕'),
+    h('button', { class: 'atrace-close', title: 'Close (Esc)', 'aria-label': 'Close', onClick: () => closeAccessTrace() }, svg(ICON_X)),
   );
 }
 

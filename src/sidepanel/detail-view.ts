@@ -679,7 +679,7 @@ export class DetailView {
   ): HTMLElement {
     const display = resolveDisplayIdentity({ rid, businessId, templateBusinessId });
     const b = wireBadgeCopy(typeBadge(type), () => display.primary, {
-      onCopied: copied => statusFlash(`Copied ${copied} \u2713`),
+      onCopied: copied => statusFlash(`Copied ${copied}`),
     });
     b.classList.add('pane-id-bdg');
     return b;
@@ -1188,9 +1188,9 @@ export class DetailView {
           title: `Copy ${label}`,
           onClick: () => {
             navigator.clipboard?.writeText(value).catch(() => { /* blocked — silent */ });
-            statusFlash(`Copied ${value} \u2713`);
+            statusFlash(`Copied ${value}`);
             const original = valEl.textContent;
-            valEl.textContent = '✓ copied';
+            valEl.textContent = 'Copied';
             valEl.classList.add('dv-meta-v--ok');
             setTimeout(() => { valEl.textContent = original; valEl.classList.remove('dv-meta-v--ok'); }, 700);
           },

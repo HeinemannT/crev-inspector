@@ -4,7 +4,8 @@
  * click anywhere else to dismiss (auto-dismisses after 10 s).
  */
 
-import { h } from '../lib/dom';
+import { h, svg } from '../lib/dom';
+import { ICON_CHECK } from '../lib/icons';
 import { S, sendMessage } from './state';
 
 let overlayEl: HTMLElement | null = null;
@@ -30,7 +31,7 @@ export function showProfileSwitcher(): void {
       'data-profile-id': p.id,
     },
       h('span', { class: 'ps-label' }, p.label || p.bmpUrl),
-      isActive && h('span', { class: 'ps-check' }, '✓'),
+      isActive && h('span', { class: 'ps-check', 'aria-label': 'Active profile' }, svg(ICON_CHECK)),
     );
   });
 

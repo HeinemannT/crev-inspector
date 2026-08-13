@@ -34,7 +34,7 @@ import { resolveCopyText, getModifier, type CopyModifier } from '../../lib/names
 import {
   ICON_KEY, ICON_CODE, ICON_LIGHTNING, ICON_ARROW_SQUARE_IN, ICON_ARROW_OUT,
   ICON_EYE_SLASH, ICON_SUBTITLES_SLASH, ICON_CODE_BLOCK, ICON_VARIABLE, ICON_CLOCK,
-  ICON_SHIELD, ICON_PENCIL, ICON_REFRESH, ICON_CHEVRON,
+  ICON_SHIELD, ICON_PENCIL, ICON_REFRESH, ICON_CHEVRON, ICON_CHECK,
 } from '../../lib/icons';
 import type { FlowChainMsg, FlowStepMsg, FlowCodeFieldMsg, InspectorMessage } from '../../lib/types';
 
@@ -285,11 +285,11 @@ function copyFromBadge(badge: HTMLElement, node: FlowStepMsg, mod: CopyModifier)
   const { text } = resolveCopyText({ rid, businessId, type }, mod);
   if (!text) return;
   copyToClipboard(text);
-  statusFlash(`Copied ${text} \u2713`);
+  statusFlash(`Copied ${text}`);
   // Green confirmation: tile + chip flip to success, chip shows a check.
   const lbl = badge.querySelector<HTMLElement>('.lbl');
   const original = lbl?.textContent ?? '';
-  if (lbl) lbl.textContent = '✓';
+  if (lbl) lbl.replaceChildren(svg(ICON_CHECK));
   badge.classList.add('bdg-copied');
   setTimeout(() => {
     if (lbl) lbl.textContent = original;
