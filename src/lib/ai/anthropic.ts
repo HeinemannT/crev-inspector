@@ -15,7 +15,8 @@
 import { PROVIDERS } from './providers';
 import { readSse } from './sse';
 import type { ToolCall } from './tools';
-import { toAnthropicTools, TOOL_DEFS } from './tools';
+import { toAnthropicTools, TOOL_DEFS } from './tool-contracts';
+import type { AiTokenUsage } from './types';
 
 const ANTHROPIC_VERSION = '2023-06-01';
 const MAX_TOKENS = 8192;
@@ -40,6 +41,34 @@ interface AnthropicDelta {
   content_block?: { type?: string; id?: string; name?: string };
   delta?: { type?: string; text?: string; partial_json?: string; stop_reason?: string };
   error?: { type?: string; message?: string };
+  message?: { usage?: AnthropicUsage };
+  usage?: AnthropicUsage;
+}
+
+interface AnthropicUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+}
+
+const EMPTY_USAGE = (): AiTokenUsage => ({
+  inputTokens: 0,
+  cachedInputTokens: 0,
+  cacheWriteTokens: 0,
+  outputTokens: 0,
+  reasoningTokens: 0,
+});
+
+function captureUsage(target: AiTokenUsage, usage?: AnthropicUsage): void {
+  if (!usage) return;
+  const uncached = usage.input_tokens ?? 0;
+  const cached = usage.cache_read_input_tokens ?? target.cachedInputTokens;
+  const written = usage.cache_creation_input_tokens ?? target.cacheWriteTokens;
+  target.cachedInputTokens = cached;
+  target.cacheWriteTokens = written;
+  target.inputTokens = Math.max(target.inputTokens, uncached + cached + written);
+  target.outputTokens = Math.max(target.outputTokens, usage.output_tokens ?? 0);
 }
 
 /** Anthropic message content block we send back on a tool turn. */
@@ -85,7 +114,7 @@ function withHistoryCacheBreakpoint(messages: AnthropicMessage[]): WireMessage[]
   return out;
 }
 
-export async function streamAnthropic(opts: AnthropicStreamOpts): Promise<{ text: string }> {
+export async function streamAnthropic(opts: AnthropicStreamOpts): Promise<{ text: string; usage: AiTokenUsage }> {
   const url = `${opts.baseUrl ?? PROVIDERS.anthropic.baseUrl}/v1/messages`;
   const system = opts.system
     ? [{ type: 'text', text: opts.system, cache_control: CACHE_CONTROL }]
@@ -113,6 +142,7 @@ export async function streamAnthropic(opts: AnthropicStreamOpts): Promise<{ text
   if (!response.ok) throw new Error(await errorFromResponse(response));
 
   let text = '';
+  const usage = EMPTY_USAGE();
   await readSse(response, (frame) => {
     if (frame.event === 'error') {
       const parsed = safeParse(frame.data);
@@ -122,12 +152,13 @@ export async function streamAnthropic(opts: AnthropicStreamOpts): Promise<{ text
     if (!frame.data || frame.data === '[DONE]') return;
     const parsed = safeParse(frame.data);
     if (!parsed) return;
+    captureUsage(usage, parsed.message?.usage ?? parsed.usage);
     if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta' && parsed.delta.text) {
       text += parsed.delta.text;
       opts.onChunk(parsed.delta.text);
     }
   });
-  return { text };
+  return { text, usage };
 }
 
 // ── Tool-aware turn (chat orchestrator) ──────────────────────────
@@ -142,6 +173,11 @@ export interface AnthropicTurnOpts {
   messages: AnthropicMessage[];
   /** Omit / empty to force a tools-off final answer. */
   tools?: ReturnType<typeof toAnthropicTools>;
+  /** Force the single evidence follow-up selected by the orchestrator. */
+  forceTool?: string;
+  /** Require one of the supplied terminal tools while leaving the semantic
+   * choice to the model. Mutually exclusive with forceTool. */
+  requireTool?: boolean;
   signal?: AbortSignal;
   /** Streamed assistant text deltas. */
   onText: (delta: string) => void;
@@ -154,6 +190,7 @@ export interface AnthropicTurnResult {
   /** The assistant content blocks (text + tool_use) to append for the next
    *  turn — echoed verbatim so the tool_result user turn is well-formed. */
   content: AnthropicContentBlock[];
+  usage: AiTokenUsage;
 }
 
 /** Accumulator for one streamed content block (text or tool_use). */
@@ -192,7 +229,14 @@ export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<Anth
     max_tokens: opts.maxTokens ?? MAX_TOKENS,
     stream: true,
     ...(system ? { system } : {}),
-    ...(tools ? { tools } : {}),
+    ...(tools ? {
+      tools,
+      tool_choice: opts.forceTool
+        ? { type: 'tool', name: opts.forceTool, disable_parallel_tool_use: true }
+        : opts.requireTool
+          ? { type: 'any', disable_parallel_tool_use: true }
+          : { type: 'auto', disable_parallel_tool_use: true },
+    } : {}),
     messages,
   };
 
@@ -212,6 +256,7 @@ export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<Anth
 
   const blocks = new Map<number, BlockAcc>();
   let stopReason: string | null = null;
+  const usage = EMPTY_USAGE();
 
   await readSse(response, (frame) => {
     if (frame.event === 'error') {
@@ -221,6 +266,7 @@ export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<Anth
     if (!frame.data || frame.data === '[DONE]') return;
     const parsed = safeParse(frame.data);
     if (!parsed) return;
+    captureUsage(usage, parsed.message?.usage ?? parsed.usage);
     switch (parsed.type) {
       case 'content_block_start': {
         const idx = parsed.index ?? 0;
@@ -268,7 +314,7 @@ export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<Anth
     }
   }
 
-  return { text, toolCalls, stopReason, content };
+  return { text, toolCalls, stopReason, content, usage };
 }
 
 /** Parse an accumulated tool-input JSON blob. Empty / malformed → `{}` so a

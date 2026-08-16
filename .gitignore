@@ -25,7 +25,26 @@ dist/
 /docs/
 /bench/
 /experiments/
+/stakeholder-evaluation/
+/.codex-tmp/
 /AGENTS.md
 /CLAUDE.md
 /plans/
 /.claude/
+
+# Local AI evaluation harness and corpora. Production AI code remains tracked;
+# prompt experiments, graders, cases, runners, and their tests stay private.
+/scripts/run-ai-draft-eval.ts
+/scripts/run-ai-editor-eval.ts
+/scripts/rescore-ai-draft-eval.ts
+/scripts/regrade-ai-model-eval.ts
+/tsconfig.ai-eval.json
+/src/lib/ai/eval*.ts
+/src/lib/ai/editor-eval*.ts
+/src/lib/ai/__tests__/eval*.test.ts
+/src/lib/ai/__tests__/editor-eval*.test.ts
+
+# Local design comparisons retained for product work, never shipped.
+/ai-extended-code-response-drafts.html
+/connect-card-options.html
+/ec-ai-assistant-interface-draft.html

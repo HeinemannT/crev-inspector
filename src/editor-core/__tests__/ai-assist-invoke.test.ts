@@ -1,12 +1,12 @@
 /**
  * @vitest-environment happy-dom
  *
- * The verb-at-send invoke bar (ai-assist.ts createAiAssist + shared content):
- *   - pickShell: inline needs a visible view, else the floating fallback.
- *   - verb routing: Enter → Ask handoff (AI_CHAT_HANDOFF), Ctrl+Enter → Edit
- *     request (AI_REQUEST). Both go through the SHARED buildBarContent, so the
- *     floating shell (what happy-dom resolves to, since offsetParent is null)
- *     exercises the same code path the inline widget uses.
+ * The compact mouse-first prompt (ai-assist.ts):
+ *   - Enter follows the primary Suggest change action.
+ *   - Ask in sidebar is an explicit, clickable handoff.
+ *   - selection-local Ask AI is dormant; toolbar/Mod+K remain the entry points.
+ *   - resize observation keeps the prompt attached in a resizable overlay or
+ *     Studio code/HTML-preview split.
  *   - Esc closes the bar and restores the selection captured at open.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -16,7 +16,7 @@ vi.mock('../../lib/messaging', () => ({ sendFireForget: vi.fn(), sendRequest: vi
 vi.mock('../ai-config', () => ({ fetchAiConfig: vi.fn(async () => ({ configured: true, model: 'test-model' })) }))
 
 import { sendFireForget } from '../../lib/messaging'
-import { createAiAssist, pickShell, type AiAssistHost } from '../ai-assist'
+import { createAiAssist, type AiAssistHost } from '../ai-assist'
 import { CodeSurface } from '../code-surface'
 
 // Minimal chrome shim — createAiAssist registers a runtime message listener.
@@ -51,38 +51,42 @@ const barInput = (): HTMLInputElement => {
   return el
 }
 
-describe('pickShell', () => {
-  it('uses the inline shell only for a visible view', () => {
-    expect(pickShell({ hasView: true, viewVisible: true })).toBe('inline')
-    expect(pickShell({ hasView: true, viewVisible: false })).toBe('floating')
-    expect(pickShell({ hasView: false, viewVisible: false })).toBe('floating')
-  })
-  it('falls back to the floating strip when the pane is too narrow (split view)', () => {
-    expect(pickShell({ hasView: true, viewVisible: true, narrow: true })).toBe('floating')
-    expect(pickShell({ hasView: true, viewVisible: true, narrow: false })).toBe('inline')
-  })
-})
-
 describe('verb routing', () => {
   beforeEach(() => {
     vi.mocked(sendFireForget).mockClear()
     document.body.innerHTML = ''
   })
 
-  it('Enter sends an Ask handoff', () => {
+  it('Enter follows the primary Suggest change action', () => {
+    const surface = mountSurface('output(t.x.name)')
+    const assist = createAiAssist(makeHost(surface))
+    assist.open()
+    const input = barInput()
+    input.value = 'wrap it in an IF'
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+
+    const calls = vi.mocked(sendFireForget).mock.calls.map(c => c[0])
+    const req = calls.find(m => m.type === 'AI_REQUEST')
+    expect(req).toBeTruthy()
+    expect((req as { payload: { instruction: string } }).payload.instruction).toBe('wrap it in an IF')
+    expect(document.querySelector('.ai-inbar-input')).toBeNull()
+  })
+
+  it('labels and sends the sidebar handoff explicitly', () => {
     const surface = mountSurface('output(t.x.name)')
     const assist = createAiAssist(makeHost(surface))
     assist.open()
     const input = barInput()
     input.value = 'what does this do?'
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    const ask = [...document.querySelectorAll<HTMLButtonElement>('.ai-action')]
+      .find(button => button.textContent === 'Ask in sidebar')
+    expect(ask).toBeTruthy()
+    ask!.click()
 
     const calls = vi.mocked(sendFireForget).mock.calls.map(c => c[0])
     const handoff = calls.find(m => m.type === 'AI_CHAT_HANDOFF')
     expect(handoff).toBeTruthy()
     expect((handoff as { text: string }).text).toBe('what does this do?')
-    // Bar closed after send.
-    expect(document.querySelector('.ai-inbar-input')).toBeNull()
   })
 
   it('Ctrl+Enter sends an Edit request', () => {
@@ -106,6 +110,74 @@ describe('verb routing', () => {
     assist.open()
     barInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     expect(vi.mocked(sendFireForget).mock.calls.length).toBe(0)
+  })
+})
+
+describe('mouse and resize behavior', () => {
+  beforeEach(() => {
+    vi.mocked(sendFireForget).mockClear()
+    document.body.innerHTML = ''
+  })
+
+  it('keeps the selection popup dormant while toolbar invocation retains scope', async () => {
+    const surface = mountSurface('aaaa\nbbbb\ncccc')
+    const view = surface.view!
+    Object.defineProperty(view.dom, 'offsetParent', { configurable: true, value: document.body })
+    vi.spyOn(view.dom, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 600, bottom: 400, width: 600, height: 400,
+      toJSON: () => ({}),
+    } as DOMRect)
+    vi.spyOn(view, 'coordsAtPos').mockReturnValue({
+      x: 180, y: 80, left: 180, top: 80, right: 180, bottom: 98, width: 0, height: 18,
+      toJSON: () => ({}),
+    } as DOMRect)
+    // happy-dom does not naturally mirror the editor blur that precedes a
+    // settled browser selection; avoid its CodeMirror-only re-entrant update.
+    view.contentDOM.blur()
+    surface.dispatch({ selection: { anchor: 5, head: 9 } })
+    const assist = createAiAssist(makeHost(surface))
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+
+    expect(document.querySelector('.ai-selection-trigger')).toBeNull()
+    assist.open()
+    expect(document.querySelector('.ai-prompt-scope')?.textContent).toBe('Line 2 selected')
+  })
+
+  it('repositions after editor-pane resize and disconnects on close', async () => {
+    const observed: Element[] = []
+    const disconnect = vi.fn()
+    let resizeCallback!: ResizeObserverCallback
+    class TestResizeObserver {
+      constructor(readonly callback: ResizeObserverCallback) { resizeCallback = callback }
+      observe(element: Element): void { observed.push(element) }
+      disconnect(): void { disconnect() }
+      unobserve(): void {}
+    }
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+    Object.defineProperty(document.documentElement, 'clientWidth', { configurable: true, value: 800 })
+    Object.defineProperty(document.documentElement, 'clientHeight', { configurable: true, value: 600 })
+    const surface = mountSurface('code')
+    const anchor = document.createElement('button')
+    document.body.appendChild(anchor)
+    let anchorRight = 120
+    vi.spyOn(anchor, 'getBoundingClientRect').mockImplementation(() => ({
+      x: anchorRight - 20, y: 40, left: anchorRight - 20, top: 40,
+      right: anchorRight, bottom: 60, width: 20, height: 20, toJSON: () => ({}),
+    } as DOMRect))
+    const assist = createAiAssist({ ...makeHost(surface), anchorEl: () => anchor })
+    assist.open()
+    expect(observed).toContain(surface.view!.scrollDOM)
+    const prompt = document.querySelector<HTMLElement>('.ai-strip')!
+    Object.defineProperty(prompt, 'offsetWidth', { configurable: true, value: 200 })
+    Object.defineProperty(prompt, 'offsetHeight', { configurable: true, value: 80 })
+    anchorRight = 400
+    resizeCallback([], {} as ResizeObserver)
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    expect(prompt.style.left).toBe('200px')
+    expect(prompt.style.top).toBe('66px')
+    assist.close()
+    expect(disconnect).toHaveBeenCalled()
+    vi.unstubAllGlobals()
   })
 })
 

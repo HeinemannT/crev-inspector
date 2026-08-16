@@ -14,7 +14,7 @@
 import type { AiChatEvent, AiChatTurn, AiChatToolTrace } from '../../lib/ai/types';
 import type { ObjectReference } from '../../lib/types';
 import { mergeObjectReferences } from '../../lib/ai/tools';
-import { scrubToolMarkup } from '../../lib/ai/scrub';
+import { scrubModelReasoning, scrubToolMarkup } from '../../lib/ai/scrub';
 
 export type ToolStatus = 'pending' | 'ok' | 'err';
 
@@ -22,6 +22,8 @@ export interface ToolLine {
   name: string;
   summary: string;
   status: ToolStatus;
+  durationMs?: number;
+  duplicate?: boolean;
 }
 
 export type StreamStatus = 'streaming' | 'done' | 'error' | 'cancelled';
@@ -55,14 +57,31 @@ export function reduceStream(s: StreamState, ev: AiChatEvent): StreamState {
       const tools = [...s.tools];
       for (let i = tools.length - 1; i >= 0; i--) {
         if (tools[i].name === ev.name && tools[i].status === 'pending') {
-          tools[i] = { name: ev.name, summary: ev.summary, status: ev.ok ? 'ok' : 'err' };
+          tools[i] = {
+            name: ev.name,
+            summary: ev.summary,
+            status: ev.ok ? 'ok' : 'err',
+            durationMs: ev.durationMs,
+            duplicate: ev.duplicate,
+          };
           return { ...s, tools, objects };
         }
       }
       // No matching start (shouldn't happen) — record it terminally anyway.
-      tools.push({ name: ev.name, summary: ev.summary, status: ev.ok ? 'ok' : 'err' });
+      tools.push({
+        name: ev.name,
+        summary: ev.summary,
+        status: ev.ok ? 'ok' : 'err',
+        durationMs: ev.durationMs,
+        duplicate: ev.duplicate,
+      });
       return { ...s, tools, objects };
     }
+    case 'change-preview-ready':
+    case 'change-preview-failed':
+      // The tab consumes this capability into its private Change Ticket state;
+      // it is deliberately absent from transcript/history state.
+      return s;
     case 'done':
       return { ...s, status: 'done' };
     case 'error':
@@ -86,7 +105,13 @@ export function isTerminal(s: StreamState): boolean {
  *  line its own tick. Only an explicit error marks a call failed — a still
  *  pending call (e.g. from a cancelled turn) counts as ok. */
 export function toolTraceOf(s: StreamState): AiChatToolTrace[] {
-  return s.tools.map(t => ({ name: t.name, summary: t.summary, ok: t.status !== 'err' }));
+  return s.tools.map(t => ({
+    name: t.name,
+    summary: t.summary,
+    ok: t.status !== 'err',
+    durationMs: t.durationMs,
+    duplicate: t.duplicate,
+  }));
 }
 
 /** Freeze a finished stream into an assistant transcript turn. Cancelled and
@@ -97,7 +122,7 @@ export function toAssistantTurn(s: StreamState): AiChatTurn {
   // stream, but scrub the committed text too so a marker that split exactly on
   // a chunk boundary can never persist into the transcript (and get replayed to
   // the model on the next turn).
-  const turn: AiChatTurn = { role: 'assistant', text: scrubToolMarkup(s.text) };
+  const turn: AiChatTurn = { role: 'assistant', text: scrubModelReasoning(scrubToolMarkup(s.text)) };
   const trace = toolTraceOf(s);
   if (trace.length) turn.toolTrace = trace;
   if (s.objects.length) turn.objects = s.objects;

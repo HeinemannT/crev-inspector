@@ -18,7 +18,7 @@ import { objectReferenceToken } from './tools';
 
 /** How many characters of a single slot body to inline before pointing the
  *  model at the read_object tool instead. Keeps the cached prefix bounded. */
-const SLOT_INLINE_CAP = 6000;
+export const SLOT_INLINE_CAP = 6000;
 
 /** Escape a value for an XML-ish attribute. Deterministic and lossless enough
  *  for identity strings (names can carry quotes / angle brackets). */

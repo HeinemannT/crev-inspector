@@ -20,7 +20,6 @@
 import { EditorState, Compartment, Annotation, type Extension, type TransactionSpec } from '@codemirror/state'
 import { EditorView, type ViewUpdate } from '@codemirror/view'
 import { pickNearestLine } from './text-nav'
-import { inlineAiBar } from './ai-inline-bar'
 
 /** Tags the transaction CodeSurface uses to swap a slot's document in place, so
  *  app-supplied update listeners can tell a programmatic slot-swap from a real
@@ -149,12 +148,6 @@ export class CodeSurface {
       doc: slot.code,
       extensions: [
         ...this.cb.buildExtensions(slot),
-        // The AI inline command bar (block widget + scope decoration). Lives in
-        // the base config so both hosts get it via the shared surface; ai-assist
-        // drives it by dispatching open/close effects against `view`. Distinct
-        // from overlayCompartment (the merge-diff), so the two never disturb one
-        // another.
-        inlineAiBar,
         this.wrapCompartment.of(this.wrap ? EditorView.lineWrapping : []),
         this.overlayCompartment.of([]),
         EditorView.updateListener.of(u => this.onUpdate(u)),

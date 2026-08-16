@@ -52,6 +52,29 @@ import {
 } from './widget-metadata';
 import { isMasterPropertyDefinition } from './property-config';
 
+/** One exact property requested by a bounded caller. Reference properties get
+ * identity metadata in the same EC round trip instead of being stringified. */
+export interface SelectedPropertyRequest {
+  accessor: string;
+  reference: boolean;
+}
+
+export interface SelectedPropertyValue {
+  accessor: string;
+  state: 'value' | 'missing';
+  value: string;
+  reference?: ObjectPaneIdentity;
+}
+
+/** Stored HTML/text is untrusted and may contain any fixed sentinel. Generate
+ * a fresh 128-bit separator per read so content cannot impersonate wire
+ * markers. Web Crypto exists in the MV3 worker and current Node test runtime. */
+function selectedPropertySeparator(): string {
+  const words = new Uint32Array(4);
+  globalThis.crypto.getRandomValues(words);
+  return `<<<CREV_PROPERTY_${[...words].map(word => word.toString(16).padStart(8, '0')).join('')}>>>`;
+}
+
 /** Build the FlowCodeField[] for an InputSet child (input field, ButtonInput,
  *  Label) from the sep-block-parsed walker response. Shared between the IV
  *  walker (which walks IV → IS → children) and the IS walker (which starts
@@ -729,6 +752,76 @@ export class EcQueryService {
     const result = await this.executeEc(lines.join('\n'));
     if (!result.ok || !result.log) return {};
     return parseSepBlocks(result.log, sep);
+  }
+
+  /** Read a small exact property selection with explicit missing-state and,
+   * for reference properties, stable identity. This is deliberately separate
+   * from fetchCodeViaEc: code reads preserve raw source, while this method
+   * produces bounded typed evidence for the AI/property inspector. */
+  async fetchSelectedProperties(
+    rid: string,
+    properties: readonly SelectedPropertyRequest[],
+    signal?: AbortSignal,
+  ): Promise<SelectedPropertyValue[]> {
+    if (!properties.length) return [];
+    properties.forEach(property => validateEcIdentifier(property.accessor));
+
+    const sep = selectedPropertySeparator();
+    const ref = await this.resolveRef(rid);
+    const lines = [`_o := ${ref}`, '_r := ""'];
+    const emit = (key: string, value: string): string =>
+      `_r := _r + "${sep}${key}${sep}" + ${value} + "\\n"`;
+
+    for (const property of properties) {
+      const accessor = property.accessor;
+      lines.push(`_v := _o.${accessor}`);
+      lines.push('IF _v.isMissing() THEN');
+      lines.push(`     ${emit(`state_${accessor}`, '"missing"')}`);
+      lines.push('ELSE');
+      lines.push(`     ${emit(`state_${accessor}`, '"value"')}`);
+      lines.push(`     ${emit(`value_${accessor}`, 'output(_v)')}`);
+      if (property.reference) {
+        lines.push(`     ${emit(`rid_${accessor}`, 'output(_v.rid.whenMissing(""))')}`);
+        lines.push(`     ${emit(`id_${accessor}`, 'output(_v.id.whenMissing(""))')}`);
+        lines.push(`     ${emit(`name_${accessor}`, 'output(_v.name.whenMissing(""))')}`);
+        lines.push(`     ${emit(`type_${accessor}`, 'output(_v.className.whenMissing(""))')}`);
+      }
+      lines.push('ENDIF');
+    }
+    lines.push(`_r := _r + "${sep}DONE"`);
+    lines.push('_r');
+
+    const result = await this.executeEc(lines.join('\n'), undefined, false, signal);
+    if (!result.ok) throw new Error(result.error || result.log || 'Selected property read failed');
+    if (result.hasWarning) throw new Error(result.error || 'Selected property read returned warnings and may be incomplete');
+    if (result.log == null || !result.log.includes(`${sep}DONE`)) {
+      throw new Error('Selected property read returned an incomplete result');
+    }
+
+    const data = parseSepBlocks(result.log, sep);
+    return properties.map(property => {
+      const accessor = property.accessor;
+      const rawState = data[`state_${accessor}`];
+      if (rawState !== 'value' && rawState !== 'missing') {
+        throw new Error(`Selected property read returned an incomplete result for ${accessor}`);
+      }
+      const state = rawState;
+      const referenceRid = data[`rid_${accessor}`]?.trim();
+      const reference = property.reference && referenceRid && /^-?\d+$/.test(referenceRid)
+        ? {
+            rid: referenceRid,
+            businessId: data[`id_${accessor}`] ?? '',
+            name: data[`name_${accessor}`] ?? '',
+            type: data[`type_${accessor}`] ?? '',
+          }
+        : undefined;
+      return {
+        accessor,
+        state,
+        value: data[`value_${accessor}`] ?? '',
+        ...(reference ? { reference } : {}),
+      };
+    });
   }
 
   /** Batch fetch code properties for multiple objects in a single EC call */

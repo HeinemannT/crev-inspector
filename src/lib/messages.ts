@@ -39,6 +39,7 @@ import type { IdentityEditInput, IdentitySaveResult } from './object-identity';
 import type { EcOutputEntry } from './bmp-types';
 import type { JsonShape } from './json-shape';
 import type { AiCustomProvider, AiProviderId, AiRequestPayload, AiChatTurn, AiChatEvent, AiChatQuote, AiContextEnvelope, AiContextSource } from './ai/types';
+import type { AiChangeProposal } from './ai/change-ticket';
 import type { LModel, PlanNote, NodeStyle, FlowNode } from './layout/types';
 import type { StylePreset } from './style-presets';
 import type { BlueprintCtx, FlowRefListItem } from './layout/sync';
@@ -524,7 +525,21 @@ export type AiMessage =
   | { type: 'AI_CHAT_CANCEL'; requestId: string }
   // Chat code-block Preview + "Fix it": dry-run EC, return the result text.
   | { type: 'AI_PREVIEW_CODE'; requestId: string; code: string }
-  | { type: 'AI_PREVIEW_RESULT'; requestId: string; ok: boolean; resultText: string }
+  | { type: 'AI_PREVIEW_RESULT'; requestId: string; purpose: 'verification'; ok: boolean; resultText: string }
+  // Structured Change Ticket lifecycle. Preview returns a short-lived id
+  // bound in the SW to exact code + active BMP server + actor. Run accepts
+  // only that id, so UI/source edits cannot bypass Preview. Verification
+  // previews use AI_PREVIEW_CODE and can never produce a runnable id.
+  | {
+      type: 'AI_PREVIEW_CHANGE';
+      requestId: string;
+      proposal: AiChangeProposal;
+      /** Verified card target, when its object token resolved in the tool ledger. */
+      expectedTarget?: { rid: string; businessId?: string };
+    }
+  | { type: 'AI_PREVIEW_CHANGE_RESULT'; requestId: string; purpose: 'change'; ok: boolean; resultText: string; previewId?: string; runnable: boolean }
+  | { type: 'AI_RUN_CHANGE'; requestId: string; previewId: string }
+  | { type: 'AI_RUN_CHANGE_RESULT'; requestId: string; ok: boolean; resultText: string; partial?: boolean }
   // Apply a proposed code block to the open editor/studio via the standard
   // merge-diff proposal. Routed to the surface holding the target object.
   | { type: 'AI_APPLY_PROPOSAL'; code: string; target: { rid: string; slot: string } }
@@ -538,10 +553,11 @@ export type AiMessage =
   // Command strip's Ask hands off to the chat tab: the SW opens the sidepanel
   // and forwards this so the panel switches to the AI tab and submits it.
   | { type: 'AI_CHAT_HANDOFF'; text: string; quote?: AiChatQuote; envelope: AiContextEnvelope }
-  // Editor / studio → SW → panel: which object+slot an editor is open on, so the
-  // AI chat tab's 'editor' context chip can appear. Broadcast on open / slot
-  // change / focus, and with source=null on close. The SW persists the last
-  // value; AI_GET_EDITOR_CONTEXT lets a panel that opened AFTER the editor sync.
+  // Editor/studio → SW update. This request is deliberately distinct from the
+  // scoped AI_EDITOR_CONTEXT response so the raw runtime message is never
+  // consumed directly by every side panel in every Chrome window.
+  | { type: 'AI_EDITOR_CONTEXT_UPDATE'; source: AiContextSource | null }
+  // SW → one window's panel: context for that window's active BMP tab.
   | { type: 'AI_EDITOR_CONTEXT'; source: AiContextSource | null }
   | { type: 'AI_GET_EDITOR_CONTEXT' };
 

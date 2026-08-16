@@ -152,6 +152,80 @@ export interface AiChatToolTrace {
   /** Whether the call succeeded. Drives the ✓/✕ on the collapsed turn summary
    *  and each expanded line. Absent (legacy) is treated as success. */
   ok?: boolean;
+  /** Backend execution time. */
+  durationMs?: number;
+  /** True when an identical request returned the same evidence again. */
+  duplicate?: boolean;
+}
+
+/** Provider-reported usage for one or more model requests. Zero means the
+ * provider did not report the field; it is never estimated in production. */
+export interface AiTokenUsage {
+  inputTokens: number;
+  cachedInputTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+}
+
+/** Machine-readable turn telemetry for prompt/tool evaluation. It contains no
+ * prompts, tool arguments, results, code, or workspace values. */
+export interface AiTurnMetrics {
+  durationMs: number;
+  /** Provider requests include discovery, final submission, and repair turns. */
+  providerRequests: number;
+  providerDurationMs: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  /** Dependency-free estimate used to bound the initial provider transcript. */
+  estimatedInputCharacters?: number;
+  /** Oldest whole transcript turns omitted to respect the configured context. */
+  historyTurnsDropped?: number;
+  /** Final provider-selected semantic outcome. Structured outcomes are
+   * preferred; text remains for ordinary non-prefetched answers. */
+  terminalOutcome?: 'answer' | 'change' | 'text';
+  /** Provider turns retried because they returned neither text nor tools. */
+  modelRetries: number;
+  /** Subset of modelRetries caused by empty, fully scrubbed, or structurally
+   * invalid final output. */
+  emptyResponseRetries: number;
+  /** Subset of modelRetries caused by a genuine automatic BMP Preview error. */
+  previewRepairRetries: number;
+  toolRounds: number;
+  toolCallsRequested: number;
+  toolCallsExecuted: number;
+  /** Tool calls initiated deterministically by the pipeline rather than by the
+   * model. Currently this is the exact final Change Ticket Preview. */
+  automaticToolCalls: number;
+  /** Live reads performed before the first provider request for an
+   * unambiguous simple-change route. */
+  prefetchedToolCalls?: number;
+  /** Sum of deterministic evidence-prefetch wall time. */
+  prefetchDurationMs?: number;
+  /** Sum of deterministic final/expression Preview wall time. */
+  previewDurationMs: number;
+  /** Sum of model-selected BMP tool execution time. */
+  modelToolDurationMs: number;
+  /** Repeated identical requests that returned unchanged evidence. They are
+   * executed normally; evaluation decides whether the repetition was useful. */
+  duplicateCalls: number;
+  toolErrors: number;
+  budgetExhausted: boolean;
+  /** Argument/result-free trajectory for effectiveness scoring. `outcome`
+   * distinguishes backend failure, repeated requests with unchanged evidence,
+   * and distinct calls that returned evidence already seen earlier in the turn. */
+  tools: Array<{
+    name: string;
+    origin: 'model' | 'pipeline' | 'prefetch';
+    ok: boolean;
+    duplicate: boolean;
+    durationMs: number;
+    outcome: 'success' | 'error' | 'duplicate' | 'repeated-evidence';
+  }>;
+  limitReason?: 'calls' | 'rounds' | 'time' | 'stagnation';
 }
 
 /** One transcript turn. The panel owns the transcript and sends it whole on
@@ -164,8 +238,8 @@ export interface AiChatTurn {
   quote?: AiChatQuote;
   /** Display-only trace of tools the assistant ran on this turn. */
   toolTrace?: AiChatToolTrace[];
-  /** Verified identities cited by this answer. Display-only and never inferred
-   *  from the assistant's prose. */
+  /** Verified identities cited by this turn. Display-only and never inferred
+   *  from prose. User turns receive only identities from their attached context. */
   objects?: ObjectReference[];
 }
 
@@ -175,6 +249,13 @@ export interface AiChatTurn {
 export type AiChatEvent =
   | { kind: 'text-delta'; delta: string }
   | { kind: 'tool-start'; name: string; summary: string }
-  | { kind: 'tool-end'; name: string; summary: string; ok: boolean; objects?: ObjectReference[] }
+  | { kind: 'tool-end'; name: string; summary: string; ok: boolean; durationMs?: number; duplicate?: boolean; objects?: ObjectReference[] }
+  /** The deterministic final-ticket Preview already produced the exact-code,
+   *  scope-bound capability consumed by Run. This is UI state, not transcript
+   *  content and is never replayed to the provider. */
+  | { kind: 'change-preview-ready'; code: string; resultText: string; previewId: string }
+  /** The bounded repair attempt also failed. Preserve the proposal as a
+   * non-runnable card so its code and BMP error remain available. */
+  | { kind: 'change-preview-failed'; code: string; resultText: string }
   | { kind: 'done' }
   | { kind: 'error'; message: string };

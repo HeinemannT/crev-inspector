@@ -360,50 +360,74 @@
 }
 
 /* ── AI assistant (shared by the EC editor + CVO/Text studio) ──────────
- * Purple accent = action. The sparkle button tints on hover; the invoke
- * popover, streamed answer panel, and the edit accept/reject bar are all
- * token-driven (no raw hex). Nothing here renders unless a provider key is
- * configured — the host gates the button + Mod-k. */
+ * Mouse-first entry points stay labelled. The prompt itself is a compact,
+ * viewport-clamped popover; it never consumes a full CodeMirror row. */
+.editor-ai-btn,
+.studio-ai-btn {
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  color: var(--accent-bright);
+  border: 1px solid var(--surface-4);
+  font-family: var(--font-body);
+  font-weight: var(--weight-semi);
+}
 .editor-ai-btn.active,
 .studio-ai-btn.active,
 .editor-ai-btn:hover,
-.studio-ai-btn:hover { color: var(--accent-bright); }
+.studio-ai-btn:hover { color: #fff; background: var(--accent-dim); border-color: var(--accent); }
+.ai-button-label { line-height: 1; }
 
-/* AI invoke command bar — verb-at-send. One tight ~34px row shared verbatim by
-   both shells: sparkle (model in its tooltip) · instruction input · Edit (⌃↵,
-   outlined quiet) · Ask (↵, solid purple). No mode chip, no scope footer — the
-   placeholder states scope, the gutter bracket (.cm-ai-scope) marks it. Enter
-   sends Ask, Ctrl/Cmd+Enter sends Edit. */
-.ai-inbar {
+/* Retired selection-local entry point. The editor toolbar button and Mod+K are
+   the only invocations. Keep this guard so stale markup can never reappear. */
+.ai-selection-trigger { display: none !important; }
+
+.ai-prompt { max-height: calc(100vh - 16px); overflow: auto; font-family: var(--font-body); }
+.ai-prompt-input {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: 34px;
-  padding: 0 var(--space-2) 0 var(--space-3);
-  background: var(--surface-3);
-  border-top: 1px solid var(--surface-4);
-  border-bottom: 1px solid var(--surface-4);
-  font-family: var(--font-body);
+  padding: 10px var(--space-3);
 }
-.ai-inbar-spark { display: inline-flex; flex: none; color: var(--accent-bright); cursor: default; }
-.ai-inbar-spark svg { width: 15px; height: 15px; }
+.ai-prompt-spark { display: inline-flex; flex: none; color: var(--accent-bright); cursor: default; }
+.ai-prompt-spark svg { width: 15px; height: 15px; }
 .ai-inbar-input {
   flex: 1;
   min-width: 0;
+  height: 22px;
+  padding: 0;
   background: none;
   border: none;
   outline: none;
   color: var(--text-1);
   font: inherit;
   font-size: var(--text-sm);
+  line-height: 22px;
 }
 .ai-inbar-input::placeholder { color: var(--text-3); }
-.ai-verb {
+.ai-prompt-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-top: 1px solid var(--surface-4);
+}
+.ai-prompt-scope {
+  min-width: 0;
+  padding-left: var(--space-1);
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-prompt-actions { display: flex; gap: var(--space-1); margin-left: auto; }
+.ai-action {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
+  justify-content: center;
   flex: none;
-  padding: 4px var(--space-2);
+  min-height: 28px;
+  padding: 0 var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   font-family: var(--font-body);
@@ -411,49 +435,53 @@
   font-weight: var(--weight-semi);
   cursor: pointer;
 }
-.ai-verb-kbd { font-family: var(--font-mono); font-size: var(--text-2xs); font-weight: var(--weight-normal); opacity: 0.75; }
-.ai-verb--ask { background: var(--accent); color: #fff; }
-.ai-verb--ask:hover { background: var(--accent-dim); }
-.ai-verb--edit { background: none; color: var(--accent-bright); border-color: var(--surface-4); }
-.ai-verb--edit:hover { background: var(--accent-bg); }
+.ai-action--primary { background: var(--accent); color: #fff; }
+.ai-action--primary:hover { background: var(--accent-dim); }
+.ai-action--secondary { background: none; color: var(--text-2); border-color: var(--surface-4); }
+.ai-action--secondary:hover { color: var(--text-1); background: var(--surface-3); }
 
-/* Scope indicator: the 2px purple bracket + a subtle highlight over the target
-   lines. Stands in for the native selection while focus is in the bar (the
-   editor is blurred) and doubles as the scope badge. */
-.cm-ai-scope {
-  background: var(--accent-bg);
-  box-shadow: inset 2px 0 0 0 var(--accent);
-}
-
-/* Floating fallback shell — the shared .ai-inbar inside an anchored card. Used
-   when the editor view isn't visible (studio preview-only layout) or absent.
-   Anchored near the selection head; the nub is positioned by JS and hidden when
-   clamping detaches it. */
+/* Compact prompt shell. Width and height are constrained by the iframe viewport
+   so overlay-window resize and Studio split resize cannot hide its actions. */
 .ai-strip {
   position: fixed;
   z-index: 1200;
-  width: 460px;
+  width: min(440px, calc(100vw - 16px));
   max-width: calc(100vw - 16px);
-  background: var(--surface-3);
+  max-height: calc(100vh - 16px);
+  background: var(--surface-2);
   border: 1px solid var(--surface-4);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-3);
   overflow: hidden;
   animation: crev-help-in 120ms var(--ease-decelerate);
 }
-.ai-strip .ai-inbar { border: none; background: none; }
 .ai-strip-nub {
   position: absolute;
   top: -5px;
   width: 9px;
   height: 9px;
   margin-left: -5px;
-  background: var(--surface-3);
+  background: var(--surface-2);
   border-left: 1px solid var(--surface-4);
   border-top: 1px solid var(--surface-4);
   transform: rotate(45deg);
   pointer-events: none;
   z-index: 1;
+}
+@media (max-width: 430px) {
+  .ai-prompt-footer { align-items: stretch; flex-direction: column; }
+  .ai-prompt-scope { align-self: flex-start; max-width: 100%; }
+  .ai-prompt-actions { width: 100%; margin-left: 0; }
+  .ai-action { flex: 1 1 0; }
+}
+/* The in-page task frame bottoms out at a 240px host, leaving about 214px for
+   the extension iframe after its titlebar. Start compact-height behavior early
+   enough that the real minimum size actually reaches it. */
+@media (max-width: 360px), (max-height: 240px) {
+  .ai-button-label { display: none; }
+  .ai-prompt-input { padding: var(--space-2); }
+  .ai-prompt-scope { display: none; }
+  .ai-prompt-footer { padding: var(--space-1); }
 }
 .ai-prose { white-space: pre-wrap; margin: 0 0 var(--space-2); }
 .ai-prose:last-child { margin-bottom: 0; }

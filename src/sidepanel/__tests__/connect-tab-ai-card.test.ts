@@ -1,9 +1,9 @@
 /**
- * Tests for the Connect tab's AI Assistant card (server-row twin). No READY/UNTESTED pills — status is
- * carried by the green keyline + connection dot + latency (present only when verified):
- *   - unconfigured → quiet row with a Set up button, no keyline
- *   - configured + untested → plain card (no keyline, no dot/latency), Edit
- *   - configured + last test ok → green keyline, latency + dot
+ * Tests for the Connect tab's AI Assistant row (server-row twin). No READY/UNTESTED pills — status is
+ * carried by one health dot and latency (present only when verified):
+ *   - unconfigured → grey dot with a Set up button
+ *   - configured + untested → grey dot, no latency, Edit
+ *   - configured + last test ok → green dot + latency
  *   - Edit / Set up expands the configuration form; AI_TEST_RESULT persists
  *     the lastTest into shared settings for the collapsed card.
  *
@@ -79,8 +79,7 @@ describe('AI Assistant card states', () => {
     expect(card.textContent).toContain('Bring your own API key');
     // Collapsed by default — no form.
     expect(el.querySelector('.ai-form')).toBeNull();
-    // Sparkle rendered directly, not in a tile.
-    expect(card.querySelector('.ai-card-spark svg')).toBeTruthy();
+    expect(card.querySelector('.ai-card-health.idle')).toBeTruthy();
   });
 
   it('configured but untested: plain card (no keyline, no dot/latency), mono line, Edit', () => {
@@ -90,9 +89,10 @@ describe('AI Assistant card states', () => {
     expect(card.classList.contains('ready')).toBe(false);
     expect(card.querySelector('.ai-pill')).toBeNull(); // no pill — absence of the keyline/dot carries "untested"
     expect(card.querySelector('.ai-card-ln2')?.textContent).toBe('DeepSeek · deepseek-chat · key saved');
-    expect(card.querySelector('.ai-card-edit')?.textContent).toBe('Edit');
+    expect(card.querySelector('.ai-card-edit')?.getAttribute('aria-label')).toBe('Edit AI settings');
+    expect(card.querySelector('.ai-card-edit svg')).toBeTruthy();
     expect(card.querySelector('.ai-card-latency')).toBeNull();
-    expect(card.querySelector('.ai-card-dot')).toBeNull();
+    expect(card.querySelector('.ai-card-health.idle')).toBeTruthy();
   });
 
   it('configured + verified: green keyline, dot + latency, no pill', () => {
@@ -104,7 +104,7 @@ describe('AI Assistant card states', () => {
     const card = el.querySelector('.ai-card')!;
     expect(card.classList.contains('ready')).toBe(true);
     expect(card.querySelector('.ai-pill')).toBeNull();
-    expect(card.querySelector('.ai-card-dot')).toBeTruthy();
+    expect(card.querySelector('.ai-card-health.ready')).toBeTruthy();
     expect(card.querySelector('.ai-card-latency')?.textContent).toBe('412 ms');
   });
 
@@ -117,7 +117,7 @@ describe('AI Assistant card states', () => {
     const card = el.querySelector('.ai-card')!;
     expect(card.classList.contains('ready')).toBe(false);
     expect(card.querySelector('.ai-pill')).toBeNull();
-    expect(card.querySelector('.ai-card-dot')).toBeNull();
+    expect(card.querySelector('.ai-card-health.error')).toBeTruthy();
   });
 
   it('the Edit action expands the existing config form (provider/model/key)', () => {
@@ -130,7 +130,7 @@ describe('AI Assistant card states', () => {
     expect(form.querySelector('#ai-model')).toBeTruthy();
     expect(form.textContent).toContain('saved'); // masked key row
     // Card button flips to Close.
-    expect(el.querySelector('.ai-card-edit')?.textContent).toBe('Close');
+    expect(el.querySelector('.ai-card-edit')?.getAttribute('aria-label')).toBe('Close AI settings');
   });
 
   it('renders a saved custom provider in the picker and redacts its key JSON', () => {
@@ -247,18 +247,51 @@ describe('AI Assistant card states', () => {
     expect(card.querySelector('.ai-card-latency')?.textContent).toBe('233 ms');
   });
 
-  it('uses the standard section-heading grammar for shortcuts and separates cache utilities', () => {
+  it('keeps shortcuts in Connect, moves local data into Preferences, and opens concise help', () => {
     shared.settings = freshSettings();
     shared.cacheCount = 27;
-    const { el } = renderTab();
+    const { tab, el } = renderTab();
+    tab.handleMessage({ type: 'CACHE_BYTES', bytes: 9 * 1024 });
+    tab.render(el);
 
-    expect(el.querySelector('.ref-toggle.connect-eyebrow')?.textContent).toContain('Shortcuts & Info');
-    expect(el.querySelector('.footer-actions')?.textContent).toContain('27 cached');
-    expect(el.querySelector('.footer-actions')?.textContent).toContain('Clear cache');
-    expect(el.querySelector('.footer-actions')?.textContent).toContain('Reset all');
-    const updateRefresh = el.querySelector<HTMLButtonElement>('.update-refresh');
-    expect(updateRefresh?.classList.contains('is-checking')).toBe(true);
-    expect(updateRefresh?.disabled).toBe(true);
+    expect(el.querySelector('.connect-local-data')?.textContent).toContain('Local inspection data');
+    expect(el.querySelector('.connect-local-data')?.textContent).toContain('9 KB stored in this browser');
+    expect(el.querySelector('.connect-local-data')?.textContent).toContain('Clear cache');
+    expect(el.querySelector('.connect-local-data')?.textContent).toContain('Reset…');
+    expect(el.querySelector('.connect-footer')).toBeNull();
+    expect(el.querySelector('.update-banner')).toBeNull();
+
+    const headings = Array.from(el.querySelectorAll('.connect-eyebrow')).map(node => node.textContent);
+    expect(headings).toContain('Keyboard shortcuts');
+    expect(el.querySelectorAll('.connect-shortcut-list dt')).toHaveLength(4);
+    const shortcutTip = el.querySelector('.connect-shortcut-tip');
+    expect(shortcutTip?.textContent).toBe('Open in the address bar: chrome://extensions/shortcuts');
+    expect(shortcutTip?.querySelector('a')).toBeNull();
+
+    const more = el.querySelector<HTMLButtonElement>('.connect-more-info')!;
+    expect(more.textContent).toContain('More information');
+    expect(more.getAttribute('aria-haspopup')).toBe('dialog');
+    more.click();
+
+    const dialog = document.querySelector('.connect-info-dialog');
+    expect(dialog?.getAttribute('aria-label')).toBe('Page badge and tab information');
+    expect(dialog?.querySelector('h2')).toBeNull();
+    expect(dialog?.textContent).toContain('Page badges');
+    expect(dialog?.textContent).toContain('Ctrl / Cmd + click');
+    expect(dialog?.textContent).toContain('Copy an instance reference');
+    for (const tabName of ['Connect', 'Inspect', 'Browse', 'AI', 'Log']) {
+      expect(dialog?.textContent).toContain(tabName);
+    }
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+
+    more.click();
+    expect(document.querySelector('.connect-info-dialog')).toBeNull();
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+
+    more.click();
+    expect(document.querySelector('.connect-info-dialog')).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.querySelector('.connect-info-dialog')).toBeNull();
   });
 });
 
@@ -280,6 +313,10 @@ describe('Command identity profile UI', () => {
     expect(el.querySelector('.prof-url')?.textContent)
       .toBe('bmp.test/Steadfast · Stored login');
     expect(el.querySelector('.prof-identity-row')).toBeNull();
+    expect(el.querySelector('.prof')?.classList.contains('cur')).toBe(true);
+    expect(el.querySelector('.prof-curtag')).toBeNull();
+    expect(el.querySelector('.prof-edit svg')).toBeTruthy();
+    expect(el.querySelector('.prof-right')).toBeTruthy();
   });
 
   it('labels portal authentication as a browser session on the same line', () => {

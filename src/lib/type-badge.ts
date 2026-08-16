@@ -245,14 +245,17 @@ export interface BadgeOpts {
 }
 
 export interface BadgeCopyOpts {
-  /** Optional surface feedback in addition to the badge's built-in check flash. */
+  /** Optional surface feedback after the clipboard write succeeds. */
   onCopied?: (id: string) => void;
+  /** Optional surface feedback when clipboard access is unavailable or blocked. */
+  onCopyError?: () => void;
 }
 
 /**
  * Wire the panel-wide badge gesture onto a stub badge: click copies the
- * surface-resolved identity with a green \u2713 flash. Host CSS needs the
- * shared `.bdg-copied` rules (sidepanel.css and the window CSS copies).
+ * surface-resolved identity with a brief, non-layout-shifting green tint.
+ * The badge label stays stable; the host surface announces the result through
+ * `onCopied` / `onCopyError` (normally the panel's polite live status line).
  */
 export function wireBadgeCopy(
   badge: HTMLElement,
@@ -263,21 +266,33 @@ export function wireBadgeCopy(
   badge.setAttribute('role', 'button');
   badge.tabIndex = 0;
   const current = (event?: Event) => id(event);
-  badge.title = `${badge.title} \u00b7 click to copy ${current()}`;
-  const copy = (e: Event) => {
+  badge.setAttribute('aria-label', `Copy ${current()}`);
+  badge.title = `${badge.title} \u00b7 Click to copy ${current()}`;
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const showCopied = (val: string): void => {
+    opts.onCopied?.(val);
+    badge.classList.add('bdg-copied');
+    if (copiedTimer !== undefined) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      badge.classList.remove('bdg-copied');
+      copiedTimer = undefined;
+    }, 700);
+  };
+
+  const copy = (e: Event): void => {
     e.stopPropagation();
     const val = current(e);
     if (!val) return;
-    navigator.clipboard?.writeText(val).catch(() => { /* clipboard blocked */ });
-    opts.onCopied?.(val);
-    const lbl = badge.querySelector<HTMLElement>('.lbl');
-    const orig = lbl?.textContent ?? '';
-    if (lbl) lbl.textContent = '\u2713';
-    badge.classList.add('bdg-copied');
-    setTimeout(() => {
-      if (lbl) lbl.textContent = orig;
-      badge.classList.remove('bdg-copied');
-    }, 700);
+    const clipboard = navigator.clipboard;
+    if (!clipboard) {
+      opts.onCopyError?.();
+      return;
+    }
+    void clipboard.writeText(val).then(
+      () => showCopied(val),
+      () => opts.onCopyError?.(),
+    );
   };
   badge.addEventListener('click', copy);
   badge.addEventListener('keydown', (e) => {

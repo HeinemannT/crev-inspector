@@ -9,6 +9,7 @@ import type { InspectorMessage } from '../types';
 
 let recordedSignal: AbortSignal | null = null;
 const sentBroadcasts: InspectorMessage[] = [];
+const { streamChatMock } = vi.hoisted(() => ({ streamChatMock: vi.fn() }));
 
 vi.mock('../ai/client', () => ({
   streamCompletion: (opts: any) => {
@@ -18,6 +19,7 @@ vi.mock('../ai/client', () => ({
       opts.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
     });
   },
+  streamChat: streamChatMock,
   testConnection: vi.fn(() => Promise.resolve({ ok: true })),
   listModels: vi.fn(() => Promise.resolve(['a', 'b'])),
 }));
@@ -49,6 +51,7 @@ describe('handlers/ai', () => {
 
   beforeEach(async () => {
     vi.resetModules();
+    streamChatMock.mockReset();
     recordedSignal = null;
     sentBroadcasts.length = 0;
     const swctx = await import('../sw-context');
@@ -129,5 +132,64 @@ describe('handlers/ai', () => {
     // No AI_ERROR after a user cancel.
     expect(sentBroadcasts.some(m => m.type === 'AI_ERROR')).toBe(false);
     expect(sentBroadcasts.some(m => m.type === 'AI_DONE')).toBe(false);
+  });
+
+  it('records provider usage and elapsed timing from an AI chat turn', async () => {
+    ctx.settings.ai = { provider: 'openai', model: 'gpt-5.2', apiKeyEnc: 'enc:k' };
+    streamChatMock.mockResolvedValue({
+      durationMs: 260, providerRequests: 2, providerDurationMs: 175,
+      inputTokens: 800, cachedInputTokens: 240, cacheWriteTokens: 0,
+      outputTokens: 120, reasoningTokens: 30,
+      modelRetries: 1, emptyResponseRetries: 0, previewRepairRetries: 1,
+      toolRounds: 0, toolCallsRequested: 2, toolCallsExecuted: 2, automaticToolCalls: 2,
+      previewDurationMs: 85, modelToolDurationMs: 0, duplicateCalls: 0, toolErrors: 0,
+      budgetExhausted: false, tools: [],
+    });
+    const message = {
+      type: 'AI_CHAT_SEND', requestId: 'chat-metrics', text: 'Change this object.', history: [],
+      envelope: { v: 1, server: { id: 'server', url: 'https://bmp.test/' }, sources: [] },
+    } as any;
+
+    await getHandler('AI_CHAT_SEND')(message, () => {}, { isOneShot: true });
+
+    expect(streamChatMock).toHaveBeenCalledOnce();
+    expect(ctx.logActivity).toHaveBeenCalledWith(
+      'info', 'AI chat (gpt-5.2)',
+      expect.stringContaining('"inputTokens":800'),
+      expect.objectContaining({ category: 'system', action: 'ai-eval-trace', durationMs: 260 }),
+    );
+  });
+
+  it('aborts an AI chat exactly at the 45-second deadline and forwards the timeout event', async () => {
+    vi.useFakeTimers();
+    try {
+      ctx.settings.ai = { provider: 'openai', model: 'gpt-5.2', apiKeyEnc: 'enc:k' };
+      let signal: AbortSignal | undefined;
+      streamChatMock.mockImplementation(({ signal: requestSignal, onEvent }: any) => new Promise(resolve => {
+        signal = requestSignal;
+        requestSignal.addEventListener('abort', () => {
+          onEvent({ kind: 'error', message: (requestSignal.reason as Error).message });
+          resolve(null);
+        });
+      }));
+      const message = {
+        type: 'AI_CHAT_SEND', requestId: 'chat-timeout', text: 'Explain this setting.', history: [],
+        envelope: { v: 1, server: { id: 'server', url: 'https://bmp.test/' }, sources: [] },
+      } as any;
+
+      const done = getHandler('AI_CHAT_SEND')(message, () => {}, { isOneShot: true });
+      await vi.advanceTimersByTimeAsync(44_999);
+      expect(signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await done;
+
+      expect(signal?.aborted).toBe(true);
+      expect(sentBroadcasts).toContainEqual({
+        type: 'AI_CHAT_EVENT', requestId: 'chat-timeout',
+        event: { kind: 'error', message: 'The AI request exceeded 45 seconds and was stopped. Nothing was executed.' },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

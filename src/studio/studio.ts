@@ -214,7 +214,7 @@ async function setupAiAssist(): Promise<void> {
   })
   // Tell the sidepanel this studio is gone so its 'editor' context chip drops.
   window.addEventListener('pagehide', () => {
-    if (aiConfigured) sendFireForget({ type: 'AI_EDITOR_CONTEXT', source: null })
+    if (aiConfigured) sendFireForget({ type: 'AI_EDITOR_CONTEXT_UPDATE', source: null })
   })
   try {
     const cfg = await fetchAiConfig()
@@ -283,7 +283,7 @@ function aiContextSource(): AiContextSource | null {
  *  tab's 'editor' chip). Zero-footprint: only while a key is configured. */
 function broadcastEditorContext(): void {
   if (!aiConfigured) return
-  sendFireForget({ type: 'AI_EDITOR_CONTEXT', source: aiContextSource() })
+  sendFireForget({ type: 'AI_EDITOR_CONTEXT_UPDATE', source: aiContextSource() })
 }
 
 /** Object grounding for the prompt: identity + sibling files + (CVO) a `_data`
@@ -501,7 +501,7 @@ function refreshActions() {
       h('button', { class: `seg-btn${layout === 'split' ? ' active' : ''}`, title: 'Editor and preview', onClick: () => setLayout('split') }, 'Split'),
       h('button', { class: `seg-btn${layout === 'preview' ? ' active' : ''}`, title: 'Preview only', onClick: () => setLayout('preview') }, 'Preview'),
     ),
-    aiConfigured ? h('button', { class: 'btn-micro studio-ai-btn', id: 'studio-ai', title: `Ask or edit with AI (${KBD_MOD}+K)`, 'aria-label': 'AI assistant', onClick: openAiAssist }, svg(ICON_SPARKLE)) : null,
+    aiConfigured ? h('button', { class: 'btn-micro studio-ai-btn', id: 'studio-ai', title: `Ask or edit with AI (${KBD_MOD}+K)`, 'aria-label': 'AI assistant', onClick: openAiAssist }, svg(ICON_SPARKLE), h('span', { class: 'ai-button-label' }, 'AI')) : null,
     h('button', { class: 'btn-micro help-btn', title: 'Quick reference', 'aria-label': 'Quick reference', onClick: (e: Event) => showStudioHelp(e.currentTarget as HTMLElement, KBD_MOD, mode) }, '?'),
   )
 }

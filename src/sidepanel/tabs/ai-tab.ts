@@ -13,8 +13,8 @@
  *   - handoff: sidepanel calls submitHandoff() with the strip's message.
  *
  * Context chips = envelope.sources, 1:1. The object chip follows the current
- * page / Inspect selection (S.context) unless pinned; the editor chip mirrors the
- * last AI_EDITOR_CONTEXT broadcast (an editor/studio open on an object).
+ * page / Inspect selection (S.context) unless pinned; the editor chip mirrors
+ * the editor/studio hosted by this Chrome window's active BMP tab.
  */
 
 import type { Tab, SendFn } from './tab-types';
@@ -23,13 +23,21 @@ import type {
   AiChatTurn, AiChatQuote, AiContextEnvelope, AiContextSource,
 } from '../../lib/ai/types';
 import { h, svg, statusFlash } from '../../lib/dom';
+import { confirmModal } from '../../lib/modal';
 import { typeBadge } from '../../lib/type-badge';
 import { objectChip } from '../../lib/object-chip';
-import { ICON_SPARKLE, ICON_X, ICON_COPY, ICON_PIN, ICON_REFRESH, ICON_PENCIL, ICON_CHECK_CIRCLE, ICON_X_CIRCLE } from '../../lib/icons';
+import { ICON_SPARKLE, ICON_X, ICON_COPY, ICON_PIN, ICON_REFRESH, ICON_PENCIL, ICON_CHECK, ICON_CHECK_CIRCLE, ICON_X_CIRCLE, ICON_CODE, ICON_CODE_BLOCK, ICON_EYE, ICON_PLAY, ICON_ARROW_SQUARE_IN, ICON_SWAP, ICON_TERMINAL_WINDOW, ICON_CARET_DOWN, ICON_INFO } from '../../lib/icons';
+import {
+  parseChangeProposal,
+  type AiChangeProposal,
+  type ChangeTicketState,
+} from '../../lib/ai/change-ticket';
+import { parsePreviewReceipt, type PreviewReceiptEvent } from '../../lib/ai/preview-receipt';
+import { scrubModelReasoning } from '../../lib/ai/scrub';
 import { sendFireForget, sendRequest } from '../../lib/messaging';
 import { showToast } from '../../lib/toast';
 import { S } from '../state';
-import { renderMarkdown } from './ai-markdown';
+import { renderInlineMarkdown, renderMarkdown } from './ai-markdown';
 import {
   type StreamState, initStream, reduceStream, cancelStream, isTerminal,
   toAssistantTurn, prepareRetry, prepareEdit,
@@ -55,11 +63,14 @@ export class AiTab implements Tab {
   private transcript: DisplayTurn[] = [];
   private stream: StreamState | null = null;
   private activeRequestId: string | null = null;
+  /** Interactive artifact state is keyed by exact scripts, so a normal chat
+   * rerender cannot silently discard a successful preview or run result. */
+  private changeTickets = new Map<string, ChangeTicketState>();
   /** Divergence tag captured at send time, shown once the reply commits. */
   private pendingTag: string | undefined;
 
   // ── Context (chips = envelope.sources) ──────────────────────────
-  /** Last editor/studio context broadcast, or null when none is open. */
+  /** Editor/studio context for this window's active BMP tab, or null. */
   private editorSource: AiContextSource | null = null;
   /** Frozen selection snapshot when the user pins the selection chip. */
   private pinnedSelection: AiContextSource | null = null;
@@ -81,7 +92,7 @@ export class AiTab implements Tab {
   /** True while the composer holds the last user turn for revision. */
   private editing = false;
   /** The original user turn's via/quote, reattached when the edit resubmits. */
-  private editingMeta: { via?: AiChatTurn['via']; quote?: AiChatQuote } | null = null;
+  private editingMeta: { via?: AiChatTurn['via']; quote?: AiChatQuote; objects?: ObjectReference[] } | null = null;
   /** The notice row above the composer, shown only while editing. */
   private noticeEl: HTMLElement | null = null;
 
@@ -92,10 +103,9 @@ export class AiTab implements Tab {
   // ── Tab interface ───────────────────────────────────────────────
 
   activate(): void {
-    // Sync the editor chip for a panel that opened after the editor.
-    void sendRequest({ type: 'AI_GET_EDITOR_CONTEXT' }).then(r => {
-      if (r?.type === 'AI_EDITOR_CONTEXT') { this.setEditorSource(r.source); }
-    });
+    // The panel port carries its window identity, so the SW can answer with the
+    // active tab's editor without consulting another Chrome window.
+    this.send({ type: 'AI_GET_EDITOR_CONTEXT' });
     this.send({ type: 'GET_PAGE_INFO' });
     // Esc cancels the edit-last-message state first, then an active stream.
     if (!this.escHandler) {
@@ -171,6 +181,18 @@ export class AiTab implements Tab {
   /** One streaming event for the in-flight reply (routed by sidepanel). */
   onChatEvent(msg: Extract<InspectorMessage, { type: 'AI_CHAT_EVENT' }>): void {
     if (msg.requestId !== this.activeRequestId || !this.stream) return;
+    if (msg.event.kind === 'change-preview-ready') {
+      this.changeTickets.set(msg.event.code, {
+        statusText: msg.event.resultText,
+        phase: 'ready',
+        previewId: msg.event.previewId,
+      });
+    } else if (msg.event.kind === 'change-preview-failed') {
+      this.changeTickets.set(msg.event.code, {
+        statusText: msg.event.resultText,
+        phase: 'error',
+      });
+    }
     this.stream = reduceStream(this.stream, msg.event);
     this.paintStream();
     if (isTerminal(this.stream)) this.commitStream();
@@ -237,6 +259,7 @@ export class AiTab implements Tab {
     this.stop();
     this.cancelEditing();
     this.transcript = [];
+    this.changeTickets.clear();
     this.stream = null;
     this.pinnedSelection = null;
     this.selectionPinned = false;
@@ -246,7 +269,7 @@ export class AiTab implements Tab {
 
   // ── Send / stream ───────────────────────────────────────────────
 
-  private submit(text: string, opts: { via?: 'strip'; quote?: AiChatQuote; envelope?: AiContextEnvelope } = {}): void {
+  private submit(text: string, opts: { via?: 'strip'; quote?: AiChatQuote; envelope?: AiContextEnvelope; objects?: ObjectReference[] } = {}): void {
     const trimmed = text.trim();
     if (!trimmed) return;
     if (this.activeRequestId) this.stop();
@@ -256,6 +279,8 @@ export class AiTab implements Tab {
     const history: AiChatTurn[] = this.transcript.map(d => d.turn);
 
     const userTurn: AiChatTurn = { role: 'user', text: trimmed };
+    const userObjects = opts.objects ?? envelope.sources.map(source => source.object);
+    if (userObjects.length) userTurn.objects = userObjects;
     if (opts.via) userTurn.via = opts.via;
     if (opts.quote) userTurn.quote = opts.quote;
     this.transcript.push({ turn: userTurn });
@@ -323,7 +348,7 @@ export class AiTab implements Tab {
     // Truncate our richer transcript to the plan prefix (kept turns keep their
     // display metadata); submit() re-pushes the user turn + rebuilds history.
     this.transcript = this.transcript.slice(0, plan.turns.length);
-    this.submit(plan.resend.text, { via: plan.resend.via, quote: plan.resend.quote });
+    this.submit(plan.resend.text, { via: plan.resend.via, quote: plan.resend.quote, objects: plan.resend.objects });
   }
 
   /** Enter editing state for the last user turn: load its text into the
@@ -334,7 +359,7 @@ export class AiTab implements Tab {
     const plan = prepareEdit(this.transcript.map(d => d.turn));
     if (!plan) return;
     this.editing = true;
-    this.editingMeta = { via: plan.draft.via, quote: plan.draft.quote };
+    this.editingMeta = { via: plan.draft.via, quote: plan.draft.quote, objects: plan.draft.objects };
     this.draft = plan.draft.text;
     if (this.textarea) {
       this.textarea.value = plan.draft.text;
@@ -356,7 +381,7 @@ export class AiTab implements Tab {
     this.editing = false;
     this.editingMeta = null;
     this.syncEditNotice();
-    this.submit(trimmed, { via: meta?.via, quote: meta?.quote });
+    this.submit(trimmed, { via: meta?.via, quote: meta?.quote, objects: meta?.objects });
   }
 
   /** Leave editing without sending — restore the composer to empty/normal. */
@@ -447,12 +472,18 @@ export class AiTab implements Tab {
     if (editable) el.title = 'Click to edit and resend this message';
     if (turn.via === 'strip') {
       const lines = turn.quote?.lines ? ` · lines ${turn.quote.lines}` : '';
-      el.appendChild(h('div', { class: 'ai-u-via' }, `via Ctrl+K · editor${lines}`));
+      el.appendChild(h('div', { class: 'ai-u-via' }, `via editor${lines}`));
     }
     if (turn.quote) {
       el.appendChild(h('pre', { class: 'ai-quote' }, turn.quote.code));
     }
-    el.appendChild(h('div', { class: 'ai-u-text' }, turn.text));
+    const text = h('div', { class: 'ai-u-text' });
+    renderInlineMarkdown(text, turn.text, this.markdownOptions(turn.objects ?? []));
+    // Object chips remain independently clickable inside the otherwise click-to-edit last user turn.
+    text.addEventListener('click', event => {
+      if ((event.target as Element | null)?.closest('.object-chip')) event.stopPropagation();
+    });
+    el.appendChild(text);
     if (editable) {
       const edit = h('button', {
         class: 'ai-u-edit',
@@ -495,8 +526,9 @@ export class AiTab implements Tab {
     if (s.tools.length) el.appendChild(this.buildToolTrace(s.tools));
     if (this.pendingTag) el.appendChild(h('div', { class: 'ai-a-tag' }, h('span', { class: 'ai-a-pip' }), this.pendingTag));
     const body = h('div', { class: 'ai-a-body' });
-    if (s.text) {
-      renderMarkdown(body, s.text, this.markdownOptions(s.objects));
+    const visibleText = scrubModelReasoning(s.text);
+    if (visibleText) {
+      renderMarkdown(body, visibleText, this.markdownOptions(s.objects));
     } else if (!s.tools.length) {
       body.appendChild(h('div', { class: 'ai-status' }, 'Thinking…'));
     }
@@ -506,7 +538,7 @@ export class AiTab implements Tab {
 
   private markdownOptions(objects: readonly ObjectReference[] | undefined) {
     return {
-      codeBlock: (lang: string, code: string) => this.buildCodeBlock(lang, code),
+      codeBlock: (lang: string, code: string) => this.buildCodeBlock(lang, code, objects),
       objects,
       objectReference: (object: ObjectReference) => objectChip(object, {
         size: 'xs',
@@ -516,12 +548,13 @@ export class AiTab implements Tab {
     };
   }
 
-  /** Committed tool trace: one collapsed "Ran N tools" summary (✓ all ok / ✕
-   *  any failed), clickable to reveal the per-call lines. Historical turns start
-   *  collapsed; the individual lines stay available on demand. */
+  /** Committed tool trace: one collapsed "Ran N tools" activity summary. A
+   *  failed call that a later call to the same tool recovers does not turn the
+   *  whole completed turn red; the failed line remains visible on expansion. */
   private buildToolGroup(d: DisplayTurn): HTMLElement {
     const trace = d.turn.toolTrace ?? [];
-    const anyFailed = trace.some(t => t.ok === false);
+    const anyFailed = trace.some((tool, index) => tool.ok === false
+      && !trace.slice(index + 1).some(later => later.name === tool.name && later.ok !== false));
     const n = trace.length;
     const tick = svg(anyFailed ? ICON_X_CIRCLE : ICON_CHECK_CIRCLE);
     const detail = this.buildToolTrace(
@@ -563,7 +596,15 @@ export class AiTab implements Tab {
 
   // ── Code block (Apply / Preview / Copy + result strip) ──────────
 
-  private buildCodeBlock(lang: string, code: string): HTMLElement {
+  private buildCodeBlock(
+    lang: string,
+    code: string,
+    objects?: readonly ObjectReference[],
+  ): HTMLElement {
+    if (lang.trim().toLowerCase() === 'crev-change') {
+      const proposal = parseChangeProposal(code);
+      if (proposal) return this.buildChangeTicket(proposal, objects);
+    }
     const canApply = !!this.activeEditorSource();
     const pre = h('pre', { class: 'ai-cb-pre' }, code);
 
@@ -632,6 +673,315 @@ export class AiTab implements Tab {
     });
 
     return block;
+  }
+
+  /** Compact interactive artifact for mutating EC. The source never renders in
+   * chat: Preview, Run and editor launch are the complete surface. */
+  private buildChangeTicket(
+    proposal: AiChangeProposal,
+    objects?: readonly ObjectReference[],
+  ): HTMLElement {
+    const key = proposal.code;
+    let ticketState = this.changeTickets.get(key);
+    if (!ticketState) {
+      ticketState = { statusText: 'Not previewed', phase: 'idle' };
+      this.changeTickets.set(key, ticketState);
+    }
+    const isPreviewing = ticketState.phase === 'previewing';
+    const isRunning = ticketState.phase === 'running';
+    const previewPhase = ticketState.phase === 'ready' || ticketState.phase === 'running' || ticketState.phase === 'done'
+      ? 'success'
+      : ticketState.phase === 'error'
+        ? 'error'
+        : ticketState.phase;
+    const previewContent = isPreviewing
+      ? [h('span', { class: 'ai-change-spinner', 'aria-hidden': 'true' }), 'Previewing…']
+      : previewPhase === 'success'
+        ? [svg(ICON_REFRESH), 'Preview again']
+        : previewPhase === 'error'
+          ? [svg(ICON_X), 'Retry preview']
+          : [svg(ICON_EYE), 'Preview'];
+    const previewBtn = h('button', {
+      class: `ai-change-btn ai-change-preview ai-change-preview--${previewPhase}`,
+      disabled: isPreviewing || isRunning,
+    }, ...previewContent) as HTMLButtonElement;
+    const runBtn = h('button', {
+      class: 'ai-change-btn ai-change-run',
+      disabled: ticketState.phase !== 'ready' || !ticketState.previewId,
+    }, svg(ICON_PLAY), isRunning ? 'Running…' : 'Run') as HTMLButtonElement;
+    const openBtn = h('button', { class: 'ai-change-btn ai-change-editor' },
+      svg(ICON_CODE),
+      h('span', { class: 'ai-change-editor-long' }, 'Open in editor'),
+      h('span', { class: 'ai-change-editor-short' }, 'Editor'),
+    ) as HTMLButtonElement;
+
+    const target = proposal.target ? this.renderChangeTarget(proposal.target, objects) : null;
+    const state = ticketState.phase === 'ready' && ticketState.statusText
+      ? this.buildPreviewReceipt(ticketState.statusText)
+      : ticketState.phase !== 'idle' && ticketState.phase !== 'previewing' && ticketState.statusText
+        ? h('div', {
+          class: `ai-change-state ai-change-state--${ticketState.phase === 'error' ? 'error' : 'success'}`,
+          role: ticketState.phase === 'error' ? 'alert' : 'status',
+        },
+          svg(ticketState.phase === 'error' ? ICON_X : ICON_CHECK),
+          h('span', null, ticketState.statusText),
+        )
+        : null;
+
+    const ticket = h('div', { class: 'ai-change', 'data-operation': proposal.operation },
+      h('div', { class: 'ai-change-header' },
+        h('div', { class: 'ai-change-kicker' },
+          h('span', { class: 'ai-change-sparkle', 'aria-hidden': 'true' }, svg(ICON_SPARKLE)),
+          h('span', null, 'AI suggestion'),
+        ),
+        target,
+      ),
+      h('div', { class: 'ai-change-summary' }, proposal.summary),
+      h('div', { class: 'ai-change-actions' }, previewBtn, openBtn, runBtn),
+      state,
+    );
+    ticket.classList.toggle('ai-change--error', ticketState.phase === 'error');
+    ticket.classList.toggle('ai-change--ready', ticketState.phase === 'ready');
+    ticket.classList.toggle('ai-change--done', ticketState.phase === 'done');
+
+    openBtn.addEventListener('click', () => {
+      sendFireForget({ type: 'AI_OPEN_IN_EDITOR', code: proposal.code });
+      statusFlash('Opening editor');
+    });
+
+    previewBtn.addEventListener('click', () => {
+      ticketState = { statusText: '', phase: 'previewing' };
+      this.changeTickets.set(key, ticketState);
+      runBtn.disabled = true;
+      previewBtn.disabled = true;
+      previewBtn.textContent = 'Previewing…';
+      const requestId = crypto.randomUUID();
+      void sendRequest({
+        type: 'AI_PREVIEW_CHANGE',
+        requestId,
+        proposal,
+        ...this.verifiedChangeTarget(proposal.target, objects),
+      }).then(result => {
+        if (result?.type !== 'AI_PREVIEW_CHANGE_RESULT') {
+          this.changeTickets.set(key, { statusText: 'Preview failed', phase: 'error' });
+          this.renderThread();
+          return;
+        }
+        this.changeTickets.set(key, {
+          statusText: result.resultText,
+          phase: result.ok && result.runnable && result.previewId ? 'ready' : 'error',
+          previewId: result.previewId,
+        });
+        this.renderThread();
+      });
+    });
+
+    runBtn.addEventListener('click', () => {
+      if (!ticketState?.previewId) return;
+      const previewId = ticketState.previewId;
+      void confirmModal({
+        title: 'Run this previewed change?',
+        body: proposal.summary,
+        confirmLabel: 'Run',
+        confirmVariant: proposal.operation === 'delete' ? 'danger' : 'accent',
+      }).then(confirmed => {
+        if (!confirmed) return;
+        ticketState = { statusText: '', phase: 'running' };
+        this.changeTickets.set(key, ticketState);
+        runBtn.disabled = true;
+        previewBtn.disabled = true;
+        runBtn.replaceChildren(svg(ICON_PLAY), 'Running…');
+        const requestId = crypto.randomUUID();
+        void sendRequest({ type: 'AI_RUN_CHANGE', requestId, previewId }).then(result => {
+          if (result?.type !== 'AI_RUN_CHANGE_RESULT') {
+            this.changeTickets.set(key, { statusText: 'Run failed', phase: 'error' });
+            this.renderThread();
+            return;
+          }
+          this.changeTickets.set(key, {
+            statusText: result.resultText,
+            phase: result.ok ? 'done' : 'error',
+          });
+          this.renderThread();
+        });
+      });
+    });
+
+    return ticket;
+  }
+
+  private buildPreviewReceipt(text: string): HTMLElement {
+    const receipt = parsePreviewReceipt(text);
+    const panel = h('div', { class: 'ai-change-receipt-panel' });
+    panel.hidden = true;
+    for (const event of receipt.events) panel.appendChild(this.buildPreviewEvent(event));
+
+    const caret = h('span', { class: 'ai-change-disclosure-caret', 'aria-hidden': 'true' }, svg(ICON_CARET_DOWN));
+    const toggle = h('button', {
+      class: 'ai-change-receipt-toggle',
+      type: 'button',
+      'aria-expanded': 'false',
+    },
+      h('span', { class: 'ai-change-receipt-check', 'aria-hidden': 'true' }, svg(ICON_CHECK)),
+      h('span', { class: 'ai-change-receipt-label' }, 'Previewed'),
+      h('span', { class: 'ai-change-receipt-summary', title: receipt.summary }, `· ${receipt.summary}`),
+      caret,
+    ) as HTMLButtonElement;
+    toggle.addEventListener('click', () => {
+      const open = panel.hidden;
+      panel.hidden = !open;
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      caret.classList.toggle('ai-change-disclosure-caret--open', open);
+    });
+
+    const rawPanel = h('pre', { class: 'ai-change-raw-output' }, receipt.raw || '(no output)');
+    rawPanel.hidden = false;
+    const rawCaret = h('span', { class: 'ai-change-disclosure-caret', 'aria-hidden': 'true' }, svg(ICON_CARET_DOWN));
+    const rawToggle = h('button', {
+      class: 'ai-change-raw-toggle',
+      type: 'button',
+      'aria-expanded': 'true',
+    },
+      h('span', { class: 'ai-change-raw-icon', 'aria-hidden': 'true' }, svg(ICON_TERMINAL_WINDOW)),
+      `Raw output · ${receipt.rawLineCount} ${receipt.rawLineCount === 1 ? 'line' : 'lines'}`,
+      rawCaret,
+    ) as HTMLButtonElement;
+    rawCaret.classList.add('ai-change-disclosure-caret--open');
+    rawToggle.addEventListener('click', () => {
+      const open = rawPanel.hidden;
+      rawPanel.hidden = !open;
+      rawToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      rawCaret.classList.toggle('ai-change-disclosure-caret--open', open);
+    });
+    const copy = h('button', {
+      class: 'ai-change-raw-copy',
+      type: 'button',
+      title: 'Copy raw output',
+      'aria-label': 'Copy raw output',
+    }, svg(ICON_COPY)) as HTMLButtonElement;
+    copy.addEventListener('click', () => {
+      navigator.clipboard?.writeText(receipt.raw).then(() => {
+        copy.replaceChildren(svg(ICON_CHECK));
+        copy.title = 'Copied';
+        copy.setAttribute('aria-label', 'Copied');
+        setTimeout(() => {
+          copy.replaceChildren(svg(ICON_COPY));
+          copy.title = 'Copy raw output';
+          copy.setAttribute('aria-label', 'Copy raw output');
+        }, 1200);
+      }).catch(() => { /* clipboard may be blocked */ });
+    });
+    panel.appendChild(h('div', { class: 'ai-change-raw-row' }, rawToggle, copy));
+    panel.appendChild(rawPanel);
+
+    return h('div', { class: 'ai-change-receipt', role: 'status' }, toggle, panel);
+  }
+
+  private buildPreviewEvent(event: PreviewReceiptEvent): HTMLElement {
+    if (event.kind === 'write') {
+      const object = this.splitPreviewIdentity(event.object);
+      return this.previewEventRow(ICON_PENCIL, object.name, `${event.property} → ${event.value}`, object.id);
+    }
+    if (event.kind === 'move') {
+      const object = this.splitPreviewIdentity(event.object);
+      const target = this.splitPreviewIdentity(event.target);
+      return this.previewEventRow(
+        event.relation === 'into' ? ICON_ARROW_SQUARE_IN : ICON_SWAP,
+        object.name,
+        `${event.relation} ${target.name}`,
+        object.id,
+      );
+    }
+    if (event.kind === 'generated') {
+      const code = h('pre', { class: 'ai-change-event-code' }, event.code);
+      code.hidden = true;
+      const caret = h('span', { class: 'ai-change-disclosure-caret', 'aria-hidden': 'true' }, svg(ICON_CARET_DOWN));
+      const row = h('button', {
+        class: 'ai-change-event ai-change-event--generated',
+        type: 'button',
+        title: event.code,
+        'aria-expanded': 'false',
+      },
+        h('span', { class: 'ai-change-event-icon', 'aria-hidden': 'true' }, svg(ICON_CODE_BLOCK)),
+        h('span', { class: 'ai-change-event-primary' }, event.action === 'create' ? 'Creation script' : 'Edit script'),
+        h('span', { class: 'ai-change-event-detail' }, event.target ?? 'Generated Extended Code'),
+        caret,
+      ) as HTMLButtonElement;
+      row.addEventListener('click', () => {
+        const open = code.hidden;
+        code.hidden = !open;
+        row.setAttribute('aria-expanded', open ? 'true' : 'false');
+        caret.classList.toggle('ai-change-disclosure-caret--open', open);
+      });
+      return h('div', { class: 'ai-change-event-group' }, row, code);
+    }
+    return this.previewEventRow(ICON_INFO, 'Result', event.text);
+  }
+
+  private previewEventRow(icon: string, primary: string, detail: string, id?: string): HTMLElement {
+    return h('div', { class: 'ai-change-event', title: [id, primary, detail].filter(Boolean).join(' · ') },
+      h('span', { class: 'ai-change-event-icon', 'aria-hidden': 'true' }, svg(icon)),
+      h('span', { class: 'ai-change-event-primary' }, primary),
+      id ? h('span', { class: 'ai-change-event-id' }, id) : null,
+      h('span', { class: 'ai-change-event-detail' }, detail),
+    );
+  }
+
+  private splitPreviewIdentity(value: string): { id?: string; name: string } {
+    const match = /^(\S+)\s+(.+)$/u.exec(value.trim());
+    return match ? { id: match[1], name: match[2] } : { name: value.trim() };
+  }
+
+  private verifiedChangeTarget(
+    target: string | undefined,
+    objects?: readonly ObjectReference[],
+  ): { expectedTarget: { rid: string; businessId?: string } } | Record<string, never> {
+    const rid = target ? /^\s*\[\[object:(-?\d+)\]\]\s*$/u.exec(target)?.[1] : undefined;
+    if (!rid) return {};
+    const object = objects?.find(candidate => candidate.rid === rid);
+    if (!object) return {};
+    return {
+      expectedTarget: {
+        rid: object.rid,
+        ...(object.businessId ? { businessId: object.businessId } : {}),
+      },
+    };
+  }
+
+  /** A verified target is represented by its normal BMP type badge only. The
+   *  object-chip hover preview retains the full name / ID context without
+   *  repeating that metadata inside the compact suggestion card. */
+  private renderChangeTarget(
+    target: string,
+    objects?: readonly ObjectReference[],
+  ): HTMLElement | null {
+    const objectToken = /\[\[object:(-?\d+)\]\]/u.exec(target);
+    const object = objectToken
+      ? objects?.find(candidate => candidate.rid === objectToken[1])
+      : undefined;
+
+    if (object && objectToken?.index !== undefined) {
+      const label = object.name || object.businessId || `Object ${object.rid}`;
+      const chip = objectChip(object, {
+        size: 'xs',
+        showId: false,
+        className: 'ai-change-target-object',
+        onActivate: () => sendFireForget({ type: 'OPEN_OBJECT_VIEW', rid: object.rid }),
+      });
+      chip.querySelector('.object-chip-label')?.remove();
+      chip.querySelector('.object-chip-id')?.remove();
+      const identity = [object.type, label, object.businessId, object.rid]
+        .filter((value, index, values) => value && values.indexOf(value) === index)
+        .join(' · ');
+      chip.title = identity;
+      chip.setAttribute('aria-label', `Target: ${identity}`);
+
+      return h('div', { class: 'ai-change-target' },
+        chip,
+      );
+    }
+
+    return null;
   }
 
   private async runPreview(code: string, block: HTMLElement, btn: HTMLElement): Promise<void> {
@@ -773,21 +1123,23 @@ export class AiTab implements Tab {
     ctx.classList.remove('ai-composer-ctx--empty');
     if (ed) ctx.appendChild(this.buildChip(ed, false));
     if (sel) ctx.appendChild(this.buildChip(sel, true));
-    if (ed && sel) ctx.appendChild(h('span', { class: 'ai-divnote' }, '2 contexts'));
   }
 
   private buildChip(src: AiContextSource, isSelection: boolean): HTMLElement {
     const following = isSelection && !this.selectionPinned;
     const name = src.object.businessId || src.object.name || src.object.rid;
-    const sourceWord = src.kind === 'editor'
-      ? (src.slot ? `editor · ${src.slot.lang}` : 'editor')
-      : null;
-
-    const chip = h('span', { class: `ai-cchip${following ? ' ai-cchip--follow' : ''}` },
-      typeBadge(src.object.type, { size: 'xs' }),
-      h('span', { class: 'ai-cchip-name' }, name),
-      sourceWord ? h('span', { class: 'ai-cchip-src' }, sourceWord) : null,
-    );
+    const editor = src.kind === 'editor';
+    const editorTitle = `Extended Code editor context · ${name}`;
+    const chip = editor
+      ? h('span', {
+        class: 'ai-cchip ai-cchip--editor',
+        title: editorTitle,
+        'aria-label': editorTitle,
+      }, h('span', { class: 'ai-cchip-editor-icon', 'aria-hidden': 'true' }, svg(ICON_CODE)))
+      : h('span', { class: `ai-cchip${following ? ' ai-cchip--follow' : ''}` },
+        typeBadge(src.object.type, { size: 'xs' }),
+        h('span', { class: 'ai-cchip-name' }, name),
+      );
 
     if (isSelection) {
       const pin = h('button', {

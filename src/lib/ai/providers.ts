@@ -25,6 +25,7 @@ export interface ProviderMeta {
   /** True for the OpenAI `/chat/completions` dialect (openai / deepseek / grok). */
   openAiCompat: boolean;
   /** Optional selected-model limits from a custom catalogue. */
+  maxInputTokens?: number;
   maxOutputTokens?: number;
   /** OpenAI-compatible output-limit field. Defaults to max_completion_tokens. */
   maxTokensParam?: AiMaxTokensParam;
@@ -167,6 +168,7 @@ export function resolveProvider(settings: Pick<AiSettings, 'provider' | 'model' 
     defaultModel: custom.models.find(item => item.toolCalling)?.id ?? custom.models[0].id,
     suggestedModels: custom.models.filter(item => item.toolCalling).map(item => item.id),
     openAiCompat: custom.apiType === 'openai',
+    maxInputTokens: model.maxInputTokens,
     maxOutputTokens: model.maxOutputTokens,
     maxTokensParam: model.maxTokensParam,
   };

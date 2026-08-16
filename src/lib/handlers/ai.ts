@@ -14,21 +14,87 @@
 
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
-import type { AiSettings, InspectorMessage, InspectorSettings } from '../types';
+import type { AiSettings, InspectorMessage, InspectorSettings, ObjectReference } from '../types';
 import { saveSettings, snapshotSettings } from '../settings';
 import { encrypt, decrypt } from '../crypto';
 import { sendFireForget } from '../messaging';
 import { streamCompletion, streamChat, testConnection, listModels } from '../ai/client';
-import { buildChatSystem } from '../ai/prompt';
+import { buildChatSystem } from '../ai/sidebar-prompt';
 import { executeAiTool } from './ai-tools';
 import { buildWorkspacePrimer } from './ai-primer';
 import { openExtendedWindow } from '../editor';
 import { parseCustomProviderJson, resolveProvider } from '../ai/providers';
 import { errorMessage, log } from '../logger';
 import { reconcileProfileOrigins } from '../site-access';
+import { ChangeTicketLifecycle, type ChangePreviewScope, type ChangeTicketTargetContext } from '../ai/change-ticket';
+import type { ToolResult } from '../ai/tools';
+import {
+  editorContextForTab,
+  isCurrentEditorContext,
+  storeEditorContext,
+} from '../ai/editor-context';
 
 /** In-flight completions, keyed by requestId — AI_CANCEL aborts them. */
 const inflight = new Map<string, AbortController>();
+export const AI_CHAT_DEADLINE_MS = 45_000;
+
+const CHANGE_PREVIEW_TTL_MS = 10 * 60_000;
+/** Capabilities deliberately live only in SW memory. An MV3 restart
+ * invalidates them, forcing a fresh Preview before any Run. */
+const changePreviews = new ChangeTicketLifecycle(CHANGE_PREVIEW_TTL_MS);
+
+function changePreviewScope(): ChangePreviewScope | null {
+  const ctx = getCtx();
+  if (!ctx.client) return null;
+  return {
+    profileId: ctx.settings.activeProfileId,
+    serverUrl: ctx.client.serverUrl,
+    actor: ctx.client.username,
+  };
+}
+
+function ecResultText(result: { log?: string; error?: string }, fallback: string): string {
+  return result.error ?? result.log ?? fallback;
+}
+
+/** One implementation for both generation-time validation and the card's
+ * explicit Preview action. Successful final-change Preview issues the same
+ * exact-code, environment-bound capability consumed by Run. */
+async function previewChangeCode(
+  code: string,
+  expectedTarget?: ChangeTicketTargetContext,
+  signal?: AbortSignal,
+): Promise<ToolResult & { previewId?: string }> {
+  const ctx = getCtx();
+  if (!ctx.client) return { content: 'Not connected to BMP', isError: true };
+  const trimmed = code.trim();
+  if (!trimmed) return { content: 'The proposal contains no Extended Code.', isError: true };
+  try {
+    const result = signal
+      ? await ctx.client.executeEc(trimmed, undefined, false, signal)
+      : await ctx.client.executeEc(trimmed, undefined, false);
+    if (!result.ok || result.hasWarning) {
+      return {
+        content: result.hasWarning
+          ? `Preview returned a warning: ${ecResultText(result, 'Review the code before running.')}`
+          : ecResultText(result, 'Preview failed.'),
+        isError: true,
+      };
+    }
+    const scope = changePreviewScope();
+    if (!scope) {
+      return { content: 'The BMP connection changed during Preview. Preview again.', isError: true };
+    }
+    const content = ecResultText(result, 'Preview successful');
+    return {
+      content,
+      isError: false,
+      previewId: changePreviews.issue(trimmed, scope, content, expectedTarget),
+    };
+  } catch (error) {
+    return { content: errorMessage(error), isError: true };
+  }
+}
 
 function aiConfig(): AiSettings | undefined {
   return getCtx().settings.ai;
@@ -184,23 +250,28 @@ register('AI_CANCEL', (msg) => {
 
 // ── Chat (tool-using conversation) ───────────────────────────────
 
-/** Workspace primer cache, keyed by server id (envelope.server.id). Built once
- *  per server on the first chat turn; a different active profile keys a
- *  different entry so a profile switch never reuses another server's map.
- *  `null` = the probe ran but failed / was empty (don't re-probe every turn). */
-const primerByServer = new Map<string, string | null>();
+const PRIMER_SUCCESS_TTL_MS = 10 * 60_000;
+const PRIMER_FAILURE_TTL_MS = 30_000;
+interface CachedPrimer { value: string | null; expiresAt: number }
+/** Cache by complete live environment identity, not only editable profile id. */
+const primerByServer = new Map<string, CachedPrimer>();
 const primerInflightByServer = new Map<string, Promise<string | null>>();
 
 /** Get (and lazily build + cache) the workspace primer for a server. Degrades
  *  to null on any failure. Cheap after the first turn (one Map lookup). */
 async function workspacePrimerFor(serverId: string, signal?: AbortSignal): Promise<string | null> {
-  if (primerByServer.has(serverId)) return primerByServer.get(serverId) ?? null;
+  const cached = primerByServer.get(serverId);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (cached) primerByServer.delete(serverId);
   const pending = primerInflightByServer.get(serverId);
   if (pending) return pending;
   const ctx = getCtx();
   if (!ctx.client) return null;
   const request = buildWorkspacePrimer(ctx.client, signal).then(primer => {
-    primerByServer.set(serverId, primer);
+    primerByServer.set(serverId, {
+      value: primer,
+      expiresAt: Date.now() + (primer ? PRIMER_SUCCESS_TTL_MS : PRIMER_FAILURE_TTL_MS),
+    });
     return primer;
   });
   primerInflightByServer.set(serverId, request);
@@ -221,27 +292,65 @@ register('AI_CHAT_SEND', async (msg) => {
   if (!ai?.apiKeyEnc) { emit({ kind: 'error', message: 'No API key configured' }); return; }
 
   const controller = new AbortController();
+  const timeoutReason = new DOMException(
+    'The AI request exceeded 45 seconds and was stopped. Nothing was executed.',
+    'TimeoutError',
+  );
+  const deadline = setTimeout(() => controller.abort(timeoutReason), AI_CHAT_DEADLINE_MS);
+  let streamStarted = false;
   inflight.set(rid, controller);
   try {
     const key = await decrypt(ai.apiKeyEnc);
-    const primer = await workspacePrimerFor(msg.envelope.server.id, controller.signal);
+    const primerEnvironment = [
+      msg.envelope.server.id,
+      ctx.client?.serverUrl ?? msg.envelope.server.url,
+      ctx.client?.username ?? '',
+    ].join('\u0000');
+    const primer = await workspacePrimerFor(primerEnvironment, controller.signal);
     const { system } = buildChatSystem(msg.envelope, primer);
-    await streamChat({
+    const knownObjects = new Map<string, ObjectReference>(
+      msg.envelope.sources.map(source => [source.object.rid, source.object]),
+    );
+    streamStarted = true;
+    const metrics = await streamChat({
       settings: ai,
       apiKey: key,
       system,
       history: msg.history,
       text: msg.text,
+      pageRid: msg.envelope.page?.rid,
       onEvent: emit,
-      executeTool: (call, signal) => executeAiTool(call, signal, msg.envelope),
+      executeTool: async (call, signal) => {
+        const result = await executeAiTool(call, signal, msg.envelope);
+        result.objects?.forEach(object => knownObjects.set(object.rid, object));
+        return result;
+      },
+      executeChangePreview: ({ code, targetRid }, signal) => {
+        const target = targetRid ? knownObjects.get(targetRid) : undefined;
+        return previewChangeCode(code, targetRid ? {
+          rid: targetRid,
+          ...(target?.businessId ? { businessId: target.businessId } : {}),
+        } : undefined, signal);
+      },
       signal: controller.signal,
     });
-    ctx.logActivity('info', `AI chat (${ai.model})`);
+    if (metrics) {
+      ctx.logActivity(
+        metrics.toolErrors ? 'warn' : 'info',
+        `AI chat (${ai.model})`,
+        JSON.stringify(metrics),
+        { category: 'system', action: 'ai-eval-trace', durationMs: metrics.durationMs },
+      );
+    }
   } catch (e) {
     // streamChat handles its own done/error events; this guards decrypt /
     // prompt-build failures before the stream starts.
     if (!controller.signal.aborted) emit({ kind: 'error', message: errorMessage(e) });
+    else if (!streamStarted && controller.signal.reason === timeoutReason) {
+      emit({ kind: 'error', message: timeoutReason.message });
+    }
   } finally {
+    clearTimeout(deadline);
     inflight.delete(rid);
   }
 });
@@ -253,17 +362,76 @@ register('AI_CHAT_CANCEL', (msg) => {
 
 register('AI_PREVIEW_CODE', async (msg, respond) => {
   const ctx = getCtx();
-  if (!ctx.client) { respond({ type: 'AI_PREVIEW_RESULT', requestId: msg.requestId, ok: false, resultText: 'Not connected to BMP' }); return; }
+  if (!ctx.client) { respond({ type: 'AI_PREVIEW_RESULT', requestId: msg.requestId, purpose: 'verification', ok: false, resultText: 'Not connected to BMP' }); return; }
   try {
     const res = await ctx.client.executeEc(msg.code, undefined, false);
     respond({
       type: 'AI_PREVIEW_RESULT',
       requestId: msg.requestId,
-      ok: res.ok,
-      resultText: res.ok ? (res.log ?? '(no output)') : (res.error ?? res.log ?? 'EC error'),
+      purpose: 'verification',
+      ok: res.ok && !res.hasWarning,
+      resultText: res.hasWarning
+        ? `Preview returned a warning: ${res.log ?? res.error ?? 'Review the code.'}`
+        : res.ok ? (res.log ?? '(no output)') : (res.error ?? res.log ?? 'EC error'),
     });
   } catch (e) {
-    respond({ type: 'AI_PREVIEW_RESULT', requestId: msg.requestId, ok: false, resultText: errorMessage(e) });
+    respond({ type: 'AI_PREVIEW_RESULT', requestId: msg.requestId, purpose: 'verification', ok: false, resultText: errorMessage(e) });
+  }
+});
+
+register('AI_PREVIEW_CHANGE', async (msg, respond) => {
+  const reply = (
+    ok: boolean,
+    resultText: string,
+    previewId?: string,
+    runnable = false,
+  ) => respond({
+    type: 'AI_PREVIEW_CHANGE_RESULT',
+    requestId: msg.requestId,
+    purpose: 'change',
+    ok,
+    resultText,
+    previewId,
+    runnable,
+  });
+  const result = await previewChangeCode(msg.proposal.code, msg.expectedTarget);
+  reply(!result.isError, result.content, result.previewId, !result.isError && !!result.previewId);
+});
+
+register('AI_RUN_CHANGE', async (msg, respond) => {
+  const ctx = getCtx();
+  const reply = (ok: boolean, resultText: string, partial?: boolean) => respond({
+    type: 'AI_RUN_CHANGE_RESULT', requestId: msg.requestId, ok, resultText, ...(partial ? { partial } : {}),
+  });
+  if (!ctx.client) { reply(false, 'Not connected to BMP'); return; }
+  const scope = changePreviewScope();
+  if (!scope) { reply(false, 'Not connected to BMP'); return; }
+  const preview = changePreviews.consume(msg.previewId, scope);
+  if (!preview.ok && (preview.reason === 'missing' || preview.reason === 'expired')) {
+    reply(false, 'Preview expired. Preview the change again before running.');
+    return;
+  }
+  if (!preview.ok) {
+    reply(false, 'The active environment changed. Preview the change again.');
+    return;
+  }
+  try {
+    const execution = await ctx.client.executeEc(preview.code, undefined, true);
+    if (!execution.ok || execution.hasWarning) {
+      const detail = execution.hasWarning
+        ? `Run returned a warning: ${ecResultText(execution, 'Read back the affected objects before retrying.')}`
+        : ecResultText(execution, 'Run failed. Read back the affected objects before retrying.');
+      ctx.logActivity('error', 'AI Change Ticket run needs review', detail, { category: 'execution', action: 'ai-change-run' });
+      reply(false, detail, true);
+      return;
+    }
+    const detail = ecResultText(execution, 'Executed successfully.');
+    ctx.logActivity('success', 'AI Change Ticket executed', detail, { category: 'execution', action: 'ai-change-run' });
+    reply(true, detail);
+  } catch (e) {
+    const detail = errorMessage(e);
+    ctx.logActivity('error', 'AI Change Ticket run failed', detail, { category: 'execution', action: 'ai-change-run' });
+    reply(false, detail, true);
   }
 });
 
@@ -295,19 +463,38 @@ register('AI_OPEN_IN_EDITOR', (msg, _respond, meta) => {
 });
 
 // ── Editor context (drives the chat tab's 'editor' chip) ─────────
-// The editor / studio broadcast their open object+slot via chrome.runtime
-// .sendMessage — which reaches the sidepanel page directly AND this handler.
-// We persist the last value so a panel that opens AFTER the editor can sync
-// via AI_GET_EDITOR_CONTEXT. No re-broadcast here (the panel already heard the
-// original), just durable state for the late-open case.
-let editorContext: import('../ai/types').AiContextSource | null = null;
-
-register('AI_EDITOR_CONTEXT', (msg) => {
-  editorContext = msg.source;
+// Editor frames are hosted by BMP tabs. Store their context per tab and route
+// only the ACTIVE tab's value to the side panel attached to that Chrome window.
+// The request/response message types are intentionally distinct: a raw
+// chrome.runtime message from one editor must never update every open panel.
+register('AI_EDITOR_CONTEXT_UPDATE', async (msg, _respond, meta) => {
+  const tabId = meta.senderTabId;
+  if (tabId == null) return;
+  const generation = storeEditorContext(tabId, msg.source);
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!isCurrentEditorContext(tabId, generation) || !tab.active || tab.windowId == null) return;
+    getCtx().sendToPanelByWindow(tab.windowId, {
+      type: 'AI_EDITOR_CONTEXT',
+      source: editorContextForTab(tabId),
+    });
+  } catch (e) {
+    log.swallow('ai:editorContextUpdate', e);
+  }
 });
 
-register('AI_GET_EDITOR_CONTEXT', (_msg, respond) => {
-  respond({ type: 'AI_EDITOR_CONTEXT', source: editorContext });
+register('AI_GET_EDITOR_CONTEXT', async (_msg, respond, meta) => {
+  if (meta.panelWindowId == null) {
+    respond({ type: 'AI_EDITOR_CONTEXT', source: null });
+    return;
+  }
+  try {
+    const active = await chrome.tabs.query({ active: true, windowId: meta.panelWindowId });
+    respond({ type: 'AI_EDITOR_CONTEXT', source: editorContextForTab(active[0]?.id) });
+  } catch (e) {
+    log.swallow('ai:getEditorContext', e);
+    respond({ type: 'AI_EDITOR_CONTEXT', source: null });
+  }
 });
 
 register('AI_CHAT_HANDOFF', (msg, _respond, meta) => {

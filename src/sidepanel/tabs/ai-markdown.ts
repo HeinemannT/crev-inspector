@@ -32,6 +32,14 @@ export type MdBlock =
   | { kind: 'code'; lang: string; code: string }
   | { kind: 'text'; lines: string[] };
 
+type ListItem = { ordered: boolean; text: string };
+
+function listItem(line: string): ListItem | null {
+  const match = /^\s*(?:([-+*])|(\d+)[.)])\s+(.+)$/.exec(line);
+  if (!match) return null;
+  return { ordered: Boolean(match[2]), text: match[3] };
+}
+
 /** Split markdown into fenced-code blocks and interleaved text blocks. An
  *  unterminated trailing fence (mid-stream) is still surfaced as a code block
  *  so it renders monospaced while the answer is still streaming. Exported for
@@ -100,6 +108,16 @@ export function renderMarkdown(container: HTMLElement, text: string, opts: Markd
   }
 }
 
+/** Inline-only renderer for user messages: preserve their compact bubble while resolving verified
+ * object references with the same ledger used for assistant Markdown. */
+export function renderInlineMarkdown(container: HTMLElement, text: string, opts: MarkdownOptions): void {
+  container.textContent = '';
+  renderInline(container, text, {
+    ...opts,
+    objectByRid: new Map((opts.objects ?? []).map(object => [object.rid, object])),
+  });
+}
+
 /** Render a text block: headings, pipe tables, and paragraphs (with inline
  *  spans). Paragraphs accumulate until a blank line or a structural element. */
 function renderTextBlock(container: HTMLElement, lines: string[], opts: RenderOptions): void {
@@ -139,6 +157,28 @@ function renderTextBlock(container: HTMLElement, lines: string[], opts: RenderOp
         j++;
       }
       container.appendChild(buildTable(header, rows, opts));
+      i = j - 1;
+      continue;
+    }
+
+    // Consecutive Markdown list rows become a semantic list. Keep nesting out
+    // of this intentionally small renderer; hierarchy comes from headings,
+    // paragraphs and tables instead of exposing literal dash characters.
+    const firstItem = listItem(line);
+    if (firstItem) {
+      flushPara();
+      const tag = firstItem.ordered ? 'ol' : 'ul';
+      const list = h(tag, { class: 'ai-md-list' });
+      let j = i;
+      while (j < lines.length) {
+        const item = listItem(lines[j]);
+        if (!item || item.ordered !== firstItem.ordered) break;
+        const li = h('li');
+        renderInline(li, item.text, opts);
+        list.appendChild(li);
+        j++;
+      }
+      container.appendChild(list);
       i = j - 1;
       continue;
     }

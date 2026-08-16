@@ -14,6 +14,9 @@
  */
 import type { LayoutNode } from './types';
 
+/** AI structure-only provenance: instanceBid|templateRid|templateBid|templateClass|templateName. */
+export const LINK_MARKER = '<<<CREV_LINK>>>';
+
 // ── EC fetch wire protocol: three independent channels ride the SAME log, each on its own marker, so
 // each parser scans only its own lines and ignores the others. `buildFetchEc`/`buildContextEc` emit them.
 export const LAYOUT_SEP = '<<<CREV_LAYOUT>>>'; // layout tree — one node per marker (parseLayoutNodes)

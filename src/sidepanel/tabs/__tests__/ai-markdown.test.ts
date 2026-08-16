@@ -146,3 +146,29 @@ describe('renderMarkdown inline + escaping', () => {
     expect(el.textContent).toContain('[[object:9]]');
   });
 });
+
+describe('renderMarkdown lists', () => {
+  it('renders consecutive unordered items as one semantic ul with inline formatting', () => {
+    const el = renderInto('Before\n\n- **first**\n* `second`\n+ third\n\nAfter');
+    const list = el.querySelector('ul.ai-md-list')!;
+    expect(list).toBeTruthy();
+    expect(list.querySelectorAll('li')).toHaveLength(3);
+    expect(list.querySelector('strong')?.textContent).toBe('first');
+    expect(list.querySelector('code')?.textContent).toBe('second');
+    expect([...el.querySelectorAll('.ai-prose')].map(node => node.textContent)).toEqual(['Before', 'After']);
+  });
+
+  it('renders ordered items as ol and starts a new list when the kind changes', () => {
+    const el = renderInto('1. first\n2) second\n- third');
+    expect(el.querySelectorAll('ol.ai-md-list')).toHaveLength(1);
+    expect(el.querySelectorAll('ul.ai-md-list')).toHaveLength(1);
+    expect(el.querySelectorAll('ol li')).toHaveLength(2);
+    expect(el.querySelector('ul li')?.textContent).toBe('third');
+  });
+
+  it('does not interpret a minus sign without list whitespace as a list item', () => {
+    const el = renderInto('value - another value\n-actual subtraction');
+    expect(el.querySelector('ul, ol')).toBeNull();
+    expect(el.textContent).toContain('-actual subtraction');
+  });
+});

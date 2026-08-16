@@ -6,7 +6,7 @@
  *     detect a byte-identical no-op before showing an Accept/Reject bar.
  *
  * These are pure functions — no DOM needed. They mirror the SW-side
- * extractCodeBlock (src/lib/ai/prompt.ts), which has its own suite.
+ * The editor frame is the sole owner of reply extraction.
  */
 import { describe, it, expect } from 'vitest';
 import { extractReplyCode, composeReplacement } from '../ai-assist';

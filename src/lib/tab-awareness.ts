@@ -13,6 +13,7 @@ import { checkBmpCookie } from './cookie-gate';
 import { deleteContextRid } from './context-rid';
 import { sendPageInfoToPanel } from './content-script-injection';
 import { sendPanelContextForTab } from './panel-context-sync';
+import { clearEditorContext, editorContextForTab } from './ai/editor-context';
 
 // Re-export for backward compatibility with existing importers
 export { ensureContentScript, ensureBlueprintScript, sendPageInfoToPanel, handleGetDetection } from './content-script-injection';
@@ -81,6 +82,12 @@ export function registerTabListeners() {
       // must always follow activation. Skipping this when `det` existed was the
       // reason the side panel could keep the previous browser tab's context.
       sendPageInfoToPanel(activeInfo.tabId);
+      try {
+        panelPort.postMessage({
+          type: 'AI_EDITOR_CONTEXT',
+          source: editorContextForTab(activeInfo.tabId),
+        } satisfies InspectorMessage);
+      } catch (e) { log.swallow('tabs:onActivatedAiContext', e); }
     }
 
     // Re-enrich only if inspect is on for THIS window. Per-window
@@ -103,6 +110,12 @@ export function registerTabListeners() {
     // first tab switch — that gap left the brush stuck-armed after a refresh).
     if (changeInfo.url || changeInfo.status === 'loading') {
       cancelPaintForTab(tabId);
+      if (changeInfo.status === 'loading') {
+        clearEditorContext(tabId);
+        if (isActiveTab) {
+          ctx.sendToPanelByWindow(windowId!, { type: 'AI_EDITOR_CONTEXT', source: null });
+        }
+      }
       // Blueprint is a per-page editing session — end it when ITS tab navigates/refreshes (keyed on the
       // recorded blueprint tab, not the active-tab map, which is empty until the first tab switch). The
       // content re-injects fresh (overlay gone), so without this the SW state + sidebar toggle would
@@ -166,6 +179,7 @@ export function registerTabListeners() {
       activeTabIdByWindow.delete(removeInfo.windowId);
     }
     deleteTabDetection(tabId);
+    clearEditorContext(tabId);
     lastUrlByTab.delete(tabId);
     getCtx().contentPorts.delete(tabId);
   });

@@ -1,22 +1,14 @@
 /**
  * Shared AI coding-assistant UI, used by both the EC editor and the CVO/Text
  * studio. Owns:
- *   - the invoke COMMAND BAR with a VERB-AT-SEND interaction: one tight row —
- *     sparkle (its tooltip names the model), an instruction input, and two verb
- *     buttons, Edit (⌃↵, outlined) and Ask (↵, solid purple). There is NO mode:
- *     you type first, then pick the intent with the key you press — Enter sends
- *     as Ask, Ctrl/Cmd+Enter sends as Edit. Both buttons are always visible with
- *     their shortcut printed on them.
- *   - Two shells share that exact inner content (buildBarContent):
- *       · INLINE (primary): a CodeMirror block widget injected directly under the
- *         selection's last line (or the cursor line), full editor width, so the
- *         code shifts down and nothing is occluded. A 2px purple gutter bracket
- *         over the target lines is the scope indicator. See ai-inline-bar.ts.
- *       · FLOATING (fallback): the former anchored strip, used when the editor
- *         view is not visible (e.g. the studio's preview-only layout) or absent.
- *     The placeholder communicates scope ("Ask or edit lines a–b…" /
- *     "Ask or edit this script…"); the model name lives only in the sparkle's
- *     tooltip.
+ *   - a compact, mouse-first prompt anchored to the current selection (or the
+ *     toolbar AI button when the editor is hidden). It never inserts a full-width
+ *     row into CodeMirror. The popover is viewport-clamped and re-anchors when
+ *     the EC overlay window or the Studio HTML-preview split is resized.
+ *   - one labelled toolbar entry point (plus Mod+K). A mouse selection still
+ *     scopes the request, but selecting text never creates another button.
+ *   - explicit result verbs: “Suggest change” keeps the edit in this editor;
+ *     “Ask in sidebar” names the cross-surface handoff before it occurs.
  *   - Ask: hands off to the sidepanel AI chat tab (AI_CHAT_HANDOFF). The old
  *     floating answer panel is RETIRED — answers now live in the chat thread.
  *   - Edit: a `@codemirror/merge` unifiedMergeView overlaid on the live editor,
@@ -30,10 +22,8 @@
 
 import { unifiedMergeView } from '@codemirror/merge'
 import type { Extension } from '@codemirror/state'
-import { EditorView } from '@codemirror/view'
+import type { EditorView } from '@codemirror/view'
 import type { CodeSurface } from './code-surface'
-import { openInlineBar, closeInlineBar } from './ai-inline-bar'
-import { isMac } from './platform'
 import { h, svg } from '../lib/dom'
 import { anchorPopover } from '../lib/popover-anchor'
 import { sendFireForget } from '../lib/messaging'
@@ -53,7 +43,7 @@ export interface AiAssistHost {
   lang: () => AiLang
   /** Object grounding for the prompt (Edit path). */
   context: () => AiObjectContext
-  /** Fallback anchor for the command strip (the sparkle button). */
+  /** Toolbar anchor for the compact prompt. */
   anchorEl: () => HTMLElement | null
   /** Full 'editor' context source for the chat envelope — identity + the
    *  current slot's code + selection. Null when no object is loaded. Used by
@@ -62,9 +52,9 @@ export interface AiAssistHost {
 }
 
 export interface AiAssist {
-  /** Toggle the command strip. */
+  /** Open or focus the compact prompt. */
   open: () => void
-  /** Tear down any open strip / pending proposal. */
+  /** Tear down the prompt and pending proposal. */
   close: () => void
   /** True while an edit proposal is awaiting Accept/Reject. */
   hasPendingProposal: () => boolean
@@ -78,23 +68,6 @@ export interface AiAssist {
   insertAtCursor: (code: string) => void
 }
 
-/** Hint glyph on the Edit verb button — Ctrl+Enter everywhere, additionally
- *  Cmd+Enter on macOS (shown as ⌘↵ there). Ask is always plain Enter. */
-const EDIT_HINT = isMac ? '⌘↵' : '⌃↵'
-
-/** Which shell to use for the invoke bar. Inline (the CodeMirror block widget)
- *  needs a visible editor view; everything else (a hidden view — e.g. the
- *  studio's preview-only layout — or no view at all) falls back to the floating
- *  strip. Pure so the routing is unit-testable. */
-/** Below this editor width the inline bar (full editor width, verb buttons on the right) gets its
- *  buttons pushed off the visible pane — the studio split view (code + preview) is the usual culprit.
- *  A narrower pane routes to the compact, viewport-clamped floating strip instead. */
-export const AI_INLINE_MIN_WIDTH = 560
-
-export function pickShell(opts: { hasView: boolean; viewVisible: boolean; narrow?: boolean }): 'inline' | 'floating' {
-  return opts.hasView && opts.viewVisible && !opts.narrow ? 'inline' : 'floating'
-}
-
 export function createAiAssist(host: AiAssistHost): AiAssist {
   let model = ''
   let activeRequestId: string | null = null
@@ -103,16 +76,17 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
   let requestBefore = ''
   let requestSelection: AiSelection | null = null
 
-  /** The floating fallback popover (null when inline / closed). */
+  /** The compact prompt popover. */
   let floatingEl: HTMLElement | null = null
-  /** True while the inline block-widget bar is mounted. */
-  let inlineOpen = false
-  /** The active bar's instruction input (either shell), for idempotent refocus. */
+  /** The active prompt input, for idempotent refocus. */
   let barInput: HTMLInputElement | null = null
   /** Selection captured at open, restored on Esc. */
   let savedSelection: { anchor: number; head: number } | null = null
   /** Document-level dismiss handlers for the open bar. */
   let dismissCleanup: (() => void) | null = null
+  /** Resize/scroll observers that keep the prompt attached to its anchor. */
+  let positionCleanup: (() => void) | null = null
+  let geometryRaf = 0
   let barEl: HTMLElement | null = null
   let pending = false
   /** Code currently staged behind an Accept/Reject bar. Guards against the
@@ -136,23 +110,14 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
   })
 
   // ── Invoke command bar (verb-at-send) ──────────────────────────
-  /** Open the bar, or — if it's already open — just refocus its input (Ctrl+K
-   *  is an idempotent invoke, never a toggle-close). Picks the inline shell when
-   *  a visible editor view exists, else the floating fallback. */
+  /** Open the prompt, or refocus it when already open. */
   function open(): void {
     if (isBarOpen()) { barInput?.focus(); return }
     void fetchAiConfig().then(c => { model = c.model ?? ''; refreshModelTitle() })
-    const view = host.surface()?.view
-    // A narrow pane (split view) can't fit the full-width inline bar without hiding its verb buttons —
-    // measure the visible editor width and fall back to the floating strip when it's too tight.
-    const paneWidth = view?.scrollDOM.clientWidth ?? 0
-    const narrow = paneWidth > 0 && paneWidth < AI_INLINE_MIN_WIDTH
-    const shell = pickShell({ hasView: !!view, viewVisible: !!view && isViewVisible(view), narrow })
-    if (shell === 'inline' && view) openInline(view)
-    else openFloating()
+    openFloating()
   }
 
-  const isBarOpen = (): boolean => inlineOpen || !!floatingEl
+  const isBarOpen = (): boolean => !!floatingEl
 
   /** True when the editor view is actually laid out (not display:none, e.g. the
    *  studio's preview-only pane). offsetParent is null in a hidden subtree. */
@@ -162,20 +127,19 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
     return dom.offsetParent !== null || dom.getClientRects().length > 0
   }
 
-  /** Placeholder that states the scope: the selected line range, or the whole
-   *  script when there is no selection. */
+  /** The selected range is shown separately, so the placeholder stays plain. */
   function scopePlaceholder(): string {
-    const lines = selectionLines()
-    if (!lines) return 'Ask or edit this script…'
-    return lines.from === lines.to
-      ? `Ask or edit line ${lines.from}…`
-      : `Ask or edit lines ${lines.from}–${lines.to}…`
+    return 'Describe a change or ask about this code…'
   }
 
-  /** The shell-agnostic bar content: sparkle (model in its tooltip) · input ·
-   *  Edit (⌃↵) · Ask (↵). Enter sends Ask, Ctrl/Cmd+Enter sends Edit; both
-   *  buttons always visible. Keystrokes are stopped from reaching CodeMirror.
-   *  Shared verbatim by the inline widget and the floating fallback. */
+  function scopeLabel(): string {
+    const lines = selectionLines()
+    if (!lines) return 'Whole script'
+    return lines.from === lines.to ? `Line ${lines.from} selected` : `Lines ${lines.from}–${lines.to} selected`
+  }
+
+  /** Mouse-first prompt content. Enter follows the primary “Suggest change”
+   *  action; questions deliberately use the visibly labelled sidebar button. */
   function buildBarContent(): { root: HTMLElement; input: HTMLInputElement } {
     const input = h('input', {
       class: 'ai-inbar-input', type: 'text',
@@ -186,13 +150,10 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
       if (v) fn(v)
     }
     input.addEventListener('keydown', (e: KeyboardEvent) => {
-      // The bar lives inside the editor DOM (inline shell). Its keystrokes must
-      // never fall through to CodeMirror's keymaps.
       e.stopPropagation()
       if (e.key === 'Enter') {
         e.preventDefault()
-        if (e.ctrlKey || e.metaKey) send(submitEdit)
-        else send(submitAsk)
+        send(submitEdit)
       } else if (e.key === 'Escape') {
         e.preventDefault()
         closeBar({ restoreFocus: true })
@@ -204,18 +165,24 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
     input.addEventListener('keypress', stop)
     input.addEventListener('beforeinput', stop)
 
-    const editBtn = h('button', {
-      class: 'ai-verb ai-verb--edit', type: 'button', title: 'Generate an edit',
-      onClick: () => send(submitEdit),
-    }, 'Edit', h('span', { class: 'ai-verb-kbd' }, EDIT_HINT))
     const askBtn = h('button', {
-      class: 'ai-verb ai-verb--ask', type: 'button', title: 'Ask about the code',
+      class: 'ai-action ai-action--secondary', type: 'button', title: 'Continue this question in the AI sidebar',
       onClick: () => send(submitAsk),
-    }, 'Ask', h('span', { class: 'ai-verb-kbd' }, '↵'))
+    }, 'Ask in sidebar')
+    const editBtn = h('button', {
+      class: 'ai-action ai-action--primary', type: 'button', title: 'Generate a reviewable edit',
+      onClick: () => send(submitEdit),
+    }, 'Suggest change')
 
-    const root = h('div', { class: 'ai-inbar', role: 'dialog', 'aria-label': 'AI assistant' },
-      h('span', { class: 'ai-inbar-spark', title: model || 'AI assistant' }, svg(ICON_SPARKLE)),
-      input, editBtn, askBtn,
+    const root = h('div', { class: 'ai-prompt' },
+      h('div', { class: 'ai-prompt-input' },
+        h('span', { class: 'ai-prompt-spark', title: model || 'AI assistant' }, svg(ICON_SPARKLE)),
+        input,
+      ),
+      h('div', { class: 'ai-prompt-footer' },
+        h('span', { class: 'ai-prompt-scope' }, scopeLabel()),
+        h('div', { class: 'ai-prompt-actions' }, askBtn, editBtn),
+      ),
     )
     // A verb button may hold focus (Tab); catch Esc at the row too.
     root.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -224,40 +191,7 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
     return { root, input }
   }
 
-  /** Mount the inline block-widget bar under the selection's last line (or the
-   *  cursor line). Draws the scope bracket over the selected lines. */
-  function openInline(view: EditorView): void {
-    const { doc } = view.state
-    const main = view.state.selection.main
-    const hasSel = main.from !== main.to
-    const startLine = doc.lineAt(main.from)
-    let endLine = doc.lineAt(main.to)
-    // A line-wise selection ending exactly at the next line's start shouldn't
-    // stretch the bracket onto that (empty) trailing line.
-    if (hasSel && main.to === endLine.from && endLine.number > startLine.number) {
-      endLine = doc.line(endLine.number - 1)
-    }
-    savedSelection = { anchor: main.anchor, head: main.head }
-    const content = buildBarContent()
-    barInput = content.input
-    inlineOpen = true
-    view.dispatch({
-      effects: [
-        openInlineBar.of({ dom: content.root, pos: endLine.to, from: startLine.from, to: endLine.to, highlight: hasSel }),
-        // Bring the bar into view when invoked near the viewport bottom.
-        EditorView.scrollIntoView(endLine.to, { y: 'nearest' }),
-      ],
-    })
-    // The widget DOM lands during the view update; focus + remeasure next frame.
-    requestAnimationFrame(() => {
-      view.requestMeasure()
-      content.input.focus()
-    })
-    installDismiss(content.root)
-  }
-
-  /** Fallback floating strip: the shared content in an anchored popover. Used
-   *  when the editor view isn't visible (studio preview-only) or is absent. */
+  /** Compact popover anchored to the selection, falling back to the toolbar. */
   function openFloating(): void {
     const view = host.surface()?.view
     if (!host.anchorEl() && !view) return
@@ -272,6 +206,7 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
     document.body.appendChild(pop)
     floatingEl = pop
     anchorStrip(pop)
+    installPositionTracking()
     content.input.focus()
     installDismiss(pop)
   }
@@ -279,7 +214,7 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
   /** Update the sparkle tooltip once the model name resolves (the only place the
    *  model is surfaced). One bar is open at a time, so a document query is fine. */
   function refreshModelTitle(): void {
-    const spark = document.querySelector<HTMLElement>('.ai-inbar-spark')
+    const spark = document.querySelector<HTMLElement>('.ai-prompt-spark')
     if (spark) spark.title = model || 'AI assistant'
   }
 
@@ -311,6 +246,42 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
     dismissCleanup = null
   }
 
+  function scheduleGeometry(): void {
+    if (geometryRaf) return
+    geometryRaf = requestAnimationFrame(() => {
+      geometryRaf = 0
+      if (floatingEl) anchorStrip(floatingEl)
+    })
+  }
+
+  /** Window resize covers the containing CREV overlay. ResizeObserver also
+   *  catches Studio's draggable code/HTML-preview split, which changes the
+   *  editor pane without necessarily changing the iframe viewport. */
+  function installPositionTracking(): void {
+    removePositionTracking()
+    const onGeometry = (): void => scheduleGeometry()
+    window.addEventListener('resize', onGeometry)
+    document.addEventListener('scroll', onGeometry, true)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onGeometry)
+    const view = host.surface()?.view
+    if (view) {
+      observer?.observe(view.scrollDOM)
+      if (view.dom.parentElement) observer?.observe(view.dom.parentElement)
+    }
+    const toolbarAnchor = host.anchorEl()
+    if (toolbarAnchor) observer?.observe(toolbarAnchor)
+    positionCleanup = () => {
+      window.removeEventListener('resize', onGeometry)
+      document.removeEventListener('scroll', onGeometry, true)
+      observer?.disconnect()
+    }
+  }
+
+  function removePositionTracking(): void {
+    positionCleanup?.()
+    positionCleanup = null
+  }
+
   /** Line numbers of the current selection, or null when there is no selection. */
   function selectionLines(): { from: number; to: number } | null {
     const view = host.surface()?.view
@@ -320,14 +291,18 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
     return { from: view.state.doc.lineAt(sel.from).number, to: view.state.doc.lineAt(sel.to).number }
   }
 
-  /** A transient 0-size element at the selection head, for popover anchoring. */
+  /** A transient anchor at the end of a visible selection. Cursor-only requests
+   *  use the stable toolbar button instead of covering the current line. */
   function selectionAnchorEl(): HTMLElement | null {
     const view = host.surface()?.view
-    if (!view) return null
+    if (!view || !isViewVisible(view)) return null
     const sel = view.state.selection.main
+    if (sel.empty) return null
     let coords
-    try { coords = view.coordsAtPos(sel.head) } catch { coords = null }
+    try { coords = view.coordsAtPos(sel.to) } catch { coords = null }
     if (!coords) return null
+    const editorRect = view.dom.getBoundingClientRect()
+    if (coords.bottom < editorRect.top || coords.top > editorRect.bottom) return null
     const el = document.createElement('div')
     el.style.cssText = `position:fixed; left:${coords.left}px; top:${coords.top}px; width:1px; height:${Math.max(1, coords.bottom - coords.top)}px; pointer-events:none;`
     document.body.appendChild(el)
@@ -362,20 +337,17 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
     selAnchor?.remove()
   }
 
-  /** Close whichever shell is open. With `restoreFocus`, hand focus back to the
+  /** Close the prompt. With `restoreFocus`, hand focus back to the
    *  editor and restore the selection captured at open (Esc). A plain close
    *  (outside click, submit) leaves focus wherever the click landed. */
   function closeBar(opts: { restoreFocus?: boolean } = {}): void {
     const view = host.surface()?.view
-    if (inlineOpen) {
-      view?.dispatch({ effects: closeInlineBar.of(null) })
-      inlineOpen = false
-    }
     if (floatingEl) {
       floatingEl.remove()
       floatingEl = null
     }
     removeDismiss()
+    removePositionTracking()
     barInput = null
     const sel = savedSelection
     savedSelection = null
@@ -389,8 +361,9 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
       requestAnimationFrame(() => {
         if (sel) v.dispatch({ selection: sel })
         v.focus()
+        scheduleGeometry()
       })
-    }
+    } else scheduleGeometry()
   }
 
   // ── Submit ─────────────────────────────────────────────────────
@@ -639,6 +612,8 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
     cancelActive()
     closeBar()
     clearProposal()
+    if (geometryRaf) cancelAnimationFrame(geometryRaf)
+    geometryRaf = 0
   }
 
   return { open, close, hasPendingProposal: () => pending, propose, insertAtCursor }
@@ -670,8 +645,8 @@ function extractFences(reply: string): string[] {
  *  first and the corrected code second. If the chosen block is byte-identical to
  *  the code we sent (`current`), fall back to the last block that differs; a
  *  same-as-input block is not a real proposal. Falls back to the whole reply
- *  only when there is no fence and it doesn't read as prose. Kept in sync with
- *  the SW-side extractCodeBlock (this runs in the frame). */
+ *  only when there is no fence and it doesn't read as prose. This frame-side
+ *  function is the sole production owner of editor reply resolution. */
 export function extractReplyCode(reply: string, current?: string): { code: string | null; error?: string } {
   // A DSML tool-markup leak (some providers emit their tool-call DSL as plain
   // text when the tool budget is spent) must never be spliced into the doc.

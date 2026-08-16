@@ -23,3 +23,15 @@ _Avoid_: Live preview, current model
 **Identity Save**:
 One attempt to change an object's ID, name, and optionally its linked template ID. Success means an authoritative post-write read confirmed every requested value, regardless of the write response itself.
 _Avoid_: EC success, identity update
+
+**AI Sidebar**:
+The conversational, tool-using AI surface that can inspect the current BMP context, answer questions, and produce a Previewed Change Ticket for an explicit configuration request.
+_Avoid_: EC Editor AI, chatbot
+
+**EC Editor AI**:
+The one-shot editing assistant inside an Extended Code editor. It transforms the supplied document or selection and returns an edit; it does not discover BMP state, Preview, or execute.
+_Avoid_: AI Sidebar, coding bot
+
+**Change Ticket**:
+The structured AI Sidebar artifact containing a short summary, exact target token, operation metadata, and complete Extended Code. A successful BMP Preview creates a short-lived receipt bound to the exact code, target context, server, profile, and actor; Run consumes that receipt once.
+_Avoid_: code suggestion, preview script, verification ticket

@@ -89,6 +89,51 @@ describe('wireBadgeCopy', () => {
     badge.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
 
     expect(writeText).toHaveBeenCalledWith('t.container');
+    await Promise.resolve();
     expect(onCopied).toHaveBeenCalledWith('t.container');
+  });
+
+  it('keeps the badge label stable and restarts feedback on repeated copies', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const badge = wireBadgeCopy(typeBadge('Container'), () => 't.container');
+    const label = badge.querySelector('.lbl');
+
+    badge.click();
+    await Promise.resolve();
+    expect(label?.textContent).toBe('CON');
+    expect(badge.classList.contains('bdg-copied')).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(500);
+    badge.click();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(label?.textContent).toBe('CON');
+    expect(badge.classList.contains('bdg-copied')).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(200);
+    expect(badge.classList.contains('bdg-copied')).toBe(false);
+  });
+
+  it('does not report success when the clipboard write fails', async () => {
+    const onCopied = vi.fn();
+    const onCopyError = vi.fn();
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error('blocked')) },
+    });
+    const badge = wireBadgeCopy(typeBadge('Container'), () => 't.container', {
+      onCopied,
+      onCopyError,
+    });
+
+    badge.click();
+    await Promise.resolve();
+    expect(onCopied).not.toHaveBeenCalled();
+    expect(onCopyError).toHaveBeenCalledOnce();
+    expect(badge.classList.contains('bdg-copied')).toBe(false);
   });
 });

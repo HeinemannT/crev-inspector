@@ -1050,22 +1050,7 @@ body {
   outline-offset: 2px;
 }
 
-/* ── Footer — quiet utility strip (shortcuts · cache · reset · version) ── */
-.connect-footer {
-  margin-top: auto;
-  padding-top: 24px;
-}
-
-.footer-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--surface-3);
-}
-.footer-cache { font-size: var(--text-xs); color: var(--text-3); }
-.footer-spacer { flex: 1; }
+/* Quiet text actions shared by Connect settings and the AI form. */
 .footer-action {
   background: none;
   border: none;
@@ -1087,56 +1072,23 @@ body {
 }
 .footer-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-.footer-version { margin-top: 10px; }
-/* Strip the box — in the footer the version is the quietest line, plain text. */
-.footer-version .update-banner {
-  margin-top: 0;
-  padding: 0;
-  background: none;
-  border: none;
-}
-
-/* Shortcuts reference disclosure — a quiet footer link, not a section. */
-.ref-disclosure { margin-bottom: 2px; }
-.ref-toggle {
+/* Local cache/state management is a normal Preferences row. */
+.connect-local-data {
   display: flex;
   align-items: center;
-  gap: 7px;
-  width: 100%;
-  padding: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: left;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding: 7px 8px;
+  margin: 2px -8px 0;
+  border-top: 1px solid var(--surface-2);
 }
-.ref-toggle-label {
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-}
-.ref-toggle:hover .ref-toggle-label { color: var(--text-1); }
-.ref-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius-sm); }
-.disclosure-caret {
-  width: 10px;
-  height: 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-3);
-  transition: transform var(--duration-fast) var(--ease-default);
-}
-.disclosure-caret svg { width: 9px; height: 9px; }
-.disclosure-caret.open { transform: rotate(90deg); }
-.ref-disclosure .reference-card--muted {
-  border-top: none;
-  margin-top: 8px;
-  padding-top: 0;
-}
-
-.connect-meta-bytes {
-  color: var(--text-3);
-  font-family: var(--font-mono);
+.connect-local-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  flex-shrink: 0;
 }
 
 /* Surfaces a chrome.storage.local quota failure — without this the user
@@ -1169,16 +1121,16 @@ body {
 }
 .connect-eyebrow:first-child { margin-top: 2px; }
 
-/* Status-rail card: a bordered card whose 3px left rail carries connection
-   health (green ok, grey idle, amber checking, red problem). Replaces the old
-   full-bleed row + inset green keyline. The active profile also gets the
-   accent-ringed avatar + a quiet "Current" word. */
+/* Quiet selected row: purple is reserved for the selected profile; the small
+   explicit dot reports connection health independently. */
 .prof {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) 92px;
   align-items: center;
-  gap: 11px;
-  padding: 11px 12px 11px 14px;
+  gap: 10px;
+  min-height: 58px;
+  padding: 8px 7px 8px 11px;
   margin: 0 0 8px;
   background: var(--surface-1);
   border: 1px solid var(--surface-3);
@@ -1189,37 +1141,17 @@ body {
               border-color var(--duration-fast) var(--ease-default);
 }
 .prof:hover { background: var(--surface-2); }
-.prof.cur { align-items: flex-start; }
-.prof::before {
-  content: "";
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 3px;
-  background: var(--surface-4);   /* idle default */
+.prof.cur {
+  border-left: 2px solid var(--accent);
 }
-.prof.ok::before { background: var(--success); }
-.prof.err::before { background: var(--danger); }
-.prof.checking::before { background: var(--warning); }
-.prof.idle::before { background: var(--surface-4); }
-.prof.cur .prof-av { border-color: transparent; box-shadow: 0 0 0 1.5px var(--accent); color: var(--accent); } /* accent ring = the active profile */
+.prof.cur:hover { background: var(--surface-2); }
+.prof-health { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-4); }
+.prof-health.ok { background: var(--success); }
+.prof-health.err { background: var(--danger); }
+.prof-health.checking { background: var(--warning); }
+.prof-health.idle { background: var(--surface-4); }
 /* Latency where the badge was — quiet mono, success-tinted (only shown when connected). */
 .prof-lat { flex-shrink: 0; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--success); font-variant-numeric: tabular-nums; }
-
-.prof-av {
-  flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface-2);
-  border: 1px solid var(--surface-4);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semi);
-  color: var(--text-2);
-  letter-spacing: 0.02em;
-}
 
 .prof-body { flex: 1; min-width: 0; }
 .prof-nm {
@@ -1239,18 +1171,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* "Current" pill — green, matches the keyline. */
-/* "Current" is now a quiet accent WORD, not a green pill — active-ness (accent) reads apart from
-   connection health (the green keyline). */
-.prof-curtag {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: var(--weight-bold, 700);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--accent);
 }
 
 .prof-status {
@@ -1280,38 +1200,54 @@ body {
 }
 .prof-noaccess:hover { background: var(--warning); color: #1a1a1a; }
 
-/* Edit — quiet, appears on row hover so it doesn't crowd the status. */
+/* Shared right-side rhythm: status/latency ends on the same column in server
+   and AI cards; the edit action is a fixed 24px icon. */
+.prof-right {
+  width: 92px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 4px;
+}
+.prof-state {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
 .prof-edit {
-  flex-shrink: 0;
-  opacity: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
-  padding: 3px 6px;
-  font-family: var(--font-body);
-  font-size: var(--text-xs);
-  color: var(--text-2);
+  padding: 4px;
+  color: var(--text-3);
   cursor: pointer;
   border-radius: var(--radius-sm);
-  transition: opacity var(--duration-fast) var(--ease-default),
-              background var(--duration-fast) var(--ease-default),
+  transition: background var(--duration-fast) var(--ease-default),
               color var(--duration-fast) var(--ease-default);
 }
-.prof:hover .prof-edit { opacity: 1; }
+.prof-edit svg { width: 14px; height: 14px; }
 .prof-edit:hover { background: var(--surface-3); color: var(--text-1); }
-.prof-edit:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
+.prof-edit:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* Full-width add-server button closing the list. */
+/* Quiet end-of-list action from connection-row option 01. */
 .addbtn {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
+  justify-content: flex-start;
+  gap: 7px;
   width: 100%;
   height: 34px;
-  margin-top: 12px;
+  margin-top: 5px;
+  padding: 0 12px;
   background: none;
-  border: 1px dashed var(--surface-4);
-  border-radius: var(--radius-sm);
+  border: 0;
+  border-bottom: 1px solid var(--surface-3);
+  border-radius: 0;
   font-family: var(--font-body);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
@@ -1321,7 +1257,8 @@ body {
               color var(--duration-fast) var(--ease-default),
               border-color var(--duration-fast) var(--ease-default);
 }
-.addbtn:hover { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+.addbtn-plus { font-size: var(--text-lg); font-weight: var(--weight-normal); line-height: 1; }
+.addbtn:hover { background: var(--surface-2); color: var(--accent); border-color: var(--surface-3); }
 .addbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ── Profile cards (edit form) ─────────────────────── */
@@ -1996,141 +1933,38 @@ body.crev-divider-dragging * { user-select: none; }
   color: var(--warning);
 }
 
-/* Quick reference card on the Connect tab — replaces the old cramped
-   shortcut row + "(?)" placeholder. Distinct bordered card with grouped
-   action / key rows so the reference doesn't blur into the rest of the
-   tab. Terse: action on the left, key chip or value on the right. */
-/* Update banner — sits above the Quick reference card. Same visual posture
- * but with state-aware tinting: green-ish when up to date, accent purple when
- * an update is available, warning amber on lookup failure. Always single-line. */
-.update-banner {
+/* Current versions stay in the CREV menu. This slot is empty unless the
+ * background check finds an actionable update. */
+.connect-update-slot:empty { display: none; }
+.connect-update-notice {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
   margin-top: var(--space-3);
-  padding: 4px 8px;
-  background: var(--surface-1);
-  border: 1px solid var(--surface-3);
-  border-radius: var(--radius-md);
-  font-size: var(--text-xs);
-}
-.update-banner--available {
-  background: color-mix(in srgb, var(--surface-1), var(--accent) 14%);
-  border-color: rgba(139, 92, 246, 0.5);
-}
-.update-banner--warn {
-  background: color-mix(in srgb, var(--surface-1), var(--warning) 8%);
-  border-color: color-mix(in srgb, var(--surface-3), var(--warning) 35%);
-}
-.update-link {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
+  padding: 7px 9px;
   color: var(--text-1);
+  background: var(--accent-bg);
+  border-left: 2px solid var(--accent);
   text-decoration: none;
-}
-.update-link:hover { color: var(--accent); }
-.update-version {
-  font-family: var(--font-mono);
-  color: var(--text-2);
-}
-.update-build {
-  font-family: var(--font-mono);
-  color: var(--text-3);
-}
-.update-build::before { content: "· "; }
-.update-arrow {
-  color: var(--accent);
-  font-weight: var(--weight-bold);
-}
-.update-latest {
-  font-family: var(--font-mono);
-  color: var(--accent);
-  font-weight: var(--weight-semi);
-}
-.update-status { color: var(--text-3); }
-.update-status--ok { color: var(--success); }
-.update-banner--available .update-status { color: var(--accent); }
-.update-refresh {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  color: var(--text-3);
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-lg);
-  line-height: 1;
-}
-.update-refresh svg { width: 13px; height: 13px; }
-.update-refresh:hover { background: var(--surface-3); color: var(--text-1); }
-.update-refresh.is-checking { cursor: wait; }
-.update-refresh.is-checking svg { animation: detection-spin 0.8s linear infinite; }
-@media (prefers-reduced-motion: reduce) {
-  .update-refresh.is-checking svg { animation: none; }
-}
-
-.reference-card {
-  margin-top: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface-1);
-  border: 1px solid var(--surface-3);
-  border-radius: var(--radius-md);
   font-size: var(--text-xs);
 }
+.connect-update-notice:hover { background: color-mix(in srgb, var(--accent-bg), var(--accent) 8%); }
+.connect-update-action { margin-left: auto; color: var(--accent-bright); white-space: nowrap; }
 
-/* Quiet variant — the reference is reference material, not a primary control,
-   so on the Connect tab it drops the card chrome and reads as a muted footer
-   block separated by a hairline. */
-.reference-card--muted {
-  margin-top: 14px;
-  padding: 12px 0 0;
-  background: transparent;
-  border: none;
-  border-top: 1px solid var(--surface-3);
-  border-radius: 0;
-}
-.reference-group + .reference-group {
-  margin-top: var(--space-2);
-  padding-top: var(--space-2);
-  border-top: 1px dashed var(--surface-2);
-}
-.reference-group-title {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semi);
-  color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 6px;
-}
-.reference-list {
+/* Keyboard commands are a first-class Connect section. */
+.connect-shortcuts { font-size: var(--text-xs); }
+.connect-shortcut-list {
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 4px 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px var(--space-3);
+  align-items: start;
   margin: 0;
 }
-/* Left = the gesture/label (leads) · right = its result (secondary) */
-.reference-action {
-  color: var(--text-1);
-  font-weight: var(--weight-normal);
-  margin: 0;
-}
-.reference-key {
-  margin: 0;
-  text-align: right;
-  color: var(--text-2);
-  font-size: var(--text-xs);
-}
-.reference-key .kbd {
-  font-size: var(--text-2xs);
-}
+.connect-shortcut-list dt { color: var(--text-1); }
+.connect-shortcut-list dd { margin: 0; text-align: right; }
 
 /* Live-binding stack: current key on top, greyed default underneath when
- * customised or unbound. Right-aligned to match the surrounding .reference-key. */
+ * customised or unbound. Right-aligned to match the shortcut list. */
 .kbd-stack {
   display: inline-flex;
   flex-direction: column;
@@ -2149,18 +1983,93 @@ body.crev-divider-dragging * { user-select: none; }
   font-family: var(--font-mono);
   opacity: 0.7;
 }
-.reference-footnote {
+.connect-shortcut-tip {
   margin-top: var(--space-2);
   padding-top: var(--space-1);
   border-top: 1px dashed var(--surface-2);
   font-size: var(--text-2xs);
   color: var(--text-3);
+  white-space: nowrap;
+  user-select: text;
+  overflow-x: auto;
 }
-.reference-footnote a {
-  color: var(--accent);
-  text-decoration: none;
+.connect-shortcut-tip code {
+  color: var(--text-2);
+  font: inherit;
+  font-family: var(--font-mono);
+  cursor: text;
+  user-select: all;
 }
-.reference-footnote a:hover { text-decoration: underline; }
+
+/* Quiet utility row below the shortcuts. */
+.connect-more-info {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-2) 2px 0;
+  color: var(--text-2);
+  background: none;
+  border: none;
+  border-top: 1px solid var(--surface-3);
+  border-radius: 0;
+  font: inherit;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-normal);
+  cursor: pointer;
+  text-align: left;
+}
+.connect-more-info:hover { color: var(--text-1); }
+.connect-more-info:focus:not(:focus-visible) { outline: none; }
+.connect-more-info:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.connect-more-info-icon,
+.connect-more-info-chevron { display: inline-flex; color: var(--text-3); }
+.connect-more-info-icon svg { width: 14px; height: 14px; }
+.connect-more-info-chevron { margin-left: auto; }
+.connect-more-info-chevron svg { width: 9px; height: 9px; }
+
+/* Concise page-badge and tab reference popover. It floats above the strip so
+ * the trigger remains visible and can toggle it closed. */
+.connect-info-dialog {
+  position: fixed;
+  z-index: 2147483600;
+  left: var(--space-2);
+  right: var(--space-2);
+  max-height: calc(100vh - 56px);
+  padding: 10px var(--space-3);
+  background: var(--surface-1);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+  overflow: auto;
+}
+.connect-info-body { margin: 0; }
+.connect-info-section + .connect-info-section {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--surface-3);
+}
+.connect-info-section h3 {
+  margin: 0 0 var(--space-2);
+  color: var(--text-1);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semi);
+}
+.connect-info-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px var(--space-3);
+  margin: 0;
+}
+.connect-info-list dt { color: var(--text-1); font-weight: var(--weight-medium); }
+.connect-info-list dd { margin: 0; color: var(--text-2); }
 
 /* ── Object Pane (split-pane property editor) ──── */
 
@@ -4647,40 +4556,27 @@ button.flow-property-ref:hover {
 .ai-conn-status.ok { color: var(--success); }
 .ai-conn-status.err { color: var(--danger); }
 
-/* ── AI Assistant card (Connect tab) — server-row twin ─────────────
-   Sparkle rendered directly at 20px (purple, no tile), name + READY /
-   UNTESTED pill, mono provider·model line, right side latency + Edit.
-   Green inset keyline (same signal as a connected server) when the key
-   is saved AND the last test passed. */
+/* ── AI Assistant row (Connect tab) — option-01 server twin ───────
+   Purple remains reserved for actions; the explicit health dot uses the same
+   column as the server row and latency/edit share its right column. */
 .ai-card {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) 92px;
   align-items: center;
-  gap: 11px;
-  min-height: 48px;
-  padding: 8px 12px 8px 14px;
+  gap: 10px;
+  min-height: 58px;
+  padding: 8px 7px 8px 11px;
   background: var(--surface-1);
   border: 1px solid var(--surface-3);
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
 .ai-card:hover { background: var(--surface-2); }
-/* Same left health rail as a server card: grey idle by default, green when the
-   key is saved AND the last test passed (.ready). */
-.ai-card::before {
-  content: "";
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 3px;
-  background: var(--surface-4);
-}
-.ai-card.ready::before { background: var(--success); }
-.ai-card-spark {
-  display: inline-flex;
-  flex: none;
-  color: var(--accent);
-}
-.ai-card-spark svg { width: 20px; height: 20px; }
+.ai-card-health { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-4); }
+.ai-card-health.ready { background: var(--success); }
+.ai-card-health.error { background: var(--danger); }
+.ai-card-health.idle { background: var(--surface-4); }
 .ai-card-meta { flex: 1; min-width: 0; }
 .ai-card-nm {
   display: flex;
@@ -4699,24 +4595,43 @@ button.flow-property-ref:hover {
   text-overflow: ellipsis;
 }
 .ai-card-right {
-  display: flex;
+  width: 92px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   flex: none;
   font-size: var(--text-xs);
   color: var(--text-2);
 }
-.ai-card-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
-.ai-card-latency { font-family: var(--font-mono); }
+.ai-card-state {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+.ai-card-right--setup { display: flex; justify-content: flex-end; }
+.ai-card-latency {
+  min-width: 48px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
 .ai-card-edit {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: none;
-  padding: 4px 6px;
-  font-size: var(--text-xs);
+  padding: 4px;
   color: var(--text-3);
   cursor: pointer;
   border-radius: var(--radius-sm);
 }
+.ai-card-edit svg { width: 14px; height: 14px; }
 .ai-card-edit:hover { background: var(--surface-3); color: var(--text-1); }
 .ai-form {
   padding: 10px 12px 12px;
@@ -4989,6 +4904,290 @@ button.flow-property-ref:hover {
 }
 
 /* Code block — header (language + Apply/Preview/Copy), body, result strip. */
+.ai-md-list {
+  margin: 5px 0 7px;
+  padding-left: 20px;
+  color: var(--text-2);
+}
+.ai-md-list li { margin: 3px 0; padding-left: 2px; }
+.ai-md-list li::marker { color: var(--text-3); }
+
+/* AI Change Ticket — provenance, proposal, actions, then attached result. */
+.ai-change {
+  container-type: inline-size;
+  margin: 8px 0 3px;
+  overflow: hidden;
+  border: 1px solid var(--surface-3);
+  border-left: 3px solid var(--fam-code);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+}
+.ai-change-header {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) 0;
+}
+.ai-change-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--fam-code);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+.ai-change-sparkle,
+.ai-change-sparkle svg { width: 12px; height: 12px; }
+.ai-change-summary {
+  min-width: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  color: var(--text-1);
+  font-size: var(--text-base);
+  font-weight: var(--weight-normal);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+}
+.ai-change-target {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.ai-change-target-object {
+  padding: 0;
+  border: none;
+}
+.ai-change-target-object:hover { border: none; background: transparent; }
+.ai-change-target-object .object-chip-label,
+.ai-change-target-object .object-chip-id { display: none; }
+.ai-change-receipt {
+  border-top: 1px solid color-mix(in srgb, var(--success) 30%, var(--surface-3));
+  background: color-mix(in srgb, var(--success) 7%, var(--surface-1));
+}
+.ai-change-receipt-toggle {
+  width: 100%;
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: 14px auto minmax(0, 1fr) 10px;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px var(--space-3);
+  color: color-mix(in srgb, var(--success) 86%, var(--text-1));
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+.ai-change-receipt-toggle:hover { background: color-mix(in srgb, var(--success) 6%, transparent); }
+.ai-change-receipt-toggle:focus-visible,
+.ai-change-event--generated:focus-visible,
+.ai-change-raw-toggle:focus-visible,
+.ai-change-raw-copy:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.ai-change-receipt-check,
+.ai-change-receipt-check svg { width: 12px; height: 12px; }
+.ai-change-receipt-label { font-weight: var(--weight-semi); }
+.ai-change-receipt-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--success) 72%, var(--text-2));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-change-disclosure-caret {
+  width: 10px;
+  height: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-90deg);
+  transition: transform var(--duration-fast) var(--ease-default);
+}
+.ai-change-disclosure-caret svg { width: 9px; height: 9px; }
+.ai-change-disclosure-caret--open { transform: rotate(0); }
+.ai-change-receipt-panel {
+  max-height: 200px;
+  overflow: auto;
+  border-top: 1px solid color-mix(in srgb, var(--success) 22%, var(--surface-3));
+  background: var(--surface-1);
+  scrollbar-gutter: stable;
+}
+.ai-change-event {
+  width: 100%;
+  min-height: 29px;
+  display: grid;
+  grid-template-columns: 14px minmax(64px, 0.9fr) minmax(0, auto) minmax(74px, 1.3fr);
+  align-items: center;
+  gap: var(--space-1);
+  padding: 5px var(--space-3);
+  color: var(--text-2);
+  border: none;
+  border-bottom: 1px solid var(--surface-2);
+  background: none;
+  font: inherit;
+  font-size: var(--text-2xs);
+  text-align: left;
+}
+.ai-change-event--generated {
+  grid-template-columns: 14px minmax(82px, 0.8fr) minmax(0, 1.2fr) 10px;
+  cursor: pointer;
+}
+.ai-change-event--generated:hover { background: var(--surface-2); }
+.ai-change-event-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  color: var(--text-3);
+}
+.ai-change-event-icon svg { width: 14px; height: 14px; }
+.ai-change-event-primary,
+.ai-change-event-detail,
+.ai-change-event-id {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-change-event-primary { grid-column: 2; color: var(--text-1); }
+.ai-change-event-id {
+  grid-column: 3;
+  max-width: 72px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+}
+.ai-change-event-detail { grid-column: 4; }
+.ai-change-event--generated .ai-change-event-detail { grid-column: 3; }
+.ai-change-event--generated .ai-change-disclosure-caret { grid-column: 4; }
+.ai-change-event-code,
+.ai-change-raw-output {
+  margin: 0;
+  overflow: auto;
+  color: var(--text-2);
+  background: var(--ec-bg);
+  font: var(--text-2xs)/var(--leading-normal) var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ai-change-event-code {
+  max-height: 120px;
+  padding: var(--space-2) var(--space-3) var(--space-2) 31px;
+  border-bottom: 1px solid var(--surface-3);
+}
+.ai-change-raw-row {
+  min-height: 29px;
+  display: flex;
+  align-items: center;
+  border-top: 1px solid var(--surface-3);
+}
+.ai-change-raw-toggle,
+.ai-change-raw-copy {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-3);
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: var(--text-2xs);
+  cursor: pointer;
+}
+.ai-change-raw-toggle { min-width: 0; flex: 1; text-align: left; }
+.ai-change-raw-copy { color: var(--text-2); }
+.ai-change-raw-copy {
+  width: 30px;
+  justify-content: center;
+  padding-right: 0;
+  padding-left: 0;
+}
+.ai-change-raw-copy svg { width: 13px; height: 13px; }
+.ai-change-raw-toggle:hover,
+.ai-change-raw-copy:hover { color: var(--text-1); background: var(--surface-2); }
+.ai-change-raw-toggle .ai-change-disclosure-caret { margin-left: auto; }
+.ai-change-raw-icon,
+.ai-change-raw-icon svg { width: 13px; height: 13px; }
+.ai-change-raw-output {
+  max-height: 140px;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--surface-3);
+  color: var(--text-1);
+  background: var(--surface-0);
+}
+.ai-change-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--surface-2);
+}
+.ai-change-btn {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-sm);
+  background: var(--surface-0);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ai-change-btn svg { width: 12px; height: 12px; flex: none; }
+.ai-change-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--text-1); }
+.ai-change-btn:disabled { border-color: var(--surface-3); background: var(--surface-2); color: var(--text-disabled); cursor: default; }
+.ai-change-preview { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--surface-4)); }
+.ai-change-preview--success { color: var(--success); background: color-mix(in srgb, var(--success) 8%, var(--surface-1)); border-color: color-mix(in srgb, var(--success) 42%, var(--surface-4)); }
+.ai-change-preview--error { color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface-1)); border-color: color-mix(in srgb, var(--danger) 42%, var(--surface-4)); }
+.ai-change-run { margin-left: auto; }
+.ai-change-run:not(:disabled) { color: #fff; background: var(--accent); border-color: var(--accent); }
+.ai-change-run:hover:not(:disabled) { color: #fff; background: var(--accent-dim); border-color: var(--accent-dim); }
+.ai-change-editor { min-width: 0; }
+.ai-change-editor-short { display: none; }
+.ai-change-state {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: var(--space-xs) var(--space-3);
+  border-top: 1px solid;
+  font-size: var(--text-2xs);
+  line-height: var(--leading-normal);
+}
+.ai-change-state svg { width: 13px; height: 13px; margin-top: 1px; flex: none; }
+.ai-change-state--success { color: var(--success); background: color-mix(in srgb, var(--success) 8%, var(--surface-1)); border-color: color-mix(in srgb, var(--success) 30%, var(--surface-3)); }
+.ai-change-state--error { color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface-1)); border-color: color-mix(in srgb, var(--danger) 30%, var(--surface-3)); }
+.ai-change-spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 35%, var(--surface-4));
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: detection-spin 0.7s linear infinite;
+}
+@container (max-width: 300px) {
+  .ai-change-editor-long { display: none; }
+  .ai-change-editor-short { display: inline; }
+  .ai-change-header,
+  .ai-change-summary { padding-right: var(--space-2); padding-left: var(--space-2); }
+  .ai-change-actions { gap: var(--space-0); padding-right: var(--space-2); padding-left: var(--space-2); }
+  .ai-change-btn { padding-right: var(--space-xs); padding-left: var(--space-xs); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-change-spinner { animation: none; }
+}
+
 .ai-cb {
   margin: 8px 0 2px;
   border: 1px solid var(--surface-3);
@@ -5101,8 +5300,9 @@ button.flow-property-ref:hover {
 .ai-cchip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 5px 2px 2px;
+  gap: 4px;
+  max-width: 190px;
+  padding: 2px 3px 2px 2px;
   border: 1px solid var(--surface-4);
   border-radius: var(--radius-sm);
   background: var(--surface-0);
@@ -5112,26 +5312,33 @@ button.flow-property-ref:hover {
 }
 .ai-cchip--follow { border-style: dashed; }
 .ai-cchip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
-.ai-cchip-src { font-size: var(--text-2xs); color: var(--text-3); flex: none; }
+.ai-cchip--editor {
+  flex: none;
+  gap: 1px;
+  max-width: none;
+  padding: 2px 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fam-code);
+}
+.ai-cchip-editor-icon { display: inline-flex; }
+.ai-cchip-editor-icon svg { width: 15px; height: 15px; }
 .ai-cchip-pin,
 .ai-cchip-x {
   display: inline-flex;
   align-items: center;
   border: none;
   background: none;
-  padding: 0 2px;
+  padding: 1px;
   color: var(--text-3);
   cursor: pointer;
 }
+.ai-cchip-pin svg,
+.ai-cchip-x svg { width: 12px; height: 12px; }
+.ai-cchip-pin + .ai-cchip-x { margin-left: -3px; }
+.ai-cchip--editor .ai-cchip-x { margin-left: -1px; }
 .ai-cchip-pin:hover, .ai-cchip-x:hover { color: var(--text-1); }
 .ai-cchip-pin.on { color: var(--accent); }
-.ai-divnote {
-  padding: 2px 7px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-2xs);
-  background: color-mix(in srgb, var(--warning) 18%, var(--surface-0));
-  color: color-mix(in srgb, var(--warning) 60%, var(--text-1));
-}
 .ai-composer-input {
   width: 100%;
   height: 52px;
@@ -5152,17 +5359,18 @@ button.flow-property-ref:hover {
   gap: 8px;
   margin-top: 8px;
 }
-/* Context cell — grows to fill, pushing model + Send to the right. Chips wrap
-   to a second line when two are attached and space is tight; the Send row
-   stays intact. */
+/* Context stays one compact line. The editor contributes only its EC icon;
+   the selected object owns the remaining flexible space. */
 .ai-composer-ctx {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-wrap: nowrap;
+  gap: 4px;
+  overflow: hidden;
 }
+.ai-composer-ctx > .ai-cchip:not(.ai-cchip--editor) { flex: 1 1 auto; }
 .ai-composer-hint {
   font-size: var(--text-xs);
   color: var(--text-3);

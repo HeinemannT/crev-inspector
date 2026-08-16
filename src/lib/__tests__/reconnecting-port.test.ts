@@ -80,4 +80,23 @@ describe('reconnecting-port destroy()', () => {
     window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
     expect(connect).toHaveBeenCalledTimes(1);
   });
+
+  it('stops retrying when the extension context has been invalidated', () => {
+    connect.mockImplementation(() => { throw new Error('Extension context invalidated.'); });
+    const rp = createReconnectingPort({ name: 'content', onMessage: () => {} });
+    vi.advanceTimersByTime(60_000);
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(rp.send({ type: 'TOGGLE_INSPECT' } as never)).toBe(false);
+  });
+
+  it('stops retrying when a live port disconnects after extension-context invalidation', () => {
+    const rp = createReconnectingPort({ name: 'content', onMessage: () => {} });
+    (globalThis as any).chrome.runtime.lastError = { message: 'Extension context invalidated.' };
+
+    ports[0]._disconnect();
+    vi.advanceTimersByTime(60_000);
+
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(rp.send({ type: 'TOGGLE_INSPECT' } as never)).toBe(false);
+  });
 });

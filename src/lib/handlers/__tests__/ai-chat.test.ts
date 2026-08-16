@@ -22,6 +22,7 @@ function makeCtx(overrides: any = {}): any {
     settings: { activeProfileId: 'test' },
     logActivity: vi.fn(),
     sendToPanel: vi.fn(),
+    sendToPanelByWindow: vi.fn(),
     toast: vi.fn(),
     settingsReady: Promise.resolve(),
     ...overrides,
@@ -38,15 +39,218 @@ const scorecardContext: AiContextEnvelope = {
   }],
 };
 
+async function request(handler: any, message: any): Promise<any> {
+  return new Promise(resolve => {
+    void handler(message, resolve, { isOneShot: true });
+  });
+}
+
 describe('AI chat handler routing', () => {
   it('registers every Phase 1 chat message handler', async () => {
     mockChromeStorage();
     setSwContext(makeCtx());
     const { getHandler } = await import('../../handler-registry');
     await import('../ai');
-    for (const t of ['AI_CHAT_SEND', 'AI_CHAT_CANCEL', 'AI_PREVIEW_CODE', 'AI_APPLY_PROPOSAL', 'AI_INSERT_AT_CURSOR', 'AI_CHAT_HANDOFF', 'AI_OPEN_IN_EDITOR']) {
+    for (const t of ['AI_CHAT_SEND', 'AI_CHAT_CANCEL', 'AI_PREVIEW_CODE', 'AI_PREVIEW_CHANGE', 'AI_RUN_CHANGE', 'AI_APPLY_PROPOSAL', 'AI_INSERT_AT_CURSOR', 'AI_CHAT_HANDOFF', 'AI_OPEN_IN_EDITOR', 'AI_EDITOR_CONTEXT_UPDATE', 'AI_GET_EDITOR_CONTEXT']) {
       expect(getHandler(t), t).toBeDefined();
     }
+  });
+});
+
+describe('AI editor context routing', () => {
+  it('keeps editor context isolated by active tab and Chrome window', async () => {
+    mockChromeStorage();
+    const ctx = makeCtx();
+    setSwContext(ctx);
+    const tabs = new Map([
+      [101, { id: 101, windowId: 10, active: true }],
+      [202, { id: 202, windowId: 20, active: true }],
+    ]);
+    chrome.tabs.get = vi.fn(async (tabId: number) => tabs.get(tabId) as chrome.tabs.Tab);
+    chrome.tabs.query = vi.fn(async query => [...tabs.values()].filter(tab =>
+      tab.windowId === query.windowId && tab.active) as chrome.tabs.Tab[]);
+    const { resetEditorContexts } = await import('../../ai/editor-context');
+    resetEditorContexts();
+    const { getHandler } = await import('../../handler-registry');
+    await import('../ai');
+    const update = getHandler('AI_EDITOR_CONTEXT_UPDATE')!;
+    const sourceA = { kind: 'editor' as const, object: { rid: '1', businessId: 'a', type: 'ExtendedTable', name: 'A' } };
+    const sourceB = { kind: 'editor' as const, object: { rid: '2', businessId: 'b', type: 'ExtendedTable', name: 'B' } };
+
+    await update({ type: 'AI_EDITOR_CONTEXT_UPDATE', source: sourceA }, () => {}, { senderTabId: 101, isOneShot: true });
+    await update({ type: 'AI_EDITOR_CONTEXT_UPDATE', source: sourceB }, () => {}, { senderTabId: 202, isOneShot: true });
+    await update({ type: 'AI_EDITOR_CONTEXT_UPDATE', source: null }, () => {}, { senderTabId: 101, isOneShot: true });
+
+    expect(ctx.sendToPanelByWindow.mock.calls).toEqual([
+      [10, { type: 'AI_EDITOR_CONTEXT', source: sourceA }],
+      [20, { type: 'AI_EDITOR_CONTEXT', source: sourceB }],
+      [10, { type: 'AI_EDITOR_CONTEXT', source: null }],
+    ]);
+
+    const result = await new Promise(resolve => {
+      void getHandler('AI_GET_EDITOR_CONTEXT')!(
+        { type: 'AI_GET_EDITOR_CONTEXT' },
+        resolve,
+        { panelWindowId: 20, isOneShot: false },
+      );
+    });
+    expect(result).toEqual({ type: 'AI_EDITOR_CONTEXT', source: sourceB });
+  });
+
+  it('does not broadcast an editor update from an inactive tab', async () => {
+    mockChromeStorage();
+    const ctx = makeCtx();
+    setSwContext(ctx);
+    chrome.tabs.get = vi.fn(async () => ({ id: 303, windowId: 30, active: false } as chrome.tabs.Tab));
+    const { resetEditorContexts } = await import('../../ai/editor-context');
+    resetEditorContexts();
+    const { getHandler } = await import('../../handler-registry');
+    await import('../ai');
+
+    await getHandler('AI_EDITOR_CONTEXT_UPDATE')!(
+      { type: 'AI_EDITOR_CONTEXT_UPDATE', source: { kind: 'editor', object: { rid: '3', businessId: 'inactive', type: 'ExtendedTable', name: 'Inactive' } } },
+      () => {},
+      { senderTabId: 303, isOneShot: true },
+    );
+
+    expect(ctx.sendToPanelByWindow).not.toHaveBeenCalled();
+  });
+});
+
+describe('AI Change Ticket lifecycle', () => {
+  const proposal = (code: string) => ({
+    summary: 'Test change',
+    target: 'Current object',
+    operation: 'update' as const,
+    language: 'extended' as const,
+    code,
+  });
+
+  it('lets BMP Preview judge the exact EC without a heuristic target gate', async () => {
+    mockChromeStorage();
+    const executeEc = vi.fn(async () => ({ ok: true, log: 'preview ok' }));
+    setSwContext(makeCtx({ client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', username: 'admin' } }));
+    const { getHandler } = await import('../../handler-registry');
+    await import('../ai');
+
+    const result = await request(getHandler('AI_PREVIEW_CHANGE'), {
+      type: 'AI_PREVIEW_CHANGE',
+      requestId: 'p',
+      proposal: proposal('t.119.change(expression := "source")'),
+      expectedTarget: { rid: '818', businessId: 'navigation_table' },
+    });
+
+    expect(result).toMatchObject({ ok: true, runnable: true, resultText: 'preview ok' });
+    expect(executeEc).toHaveBeenCalledWith('t.119.change(expression := "source")', undefined, false);
+  });
+
+  it('rejects preview warnings without issuing a runnable token', async () => {
+    mockChromeStorage();
+    const executeEc = vi.fn(async () => ({ ok: true, hasWarning: true, log: 'Missing property' }));
+    setSwContext(makeCtx({ client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', username: 'admin' } }));
+    const { getHandler } = await import('../../handler-registry');
+    await import('../ai');
+
+    const result = await request(getHandler('AI_PREVIEW_CHANGE'), { type: 'AI_PREVIEW_CHANGE', requestId: 'p', proposal: proposal('t.name := "x"') });
+
+    expect(result).toMatchObject({ ok: false, runnable: false });
+    expect(result).toMatchObject({ purpose: 'change' });
+    expect(result.previewId).toBeUndefined();
+    expect(result.resultText).toContain('warning');
+    expect(executeEc).toHaveBeenCalledWith('t.name := "x"', undefined, false);
+  });
+
+  it('issues a runnable token after the change itself previews successfully', async () => {
+    mockChromeStorage();
+    const executeEc = vi.fn(async () => ({ ok: true, log: 'preview ok' }));
+    setSwContext(makeCtx({ client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', username: 'admin' } }));
+    const { getHandler } = await import('../../handler-registry');
+    await import('../ai');
+
+    const result = await request(getHandler('AI_PREVIEW_CHANGE'), {
+      type: 'AI_PREVIEW_CHANGE',
+      requestId: 'p',
+      proposal: proposal('_page := t.118\n_page.children().forEach(_w:\n _w.change(name := "j" + _w.id)\n)'),
+    });
+
+    expect(result).toMatchObject({ ok: true, runnable: true, resultText: 'preview ok' });
+    expect(result).toMatchObject({ purpose: 'change' });
+    expect(result.previewId).toEqual(expect.any(String));
+    expect(executeEc).toHaveBeenCalledOnce();
+  });
+
+  it('runs the exact previewed change without a second verification script', async () => {
+    mockChromeStorage();
+    const executeEc = vi.fn()
+      .mockResolvedValueOnce({ ok: true, log: 'preview ok' })
+      .mockResolvedValueOnce({ ok: true, log: 'run ok' });
+    const ctx = makeCtx({ client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', username: 'admin' } });
+    setSwContext(ctx);
+    const { getHandler } = await import('../../handler-registry');
+    await import('../ai');
+
+    const preview = await request(getHandler('AI_PREVIEW_CHANGE'), { type: 'AI_PREVIEW_CHANGE', requestId: 'p', proposal: proposal('t.owner := lookup("admin")') });
+    const run = await request(getHandler('AI_RUN_CHANGE'), { type: 'AI_RUN_CHANGE', requestId: 'r', previewId: preview.previewId });
+
+    expect(preview).toMatchObject({ ok: true, runnable: true, resultText: 'preview ok' });
+    expect(run).toMatchObject({ ok: true, resultText: 'run ok' });
+    expect(executeEc.mock.calls).toEqual([
+      ['t.owner := lookup("admin")', undefined, false],
+      ['t.owner := lookup("admin")', undefined, true],
+    ]);
+    expect(ctx.logActivity).toHaveBeenCalledWith('success', 'AI Change Ticket executed', 'run ok', expect.any(Object));
+  });
+
+  it('binds a token to its previewed profile and consumes it even after rejection', async () => {
+    mockChromeStorage();
+    const executeEc = vi.fn(async () => ({ ok: true, log: 'ok' }));
+    const ctx = makeCtx({
+      client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', username: 'admin' },
+      settings: { activeProfileId: 'one' },
+    });
+    setSwContext(ctx);
+    const { getHandler } = await import('../../handler-registry');
+    await import('../ai');
+
+    const preview = await request(getHandler('AI_PREVIEW_CHANGE'), { type: 'AI_PREVIEW_CHANGE', requestId: 'p', proposal: proposal('t.name := "x"') });
+    ctx.settings.activeProfileId = 'two';
+    const rejected = await request(getHandler('AI_RUN_CHANGE'), { type: 'AI_RUN_CHANGE', requestId: 'r', previewId: preview.previewId });
+    const reused = await request(getHandler('AI_RUN_CHANGE'), { type: 'AI_RUN_CHANGE', requestId: 'r2', previewId: preview.previewId });
+
+    expect(rejected.resultText).toContain('environment changed');
+    expect(reused.resultText).toContain('Preview expired');
+    expect(executeEc).toHaveBeenCalledTimes(1); // preview only
+  });
+
+  it('binds Run to the exact BMP server and actor that produced Preview', async () => {
+    mockChromeStorage();
+    const executeEc = vi.fn(async () => ({ ok: true, log: 'ok' }));
+    const client = { executeEc, serverUrl: 'https://bmp.test/Steadfast/', username: 'admin' };
+    const ctx = makeCtx({ client, settings: { activeProfileId: 'one' } });
+    setSwContext(ctx);
+    const { getHandler } = await import('../../handler-registry');
+    await import('../ai');
+
+    const serverPreview = await request(getHandler('AI_PREVIEW_CHANGE'), {
+      type: 'AI_PREVIEW_CHANGE', requestId: 'p1', proposal: proposal('t.name := "server"'),
+    });
+    client.serverUrl = 'https://bmp.test/Other/';
+    const wrongServer = await request(getHandler('AI_RUN_CHANGE'), {
+      type: 'AI_RUN_CHANGE', requestId: 'r1', previewId: serverPreview.previewId,
+    });
+
+    client.serverUrl = 'https://bmp.test/Steadfast/';
+    const actorPreview = await request(getHandler('AI_PREVIEW_CHANGE'), {
+      type: 'AI_PREVIEW_CHANGE', requestId: 'p2', proposal: proposal('t.name := "actor"'),
+    });
+    client.username = 'configurator';
+    const wrongActor = await request(getHandler('AI_RUN_CHANGE'), {
+      type: 'AI_RUN_CHANGE', requestId: 'r2', previewId: actorPreview.previewId,
+    });
+
+    expect(wrongServer.resultText).toContain('environment changed');
+    expect(wrongActor.resultText).toContain('environment changed');
+    expect(executeEc).toHaveBeenCalledTimes(2); // the two Previews only
   });
 });
 
@@ -207,7 +411,7 @@ describe('executeAiTool — defensive', () => {
     expect(executeEc).not.toHaveBeenCalled();
   });
 
-  it('query_context makes missing-property warnings visible to the model', async () => {
+  it('query_context returns warning state as typed data without embedding instructions', async () => {
     mockChromeStorage();
     const resolveRef = vi.fn(async () => 'lookup(9)');
     const executeEc = vi.fn(async (
@@ -224,8 +428,12 @@ describe('executeAiTool — defensive', () => {
     }), undefined, scorecardContext);
 
     expect(res.isError).toBe(false);
-    expect(res.content).toContain('Missing-value warnings are expected');
-    expect(res.content).toContain('Retry only if a specifically requested field is absent');
+    expect(res.structuredContent).toMatchObject({
+      tool: 'query_context',
+      status: 'ok',
+      data: { hasWarning: true },
+    });
+    expect(res.content).not.toContain('Retry only if');
   });
 
   it('search_objects formats quick-search hits', async () => {
@@ -242,6 +450,39 @@ describe('executeAiTool — defensive', () => {
     expect(res.content).toContain('Beta (CustomVisualization) rid=2');
     expect(res.objects?.map(object => object.rid)).toEqual(['1', '2']);
     expect(res.content).toContain('[[object:1]]');
+  });
+
+  it('search_objects returns compact ranked classes for row-type discovery', async () => {
+    mockChromeStorage();
+    const quickSearch = vi.fn(async () => ({ totalHits: 4, objects: [
+      { rid: '1', name: 'Risk A', type: 'CeRiskAssessment' },
+      { rid: '2', name: 'Risk B', type: 'CeRiskAssessment' },
+      { rid: '3', name: 'Risk dashboard', type: 'Scorecard' },
+      { rid: '4', name: 'Risk C', type: 'CeRiskAssessment' },
+    ] }));
+    const batchEnrich = vi.fn(async () => ({ results: {} }));
+    setSwContext(makeCtx({ client: { quickSearch, batchEnrich } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('search_objects', { query: 'risk', purpose: 'row-type' }));
+
+    expect(batchEnrich).toHaveBeenCalledWith(['1', '3'], undefined);
+    expect(res.content).toContain('CeRiskAssessment (3), Scorecard (1)');
+    expect(res.content).toContain('Do not search again by casing');
+    expect(res.objects?.map(object => object.rid)).toEqual(['1', '3']);
+    expect(res.structuredContent).toMatchObject({
+      tool: 'search_objects',
+      status: 'ok',
+      data: {
+        purpose: 'row-type',
+        purposeComplete: true,
+        typeCounts: { CeRiskAssessment: 3, Scorecard: 1 },
+        typeCandidates: [
+          { type: 'CeRiskAssessment', count: 3, representativeRid: '1' },
+          { type: 'Scorecard', count: 1, representativeRid: '3' },
+        ],
+      },
+    });
   });
 
   it('search_objects enriches hits with businessId + template bid (one batched call)', async () => {
@@ -334,6 +575,166 @@ describe('executeAiTool — defensive', () => {
     expect(res.content).toContain('bid=3197');
   });
 
+  it('read_object accepts a verified EC reference from attached context', async () => {
+    mockChromeStorage();
+    const executeEc = vi.fn(async (_code: string) => ({ ok: true, log: 'Result: 5278622719348993479' }));
+    const fetchObjectPane = vi.fn(async () => ({
+      instance: { rid: '5278622719348993479', businessId: 'qa_risk', name: 'Risk', type: 'CeRiskAssessment' },
+      template: null, parent: null, instanceProps: {}, templateProps: {}, contextValues: {}, references: {}, codeFields: {},
+    }));
+    setSwContext(makeCtx({ client: { executeEc, fetchObjectPane } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('read_object', { ref: 't.qa_risk', refType: 'businessId' }));
+
+    expect(res.isError).toBe(false);
+    expect(executeEc.mock.calls[0][0]).toContain('_o := t.qa_risk');
+    expect(fetchObjectPane).toHaveBeenCalledWith('5278622719348993479', undefined);
+  });
+
+  it('read_object returns only requested exact properties with source metadata', async () => {
+    mockChromeStorage();
+    const knowledge = await import('../../bmp-type-knowledge');
+    const schema = vi.spyOn(knowledge.bmpTypeKnowledge, 'properties').mockResolvedValue({
+      ok: true,
+      canonical: 'CeRiskAssessment',
+      props: [{ accessor: 'card', label: 'Detail Card', configClass: 'ReferenceMethodConfig', systemobject: false }],
+    });
+    const fetchObjectPane = vi.fn(async () => ({
+      instance: { rid: '42', businessId: 'risk_42', name: 'Risk', type: 'CeRiskAssessment' },
+      template: { rid: '43', businessId: 'risk_template', name: 'Risk template', type: 'CeRiskAssessment' },
+      parent: null,
+      instanceProps: {}, templateProps: {}, contextValues: {}, references: {}, codeFields: {},
+      instanceOverrideProps: [],
+    }));
+    const fetchSelectedProperties = vi.fn(async () => [{
+      accessor: 'card', state: 'value' as const, value: 'Legacy card',
+      reference: { rid: '99', businessId: 'legacy_card', name: 'Legacy card', type: 'Card' },
+    }]);
+    setSwContext(makeCtx({ client: { executeEc: vi.fn(), fetchObjectPane, fetchSelectedProperties } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('read_object', { ref: '42', refType: 'rid', properties: ['card'] }));
+
+    expect(res.isError).toBe(false);
+    expect(fetchSelectedProperties).toHaveBeenCalledWith('42', [{ accessor: 'card', reference: true }], undefined);
+    expect(res.content).toContain('card "Detail Card" [ReferenceMethodConfig] = Legacy card (Card) bid=legacy_card rid=99 [source=template]');
+    expect(res.content).not.toContain('Properties:\n');
+    schema.mockRestore();
+  });
+
+  it('read_type filters property definitions by accessor, label or description', async () => {
+    mockChromeStorage();
+    const knowledge = await import('../../bmp-type-knowledge');
+    const schema = vi.spyOn(knowledge.bmpTypeKnowledge, 'properties').mockResolvedValue({
+      ok: true,
+      canonical: 'CeRiskAssessment',
+      props: [
+        { accessor: 'card', label: 'Detail Card', configClass: 'ReferenceMethodConfig', systemobject: false },
+        { accessor: 'lifecycleState', label: 'Lifecycle State', configClass: 'ListMethodConfig', systemobject: false },
+      ],
+    });
+    const executeEc = vi.fn(async () => ({ ok: true, log: 'CeRiskAssessment' }));
+    setSwContext(makeCtx({ client: { executeEc } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('read_type', {
+      type: 'CeRiskAssessment', query: 'detail', exampleRef: 't.qa_risk',
+    }));
+
+    expect(res.isError).toBe(false);
+    expect(schema).toHaveBeenCalledWith({ className: 'CeRiskAssessment', exampleRef: 't.qa_risk' });
+    expect(res.content).toContain('matching "detail": 1');
+    expect(res.content).toContain('card  "Detail Card"');
+    expect(res.content).not.toContain('lifecycleState');
+    expect(res.structuredContent).toMatchObject({
+      tool: 'read_type', status: 'ok', data: { collections: ['root.CeRiskAssessment.descendants()'] },
+    });
+    schema.mockRestore();
+  });
+
+  it('read_type returns configured values with a matching list property', async () => {
+    mockChromeStorage();
+    const knowledge = await import('../../bmp-type-knowledge');
+    const schema = vi.spyOn(knowledge.bmpTypeKnowledge, 'properties').mockResolvedValue({
+      ok: true,
+      canonical: 'CeRiskAssessment',
+      props: [
+        { accessor: 'lifecycle_state_risk', label: 'Lifecycle State', configClass: 'ListMethodConfig', systemobject: false },
+      ],
+    });
+    const options = vi.spyOn(knowledge.bmpTypeKnowledge, 'options').mockResolvedValue({
+      ok: true,
+      options: [{
+        accessor: 'lifecycle_state_risk',
+        multi: false,
+        items: [
+          { ref: 't.operating', name: 'Operating' },
+          { ref: 't.closed', name: 'Closed' },
+        ],
+      }],
+    });
+    const executeEc = vi.fn(async () => ({ ok: true, log: 'CeRiskAssessment' }));
+    setSwContext(makeCtx({ client: { executeEc } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('read_type', {
+      type: 'CeRiskAssessment', query: 'lifecycle',
+    }));
+
+    expect(res.isError).toBe(false);
+    expect(options).toHaveBeenCalledWith('CeRiskAssessment');
+    expect(res.content).toContain('Configured values for lifecycle_state_risk: Operating (t.operating), Closed (t.closed)');
+    expect(res.structuredContent).toMatchObject({
+      tool: 'read_type',
+      status: 'ok',
+      data: {
+        optionSets: [{
+          accessor: 'lifecycle_state_risk',
+          items: [{ ref: 't.operating', name: 'Operating' }, { ref: 't.closed', name: 'Closed' }],
+        }],
+      },
+    });
+    options.mockRestore();
+    schema.mockRestore();
+  });
+
+  it('read_type propertyOnly skips the collection executeEc probe while retaining schema and matching options', async () => {
+    mockChromeStorage();
+    const knowledge = await import('../../bmp-type-knowledge');
+    const schema = vi.spyOn(knowledge.bmpTypeKnowledge, 'properties').mockResolvedValue({
+      ok: true,
+      canonical: 'CeRiskAssessment',
+      props: [{ accessor: 'lifecycle', label: 'Lifecycle', configClass: 'ListMethodConfig', systemobject: false }],
+    });
+    const options = vi.spyOn(knowledge.bmpTypeKnowledge, 'options').mockResolvedValue({
+      ok: true,
+      options: [{
+        accessor: 'lifecycle', multi: false,
+        items: [{ ref: 't.open', name: 'Open' }],
+      }],
+    });
+    const executeEc = vi.fn();
+    setSwContext(makeCtx({ client: { executeEc } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('read_type', {
+      type: 'CeRiskAssessment', query: 'lifecycle', propertyOnly: true,
+    }));
+
+    expect(res.isError).toBe(false);
+    expect(executeEc).not.toHaveBeenCalled();
+    expect(res.structuredContent).toMatchObject({
+      tool: 'read_type', status: 'ok', data: {
+        schema: { properties: [{ accessor: 'lifecycle', configClass: 'ListMethodConfig' }] },
+        optionSets: [{ accessor: 'lifecycle', items: [{ ref: 't.open', name: 'Open' }] }],
+        collections: [],
+      },
+    });
+    options.mockRestore();
+    schema.mockRestore();
+  });
+
   it('read_code returns raw ExtendedTable expression by rid without resolving it again', async () => {
     mockChromeStorage();
     const executeEc = vi.fn();
@@ -347,8 +748,18 @@ describe('executeAiTool — defensive', () => {
     expect(fetchCodeViaEc).toHaveBeenCalledWith('42', ['expression']);
     expect(executeEc).not.toHaveBeenCalled();
     expect(res.content).toContain('```extended\nrows := LIST()');
-    expect(res.content).toContain('answer from this source now');
-    expect(res.content).toContain('do not call query_context');
+    expect(res.structuredContent).toMatchObject({
+      tool: 'read_code',
+      status: 'ok',
+      data: {
+        objectRid: '42',
+        property: 'expression',
+        code: 'rows := LIST()\nrows',
+        charCount: 19,
+        complete: true,
+      },
+    });
+    expect(res.content).not.toContain('do not call query_context');
   });
 
   it('formats Blueprint layout as portal structure plus page-owned code-bearing widgets', async () => {
@@ -358,10 +769,72 @@ describe('executeAiTool — defensive', () => {
     const model = { pageId: 'ent_process', pageRid: '99', pageName: 'Process template', pageClass: 'EnterpriseTemplate', tabsetId: 'default_tabset', tabs: [tab], target: 'instance', hasTemplate: false } as any;
     const out = formatAiLayout('12', { kind: 'page', ctx: { pageId: 'ent_process', pageRid: '99', tabsetId: 'default_tabset' }, load: { model, baseline: model, orphans: [] } } as any);
 
-    expect(out).toContain('viewed enterprise instance → .template page owner');
+    expect(out).toContain('Default page-owner target: target=[[object:99]] mutationRef=t.ent_process scope=enterprise-template');
     expect(out).toContain('Contributing TabSets: default_tabset [default_tabset]');
-    expect(out).toContain('Tab "Main" bid=tab_main rid=43 span=6 model=portal-shared tabset=default_tabset');
-    expect(out).toContain('ExtendedTable "Processes" bid=tbl_process rid=44 span=6 model=page-child code=expression,html,javascript');
+    expect(out).toContain('Tab "Main" change-target: target=[[object:43]] mutationRef=t.tab_main scope=shared-portal');
+    expect(out).toContain('ExtendedTable "Processes" change-target: target=[[object:44]] mutationRef=t.tbl_process scope=instance-only');
+  });
+
+  it('defaults a linked Scorecard instance change to its shared template without advertising an alternate target', async () => {
+    const { projectAiLayout } = await import('../ai-tools');
+    const model = {
+      pageId: 'instance_118', pageRid: '99', pageName: 'Landing Page', pageClass: 'Scorecard',
+      templateRid: '88', templateId: 'landing_template',
+      tabsetId: 'tabs', tabs: [], target: 'instance', hasTemplate: true,
+    } as any;
+    const page = {
+      kind: 'page',
+      ctx: { pageId: 'instance_118', pageRid: '99', pageClass: 'Scorecard', tabsetId: 'tabs' },
+      load: { model, orphans: [] },
+    } as any;
+
+    const projection = projectAiLayout('99', page);
+
+    expect(projection.text).toContain('Default page-owner target: target=[[object:88]] mutationRef=t.landing_template scope=shared-template');
+    expect(projection.text).toContain('briefly note that the change affects the template rather than only the viewed instance');
+    expect(projection.text).not.toContain('instance-only override');
+    expect(projection.text).not.toContain('Explicit instance-only alternative');
+    expect(projection.targets[0]).toMatchObject({ status: 'resolved', reason: 'linked-page-default' });
+    expect(projection.objects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rid: '99', businessId: 'instance_118' }),
+      expect.objectContaining({ rid: '88', businessId: 'landing_template' }),
+    ]));
+  });
+
+  it('marks the linked template widget—not its instance copy—as the normal change target', async () => {
+    const { projectAiLayout } = await import('../ai-tools');
+    const table = {
+      id: '119', rid: '919', kind: 'widget', className: 'ExtendedTable', name: 'Navigation',
+      cols: { L: 6 }, children: [],
+      linkedTemplate: { rid: '818', id: 'navigation_table', className: 'ExtendedTable', name: 'Navigation' },
+    } as any;
+    const tab = { id: 'main', rid: '717', kind: 'tab', className: 'Tab', name: 'Main', cols: { L: 6 }, children: [table] } as any;
+    const model = {
+      pageId: 'instance_118', pageRid: '99', pageClass: 'Scorecard', templateRid: '88',
+      templateId: 'landing_template', tabsetId: 'tabs', tabs: [tab], target: 'instance', hasTemplate: true,
+    } as any;
+    const projection = projectAiLayout('99', {
+      kind: 'page', ctx: { pageId: 'instance_118', pageRid: '99', tabsetId: 'tabs' },
+      load: { model, orphans: [], truncated: false },
+    } as any);
+
+    expect(projection.text).toContain('change-target: target=[[object:818]] mutationRef=t.navigation_table scope=shared-template');
+    expect(projection.text).not.toContain('alternativeScope=instance-only');
+    expect(projection.targets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: 'resolved', reason: 'inherited-widget-default' }),
+    ]));
+    expect(projection.objects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rid: '919', businessId: '119' }),
+      expect.objectContaining({ rid: '818', businessId: 'navigation_table' }),
+    ]));
+
+    const instanceProjection = projectAiLayout('99', {
+      kind: 'page', ctx: { pageId: 'instance_118', pageRid: '99', tabsetId: 'tabs' },
+      load: { model, orphans: [], truncated: false },
+    } as any, undefined, 'instance-only');
+    expect(instanceProjection.text).toContain('Requested page-owner target: target=[[object:99]] mutationRef=t.instance_118 scope=instance-only');
+    expect(instanceProjection.text).toContain('change-target: target=[[object:919]] mutationRef=t.119 scope=instance-only');
+    expect(instanceProjection.text).not.toContain('change-target: target=[[object:818]]');
   });
 
   it('bounds large layouts and supports focused subtree follow-up', async () => {

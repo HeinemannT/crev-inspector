@@ -28,13 +28,13 @@
  */
 
 import { h, svg, statusFlash } from '../../lib/dom';
-import { typeBadge } from '../../lib/type-badge';
+import { typeBadge, wireBadgeCopy } from '../../lib/type-badge';
 import { ecPreviewSpan } from '../../lib/ec-format';
 import { resolveCopyText, getModifier, type CopyModifier } from '../../lib/namespace';
 import {
   ICON_KEY, ICON_CODE, ICON_LIGHTNING, ICON_ARROW_SQUARE_IN, ICON_ARROW_OUT,
   ICON_EYE_SLASH, ICON_SUBTITLES_SLASH, ICON_CODE_BLOCK, ICON_VARIABLE, ICON_CLOCK,
-  ICON_SHIELD, ICON_PENCIL, ICON_REFRESH, ICON_CHEVRON, ICON_CHECK,
+  ICON_SHIELD, ICON_PENCIL, ICON_REFRESH, ICON_CHEVRON,
 } from '../../lib/icons';
 import type { FlowChainMsg, FlowStepMsg, FlowCodeFieldMsg, InspectorMessage } from '../../lib/types';
 
@@ -260,41 +260,16 @@ function renderStep(
  *  (green tile flash), Shift → instance, Alt → RID, Ctrl → instance reference. */
 function badgeFor(node: FlowStepMsg): HTMLElement {
   const { rid, businessId, type } = node.identity;
-  const b = typeBadge(type, { size: 'xs' });
+  const b = wireBadgeCopy(typeBadge(type, { size: 'xs' }), (event) => {
+    const modifier = event instanceof MouseEvent ? getModifier(event) : 'plain';
+    return resolveCopyText({ rid, businessId, type }, modifier).text;
+  }, {
+    onCopied: text => statusFlash(`Copied ${text}`),
+    onCopyError: () => statusFlash('Couldn\u2019t copy to clipboard'),
+  });
   b.classList.add('flow-bdg');
   b.title = `Copy ${businessId || rid} (Shift: instance; Alt: RID; Ctrl: instance reference)`;
-  b.setAttribute('role', 'button');
-  b.setAttribute('tabindex', '0');
-  b.addEventListener('click', (e: MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    copyFromBadge(b, node, getModifier(e));
-  });
-  b.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      e.stopPropagation();
-      copyFromBadge(b, node, 'plain');
-    }
-  });
   return b;
-}
-
-function copyFromBadge(badge: HTMLElement, node: FlowStepMsg, mod: CopyModifier): void {
-  const { rid, businessId, type } = node.identity;
-  const { text } = resolveCopyText({ rid, businessId, type }, mod);
-  if (!text) return;
-  copyToClipboard(text);
-  statusFlash(`Copied ${text}`);
-  // Green confirmation: tile + chip flip to success, chip shows a check.
-  const lbl = badge.querySelector<HTMLElement>('.lbl');
-  const original = lbl?.textContent ?? '';
-  if (lbl) lbl.replaceChildren(svg(ICON_CHECK));
-  badge.classList.add('bdg-copied');
-  setTimeout(() => {
-    if (lbl) lbl.textContent = original;
-    badge.classList.remove('bdg-copied');
-  }, 700);
 }
 
 const FLOW_COPY_HINT =

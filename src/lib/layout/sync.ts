@@ -28,14 +28,14 @@ import { flowDiff, flowSignature } from './flow';
 import { compile } from './ec';
 import { occupiedPortableIdPlan, type PortableIdPlan } from './portable-ids';
 import { validateBusinessId, validateRid } from '../ec-guards';
-import { LAYOUT_SEP, PAGE_MARKER, CTX_MARKER, OVER_MARKER, STYLE_MARKER, TAB_META_MARKER,
+import { LAYOUT_SEP, PAGE_MARKER, CTX_MARKER, OVER_MARKER, LINK_MARKER, STYLE_MARKER, TAB_META_MARKER,
   FLOW_REF_MARKER, FLOW_META_MARKER, FLOW_CHILD_MARKER, FLOW_CPROP_MARKER, FLOW_TR_MARKER,
   FLOW_LIST_MARKER, markerLines, parseLayoutNodes, safeWireTextEc } from '../layout-wire';
 import { enumMember } from '../color-util';
 import { normalizeBmpEnum, FLOW_DOT_SLOTS, FLOW_DOT_PROPS } from '../widget-metadata';
 import type { LayoutNode as WireNode } from '../types';
 import { OVERRIDABLE_PROPS } from './types';
-import type { LModel, PlanNote, PlanStep, NodeStyle, FlowProjection, FlowNode, FlowKind } from './types';
+import type { LModel, LNode, PlanNote, PlanStep, NodeStyle, FlowProjection, FlowNode, FlowKind } from './types';
 import { COMPOSITE_TYPES } from './constraints';
 
 /** The single I/O capability sync needs: run an EC program, get its log back. Injected so the
@@ -104,6 +104,7 @@ const SEP = LAYOUT_SEP;   // layout wire marker
 const PAGE = PAGE_MARKER; // page-name marker (support-Category naming)
 const CTX = CTX_MARKER;   // page-context probe marker
 const OVER = OVER_MARKER; // F2 per-widget override channel marker
+const LINK = LINK_MARKER; // inherited instance widget -> shared template widget identity
 const STYLE = STYLE_MARKER; // G3 per-widget style channel marker
 const TAB = TAB_META_MARKER; // tab RID → real TabSet + sortIndex
 const STRUCTURE_LIMIT = '<<<CREV_LAYOUT_LIMIT>>>';
@@ -301,6 +302,16 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
     `               _l := _l`,
     `          ENDIF`,
   ];
+  // Exact widget-level routing for the lean AI projection. This prevents a correctly chosen template
+  // page scope from still mutating the copied instance widget.
+  const linkEmit = [
+    `          _lt := _w.linkedTo`,
+    `          IF _lt.rid.whenMissing("") <> "" THEN`,
+    `               _l := _l + "${LINK}" + _w.id.whenMissing("") + "|" + _lt.rid + "|" + _lt.id.whenMissing("") + "|" + _lt.className.whenMissing("") + "|" + ${safeWireTextEc('_lt.name.whenMissing("")')} + "\\n"`,
+    `          ELSE`,
+    `               _l := _l`,
+    `          ENDIF`,
+  ];
   // G3 style channel: per widget, emit its current appearance on a distinct marker (parsed by
   // parseStyles, independent of the layout wire). Colours are CorpoColor LINKS, so we emit the colour's
   // businessId (`.id`) — resolved to rgb client-side via the colour-set cache — not a value. `.id` on a
@@ -366,6 +377,7 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
     // for template-target loads drops ~2·|OVERRIDABLE_PROPS| property reads per widget — a real win
     // on heavy pages, where the fetch EC is the slow half of opening the blueprint.
     ...(projection === 'full' && ctx.target !== 'template' ? overEmit : []),
+    ...(projection === 'structure' && ctx.target !== 'template' ? linkEmit : []),
     ...(projection === 'full' ? styleEmit : []),
     `     ELSE`,
     `          _l := _l`,
@@ -534,6 +546,30 @@ export function parseOverrides(log: string): Map<string, string[]> {
     if (bid && list.length) map.set(bid, list);
   }
   return map;
+}
+
+/** Decode instance-widget to shared-template-widget identities from the lean structure fetch. */
+export function parseLinkedTemplates(log: string): Map<string, NonNullable<LNode['linkedTemplate']>> {
+  const map = new Map<string, NonNullable<LNode['linkedTemplate']>>();
+  for (const line of markerLines(log, LINK)) {
+    const parts = line.split('|');
+    if (parts.length < 5) continue;
+    const [instanceId, rid, id, className] = parts;
+    if (!instanceId || !/^-?\d+$/.test(rid ?? '') || !id || !className) continue;
+    map.set(instanceId, { rid, id, className, name: parts.slice(4).join('|') || id });
+  }
+  return map;
+}
+
+function applyLinkedTemplates(
+  nodes: LNode[],
+  links: ReadonlyMap<string, NonNullable<LNode['linkedTemplate']>>,
+): void {
+  for (const node of nodes) {
+    const linked = links.get(node.id);
+    if (linked) node.linkedTemplate = linked;
+    applyLinkedTemplates(node.children, links);
+  }
 }
 
 /** Parse the G3 style channel (`<STYLE>bid|hcBid|fcBid|shadow|headerStyle|borderStyle|transparency|
@@ -1087,6 +1123,7 @@ export async function loadStructureModel(io: LayoutIO, ctx: BlueprintCtx): Promi
   const log = res.log ?? '';
   const nodes = stripWidgetContent(parseFetchLog(log));
   const model = reconstruct(nodes, ctx, undefined, undefined, undefined, parseTabMetadata(log));
+  applyLinkedTemplates(model.tabs, parseLinkedTemplates(log));
   const pageName = parsePageName(log);
   if (pageName) model.pageName = pageName;
   return {

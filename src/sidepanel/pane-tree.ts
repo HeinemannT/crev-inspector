@@ -52,7 +52,8 @@ function copyBadge(identity: {
     const modifier = event instanceof MouseEvent ? getModifier(event) : 'plain';
     return resolveCopyText(identity, modifier).text;
   }, {
-    onCopied: copied => statusFlash(`Copied ${copied} \u2713`),
+    onCopied: copied => statusFlash(`Copied ${copied}`),
+    onCopyError: () => statusFlash('Couldn\u2019t copy to clipboard'),
   });
   badge.title = COPY_TOOLTIP;
   return badge;

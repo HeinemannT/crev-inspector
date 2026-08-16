@@ -93,3 +93,19 @@ export function scrubToolMarkup(text: string): string {
   const s = new ToolMarkupScrubber();
   return s.feed(text) + s.flush();
 }
+
+/** Remove provider reasoning wrappers from visible chat text. Some compatible
+ * endpoints serialize hidden reasoning into `content` as `<think>…</think>`.
+ * An unclosed block is suppressed while streaming; a stray closing tag drops
+ * the reasoning prefix and preserves only the answer that follows it. */
+export function scrubModelReasoning(text: string): string {
+  let clean = text.replace(/<think\b[^>]*>[\s\S]*?<\/think\s*>/gi, '');
+  const unclosed = /<think\b[^>]*>/i.exec(clean);
+  if (unclosed) clean = clean.slice(0, unclosed.index);
+  const strayClosers = [...clean.matchAll(/<\/think\s*>/gi)];
+  const lastCloser = strayClosers.at(-1);
+  if (lastCloser?.index !== undefined) {
+    clean = clean.slice(lastCloser.index + lastCloser[0].length);
+  }
+  return clean;
+}

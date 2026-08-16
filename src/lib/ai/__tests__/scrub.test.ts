@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ToolMarkupScrubber, scrubToolMarkup } from '../scrub';
+import { ToolMarkupScrubber, scrubModelReasoning, scrubToolMarkup } from '../scrub';
 
 /** Feed a whole string through a fresh scrubber as ONE chunk. */
 function whole(s: string): string {
@@ -86,5 +86,21 @@ describe('ToolMarkupScrubber', () => {
   it('scrubToolMarkup one-shot matches the streaming result', () => {
     expect(scrubToolMarkup(DSML_BLOCK)).toBe('Here is the answer.\n');
     expect(scrubToolMarkup('plain')).toBe('plain');
+  });
+
+  it('removes a complete provider reasoning block while preserving surrounding answer text', () => {
+    const s = 'Before. <think>internal chain of thought</think>After.';
+    expect(scrubModelReasoning(s)).toBe('Before. After.');
+  });
+
+  it('suppresses an incomplete leading reasoning block in cumulative streaming snapshots', () => {
+    expect(scrubModelReasoning('<think>internal reasoning')).toBe('');
+    expect(scrubModelReasoning('Safe prefix. <think>still reasoning')).toBe('Safe prefix. ');
+    expect(scrubModelReasoning('<think>internal reasoning</think>Visible answer.')).toBe('Visible answer.');
+  });
+
+  it('treats a stray reasoning close tag as the boundary before the answer', () => {
+    const s = 'provider reasoning leaked before the delimiter</think>Visible answer.';
+    expect(scrubModelReasoning(s)).toBe('Visible answer.');
   });
 });

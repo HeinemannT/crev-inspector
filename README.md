@@ -110,9 +110,10 @@ Use the assistant to:
 - trace supported widget and action flows
 - find workspace objects and return them as hoverable, clickable object chips
 - explain, draft, or revise Extended Code using the current editor context
+- create or edit BMP objects through compact Change Tickets
 - work through HTML, CVO, and JSON transformation problems
 
-The assistant can inspect workspace context, but code changes remain proposals until you review and save them.
+The assistant inspects workspace context with read-only tools. For a requested change, it returns one compact Change Ticket and automatically **Previews** its exact Extended Code. You can inspect it, open it in the Extended Code editor, or explicitly **Run** that same previewed code; nothing is committed merely because the assistant proposed it.
 
 ## Shortcuts
 

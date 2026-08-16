@@ -124,6 +124,8 @@ export interface LNode {
   /** Authored height in px — charts (`chartHeight`) and URLView only. Undefined = content-driven. */
   height?: number;
   children: LNode[];
+  /** Exact shared-template counterpart for an inherited instance widget. Read-only AI provenance. */
+  linkedTemplate?: { rid: string; id: string; className: string; name: string };
   /** F2 — instance view only: BMP property names whose value OVERRIDES the linked template (this widget
    *  is inherited via `linkedTo` and its value differs). Drives the blue revert arrows. From the fetch. */
   overrides?: string[];
@@ -158,6 +160,9 @@ export interface LModel {
   editPageTypes?: string[];
   /** the page's BMP class — only consumed by the apply `SELECT <class>`; fetch uses `lookup(rid)`. */
   pageClass: PageClass;
+  /** Linked Scorecard template identity retained on an instance structure read. */
+  templateRid?: string;
+  templateId?: string;
   /** portal-model root that owns tabs (`<tabset>.add(Tab)`). */
   tabsetId: string;
   /** Every TabSet reached by this page's widget placements. Loaded models always populate this;

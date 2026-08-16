@@ -1,15 +1,31 @@
 import { describe, it, expect } from 'vitest';
 import {
-  TOOL_DEFS, TOOL_NAMES, toAnthropicTools, toOpenAiTools,
   truncateToolResult, TOOL_RESULT_CAP, TRUNCATION_MARKER, MAX_TOOL_CALLS, MAX_TOOL_ROUNDS,
   mergeObjectReferences, objectReferencePattern, objectReferenceToken, toolResultWithObjects,
+  boundedToolResult, toolResultForModel,
 } from '../tools';
+import {
+  TOOL_CONTRACTS, TOOL_DEFS, TOOL_NAMES, summarizeToolCall,
+  toAnthropicTools, toOpenAiTools, validateToolInput,
+} from '../tool-contracts';
+import { toolSuccess } from '../tool-results';
 
 describe('tool schemas', () => {
   it('exposes the eight read-only tools', () => {
     expect(TOOL_DEFS.map(t => t.name).sort()).toEqual(
       ['code_search', 'preview_ec', 'query_context', 'read_code', 'read_layout', 'read_object', 'read_type', 'search_objects'],
     );
+  });
+
+  it('keeps each provider contract complete in one registry', () => {
+    expect([...TOOL_CONTRACTS.keys()].sort()).toEqual([...TOOL_NAMES].sort());
+    for (const contract of TOOL_CONTRACTS.values()) {
+      expect(contract.name).toBeTruthy();
+      expect(contract.resultDescription).toContain('Returns JSON data');
+      expect(contract.summarize({})).toContain(contract.name);
+    }
+    expect(summarizeToolCall({ name: 'preview_ec', input: { code: 'a\nb' } }))
+      .toBe('preview_ec (2 lines)');
   });
 
   it('does not encode workspace-specific semantic class or status guesses', () => {
@@ -23,8 +39,31 @@ describe('tool schemas', () => {
     expect(context?.description).toContain('those questions start with read_layout');
     const readCode = TOOL_DEFS.find(tool => tool.name === 'read_code');
     expect(readCode?.description).toContain('do not preview/re-run the stored code');
+    const readObject = TOOL_DEFS.find(tool => tool.name === 'read_object');
+    expect(readObject?.parameters.properties.properties?.type).toBe('array');
+    expect(readObject?.description).toContain('overview is deliberately incomplete');
+    const readType = TOOL_DEFS.find(tool => tool.name === 'read_type');
+    expect(readType?.parameters.properties.query?.type).toBe('string');
+    expect(readType?.parameters.properties.exampleRef?.type).toBe('string');
+    expect(readType?.description).toContain('described a property concept');
+    expect(readType?.description).toContain('mutationRef');
+    const searchObjects = TOOL_DEFS.find(tool => tool.name === 'search_objects');
+    expect(searchObjects?.parameters.properties.purpose?.enum).toEqual(['objects', 'row-type']);
+    expect(searchObjects?.description).toContain('ranked live typeCandidates');
     const readLayout = TOOL_DEFS.find(tool => tool.name === 'read_layout');
     expect(readLayout?.description).toContain('do not call query_context first');
+    expect(readLayout?.description).toContain('typed change-target record');
+    expect(readLayout?.parameters.properties.changeScope?.enum).toEqual(['default', 'instance-only']);
+  });
+
+  it('limits preview_ec to read-only investigation and uncertain deferred expressions', () => {
+    const preview = TOOL_DEFS.find(tool => tool.name === 'preview_ec');
+    expect(preview?.description).toContain('This NEVER commits');
+    expect(preview?.description).toContain('never call external resources');
+    expect(preview?.description).toContain('joined/grouped/aggregated/calculated stored ExtendedTable expression');
+    expect(preview?.description).toContain('Do not Preview a proposed outer change');
+    expect(preview?.description).toContain('submit_change_ticket triggers that exact Preview automatically');
+    expect(preview?.description).toContain('never repeat the Preview');
   });
 
   it('every tool has a valid object schema with required ⊆ properties', () => {
@@ -70,6 +109,14 @@ describe('tool schemas', () => {
     expect(MAX_TOOL_CALLS).toBe(10);
     expect(MAX_TOOL_ROUNDS).toBe(6);
   });
+
+  it('validates fixture and production calls against the same tool schemas', () => {
+    expect(validateToolInput('read_object', {})).toContain('requires "ref"');
+    expect(validateToolInput('read_object', { ref: '1', properties: ['card'] })).toBeNull();
+    expect(validateToolInput('read_object', { ref: '1', properties: 'card' })).toContain('array of strings');
+    expect(validateToolInput('read_layout', { pageRid: '1', changeScope: 'local' })).toContain('must be one of');
+    expect(validateToolInput('preview_ec', { code: 'output(1)', extra: true })).toContain('does not accept');
+  });
 });
 
 describe('truncateToolResult', () => {
@@ -88,6 +135,54 @@ describe('truncateToolResult', () => {
 });
 
 describe('structured object references', () => {
+  it('serializes typed tool data—not the presentation summary—to providers', () => {
+    const wire = toolResultForModel({
+      content: 'formatted prose that providers must not parse',
+      isError: false,
+      structuredContent: toolSuccess('search_objects', {
+        query: 'Risk',
+        sourceTotalHits: 1,
+        returned: 1,
+        typeCounts: { Scorecard: 1 },
+        capped: false,
+        hitRids: ['9007199254740993'],
+        complete: true,
+      }, [{ rid: '9007199254740993', businessId: 'sc_risk', type: 'Scorecard', name: 'Risk' }]),
+    });
+    const parsed = JSON.parse(wire);
+    expect(parsed).toMatchObject({
+      schemaVersion: 1,
+      tool: 'search_objects',
+      status: 'ok',
+      data: { hitRids: ['9007199254740993'], complete: true },
+      objects: [{
+        rid: '9007199254740993',
+        token: '[[object:9007199254740993]]',
+        lookupExpression: 'lookup(9007199254740993)',
+      }],
+    });
+    expect(wire).not.toContain('formatted prose');
+  });
+
+  it('turns unsupported oversized structures into a typed narrowing error', () => {
+    const result = boundedToolResult({
+      content: 'fallback summary',
+      isError: false,
+      structuredContent: toolSuccess('read_code', {
+        objectRid: '1', property: 'expression', language: 'extended',
+        code: 'x'.repeat(TOOL_RESULT_CAP * 2), charCount: TOOL_RESULT_CAP * 2, complete: false,
+      }),
+    });
+    const wire = toolResultForModel(result);
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(wire)).toMatchObject({
+      tool: 'read_code',
+      status: 'error',
+      error: { message: expect.stringContaining('Narrow the query') },
+    });
+    expect(wire).not.toContain('fallback summary');
+  });
+
   it('deduplicates by RID while keeping richer identity', () => {
     expect(mergeObjectReferences([
       { rid: '9', name: 'Early' },
@@ -101,7 +196,7 @@ describe('structured object references', () => {
     }]);
   });
 
-  it('adds exact provider-visible tokens without exceeding the tool cap', () => {
+  it('keeps exact tokens in the legacy presentation summary without exceeding the cap', () => {
     const result = toolResultWithObjects('x'.repeat(TOOL_RESULT_CAP), [
       { rid: '9007199254740993', businessId: 'sc_x', type: 'Scorecard', name: 'X' },
     ]);
@@ -109,6 +204,17 @@ describe('structured object references', () => {
     expect(result.content).toContain(objectReferenceToken('9007199254740993'));
     expect(result.objects).toHaveLength(1);
     expect([...result.content.matchAll(objectReferencePattern())][0][1]).toBe('9007199254740993');
+  });
+
+  it('adds a copyable EC namespace reference for verified object identities', () => {
+    const result = toolResultWithObjects('found', [
+      { rid: '1', businessId: 'org_group', type: 'Organisation', name: 'Group' },
+      { rid: '2', businessId: 'sc_risk', type: 'Scorecard', name: 'Risk' },
+      { rid: '3', businessId: 'not dotted', type: 'Organisation', name: 'Unsafe BID' },
+    ]);
+    expect(result.content).toContain('bid=org_group ecRef=o.org_group');
+    expect(result.content).toContain('bid=sc_risk ecRef=t.sc_risk');
+    expect(result.content).not.toContain('ecRef=o.not dotted');
   });
 
   it('bounds and sanitizes a large object registry', () => {

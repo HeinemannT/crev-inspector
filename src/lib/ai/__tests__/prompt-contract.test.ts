@@ -1,0 +1,109 @@
+import { createHash } from 'node:crypto';
+import { describe, expect, it } from 'vitest';
+import { buildEditorPrompt } from '../editor-prompt';
+import { buildChatSystem } from '../sidebar-prompt';
+import type { AiContextEnvelope, AiRequestPayload } from '../types';
+
+function digest(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function digestPrompt(system: string, user = ''): string {
+  return digest(`${system}\n<user-message>\n${user}`);
+}
+
+function occurrences(value: string, needle: string): number {
+  return value.split(needle).length - 1;
+}
+
+describe('model-visible prompt contracts', () => {
+  it('shares one EC core while keeping surface policies isolated', () => {
+    const sidebar = buildChatSystem({
+      v: 1,
+      server: { id: 'steadfast', url: 'https://example.test/' },
+      sources: [],
+    }).system;
+    const editor = buildEditorPrompt({
+      requestId: 'editor-ec-routing',
+      intent: 'edit',
+      lang: 'extended',
+      code: 'output(t.risk.name)',
+      selection: null,
+      instruction: 'Keep the result.',
+      context: { objectType: 'ExtendedExpression' },
+    }).system;
+
+    expect(occurrences(sidebar, '<ec_language_core>')).toBe(1);
+    expect(sidebar).toContain('<ec_sidebar_workflows>');
+    expect(sidebar).not.toContain('<ec_editor_policy>');
+    expect(occurrences(editor, '<ec_language_core>')).toBe(1);
+    expect(editor).toContain('<ec_editor_policy>');
+    expect(editor).not.toContain('<ec_sidebar_workflows>');
+  });
+
+  it('keeps the EC editor prompt stable during architectural refactors', () => {
+    const payload: AiRequestPayload = {
+      requestId: 'editor-ec',
+      intent: 'ask',
+      lang: 'extended',
+      code: 'output(t.risk.name)',
+      selection: null,
+      instruction: 'Explain this expression.',
+      context: {
+        objectType: 'ExtendedExpression',
+        businessId: 'risk_name',
+        name: 'Risk name',
+        slotName: 'expression',
+      },
+    };
+    const prompt = buildEditorPrompt(payload);
+    expect(digestPrompt(prompt.system, prompt.user)).toBe('b1395104b6e4a8bd5ba0ad447c420a56502e773e8b4c2c34ad439bc3fccdae2c');
+  });
+
+  it('keeps the selected JavaScript editor prompt stable during architectural refactors', () => {
+    const payload: AiRequestPayload = {
+      requestId: 'editor-js',
+      intent: 'edit',
+      lang: 'javascript',
+      code: 'const value = oldValue;\nreturn value;',
+      selection: { from: 14, to: 22, text: 'oldValue' },
+      instruction: 'Use the new value.',
+      context: {
+        objectType: 'CustomVisualization',
+        businessId: 'risk_view',
+        name: 'Risk view',
+        slotName: 'javascript',
+      },
+    };
+    const prompt = buildEditorPrompt(payload);
+    expect(digestPrompt(prompt.system, prompt.user)).toBe('7f821bc0b104c790b708b78c31792c03ac22b4455ab3993ec9ca80a66ec05574');
+  });
+
+  it('keeps the context-free sidebar prompt stable during architectural refactors', () => {
+    const envelope: AiContextEnvelope = {
+      v: 1,
+      server: { id: 'steadfast', url: 'https://example.test/' },
+      sources: [],
+    };
+    const prompt = buildChatSystem(envelope);
+    expect(digestPrompt(prompt.system)).toBe('5b407a0ddecc79227ce711e7a46c10de88a607fc0a213ba3b242f962ff3d89f9');
+  });
+
+  it('keeps the contextual sidebar prompt stable during architectural refactors', () => {
+    const envelope: AiContextEnvelope = {
+      v: 1,
+      server: { id: 'steadfast', url: 'https://example.test/' },
+      sources: [{
+        kind: 'selection',
+        object: {
+          rid: '726548820039520945',
+          businessId: 'landing_page',
+          name: 'Landing Page',
+          type: 'Scorecard',
+        },
+      }],
+    };
+    const prompt = buildChatSystem(envelope, 'objects=12\nclasses: Scorecard=2, Risk=10');
+    expect(digestPrompt(prompt.system)).toBe('67ac1ccf708aa014566ee1abe87fb9a35fcb495698cf609926cda74331e365d3');
+  });
+});

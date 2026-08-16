@@ -11,8 +11,8 @@
 
 import { readSse } from './sse';
 import type { ToolCall } from './tools';
-import { toOpenAiTools, TOOL_DEFS } from './tools';
-import type { AiMaxTokensParam } from './types';
+import { toOpenAiTools, TOOL_DEFS } from './tool-contracts';
+import type { AiMaxTokensParam, AiTokenUsage } from './types';
 
 export interface OpenAiStreamOpts {
   baseUrl: string;
@@ -39,9 +39,41 @@ interface OpenAiChunk {
     finish_reason?: string | null;
   }>;
   error?: { message?: string };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+    completion_tokens_details?: { reasoning_tokens?: number };
+  };
 }
 
-export async function streamOpenAiCompat(opts: OpenAiStreamOpts): Promise<{ text: string }> {
+const EMPTY_USAGE = (): AiTokenUsage => ({
+  inputTokens: 0,
+  cachedInputTokens: 0,
+  cacheWriteTokens: 0,
+  outputTokens: 0,
+  reasoningTokens: 0,
+});
+
+function requestsStreamingUsage(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase();
+    return host === 'openrouter.ai' || host === 'api.openai.com';
+  } catch {
+    return false;
+  }
+}
+
+function captureUsage(target: AiTokenUsage, parsed: OpenAiChunk): void {
+  const usage = parsed.usage;
+  if (!usage) return;
+  target.inputTokens = usage.prompt_tokens ?? target.inputTokens;
+  target.cachedInputTokens = usage.prompt_tokens_details?.cached_tokens ?? target.cachedInputTokens;
+  target.outputTokens = usage.completion_tokens ?? target.outputTokens;
+  target.reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? target.reasoningTokens;
+}
+
+export async function streamOpenAiCompat(opts: OpenAiStreamOpts): Promise<{ text: string; usage: AiTokenUsage }> {
   const url = `${opts.baseUrl}/chat/completions`;
   const messages: Array<{ role: string; content: string }> = [];
   if (opts.system) messages.push({ role: 'system', content: opts.system });
@@ -53,22 +85,30 @@ export async function streamOpenAiCompat(opts: OpenAiStreamOpts): Promise<{ text
       'Authorization': `Bearer ${opts.apiKey}`,
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ model: opts.model, stream: true, messages, ...outputLimit(opts.maxTokens, opts.maxTokensParam) }),
+    body: JSON.stringify({
+      model: opts.model,
+      stream: true,
+      ...(requestsStreamingUsage(opts.baseUrl) ? { stream_options: { include_usage: true } } : {}),
+      messages,
+      ...outputLimit(opts.maxTokens, opts.maxTokensParam),
+    }),
     signal: opts.signal,
   });
 
   if (!response.ok) throw new Error(await errorFromResponse(response));
 
   let text = '';
+  const usage = EMPTY_USAGE();
   await readSse(response, (frame) => {
     if (!frame.data || frame.data === '[DONE]') return;
     const parsed = safeParse(frame.data);
     if (!parsed) return;
     if (parsed.error?.message) throw new Error(parsed.error.message);
+    captureUsage(usage, parsed);
     const delta = parsed.choices?.[0]?.delta?.content;
     if (delta) { text += delta; opts.onChunk(delta); }
   });
-  return { text };
+  return { text, usage };
 }
 
 // ── Tool-aware turn (chat orchestrator) ──────────────────────────
@@ -89,6 +129,11 @@ export interface OpenAiTurnOpts {
   messages: OpenAiMessage[];
   /** Omit / empty to force a tools-off final answer. */
   tools?: ReturnType<typeof toOpenAiTools>;
+  /** Force the single evidence follow-up selected by the orchestrator. */
+  forceTool?: string;
+  /** Require one of the supplied terminal tools while leaving the semantic
+   * choice to the model. Mutually exclusive with forceTool. */
+  requireTool?: boolean;
   signal?: AbortSignal;
   onText: (delta: string) => void;
 }
@@ -99,6 +144,7 @@ export interface OpenAiTurnResult {
   finishReason: string | null;
   /** The assistant message to append for the next turn. */
   assistantMessage: OpenAiMessage;
+  usage: AiTokenUsage;
 }
 
 interface ToolCallAcc { id: string; name: string; args: string; }
@@ -122,9 +168,16 @@ export async function streamOpenAiTurn(opts: OpenAiTurnOpts): Promise<OpenAiTurn
     body: JSON.stringify({
       model: opts.model,
       stream: true,
+      ...(requestsStreamingUsage(opts.baseUrl) ? { stream_options: { include_usage: true } } : {}),
       messages: opts.messages,
       ...outputLimit(opts.maxTokens, opts.maxTokensParam),
-      ...(useTools ? { tools: opts.tools } : {}),
+      ...(useTools ? {
+        tools: opts.tools,
+        parallel_tool_calls: false,
+        ...(opts.forceTool
+          ? { tool_choice: { type: 'function', function: { name: opts.forceTool } } }
+          : opts.requireTool ? { tool_choice: 'required' } : {}),
+      } : {}),
     }),
     signal: opts.signal,
   });
@@ -134,12 +187,14 @@ export async function streamOpenAiTurn(opts: OpenAiTurnOpts): Promise<OpenAiTurn
   let text = '';
   let finishReason: string | null = null;
   const calls = new Map<number, ToolCallAcc>();
+  const usage = EMPTY_USAGE();
 
   await readSse(response, (frame) => {
     if (!frame.data || frame.data === '[DONE]') return;
     const parsed = safeParse(frame.data);
     if (!parsed) return;
     if (parsed.error?.message) throw new Error(parsed.error.message);
+    captureUsage(usage, parsed);
     const choice = parsed.choices?.[0];
     if (!choice) return;
     if (choice.delta?.content) { text += choice.delta.content; opts.onText(choice.delta.content); }
@@ -167,7 +222,7 @@ export async function streamOpenAiTurn(opts: OpenAiTurnOpts): Promise<OpenAiTurn
     ? { role: 'assistant', content: text || null, tool_calls: rawCalls }
     : { role: 'assistant', content: text };
 
-  return { text, toolCalls, finishReason, assistantMessage };
+  return { text, toolCalls, finishReason, assistantMessage, usage };
 }
 
 function parseToolArgs(args: string): Record<string, unknown> {

@@ -215,6 +215,8 @@ export function reconstruct(
     pageId: ctx.pageId,
     pageRid: ctx.pageRid,
     pageClass: ctx.pageClass ?? 'Scorecard',
+    ...(ctx.templateRid ? { templateRid: ctx.templateRid } : {}),
+    ...(ctx.templateId ? { templateId: ctx.templateId } : {}),
     tabsetId: ctx.tabsetId,
     tabsets,
     tabs,

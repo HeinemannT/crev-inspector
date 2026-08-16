@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  buildFetchEc, parseFetchLog, parseOverrides, parseStyles, loadModel, loadStructureModel, applyModel,
+  buildFetchEc, parseFetchLog, parseOverrides, parseLinkedTemplates, parseStyles, loadModel, loadStructureModel, applyModel,
   resolvePageContext, buildContextEc, DEFAULT_TABSET, parsePageName, parseTabMetadata,
   buildFlowRefChildrenEc, parseFlowRefChildren, buildEditPageFetchEc, loadEditPageModel,
   type LayoutIO, type BlueprintCtx,
@@ -162,9 +162,10 @@ describe('sync.buildFetchEc', () => {
     expect(ec).toContain('<<<CREV_LAYOUT_LIMIT>>>600');
     expect(ec).not.toContain('chartHeight');
     expect(ec).not.toContain('<<<CREV_OVER>>>');
+    expect(ec).toContain('<<<CREV_LINK>>>');
     expect(ec).not.toContain('<<<CREV_STY>>>');
     expect(ec).not.toContain('<<<CREV_FREF>>>');
-    expect(ec.length).toBeLessThan(buildFetchEc({ ...CTX, target: 'instance' }).length * 0.36);
+    expect(ec.length).toBeLessThan(buildFetchEc({ ...CTX, target: 'instance' }).length * 0.39);
   });
 });
 
@@ -791,6 +792,19 @@ describe('sync — page name + on-demand ref children (support-Category + wire-t
     expect('baseline' in lean).toBe(false);
     expect(lean.truncated).toBe(false);
     expect(io.exec).toHaveBeenCalledWith(expect.not.stringContaining('<<<CREV_STY>>>'));
+  });
+
+  it('maps an inherited instance widget to its exact shared-template counterpart', async () => {
+    const linked = '<<<CREV_LINK>>>4962|777777777777777777|tbl_top_risks|ExtendedTable|Top Risks | Master';
+    const lean = await loadStructureModel(fakeIo(`${LIVE_LOG}\n${linked}`), {
+      ...CTX, target: 'instance', templateRid: '888888888888888888', templateId: 'scorecard_master',
+    });
+    const table = findNode(lean.model, '4962')!.node;
+    expect(table.linkedTemplate).toEqual({
+      rid: '777777777777777777', id: 'tbl_top_risks', className: 'ExtendedTable', name: 'Top Risks | Master',
+    });
+    expect(parseLinkedTemplates(linked).get('4962')?.rid).toBe('777777777777777777');
+    expect(lean.model).toMatchObject({ templateRid: '888888888888888888', templateId: 'scorecard_master' });
   });
 
   it('loadStructureModel reports when its source projection reached the safety cap', async () => {

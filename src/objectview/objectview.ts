@@ -23,6 +23,7 @@ import { getTypeColor } from '../lib/types';
 import { intersectTypeSchemas } from '../lib/type-schema-utils';
 import { typeBadge } from '../lib/type-badge';
 import { h, render, svg } from '../lib/dom';
+import { moveCaretToEnd } from '../lib/dom-selection';
 import {
   ICON_ARROWS_LEFT_RIGHT, ICON_CARET_DOWN, ICON_CHEVRON, ICON_CODE,
   ICON_COLUMNS, ICON_COPY, ICON_CHECK, ICON_EYE, ICON_IDENTIFICATION_CARD, ICON_PENCIL,
@@ -593,12 +594,7 @@ function openPendingIdentityEdit(): void {
   field.textContent = original;
   field.setAttribute('contenteditable', 'plaintext-only');
   field.focus({ preventScroll: true });
-  const range = document.createRange();
-  range.selectNodeContents(field);
-  range.collapse(false);
-  const selection = getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
+  if (!moveCaretToEnd(field)) return;
 
   let cancelled = false;
   const outside = (event: MouseEvent): void => {

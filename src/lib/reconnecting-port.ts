@@ -56,6 +56,15 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let destroyed = false;
 
+  const isInvalidated = (value: unknown): boolean => {
+    const message = value instanceof Error
+      ? value.message
+      : typeof value === 'object' && value !== null && 'message' in value
+        ? String((value as { message?: unknown }).message ?? '')
+        : String(value ?? '');
+    return /extension context invalidated/i.test(message);
+  };
+
   function scheduleReconnect(reason: 'initial' | 'disconnect'): void {
     if (destroyed) return;
     const wasDelayed = reconnectDelay > RECONNECT_INITIAL_DELAY;
@@ -77,6 +86,9 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
       // extension reload. Without rescheduling, portInstance stays non-null
       // with a dead inner port and queues silently forever.
       log.swallow(`${ctx}:connect`, e);
+      // An old content-script world can never reconnect after an extension reload. The newly injected
+      // world owns the replacement port, so stop this instance instead of retrying forever.
+      if (isInvalidated(e)) { destroy(); return; }
       scheduleReconnect('initial');
       return;
     }
@@ -103,7 +115,10 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
       //    port is moved into back/forward cache, so the message
       //    channel is closed"
       // whenever the browser caches the BMP tab via back/forward.
-      void chrome.runtime.lastError;
+      let disconnectError: unknown;
+      try { disconnectError = chrome.runtime.lastError; }
+      catch (e) { if (isInvalidated(e)) { destroy(); return; } }
+      if (isInvalidated(disconnectError)) { destroy(); return; }
       port = null;
       scheduleReconnect('disconnect');
     });
@@ -113,7 +128,11 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
     if (destroyed) return false;
     if (port) {
       try { port.postMessage(msg); return true; }
-      catch (e) { log.swallow(`${ctx}:send`, e); port = null; }
+      catch (e) {
+        log.swallow(`${ctx}:send`, e);
+        port = null;
+        if (isInvalidated(e)) { destroy(); return false; }
+      }
     }
     // Port is down — let the caller decide whether to queue
     if (opts.enqueueOnDisconnect) {

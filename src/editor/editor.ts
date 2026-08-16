@@ -935,7 +935,7 @@ async function setupAiAssist(): Promise<void> {
   })
   // Tell the sidepanel this editor is gone so its 'editor' context chip drops.
   window.addEventListener('pagehide', () => {
-    if (aiConfigured) sendFireForget({ type: 'AI_EDITOR_CONTEXT', source: null })
+    if (aiConfigured) sendFireForget({ type: 'AI_EDITOR_CONTEXT_UPDATE', source: null })
   })
   try {
     const cfg = await fetchAiConfig()
@@ -1017,10 +1017,11 @@ function aiContextSource(): AiContextSource | null {
 /** Broadcast which object+slot this editor has open, so the sidepanel AI chat
  *  tab can render its 'editor' context chip. Zero-footprint: only sent while a
  *  provider key is configured. Last-writer-wins when several editors are open
- *  (the most recently opened / switched surface owns the chip). */
+ *  Within one browser tab, the most recently opened or switched editor owns
+ *  the chip. The service worker keeps different tabs/windows isolated. */
 function broadcastEditorContext(): void {
   if (!aiConfigured) return
-  sendFireForget({ type: 'AI_EDITOR_CONTEXT', source: aiContextSource() })
+  sendFireForget({ type: 'AI_EDITOR_CONTEXT_UPDATE', source: aiContextSource() })
 }
 
 /** Object grounding for the prompt: identity + the other code props, truncated. */
@@ -1186,7 +1187,7 @@ function buildActionRow(): HTMLElement {
       title: `Ask or edit with AI (${KBD_MOD}+K)`,
       'aria-label': 'AI assistant',
       onClick: openAiAssist,
-    }, svg(ICON_SPARKLE)),
+    }, svg(ICON_SPARKLE), h('span', { class: 'ai-button-label' }, 'AI')),
     langFor(activeProperty, !!ctx?.extended) === 'ec' && h('button', {
       class: 'btn-micro',
       id: 'btn-format',

@@ -8,8 +8,9 @@
  *
  * The EC expression was verified with ec_preview before shipping. It uses only
  * the pack's verified
- * vocabulary. Degrades gracefully: any failure returns null and the caller
- * simply omits the <workspace> block.
+ * vocabulary. Degrades gracefully: ordinary probe failures return null and
+ * the caller omits the <workspace> block. Cancellation is propagated so it can
+ * never become a cacheable negative result.
  */
 
 import type { BmpClient } from '../bmp-client';
@@ -35,9 +36,9 @@ _top.forEach(_u:
 )
 "top-level=" + _top.size() + "\\nunits: " + _units`;
 
-/** Build the workspace primer block, or null if the probe fails / is empty.
- *  Never throws. The returned string is the raw inner text (no wrapper); the
- *  prompt builder wraps it in a <workspace> tag. */
+/** Build the workspace primer block, or null if an ordinary probe fails or is
+ * empty. Cancellation is rethrown. The returned string is the raw inner text
+ * (no wrapper); the prompt builder wraps it in a <workspace> tag. */
 export async function buildWorkspacePrimer(client: BmpClient, signal?: AbortSignal): Promise<string | null> {
   try {
     const res = await client.executeEc(PRIMER_EC, undefined, false, signal);
@@ -48,6 +49,7 @@ export async function buildWorkspacePrimer(client: BmpClient, signal?: AbortSign
     const primer = body + scope;
     return primer.length > PRIMER_CAP ? primer.slice(0, PRIMER_CAP) + '\n…(trimmed)' : primer;
   } catch (e) {
+    if (signal?.aborted || (e instanceof DOMException && e.name === 'AbortError')) throw e;
     log.swallow('ai:primer', e);
     return null;
   }

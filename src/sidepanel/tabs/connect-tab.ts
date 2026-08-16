@@ -6,17 +6,16 @@ import type { InspectorMessage, ServerProfile, CommandAuthMode } from '../../lib
 import { h, render, svg } from '../../lib/dom';
 import { delegate } from '../delegate';
 import { ICON_EYE_OPEN, ICON_EYE_CLOSED } from '../utils';
-import { ICON_WARNING, ICON_REFRESH, ICON_SPARKLE, ICON_CHEVRON } from '../../lib/icons';
+import { ICON_WARNING, ICON_CHEVRON, ICON_INFO, ICON_PENCIL, ICON_X } from '../../lib/icons';
 import { S as shared, getTabPanel } from '../state';
 import { FLASH_INVALID_DURATION } from '../../lib/constants';
 import { confirmModal } from '../../lib/modal';
-import { getUpdateStatus, refresh as refreshUpdate, type UpdateStatus } from '../../lib/version-check';
+import { getUpdateStatus, type UpdateStatus } from '../../lib/version-check';
 import { originPatternFor } from '../../lib/site-access';
 import { requestOriginsInGesture } from '../site-access-strip';
 import { PROVIDERS, AI_PROVIDER_IDS, parseCustomProviderJson, resolveProvider } from '../../lib/ai/providers';
 import type { AiApiType, AiCustomProvider, AiProviderId } from '../../lib/ai/types';
 import type { Tab, SendFn } from './tab-types';
-import { BUILD_ID } from '../../lib/build-info';
 import { unknownIdentityMap } from '../../lib/identity-map';
 
 type EditingProfile = {
@@ -117,9 +116,8 @@ export class ConnectTab implements Tab {
   /** Set true when the SW reports a CACHE_QUOTA_WARNING; renders a banner. */
   private cacheQuotaWarning = false;
 
-  /** Shortcuts/reference block is reference material — collapsed by default so
-   * the actual controls (servers, settings) lead. */
-  private referenceOpen = false;
+  /** Close hook for the Connect-tab information dialog, if open. */
+  private closeInformation: (() => void) | null = null;
   /** Per-profile host-permission state (origin pattern → granted). Refreshed on activate/save;
    *  drives the "no site access" chip on profile cards. Unknown origins simply render no chip. */
   private accessByOrigin = new Map<string, boolean>();
@@ -216,8 +214,8 @@ export class ConnectTab implements Tab {
     }
   }
 
-  private async loadUpdateStatus(forceRefresh = false): Promise<void> {
-    const status = forceRefresh ? await refreshUpdate() : await getUpdateStatus();
+  private async loadUpdateStatus(): Promise<void> {
+    const status = await getUpdateStatus();
     this.updateStatus = status;
     if (this.updatePanel && document.body.contains(this.updatePanel)) {
       // Swap the banner in place without forcing a whole-tab re-render —
@@ -230,7 +228,9 @@ export class ConnectTab implements Tab {
     }
   }
 
-  deactivate() {}
+  deactivate() {
+    this.closeInformation?.();
+  }
 
   handleMessage(msg: InspectorMessage): boolean {
     switch (msg.type) {
@@ -328,8 +328,11 @@ export class ConnectTab implements Tab {
     if (this.editing?.id === null) {
       children.push(this.renderProfileForm(rerender));
     } else {
-      // Full-width add row closes the server list.
-      children.push(h('button', { class: 'addbtn', 'data-action': 'add-profile' }, '+ Add server'));
+      // Quiet list action closes the server list without becoming another card.
+      children.push(h('button', { class: 'addbtn', 'data-action': 'add-profile' },
+        h('span', { class: 'addbtn-plus', 'aria-hidden': 'true' }, '+'),
+        'Add server',
+      ));
     }
 
     children.push(
@@ -345,11 +348,20 @@ export class ConnectTab implements Tab {
         'Also labels inline elements (tables, others)',
         shared.settings.enrichMode === 'all'),
 
-      // ── Footer: the low-weight informational + utility bits (keyboard
-      //    reference, version, cache, reset). None of these is a group of
-      //    controls, so none gets a section header — they read as a quiet
-      //    footer under one hairline. ──
-      this.renderFooter(rerender),
+      // Local extension data belongs with Preferences. The persistent status
+      // bar already carries the cache count, so this row only explains and
+      // manages the stored data.
+      this.renderLocalData(),
+      this.cacheQuotaWarning
+        ? h('div', { class: 'cache-quota-banner' },
+            'Storage quota reached. Older cache entries are being evicted. ',
+            h('button', { class: 'btn btn-small btn-ghost', 'data-action': 'reset-all', title: 'Wipe cache + enrichment to recover headroom' }, 'Reset'),
+          )
+        : null,
+      this.renderUpdateBanner(),
+      this.eyebrow('Keyboard shortcuts'),
+      this.renderKeyboardShortcuts(),
+      this.renderMoreInformationStrip(),
     );
 
     render(container, ...children);
@@ -532,20 +544,7 @@ export class ConnectTab implements Tab {
         this.send({ type: 'SAVE_SETTINGS', settings: { commandAuthMigrationNotices: notices } });
         rerender();
       },
-      'update-refresh': () => {
-        // Manual refresh — bypass the 24 h cache and re-fetch immediately.
-        // Spinner the refresh button + flip the banner status into a
-        // checking state so the user sees something is happening; the
-        // fetch can take a few seconds on a cold cache.
-        this.updateStatus = null;
-        if (this.updatePanel && document.body.contains(this.updatePanel)) {
-          const mounted = this.updatePanel;
-          const fresh = this.renderUpdateBanner();
-          mounted.replaceWith(fresh);
-          this.updatePanel = fresh;
-        }
-        void this.loadUpdateStatus(true);
-      },
+      'more-information': (el) => this.showMoreInformation(el),
       'ai-save': () => {
         const provider = (container.querySelector('#ai-provider') as HTMLSelectElement | null)?.value as AiProviderId | undefined;
         const keyInput = container.querySelector('#ai-key') as HTMLInputElement | null;
@@ -696,14 +695,6 @@ export class ConnectTab implements Tab {
     return h('div', { class: 'connect-eyebrow' }, text);
   }
 
-  /** Two-letter monogram for the avatar tile. */
-  private initials(label: string): string {
-    const words = label.trim().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return '?';
-    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-    return (words[0][0] + words[1][0]).toUpperCase();
-  }
-
   /** Live connection status for the active profile's row. */
   private profileStatus(): { text: string; cls: string; title: string } {
     const s = shared.connState;
@@ -729,11 +720,8 @@ export class ConnectTab implements Tab {
     }
   }
 
-  /** A server profile as a status-rail card: a left rail carries connection
-   *  health (green ok, grey idle, red problem), the active profile gets an
-   *  accent-ringed avatar + a quiet "Current" word, and latency sits on the
-   *  right where a badge would. Row-click selects; Edit shows on hover. Only the
-   *  active profile has live status — others read as idle (grey rail). */
+  /** A server profile as a quiet selected row. Purple marks the selected
+   *  profile; the explicit dot independently reports connection health. */
   private renderProfileRow(profile: ServerProfile): HTMLElement {
     const isActive = profile.id === shared.settings.activeProfileId;
     const urlDisplay = profile.bmpUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
@@ -775,22 +763,28 @@ export class ConnectTab implements Tab {
       'data-action': 'select-profile',
       'data-profile-id': profile.id,
     },
-      h('div', { class: 'prof-av' }, this.initials(profile.label)),
+      h('span', {
+        class: `prof-health ${health}`,
+        title: noAccess ? 'Site access required' : (s?.title || (isActive ? s?.text : 'Inactive server')),
+        'aria-label': noAccess ? 'Site access required' : (s?.text || 'Inactive server'),
+      }),
       h('div', { class: 'prof-body' },
         h('div', { class: 'prof-nm' },
           h('span', { class: 'prof-nm-text' }, profile.label),
-          isActive ? h('span', { class: 'prof-curtag' }, 'Current') : null,
         ),
         h('div', { class: 'prof-url' }, `${urlDisplay} · ${whoDisplay}`),
         this.renderAuthMigrationNotice(profile),
       ),
-      right,
-      h('button', {
-        class: 'prof-edit',
-        'data-action': 'edit-profile',
-        'data-edit-profile': profile.id,
-        title: 'Edit server',
-      }, 'Edit'),
+      h('div', { class: 'prof-right connect-card-right' },
+        h('div', { class: 'prof-state connect-card-state' }, right),
+        h('button', {
+          class: 'prof-edit connect-card-edit',
+          'data-action': 'edit-profile',
+          'data-edit-profile': profile.id,
+          title: 'Edit server',
+          'aria-label': 'Edit server',
+        }, svg(ICON_PENCIL)),
+      ),
     );
   }
 
@@ -833,7 +827,7 @@ export class ConnectTab implements Tab {
     );
   }
 
-  /** AI assistant — a server-row-twin card (collapsed) that expands the config
+  /** AI assistant — a server-row-twin row (collapsed) that expands the config
    *  form. The assistant only appears in the editor / studio once a key is
    *  stored. Card shows READY / UNTESTED + last-test latency; the row / Edit /
    *  Set up expands the existing provider / model / key / test form. */
@@ -843,8 +837,8 @@ export class ConnectTab implements Tab {
     return wrap;
   }
 
-  /** The collapsed card: sparkle (20px, purple, no tile), name + status pill,
-   *  a mono provider/model line, and right-side latency + Edit / Set up. */
+  /** The collapsed row: one health dot, name + provider/model metadata, and
+   *  right-side latency + Edit / Set up. */
   private renderAiCard(): HTMLElement {
     const stored = shared.settings.ai;
     const configured = this.aiConfigured;
@@ -855,27 +849,26 @@ export class ConnectTab implements Tab {
       : '';
     const model = stored?.model ?? '';
 
-    const spark = h('span', { class: 'ai-card-spark', 'aria-hidden': 'true' }, svg(ICON_SPARKLE));
-
-    // No READY/UNTESTED pill — the green keyline + connection dot + latency already say "ready"; an
-    // untested-but-configured card simply shows neither (a plain card), so absence carries the state.
     const name = h('div', { class: 'ai-card-nm' }, 'AI Assistant');
 
     const ln2 = configured
       ? `${providerLabel} · ${model} · key saved`
       : 'Bring your own API key · Anthropic, OpenAI, DeepSeek, Grok';
 
-    const right = h('div', { class: 'ai-card-right' });
+    const state = h('div', { class: 'ai-card-state connect-card-state' });
+    const right = h('div', { class: 'ai-card-right connect-card-right' }, state);
     if (configured) {
       if (verified) {
-        right.appendChild(h('span', { class: 'ai-card-dot' }));
-        right.appendChild(h('span', { class: 'ai-card-latency' }, lastTest ? `${lastTest.ms} ms` : ''));
+        state.appendChild(h('span', { class: 'ai-card-latency' }, lastTest ? `${lastTest.ms} ms` : ''));
       }
       right.appendChild(h('button', {
-        class: 'ai-card-edit', 'data-action': 'ai-expand',
+        class: 'ai-card-edit connect-card-edit', 'data-action': 'ai-expand',
         title: this.aiExpanded ? 'Close' : 'Edit AI settings',
-      }, this.aiExpanded ? 'Close' : 'Edit'));
+        'aria-label': this.aiExpanded ? 'Close AI settings' : 'Edit AI settings',
+      }, svg(this.aiExpanded ? ICON_X : ICON_PENCIL)));
     } else {
+      state.remove();
+      right.classList.add('ai-card-right--setup');
       right.appendChild(h('button', {
         class: 'btn btn-small',
         'data-action': 'ai-expand',
@@ -883,11 +876,17 @@ export class ConnectTab implements Tab {
       }, this.aiExpanded ? 'Close' : 'Set up'));
     }
 
+    const health = verified ? 'ready' : (lastTest && !lastTest.ok ? 'error' : 'idle');
+    const healthLabel = verified
+      ? 'AI connection verified'
+      : health === 'error' ? 'Last AI connection test failed'
+        : configured ? 'AI connection not tested' : 'AI assistant not configured';
+
     return h('div', {
-      class: `ai-card${verified ? ' ready' : ''}${this.aiExpanded ? ' expanded' : ''}`,
+      class: `ai-card ${health}${this.aiExpanded ? ' expanded' : ''}`,
       title: configured ? 'AI assistant settings' : 'Set up the AI assistant',
     },
-      spark,
+      h('span', { class: `ai-card-health ${health}`, title: healthLabel, 'aria-label': healthLabel }),
       h('div', { class: 'ai-card-meta' }, name, h('div', { class: 'ai-card-ln2' }, ln2)),
       right,
     );
@@ -1058,34 +1057,23 @@ export class ConnectTab implements Tab {
     );
   }
 
-  /** The quiet footer strip. Consolidates the mostly-informational, low-weight
-   *  bits that don't each deserve a section: keyboard reference (expandable),
-   *  the cache/reset utility actions, and the version line. */
-  private renderFooter(rerender: () => void): HTMLElement {
-    const cacheInfo: (HTMLElement | string)[] = [`${shared.cacheCount} cached`];
-    if (this.cacheBytes != null && this.cacheBytes > 0) {
-      cacheInfo.push(h('span', {
-        class: 'connect-meta-bytes',
-        title: `${this.cacheBytes.toLocaleString()} bytes of ~10 MB quota`,
-      }, ` · ${formatBytes(this.cacheBytes)}`));
-    }
-
-    return h('div', { class: 'connect-footer' },
-      // Keyboard reference — a quiet expandable link, not a titled section.
-      this.renderReferenceDisclosure(rerender),
-
-      this.cacheQuotaWarning
-        ? h('div', { class: 'cache-quota-banner' },
-            'Storage quota reached. Older cache entries are being evicted. ',
-            h('button', { class: 'btn btn-small btn-ghost', 'data-action': 'reset-all', title: 'Wipe cache + enrichment to recover headroom' }, 'Reset'),
-          )
-        : null,
-
-      // Utility actions — cache count + Clear + Reset as quiet links. Reset
-      // is guarded by a confirm modal, so it doesn't need the red box any more.
-      h('div', { class: 'footer-actions' },
-        h('span', { class: 'footer-cache' }, ...cacheInfo),
-        h('span', { class: 'footer-spacer' }),
+  /** Local extension state is a Preferences row; the fixed status bar already
+   *  owns the always-visible object count. */
+  private renderLocalData(): HTMLElement {
+    const storage = shared.cacheCount === 0
+      ? 'No cached objects stored'
+      : this.cacheBytes != null && this.cacheBytes > 0
+        ? `${formatBytes(this.cacheBytes)} stored in this browser`
+        : 'Stored in this browser';
+    return h('div', { class: 'connect-local-data', role: 'group', 'aria-label': 'Local inspection data' },
+      h('span', { class: 'setting-text' },
+        h('span', { class: 'setting-name' }, 'Local inspection data'),
+        h('span', {
+          class: 'setting-hint',
+          title: this.cacheBytes != null ? `${this.cacheBytes.toLocaleString()} bytes of ~10 MB quota` : '',
+        }, storage),
+      ),
+      h('span', { class: 'connect-local-actions' },
         h('button', {
           class: 'footer-action',
           'data-action': 'clear-cache',
@@ -1095,156 +1083,146 @@ export class ConnectTab implements Tab {
         h('button', {
           class: 'footer-action footer-action--danger',
           'data-action': 'reset-all',
-          title: 'Reset all internal state: cache, enrichment, activity log, context RIDs, history. Favorites + server profiles are kept.',
-        }, 'Reset all'),
+          title: 'Reset cache, enrichment, activity log, context, and history. Favorites and server profiles are kept.',
+        }, 'Reset…'),
       ),
-
-      // Version / update — the quietest line, at the very bottom.
-      h('div', { class: 'footer-version' }, this.renderUpdateBanner()),
     );
   }
 
-  /** Collapsible wrapper around the shortcuts/reference tables. Closed by
-   *  default; presented as a quiet footer link, not a section header. */
-  private renderReferenceDisclosure(rerender: () => void): HTMLElement {
-    const wrap = h('div', { class: 'ref-disclosure' });
-    const toggle = h('button', {
-      class: 'ref-toggle connect-eyebrow',
-      'aria-expanded': String(this.referenceOpen),
-    },
-      h('span', { class: `disclosure-caret${this.referenceOpen ? ' open' : ''}`, 'aria-hidden': 'true' }, svg(ICON_CHEVRON)),
-      h('span', { class: 'ref-toggle-label' }, 'Shortcuts & Info'),
-    );
-    toggle.addEventListener('click', () => {
-      this.referenceOpen = !this.referenceOpen;
-      rerender();
-    });
-    wrap.appendChild(toggle);
-    if (this.referenceOpen) wrap.appendChild(this.renderReference());
-    return wrap;
-  }
-
-  /** Update banner — placed above the Quick reference card. Always renders
-   *  something so the user knows we're tracking releases. */
+  /** Current/up-to-date is deliberately absent. The slot becomes visible only
+   *  when the background check finds something the user can act on. */
   private renderUpdateBanner(): HTMLElement {
     const s = this.updateStatus;
-    const checking = !s;
-    const current = chrome.runtime.getManifest().version;
-    const build = h('span', { class: 'update-build', title: `Loaded build ${BUILD_ID}` }, BUILD_ID);
-
-    let body: (HTMLElement | string | null)[];
-    let cls = 'update-banner';
-    if (!s) {
-      body = [
-        h('span', { class: 'update-version' }, `v${current}`),
-        build,
-        h('span', { class: 'update-status' }, 'Checking for updates…'),
-      ];
-    } else if (s.error) {
-      cls += ' update-banner--warn';
-      body = [
-        h('span', { class: 'update-version' }, `v${current}`),
-        build,
-        h('span', { class: 'update-status', title: s.error }, "Couldn't check for updates"),
-      ];
-    } else if (s.isUpdate && s.latest) {
-      cls += ' update-banner--available';
-      body = [
-        h('span', { class: 'update-version' }, `v${current}`),
-        build,
-        h('span', { class: 'update-arrow' }, '→'),
-        h('span', { class: 'update-latest' }, `v${s.latest}`),
-        h('span', { class: 'update-status' }, 'available'),
-      ];
-    } else {
-      body = [
-        h('span', { class: 'update-version' }, `v${current}`),
-        build,
-        h('span', { class: 'update-status update-status--ok' }, 'Up to date'),
-      ];
-    }
-
-    const panel = h('div', { class: cls },
-      h('a', {
-        class: 'update-link',
-        href: s?.releasesUrl ?? 'https://github.com/HeinemannT/crev-inspector/releases',
+    const panel = h('div', { class: 'connect-update-slot' });
+    if (s?.isUpdate && s.latest) {
+      panel.appendChild(h('a', {
+        class: 'connect-update-notice',
+        href: s.releasesUrl ?? 'https://github.com/HeinemannT/crev-inspector/releases',
         target: '_blank',
         rel: 'noopener',
-        title: s?.checkedAt ? `Last checked ${new Date(s.checkedAt).toLocaleString()}` : 'View releases',
-      }, ...body.filter(Boolean) as (HTMLElement | string)[]),
-      h('button', {
-        class: `update-refresh${checking ? ' is-checking' : ''}`,
-        'data-action': 'update-refresh',
-        title: checking ? 'Checking for updates' : 'Check now',
-        'aria-label': checking ? 'Checking for updates' : 'Check for updates now',
-        ...(checking ? { disabled: true } : {}),
-      }, svg(ICON_REFRESH)),
-    );
+        title: s.checkedAt ? `Last checked ${new Date(s.checkedAt).toLocaleString()}` : 'View release',
+      },
+        h('span', null, `CREV Inspector v${s.latest} is available`),
+        h('span', { class: 'connect-update-action' }, 'View release →'),
+      ));
+    }
     this.updatePanel = panel;
     return panel;
   }
 
-  /** Quick reference card — concise list of the keyboard shortcuts +
-   *  pill interactions the user is likely to forget. Replaces the cramped
-   *  shortcut row that ended with a mysterious "(?)". Each row is one
-   *  action + one key chip; no prose. */
-  private renderReference(): HTMLElement {
-    // Suggested defaults from manifest.json. We show whichever the user
-    // ACTUALLY has bound via chrome.commands.getAll — see loadCommandShortcuts.
-    // If the user cleared a binding, we render "(not bound)" greyed so they
-    // know it's available to assign; if their binding differs from the
-    // default, we show the default greyed underneath as a reminder.
-    type Row =
-      | { kind: 'cmd'; action: string; command: string; defaultKey: string }
-      | { kind: 'note'; action: string; key: string; kbd?: boolean };
-    const groups: Array<{ title: string; rows: Row[] }> = [
-      {
-        title: 'Keyboard',
-        rows: [
-          { kind: 'cmd', action: 'Toggle side panel', command: '_execute_action', defaultKey: 'Ctrl+Shift+Y' },
-          { kind: 'cmd', action: 'Toggle inspect on page', command: 'toggle-inspect', defaultKey: 'Ctrl+Shift+X' },
-          { kind: 'cmd', action: 'Toggle blueprint mode', command: 'toggle-blueprint', defaultKey: 'Ctrl+Shift+B' },
-          { kind: 'cmd', action: 'Open Extended Code', command: 'open-extended', defaultKey: 'Ctrl+Shift+E' },
-        ],
-      },
-      {
-        title: 'Pill (page badge)',
-        rows: [
-          { kind: 'note', action: 'Click', key: 'open + copy primary ID' },
-          { kind: 'note', action: 'Double-click', key: 'quick inspector' },
-          { kind: 'note', action: 'Alt-click', key: 'copy RID' },
-          { kind: 'note', action: 'Shift-click', key: 'copy instance ID' },
-          { kind: 'note', action: 'Ctrl-click', key: 'copy instance reference' },
-        ],
-      },
-      {
-        title: 'Inspect',
-        rows: [
-          { kind: 'note', action: 'Right-click an element', key: 'set context' },
-          { kind: 'note', action: 'Crosshair icon', key: 'pick context from any pill' },
-        ],
-      },
+  /** The four browser commands remain visible in Connect and reflect the
+   *  user's actual Chrome bindings rather than merely the manifest defaults. */
+  private renderKeyboardShortcuts(): HTMLElement {
+    const rows = [
+      { action: 'Toggle side panel', command: '_execute_action', defaultKey: 'Ctrl+Shift+Y' },
+      { action: 'Toggle inspect on page', command: 'toggle-inspect', defaultKey: 'Ctrl+Shift+X' },
+      { action: 'Toggle blueprint mode', command: 'toggle-blueprint', defaultKey: 'Ctrl+Shift+B' },
+      { action: 'Open Extended Code', command: 'open-extended', defaultKey: 'Ctrl+Shift+E' },
     ];
-    return h('div', { class: 'reference-card reference-card--muted' },
-      ...groups.map(g => h('div', { class: 'reference-group' },
-        h('div', { class: 'reference-group-title' }, g.title),
-        h('dl', { class: 'reference-list' },
-          ...g.rows.flatMap(r => [
-            h('dt', { class: 'reference-action' }, r.action),
-            h('dd', { class: 'reference-key' },
-              r.kind === 'cmd'
-                ? this.renderLiveShortcut(r.command, r.defaultKey)
-                : r.kbd
-                  ? h('kbd', { class: 'kbd' }, r.key)
-                  : h('span', null, r.key)),
-          ]),
-        ),
-      )),
-      h('div', { class: 'reference-footnote' },
-        'Shortcut not working? Reassign at ',
-        h('a', { href: 'chrome://extensions/shortcuts', target: '_blank', rel: 'noopener' }, 'chrome://extensions/shortcuts'),
+    return h('div', { class: 'connect-shortcuts' },
+      h('dl', { class: 'connect-shortcut-list' },
+        ...rows.flatMap(row => [
+          h('dt', null, row.action),
+          h('dd', null, this.renderLiveShortcut(row.command, row.defaultKey)),
+        ]),
+      ),
+      h('div', { class: 'connect-shortcut-tip' },
+        h('span', null, 'Open in the address bar: '),
+        h('code', null, 'chrome://extensions/shortcuts'),
       ),
     );
+  }
+
+  private renderMoreInformationStrip(): HTMLElement {
+    return h('button', {
+      class: 'connect-more-info',
+      'data-action': 'more-information',
+      'aria-haspopup': 'dialog',
+      'aria-expanded': 'false',
+      'aria-controls': 'connect-info-popover',
+    },
+      h('span', { class: 'connect-more-info-icon', 'aria-hidden': 'true' }, svg(ICON_INFO)),
+      h('span', null, 'More information'),
+      h('span', { class: 'connect-more-info-chevron', 'aria-hidden': 'true' }, svg(ICON_CHEVRON)),
+    );
+  }
+
+  /** Popover reference kept deliberately concise: page-badge gestures and the
+   *  purpose of the five main tabs. Keyboard bindings stay in Connect itself. */
+  private showMoreInformation(trigger: HTMLElement): void {
+    if (this.closeInformation) {
+      this.closeInformation();
+      return;
+    }
+
+    let dialog: HTMLElement;
+    let closed = false;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+      }
+    };
+    const onOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target || dialog.contains(target) || trigger.contains(target)) return;
+      close();
+    };
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('pointerdown', onOutsidePointer, true);
+      dialog.remove();
+      this.closeInformation = null;
+      trigger.setAttribute('aria-expanded', 'false');
+      trigger.focus();
+    };
+    const gestureRows = [
+      ['Click', 'Open the object and copy its primary ID'],
+      ['Double-click', 'Open Quick Inspector'],
+      ['Alt + click', 'Copy the object RID'],
+      ['Shift + click', 'Copy the instance ID'],
+      ['Ctrl / Cmd + click', 'Copy an instance reference'],
+    ];
+    const tabRows = [
+      ['Connect', 'Servers, AI setup, preferences, and shortcuts'],
+      ['Inspect', 'Selected object and page layout'],
+      ['Browse', 'Search cached objects by name or ID'],
+      ['AI', 'Ask questions about the current workspace'],
+      ['Log', 'Recent activity, changes, and errors'],
+    ];
+    const infoList = (rows: string[][]) => h('dl', { class: 'connect-info-list' },
+      ...rows.flatMap(([term, description]) => [
+        h('dt', null, term),
+        h('dd', null, description),
+      ]),
+    );
+
+    const triggerRect = trigger.getBoundingClientRect();
+    dialog = h('div', {
+      id: 'connect-info-popover',
+      class: 'connect-info-dialog',
+      role: 'dialog',
+      'aria-label': 'Page badge and tab information',
+      style: `bottom:${Math.max(8, window.innerHeight - triggerRect.top + 6)}px`,
+    },
+      h('div', { class: 'connect-info-body' },
+        h('section', { class: 'connect-info-section' },
+          h('h3', null, 'Page badges'),
+          infoList(gestureRows),
+        ),
+        h('section', { class: 'connect-info-section' },
+          h('h3', null, 'Tabs'),
+          infoList(tabRows),
+        ),
+      ),
+    );
+    this.closeInformation = close;
+    trigger.setAttribute('aria-expanded', 'true');
+    document.body.appendChild(dialog);
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('pointerdown', onOutsidePointer, true);
   }
 
   /** Render a single command's live binding — actually-set key bold, default

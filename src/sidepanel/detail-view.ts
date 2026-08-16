@@ -680,6 +680,7 @@ export class DetailView {
     const display = resolveDisplayIdentity({ rid, businessId, templateBusinessId });
     const b = wireBadgeCopy(typeBadge(type), () => display.primary, {
       onCopied: copied => statusFlash(`Copied ${copied}`),
+      onCopyError: () => statusFlash('Couldn\u2019t copy to clipboard'),
     });
     b.classList.add('pane-id-bdg');
     return b;

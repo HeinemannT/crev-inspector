@@ -553,6 +553,16 @@ export class BmpClient {
     return this.ecQuery.fetchCodeViaEc(rid, properties);
   }
 
+  /** Read a bounded exact property selection with explicit missing state and
+   * structured reference identities where requested. */
+  async fetchSelectedProperties(
+    rid: string,
+    properties: readonly import('./ec-query-service').SelectedPropertyRequest[],
+    signal?: AbortSignal,
+  ): Promise<import('./ec-query-service').SelectedPropertyValue[]> {
+    return this.ecQuery.fetchSelectedProperties(rid, properties, signal);
+  }
+
   /** Batch fetch code properties for multiple objects in a single EC call */
   async batchFetchCode(
     rids: string[],

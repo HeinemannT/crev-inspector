@@ -24,4 +24,13 @@ describe('workspace primer request pressure', () => {
 
     await expect(buildWorkspacePrimer({ executeEc } as any)).resolves.toBeNull();
   });
+
+  it('propagates cancellation instead of turning it into a cacheable miss', async () => {
+    const error = new DOMException('cancelled', 'AbortError');
+    const executeEc = vi.fn(async () => { throw error; });
+    const controller = new AbortController();
+    controller.abort(error);
+
+    await expect(buildWorkspacePrimer({ executeEc } as any, controller.signal)).rejects.toBe(error);
+  });
 });
