@@ -65,7 +65,7 @@ body {
 .header-brand:active { transform: scale(0.94); }
 .header-brand:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* Brand menu — small popup anchored under the CREV chip. Lives inside the
+/* Brand menu — small popup anchored under the Companion chip. Lives inside the
  * panel (not a new tab) so the user keeps their orientation. */
 .brand-menu {
   position: fixed;

@@ -14,11 +14,13 @@ When a profile uses a stored configuration login, Companion sends the username a
 
 If the user configures the optional AI assistant, the API key, messages, and attached BMP or code context are sent directly from the browser to the provider selected by the user. They are not routed through or accessible to the developer. The selected provider processes that data under its own terms and privacy policy.
 
+Live CVO preview is a developer tool: it runs user-chosen CVO code with real BMP data. That code can make network requests when the user chooses to implement them, and the user controls those destinations.
+
 The extension checks GitHub Releases for newer versions. That request includes the normal network information received by GitHub, but no BMP content, credentials, or AI messages.
 
 ## Sharing and use
 
-The developer does not receive, sell, or use extension data. Data is sent only to the BMP server chosen by the user, an AI provider explicitly configured by the user, or GitHub for the update check. The extension uses data only to provide its user-requested inspection, editing, connection, and AI features.
+The developer does not receive, sell, or use extension data. Outside network activity implemented by user-chosen CVO code, data is sent only to the selected BMP server, configured AI provider, or GitHub for the update check. The extension uses data only to provide its user-requested inspection, editing, connection, and AI features.
 
 Configuration Companion's use of information complies with the Chrome Web Store User Data Policy, including its Limited Use requirements.
 

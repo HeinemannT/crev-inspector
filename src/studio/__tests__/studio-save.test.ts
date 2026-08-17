@@ -1,7 +1,7 @@
 /**
  * Save -> reload reconciliation. This is the studio's data-integrity hinge:
  * after a save it decides which editor slots to re-seed from the server and
- * which saved fields silently rolled back. The recurring CREV-tool footgun is
+ * which saved fields silently rolled back. The recurring Companion footgun is
  * re-seeding a slot the user edited mid-save (lost work), so that case is
  * covered explicitly.
  */

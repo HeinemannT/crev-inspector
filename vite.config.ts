@@ -3,6 +3,7 @@ import { resolve } from 'path';
 import { copyFileSync, mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, readdirSync } from 'fs';
 import { execFileSync } from 'child_process';
 import * as esbuild from 'esbuild';
+import { GENERATED_ROOT_DIRECTORIES, GENERATED_ROOT_FILES } from './scripts/build-output-paths.mjs';
 
 const BUILD_TARGET = 'esnext' as const;
 const contentEntry = resolve(__dirname, 'src/content.ts');
@@ -163,15 +164,21 @@ function extensionPlugin(): Plugin {
       // --- Copy built artifacts from dist/ to project root ---
 
       // Top-level JS files
-      for (const file of ['content.js', 'content-blueprint.js', 'interceptor.js', 'service-worker.js']) {
+      for (const file of GENERATED_ROOT_FILES) {
         const src = resolve(dist, file);
-        if (existsSync(src)) copyFileSync(src, resolve(root, file));
+        const dest = resolve(root, file);
+        rmSync(dest, { force: true });
+        if (existsSync(src)) copyFileSync(src, dest);
       }
 
-      // Directories: chunks/, assets/, sidepanel/, editor/, objectview/, …
-      for (const dir of ['chunks', 'assets', 'sidepanel', 'editor', 'objectview', 'diff', 'codesearch', 'studio']) {
+      // Replace generated directories rather than merging into the previous
+      // build. This prevents removed chunks and assets from surviving locally
+      // and making root-loaded QA differ from the clean release package.
+      for (const dir of GENERATED_ROOT_DIRECTORIES) {
         const src = resolve(dist, dir);
-        if (existsSync(src)) copyDirSync(src, resolve(root, dir));
+        const dest = resolve(root, dir);
+        rmSync(dest, { recursive: true, force: true });
+        if (existsSync(src)) copyDirSync(src, dest);
       }
 
       // Chrome keeps an unpacked extension pinned to the directory originally

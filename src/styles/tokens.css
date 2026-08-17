@@ -214,7 +214,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════
- * OVERHAUL THEME (Carbon bones · CREV fonts · Keyline accent)
+ * OVERHAUL THEME (Carbon bones · Companion fonts · Keyline accent)
  * ───────────────────────────────────────────────────────────────────
  * NEW semantic token layer, scoped to `[data-theme="crev-light|crev-dark"]`.
  * Dormant until an entry point opts in (e.g. sidepanel <html data-theme>).

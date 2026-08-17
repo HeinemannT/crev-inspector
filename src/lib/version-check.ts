@@ -77,8 +77,8 @@ export async function getUpdateStatus(): Promise<UpdateStatus> {
   };
 }
 
-/** Force a check now, bypassing the 24h cache. Used by the manual refresh
- *  button in the panel. Resolves to the same shape `getUpdateStatus` returns. */
+/** Force a check now, bypassing the 24h cache. Resolves to the same shape
+ *  `getUpdateStatus` returns. */
 export async function refresh(): Promise<UpdateStatus> {
   if (inFlight) return inFlight;
   const current = currentVersion();
@@ -101,10 +101,9 @@ export async function refresh(): Promise<UpdateStatus> {
       };
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
-      // A transient failure (offline, GitHub rate-limit) must NOT forget a real
-      // available update or reset the 24h clock into a day-long lockout. Keep the
-      // last-known `latest` and the prior `checkedAt` so a stale cache stays stale
-      // and retries on the next call, instead of masquerading as a fresh check.
+      // Preserve the last successful release result. With no prior result, cache
+      // the failure on the normal interval so a rendered panel cannot hammer the
+      // GitHub API while offline or before a release exists.
       const prev = await readCache();
       const cached: CachedCheck = { latest: prev?.latest ?? null, checkedAt: prev?.checkedAt ?? Date.now(), error };
       await writeCache(cached);

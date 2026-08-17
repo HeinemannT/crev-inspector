@@ -146,14 +146,13 @@ Configuration Companion is proprietary software. Source availability does not gr
 ## Development
 
 ```bash
-npm install
-npm run typecheck
-npm run lint
-npm test
-npm run build
+npm ci
+npm run verify
 ```
 
-CI runs the same four gates. A `v*.*.*` tag publishes the packaged extension after they pass.
+`npm run clean` removes only generated build output. `npm run verify` runs the local CI-equivalent dependency, notice, type, lint, test, and build gates.
+
+CI runs the same verification gates. A `v*.*.*` tag publishes the packaged extension after they pass.
 
 For Chrome DevTools extension QA, run `npm run qa:devtools-package` once and
 install the printed directory as an unpacked extension. Normal and watch builds

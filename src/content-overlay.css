@@ -282,7 +282,7 @@
 }
 #crev-tooltip {
   position: fixed;
-  /* Layer ordering across CREV overlays (BMP's own tooltips top out
+  /* Layer ordering across Companion overlays (BMP's own tooltips top out
    * around 9999, so anything above 1M wins against the page itself):
    *
    *   2147483647  crev-toast-container (must stay visible always)
@@ -442,7 +442,7 @@
   position: fixed;
   top: 12px;
   right: 12px;
-  /* Top of the CREV layer stack — "saved" / "failed" toasts must
+  /* Top of the Companion layer stack — "saved" / "failed" toasts must
    * remain visible even with a task surface open. */
   z-index: 2147483647;
   display: flex;
@@ -562,7 +562,7 @@
 /* Overlay-overlap gate (paired with `updateOverlayBlockState()` in
  * content-frame-overlay.ts).
  *
- * `crev-overlay-blocked` is set on a CREV element whenever its
+ * `crev-overlay-blocked` is set on a Companion element whenever its
  * bounding rect intersects an open frame overlay's bounding rect.
  * Each affected element type responds differently:
  *

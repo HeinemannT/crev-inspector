@@ -11,11 +11,12 @@
     "lint": "eslint src --max-warnings 0",
     "notices": "node scripts/generate-third-party-notices.mjs",
     "notices:check": "node scripts/generate-third-party-notices.mjs --check",
-    "clean": "rm -rf dist content.js content-blueprint.js interceptor.js service-worker.js assets/ chunks/ codesearch/ diff/ editor/ objectview/ sidepanel/ studio/",
+    "clean": "node scripts/clean-build-output.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "qa:devtools-package": "npm run build && node scripts/prepare-devtools-package.mjs"
+    "qa:devtools-package": "npm run build && node scripts/prepare-devtools-package.mjs",
+    "verify": "npm audit --audit-level=high && npm run notices:check && npm run typecheck && npm run lint && npm test && npm run build"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
