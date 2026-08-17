@@ -394,12 +394,13 @@ describe('streamChat tool loop', () => {
 
     const metrics = await streamChat({
       settings: openAiSettings, apiKey: 'k', system: 'S', history: [], text: 'Change this object.',
-      toolPolicy: { initialTools: true },
       onEvent: event => events.push(event), executeTool,
     });
 
     expect(bodies).toHaveLength(1);
     expect(bodies[0].tools.map((tool: { function: { name: string } }) => tool.function.name)).toContain('submit_change_ticket');
+    const submitTool = bodies[0].tools.find((tool: { function: { name: string } }) => tool.function.name === 'submit_change_ticket');
+    expect(submitTool.function.parameters.properties.summary.description).toContain('under 140 characters');
     expect(executeTool).toHaveBeenCalledTimes(1);
     expect(executeTool).toHaveBeenCalledWith(expect.objectContaining({
       name: 'preview_ec', input: { code: 't.qa.change(name := "Open")' },
@@ -467,12 +468,11 @@ describe('streamChat tool loop', () => {
 
     await streamChat({
       settings: openAiSettings, apiKey: 'k', system: 'S', history: [], text: 'Rename this object.',
-      toolPolicy: { initialTools: false },
       onEvent: event => events.push(event), executeTool,
     });
 
     expect(bodies).toHaveLength(1);
-    expect(bodies[0].tools).toBeUndefined();
+    expect(Array.isArray(bodies[0].tools)).toBe(true);
     expect(executeTool).not.toHaveBeenCalled();
     expect(events).toContainEqual({ kind: 'text-delta', delta: 'not a ticket' });
   });
@@ -610,7 +610,6 @@ describe('streamChat tool loop', () => {
       system: 'CeRiskAssessment live schema: collection root.CeRiskAssessment.children;',
       history: [],
       text: 'Change this table to show the live risks.',
-      toolPolicy: { initialTools: false },
       onEvent: () => {},
       executeTool,
     });
@@ -655,7 +654,6 @@ describe('streamChat tool loop', () => {
       system: 'S',
       history: [],
       text: 'Add a reviewer note here.',
-      toolPolicy: { initialTools: true },
       onEvent: () => {},
       executeTool,
     });
@@ -693,7 +691,6 @@ describe('streamChat tool loop', () => {
       system: 'S',
       history: [],
       text: 'Add a reviewer note here.',
-      toolPolicy: { initialTools: true },
       onEvent: () => {},
       executeTool,
     });
@@ -733,7 +730,6 @@ describe('streamChat tool loop', () => {
       system: 'S',
       history: [],
       text: 'Add a reviewer note here.',
-      toolPolicy: { initialTools: true },
       onEvent: () => {},
       executeTool,
     });
@@ -901,26 +897,6 @@ describe('streamChat tool loop', () => {
     for (const b of withTools) expect(JSON.stringify(b.messages)).not.toContain(TOOL_BUDGET_EXHAUSTED_NOTE);
   });
 
-  it('disables tools from the first turn when the selected policy needs none', async () => {
-    const bodies: any[] = [];
-    vi.stubGlobal('fetch', vi.fn((_u: string, init: any) => {
-      bodies.push(JSON.parse(init.body));
-      return Promise.resolve(okStream(TEXT_TURN));
-    }));
-    const executeTool = vi.fn(async (): Promise<ToolResult> => ({ content: 'unused', isError: false }));
-
-    const metrics = await streamChat({
-      settings, apiKey: 'k', system: 'S', history: [], text: 'Explain this code.',
-      toolPolicy: { initialTools: false },
-      onEvent: () => {}, executeTool,
-    });
-
-    expect(bodies).toHaveLength(1);
-    expect(bodies[0].tools).toBeUndefined();
-    expect(executeTool).not.toHaveBeenCalled();
-    expect(metrics?.budgetExhausted).toBe(false);
-  });
-
   it('lets the model end a simple find while keeping the catalog available', async () => {
     const searchTurn = [
       'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"find","name":"search_objects"}}\n\n',
@@ -939,7 +915,6 @@ describe('streamChat tool loop', () => {
 
     const metrics = await streamChat({
       settings, apiKey: 'k', system: 'S', history: [], text: 'Find the Risk Register.',
-      toolPolicy: { initialTools: true },
       onEvent: () => {}, executeTool,
     });
 
@@ -994,7 +969,6 @@ describe('streamChat tool loop', () => {
 
     await streamChat({
       settings, apiKey: 'k', system: 'S', history: [], text: 'Add a reviewer note here.',
-      toolPolicy: { initialTools: true },
       onEvent: () => {}, executeTool,
     });
 
@@ -1021,7 +995,6 @@ describe('streamChat tool loop', () => {
 
     await streamChat({
       settings, apiKey: 'k', system: 'S', history: [], text: 'Change the detail card back to Default card.',
-      toolPolicy: { initialTools: true },
       onEvent: () => {}, executeTool,
     });
 
@@ -1084,7 +1057,6 @@ describe('streamChat tool loop', () => {
 
     const metrics = await streamChat({
       settings, apiKey: 'k', system: 'S', history: [], text: 'Change this table expression.',
-      toolPolicy: { initialTools: true },
       onEvent: () => {}, executeTool,
     });
 

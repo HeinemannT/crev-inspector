@@ -18,7 +18,7 @@ import { BUILD_ID } from './lib/build-info';
 
 // Modules
 import { loadTabDetection, getTabDetection } from './lib/detection';
-import { computeConnectionState, ensureConnectionMonitoring, stopHealthPolling, pollHealth, validateConnection } from './lib/connection';
+import { computeConnectionState, ensureConnectionMonitoring, pollHealth, validateConnection } from './lib/connection';
 import { shouldAcceptPanelClaim, type PanelClaim } from './lib/panel-ownership';
 import { restoreActivity, logActivity } from './lib/activity';
 import { createSettingsReady, loadSettingsFrom, onProfileSwitch, handleSessionCookieRemoved } from './lib/settings';
@@ -578,10 +578,6 @@ chrome.runtime.onConnect.addListener((port) => {
       if (windowId != null && panelPortByWindow.get(windowId) === port) {
         panelPortByWindow.delete(windowId);
       }
-      // Stop health polling only when the LAST panel goes away —
-      // otherwise closing one window's panel would kill the polling
-      // the other window's panel still depends on.
-      if (panelPortByWindow.size === 0) stopHealthPolling();
     });
     initPanelPort(port);
   }

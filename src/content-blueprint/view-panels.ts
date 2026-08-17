@@ -312,7 +312,16 @@ function stepNote(base: LModel, m: LModel, s: PlanStep): PlanNote {
 export function trayPanel(base: LModel, m: LModel): HTMLElement {
   // The tray is the pre-apply plan, so it must use the same layout+flow composition as Apply.
   const plan = [...diff(base, m), ...flowDiff(base, m)];
-  const { changes, actions } = summarizeChanges(plan, m);
+  const { changes } = summarizeChanges(plan, m);
+  let notes: PlanNote[] = [];
+  if (plan.length) {
+    try { notes = compile(plan, m).notes; }
+    catch { notes = plan.map(s => stepNote(base, m, s)); }
+  }
+  // Compiler notes are the visible execution actions shown by Apply Review.
+  // They can include implicit support objects (for example the Category and
+  // TabSet needed by a virtual TabSet), so plan-step counts are insufficient.
+  const actions = notes.length;
   const wrap = document.createElement('div'); wrap.className = 'bp-tray';
   // Headline = logical changes; the "· N actions" exposes the underlying EC steps without hiding them
   // (one insert can compile to a create + a moveAfter chain). Singular-aware.
@@ -321,9 +330,6 @@ export function trayPanel(base: LModel, m: LModel): HTMLElement {
     + (actions !== changes ? ` · ${actions} action${actions === 1 ? '' : 's'}` : '');
   wrap.appendChild(h);
   if (!plan.length) { const e = document.createElement('div'); e.className = 'bp-tray-empty'; e.textContent = 'No staged changes'; wrap.appendChild(e); return wrap; }
-  let notes: PlanNote[];
-  try { notes = compile(plan, m).notes; }
-  catch { notes = plan.map(s => stepNote(base, m, s)); }
   // A flow reorder step names the moved child, while the staged order belongs to its parent flow
   // entry. Revert that entry; other flow/layout steps already use their own subject id.
   const revertTarget = new Map(plan.map(step => [

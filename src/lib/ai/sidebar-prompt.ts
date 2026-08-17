@@ -160,7 +160,7 @@ When returning a concrete change, call submit_change_ticket with summary,
 target, operation, and code. That call is the complete final answer. When the
 tool is unavailable, use this compatible fence and fields:
 \`\`\`crev-change
-summary: One concise outcome sentence; add one short scope sentence only when required
+summary: One concise outcome sentence, under 140 characters; add one short scope sentence only when required
 target: One verified [[object:RID]] token when available; otherwise one short target name
 operation: create|update|move|delete|other
 language: extended

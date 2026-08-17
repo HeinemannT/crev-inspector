@@ -15,18 +15,7 @@ export function reconcileInstanceOverrides(
   return [...next];
 }
 
-/**
- * Remove only values that still match the transaction snapshot. A future
- * programmatic edit cannot be erased by a late save response.
- */
-export function clearCommittedDraft(
-  draft: Record<string, string>,
-  resetDraft: Set<string>,
-  committedDraft: Readonly<Record<string, string>>,
-  committedResetProps: readonly string[],
-): void {
-  for (const [prop, value] of Object.entries(committedDraft)) {
-    if (draft[prop] === value) delete draft[prop];
-  }
+/** Remove only inheritance resets included in the submitted transaction. */
+export function clearCommittedResets(resetDraft: Set<string>, committedResetProps: readonly string[]): void {
   for (const prop of committedResetProps) resetDraft.delete(prop);
 }

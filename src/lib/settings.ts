@@ -43,12 +43,6 @@ function emitProfileSwitch(profileId: string): void {
     try { fn(profileId); } catch (e) { log.swallow('settings:profileSwitchListener', e); }
   }
 }
-/** External handlers (SET_ACTIVE_PROFILE, SAVE_PROFILE, DELETE_PROFILE)
- *  reach in to fire the listener manually since they don't go through
- *  the autoDetectProfile path. */
-export function fireProfileSwitch(profileId: string): void {
-  emitProfileSwitch(profileId);
-}
 
 export function createSettingsReady(): { settingsReady: Promise<void>; resolveSettings: () => void } {
   settingsReadyPromise = new Promise<void>(r => { resolveSettings = r; });
@@ -187,6 +181,38 @@ export function snapshotSettings(): void {
 export function getActiveProfile() {
   const ctx = getCtx();
   return ctx.settings.profiles.find(p => p.id === ctx.settings.activeProfileId);
+}
+
+/** Commit one workspace/profile activation after the caller has applied its
+ * trigger-specific policy (manual override or auto-detect dedupe).
+ *
+ * This is the single owner of environment-bound invalidation and publication:
+ * context RIDs and Blueprint sessions cannot cross workspaces, and every
+ * consumer must observe the switch only after the matching client/storage
+ * rebuild has committed. Returns false when the target is invalid, unchanged,
+ * or superseded by a newer activation while awaiting the rebuild. */
+export async function activateProfile(profileId: string, options: { clearCache: boolean }): Promise<boolean> {
+  const ctx = getCtx();
+  if (ctx.settings.activeProfileId === profileId) return false;
+  const profile = ctx.settings.profiles.find(p => p.id === profileId);
+  if (!profile) return false;
+
+  ctx.settings = { ...ctx.settings, activeProfileId: profileId };
+  void saveSettings();
+  clearAllContextRids();
+  ctx.blueprintActiveByWindow.clear();
+  ctx.blueprintTabByWindow.clear();
+  ctx.persistBlueprintState();
+
+  await rebuildClient(options.clearCache);
+  if (ctx.settings.activeProfileId !== profileId) return false;
+
+  const switched = { type: 'PROFILE_SWITCHED' as const, profileId, label: profile.label };
+  ctx.sendToPanel(switched);
+  ctx.broadcastToContent(switched);
+  snapshotSettings();
+  emitProfileSwitch(profileId);
+  return true;
 }
 
 let rebuildTail: Promise<void> = Promise.resolve();
@@ -410,23 +436,13 @@ export async function autoDetectProfile(pageUrl: string) {
   if (inflightAutoDetectTarget === matched.id) return;
   inflightAutoDetectTarget = matched.id;
   try {
-    ctx.settings = { ...ctx.settings, activeProfileId: matched.id };
-    void saveSettings();
-    // Workspace changed — drop per-tab context RIDs (they belong to the old
-    // workspace and would resolve to wrong/missing objects in the new one).
-    clearAllContextRids();
     // clearCache=false — `switchProfile` already swaps cache stores
     // atomically, and the in-memory entries from the old profile would
     // get re-fetched on next view anyway. Wiping in-memory cache here
     // dropped the heavy code-field shadow copies (expression/html/js/
     // css) that `NON_PERSISTED_PROPS` keeps for the active session.
-    await rebuildClient(false);
-    if (ctx.settings.activeProfileId !== matched.id) return;
-    ctx.sendToPanel({ type: 'PROFILE_SWITCHED', profileId: matched.id, label: matched.label });
-    ctx.broadcastToContent({ type: 'PROFILE_SWITCHED', profileId: matched.id, label: matched.label });
+    if (!(await activateProfile(matched.id, { clearCache: false }))) return;
     ctx.sendToPanel({ type: 'SETTINGS_DATA', settings: ctx.settings });
-    snapshotSettings();
-    emitProfileSwitch(matched.id);
   } finally {
     if (inflightAutoDetectTarget === matched.id) inflightAutoDetectTarget = null;
   }

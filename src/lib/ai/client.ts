@@ -15,6 +15,7 @@ import type { ToolDef } from './tool-contracts';
 import { summarizeToolCall, TOOL_DEFS } from './tool-contracts';
 import { isToolSuccess } from './tool-results';
 import {
+  changeTicketTargetRid,
   extractValidChangeTicket,
   isolateValidChangeTicket,
   parseChangeTicket,
@@ -97,7 +98,7 @@ function submitChangeTicketDef(state: AutomaticToolState, preparedChoice = false
       properties: {
         summary: {
           type: 'string',
-          description: `One concise outcome sentence.${targetScopes ? ` Choose the target first, then follow only its mapped scope: ${targetScopes}. If the selected target has scope=shared-template, add a second short scope sentence that naturally mentions both the template and the viewed/specific instance so the impact is unambiguous. Do not offer an instance override unless the user asks. For every other selected scope, never describe the target as a shared template or offer an instance override. Do not echo internal routing labels such as direct page owner, page-owner, direct-page, mutationRef, or scope=; name the visible page, tab, widget, or result instead.` : ''}`,
+          description: `One concise outcome sentence. Keep the complete summary under 140 characters.${targetScopes ? ` Choose the target first, then follow only its mapped scope: ${targetScopes}. If the selected target has scope=shared-template, add a second short scope sentence that naturally mentions both the template and the viewed/specific instance so the impact is unambiguous. Do not offer an instance override unless the user asks. For every other selected scope, never describe the target as a shared template or offer an instance override. Do not echo internal routing labels such as direct page owner, page-owner, direct-page, mutationRef, or scope=; name the visible page, tab, widget, or result instead.` : ''}`,
         },
         target: {
           type: 'string',
@@ -217,17 +218,12 @@ export interface StreamChatOpts {
     request: { code: string; targetRid?: string },
     signal?: AbortSignal,
   ) => Promise<ToolResult & { previewId?: string }>;
-  /** Narrow per-turn availability selected from attached context and intent. */
-  toolPolicy?: AiTurnToolPolicy;
   signal?: AbortSignal;
-  /** Internal evidence prepared before the provider request. */
-  preparedSimpleChange?: SimpleChangePrefetch;
-  /** Evaluation-only route toggle. Production callers leave this enabled. */
-  simpleChangePrefetch?: boolean;
 }
 
-interface AiTurnToolPolicy {
-  initialTools: boolean;
+interface EffectiveStreamChatOpts extends StreamChatOpts {
+  /** Internal evidence prepared before the provider request. */
+  preparedSimpleChange?: SimpleChangePrefetch;
   /** Evidence-driven subset used only by the prepared property route. */
   allowedModelTools?: readonly string[];
 }
@@ -241,26 +237,18 @@ export async function streamChat(opts: StreamChatOpts): Promise<AiTurnMetrics | 
   const meta = resolveProvider(opts.settings);
   const maxTokens = Math.min(meta.maxOutputTokens ?? CHAT_MAX_OUTPUT_TOKENS, CHAT_MAX_OUTPUT_TOKENS);
   try {
-    const prepared = opts.simpleChangePrefetch === false
-      ? null
-      : await prefetchSimpleWidgetChange({
-          text: opts.text,
-          pageRid: opts.pageRid,
-          executeTool: opts.executeTool,
-          onEvent: opts.onEvent,
-          signal: opts.signal,
-        });
-    const effectiveOpts: StreamChatOpts = prepared?.route
-      ? {
-          ...opts,
-          preparedSimpleChange: prepared,
-          toolPolicy: {
-            ...opts.toolPolicy,
-            initialTools: true,
-            allowedModelTools: prepared.route.allowedModelTools,
-          },
-        }
-      : { ...opts, ...(prepared ? { preparedSimpleChange: prepared } : {}) };
+    const prepared = await prefetchSimpleWidgetChange({
+      text: opts.text,
+      pageRid: opts.pageRid,
+      executeTool: opts.executeTool,
+      onEvent: opts.onEvent,
+      signal: opts.signal,
+    });
+    const effectiveOpts: EffectiveStreamChatOpts = {
+      ...opts,
+      ...(prepared ? { preparedSimpleChange: prepared } : {}),
+      ...(prepared?.route ? { allowedModelTools: prepared.route.allowedModelTools } : {}),
+    };
     const effectiveMaxTokens = prepared?.route
       ? Math.min(maxTokens, PREPARED_SIMPLE_CHANGE_MAX_OUTPUT_TOKENS)
       : maxTokens;
@@ -428,7 +416,7 @@ function mergePrefetchMetrics(
   };
 }
 
-function userTextWithPreparedEvidence(opts: StreamChatOpts): string {
+function userTextWithPreparedEvidence(opts: EffectiveStreamChatOpts): string {
   const prepared = opts.preparedSimpleChange;
   if (!prepared?.evidence) return opts.text;
   const appendix = prepared.route?.promptAppendix
@@ -436,12 +424,12 @@ function userTextWithPreparedEvidence(opts: StreamChatOpts): string {
   return `${opts.text}\n\n${appendix}`;
 }
 
-function providerSystem(opts: StreamChatOpts): string {
+function providerSystem(opts: EffectiveStreamChatOpts): string {
   return opts.preparedSimpleChange?.route ? PREPARED_SIMPLE_CHANGE_SYSTEM : opts.system;
 }
 
-function modelToolAllowed(opts: StreamChatOpts, name: string): boolean {
-  const allowed = opts.toolPolicy?.allowedModelTools;
+function modelToolAllowed(opts: EffectiveStreamChatOpts, name: string): boolean {
+  const allowed = opts.allowedModelTools;
   return !allowed || allowed.includes(name);
 }
 
@@ -454,7 +442,7 @@ function proposalFromTicket(ticket: string): AiChangeProposal | null {
  * shown immediately; only a real BMP error is returned to the model. */
 async function executeAutomaticPreview(
   code: string,
-  opts: StreamChatOpts,
+  opts: EffectiveStreamChatOpts,
   state: AutomaticToolState,
   execute: ExecuteTool = opts.executeTool,
 ): Promise<ToolResult & { previewId?: string }> {
@@ -497,7 +485,7 @@ async function executeAutomaticPreview(
 
 async function previewFinalTicket(
   ticket: string,
-  opts: StreamChatOpts,
+  opts: EffectiveStreamChatOpts,
   state: AutomaticToolState,
 ): Promise<ToolResult> {
   const proposal = proposalFromTicket(ticket);
@@ -508,9 +496,7 @@ async function previewFinalTicket(
       isError: true,
     };
   }
-  const targetRid = proposal.target
-    ? /^\[\[object:(-?\d+)\]\]$/.exec(proposal.target.trim())?.[1]
-    : undefined;
+  const targetRid = proposal.target ? changeTicketTargetRid(proposal.target) ?? undefined : undefined;
   const outerResult = await executeAutomaticPreview(
     code,
     opts,
@@ -554,7 +540,7 @@ async function runToolLoop(
   ) => Promise<ToolCall[]>,
   appendResults: (results: Array<{ call: ToolCall; result: ToolResult }>) => void,
   appendFinalNote: (note: string) => void,
-  opts: StreamChatOpts,
+  opts: EffectiveStreamChatOpts,
 ): Promise<AiTurnMetrics> {
   const started = Date.now();
   let used = 0;
@@ -580,11 +566,10 @@ async function runToolLoop(
     else if (toolRounds >= MAX_TOOL_ROUNDS) limitReason = 'rounds';
     else if (elapsed >= MAX_TOOL_LOOP_MS) limitReason = 'time';
     else if (unproductiveRounds >= MAX_UNPRODUCTIVE_TOOL_ROUNDS) limitReason = 'stagnation';
-    const initiallyDisabled = opts.toolPolicy?.initialTools === false;
-    const allowTools = !initiallyDisabled && !goalSatisfied && limitReason === undefined;
+    const allowTools = !goalSatisfied && limitReason === undefined;
     // On the forced tools-off turn, tell the model WHY tools vanished so it
     // answers instead of emitting tool-call syntax as plain text (Issue A).
-    if (!allowTools && !initiallyDisabled && !notedFinal) {
+    if (!allowTools && !notedFinal) {
       appendFinalNote(goalSatisfied ? CHANGE_PREVIEW_SATISFIED_NOTE : TOOL_BUDGET_EXHAUSTED_NOTE);
       notedFinal = true;
       if (!goalSatisfied) budgetExhausted = true;
@@ -743,7 +728,7 @@ interface NormalizedProviderTurn {
 }
 
 function normalizeProviderTurn(
-  opts: StreamChatOpts,
+  opts: EffectiveStreamChatOpts,
   clean: string,
   calls: readonly ToolCall[],
   appendAssistant: () => void,
@@ -775,7 +760,7 @@ function normalizeProviderTurn(
 /** Shared retry, ticket-finalization, Preview-repair, and transcript policy.
  * Dialect closures only perform one provider request and append user notes. */
 async function finalizeProviderTurn(
-  opts: StreamChatOpts,
+  opts: EffectiveStreamChatOpts,
   state: ProviderPolicyState,
   request: (structuredFinal: boolean) => Promise<NormalizedProviderTurn>,
   appendUserNote: (note: string) => void,
@@ -840,7 +825,7 @@ function captureProviderToolResults(
 }
 
 async function runProviderChat(
-  opts: StreamChatOpts,
+  opts: EffectiveStreamChatOpts,
   conversation: ProviderConversation,
 ): Promise<AiTurnMetrics> {
   const state: ProviderPolicyState = {

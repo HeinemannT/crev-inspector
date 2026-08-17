@@ -39,3 +39,14 @@ export function buildChangesPayload(draft: Record<string, string>): Record<strin
   }
   return changes;
 }
+
+/** Clear only draft values that still match the submitted transaction. Values
+ * changed while an awaited save was in flight remain staged. */
+export function clearCommittedValues(
+  draft: Record<string, string>,
+  submitted: Readonly<Record<string, string>>,
+): void {
+  for (const [prop, value] of Object.entries(submitted)) {
+    if (draft[prop] === value) delete draft[prop];
+  }
+}

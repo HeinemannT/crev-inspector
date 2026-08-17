@@ -4,9 +4,8 @@
 
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
-import { clearAllContextRids } from '../context-rid';
 import { invalidateColorSets } from '../color-set-cache';
-import { saveSettings, rebuildClient, setManualOverride, snapshotSettings, evictPooledClient, fireProfileSwitch } from '../settings';
+import { activateProfile, saveSettings, rebuildClient, setManualOverride, snapshotSettings, evictPooledClient } from '../settings';
 import { computeConnectionState, validateConnection } from '../connection';
 import { reconcileProfileOrigins } from '../site-access';
 import { log } from '../logger';
@@ -97,28 +96,15 @@ register('SET_ACTIVE_PROFILE', async (msg, respond) => {
   if (ctx.settings.activeProfileId !== msg.profileId) {
     const previousId = ctx.settings.activeProfileId;
     const profile = ctx.settings.profiles.find(p => p.id === msg.profileId);
-    ctx.settings = { ...ctx.settings, activeProfileId: msg.profileId };
+    if (!profile) return;
     // Suppress auto-detect back to whatever the user just *switched away
     // from* — not the profile they picked. Picking dev while on the sbx
     // tab should keep dev "sticky" against sbx URL matches, not against
     // prod URL matches.
     if (previousId) setManualOverride(previousId);
-    void saveSettings();
-    // Workspace changed — per-tab context RIDs belong to the old workspace
-    // and would resolve to wrong/missing objects in the new one.
-    clearAllContextRids();
-    ctx.blueprintActiveByWindow.clear(); ctx.blueprintTabByWindow.clear(); ctx.persistBlueprintState(); // blueprint is bound to the old env's page — drop it (+ clear the persisted copy)
     invalidateColorSets(); // colours are per-workspace — drop the SW cache so the new profile refetches
-    await rebuildClient(true);
-    if (ctx.settings.activeProfileId !== msg.profileId) return;
+    if (!(await activateProfile(msg.profileId, { clearCache: true }))) return;
     respond({ type: 'SETTINGS_DATA', settings: ctx.settings });
-    snapshotSettings();
-    if (profile) {
-      // Notify the panel (reset stale context/detail/layout) AND content.
-      ctx.sendToPanel({ type: 'PROFILE_SWITCHED', profileId: msg.profileId, label: profile.label });
-      ctx.broadcastToContent({ type: 'PROFILE_SWITCHED', profileId: msg.profileId, label: profile.label });
-    }
-    fireProfileSwitch(msg.profileId);
   }
 });
 

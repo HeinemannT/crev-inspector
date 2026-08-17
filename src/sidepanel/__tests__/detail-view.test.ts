@@ -645,6 +645,32 @@ describe('DetailView — draft save pipeline (editors live in Blueprint now)', (
     expect(dv.isDirty()).toBe(false); // draft cleared on success
   });
 
+  it('preserves a newer edit made while the submitted save is in flight', async () => {
+    const { dv, panel, sent } = makeDetailView();
+    dv.show(makeObj('100'), panel);
+    dv.handleMessage(paneData('100'), panel);
+    seedDraft(dv, panel, { width: '320' });
+
+    panel.querySelector<HTMLButtonElement>('.pane-actionbar .btn-success')!.click();
+    await new Promise(r => setTimeout(r, 0));
+    document.querySelector<HTMLButtonElement>('.crev-modal .btn-success')!.click();
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+    expect(sent).toContainEqual(expect.objectContaining({
+      type: 'APPLY_OBJECT_CHANGES',
+      changes: expect.objectContaining({ width: 320 }),
+    }));
+
+    // The shared editors remain writable during the request. A late success
+    // may clear the submitted value, but must not erase this newer draft.
+    seedDraft(dv, panel, { width: '640' });
+    dv.handleMessage({ type: 'APPLY_CHANGES_RESULT', rid: '100', ok: true }, panel);
+
+    expect(dv.isDirty()).toBe(true);
+    expect(panel.querySelector('.pane-actionbar')?.textContent).toContain('1 pending');
+    document.getElementById('crev-toast-container')?.remove();
+  });
+
   it('APPLY_CHANGES_RESULT ok=true shows a Reload toast that sends RELOAD_BMP_TAB', () => {
     const { dv, panel, sent } = makeDetailView();
     dv.show(makeObj('100'), panel);

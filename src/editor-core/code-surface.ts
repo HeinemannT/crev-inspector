@@ -57,6 +57,17 @@ export interface CodeSurfaceCallbacks {
   onCursor?: (line: number, col: number) => void
 }
 
+export interface SaveCompletion {
+  /** The live document moved beyond the value that was submitted. */
+  newerEdits: boolean
+  /** BMP stored a value other than the one that was submitted. */
+  rewritten: boolean
+  /** The live/cached document was replaced with BMP's authoritative value. */
+  adoptedStored: boolean
+  /** Whether the slot remains dirty against BMP's authoritative value. */
+  dirty: boolean
+}
+
 interface SlotState {
   lang: string
   /** Loaded (BMP) value — Discard target + dirty baseline. */
@@ -248,24 +259,40 @@ export class CodeSurface {
    *  baseline. */
   markSaved(key = this.activeKey): void {
     if (!key) return
-    this.markValueSaved(key, this.textFor(key))
+    const current = this.textFor(key)
+    this.completeSave(key, { submitted: current, stored: current })
   }
 
-  /** Move a slot's server baseline to a specific value while preserving edits
-   *  typed after the save began. This is the safe completion path for an
-   *  awaited save: the server may have stored `savedCode` while the live
-   *  document has already moved on. */
-  markValueSaved(key: string, savedCode: string): void {
+  /** Complete an awaited save without losing edits made during the round-trip.
+   *
+   * `submitted` is the exact value sent to BMP; `stored` is the authoritative
+   * value returned by a later readback (or `submitted` when the successful
+   * write itself is authoritative). The stored value always becomes Discard's
+   * baseline. A live document that moved beyond `submitted` is preserved;
+   * otherwise BMP's stored/canonical value is adopted in the document. */
+  completeSave(key: string, values: { submitted: string; stored: string }): SaveCompletion {
     const st = this.slots.get(key)
-    if (!st) return
+    if (!st) return { newerEdits: false, rewritten: values.stored !== values.submitted, adoptedStored: false, dirty: false }
     const current = this.textFor(key)
-    st.loaded = savedCode
-    st.text = current
-    const dirty = current !== savedCode
+    const newerEdits = current !== values.submitted
+    const rewritten = values.stored !== values.submitted
+    const adoptedStored = !newerEdits && current !== values.stored
+    const nextText = newerEdits ? current : values.stored
+
+    st.loaded = values.stored
+    st.text = nextText
+    if (adoptedStored && key === this.activeKey && this._view) {
+      this._view.dispatch({
+        changes: { from: 0, to: this._view.state.doc.length, insert: values.stored },
+        annotations: programmaticSwap.of(true),
+      })
+    }
+    const dirty = nextText !== values.stored
     if (st.dirty !== dirty) {
       st.dirty = dirty
       if (key === this.activeKey) this.cb.onDirtyChange?.(dirty)
     }
+    return { newerEdits, rewritten, adoptedStored, dirty }
   }
 
   /** Revert the active slot to its loaded (BMP) value. */

@@ -619,12 +619,6 @@ async function pollHealthInternal(generationAtStart: number, clientAtStart: BmpC
   pushConnectionState();
 }
 
-export function startHealthPolling() {
-  // Kept as a compatibility boundary for settings/service-worker callers.
-  // Scheduling is event driven; there is intentionally no repeating timer.
-  void validateConnection('background');
-}
-
 /** Start the panel-owned connection monitor without disturbing a monitor or
  *  verified command channel that is already live. A newly opened second panel
  *  and a replacement panel both use the existing state; only the first panel
@@ -636,10 +630,6 @@ export function ensureConnectionMonitoring() {
     return;
   }
   void validateConnection('background');
-}
-
-export function stopHealthPolling() {
-  // No durable timer is owned by the panel. Retained for call-site symmetry.
 }
 
 /** Coalesced event-driven validation. Reachability stays pure and identity is

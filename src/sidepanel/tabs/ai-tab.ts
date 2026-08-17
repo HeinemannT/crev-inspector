@@ -28,6 +28,7 @@ import { typeBadge } from '../../lib/type-badge';
 import { objectChip } from '../../lib/object-chip';
 import { ICON_SPARKLE, ICON_X, ICON_COPY, ICON_PIN, ICON_REFRESH, ICON_PENCIL, ICON_CHECK, ICON_CHECK_CIRCLE, ICON_X_CIRCLE, ICON_CODE, ICON_CODE_BLOCK, ICON_EYE, ICON_PLAY, ICON_ARROW_SQUARE_IN, ICON_SWAP, ICON_TERMINAL_WINDOW, ICON_CARET_DOWN, ICON_INFO } from '../../lib/icons';
 import {
+  changeTicketTargetRid,
   parseChangeProposal,
   type AiChangeProposal,
   type ChangeTicketState,
@@ -936,7 +937,7 @@ export class AiTab implements Tab {
     target: string | undefined,
     objects?: readonly ObjectReference[],
   ): { expectedTarget: { rid: string; businessId?: string } } | Record<string, never> {
-    const rid = target ? /^\s*\[\[object:(-?\d+)\]\]\s*$/u.exec(target)?.[1] : undefined;
+    const rid = target ? changeTicketTargetRid(target) ?? undefined : undefined;
     if (!rid) return {};
     const object = objects?.find(candidate => candidate.rid === rid);
     if (!object) return {};
@@ -955,12 +956,12 @@ export class AiTab implements Tab {
     target: string,
     objects?: readonly ObjectReference[],
   ): HTMLElement | null {
-    const objectToken = /\[\[object:(-?\d+)\]\]/u.exec(target);
-    const object = objectToken
-      ? objects?.find(candidate => candidate.rid === objectToken[1])
+    const rid = changeTicketTargetRid(target);
+    const object = rid
+      ? objects?.find(candidate => candidate.rid === rid)
       : undefined;
 
-    if (object && objectToken?.index !== undefined) {
+    if (object) {
       const label = object.name || object.businessId || `Object ${object.rid}`;
       const chip = objectChip(object, {
         size: 'xs',

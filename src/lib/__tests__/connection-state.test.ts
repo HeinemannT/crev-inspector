@@ -686,14 +686,6 @@ describe('separated reachability and identity lifecycle', () => {
     expect(h.conn.computeConnectionState().display).toBe('connected');
   });
 
-  it('installs no repeating 30-second monitor', async () => {
-    const h = await createHarness();
-    const intervalSpy = vi.spyOn(globalThis, 'setInterval');
-    h.conn.startHealthPolling();
-    expect(intervalSpy).not.toHaveBeenCalled();
-    intervalSpy.mockRestore();
-  });
-
   it('deduplicates identical semantic publications even when wall-clock time advances', async () => {
     const h = await createHarness();
     h.conn.pushConnectionState();

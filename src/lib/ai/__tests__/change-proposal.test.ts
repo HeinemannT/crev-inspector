@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { parseChangeProposal } from '../change-ticket';
+import { changeTicketTargetRid, parseChangeProposal } from '../change-ticket';
+
+describe('changeTicketTargetRid', () => {
+  it.each([
+    ['[[object:9223372036854775807]]', '9223372036854775807'],
+    ['  [[object:-42]]  ', '-42'],
+  ])('preserves the rid from an exact object token', (target, rid) => {
+    expect(changeTicketTargetRid(target)).toBe(rid);
+  });
+
+  it.each(['[[object:t.qa_page]]', 'prefix [[object:42]]', '[[object:42]] suffix'])('rejects %s', target => {
+    expect(changeTicketTargetRid(target)).toBeNull();
+  });
+});
 
 describe('parseChangeProposal', () => {
   it('keeps every line after the divider as the exact code artifact', () => {

@@ -185,6 +185,33 @@ describe('activateBlueprint — first-activation race + injection-once guard', (
 });
 
 describe('fresh page-info detection', () => {
+  it('merges MAIN-world signals once without synchronously requesting them again', async () => {
+    detectBmpPage.mockReturnValue({ confidence: 0.4, signals: ['#epmapp root'], isBmp: false });
+    const lifetime = new AbortController();
+    let checks = 0;
+    document.addEventListener('crev-content', ((event: CustomEvent) => {
+      if (event.detail?.type !== 'CHECK_BMP_SIGNALS') return;
+      checks++;
+      document.dispatchEvent(new CustomEvent('crev-interceptor', {
+        detail: { type: 'BMP_SIGNALS_RESULT', signals: ['window.Highcharts', 'window.Highcharts'] },
+      }));
+    }) as EventListener, { signal: lifetime.signal });
+
+    try {
+      await loadContent();
+
+      expect(checks).toBe(1);
+      expect(sendToSW).toHaveBeenLastCalledWith({
+        type: 'DETECTION_RESULT',
+        confidence: 0.55,
+        signals: ['#epmapp root', 'window.Highcharts'],
+        isBmp: true,
+      });
+    } finally {
+      lifetime.abort();
+    }
+  });
+
   it('publishes a BMP transition discovered by GET_PAGE_INFO before observer refresh', async () => {
     detectBmpPage
       .mockReturnValueOnce({ confidence: 0, signals: [], isBmp: false })

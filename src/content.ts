@@ -302,18 +302,26 @@ function handleProfileSwitched(label: string) {
 
 // ── BMP Detection ────────────────────────────────────────────────
 
-function publishDetection(result: ReturnType<typeof detectBmpPage>) {
+function publishDetection(result: ReturnType<typeof detectBmpPage>, requestMainWorldSignals = true) {
+  const normalized = { ...result, signals: [...new Set(result.signals)] };
   const previous = s.lastDetection;
-  s.lastDetection = result;
+  s.lastDetection = normalized;
   const changed = !previous
-    || previous.isBmp !== result.isBmp
-    || previous.confidence !== result.confidence
-    || previous.signals.join('\u0000') !== result.signals.join('\u0000');
+    || previous.isBmp !== normalized.isBmp
+    || previous.confidence !== normalized.confidence
+    || previous.signals.join('\u0000') !== normalized.signals.join('\u0000');
   if (changed) {
-    sendToSW({ type: 'DETECTION_RESULT', confidence: result.confidence, signals: result.signals, isBmp: result.isBmp });
-    document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'CHECK_BMP_SIGNALS' } }));
+    sendToSW({
+      type: 'DETECTION_RESULT',
+      confidence: normalized.confidence,
+      signals: normalized.signals,
+      isBmp: normalized.isBmp,
+    });
+    if (requestMainWorldSignals) {
+      document.dispatchEvent(new CustomEvent('crev-content', { detail: { type: 'CHECK_BMP_SIGNALS' } }));
+    }
   }
-  return result;
+  return normalized;
 }
 
 function runDetection() {
@@ -567,11 +575,15 @@ document.addEventListener('crev-interceptor', ((event: CustomEvent) => {
   if (msg.type === 'BMP_SIGNALS_RESULT') {
     const mainSignals = msg.signals ?? [];
     if (s.lastDetection && mainSignals.length > 0) {
-      const allSignals = [...s.lastDetection.signals, ...mainSignals];
-      const extraWeight = mainSignals.length * 0.15;
+      const uniqueMainSignals = [...new Set(mainSignals)];
+      const allSignals = [...new Set([...s.lastDetection.signals, ...uniqueMainSignals])];
+      const extraWeight = uniqueMainSignals.length * 0.15;
       const confidence = Math.min(1, s.lastDetection.confidence + extraWeight);
       const isBmp = confidence >= 0.5;
-      publishDetection({ confidence, signals: allSignals, isBmp });
+      // This is the reply to CHECK_BMP_SIGNALS. Publishing it must not issue
+      // the same synchronous CustomEvent request again or the two worlds
+      // recurse until Chrome reports "Maximum call stack size exceeded".
+      publishDetection({ confidence, signals: allSignals, isBmp }, false);
     }
   }
 }) as EventListener, { signal: s.listenerLifetime.signal });

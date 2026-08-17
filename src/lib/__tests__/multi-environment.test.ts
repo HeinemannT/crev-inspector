@@ -67,6 +67,12 @@ async function createHarness(profiles = makeProfiles(), activeId = 'sbx'): Promi
     stylePresets: { getAll: vi.fn(() => []), save: vi.fn(), remove: vi.fn(), load: vi.fn(), switchProfile: vi.fn(async () => {}) } as any,
     settings,
     inspectActive: false,
+    inspectActiveByWindow: new Map(),
+    blueprintActiveByWindow: new Map(),
+    blueprintTabByWindow: new Map(),
+    isInspectActive: vi.fn(() => false),
+    setInspectActive: vi.fn(),
+    persistBlueprintState: vi.fn(),
     technicalOverlay: false,
     settingsReady: Promise.resolve(),
     logActivity: vi.fn(),
@@ -174,6 +180,30 @@ describe('autoDetectProfile — dedupe + cross-env switch', () => {
     const h = await createHarness(makeProfiles(), 'sbx');
     await h.settings.autoDetectProfile('https://dev.x.de/Steadfast/?rid=1');
     expect(h.ctx.settings.activeProfileId).toBe('dev');
+  });
+
+  it('clears and persists environment-bound Blueprint state', async () => {
+    const h = await createHarness(makeProfiles(), 'sbx');
+    h.ctx.blueprintActiveByWindow.set(7, true);
+    h.ctx.blueprintTabByWindow.set(7, 70);
+
+    await h.settings.autoDetectProfile('https://dev.x.de/Steadfast/?rid=1');
+
+    expect(h.ctx.blueprintActiveByWindow.size).toBe(0);
+    expect(h.ctx.blueprintTabByWindow.size).toBe(0);
+    expect(h.ctx.persistBlueprintState).toHaveBeenCalledOnce();
+  });
+
+  it('publishes one completed activation through the shared profile seam', async () => {
+    const h = await createHarness(makeProfiles(), 'sbx');
+    const listener = vi.fn();
+    h.settings.onProfileSwitch(listener);
+
+    expect(await h.settings.activateProfile('dev', { clearCache: false })).toBe(true);
+
+    expect(h.ctx.sendToPanel).toHaveBeenCalledWith({ type: 'PROFILE_SWITCHED', profileId: 'dev', label: 'dev' });
+    expect(h.ctx.broadcastToContent).toHaveBeenCalledWith({ type: 'PROFILE_SWITCHED', profileId: 'dev', label: 'dev' });
+    expect(listener).toHaveBeenCalledWith('dev');
   });
 
   it('no-ops when URL matches the active profile', async () => {
@@ -326,15 +356,4 @@ describe('onProfileSwitch listeners fire on switch paths', () => {
     expect(seen).toContain('dev');
   });
 
-  it('fireProfileSwitch invokes all registered listeners', async () => {
-    const h = await createHarness();
-    const fnA = vi.fn();
-    const fnB = vi.fn();
-    h.settings.onProfileSwitch(fnA);
-    h.settings.onProfileSwitch(fnB);
-
-    h.settings.fireProfileSwitch('prod');
-    expect(fnA).toHaveBeenCalledWith('prod');
-    expect(fnB).toHaveBeenCalledWith('prod');
-  });
 });

@@ -111,7 +111,7 @@ interface PaneChildren {
 }
 
 // Property schema lives in pane-schema.ts so the full-view popout can reuse it.
-import { buildChangesPayload, paneValueEquals } from './pane-edit';
+import { buildChangesPayload, clearCommittedValues, paneValueEquals } from './pane-edit';
 import { consumeSchemaResult, isPropAvailable, requestSchema, requestSchemas, schemaError, schemaProps, subscribePaneSchema } from './pane-schema-runtime';
 import { showToast } from '../lib/toast';
 import { renderPropertyGroups, type PaneGroupsCtx } from './sections/property-groups';
@@ -130,6 +130,8 @@ export class DetailView {
   private segment: 'flow' | 'structure' | 'info' = 'flow';
   /** True while APPLY_OBJECT_CHANGES is in flight. */
   private saving = false;
+  /** Exact value transaction currently awaiting APPLY_CHANGES_RESULT. */
+  private pendingSave: Readonly<Record<string, string>> | null = null;
 
   /** Local tree children expansion state for the current object. */
   private childrenState: PaneChildren | null = null;
@@ -326,6 +328,7 @@ export class DetailView {
     this.draft = {};
     this.target = 'instance';
     this.saving = false;
+    this.pendingSave = null;
     this.childrenState = null;
     this.renderDetail(panel);
     // Scroll to the top of the props area on every new object. Without
@@ -492,7 +495,8 @@ export class DetailView {
       this.saving = false;
       if (msg.ok) {
         // Optimistic: refetch to pick up server-canonical values
-        this.draft = {};
+        clearCommittedValues(this.draft, this.pendingSave ?? this.draft);
+        this.pendingSave = null;
         this.sendMessage({ type: 'FETCH_OBJECT_PANE', rid });
         // BMP's React DOM does NOT re-render on out-of-band EC writes
         // (verified live — the committed change is invisible until a full
@@ -504,6 +508,7 @@ export class DetailView {
         });
       } else {
         // Keep draft, surface the error in the action bar
+        this.pendingSave = null;
         this.state.error = msg.error ?? 'Save failed';
       }
       this.renderDetail(panel);
@@ -528,6 +533,7 @@ export class DetailView {
     this.state = null;
     this.draft = {};
     this.saving = false;
+    this.pendingSave = null;
     this.childrenState = null;
     this.activePanel = null;
   }
@@ -653,9 +659,11 @@ export class DetailView {
     // Build the changes payload. The handler validates against PANE_PROPS_SET
     // and the client formats EC literals (string/number/bool aware). The
     // schema-driven coercion is shared with the StyleTab via buildChangesPayload.
-    const changes = buildChangesPayload(this.draft);
+    const submittedDraft = { ...this.draft };
+    const changes = buildChangesPayload(submittedDraft);
 
     this.saving = true;
+    this.pendingSave = submittedDraft;
     this.state.error = null;
     this.renderDetail(panel);
     this.sendMessage({

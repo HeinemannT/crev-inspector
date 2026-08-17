@@ -35,7 +35,7 @@ import { installDirtyGuards } from '../editor-core/overlay';
 import { sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging';
 import { LOOKUP_WATCHDOG_TIMEOUT } from '../lib/constants';
 import { findPropDef } from '../sidepanel/pane-schema';
-import { paneValueEquals } from '../sidepanel/pane-edit';
+import { buildChangesPayload, clearCommittedValues, paneValueEquals } from '../sidepanel/pane-edit';
 import { displayValue } from '../sidepanel/property-editors';
 import {
   renderPropertyElement,
@@ -49,7 +49,7 @@ import { hasStudio, modeForType } from '../studio/studio-mode';
 import { openAccessTrace, routeAccessMessage, initAccessTrace } from '../sidepanel/access-trace';
 import { openColorPicker } from '../sidepanel/color-picker';
 import { confirmCommandModal, confirmModal } from '../lib/modal';
-import { clearCommittedDraft, reconcileInstanceOverrides } from './saved-state';
+import { clearCommittedResets, reconcileInstanceOverrides } from './saved-state';
 import { replacePropertyElement, syncOptionalElement } from './local-update';
 import { syncObjectViewInteractionLock } from './interaction-lock';
 import { editFieldPropertyRelation } from '../lib/edit-field-property';
@@ -446,20 +446,8 @@ async function commitSave(): Promise<void> {
   });
   if (!ok) return;
 
-  const changes: Record<string, string | number | boolean> = {};
   const committedDraft = { ...draft };
-  for (const p of props) {
-    const value = draft[p];
-    const def = findPropDef(p);
-    if (def?.kind === 'number' || def?.kind === 'slider') {
-      const n = parseFloat(value);
-      changes[p] = Number.isFinite(n) ? n : 0;
-    } else if (def?.kind === 'boolean') {
-      changes[p] = value === 'true' || value === 'TRUE';
-    } else {
-      changes[p] = value;
-    }
-  }
+  const changes = buildChangesPayload(committedDraft);
 
   state.saving = true;
   state.error = null;
@@ -505,7 +493,8 @@ async function commitSave(): Promise<void> {
         }
       }
 
-      clearCommittedDraft(draft, resetDraft, committedDraft, resetProps);
+      clearCommittedValues(draft, committedDraft);
+      clearCommittedResets(resetDraft, resetProps);
       activePropertyEdit = null;
       document.title = `${state.identity.name || state.identity.businessId || rid} - Companion Object View`;
       if (props.some(prop => prop === 'name' || prop === 'id')) {

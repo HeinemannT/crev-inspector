@@ -84,12 +84,67 @@ describe('CodeSurface', () => {
     surface.insertAtCursor('newer-')
     const current = surface.getDoc()
 
-    surface.markValueSaved('html', sent)
+    const completion = surface.completeSave('html', { submitted: sent, stored: sent })
 
+    expect(completion).toEqual({ newerEdits: true, rewritten: false, adoptedStored: false, dirty: true })
     expect(surface.getDoc()).toBe(current)
     expect(surface.isDirty('html')).toBe(true)
     surface.discard()
     expect(surface.getDoc()).toBe('saved-<p>a</p>')
+  })
+
+  it('preserves newer edits while moving Discard to a canonical server value', () => {
+    const { surface } = mount()
+    surface.activate('html')
+    surface.replaceActive('<p>submitted</p>')
+    const submitted = surface.getDoc()
+    surface.replaceActive('<p>newer</p>')
+
+    const completion = surface.completeSave('html', {
+      submitted,
+      stored: '<p>canonical</p>',
+    })
+
+    expect(completion).toEqual({ newerEdits: true, rewritten: true, adoptedStored: false, dirty: true })
+    expect(surface.getDoc()).toBe('<p>newer</p>')
+    surface.discard()
+    expect(surface.getDoc()).toBe('<p>canonical</p>')
+  })
+
+  it('adopts a canonical server value when the document has not moved', () => {
+    const { surface } = mount()
+    surface.activate('html')
+    surface.replaceActive('<p>submitted</p>')
+    const submitted = surface.getDoc()
+
+    const completion = surface.completeSave('html', {
+      submitted,
+      stored: '<p>canonical</p>',
+    })
+
+    expect(completion).toEqual({ newerEdits: false, rewritten: true, adoptedStored: true, dirty: false })
+    expect(surface.getDoc()).toBe('<p>canonical</p>')
+    expect(surface.isDirty('html')).toBe(false)
+  })
+
+  it('completes a save for an inactive slot without disturbing its newer text', () => {
+    const { surface } = mount()
+    surface.activate('html')
+    surface.replaceActive('<p>submitted</p>')
+    const submitted = surface.getDoc()
+    surface.replaceActive('<p>newer</p>')
+    surface.activate('javascript')
+
+    const completion = surface.completeSave('html', {
+      submitted,
+      stored: '<p>canonical</p>',
+    })
+
+    expect(completion.dirty).toBe(true)
+    expect(surface.textFor('html')).toBe('<p>newer</p>')
+    surface.activate('html')
+    surface.discard()
+    expect(surface.getDoc()).toBe('<p>canonical</p>')
   })
 
   it('getRunCode returns the whole doc with no selection', () => {

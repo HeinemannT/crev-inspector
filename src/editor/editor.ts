@@ -1295,9 +1295,8 @@ async function doSave() {
       value: code,
     })
     if (response?.type === 'SAVE_RESULT' && response.ok) {
-      const newerEdits = saveSurface.textFor(slotKey) !== code
-      await acceptSavedValue(saveSurface, slotKey, savedCodeMap, saveContext, property, code, storageRid)
-      showOutput(newerEdits
+      const completion = await acceptSavedValue(saveSurface, slotKey, savedCodeMap, saveContext, property, code, storageRid)
+      showOutput(completion.newerEdits
         ? `Saved ${property} to ${targetLabel}. Newer edits remain unsaved.`
         : `Saved to ${targetLabel}`, true)
     } else if (response?.type === 'SAVE_RESULT') {
@@ -1347,16 +1346,17 @@ async function acceptSavedValue(
   property: string,
   code: string,
   storageRid: string,
-): Promise<void> {
+): Promise<ReturnType<CodeSurface['completeSave']>> {
   // Move only the server baseline. If the user typed while save/verification
   // was in flight, CodeSurface keeps that newer document dirty and Discard
   // returns to this confirmed value.
-  saveSurface.markValueSaved(slotKey, code)
+  const completion = saveSurface.completeSave(slotKey, { submitted: code, stored: code })
   savedCodeMap[property] = code
   lastSavedAt = Date.now()
   if (saveLabelTimer) clearTimeout(saveLabelTimer)
   saveLabelTimer = setTimeout(() => { refreshActions() }, 4200)
   if (storageRid) await storeCurrentEditorContext(saveContext, storageRid)
+  return completion
 }
 
 /** Copy text to clipboard and briefly flash a button's content with a check icon. */

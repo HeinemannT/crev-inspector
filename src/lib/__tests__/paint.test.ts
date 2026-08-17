@@ -309,27 +309,6 @@ describe('paint — cancelPaint', () => {
     expect(h.panelMsgs.filter((m: any) => m.type === 'PAINT_STATE')).toHaveLength(0);
   });
 
-  // The SW wires `onProfileSwitch(cancelPaint)` so a workspace change (manual
-  // SET_ACTIVE_PROFILE or auto-detect) cancels an armed brush — a source RID
-  // from the old workspace can't resolve in the new one. This locks the
-  // contract that cancelPaint is a valid profile-switch listener: firing the
-  // listener chain resets an armed brush. (A plain tab switch does NOT cancel
-  // — that path no longer calls cancelPaint, enabling cross-page paint.)
-  it('an armed brush is reset when a profile-switch listener fires (workspace change)', async () => {
-    const h = await createPaintHarness();
-    const { handlePaintPick, cancelPaint, paintStateMessage } = await import('../paint');
-    const { onProfileSwitch, fireProfileSwitch } = await import('../settings');
-
-    onProfileSwitch(() => cancelPaint()); // mirror the SW wiring
-    handlePaintPick('111');
-    expect(paintStateMessage()).toMatchObject({ phase: 'applying', sourceRid: '111' });
-
-    h.panelMsgs.length = 0;
-    fireProfileSwitch('some-other-workspace');
-
-    expect(paintStateMessage()).toMatchObject({ phase: 'off', sourceRid: undefined });
-    expect(h.panelMsgs.some((m: any) => m.type === 'PAINT_STATE' && m.phase === 'off')).toBe(true);
-  });
 });
 
 describe('paint — connect re-sync (paintStateMessage / pushPaintState)', () => {

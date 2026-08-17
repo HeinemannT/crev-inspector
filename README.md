@@ -24,7 +24,7 @@ Add the workspace URL under **Connect**, approve Chrome's site-access prompt, an
 
 Connect shows the verified **Portal** and **Commands** identities separately. Workspace search, live CVO data, downloads, page navigation, and visible portal content retain the portal identity. Configuration lookup, Extended Code, property saves, Paint, and Blueprint use the command identity. A stored command account does not broaden what portal search or live data can see.
 
-## Inspect objects
+## Inspect the objects behind the page
 
 Turn on **Inspect** from the header or press `Ctrl+Shift+X`. Companion outlines rendered BMP objects and adds a type-coloured ID pill.
 
@@ -55,7 +55,7 @@ Use the pencil beside a supported object name to rename it. Companion asks for c
 The Extended Code editor opens from a code property or with `Ctrl+Shift+E`. It provides EC syntax highlighting, completion, hover documentation, linting, folding, runtime errors, and object-aware suggestions for `t.<id>` references and inferred variables.
 
 <p align="center">
-  <img src=".github/readme/extended-code-properties.png" width="920" alt="Extended Code editor with inferred variables and type-specific properties">
+  <img src=".github/readme/extended-code-properties.png" width="920" alt="Extended Code editor showing the Process overview table expression with syntax highlighting">
 </p>
 
 Use **Preview** (`Ctrl+Enter`) before **Run** (`Ctrl+Shift+Enter`). Run stays gated until the current code previews successfully. The lower panel shows structured output, tracked variables, run history, timings, and safe HTML or JSON views when the output supports them.
@@ -70,7 +70,7 @@ Text and CVO properties open in their dedicated studios:
 Press `Ctrl+Shift+B` to place Blueprint over the live page. Choose **Template** or **This instance**, then work with the structure BMP actually renders.
 
 <p align="center">
-  <img src=".github/readme/blueprint-page.png" width="1000" alt="Blueprint Style mode over a page with an input panel, two chart columns, and a full-width table">
+  <img src=".github/readme/blueprint-page.png" width="1000" alt="Blueprint over Asset and Process Management with a linked Process selection InputSet, a renamed tab, and two staged changes">
 </p>
 
 Blueprint supports:
@@ -115,6 +115,30 @@ Use the assistant to:
 
 The assistant inspects workspace context with read-only tools. For a requested change, it returns one compact Change Ticket and automatically **Previews** its exact Extended Code. You can inspect it, open it in the Extended Code editor, or explicitly **Run** that same previewed code; nothing is committed merely because the assistant proposed it.
 
+<p align="center">
+  <img src=".github/readme/ai-change-preview.png" width="420" alt="Configuration Companion AI assistant with a successfully previewed change to hide a table search toolbar">
+</p>
+
+### AI benchmark
+
+The sidebar benchmark tested **Gemini 3.1 Flash Lite** with 25 realistic configurator requests. These included finding the correct object, explaining configuration, changing properties, creating or moving page structure, generating safe HTML and Extended Code, and answering questions about risks and controls.
+
+| Measurement | Result |
+|---|---|
+| Complete task | **23 of 25 (92%)** produced the correct answer or previewable change and met the task requirements |
+| Code and configuration structure | **24 of 25 (96%)** passed the required automated checks |
+| Target selection | **25 of 25 (100%)** chose the intended object and workflow |
+| Speed and cost | **1.46 s median** in the serial latency test · approximately **$0.009 per response** |
+
+The Extended Code editor was tested separately with **DeepSeek V4 Flash**. It received 12 editing problems that had not been used while developing its instructions, with three attempts per problem. The tasks covered persisted assignments, SELECT results followed by list operations, function results followed by method calls, JSON calculations, and preserving existing code while making focused changes.
+
+| Measurement | Result |
+|---|---|
+| Correct Extended Code edit | **27 of 36 (75%)** passed the required syntax and task-specific behavior checks |
+| Answer quality | **94%** were judged to provide a useful and relevant answer |
+
+*Benchmark run: 16 August 2026.*
+
 ## Shortcuts
 
 | Default | Action |
@@ -153,10 +177,3 @@ npm run verify
 `npm run clean` removes only generated build output. `npm run verify` runs the local CI-equivalent dependency, notice, type, lint, test, and build gates.
 
 CI runs the same verification gates. A `v*.*.*` tag publishes the packaged extension after they pass.
-
-For Chrome DevTools extension QA, run `npm run qa:devtools-package` once and
-install the printed directory as an unpacked extension. Normal and watch builds
-then refresh that same directory automatically; Chrome's **Reload** button
-always picks up the newest successful local build. The Connect footer shows the
-loaded build ID beside the manifest version; the same value is available as
-`globalThis.__CREV_BUILD_ID__` in the service-worker console.

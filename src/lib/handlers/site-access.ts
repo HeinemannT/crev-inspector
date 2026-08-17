@@ -8,14 +8,13 @@ import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import { syncRegisteredScripts, injectIntoTab } from '../site-access';
 import { sendPageInfoToPanel } from '../content-script-injection';
-import { runAuthTest } from '../connection';
+import { validateConnection } from '../connection';
 
 register('SITE_ACCESS_CHANGED', async (msg) => {
   await syncRegisteredScripts();
-  // The connection state was computed while the origin was still blocked ("unreachable"), and the
-  // next health poll is up to 30s away — re-test now so the panel flips to connected right after
-  // the user clicks Allow instead of sitting on a stale error.
-  void runAuthTest();
+  // Host access changes the available network evidence. Revalidate reachability and identity now
+  // so the panel cannot retain an "unreachable" result computed before the user clicked Allow.
+  void validateConnection('evidence-change');
   if (msg.tabId != null) {
     await injectIntoTab(msg.tabId);
     getCtx().logActivity('success', 'Site access granted: Companion enabled');

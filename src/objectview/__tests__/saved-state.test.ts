@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { clearCommittedDraft, reconcileInstanceOverrides } from '../saved-state';
+import { clearCommittedValues } from '../../sidepanel/pane-edit';
+import { clearCommittedResets, reconcileInstanceOverrides } from '../saved-state';
 
 describe('expanded object view saved state', () => {
   it('adds changed instance properties and removes reset properties', () => {
@@ -23,12 +24,8 @@ describe('expanded object view saved state', () => {
     };
     const resets = new Set(['showToolMenu', 'visible']);
 
-    clearCommittedDraft(
-      draft,
-      resets,
-      { disableSearch: 'true', shadow: 'false' },
-      ['showToolMenu'],
-    );
+    clearCommittedValues(draft, { disableSearch: 'true', shadow: 'false' });
+    clearCommittedResets(resets, ['showToolMenu']);
 
     expect(draft).toEqual({ shadow: 'newer-programmatic-value' });
     expect([...resets]).toEqual(['visible']);

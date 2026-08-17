@@ -216,6 +216,7 @@ describe('buildChatSystem workspace primer', () => {
     expect(system).toContain('Preview is a tool action, never ticket content');
     expect(system).toContain('Do not call preview_ec merely to validate a change');
     expect(system).toContain('Use submit_change_ticket when concrete EC');
+    expect(system).toContain('summary: One concise outcome sentence, under 140 characters');
     expect(system).toContain('BMP does not execute a quoted ExtendedTable expression');
     expect(system).toContain('Preview a joined, grouped, aggregated, calculated, or otherwise uncertain proposed expression once');
     expect(system).toContain('submit a simple verified collection/filter/projection directly');

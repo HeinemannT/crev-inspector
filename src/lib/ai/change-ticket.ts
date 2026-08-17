@@ -35,6 +35,11 @@ function cleanHeaderValue(value: string, max: number): string {
   return value.replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+/** Return the lossless BMP rid from an exact object target token. */
+export function changeTicketTargetRid(target: string): string | null {
+  return /^\[\[object:(-?\d+)\]\]$/u.exec(target.trim())?.[1] ?? null;
+}
+
 /** Parse the body of one `crev-change` fence. */
 export function parseChangeProposal(body: string): AiChangeProposal | null {
   const lines = body.replace(/\r\n?/g, '\n').split('\n');
@@ -58,7 +63,7 @@ export function parseChangeProposal(body: string): AiChangeProposal | null {
 
   const target = cleanHeaderValue(header.get('target') ?? '', MAX_TARGET);
   if (!target) return null;
-  if (target.includes('[[object:') && !/^\[\[object:-?\d+\]\]$/.test(target)) return null;
+  if (target.includes('[[object:') && changeTicketTargetRid(target) === null) return null;
   return {
     summary,
     target,

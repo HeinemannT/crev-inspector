@@ -43,7 +43,6 @@ import { StudioConsole } from './studio-console'
 import { syntaxErrorLinter, makeCvoApiSource } from './studio-editor-ext'
 import { formatCode } from './studio-format'
 import { showStudioHelp, showStudioPanelHelp } from './studio-help'
-import { reconcileSavedSlots } from './studio-save'
 import { makeDataHover } from './data-hover'
 
 const PREVIEW_DEBOUNCE_MS = 400
@@ -1129,7 +1128,10 @@ async function doSaveInner(target: StudioContext['instance'], dirty: StudioCodeP
       value,
     })
     if (resp?.type === 'SAVE_RESULT' && resp.ok) {
-      surface.markSaved(p)
+      // The editor remains writable while BMP handles the request. Complete
+      // against the submitted snapshot so text typed during the await remains
+      // dirty instead of being mistaken for the value BMP stored.
+      surface.completeSave(p, { submitted: value, stored: value })
       activeCode()[p] = value
       savedValues.set(p, value)
       logConsole('info', `Saved ${p} to BMP`)
@@ -1150,23 +1152,30 @@ async function doSaveInner(target: StudioContext['instance'], dirty: StudioCodeP
   // field while the save was in flight.
   const verify = await sendRequest({ type: 'STUDIO_FETCH_CODE', rid: target.rid, props: [...codeProps()] })
   if (verify?.type === 'STUDIO_CODE_DATA' && verify.ok && verify.code) {
-    const { reload, rollbacks } = reconcileSavedSlots(savedValues, verify.code, p => !!surface!.isDirty(p))
-    for (const p of rollbacks) {
-      // What a server-side rewrite MEANS is mode-specific: a CVO save that
-      // comes back different is a silent in-script rollback (error); a
-      // TextElement save that comes back different is the sanitizer doing its
-      // documented job (info) — the editor adopts the stored version either way.
-      if (mode.rewriteSemantics === 'sanitizer') {
-        logConsole('info', `BMP sanitized ${p} on save (active content and unsupported styling were removed). The editor now shows the stored version.`)
-      } else {
-        logConsole('error', `Warning: BMP's ${p} differs from what was saved. Possible silent rollback; the editor now shows BMP's value.`)
+    let adoptedStored = false
+    for (const [p, submitted] of savedValues) {
+      const stored = verify.code[p] ?? ''
+      const completion = surface.completeSave(p, { submitted, stored })
+      activeCode()[p] = stored
+      if (completion.rewritten) {
+        // What a server-side rewrite MEANS is mode-specific: a CVO save that
+        // comes back different is a silent in-script rollback (error); a
+        // TextElement save that comes back different is the sanitizer doing its
+        // documented job (info). CodeSurface adopts the stored version only
+        // when doing so cannot overwrite a newer edit.
+        if (mode.rewriteSemantics === 'sanitizer') {
+          logConsole('info', completion.newerEdits
+            ? `BMP sanitized ${p} on save (active content and unsupported styling were removed). Your newer edit remains unsaved.`
+            : `BMP sanitized ${p} on save (active content and unsupported styling were removed). The editor now shows the stored version.`)
+        } else {
+          logConsole('error', completion.newerEdits
+            ? `Warning: BMP's ${p} differs from what was saved. Your newer edit remains unsaved; Discard returns to BMP's stored value.`
+            : `Warning: BMP's ${p} differs from what was saved. Possible silent rollback; the editor now shows BMP's value.`)
+        }
       }
+      adoptedStored ||= completion.adoptedStored
     }
-    for (const { key, code } of reload) {
-      surface.reloadSlots([{ key, lang: fileFor(key).lang, code }])
-      activeCode()[key] = code
-    }
-    if (reload.length) void runPreview() // show the server-canonical result
+    if (adoptedStored) void runPreview() // show the server-canonical result
   }
 }
 
