@@ -5,8 +5,32 @@
  * aren't, or fail to surface a real update — both undermine trust in the
  * banner, so this gets dedicated coverage.
  */
-import { describe, it, expect } from 'vitest';
-import { isNewer } from '../version-check';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { mockChromeStorage } from './chrome-mock';
+import { isNewer, refresh } from '../version-check';
+
+beforeEach(() => {
+  mockChromeStorage();
+  chrome.runtime.getManifest = vi.fn(() => ({ version: '0.8.4' }) as chrome.runtime.Manifest);
+});
+
+describe('release repository', () => {
+  it('checks and links only the Configuration Companion repository', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ tag_name: 'v1.0.0' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const status = await refresh();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.github.com/repos/HeinemannT/configuration-companion/releases/latest',
+      { headers: { Accept: 'application/vnd.github+json' } },
+    );
+    expect(status.releasesUrl).toBe('https://github.com/HeinemannT/configuration-companion/releases');
+  });
+});
 
 describe('isNewer (semver comparator)', () => {
   describe('equal versions', () => {

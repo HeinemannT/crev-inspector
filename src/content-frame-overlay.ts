@@ -76,7 +76,7 @@ let moduleTorn = false;
 
 // ── Geometric overlap gate ────────────────────────────────────────
 //
-// CREV injects several floating elements onto the BMP page:
+// Companion injects several floating elements onto the BMP page:
 //
 //   .crev-label          pills (one per inspected widget, BMP's DOM)
 //   #crev-tooltip        hover info popup
@@ -152,7 +152,7 @@ export function updateOverlayBlockState(): void {
 function ensureOverlapObserver(): void {
   if (overlapObserver) return;
   // BMP re-renders pills + its own DOM on every Inspect refresh, and
-  // CREV's tooltip / inspector / banner appear and disappear with
+  // Companion's tooltip / inspector / banner appear and disappear with
   // user interaction. A subtree childList observer catches both —
   // we recompute on any mutation so newly inserted elements get
   // their initial gate state.

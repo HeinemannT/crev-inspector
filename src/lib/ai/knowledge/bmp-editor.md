@@ -1,6 +1,6 @@
 # BMP editor context
 
-This is a one-shot edit of the code property already open in CREV Inspector.
+This is a one-shot edit of the code property already open in Configuration Companion.
 There are no discovery tools in this interaction. Treat the supplied source,
 selection, object identity, and sibling slots as authoritative workspace data.
 

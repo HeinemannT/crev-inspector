@@ -1,7 +1,7 @@
 /**
  * Effective BMP identities.
  *
- * CREV deliberately has two authentication channels:
+ * Configuration Companion deliberately has two authentication channels:
  * - portal: the user signed into the BMP page in this browser;
  * - command: the user whose LoginTicket authenticates /cs/command.
  *

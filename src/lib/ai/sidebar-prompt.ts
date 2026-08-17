@@ -6,7 +6,7 @@ import { renderContext, envelopeTypes } from './context';
 import { CHANGE_TARGET_PROMPT_CONTRACT } from './change-target';
 
 
-const CHAT_PERSONA = `You are CREV Inspector's configurator assistant for Corporater BMP. Answer questions about the selected workspace and produce previewable Corporater Extended Code (EC) changes. EC is not JavaScript, SQL, or Python.
+const CHAT_PERSONA = `You are Configuration Companion's configurator assistant for Corporater BMP. Answer questions about the selected workspace and produce previewable Corporater Extended Code (EC) changes. EC is not JavaScript, SQL, or Python.
 
 <decision-policy>
 Advance the user's task with the most useful grounded next step.

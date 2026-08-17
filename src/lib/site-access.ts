@@ -21,7 +21,7 @@ import type { AiSettings } from './ai/types';
 
 const CONTENT_ID = 'crev-content';
 const INTERCEPTOR_ID = 'crev-interceptor';
-/** Origins on which CREV may inspect the page. Provider API permissions are
+/** Origins on which Companion may inspect the page. Provider API permissions are
  *  fetch-only and must never enter this set. Populated from saved profiles by
  *  reconcileProfileOrigins once settings are ready. */
 const pageOrigins = new Set<string>();

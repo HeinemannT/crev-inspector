@@ -1,7 +1,7 @@
 /**
  * BMP command authentication.
  *
- * Portal mode borrows the browser session only long enough to mint CREV's own
+ * Portal mode borrows the browser session only long enough to mint Companion's own
  * JWT/refresh chain, then exchanges it for a LoginTicket. Stored mode calls
  * BMP's legacy direct-login endpoint with `credentials: 'omit'` and consumes
  * the serialized LoginTicket. It never writes to the browser cookie jar.

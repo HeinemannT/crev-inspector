@@ -7,12 +7,12 @@
  * style callback when fresh data lands.
  *
  * Latest release info lives at:
- *   https://api.github.com/repos/HeinemannT/crev-inspector/releases/latest
+ *   https://api.github.com/repos/HeinemannT/configuration-companion/releases/latest
  *
  * The user can also click the status to open the releases page directly.
  */
 
-const REPO = 'HeinemannT/crev-inspector';
+const REPO = 'HeinemannT/configuration-companion';
 const RELEASES_URL = `https://github.com/${REPO}/releases`;
 const LATEST_API = `https://api.github.com/repos/${REPO}/releases/latest`;
 const CACHE_KEY = 'crev_update_check';

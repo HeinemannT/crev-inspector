@@ -254,7 +254,7 @@ export function createAiAssist(host: AiAssistHost): AiAssist {
     })
   }
 
-  /** Window resize covers the containing CREV overlay. ResizeObserver also
+  /** Window resize covers the containing Companion overlay. ResizeObserver also
    *  catches Studio's draggable code/HTML-preview split, which changes the
    *  editor pane without necessarily changing the iframe viewport. */
   function installPositionTracking(): void {

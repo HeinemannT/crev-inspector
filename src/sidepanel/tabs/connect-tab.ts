@@ -323,7 +323,7 @@ export class ConnectTab implements Tab {
 
     if (shared.settings.profiles.length === 0 && !this.editing) {
       children.push(h('div', { class: 'empty-state empty-state--padded' },
-        'CREV Inspector examines BMP pages. Add a server to get started.'));
+        'Configuration Companion examines BMP pages. Add a server to get started.'));
     }
 
     for (const profile of shared.settings.profiles) {
@@ -680,7 +680,7 @@ export class ConnectTab implements Tab {
       'reset-all': () => {
         void (async () => {
           const ok = await confirmModal({
-            title: 'Reset all CREV state?',
+            title: 'Reset all Companion state?',
             body: 'Clears object cache, enrichment state, activity log, history, and per-tab context.\n\nFavorites + server profiles are kept. Use this when the extension is in a bad state.',
             confirmLabel: 'Reset',
             confirmVariant: 'danger',
@@ -793,7 +793,7 @@ export class ConnectTab implements Tab {
         class: 'prof-noaccess',
         'data-action': 'grant-access',
         'data-grant-origin': origin,
-        title: 'CREV has no permission for this server’s site. Click to grant it (standard browser prompt).',
+        title: 'Companion has no permission for this server’s site. Click to grant it (standard browser prompt).',
       }, 'No access');
     } else if (s && s.cls === 'ok') {
       const ms = shared.connState.responseMs;
@@ -1146,12 +1146,12 @@ export class ConnectTab implements Tab {
     if (s?.isUpdate && s.latest) {
       panel.appendChild(h('a', {
         class: 'connect-update-notice',
-        href: s.releasesUrl ?? 'https://github.com/HeinemannT/crev-inspector/releases',
+        href: s.releasesUrl ?? 'https://github.com/HeinemannT/configuration-companion/releases',
         target: '_blank',
         rel: 'noopener',
         title: s.checkedAt ? `Last checked ${new Date(s.checkedAt).toLocaleString()}` : 'View release',
       },
-        h('span', null, `CREV Inspector v${s.latest} is available`),
+        h('span', null, `Configuration Companion v${s.latest} is available`),
         h('span', { class: 'connect-update-action' }, 'View release →'),
       ));
     }

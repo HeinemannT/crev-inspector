@@ -20,7 +20,7 @@ const surface2 = MOCHA.surface2
 const overlay0 = '#6c7086'
 const text     = MOCHA.text
 const subtext0 = MOCHA.subtext0
-const accent   = '#8b5cf6'  // CREV accent, not Catppuccin mauve
+const accent   = '#8b5cf6'  // Companion accent, not Catppuccin mauve
 
 // ── Theme (editor chrome) ───────────────────────────────────
 const theme = EditorView.theme({

@@ -48,7 +48,7 @@ export function toolResultForModel(result: ToolResult): string {
   return JSON.stringify(structured);
 }
 
-/** CREV tools intentionally return bounded structures. Crossing the transport
+/** Companion tools intentionally return bounded structures. Crossing the transport
  * cap is therefore a typed error—not a third undocumented status and not a
  * prose fallback that the model must scrape. */
 export function boundedToolResult(result: ToolResult): ToolResult {

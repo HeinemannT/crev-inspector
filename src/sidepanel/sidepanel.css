@@ -1933,7 +1933,7 @@ body.crev-divider-dragging * { user-select: none; }
   color: var(--warning);
 }
 
-/* Current versions stay in the CREV menu. This slot is empty unless the
+/* Current versions stay in the Companion menu. This slot is empty unless the
  * background check finds an actionable update. */
 .connect-update-slot:empty { display: none; }
 .connect-update-notice {

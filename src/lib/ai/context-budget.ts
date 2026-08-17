@@ -2,7 +2,7 @@ import type { AiChatTurn } from './types';
 
 /** Conservative application ceiling for providers that do not publish a
  * configured input limit. This is intentionally smaller than modern flagship
- * context windows so CREV does not turn a long sidebar session into an
+ * context windows so Companion does not turn a long sidebar session into an
  * unexpectedly slow or expensive request. */
 export const DEFAULT_CHAT_MAX_INPUT_TOKENS = 32_768;
 

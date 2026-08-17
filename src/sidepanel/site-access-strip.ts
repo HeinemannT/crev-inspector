@@ -71,13 +71,13 @@ export async function refreshSiteAccessStrip(): Promise<void> {
   if (!missing.length) { strip.classList.add('hidden'); strip.textContent = ''; return; }
   const hosts = missing.map(hostOf);
   const label = missing.length === 1
-    ? `CREV needs access to ${hosts[0]}`
-    : `CREV needs access to ${missing.length} configured servers`;
+    ? `Companion needs access to ${hosts[0]}`
+    : `Companion needs access to ${missing.length} configured servers`;
   const btn = h('button', { class: 'site-strip-btn', title: `Opens the browser's standard permission prompt for: ${hosts.join(', ')}` }, 'Grant access');
   // The request must run directly in this click handler — the standard prompt requires the gesture.
   btn.addEventListener('click', () => {
     void requestOriginsInGesture(missing).then((granted) => {
-      if (granted) showToast('Access granted — CREV is active on your servers', 'success');
+      if (granted) showToast('Access granted — Companion is active on your servers', 'success');
     });
   });
   render(strip,

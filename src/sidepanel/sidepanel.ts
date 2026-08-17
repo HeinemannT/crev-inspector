@@ -275,12 +275,12 @@ function buildApp(): void {
     h('button', {
       class: 'header-brand',
       id: 'header-brand',
-      title: 'CREV related links',
-      'aria-label': 'CREV menu',
+      title: 'Configuration Companion links',
+      'aria-label': 'Configuration Companion menu',
       'aria-haspopup': 'menu',
     },
       h('img', {
-        src: chrome.runtime.getURL('icons/crev-inspector.svg'),
+        src: chrome.runtime.getURL('icons/configuration-companion.svg'),
         alt: '',
         'aria-hidden': 'true',
         draggable: 'false',
@@ -657,7 +657,7 @@ function updateContextPill(): void {
 
 /** Latency traffic light — 6-step ramp plus a grey "X" for "no data".
  *  Thresholds are tuned for a typical setup where the bridge daemon sits
- *  behind an SSH tunnel + a remote BMP server (the CREV team's reference
+ *  behind an SSH tunnel + a remote BMP server (the project's reference
  *  configuration). Health-ping latency for that path runs ~50–120 ms on a
  *  healthy day; EC round-trips on small queries run 100–400 ms.
  *
@@ -703,7 +703,7 @@ function updateLatencyPill(): void {
 
 // ── Boot ─────────────────────────────────────────────────────────
 
-/** Unobtrusive in-sidebar popup anchored under the CREV brand. Stays inside
+/** Unobtrusive in-sidebar popup anchored under the Companion brand. Stays inside
  *  the panel (no new tab) so the user doesn't lose context — clicking a link
  *  inside opens that destination in a real tab via window.open. */
 /** Human labels for the paintable style props (right-click menu). */
@@ -778,8 +778,8 @@ function showBrandMenu(anchor: HTMLElement): void {
   },
     // Code search now lives as a header icon (next to Extended Code / Paint).
     h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://crev.theinemann.de', target: '_blank', rel: 'noopener' }, 'Open crev.theinemann.de'),
-    h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://github.com/HeinemannT/crev-inspector', target: '_blank', rel: 'noopener' }, 'GitHub repo'),
-    h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://github.com/HeinemannT/crev-inspector/releases', target: '_blank', rel: 'noopener' }, 'Releases'),
+    h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://github.com/HeinemannT/configuration-companion', target: '_blank', rel: 'noopener' }, 'GitHub repo'),
+    h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://github.com/HeinemannT/configuration-companion/releases', target: '_blank', rel: 'noopener' }, 'Releases'),
     h('div', { class: 'brand-menu-meta' }, runtimeVersion(chrome.runtime.getManifest().version)),
   );
   document.body.appendChild(menu);

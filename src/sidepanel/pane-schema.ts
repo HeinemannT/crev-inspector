@@ -7,7 +7,7 @@
  *
  * Mixin → type sets are sourced from a live `bmp_type_fields` introspection
  * on this workspace. Re-introspect when BMP adds new widget types or mixin
- * coverage shifts. See CREV memory / brain/research for the snapshot.
+ * coverage shifts. See the project research notes for the snapshot.
  *
  * One source of truth keeps the two surfaces from drifting — adding a new
  * editable prop here surfaces it in both UIs at once.

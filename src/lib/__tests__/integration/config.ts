@@ -17,7 +17,7 @@ const withSlash = (url: string): string => url.endsWith('/') ? url : `${url}/`
 
 /**
  * Resolve the live integration target without embedding credentials in this public repository.
- * Either provide CREV_BMP_URL/USER/PASS directly, or point CREV_SERVERS_FILE at CREV's ignored
+ * Either provide CREV_BMP_URL/USER/PASS directly, or point CREV_SERVERS_FILE at the repository's ignored
  * servers.json and select a server/actor. Missing configuration is a hard error: an integration
  * command must never pass by silently skipping the live contract.
  */

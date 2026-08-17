@@ -1,6 +1,6 @@
-# CREV Inspector icons
+# Configuration Companion icons
 
-`crev-inspector.svg` is the editable source for the CREV Inspector mark.
+`configuration-companion.svg` is the editable source for the Configuration Companion mark.
 
 The side-panel header loads that SVG directly. Chrome uses these PNG exports through `manifest.json`:
 
@@ -11,4 +11,4 @@ The side-panel header loads that SVG directly. Chrome uses these PNG exports thr
 
 When the mark changes, export all four PNGs from the canonical SVG and inspect the 16 px and 32 px results at native size. Small browser icons need a visual check because correct dimensions do not guarantee readable edges or a clear center mark.
 
-Do not recreate the logo as JavaScript geometry. Any future export helper should read `crev-inspector.svg` so the repository keeps one artwork source.
+Do not recreate the logo as JavaScript geometry. Any future export helper should read `configuration-companion.svg` so the repository keeps one artwork source.

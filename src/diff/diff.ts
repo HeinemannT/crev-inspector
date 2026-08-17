@@ -327,7 +327,7 @@ async function updateMergeView() {
   // Update title
   const leftName = left.identity?.name ?? left.rid;
   const rightName = right.identity?.name ?? right.rid;
-  document.title = `${leftName} \u2194 ${rightName} - CREV Diff`;
+  document.title = `${leftName} \u2194 ${rightName} - Companion Diff`;
 }
 
 function getCodePropNames(type?: string): string[] {

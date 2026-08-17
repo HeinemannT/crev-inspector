@@ -1,5 +1,5 @@
 /**
- * CREV Inspector — EC Editor Window.
+ * Configuration Companion — EC Editor Window.
  * CodeMirror 6 editor for Extended Code, HTML, and JavaScript properties.
  * Communicates with service worker for preview/save operations.
  */

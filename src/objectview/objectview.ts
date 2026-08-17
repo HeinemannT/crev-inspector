@@ -157,7 +157,7 @@ async function init() {
   // the server request wait for extension storage.
   void chrome.storage.local.get(`crev_objectview_ctx_${rid}`).then(stored => {
     const ctx = stored[`crev_objectview_ctx_${rid}`] as { name?: string } | undefined;
-    if (ctx?.name) document.title = `${ctx.name} - CREV Object View`;
+    if (ctx?.name) document.title = `${ctx.name} - Companion Object View`;
   }).catch(() => { /* storage unavailable */ });
 
   // Kick off the fetch — the SW responds synchronously with OBJECT_PANE_DATA
@@ -226,7 +226,7 @@ async function reloadPane(): Promise<void> {
   activePropertyEdit = null;
   resetDraft.clear();
   if (!state.template) target = 'instance';
-  document.title = `${msg.instance.name || msg.instance.businessId || rid} - CREV Object View`;
+  document.title = `${msg.instance.name || msg.instance.businessId || rid} - Companion Object View`;
   root.removeAttribute('aria-busy');
   renderPane();
   if (state.editFieldPropertiesLoading) void loadEditFieldProperties();
@@ -507,7 +507,7 @@ async function commitSave(): Promise<void> {
 
       clearCommittedDraft(draft, resetDraft, committedDraft, resetProps);
       activePropertyEdit = null;
-      document.title = `${state.identity.name || state.identity.businessId || rid} - CREV Object View`;
+      document.title = `${state.identity.name || state.identity.businessId || rid} - Companion Object View`;
       if (props.some(prop => prop === 'name' || prop === 'id')) {
         renderPane();
       } else {

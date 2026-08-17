@@ -1,6 +1,6 @@
-# CREV Inspector
+# Configuration Companion
 
-CREV Inspector augments a live Corporater BMP workspace with in-browser inspection and editing tools while preserving the identity and state of the page being edited.
+Configuration Companion augments a live Corporater BMP workspace with in-browser inspection and editing tools while preserving the identity and state of the page being edited.
 
 ## Language
 

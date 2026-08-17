@@ -40,7 +40,7 @@ describe('buildEditorPrompt', () => {
   it('puts the persona + packs in system, and object context in the user message', () => {
     const { system, user, packs } = buildEditorPrompt(payload());
     expect(packs).toEqual(['bmpEditor', 'ecEditor']);
-    expect(system).toContain('CREV Inspector');
+    expect(system).toContain('Configuration Companion');
     expect(system).toContain('Extended Code');
     expect(user).toContain('Calc');
     expect(user).not.toContain('calc_1');

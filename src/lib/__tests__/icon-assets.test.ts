@@ -13,7 +13,7 @@ function pngDimensions(path: string): { width: number; height: number } {
   };
 }
 
-describe('CREV Inspector icon assets', () => {
+describe('Configuration Companion icon assets', () => {
   it('provides every manifest PNG at its declared dimensions', () => {
     const manifest = JSON.parse(readFileSync(join(repoRoot, 'manifest.json'), 'utf8')) as {
       icons: Record<string, string>;
@@ -26,12 +26,12 @@ describe('CREV Inspector icon assets', () => {
   });
 
   it('keeps the side panel on the canonical SVG source', () => {
-    const svgPath = join(repoRoot, 'icons/crev-inspector.svg');
+    const svgPath = join(repoRoot, 'icons/configuration-companion.svg');
     const sidePanelSource = readFileSync(join(repoRoot, 'src/sidepanel/sidepanel.ts'), 'utf8');
 
     expect(existsSync(svgPath)).toBe(true);
-    expect(readFileSync(svgPath, 'utf8')).toContain('aria-label="CREV Inspector"');
-    expect(sidePanelSource).toContain("icons/crev-inspector.svg");
+    expect(readFileSync(svgPath, 'utf8')).toContain('aria-label="Configuration Companion"');
+    expect(sidePanelSource).toContain("icons/configuration-companion.svg");
     expect(existsSync(join(repoRoot, 'scripts/generate-logo-v5.mjs'))).toBe(false);
   });
 });

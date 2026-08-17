@@ -1,19 +1,19 @@
-# CREV Inspector
+# Configuration Companion
 
-CREV Inspector is a Chrome side-panel extension for inspecting and changing Corporater BMP without opening Configuration Studio. It labels the objects rendered on a BMP page, opens their real configuration, edits code, and stages visual layout changes.
+Configuration Companion is a Chrome and Edge side-panel extension for inspecting and changing Corporater BMP without opening Configuration Studio. It labels the objects rendered on a BMP page, opens their real configuration, edits code, and stages visual layout changes.
 
 ## Install
 
-1. Download `crev-inspector-x.y.z.zip` from [Releases](https://github.com/HeinemannT/crev-inspector/releases/latest) and unzip it into a stable folder that you will reuse for updates.
+1. Download `configuration-companion-x.y.z.zip` from [Releases](https://github.com/HeinemannT/configuration-companion/releases/latest) and unzip it into a stable folder that you will reuse for updates.
 2. Open `chrome://extensions/` (Edge: `edge://extensions/`) and enable **Developer mode**.
 3. Click **Load unpacked** and select the unzipped folder.
-4. Pin CREV Inspector and open your BMP workspace.
+4. Pin Configuration Companion and open your BMP workspace.
 
 Current Chromium browsers are supported (Chrome or Edge 116+).
 
 ### Update an unpacked installation
 
-Replace the contents of that same stable folder with the new release, then click **Reload** for CREV Inspector on `chrome://extensions/` (Edge: `edge://extensions/`). Keep the folder path unchanged; loading each release from a different versioned folder creates a separate unpacked installation.
+Replace the contents of that same stable folder with the new release, then click **Reload** for Configuration Companion on `chrome://extensions/` (Edge: `edge://extensions/`). Keep the folder path unchanged; loading each release from a different versioned folder creates a separate unpacked installation.
 
 ## Connect to BMP
 
@@ -26,7 +26,7 @@ Connect shows the verified **Portal** and **Commands** identities separately. Wo
 
 ## Inspect objects
 
-Turn on **Inspect** from the header or press `Ctrl+Shift+X`. CREV outlines rendered BMP objects and adds a type-coloured ID pill.
+Turn on **Inspect** from the header or press `Ctrl+Shift+X`. Companion outlines rendered BMP objects and adds a type-coloured ID pill.
 
 <p align="center">
   <img src=".github/readme/inspect-object.png" width="980" alt="A BMP widget outlined by Inspect with its object pill, flow action, and hover card">
@@ -48,7 +48,7 @@ The object view groups what you can do:
 - **Info** shows the template ID first when known, while retaining the instance ID, RID, web link, access test, and favourite action.
 - **Template / This instance** chooses where a supported property or name change is saved. The instance remains available as an explicit target.
 
-Use the pencil beside a supported object name to rename it. CREV asks for confirmation before saving.
+Use the pencil beside a supported object name to rename it. Companion asks for confirmation before saving.
 
 ## Edit Extended Code, HTML, and CVOs
 
@@ -102,7 +102,7 @@ A CreateObjectView can select an existing EditPage or stage a new one. New EditP
 
 ## Use the optional AI assistant
 
-Configure a provider under **Connect → AI Assistant → Set up**. CREV supports Anthropic, OpenAI, DeepSeek, Grok, and custom compatible endpoints.
+Configure a provider under **Connect → AI Assistant → Set up**. Companion supports Anthropic, OpenAI, DeepSeek, Grok, and custom compatible endpoints.
 
 Use the assistant to:
 
@@ -132,7 +132,7 @@ See the [privacy policy](PRIVACY.md) for the data the extension handles and wher
 
 ## License
 
-CREV Inspector is proprietary software. Source availability does not grant permission to use, copy, modify, or redistribute it. See [LICENSE](LICENSE) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Configuration Companion is proprietary software. Source availability does not grant permission to use, copy, modify, or redistribute it. See [LICENSE](LICENSE) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## Data and security
 

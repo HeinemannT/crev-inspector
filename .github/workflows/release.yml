@@ -4,8 +4,8 @@ name: release
 # version). Builds the extension, zips dist/, and attaches the .zip to a
 # GitHub release with the same tag.
 #
-# Naming convention follows the existing release assets in this repo:
-# `crev-inspector-<version>.zip` (no leading "v") so the version-check in
+# Public release artifact naming:
+# `configuration-companion-<version>.zip` (no leading "v") so the version-check in
 # src/lib/version-check.ts can find it without parsing.
 
 on:
@@ -103,9 +103,9 @@ jobs:
           cp -r icons pkg/ 2>/dev/null || true
           npm sbom --omit=dev --sbom-format=cyclonedx > pkg/SBOM.cdx.json
           cd pkg
-          zip -r "../crev-inspector-${VERSION}.zip" .
+          zip -r "../configuration-companion-${VERSION}.zip" .
           cd ..
-          sha256sum "crev-inspector-${VERSION}.zip" > "crev-inspector-${VERSION}.zip.sha256"
+          sha256sum "configuration-companion-${VERSION}.zip" > "configuration-companion-${VERSION}.zip.sha256"
 
       - name: Create / update release with asset
         uses: softprops/action-gh-release@v2
@@ -116,8 +116,8 @@ jobs:
           # patches per day. Maintainer adds curated notes manually
           # post-publish via `gh release edit`.
           files: |
-            crev-inspector-${{ env.VERSION }}.zip
-            crev-inspector-${{ env.VERSION }}.zip.sha256
+            configuration-companion-${{ env.VERSION }}.zip
+            configuration-companion-${{ env.VERSION }}.zip.sha256
           generate_release_notes: false
           draft: false
           # true for -beta/-rc/-alpha tags (see the version step), so GitHub's

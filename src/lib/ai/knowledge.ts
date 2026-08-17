@@ -1,6 +1,6 @@
 /**
  * Bundled knowledge packs. Authored under ./knowledge/*.md by distilling the
- * CREV project skills (extended-code reference, CVO design strategy) — each pack
+ * Configuration Companion project skills (extended-code reference, CVO design strategy) — each pack
  * stays small so it fits comfortably inside a cached system prefix. Imported as
  * raw strings via Vite's `?raw` loader.
  */

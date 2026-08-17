@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-CREV Inspector is proprietary software. It includes third-party components
+Configuration Companion is proprietary software. It includes third-party components
 that remain available under their own licenses. This file is generated from
 the production dependency graph locked in `package-lock.json`.
 

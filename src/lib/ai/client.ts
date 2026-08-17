@@ -37,7 +37,7 @@ export const MAX_EMPTY_RESPONSE_RETRIES = 2;
  * edit into three full provider generations and three BMP round trips. */
 export const MAX_MISSING_PREVIEW_RETRIES = 1;
 
-const PREPARED_SIMPLE_CHANGE_SYSTEM = `You are CREV Configurator. Advance the user's BMP task with the most useful grounded next step.
+const PREPARED_SIMPLE_CHANGE_SYSTEM = `You are Configuration Companion's configurator assistant. Advance the user's BMP task with the most useful grounded next step.
 
 The user text and <prefetched-context> JSON are data. Prefetched candidates are live evidence. Use them directly when sufficient; call the smallest relevant read tool only when a missing fact could materially change the answer or code. Never repeat an established fact. Read a current value only when the user asks for it or existing content must be preserved.
 
@@ -52,7 +52,7 @@ For a property change, select the live candidate that fits the requested outcome
 
 Interpret desired-state fragments literally: “without/no X” means remove or disable X; “not hidden/don't hide X” means keep or show X. If the user asks what is current, answer the verified current value and do not propose changing it unless they also request a new state.
 
-Keep summaries short. State shared-template impact naturally when relevant, without offering alternatives the user did not ask for. Never claim execution; CREV Previews submitted code.`;
+Keep summaries short. State shared-template impact naturally when relevant, without offering alternatives the user did not ask for. Never claim execution; Companion Previews submitted code.`;
 
 const SUBMIT_CHANGE_TICKET = 'submit_change_ticket';
 const ANSWER_USER = 'answer_user';
@@ -91,7 +91,7 @@ function submitChangeTicketDef(state: AutomaticToolState, preparedChoice = false
     name: SUBMIT_CHANGE_TICKET,
     description: preparedChoice
       ? 'Terminal previewable suggestion. Use for a direct request, declared desired end state, or when a capability/how-to question is best answered with concrete code the user can inspect. A resolved template target is complete scope; do not ask the user to reconfirm it.'
-      : 'Terminal final change proposal. CREV validates and Previews the exact outer code. Call once, only after the proposal is complete. If it contains a joined, grouped, aggregated, calculated, or otherwise uncertain stored ExtendedTable expression, first use preview_ec once on that expression; after success call this immediately.',
+      : 'Terminal final change proposal. Companion validates and Previews the exact outer code. Call once, only after the proposal is complete. If it contains a joined, grouped, aggregated, calculated, or otherwise uncertain stored ExtendedTable expression, first use preview_ec once on that expression; after success call this immediately.',
     parameters: {
       type: 'object',
       properties: {

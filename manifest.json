@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "CREV Inspector",
+  "name": "Configuration Companion",
   "version": "0.8.4",
   "minimum_chrome_version": "116",
   "description": "Inspect, compare, and safely edit configuration in user-authorized Corporater BMP workspaces",
@@ -32,7 +32,7 @@
       "32": "icons/icon-32.png",
       "48": "icons/icon-48.png"
     },
-    "default_title": "CREV Inspector"
+    "default_title": "Configuration Companion"
   },
   "side_panel": {
     "default_path": "sidepanel/sidepanel.html"

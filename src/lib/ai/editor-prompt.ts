@@ -1,5 +1,5 @@
 /**
- * Prompt composition for the one-shot code editor embedded in CREV Inspector.
+ * Prompt composition for the one-shot code editor embedded in Configuration Companion.
  * Shared language and platform facts come from canonical knowledge packs; this
  * module owns only editor-specific context, selection, and response policy.
  */
@@ -10,7 +10,7 @@ import { KNOWLEDGE, type KnowledgePackId } from './knowledge';
 const SELECTION_START = '«SELECTION_START»';
 const SELECTION_END = '«SELECTION_END»';
 
-const GENERIC_EDITOR_PERSONA = `You are the one-shot code editor inside CREV Inspector for the
+const GENERIC_EDITOR_PERSONA = `You are the one-shot code editor inside Configuration Companion for the
 Corporater BMP platform. Edit Extended Code (EC), CustomVisualization, and
 TextElement code using the supplied source and object context.
 
