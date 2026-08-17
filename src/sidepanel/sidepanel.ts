@@ -777,7 +777,6 @@ function showBrandMenu(anchor: HTMLElement): void {
     style: `top:${rect.bottom + 4}px; left:${rect.left}px;`,
   },
     // Code search now lives as a header icon (next to Extended Code / Paint).
-    h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://crev.theinemann.de', target: '_blank', rel: 'noopener' }, 'Open developer tools'),
     h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://github.com/HeinemannT/configuration-companion', target: '_blank', rel: 'noopener' }, 'GitHub repo'),
     h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://github.com/HeinemannT/configuration-companion/releases', target: '_blank', rel: 'noopener' }, 'Releases'),
     h('div', { class: 'brand-menu-meta' }, runtimeVersion(chrome.runtime.getManifest().version)),

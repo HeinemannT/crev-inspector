@@ -28,6 +28,8 @@ describe('Configuration Companion brand contract', () => {
     expect(publicSurface).not.toContain('CREV Inspector');
     expect(publicSurface).not.toContain('HeinemannT/crev-inspector');
     expect(publicSurface).not.toContain('crev-inspector-${VERSION}.zip');
+    expect(publicSurface).not.toContain('crev.theinemann.de');
+    expect(publicSurface).not.toContain('Open developer tools');
   });
 
   it('preserves established technical and persisted CREV contracts', () => {
