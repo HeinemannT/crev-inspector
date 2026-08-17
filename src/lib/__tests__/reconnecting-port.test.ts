@@ -11,7 +11,14 @@
  * - after destroy() send() no-ops (returns false, doesn't post)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createReconnectingPort } from '../reconnecting-port';
+import { createReconnectingPort as createRawReconnectingPort, type ReconnectingPort } from '../reconnecting-port';
+
+let createdPorts: ReconnectingPort[] = [];
+function createReconnectingPort(opts: Parameters<typeof createRawReconnectingPort>[0]): ReconnectingPort {
+  const result = createRawReconnectingPort(opts);
+  createdPorts.push(result);
+  return result;
+}
 
 interface FakePort {
   postMessage: ReturnType<typeof vi.fn>;
@@ -38,12 +45,14 @@ describe('reconnecting-port destroy()', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    createdPorts = [];
     ports = [];
     connect = vi.fn(() => { const p = makePort(); ports.push(p); return p; });
     (globalThis as any).chrome = { runtime: { connect, lastError: null } };
   });
 
   afterEach(() => {
+    for (const port of createdPorts) port.destroy();
     vi.useRealTimers();
     delete (globalThis as any).chrome;
   });
@@ -98,5 +107,75 @@ describe('reconnecting-port destroy()', () => {
 
     expect(connect).toHaveBeenCalledTimes(1);
     expect(rp.send({ type: 'TOGGLE_INSPECT' } as never)).toBe(false);
+  });
+
+  it('reports reconnect only after a thrown construction is followed by a ready attempt', () => {
+    const onReconnect = vi.fn();
+    connect.mockImplementationOnce(() => { throw new Error('worker waking'); });
+    createReconnectingPort({ name: 'content', onMessage: () => {}, onReconnect });
+    expect(onReconnect).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(200);
+
+    expect(connect).toHaveBeenCalledTimes(2);
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a stale disconnect callback from an older attempt', () => {
+    createReconnectingPort({ name: 'content', onMessage: () => {} });
+    ports[0]._disconnect();
+    vi.advanceTimersByTime(200);
+    expect(connect).toHaveBeenCalledTimes(2);
+
+    ports[0]._disconnect();
+    vi.advanceTimersByTime(60_000);
+    expect(connect).toHaveBeenCalledTimes(2);
+  });
+
+  it('schedules one retry when send fails and flushes the idempotent queue', () => {
+    const onReconnect = vi.fn();
+    const rp = createReconnectingPort({
+      name: 'content', onMessage: () => {}, onReconnect,
+      enqueueOnDisconnect: (queue, msg) => queue.push(msg),
+    });
+    ports[0].postMessage.mockImplementationOnce(() => { throw new Error('port closed'); });
+    const msg = { type: 'GET_CONNECTION_STATE' } as never;
+
+    expect(rp.send(msg)).toBe(false);
+    vi.advanceTimersByTime(200);
+
+    expect(connect).toHaveBeenCalledTimes(2);
+    expect(ports[1].postMessage).toHaveBeenCalledWith(msg);
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(60_000);
+    expect(connect).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not report readiness for an immediately disconnected attempt', () => {
+    const onReconnect = vi.fn();
+    connect.mockImplementationOnce(() => {
+      const p = makePort();
+      p.onDisconnect.addListener = (cb) => cb();
+      ports.push(p);
+      return p;
+    });
+    createReconnectingPort({ name: 'content', onMessage: () => {}, onReconnect });
+    expect(onReconnect).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(200);
+    expect(connect).toHaveBeenCalledTimes(2);
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconnects exactly once on persisted BFCache restore', () => {
+    const onReconnect = vi.fn();
+    createReconnectingPort({ name: 'content', onMessage: () => {}, onReconnect });
+    window.dispatchEvent(Object.assign(new Event('pagehide'), { persisted: true }));
+    expect(connect).toHaveBeenCalledTimes(1);
+
+    window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
+    expect(connect).toHaveBeenCalledTimes(2);
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(60_000);
+    expect(connect).toHaveBeenCalledTimes(2);
   });
 });

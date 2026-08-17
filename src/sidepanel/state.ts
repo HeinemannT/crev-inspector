@@ -52,6 +52,12 @@ let portInstance: ReconnectingPort | null = null;
 let messageHandler: ((msg: InspectorMessage) => void) | null = null;
 let reconnectHandler: (() => void) | null = null;
 let workStatusHandler: ((status: WorkStatus) => void) | null = null;
+const panelIncarnation = typeof crypto?.randomUUID === 'function'
+  ? crypto.randomUUID()
+  : `${Date.now()}-${Math.random()}`;
+const panelCreatedAt = typeof performance !== 'undefined'
+  ? performance.timeOrigin + performance.now()
+  : Date.now();
 /** Window this panel is attached to. Discovered via chrome.windows.getCurrent
  *  at boot and re-asserted on every (re)connect via PANEL_HELLO so the SW
  *  can route window-scoped messages (PAGE_INFO, DETECTION_STATE, CONTEXT_RID_DATA)
@@ -74,6 +80,9 @@ let windowIdReady: Promise<void> = (async () => {
  *  Reset to false on every (re)connect; flipped to true after sendPanelHello
  *  completes. */
 let helloSent = false;
+/** Monotonic ownership token for async PANEL_HELLO continuations. A failed
+ * send or a newer reconnect invalidates older windowIdReady callbacks. */
+let helloAttempt = 0;
 const preHelloQueue: InspectorMessage[] = [];
 
 export function onPortMessage(handler: (msg: InspectorMessage) => void): void {
@@ -91,7 +100,6 @@ export function onWorkStatus(handler: (status: WorkStatus) => void): void {
 /** Message types worth queuing while the SW port is bouncing. These are
  *  state-syncing requests; one-off actions get dropped (the user can retry). */
 const QUEUE_TYPES = new Set([
-  'TOGGLE_INSPECT', 'TOGGLE_PAINT', 'CONNECTION_TEST',
   'GET_CONNECTION_STATE', 'GET_SETTINGS', 'GET_CACHE',
   'GET_PAGE_INFO', 'GET_ACTIVITY', 'GET_CONTEXT_RID', 'GET_DETECTION',
   'AI_GET_EDITOR_CONTEXT',
@@ -134,6 +142,7 @@ export function connectPanel(): void {
       // microtask. Also reset helloSent because the port is gone — any
       // subsequent sendMessage calls should be gated too.
       helloSent = false;
+      helloAttempt++;
       if (QUEUE_TYPES.has(msg.type)) preHelloQueue.push(msg);
       while (preHelloQueue.length > 20) preHelloQueue.shift();
     },
@@ -143,23 +152,46 @@ export function connectPanel(): void {
 }
 
 function sendPanelHello(): void {
+  const attempt = ++helloAttempt;
   void windowIdReady.then(() => {
+    if (attempt !== helloAttempt || !portInstance) return;
     if (panelWindowId != null) {
-      portInstance?.send({ type: 'PANEL_HELLO', windowId: panelWindowId });
+      const delivered = portInstance.send({
+        type: 'PANEL_HELLO',
+        windowId: panelWindowId,
+        panelIncarnation,
+        panelCreatedAt,
+      });
+      // send() routes through enqueueOnDisconnect on failure, which also
+      // invalidates this attempt. Never open the gate unless HELLO reached
+      // the concrete Port for this reconnect generation.
+      if (!delivered) return;
     }
     // Flip the gate even if windowId is null — otherwise sendMessage
     // queues forever in private-browsing / locked-down contexts where
     // chrome.windows.getCurrent didn't yield a usable id. The SW will
     // fall back to lastFocusedWindow for those messages.
     helloSent = true;
-    for (const m of preHelloQueue) portInstance?.send(m);
-    preHelloQueue.length = 0;
+    // Detach the batch before sending. A failed send is re-enqueued by the
+    // disconnect hook; retain the untouched suffix here rather than clearing
+    // messages that never reached the worker.
+    const batch = preHelloQueue.splice(0);
+    for (let i = 0; i < batch.length; i++) {
+      if (attempt !== helloAttempt || !portInstance) {
+        preHelloQueue.unshift(...batch.slice(i));
+        return;
+      }
+      if (!portInstance.send(batch[i])) {
+        preHelloQueue.push(...batch.slice(i + 1));
+        while (preHelloQueue.length > 20) preHelloQueue.shift();
+        return;
+      }
+    }
   });
 }
 
-export function sendMessage(msg: InspectorMessage): void {
+export function sendMessage(msg: InspectorMessage): boolean {
   const status = workStatusForMessage(msg);
-  if (status) workStatusHandler?.(status);
 
   // Hold non-handshake messages until PANEL_HELLO has been sent.
   // Without this, switchTab() in the boot path could race PANEL_HELLO
@@ -167,13 +199,21 @@ export function sendMessage(msg: InspectorMessage): void {
   // the SW would route the response to lastFocusedWindow instead of
   // this panel's window.
   if (!helloSent && msg.type !== 'PANEL_HELLO') {
-    preHelloQueue.push(msg);
-    return;
+    if (QUEUE_TYPES.has(msg.type)) {
+      preHelloQueue.push(msg);
+    } else {
+      log.debug('panel', 'sendMessage: handshake pending, unsafe message dropped:', msg.type);
+      if (status) workStatusHandler?.({ text: 'Connection interrupted — retry', working: false });
+    }
+    return false;
   }
   const delivered = portInstance?.send(msg) ?? false;
+  if (delivered && status) workStatusHandler?.(status);
   if (!delivered && !QUEUE_TYPES.has(msg.type)) {
     log.debug('panel', 'sendMessage: port is null, message dropped:', msg.type);
+    if (status) workStatusHandler?.({ text: 'Connection interrupted — retry', working: false });
   }
+  return delivered;
 }
 
 /** DOM id for a tab's panel element. Centralized so the "panel-" prefix

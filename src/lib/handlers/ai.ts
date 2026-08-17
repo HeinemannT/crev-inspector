@@ -28,6 +28,7 @@ import { errorMessage, log } from '../logger';
 import { reconcileProfileOrigins } from '../site-access';
 import { ChangeTicketLifecycle, type ChangePreviewScope, type ChangeTicketTargetContext } from '../ai/change-ticket';
 import type { ToolResult } from '../ai/tools';
+import type { BmpClient } from '../bmp-client';
 import {
   editorContextForTab,
   isCurrentEditorContext,
@@ -43,13 +44,13 @@ const CHANGE_PREVIEW_TTL_MS = 10 * 60_000;
  * invalidates them, forcing a fresh Preview before any Run. */
 const changePreviews = new ChangeTicketLifecycle(CHANGE_PREVIEW_TTL_MS);
 
-function changePreviewScope(): ChangePreviewScope | null {
+function changePreviewScope(client: BmpClient | null = getCtx().client): ChangePreviewScope | null {
   const ctx = getCtx();
-  if (!ctx.client) return null;
+  if (!client?.commandUser) return null;
   return {
     profileId: ctx.settings.activeProfileId,
-    serverUrl: ctx.client.serverUrl,
-    actor: ctx.client.username,
+    serverUrl: client.serverUrl,
+    actor: client.commandUser,
   };
 }
 
@@ -66,13 +67,16 @@ async function previewChangeCode(
   signal?: AbortSignal,
 ): Promise<ToolResult & { previewId?: string }> {
   const ctx = getCtx();
-  if (!ctx.client) return { content: 'Not connected to BMP', isError: true };
+  const clientAtStart = ctx.client;
+  if (!clientAtStart) return { content: 'Not connected to BMP', isError: true };
+  const profileAtStart = ctx.settings.activeProfileId;
+  const serverAtStart = clientAtStart.serverUrl;
   const trimmed = code.trim();
   if (!trimmed) return { content: 'The proposal contains no Extended Code.', isError: true };
   try {
     const result = signal
-      ? await ctx.client.executeEc(trimmed, undefined, false, signal)
-      : await ctx.client.executeEc(trimmed, undefined, false);
+      ? await clientAtStart.executeEc(trimmed, undefined, false, signal)
+      : await clientAtStart.executeEc(trimmed, undefined, false);
     if (!result.ok || result.hasWarning) {
       return {
         content: result.hasWarning
@@ -81,9 +85,15 @@ async function previewChangeCode(
         isError: true,
       };
     }
-    const scope = changePreviewScope();
-    if (!scope) {
+    const current = getCtx();
+    if (current.client !== clientAtStart
+      || current.settings.activeProfileId !== profileAtStart
+      || clientAtStart.serverUrl !== serverAtStart) {
       return { content: 'The BMP connection changed during Preview. Preview again.', isError: true };
+    }
+    const scope = changePreviewScope(clientAtStart);
+    if (!scope) {
+      return { content: 'The command identity could not be verified. Reconnect and Preview again.', isError: true };
     }
     const content = ecResultText(result, 'Preview successful');
     return {
@@ -403,8 +413,9 @@ register('AI_RUN_CHANGE', async (msg, respond) => {
   const reply = (ok: boolean, resultText: string, partial?: boolean) => respond({
     type: 'AI_RUN_CHANGE_RESULT', requestId: msg.requestId, ok, resultText, ...(partial ? { partial } : {}),
   });
-  if (!ctx.client) { reply(false, 'Not connected to BMP'); return; }
-  const scope = changePreviewScope();
+  const clientAtStart = ctx.client;
+  if (!clientAtStart) { reply(false, 'Not connected to BMP'); return; }
+  const scope = changePreviewScope(clientAtStart);
   if (!scope) { reply(false, 'Not connected to BMP'); return; }
   const preview = changePreviews.consume(msg.previewId, scope);
   if (!preview.ok && (preview.reason === 'missing' || preview.reason === 'expired')) {
@@ -416,7 +427,7 @@ register('AI_RUN_CHANGE', async (msg, respond) => {
     return;
   }
   try {
-    const execution = await ctx.client.executeEc(preview.code, undefined, true);
+    const execution = await clientAtStart.executeEc(preview.code, undefined, true);
     if (!execution.ok || execution.hasWarning) {
       const detail = execution.hasWarning
         ? `Run returned a warning: ${ecResultText(execution, 'Read back the affected objects before retrying.')}`

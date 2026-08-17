@@ -31,7 +31,7 @@ vi.mock('../state', () => ({
     context: null,
     lastEcMs: null,
   },
-  getTabPanel: () => null,
+  getTabPanel: () => document.querySelector('[data-test-connect-panel]'),
   sendMessage: vi.fn(),
 }));
 
@@ -53,6 +53,7 @@ function renderTab(): { tab: ConnectTab; el: HTMLElement; sent: InspectorMessage
   // handleMessage(SETTINGS_DATA) is how aiConfigured normally syncs; mimic it.
   tab.handleMessage({ type: 'SETTINGS_DATA', settings: shared.settings });
   const el = document.createElement('div');
+  el.dataset.testConnectPanel = '';
   document.body.appendChild(el);
   tab.render(el);
   return { tab, el, sent };
@@ -296,6 +297,40 @@ describe('AI Assistant card states', () => {
 });
 
 describe('Command identity profile UI', () => {
+  it('patches quiet validation metadata without replacing the focused DOM', () => {
+    shared.settings = {
+      ...freshSettings(),
+      profiles: [{
+        id: 'p1', label: 'Steadfast', bmpUrl: 'https://bmp.test/Steadfast/',
+        bmpUser: '', bmpPass: '', commandAuthMode: 'portal',
+      }],
+      activeProfileId: 'p1',
+    };
+    shared.connState = {
+      ...shared.connState,
+      display: 'connected',
+      responseMs: 100,
+      validation: 'idle',
+      verifiedAt: 1,
+    };
+    const { tab, el } = renderTab();
+    const focused = el.querySelector<HTMLInputElement>('#auto-detect')!;
+    focused.focus();
+
+    shared.connState = {
+      ...shared.connState,
+      responseMs: 225,
+      validation: 'validating',
+      verifiedAt: 2,
+    };
+    const needsRender = tab.handleMessage({ type: 'CONNECTION_STATE', state: shared.connState });
+
+    expect(needsRender).toBe(false);
+    expect(document.activeElement).toBe(focused);
+    expect(el.querySelector('.prof-lat')?.textContent).toBe('225 ms');
+    expect(el.querySelector<HTMLElement>('.prof-health')?.title).toContain('checking now');
+  });
+
   it('keeps the stored-login source on the profile metadata line', () => {
     shared.settings = {
       ...freshSettings(),

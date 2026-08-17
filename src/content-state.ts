@@ -39,6 +39,9 @@ export class ContentState {
   technicalOverlay = false;
   fromSync = false;
   prevConnDisplay: string | null = null;
+  connectionEpochsSeen = false;
+  lastIncidentEpoch = 0;
+  lastRecoveryEpoch = 0;
   environment: string | null = null;
   lastUrl = typeof window !== 'undefined' ? window.location.href : '';
   lastDetection: DetectionResult | null = null;
@@ -148,6 +151,9 @@ export class ContentState {
     this.technicalOverlay = false;
     this.fromSync = false;
     this.prevConnDisplay = null;
+    this.connectionEpochsSeen = false;
+    this.lastIncidentEpoch = 0;
+    this.lastRecoveryEpoch = 0;
     this.environment = null;
     this.lastUrl = typeof window !== 'undefined' ? window.location.href : '';
     this.lastDetection = null;

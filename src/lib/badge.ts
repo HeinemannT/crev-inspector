@@ -10,6 +10,7 @@ export function updateBadge(display: ConnectionState['display']): void {
       void chrome.action.setBadgeText({ text: '' });
       break;
     case 'command-failed':
+    case 'identity-mismatch':
     case 'auth-failed':
     case 'server-down':
     case 'unreachable':

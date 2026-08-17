@@ -9,7 +9,7 @@ CREV Inspector is a Chrome side-panel extension for inspecting and changing Corp
 3. Click **Load unpacked** and select the unzipped folder.
 4. Pin CREV Inspector and open your BMP workspace.
 
-Current Chromium browsers are supported (Chrome or Edge 114+).
+Current Chromium browsers are supported (Chrome or Edge 116+).
 
 ### Update an unpacked installation
 

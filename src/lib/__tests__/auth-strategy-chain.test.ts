@@ -37,6 +37,57 @@ beforeEach(() => {
 });
 
 describe('BmpAuth explicit strategies', () => {
+  it('does not let a portal token exchange complete after logout', async () => {
+    let releaseToken!: (response: Response) => void;
+    const tokenResponse = new Promise<Response>(resolve => { releaseToken = resolve; });
+    const fetchSpy = vi.fn(async (input: string | URL | Request) => {
+      const url = input.toString();
+      if (url.endsWith('graphql')) return { ok: true, status: 200, redirected: false, url,
+        json: async () => ({ data: { authorizationCode: { code: 'late-code' } } }) } as Response;
+      if (url.endsWith('cstoken')) return tokenResponse;
+      return new Response('late.user;STUDIO;42');
+    });
+    globalThis.fetch = fetchSpy;
+    const { BmpAuth, commandAuthSessionKey } = await import('../bmp-auth');
+    const auth = new BmpAuth('https://bmp.test/', '', '', 'late-portal', 'portal');
+
+    const pending = auth.getLoginTicket();
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    auth.logout();
+    releaseToken(new Response(JSON.stringify({ accessToken: 'late-jwt', refreshToken: 'late-rt' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    }));
+
+    await expect(pending).rejects.toMatchObject({ code: 'auth-failed' });
+    expect(auth.jwt).toBeNull();
+    expect(auth.commandUser).toBeNull();
+    await vi.waitFor(async () => {
+      const stored = await chrome.storage.session.get(commandAuthSessionKey('late-portal'));
+      expect(stored[commandAuthSessionKey('late-portal')]).toBeUndefined();
+    });
+  });
+
+  it('does not let a stored direct login complete after logout', async () => {
+    let releaseLogin!: (response: Response) => void;
+    const loginResponse = new Promise<Response>(resolve => { releaseLogin = resolve; });
+    globalThis.fetch = vi.fn(() => loginResponse);
+    const { BmpAuth, commandAuthSessionKey } = await import('../bmp-auth');
+    const auth = new BmpAuth('https://bmp.test/', 'config.user', 'secret', 'late-stored', 'stored', 'rev-1');
+
+    const pending = auth.getLoginTicket();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
+    auth.logout();
+    const bytes = directTicketBytes('config.user');
+    releaseLogin(new Response(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer));
+
+    await expect(pending).rejects.toMatchObject({ code: 'auth-failed' });
+    expect(auth.commandUser).toBeNull();
+    await vi.waitFor(async () => {
+      const stored = await chrome.storage.session.get(commandAuthSessionKey('late-stored'));
+      expect(stored[commandAuthSessionKey('late-stored')]).toBeUndefined();
+    });
+  });
+
   it('portal mode borrows the browser session and never posts stored credentials', async () => {
     const fetchSpy = vi.fn(async (input: string | URL | Request) => {
       const url = input.toString();
@@ -58,6 +109,33 @@ describe('BmpAuth explicit strategies', () => {
     expect(auth.commandUser).toBe('portal.user');
     expect(fetchSpy.mock.calls.some(([url]) => url.toString().includes('cs/authentication'))).toBe(false);
     expect(fetchSpy.mock.calls.some(([url]) => url.toString().includes('cs/login'))).toBe(false);
+  });
+
+  it('persists the portal actor binding separately from the command principal', async () => {
+    const fetchSpy = vi.fn(async (input: string | URL | Request) => {
+      const url = input.toString();
+      if (url.endsWith('graphql')) return { ok: true, status: 200, redirected: false, url,
+        json: async () => ({ data: { authorizationCode: { code: 'code-1' } } }) } as Response;
+      if (url.endsWith('cstoken')) return { ok: true, status: 200,
+        json: async () => ({ accessToken: 'jwt-1', refreshToken: 'rt-1' }) } as Response;
+      return new Response('admin;STUDIO;42');
+    });
+    globalThis.fetch = fetchSpy;
+    const { BmpAuth } = await import('../bmp-auth');
+    const auth = new BmpAuth('https://bmp.test/', '', '', 'bound', 'portal');
+    await auth.getLoginTicket();
+    auth.bindPortalActor('3663406580886322153');
+    await vi.waitFor(async () => {
+      const stored = await chrome.storage.session.get('crev_command_auth_v2_bound');
+      expect(stored.crev_command_auth_v2_bound).toMatchObject({ portalActor: '3663406580886322153' });
+    });
+
+    const restored = new BmpAuth('https://bmp.test/', '', '', 'bound', 'portal');
+    await restored.restoreFromSession();
+    expect(restored.commandUser).toBe('admin');
+    expect(restored.portalActor).toBe('3663406580886322153');
+    restored.logout();
+    expect(restored.portalActor).toBeNull();
   });
 
   it('stored mode obtains a direct ticket with cookies omitted and never probes portal auth', async () => {

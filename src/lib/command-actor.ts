@@ -6,7 +6,8 @@
  * snapshot in session storage. No auth material is read or exposed here.
  */
 
-import type { CommandAuthSource, ConnectionState, IdentityMap } from './types';
+import type { CommandAuthSource, ConnectionState, IdentityMap, InspectorSettings } from './types';
+import { provisionalConnectionSnapshot } from './connection-snapshot';
 
 export interface CommandActorDisclosure {
   user: string;
@@ -40,8 +41,11 @@ export async function readCommandActor(): Promise<CommandActorDisclosure | null>
   const warm = currentCommandActor();
   if (warm) return warm;
   try {
-    const stored = await chrome.storage.session.get('crev_conn_snapshot');
-    const state = stored.crev_conn_snapshot as ConnectionState | undefined;
+    const stored = await chrome.storage.session.get(['crev_conn_snapshot', 'crev_settings_snapshot']);
+    const settings = stored.crev_settings_snapshot as InspectorSettings | undefined;
+    const state = settings
+      ? provisionalConnectionSnapshot(stored.crev_conn_snapshot, settings)
+      : null;
     const snapshotActor = disclosureFromIdentities(state?.identities);
     if (snapshotActor) return snapshotActor;
     const live = await chrome.runtime.sendMessage({ type: 'GET_CONNECTION_STATE' })

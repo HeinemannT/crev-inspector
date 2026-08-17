@@ -587,7 +587,9 @@ register('RESET_ALL', async (msg, respond) => {
   ctx.history.clear();
   // Script history
   ctx.scriptHistory.clear();
-  ctx.logActivity('warn', 'State reset (object cache, type knowledge, enrichment, activity, context)');
+  // Reset completion is transient by design: recording it in the activity
+  // log immediately recreated the persisted state the user just cleared.
+  ctx.toast('Extension state reset', 'success');
   respond({ type: 'CACHE_STATS', count: 0 });
   ctx.broadcastToContent({ type: 'RE_ENRICH' });
   ctx.broadcastToContent({ type: 'RESET_OVERLAY_CACHES' }); // also drop the blueprint overlay's colour + InputSet caches

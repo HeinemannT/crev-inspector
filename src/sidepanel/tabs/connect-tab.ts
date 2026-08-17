@@ -101,6 +101,7 @@ function mergeCustomProviderDraft(json: string, draft: AiCustomDraft, apiKey: st
 
 export class ConnectTab implements Tab {
   private editing: EditingProfile | null = null;
+  private lastConnectionRenderKey: string | null = null;
   private send: SendFn;
   private updateStatus: UpdateStatus | null = null;
   private updatePanel: HTMLElement | null = null;
@@ -237,7 +238,14 @@ export class ConnectTab implements Tab {
       case 'SETTINGS_DATA':
         this.aiConfigured = !!shared.settings.ai?.apiKeyEnc;
         return !this.editing;
-      case 'CONNECTION_STATE':
+      case 'CONNECTION_STATE': {
+        const nextKey = this.connectionRenderKey();
+        if (nextKey === this.lastConnectionRenderKey) {
+          this.refreshConnectionMetadata();
+          return false;
+        }
+        return !this.editing;
+      }
       case 'PROFILE_SWITCHED':
         return !this.editing; // re-render unless user is editing a form
       case 'AI_CONFIG_SAVED':
@@ -305,6 +313,7 @@ export class ConnectTab implements Tab {
   }
 
   render(container: HTMLElement) {
+    this.lastConnectionRenderKey = this.connectionRenderKey();
     const rerender = () => this.render(container);
 
     const children: (HTMLElement | false | null)[] = [];
@@ -696,6 +705,43 @@ export class ConnectTab implements Tab {
   }
 
   /** Live connection status for the active profile's row. */
+  private connectionRenderKey(): string {
+    const s = shared.connState;
+    return JSON.stringify({
+      display: s.display,
+      identities: s.identities,
+      version: s.version,
+      blueprintSupported: s.blueprintSupported,
+      profileLabel: s.profileLabel,
+      workspace: s.workspace,
+      authError: s.authError,
+      networkOffline: s.networkOffline,
+      environment: s.environment,
+    });
+  }
+
+  /** Validation/freshness/latency updates do not alter the profile card's
+   * structure. Patch its metadata in place so a quiet reconnect check cannot
+   * clear focus, selection, scroll position, or an unrelated draft. */
+  private refreshConnectionMetadata(): void {
+    const row = getTabPanel('connect')?.querySelector<HTMLElement>('.prof.cur');
+    if (!row) return;
+    const status = this.profileStatus();
+    const health = row.querySelector<HTMLElement>('.prof-health');
+    if (health) {
+      health.className = `prof-health ${status.cls}`;
+      health.title = status.title || status.text;
+      health.setAttribute('aria-label', status.text);
+    }
+    const state = row.querySelector<HTMLElement>('.prof-state');
+    if (state && status.cls === 'ok') {
+      const ms = shared.connState.responseMs;
+      state.replaceChildren(...(ms != null
+        ? [h('span', { class: 'prof-lat', title: status.title || 'Health-check latency' }, `${ms} ms`)]
+        : []));
+    }
+  }
+
   private profileStatus(): { text: string; cls: string; title: string } {
     const s = shared.connState;
     switch (s.display) {
@@ -704,11 +750,14 @@ export class ConnectTab implements Tab {
         if (s.version) bits.push(`BMP ${s.version}`);
         const actor = (s.identities ?? unknownIdentityMap()).command;
         if (actor.status === 'connected' && actor.user) bits.push(`commands as ${actor.user}`);
+        if (s.verifiedAt) bits.push(`last verified ${new Date(s.verifiedAt).toLocaleTimeString()}`);
+        if (s.validation === 'validating') bits.push('checking now');
         return { text: 'Connected', cls: 'ok', title: bits.join(' · ') };
       }
       case 'checking': return { text: 'Checking…', cls: 'checking', title: '' };
       case 'reconnecting': return { text: 'Reconnecting…', cls: 'checking', title: 'Testing the BMP command channel' };
       case 'online': return { text: 'Online', cls: 'checking', title: 'Reachable, not authenticated' };
+      case 'identity-mismatch': return { text: 'User mismatch', cls: 'err', title: 'Portal and command users differ. Reconnect after choosing the intended portal user.' };
       case 'command-failed': return { text: 'Commands unavailable', cls: 'err', title: s.authError ?? 'The server is reachable, but BMP commands are not responding' };
       case 'needs-login': return { text: 'Sign-in needed', cls: 'err', title: 'Open BMP in a tab, log in, then retry' };
       case 'no-config-access': return { text: 'No config role', cls: 'err', title: 'Logged in, but no Configuration Access role' };

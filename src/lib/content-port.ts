@@ -1,8 +1,8 @@
 /**
  * Content script ↔ service worker port. Thin shim over the shared
  * reconnecting-port primitive — defines content-script-specific queue
- * semantics (merge OBJECTS_DISCOVERED / ENRICH_BADGES, replace stale
- * DETECTION_RESULT) and the slow-reconnect label fade.
+ * semantics (merge OBJECTS_DISCOVERED / ENRICH_BADGES). Transport repair is
+ * intentionally invisible.
  */
 
 import type { InspectorMessage } from './types';
@@ -23,28 +23,10 @@ export function onReconnect(handler: () => void): void {
   reconnectHandler = handler;
 }
 
-/** Content-script-specific enqueue: dedup OBJECTS_DISCOVERED / ENRICH_BADGES,
- *  replace stale DETECTION_RESULT and BMP_URL_CHANGED, drop everything else. */
+/** Content-script-specific enqueue: dedup OBJECTS_DISCOVERED / ENRICH_BADGES
+ * and drop everything else. State-sync signals use the one-shot fallback;
+ * queueing them too would replay the same event after a successful fallback. */
 function enqueue(queue: InspectorMessage[], msg: InspectorMessage): void {
-  if (msg.type === 'DETECTION_RESULT') {
-    // Replace any prior detection — only the latest matters
-    const idx = queue.findIndex(m => m.type === 'DETECTION_RESULT');
-    if (idx >= 0) queue.splice(idx, 1);
-    queue.push(msg);
-    return;
-  }
-  if (msg.type === 'BMP_URL_CHANGED') {
-    // Coalesce — the panel only needs one refresh trigger after reconnect,
-    // even if the user clicked through several BMP tabs while we were down.
-    if (queue.some(m => m.type === 'BMP_URL_CHANGED')) return;
-    queue.push(msg);
-    return;
-  }
-  if (msg.type === 'BMP_PAGE_RENDER_CHANGED') {
-    if (queue.some(m => m.type === 'BMP_PAGE_RENDER_CHANGED')) return;
-    queue.push(msg);
-    return;
-  }
   if (msg.type === 'OBJECTS_DISCOVERED') {
     const last = queue[queue.length - 1];
     if (last?.type === 'OBJECTS_DISCOVERED') {
@@ -89,14 +71,7 @@ export function connectPort(): void {
   portInstance = createReconnectingPort({
     name: 'content',
     onMessage: (msg) => messageHandler?.(msg),
-    onReconnect: ({ wasDelayed }) => {
-      if (wasDelayed) {
-        // Fade overlay labels briefly so users notice the gap
-        for (const label of document.querySelectorAll<HTMLElement>('.crev-label')) {
-          label.style.opacity = '0.4';
-          setTimeout(() => { label.style.opacity = ''; }, 800);
-        }
-      }
+    onReconnect: () => {
       reconnectHandler?.();
     },
     enqueueOnDisconnect: enqueue,

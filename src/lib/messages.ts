@@ -418,7 +418,7 @@ export type NotificationMessage =
    *  has to guess via lastFocusedWindow, which breaks when the user has
    *  the panel open in two windows simultaneously (the most-recently-
    *  touched window wins, the other panel goes deaf). */
-  | { type: 'PANEL_HELLO'; windowId: number };
+  | { type: 'PANEL_HELLO'; windowId: number; panelIncarnation: string; panelCreatedAt: number };
 
 // ── Full union (backward-compatible) ─────────────────────────────
 /** Blueprint layout-builder messages (sidepanel/content ↔ SW). The SW owns BmpClient and runs

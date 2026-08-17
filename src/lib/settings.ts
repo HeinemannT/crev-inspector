@@ -6,7 +6,7 @@ import type { InspectorSettings, ServerProfile } from './types';
 import { getCtx } from './sw-context';
 import { BmpClient } from './bmp-client';
 import { commandAuthSessionKey, legacySessionTokenKey } from './bmp-auth';
-import { bindConnectionClient, markPortalSignedOut, normalizeUrl, resetConnectionState, pushConnectionState, runAuthTest, startHealthPolling, stopHealthPolling } from './connection';
+import { bindConnectionClient, ensureConnectionMonitoring, markPortalSignedOut, normalizeUrl, resetConnectionState, pushConnectionState, restoreConnectionEvidence, runAuthTest } from './connection';
 import { incrementGeneration } from './enrichment';
 import { clearAllContextRids } from './context-rid';
 import { log } from './logger';
@@ -189,14 +189,18 @@ export function getActiveProfile() {
   return ctx.settings.profiles.find(p => p.id === ctx.settings.activeProfileId);
 }
 
-let rebuildInFlight: Promise<void> | null = null;
+let rebuildTail: Promise<void> = Promise.resolve();
 
-export async function rebuildClient(clearCache = false) {
-  // Serialize — rapid profile switches must not overlap
-  if (rebuildInFlight) await rebuildInFlight;
-  const p = rebuildClientInternal(clearCache);
-  rebuildInFlight = p;
-  try { await p; } finally { rebuildInFlight = null; }
+export function rebuildClient(clearCache = false): Promise<void> {
+  // A promise tail is a real mutex: every caller appends exactly one rebuild.
+  // Awaiting a shared "in flight" promise and then starting work lets all
+  // waiters enter together when that promise settles.
+  const requestedProfileId = getCtx().settings.activeProfileId;
+  const task = rebuildTail
+    .catch(() => { /* a failed predecessor must not poison the queue */ })
+    .then(() => rebuildClientInternal(clearCache, requestedProfileId));
+  rebuildTail = task;
+  return task;
 }
 
 /** Get a warm BmpClient for the profile, or construct one. Returned clients
@@ -265,10 +269,15 @@ export async function handleSessionCookieRemoved(info: chrome.cookies.CookieChan
     const client = clientPool.get(p.id);
     const borrowed = (p.commandAuthMode ?? 'portal') === 'portal';
 
-    let stillPresent = false;
+    let stillPresent: boolean;
     try {
       stillPresent = (await chrome.cookies.get({ url: normalizeUrl(p.bmpUrl), name: 'JSESSIONID' })) != null;
-    } catch (e) { log.warn('settings:cookieReprobe', e, 'cookie re-probe failed; treating as gone'); }
+    } catch (e) {
+      // Observation failure is unknown, not proof of logout. Preserve the
+      // borrowed command chain until absence is authoritatively observed.
+      log.warn('settings:cookieReprobe', e, 'cookie re-probe failed; preserving borrowed session');
+      continue;
+    }
     if (stillPresent) continue;  // the cookie that changed wasn't this profile's
 
     if (p.id === ctx.settings.activeProfileId && !borrowed) {
@@ -288,20 +297,20 @@ export async function handleSessionCookieRemoved(info: chrome.cookies.CookieChan
   }
 }
 
-async function rebuildClientInternal(clearCache: boolean) {
+async function rebuildClientInternal(clearCache: boolean, requestedProfileId: string) {
   const ctx = getCtx();
-  const profile = getActiveProfile();
+  // A newer switch superseded this queued request before it acquired the
+  // mutex. Its own queued rebuild will commit the current profile.
+  if (ctx.settings.activeProfileId !== requestedProfileId) return;
+  const profile = ctx.settings.profiles.find(p => p.id === requestedProfileId);
+  const previousClient = ctx.client;
+  previousClient?.setTransportOutcomeObserver(null);
+  ctx.client = null;
 
   // A URL is the only hard requirement now — a `session` profile carries no
   // username (it borrows the browser session), so gating on bmpUser would
   // wrongly null out the client for SSO/session profiles.
-  if (profile?.bmpUrl) {
-    ctx.client = getOrCreateClient(profile);
-    ctx.client.cache = ctx.cache;
-    bindConnectionClient(ctx.client, profile.id);
-  } else {
-    ctx.client = null;
-  }
+  const nextClient = profile?.bmpUrl ? getOrCreateClient(profile) : null;
   if (clearCache) {
     ctx.cache.clear();
     ctx.sendToPanel({ type: 'CACHE_STATS', count: 0 });
@@ -316,14 +325,21 @@ async function rebuildClientInternal(clearCache: boolean) {
     ctx.scriptHistory.switchProfile(newProfileId).catch(e => log.swallow('settings:switchScriptHistory', e)),
     ctx.stylePresets.switchProfile(newProfileId).catch(e => log.swallow('settings:switchStylePresets', e)),
   ]);
+  // Settings may have changed while storage backends were switching. Do not
+  // publish or bind the stale client; the newer queued rebuild owns commit.
+  if (ctx.settings.activeProfileId !== requestedProfileId) return;
+  ctx.client = nextClient;
+  if (nextClient && profile) {
+    nextClient.cache = ctx.cache;
+    bindConnectionClient(nextClient, profile.id);
+  }
   // NOW safe to open the gate for new enrichment
   incrementGeneration();
 
   resetConnectionState();
+  await restoreConnectionEvidence();
   if (ctx.hasPanel) {
-    stopHealthPolling();
-    startHealthPolling();
-    void runAuthTest(); // pushes CONNECTION_STATE on completion — intentionally not awaited
+    ensureConnectionMonitoring();
   } else {
     pushConnectionState(); // no panel = no runAuthTest, push once for content scripts
   }
@@ -336,15 +352,34 @@ async function rebuildClientInternal(clearCache: boolean) {
  *  dev is harmless to warm), then fire one more rebuild for sbx. */
 let inflightAutoDetectTarget: string | null = null;
 
-/** Best-match profile for a page URL, or null. Picks the LONGEST matching
- *  prefix to avoid the "first-match wins" bug when one profile's URL is a
- *  prefix of another (e.g. `https://x.de/A` vs `https://x.de/A/B`). */
+/** Best-match profile for a page URL, or null. Origins must match exactly and
+ *  paths match on a segment boundary, so `/CorpoWebserver` includes all of
+ *  `/CorpoWebserver/...` without also claiming `/CorpoWebserverTest`.
+ *  Among valid matches the most specific (longest) base path wins. */
 export function matchProfile(pageUrl: string, profiles: ServerProfile[]): ServerProfile | null {
+  let page: URL;
+  try {
+    page = new URL(pageUrl);
+  } catch {
+    return null;
+  }
+
   let best: { profile: ServerProfile; len: number } | null = null;
   for (const p of profiles) {
-    const base = normalizeUrl(p.bmpUrl).replace(/\/+$/, '');
-    if (base && pageUrl.startsWith(base) && (!best || base.length > best.len)) {
-      best = { profile: p, len: base.length };
+    let base: URL;
+    try {
+      base = new URL(normalizeUrl(p.bmpUrl));
+    } catch {
+      continue;
+    }
+    if (page.origin !== base.origin) continue;
+
+    const basePath = base.pathname.replace(/\/+$/, '') || '/';
+    const pathMatches = basePath === '/'
+      || page.pathname === basePath
+      || page.pathname.startsWith(`${basePath}/`);
+    if (pathMatches && (!best || basePath.length > best.len)) {
+      best = { profile: p, len: basePath.length };
     }
   }
   return best?.profile ?? null;
@@ -386,6 +421,7 @@ export async function autoDetectProfile(pageUrl: string) {
     // dropped the heavy code-field shadow copies (expression/html/js/
     // css) that `NON_PERSISTED_PROPS` keeps for the active session.
     await rebuildClient(false);
+    if (ctx.settings.activeProfileId !== matched.id) return;
     ctx.sendToPanel({ type: 'PROFILE_SWITCHED', profileId: matched.id, label: matched.label });
     ctx.broadcastToContent({ type: 'PROFILE_SWITCHED', profileId: matched.id, label: matched.label });
     ctx.sendToPanel({ type: 'SETTINGS_DATA', settings: ctx.settings });

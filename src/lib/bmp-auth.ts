@@ -53,6 +53,10 @@ interface PortalAuthState {
   jwt: string | null;
   refreshToken: string | null;
   commandUser: string | null;
+  /** Actor RID reported by /cs/authentication when this borrowed chain was
+   * confirmed. Portal and command APIs use different principal formats, so
+   * this binding—not string equality with commandUser—detects actor changes. */
+  portalActor?: string | null;
 }
 
 interface StoredAuthState {
@@ -81,6 +85,7 @@ export class BmpAuth {
   private _refreshToken: string | null = null;
   private _loginTicket: string | null = null;
   private _commandUser: string | null = null;
+  private _portalActor: string | null = null;
   private _loginPromise: Promise<string> | null = null;
   private _refreshPromise: Promise<string | null> | null = null;
   private _recoveryPromise: Promise<string> | null = null;
@@ -88,6 +93,9 @@ export class BmpAuth {
   private _ticketRecoveryPromise: Promise<string> | null = null;
   private _restorePromise: Promise<boolean> | null = null;
   private _sessionLoaded = false;
+  private _authEpoch = 0;
+  /** Serialize persistence so teardown cannot be overtaken by an older set(). */
+  private _storageTail: Promise<void> = Promise.resolve();
 
   constructor(
     private bmpUrl: string,
@@ -115,20 +123,32 @@ export class BmpAuth {
   get password(): string { return this.bmpPass; }
   get authMode(): CommandAuthMode { return this.commandMode; }
   get commandUser(): string | null { return this._commandUser; }
+  get portalActor(): string | null { return this._portalActor; }
+
+  bindPortalActor(actor: string): void {
+    if (this.commandMode !== 'portal') return;
+    const normalized = actor.trim();
+    if (!normalized || normalized === this._portalActor) return;
+    this._portalActor = normalized;
+    this.persistPortalState();
+  }
 
   /** Portal-mode JWT login. Stored mode never needs or creates a JWT. */
-  async login(): Promise<string> {
+  async login(expectedEpoch = this._authEpoch): Promise<string> {
+    this.assertAuthEpoch(expectedEpoch);
     if (this.commandMode !== 'portal') {
       throw new AuthError('Stored configuration login uses an independent command ticket.', 'auth-failed');
     }
     if (this._loginPromise) return this._loginPromise;
-    this._loginPromise = this.completePortalTokenExchange();
-    try { return await this._loginPromise; }
-    finally { this._loginPromise = null; }
+    const task = this.completePortalTokenExchange(expectedEpoch);
+    this._loginPromise = task;
+    try { return await task; }
+    finally { if (this._loginPromise === task) this._loginPromise = null; }
   }
 
-  private async completePortalTokenExchange(): Promise<string> {
+  private async completePortalTokenExchange(epoch: number): Promise<string> {
     await assertHostAccess(this.bmpUrl);
+    this.assertAuthEpoch(epoch);
     const gqlResp = await fetch(`${this.bmpUrl}graphql`, {
       method: 'POST',
       credentials: 'include',
@@ -140,6 +160,7 @@ export class BmpAuth {
       }),
       signal: AbortSignal.timeout(AUTH_TIMEOUT),
     });
+    this.assertAuthEpoch(epoch);
 
     if (gqlResp.status === 401 || gqlResp.redirected === true
       || (gqlResp.url && !this.isBmpOrigin(gqlResp.url))) {
@@ -150,6 +171,7 @@ export class BmpAuth {
     }
 
     const gqlBody = await gqlResp.json().catch(() => null);
+    this.assertAuthEpoch(epoch);
     if (!gqlBody || typeof gqlBody !== 'object' || !('data' in gqlBody)) {
       throw new AuthError('No usable BMP portal session. Open BMP and sign in, then retry.', 'needs-login');
     }
@@ -164,46 +186,54 @@ export class BmpAuth {
       body: `grantType=authorizationCode&authorizationCode=${encodeURIComponent(authCode)}`,
       signal: AbortSignal.timeout(AUTH_TIMEOUT),
     });
+    this.assertAuthEpoch(epoch);
     if (!tokenResp.ok) throw new AuthError(`Token exchange failed (HTTP ${tokenResp.status}).`, 'exchange-failed');
     const tokenBody = await tokenResp.json().catch(() => null);
+    this.assertAuthEpoch(epoch);
     if (!tokenBody?.accessToken) throw new AuthError('BMP returned no Configuration Studio access token.', 'exchange-failed');
 
     this._jwt = tokenBody.accessToken;
     this._refreshToken = tokenBody.refreshToken ?? null;
-    this.persistPortalState();
+    this.persistPortalState(epoch);
     return tokenBody.accessToken as string;
   }
 
-  async refreshAuth(): Promise<string | null> {
+  async refreshAuth(expectedEpoch = this._authEpoch): Promise<string | null> {
+    this.assertAuthEpoch(expectedEpoch);
     if (this.commandMode !== 'portal' || !this._refreshToken) return null;
     if (this._refreshPromise) return this._refreshPromise;
-    this._refreshPromise = this.doRefresh();
-    try { return await this._refreshPromise; }
-    finally { this._refreshPromise = null; }
+    const task = this.doRefresh(expectedEpoch);
+    this._refreshPromise = task;
+    try { return await task; }
+    finally { if (this._refreshPromise === task) this._refreshPromise = null; }
   }
 
-  private async doRefresh(): Promise<string | null> {
+  private async doRefresh(epoch: number): Promise<string | null> {
     try {
       await assertHostAccess(this.bmpUrl);
+      this.assertAuthEpoch(epoch);
       const resp = await fetch(`${this.bmpUrl}cstoken`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `grantType=refreshToken&refreshToken=${encodeURIComponent(this._refreshToken!)}`,
         signal: AbortSignal.timeout(AUTH_TIMEOUT),
       });
+      this.assertAuthEpoch(epoch);
       if (resp.status === 401 || resp.status === 403) {
         this._jwt = null;
         this._refreshToken = null;
         this._commandUser = null;
+        this._portalActor = null;
         this.clearPersistedState();
         return null;
       }
       if (!resp.ok) return null;
       const body = await resp.json().catch(() => null);
+      this.assertAuthEpoch(epoch);
       if (!body?.accessToken) return null;
       this._jwt = body.accessToken;
       if (body.refreshToken) this._refreshToken = body.refreshToken;
-      this.persistPortalState();
+      this.persistPortalState(epoch);
       return this._jwt;
     } catch (error) {
       if (error instanceof HostAccessError) throw error;
@@ -212,50 +242,60 @@ export class BmpAuth {
     }
   }
 
-  async ensureAuth(): Promise<string> {
+  async ensureAuth(expectedEpoch = this._authEpoch): Promise<string> {
+    this.assertAuthEpoch(expectedEpoch);
     if (this.commandMode !== 'portal') {
       throw new AuthError('Stored configuration login does not use a portal JWT.', 'auth-failed');
     }
     if (this._jwt) return this._jwt;
-    await this.restoreFromSession();
+    await this.restoreFromSession(expectedEpoch);
+    this.assertAuthEpoch(expectedEpoch);
     if (this._jwt) return this._jwt;
-    return this.recoverAuth();
+    return this.recoverAuth(expectedEpoch);
   }
 
-  async recoverAuth(): Promise<string> {
+  async recoverAuth(expectedEpoch = this._authEpoch): Promise<string> {
+    this.assertAuthEpoch(expectedEpoch);
     if (this._recoveryPromise) return this._recoveryPromise;
-    this._recoveryPromise = this.doRecoverAuth();
-    try { return await this._recoveryPromise; }
-    finally { this._recoveryPromise = null; }
+    const task = this.doRecoverAuth(expectedEpoch);
+    this._recoveryPromise = task;
+    try { return await task; }
+    finally { if (this._recoveryPromise === task) this._recoveryPromise = null; }
   }
 
-  private async doRecoverAuth(): Promise<string> {
-    await this.restoreFromSession();
+  private async doRecoverAuth(epoch: number): Promise<string> {
+    await this.restoreFromSession(epoch);
+    this.assertAuthEpoch(epoch);
     if (this._refreshToken) {
-      const refreshed = await this.refreshAuth();
+      const refreshed = await this.refreshAuth(epoch);
+      this.assertAuthEpoch(epoch);
       if (refreshed) return refreshed;
     }
-    return this.login();
+    return this.login(epoch);
   }
 
-  async restoreFromSession(): Promise<boolean> {
+  async restoreFromSession(expectedEpoch = this._authEpoch): Promise<boolean> {
+    this.assertAuthEpoch(expectedEpoch);
     if (this._loginTicket || this._jwt) return true;
     if (this._sessionLoaded) return false;
     if (this._restorePromise) return this._restorePromise;
-    this._restorePromise = this.doRestoreFromSession();
-    try { return await this._restorePromise; }
-    finally { this._restorePromise = null; }
+    const task = this.doRestoreFromSession(expectedEpoch);
+    this._restorePromise = task;
+    try { return await task; }
+    finally { if (this._restorePromise === task) this._restorePromise = null; }
   }
 
-  private async doRestoreFromSession(): Promise<boolean> {
+  private async doRestoreFromSession(epoch: number): Promise<boolean> {
     try {
       const result = await chrome.storage.session.get([this.sessionKey, legacySessionTokenKey(this.profileId)]);
+      this.assertAuthEpoch(epoch);
       const saved = result[this.sessionKey] as PersistedAuthState | undefined;
       if (saved && this.stampsEqual(saved.stamp, this.stamp)) {
         if (saved.kind === 'portal-token' && this.commandMode === 'portal') {
           this._jwt = saved.jwt;
           this._refreshToken = saved.refreshToken;
           this._commandUser = saved.commandUser;
+          this._portalActor = saved.portalActor ?? null;
         } else if (saved.kind === 'direct-ticket' && this.commandMode === 'stored') {
           this._loginTicket = saved.ticket;
           this._commandUser = saved.commandUser;
@@ -271,13 +311,13 @@ export class BmpAuth {
         if (legacy?.jwt || legacy?.refreshToken) {
           this._jwt = legacy.jwt ?? null;
           this._refreshToken = legacy.refreshToken ?? null;
-          this.persistPortalState();
+          this.persistPortalState(epoch);
         }
       }
     } catch (error) {
       log.warn('auth:restoreSession', error, 'command auth restore failed');
     } finally {
-      this._sessionLoaded = true;
+      if (epoch === this._authEpoch) this._sessionLoaded = true;
     }
     return this._loginTicket != null || this._jwt != null;
   }
@@ -289,10 +329,12 @@ export class BmpAuth {
   /** Copy auth state only between clients with the same explicit strategy. */
   absorbAuth(other: BmpAuth): void {
     if (this.commandMode !== other.commandMode) return;
+    this._authEpoch++;
     this._jwt = other._jwt;
     this._refreshToken = other._refreshToken;
     this._loginTicket = other._loginTicket;
     this._commandUser = other._commandUser;
+    this._portalActor = other._portalActor;
     this._sessionLoaded = true;
     this.persistCurrentState();
   }
@@ -300,10 +342,12 @@ export class BmpAuth {
   /** Unconditional local teardown. Stored login deliberately has no browser
    * cookie, so its server-side HTTP session expires under BMP's own policy. */
   logout(): void {
+    this._authEpoch++;
     this._jwt = null;
     this._refreshToken = null;
     this._loginTicket = null;
     this._commandUser = null;
+    this._portalActor = null;
     this._loginPromise = null;
     this._refreshPromise = null;
     this._recoveryPromise = null;
@@ -328,34 +372,43 @@ export class BmpAuth {
     this.persistPortalState();
   }
 
-  async getLoginTicket(): Promise<string> {
+  async getLoginTicket(expectedEpoch = this._authEpoch): Promise<string> {
+    this.assertAuthEpoch(expectedEpoch);
     if (this._loginTicket) return this._loginTicket;
-    await this.restoreFromSession();
+    await this.restoreFromSession(expectedEpoch);
+    this.assertAuthEpoch(expectedEpoch);
     if (this._loginTicket) return this._loginTicket;
     if (this._ticketPromise) return this._ticketPromise;
-    this._ticketPromise = this.commandMode === 'stored'
-      ? this.directLogin()
-      : this.fetchPortalLoginTicketWithRecovery();
-    try { return await this._ticketPromise; }
-    finally { this._ticketPromise = null; }
+    const task = this.commandMode === 'stored'
+      ? this.directLogin(expectedEpoch)
+      : this.fetchPortalLoginTicketWithRecovery(expectedEpoch);
+    this._ticketPromise = task;
+    try { return await task; }
+    finally { if (this._ticketPromise === task) this._ticketPromise = null; }
   }
 
   async refreshLoginTicket(): Promise<string> {
     if (this._ticketRecoveryPromise) return this._ticketRecoveryPromise;
     this._loginTicket = null;
     if (this.commandMode === 'stored') this.clearPersistedState();
-    this._ticketRecoveryPromise = this.getLoginTicket();
-    try { return await this._ticketRecoveryPromise; }
-    finally { this._ticketRecoveryPromise = null; }
+    const epoch = this._authEpoch;
+    const task = this.getLoginTicket(epoch);
+    this._ticketRecoveryPromise = task;
+    try { return await task; }
+    finally { if (this._ticketRecoveryPromise === task) this._ticketRecoveryPromise = null; }
   }
 
-  private async fetchPortalLoginTicketWithRecovery(): Promise<string> {
-    let jwt = await this.ensureAuth();
+  private async fetchPortalLoginTicketWithRecovery(epoch: number): Promise<string> {
+    let jwt = await this.ensureAuth(epoch);
+    this.assertAuthEpoch(epoch);
     let res = await this.fetchPortalLoginTicket(jwt);
+    this.assertAuthEpoch(epoch);
     if (res.status === 401 || res.status === 403) {
       this.expireAccessToken();
-      jwt = await this.recoverAuth();
+      jwt = await this.recoverAuth(epoch);
+      this.assertAuthEpoch(epoch);
       res = await this.fetchPortalLoginTicket(jwt);
+      this.assertAuthEpoch(epoch);
     }
     if (res.type === 'opaqueredirect' || res.redirected
       || (res.url && !this.isBmpOrigin(res.url))) {
@@ -363,12 +416,13 @@ export class BmpAuth {
     }
     if (!res.ok) throw new AuthError(`Failed to obtain a command ticket (HTTP ${res.status}).`, 'exchange-failed');
     const ticket = (await res.text()).trim();
+    this.assertAuthEpoch(epoch);
     if (!ticket) throw new AuthError('BMP returned an empty command ticket.', 'exchange-failed');
     const principal = portalTicketPrincipal(ticket);
     if (!principal) throw new AuthError('BMP returned an invalid command ticket.', 'exchange-failed');
     this._loginTicket = ticket;
     this._commandUser = principal;
-    this.persistPortalState();
+    this.persistPortalState(epoch);
     return ticket;
   }
 
@@ -384,11 +438,12 @@ export class BmpAuth {
     });
   }
 
-  private async directLogin(): Promise<string> {
+  private async directLogin(epoch: number): Promise<string> {
     if (!this.bmpUser.trim() || !this.bmpPass) {
       throw new AuthError('Enter a username and password for the stored configuration login.', 'auth-failed');
     }
     await assertHostAccess(this.bmpUrl);
+    this.assertAuthEpoch(epoch);
     const url = new URL('cs/login', this.bmpUrl);
     url.searchParams.set('type', 'login');
     url.searchParams.set('username', this.bmpUser);
@@ -407,6 +462,7 @@ export class BmpAuth {
         referrerPolicy: 'no-referrer',
         signal: AbortSignal.timeout(AUTH_TIMEOUT),
       });
+      this.assertAuthEpoch(epoch);
     } catch (error) {
       if (error instanceof HostAccessError) throw error;
       throw new AuthError('Stored configuration login could not reach BMP.', 'auth-failed');
@@ -422,6 +478,7 @@ export class BmpAuth {
     }
 
     const buffer = await response.arrayBuffer();
+    this.assertAuthEpoch(epoch);
     if (buffer.byteLength < 5 || buffer.byteLength > MAX_LOGIN_RESPONSE_BYTES) {
       throw new AuthError('BMP returned an invalid stored-login response.', 'auth-failed');
     }
@@ -454,7 +511,7 @@ export class BmpAuth {
     const ticket = `${onBehalfOfId};${agent};${key.toString()}`;
     this._loginTicket = ticket;
     this._commandUser = principalId;
-    this.persistStoredState(ticket, principalId);
+    this.persistStoredState(ticket, principalId, epoch);
     return ticket;
   }
 
@@ -466,7 +523,7 @@ export class BmpAuth {
     }
   }
 
-  private persistPortalState(): void {
+  private persistPortalState(epoch = this._authEpoch): void {
     const value: PortalAuthState = {
       version: 2,
       kind: 'portal-token',
@@ -474,13 +531,20 @@ export class BmpAuth {
       jwt: this._jwt,
       refreshToken: this._refreshToken,
       commandUser: this._commandUser,
+      portalActor: this._portalActor,
     };
-    chrome.storage.session.set({ [this.sessionKey]: value })
-      .then(() => chrome.storage.session.remove(legacySessionTokenKey(this.profileId)))
-      .catch(error => log.swallow('auth:persistPortal', error));
+    this.queueStorage(async () => {
+      if (epoch !== this._authEpoch) return;
+      await chrome.storage.session.set({ [this.sessionKey]: value });
+      if (epoch !== this._authEpoch) {
+        await chrome.storage.session.remove(this.sessionKey);
+        return;
+      }
+      await chrome.storage.session.remove(legacySessionTokenKey(this.profileId));
+    }, 'auth:persistPortal');
   }
 
-  private persistStoredState(ticket: string, commandUser: string): void {
+  private persistStoredState(ticket: string, commandUser: string, epoch = this._authEpoch): void {
     const value: StoredAuthState = {
       version: 2,
       kind: 'direct-ticket',
@@ -488,14 +552,34 @@ export class BmpAuth {
       ticket,
       commandUser,
     };
-    chrome.storage.session.set({ [this.sessionKey]: value })
-      .then(() => chrome.storage.session.remove(legacySessionTokenKey(this.profileId)))
-      .catch(error => log.swallow('auth:persistStored', error));
+    this.queueStorage(async () => {
+      if (epoch !== this._authEpoch) return;
+      await chrome.storage.session.set({ [this.sessionKey]: value });
+      if (epoch !== this._authEpoch) {
+        await chrome.storage.session.remove(this.sessionKey);
+        return;
+      }
+      await chrome.storage.session.remove(legacySessionTokenKey(this.profileId));
+    }, 'auth:persistStored');
   }
 
   private clearPersistedState(): void {
-    chrome.storage.session.remove([this.sessionKey, legacySessionTokenKey(this.profileId)])
-      .catch(error => log.swallow('auth:clearSession', error));
+    this.queueStorage(
+      () => chrome.storage.session.remove([this.sessionKey, legacySessionTokenKey(this.profileId)]),
+      'auth:clearSession',
+    );
+  }
+
+  private queueStorage(operation: () => Promise<void>, logContext: string): void {
+    this._storageTail = this._storageTail
+      .then(operation, operation)
+      .catch(error => log.swallow(logContext, error));
+  }
+
+  private assertAuthEpoch(epoch: number): void {
+    if (epoch !== this._authEpoch) {
+      throw new AuthError('Authentication operation was superseded.', 'auth-failed');
+    }
   }
 
   private normalizedWorkspaceUrl(): string {

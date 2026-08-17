@@ -268,6 +268,8 @@ export class BmpClient {
   get username(): string { return this.auth.username; }
   get authMode(): CommandAuthMode { return this.auth.authMode; }
   get commandUser(): string | null { return this.auth.commandUser; }
+  get portalActor(): string | null { return this.auth.portalActor; }
+  bindPortalActor(actor: string): void { this.auth.bindPortalActor(actor); }
   passwordMatches(pass: string): boolean { return this.auth.passwordMatches(pass); }
   setTransportOutcomeObserver(observer: ((outcome: BmpTransportOutcome) => void) | null): void {
     this.transport.setOutcomeObserver(observer);

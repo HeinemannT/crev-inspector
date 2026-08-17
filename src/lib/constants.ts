@@ -1,7 +1,14 @@
 /** Centralized constants — no more magic numbers scattered across the codebase */
 
 // ── Network timeouts ─────────────────────────────────────────────
-export const HEALTH_POLL_INTERVAL = 30_000;
+/** Command evidence older than this is quietly revalidated when a relevant
+ * surface attaches. There is deliberately no matching periodic timer: MV3
+ * workers are ephemeral and connection validation is event driven. */
+export const CONNECTION_FRESHNESS_TARGET = 120_000;
+
+/** Matching confirmed evidence may bridge a worker/panel restart for this
+ * long. It remains visibly marked as stale while a quiet validation runs. */
+export const CONNECTION_EVIDENCE_TTL = 10 * 60_000;
 export const HEALTH_TIMEOUT = 5_000;
 export const AUTH_TIMEOUT = 10_000;
 export const EC_TIMEOUT = 30_000;

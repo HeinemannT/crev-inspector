@@ -64,10 +64,9 @@ async function createHarness(opts: { withProfile?: boolean; withClient?: boolean
 
   const client = withClient ? new bmpModule.BmpClient('https://bmp.test/Workspace/', 'admin', 'pass', 'p1') : null;
   if (client) {
-    (client as any).auth = {
+    const fakeAuth: any = {
       ensureAuth: vi.fn(async () => 'mock-jwt'),
       login: vi.fn(async () => 'mock-jwt'),
-      logout: vi.fn(),
       invalidateLoginTicket: vi.fn(),
       refreshLoginTicket: vi.fn(async () => 'mock-ticket'),
       recoverAuth: vi.fn(async () => 'mock-jwt'),
@@ -75,7 +74,11 @@ async function createHarness(opts: { withProfile?: boolean; withClient?: boolean
       refreshAuth: vi.fn(async () => null), // default: refresh fails so full login runs
       jwt: null, // default: no JWT yet
       commandUser: 'admin',
+      portalActor: null,
     };
+    fakeAuth.logout = vi.fn(() => { fakeAuth.portalActor = null; });
+    fakeAuth.bindPortalActor = vi.fn((actor: string) => { fakeAuth.portalActor = actor; });
+    (client as any).auth = fakeAuth;
     vi.spyOn(bmpModule.BmpClient.prototype, 'testConnection').mockImplementation(async function (this: any) {
       // BmpAuth.jwt/via are getters — write to the backing fields. `this` is the
       // Mark the throwaway test client as authenticated.
@@ -468,5 +471,262 @@ describe('computeConnectionState — host-permission gate', () => {
     h.setHealthResult({ up: true, reachable: true });
     await h.conn.pollHealth();
     expect(h.conn.computeConnectionState().display).not.toBe('needs-access');
+  });
+});
+
+describe('separated reachability and identity lifecycle', () => {
+  const portalResponse = (opts: { status?: number; user?: string; redirected?: boolean; url?: string } = {}) => ({
+    ok: (opts.status ?? 200) >= 200 && (opts.status ?? 200) < 300,
+    status: opts.status ?? 200,
+    redirected: opts.redirected ?? false,
+    url: opts.url ?? 'https://bmp.test/Workspace/cs/authentication',
+    json: async () => opts.user ? { userName: opts.user } : {},
+  } as unknown as Response);
+
+  it.each([false, true])('three healthy reachability cycles never re-authenticate or log out (panel=%s)', async (hasPanel) => {
+    const h = await createHarness();
+    h.ctx.hasPanel = hasPanel;
+    vi.stubGlobal('fetch', vi.fn(async () => portalResponse())); // ambiguous successful response, no actor
+    try {
+      await h.conn.runAuthTest('background');
+      expect(h.conn.computeConnectionState().display).toBe('connected');
+      h.ctx.client.auth.logout.mockClear();
+      vi.mocked(h.ctx.client.testConnection).mockClear();
+      h.ctx.logActivity.mockClear();
+      h.setHealthResult({ up: true, reachable: true, responseMs: 4 });
+
+      await h.conn.pollHealth(true);
+      await h.conn.pollHealth(true);
+      await h.conn.pollHealth(true);
+
+      expect(h.ctx.client.auth.logout).not.toHaveBeenCalled();
+      expect(h.ctx.client.testConnection).not.toHaveBeenCalled();
+      expect(h.ctx.logActivity).not.toHaveBeenCalledWith(expect.anything(), 'Testing command connection…', expect.anything());
+      expect(h.ctx.logActivity.mock.calls.flat().join(' ')).not.toMatch(/Connected to/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('persistent portal/command mismatch reconciles once and health cycles stay pure', async () => {
+    const h = await createHarness();
+    h.ctx.client.auth.portalActor = 'portal.a';
+    h.ctx.client.auth.logout = vi.fn(); // simulate a stubborn chain that remains bound to A
+    h.ctx.client.auth.bindPortalActor = vi.fn();
+    vi.stubGlobal('fetch', vi.fn(async () => portalResponse({ user: 'portal.b' })));
+    try {
+      await h.conn.runAuthTest('background');
+      expect(h.conn.computeConnectionState().display).toBe('identity-mismatch');
+      expect(h.ctx.client.auth.logout).toHaveBeenCalledTimes(1);
+      expect(h.ctx.client.testConnection).toHaveBeenCalledTimes(1);
+
+      await h.conn.runAuthTest('background');
+      expect(h.ctx.client.auth.logout).toHaveBeenCalledTimes(1);
+      h.ctx.client.auth.logout.mockClear();
+      vi.mocked(h.ctx.client.testConnection).mockClear();
+      h.setHealthResult({ up: true, reachable: true });
+      await h.conn.pollHealth(true);
+      await h.conn.pollHealth(true);
+      expect(h.ctx.client.auth.logout).not.toHaveBeenCalled();
+      expect(h.ctx.client.testConnection).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('authoritative sign-out invalidates a borrowed chain once', async () => {
+    const h = await createHarness();
+    vi.stubGlobal('fetch', vi.fn(async () => portalResponse({ status: 401 })));
+    try {
+      await h.conn.runAuthTest('background');
+      await h.conn.runAuthTest('background');
+      expect(h.ctx.client.auth.logout).toHaveBeenCalledTimes(1);
+      expect(h.conn.computeConnectionState().display).toBe('needs-login');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('a confirmed actor A-to-B transition performs one reconcile and adopts B', async () => {
+    const h = await createHarness();
+    h.ctx.client.auth.portalActor = 'portal.a';
+    vi.stubGlobal('fetch', vi.fn(async () => portalResponse({ user: 'portal.b' })));
+    vi.mocked(h.ctx.client.testConnection).mockImplementation(async function (this: any) {
+      this.auth.commandUser = 'admin';
+      return { ok: true, authenticated: true, message: 'OK' };
+    });
+    try {
+      await h.conn.runAuthTest('background');
+      expect(h.ctx.client.auth.logout).toHaveBeenCalledTimes(1);
+      expect(h.ctx.client.testConnection).toHaveBeenCalledTimes(1);
+      expect(h.conn.computeConnectionState()).toMatchObject({
+        display: 'connected', identities: { portal: { user: 'portal.b' }, command: { user: 'admin' }, sameUser: true },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('retires a command chain when the portal actor changes during login', async () => {
+    const h = await createHarness();
+    h.ctx.client.auth.portalActor = 'portal.a';
+    const actors = ['portal.b', 'portal.c'];
+    vi.stubGlobal('fetch', vi.fn(async () => portalResponse({ user: actors.shift() ?? 'portal.c' })));
+    vi.mocked(h.ctx.client.testConnection).mockImplementation(async function (this: any) {
+      this.auth.commandUser = 'admin';
+      return { ok: true, authenticated: true, message: 'OK' };
+    });
+    try {
+      await h.conn.runAuthTest('background');
+
+      expect(h.ctx.client.auth.logout).toHaveBeenCalledTimes(2);
+      expect(h.ctx.client.auth.bindPortalActor).not.toHaveBeenCalled();
+      expect(h.conn.computeConnectionState()).toMatchObject({
+        display: 'auth-failed',
+        identities: { portal: { user: 'portal.c' }, command: { status: 'unavailable' }, sameUser: null },
+        authError: 'The BMP portal user changed during authentication. Retry the connection.',
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('binds a portal actor RID to a differently formatted command principal', async () => {
+    const h = await createHarness();
+    vi.stubGlobal('fetch', vi.fn(async () => portalResponse({ user: '3663406580886322153' })));
+    try {
+      await h.conn.runAuthTest('background');
+      expect(h.ctx.client.auth.logout).toHaveBeenCalledTimes(1);
+      expect(h.ctx.client.auth.bindPortalActor).toHaveBeenCalledWith('3663406580886322153');
+      expect(h.conn.computeConnectionState()).toMatchObject({
+        display: 'connected',
+        identities: {
+          portal: { user: '3663406580886322153' },
+          command: { user: 'admin' },
+          sameUser: true,
+        },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('quiet validation retains confirmed connected display while in flight', async () => {
+    const h = await createHarness();
+    await h.conn.runAuthTest('background');
+    let release!: (value: TestConn) => void;
+    vi.mocked(h.ctx.client.testConnection).mockImplementationOnce(() => new Promise<TestConn>(resolve => { release = resolve; }));
+    const validating = h.conn.runAuthTest('background');
+    await vi.waitFor(() => expect(h.ctx.client.testConnection).toHaveBeenCalledTimes(2));
+    expect(h.conn.computeConnectionState()).toMatchObject({ display: 'connected', validation: 'validating' });
+    release({ ok: true, authenticated: true, message: 'OK' });
+    await validating;
+    expect(h.conn.computeConnectionState()).toMatchObject({ display: 'connected', validation: 'idle' });
+  });
+
+  it('coalesces concurrent panel-attach validation triggers', async () => {
+    const h = await createHarness();
+    h.ctx.hasPanel = true;
+    let release!: (value: TestConn) => void;
+    vi.mocked(h.ctx.client.testConnection).mockImplementation(() => new Promise<TestConn>(resolve => { release = resolve; }));
+
+    h.conn.ensureConnectionMonitoring();
+    h.conn.ensureConnectionMonitoring();
+    await vi.waitFor(() => expect(h.ctx.client.testConnection).toHaveBeenCalledTimes(1));
+    release({ ok: true, authenticated: true, message: 'OK' });
+    await vi.waitFor(() => expect(h.conn.computeConnectionState().validation).toBe('idle'));
+  });
+
+  it('revalidates a fresh restored snapshot instead of remaining validating forever', async () => {
+    const h = await createHarness();
+    const now = Date.now();
+    await chrome.storage.session.set({
+      crev_conn_snapshot: {
+        schema: 1,
+        profileId: 'p1',
+        environment: 'p1@https://bmp.test/Workspace/',
+        commandAuthRevision: '',
+        expiresAt: now + 60_000,
+        state: {
+          display: 'connected',
+          identities: {
+            portal: { status: 'connected', user: 'admin', source: 'portal-session' },
+            command: { status: 'connected', user: 'admin', source: 'portal-session' },
+            sameUser: true,
+          },
+          version: '5.6.3', responseMs: 12, profileLabel: 'P1', workspace: 'Workspace',
+          authError: null, networkOffline: false, lastUpdate: now,
+          validation: 'idle', verifiedAt: now, semanticRevision: 7,
+          incidentEpoch: 0, recoveryEpoch: 0,
+          environment: 'p1@https://bmp.test/Workspace/',
+        },
+      },
+    });
+    h.setHealthResult({ up: true, reachable: true, responseMs: 9 });
+    vi.mocked(h.ctx.client.testConnection).mockClear();
+
+    await h.conn.restoreConnectionEvidence();
+    expect(h.conn.computeConnectionState().validation).toBe('validating');
+    h.conn.ensureConnectionMonitoring();
+
+    await vi.waitFor(() => expect(h.conn.computeConnectionState().validation).toBe('idle'));
+    expect(h.ctx.client.testConnection).toHaveBeenCalledTimes(1);
+    expect(h.conn.computeConnectionState().display).toBe('connected');
+  });
+
+  it('explicit validation clears stale reachability failures as well as retesting auth', async () => {
+    const h = await createHarness();
+    h.setHealthResult({ up: false, reachable: false });
+    await h.conn.pollHealth(true);
+    expect(h.conn.computeConnectionState().display).toBe('unreachable');
+
+    h.setHealthResult({ up: true, reachable: true, responseMs: 8 });
+    await h.conn.validateConnection('explicit');
+
+    expect(h.conn.computeConnectionState().display).toBe('connected');
+  });
+
+  it('installs no repeating 30-second monitor', async () => {
+    const h = await createHarness();
+    const intervalSpy = vi.spyOn(globalThis, 'setInterval');
+    h.conn.startHealthPolling();
+    expect(intervalSpy).not.toHaveBeenCalled();
+    intervalSpy.mockRestore();
+  });
+
+  it('deduplicates identical semantic publications even when wall-clock time advances', async () => {
+    const h = await createHarness();
+    h.conn.pushConnectionState();
+    const sent = h.ctx.sendToPanel.mock.calls.length;
+    const revision = h.conn.computeConnectionState().semanticRevision;
+
+    await new Promise(resolve => setTimeout(resolve, 2));
+    h.conn.pushConnectionState();
+
+    expect(h.ctx.sendToPanel).toHaveBeenCalledTimes(sent);
+    expect(h.conn.computeConnectionState().semanticRevision).toBe(revision);
+  });
+
+  it('persists fresher verified evidence without publishing a semantic update', async () => {
+    const h = await createHarness();
+    await h.conn.runAuthTest('background');
+    const first = (await chrome.storage.session.get('crev_conn_snapshot')).crev_conn_snapshot as
+      { state: { verifiedAt: number } };
+    const sent = h.ctx.sendToPanel.mock.calls.length;
+    h.conn.bindConnectionClient(h.ctx.client, 'p1');
+    await new Promise(resolve => setTimeout(resolve, 2));
+
+    (h.ctx.client as any).transport.outcomeObserver({
+      ok: true, intent: 'read', operation: 'TreeItemCommand', commandCount: 1,
+      queueDepth: 0, queueWaitMs: 0, durationMs: 2,
+      requestBytes: 10, responseBytes: 20, attempts: 1,
+    });
+    await vi.waitFor(async () => {
+      const latest = (await chrome.storage.session.get('crev_conn_snapshot')).crev_conn_snapshot as
+        { state: { verifiedAt: number } };
+      expect(latest.state.verifiedAt).toBeGreaterThan(first.state.verifiedAt);
+    });
+
+    expect(h.ctx.sendToPanel).toHaveBeenCalledTimes(sent);
   });
 });

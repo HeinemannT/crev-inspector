@@ -129,7 +129,7 @@ describe('AI Change Ticket lifecycle', () => {
   it('lets BMP Preview judge the exact EC without a heuristic target gate', async () => {
     mockChromeStorage();
     const executeEc = vi.fn(async () => ({ ok: true, log: 'preview ok' }));
-    setSwContext(makeCtx({ client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', username: 'admin' } }));
+    setSwContext(makeCtx({ client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', commandUser: 'admin' } }));
     const { getHandler } = await import('../../handler-registry');
     await import('../ai');
 
@@ -147,7 +147,7 @@ describe('AI Change Ticket lifecycle', () => {
   it('rejects preview warnings without issuing a runnable token', async () => {
     mockChromeStorage();
     const executeEc = vi.fn(async () => ({ ok: true, hasWarning: true, log: 'Missing property' }));
-    setSwContext(makeCtx({ client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', username: 'admin' } }));
+    setSwContext(makeCtx({ client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', commandUser: 'admin' } }));
     const { getHandler } = await import('../../handler-registry');
     await import('../ai');
 
@@ -163,7 +163,7 @@ describe('AI Change Ticket lifecycle', () => {
   it('issues a runnable token after the change itself previews successfully', async () => {
     mockChromeStorage();
     const executeEc = vi.fn(async () => ({ ok: true, log: 'preview ok' }));
-    setSwContext(makeCtx({ client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', username: 'admin' } }));
+    setSwContext(makeCtx({ client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', commandUser: 'admin' } }));
     const { getHandler } = await import('../../handler-registry');
     await import('../ai');
 
@@ -184,7 +184,7 @@ describe('AI Change Ticket lifecycle', () => {
     const executeEc = vi.fn()
       .mockResolvedValueOnce({ ok: true, log: 'preview ok' })
       .mockResolvedValueOnce({ ok: true, log: 'run ok' });
-    const ctx = makeCtx({ client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', username: 'admin' } });
+    const ctx = makeCtx({ client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', commandUser: 'admin' } });
     setSwContext(ctx);
     const { getHandler } = await import('../../handler-registry');
     await import('../ai');
@@ -205,7 +205,7 @@ describe('AI Change Ticket lifecycle', () => {
     mockChromeStorage();
     const executeEc = vi.fn(async () => ({ ok: true, log: 'ok' }));
     const ctx = makeCtx({
-      client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', username: 'admin' },
+      client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', commandUser: 'admin' },
       settings: { activeProfileId: 'one' },
     });
     setSwContext(ctx);
@@ -225,7 +225,7 @@ describe('AI Change Ticket lifecycle', () => {
   it('binds Run to the exact BMP server and actor that produced Preview', async () => {
     mockChromeStorage();
     const executeEc = vi.fn(async () => ({ ok: true, log: 'ok' }));
-    const client = { executeEc, serverUrl: 'https://bmp.test/Steadfast/', username: 'admin' };
+    const client = { executeEc, serverUrl: 'https://bmp.test/Steadfast/', commandUser: 'admin' };
     const ctx = makeCtx({ client, settings: { activeProfileId: 'one' } });
     setSwContext(ctx);
     const { getHandler } = await import('../../handler-registry');
@@ -243,7 +243,7 @@ describe('AI Change Ticket lifecycle', () => {
     const actorPreview = await request(getHandler('AI_PREVIEW_CHANGE'), {
       type: 'AI_PREVIEW_CHANGE', requestId: 'p2', proposal: proposal('t.name := "actor"'),
     });
-    client.username = 'configurator';
+    client.commandUser = 'configurator';
     const wrongActor = await request(getHandler('AI_RUN_CHANGE'), {
       type: 'AI_RUN_CHANGE', requestId: 'r2', previewId: actorPreview.previewId,
     });
@@ -251,6 +251,51 @@ describe('AI Change Ticket lifecycle', () => {
     expect(wrongServer.resultText).toContain('environment changed');
     expect(wrongActor.resultText).toContain('environment changed');
     expect(executeEc).toHaveBeenCalledTimes(2); // the two Previews only
+  });
+
+  it('does not mint a capability when the active client changes during Preview', async () => {
+    mockChromeStorage();
+    let release!: (value: { ok: boolean; log: string }) => void;
+    const executeEc = vi.fn(() => new Promise<{ ok: boolean; log: string }>(resolve => { release = resolve; }));
+    const clientA = { executeEc, serverUrl: 'https://bmp.test/A/', commandUser: 'actor-a' };
+    const clientB = { executeEc: vi.fn(), serverUrl: 'https://bmp.test/B/', commandUser: 'actor-b' };
+    const ctx = makeCtx({ client: clientA, settings: { activeProfileId: 'a' } });
+    setSwContext(ctx);
+    const { getHandler } = await import('../../handler-registry');
+    await import('../ai');
+
+    const pending = request(getHandler('AI_PREVIEW_CHANGE'), {
+      type: 'AI_PREVIEW_CHANGE', requestId: 'p', proposal: proposal('t.name := "changed"'),
+    });
+    await vi.waitFor(() => expect(executeEc).toHaveBeenCalledOnce());
+    ctx.client = clientB;
+    ctx.settings.activeProfileId = 'b';
+    release({ ok: true, log: 'preview ok on A' });
+
+    await expect(pending).resolves.toMatchObject({
+      ok: false,
+      runnable: false,
+      previewId: undefined,
+      resultText: expect.stringContaining('connection changed'),
+    });
+    expect(clientB.executeEc).not.toHaveBeenCalled();
+  });
+
+  it('does not mint a capability without a verified command principal', async () => {
+    mockChromeStorage();
+    const executeEc = vi.fn(async () => ({ ok: true, log: 'preview ok' }));
+    setSwContext(makeCtx({
+      client: { executeEc, serverUrl: 'https://bmp.test/Steadfast/', commandUser: null },
+    }));
+    const { getHandler } = await import('../../handler-registry');
+    await import('../ai');
+
+    const result = await request(getHandler('AI_PREVIEW_CHANGE'), {
+      type: 'AI_PREVIEW_CHANGE', requestId: 'p', proposal: proposal('t.name := "x"'),
+    });
+
+    expect(result).toMatchObject({ ok: false, runnable: false, previewId: undefined });
+    expect(result.resultText).toContain('command identity');
   });
 });
 

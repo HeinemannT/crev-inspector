@@ -124,7 +124,13 @@ describe('multi-window panel routing', () => {
 
 describe('PANEL_HELLO message contract', () => {
   it('carries windowId so the SW can index the port', () => {
-    const msg = { type: 'PANEL_HELLO' as const, windowId: 42 };
+    const msg = {
+      type: 'PANEL_HELLO' as const,
+      windowId: 42,
+      panelIncarnation: 'panel-a',
+      panelCreatedAt: 123,
+    };
     expect(msg.windowId).toBe(42);
+    expect(msg.panelIncarnation).toBe('panel-a');
   });
 });

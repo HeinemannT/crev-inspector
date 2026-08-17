@@ -107,6 +107,28 @@ describe('matchProfile — longest-prefix winner', () => {
     expect(h.settings.matchProfile('https://x.de/A/B/?rid=1', h.ctx.settings.profiles)?.id).toBe('long');
     expect(h.settings.matchProfile('https://x.de/A/?rid=1', h.ctx.settings.profiles)?.id).toBe('short');
   });
+
+  it('matches a CorpoWebserver base and every path below it', async () => {
+    const profiles: ServerProfile[] = [
+      { id: 'corpo', label: 'corpo', bmpUrl: 'https://x.de/CorpoWebserver', bmpUser: 'u', bmpPass: 'p', commandAuthMode: 'portal' },
+    ];
+    const h = await createHarness(profiles, 'corpo');
+
+    expect(h.settings.matchProfile('https://x.de/CorpoWebserver', profiles)?.id).toBe('corpo');
+    expect(h.settings.matchProfile('https://x.de/CorpoWebserver/', profiles)?.id).toBe('corpo');
+    expect(h.settings.matchProfile('https://x.de/CorpoWebserver/Steadfast/page?rid=1#tab', profiles)?.id).toBe('corpo');
+  });
+
+  it('does not match sibling paths that merely share the same string prefix', async () => {
+    const profiles: ServerProfile[] = [
+      { id: 'corpo', label: 'corpo', bmpUrl: 'https://x.de/CorpoWebserver/', bmpUser: 'u', bmpPass: 'p', commandAuthMode: 'portal' },
+    ];
+    const h = await createHarness(profiles, 'corpo');
+
+    expect(h.settings.matchProfile('https://x.de/CorpoWebserverTest/', profiles)).toBeNull();
+    expect(h.settings.matchProfile('https://x.de/CorpoWebserver-old/', profiles)).toBeNull();
+    expect(h.settings.matchProfile('https://other.x.de/CorpoWebserver/', profiles)).toBeNull();
+  });
 });
 
 describe('setManualOverride — per-profile scope', () => {
@@ -176,6 +198,38 @@ describe('autoDetectProfile — dedupe + cross-env switch', () => {
     h.ctx.settings.autoDetect = false;
     await h.settings.autoDetectProfile('https://dev.x.de/Steadfast/?rid=1');
     expect(h.ctx.settings.activeProfileId).toBe('sbx');
+  });
+
+  it('serializes queued rebuilds and commits only the latest active profile', async () => {
+    const h = await createHarness(makeProfiles(), 'sbx');
+    let releaseDev!: () => void;
+    const devBlocked = new Promise<void>(resolve => { releaseDev = resolve; });
+    let activeSwitches = 0;
+    let maxActiveSwitches = 0;
+    const switchedProfiles: string[] = [];
+    h.ctx.history.switchProfile = vi.fn(async (profileId: string) => {
+      activeSwitches++;
+      maxActiveSwitches = Math.max(maxActiveSwitches, activeSwitches);
+      switchedProfiles.push(profileId);
+      if (profileId === 'dev') await devBlocked;
+      activeSwitches--;
+    });
+
+    h.ctx.settings.activeProfileId = 'dev';
+    const devRebuild = h.settings.rebuildClient(false);
+    await vi.waitFor(() => expect(switchedProfiles).toContain('dev'));
+
+    h.ctx.settings.activeProfileId = 'prod';
+    const prodRebuild = h.settings.rebuildClient(false);
+    await Promise.resolve();
+    expect(switchedProfiles).not.toContain('prod');
+
+    releaseDev();
+    await Promise.all([devRebuild, prodRebuild]);
+
+    expect(maxActiveSwitches).toBe(1);
+    expect(switchedProfiles).toEqual(['dev', 'prod']);
+    expect(h.ctx.client.serverUrl).toContain('prod.x.de');
   });
 });
 

@@ -52,6 +52,15 @@ async function setupHarness(opts: { windowIdResolver: () => Promise<{ id?: numbe
   return { state, sentMessages, fakePort };
 }
 
+function expectHello(message: InspectorMessage | undefined, windowId: number): void {
+  expect(message).toMatchObject({
+    type: 'PANEL_HELLO',
+    windowId,
+    panelIncarnation: expect.any(String),
+    panelCreatedAt: expect.any(Number),
+  });
+}
+
 describe('PANEL_HELLO is always first on the wire', () => {
   it('queues sendMessage calls made BEFORE PANEL_HELLO is sent', async () => {
     // Manual control over when windowIdReady resolves — we want
@@ -72,9 +81,23 @@ describe('PANEL_HELLO is always first on the wire', () => {
     await flushMicrotasks();
 
     // PANEL_HELLO landed first; queued messages flushed in order.
-    expect(h.sentMessages[0]).toEqual({ type: 'PANEL_HELLO', windowId: 42 });
+    expectHello(h.sentMessages[0], 42);
     expect(h.sentMessages[1]).toEqual({ type: 'GET_PAGE_INFO' });
     expect(h.sentMessages[2]).toEqual({ type: 'GET_SETTINGS' });
+  });
+
+  it('never queues a one-shot action across the PANEL_HELLO boundary', async () => {
+    let resolveWindow!: (v: { id: number }) => void;
+    const windowPromise = new Promise<{ id: number }>(r => { resolveWindow = r; });
+    const h = await setupHarness({ windowIdResolver: () => windowPromise });
+
+    h.state.connectPanel();
+    h.state.sendMessage({ type: 'TOGGLE_INSPECT' } as InspectorMessage);
+    resolveWindow({ id: 42 });
+    await flushMicrotasks();
+
+    expect(h.sentMessages).toHaveLength(1);
+    expectHello(h.sentMessages[0], 42);
   });
 
   it('lets messages flow normally after PANEL_HELLO is sent', async () => {
@@ -106,7 +129,7 @@ describe('PANEL_HELLO is always first on the wire', () => {
 
     h.state.connectPanel();
     await flushMicrotasks();
-    expect(h.sentMessages[0]).toEqual({ type: 'PANEL_HELLO', windowId: 100 });
+    expectHello(h.sentMessages[0], 100);
   });
 
   it('messages sent while port is disconnected still flush behind PANEL_HELLO', async () => {
@@ -114,26 +137,68 @@ describe('PANEL_HELLO is always first on the wire', () => {
     // user clicks something while SW is dead. Without the fix, the
     // ReconnectingPort's outer queue would flush those messages on
     // reconnect BEFORE the panel re-sent PANEL_HELLO.
-    const h = await setupHarness({ windowIdResolver: async () => ({ id: 42 }) });
+    vi.useFakeTimers();
+    try {
+      const h = await setupHarness({ windowIdResolver: async () => ({ id: 42 }) });
+      h.state.connectPanel();
+      await flushMicrotasks();
+      expectHello(h.sentMessages[0], 42);
+      h.sentMessages.length = 0;
+
+      const disconnectListeners = h.fakePort.onDisconnect.addListener.mock.calls.map((c: any[]) => c[0]);
+      for (const listener of disconnectListeners) listener();
+      h.state.sendMessage({ type: 'GET_PAGE_INFO' } as InspectorMessage);
+      expect(h.sentMessages).toHaveLength(0);
+
+      await vi.advanceTimersByTimeAsync(200);
+      await flushMicrotasks();
+
+      expectHello(h.sentMessages[0], 42);
+      expect(h.sentMessages[1]).toEqual({ type: 'GET_PAGE_INFO' });
+      expect(h.sentMessages.filter(m => m.type === 'GET_PAGE_INFO')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not clear a queued batch when HELLO loses the port race', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveWindow!: (v: { id: number }) => void;
+      const windowPromise = new Promise<{ id: number }>(r => { resolveWindow = r; });
+      const h = await setupHarness({ windowIdResolver: () => windowPromise });
+      h.state.connectPanel();
+      h.state.sendMessage({ type: 'GET_SETTINGS' } as InspectorMessage);
+
+      const disconnectListeners = h.fakePort.onDisconnect.addListener.mock.calls.map((c: any[]) => c[0]);
+      for (const listener of disconnectListeners) listener();
+      resolveWindow({ id: 42 });
+      await flushMicrotasks();
+      expect(h.sentMessages).toHaveLength(0);
+
+      await vi.advanceTimersByTimeAsync(200);
+      await flushMicrotasks();
+
+      expectHello(h.sentMessages[0], 42);
+      expect(h.sentMessages[1]).toEqual({ type: 'GET_SETTINGS' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('settles dropped work immediately instead of starting a busy state', async () => {
+    let resolveWindow!: (v: { id: number }) => void;
+    const windowPromise = new Promise<{ id: number }>(r => { resolveWindow = r; });
+    const h = await setupHarness({ windowIdResolver: () => windowPromise });
+    const statuses: Array<{ text: string; working: boolean }> = [];
+    h.state.onWorkStatus(status => statuses.push(status));
+
     h.state.connectPanel();
+    expect(h.state.sendMessage({ type: 'CONNECTION_TEST' })).toBe(false);
+    expect(statuses).toEqual([{ text: 'Connection interrupted — retry', working: false }]);
+
+    resolveWindow({ id: 42 });
     await flushMicrotasks();
-    // PANEL_HELLO landed on initial connect.
-    expect(h.sentMessages[0]).toEqual({ type: 'PANEL_HELLO', windowId: 42 });
-    h.sentMessages.length = 0;
-
-    // Simulate SW disconnect: the panel state's enqueueOnDisconnect is
-    // wired into createReconnectingPort. We can drive it by reaching
-    // into the fake port and triggering its onDisconnect listener,
-    // then calling sendMessage on the now-disconnected port.
-    const disconnectListeners = h.fakePort.onDisconnect.addListener.mock.calls.map((c: any[]) => c[0]);
-    for (const listener of disconnectListeners) listener();
-
-    // sendMessage now should NOT reach the port (port is null
-    // internally to ReconnectingPort) and should route through our
-    // preHelloQueue path. We can't observe queueing directly without
-    // reaching into internals, so assert nothing went on the wire.
-    h.state.sendMessage({ type: 'GET_PAGE_INFO' } as InspectorMessage);
-    expect(h.sentMessages).toHaveLength(0);
   });
 
   it('retires a superseded panel without entering the reconnect loop', async () => {

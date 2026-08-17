@@ -3,7 +3,7 @@
  *
  * Validates:
  * 1. rebuildClient() does NOT broadcast RE_ENRICH
- * 2. runAuthTest() broadcasts RE_ENRICH only AFTER auth succeeds
+ * 2. runAuthTest() broadcasts RE_ENRICH only after a confirmed incident recovers
  * 3. Fast-path uses refreshAuth() (not unauthenticated health check)
  * 4. absorbAuth() persists tokens to session storage
  */
@@ -145,14 +145,14 @@ describe('rebuildClient does not broadcast RE_ENRICH', () => {
   });
 });
 
-describe('runAuthTest broadcasts RE_ENRICH after success', () => {
+describe('runAuthTest broadcasts RE_ENRICH after confirmed recovery', () => {
   beforeEach(() => {
     mockChromeStorage();
     setSwContext(makeCtx());
     resetConnectionState();
   });
 
-  it('broadcasts RE_ENRICH after the active client command probe succeeds', async () => {
+  it('does not invalidate enrichment on a first successful command probe', async () => {
     const ctx = makeCtx();
     const testConnection = vi.fn().mockResolvedValue({
       ok: true, message: 'Authenticated and command channel ready', authenticated: true,
@@ -173,12 +173,30 @@ describe('runAuthTest broadcasts RE_ENRICH after success', () => {
 
     expect(testConnection).toHaveBeenCalledTimes(1);
 
-    // RE_ENRICH should have been broadcast
+    // First-ever success is not a recovery from an incident.
     const reEnrichMessages = ctx.broadcastedMessages.filter(m => m.type === 'RE_ENRICH');
-    expect(reEnrichMessages).toHaveLength(1);
+    expect(reEnrichMessages).toHaveLength(0);
 
-    // Activity log should show connected
-    expect(ctx.activityLog.some(e => e.level === 'success' && e.message.includes('Connected'))).toBe(true);
+    expect(ctx.activityLog.some(e => e.level === 'success' && e.message.includes('Connection test passed'))).toBe(true);
+  });
+
+  it('broadcasts RE_ENRICH once after a confirmed command incident recovers', async () => {
+    const ctx = makeCtx();
+    const testConnection = vi.fn()
+      .mockResolvedValueOnce({ ok: false, message: 'socket failed', authenticated: true })
+      .mockResolvedValueOnce({ ok: true, message: 'ready', authenticated: true });
+    ctx.client = {
+      jwt: 'new-jwt', commandUser: 'admin', testConnection,
+      applyVersionFlags: vi.fn(), supportsLookup: true,
+    } as any;
+    setSwContext(ctx);
+    vi.spyOn(BmpClient, 'getBuildNumber').mockResolvedValue('5.6.7.2');
+
+    await runAuthTest('background');
+    await runAuthTest('background');
+
+    expect(ctx.broadcastedMessages.filter(m => m.type === 'RE_ENRICH')).toHaveLength(1);
+    expect(ctx.activityLog.filter(e => e.message.includes('Connected to'))).toHaveLength(1);
   });
 
   it('authenticated command failure does not broadcast RE_ENRICH', async () => {
@@ -274,7 +292,7 @@ describe('no concurrent logins (race condition prevention)', () => {
     resetConnectionState();
   });
 
-  it('deduplicates concurrent probes and broadcasts only after the probe completes', async () => {
+  it('deduplicates concurrent first probes without manufacturing a recovery broadcast', async () => {
     const ctx = makeCtx();
     const events: string[] = [];
 
@@ -308,7 +326,6 @@ describe('no concurrent logins (race condition prevention)', () => {
     expect(events).toEqual([
       'probe:start',
       'probe:done',
-      'RE_ENRICH:broadcast',
     ]);
   });
 });

@@ -15,7 +15,7 @@ export * from './type-registry';
 
 /** Unified connection state — single source of truth for health + auth */
 export interface ConnectionState {
-  display: 'not-configured' | 'checking' | 'reconnecting' | 'connected' | 'online' | 'command-failed' | 'auth-failed' | 'server-down' | 'unreachable' | 'needs-login' | 'no-config-access' | 'needs-access';
+  display: 'not-configured' | 'checking' | 'reconnecting' | 'connected' | 'online' | 'identity-mismatch' | 'command-failed' | 'auth-failed' | 'server-down' | 'unreachable' | 'needs-login' | 'no-config-access' | 'needs-access';
   /** Verified portal and Configuration Studio actors. */
   identities: IdentityMap;
   version: string | null;
@@ -27,6 +27,18 @@ export interface ConnectionState {
   authError: string | null;
   networkOffline: boolean;
   lastUpdate: number;
+  /** Validation is quiet metadata. A matching confirmed display remains in
+   * place while stale evidence is checked. */
+  validation?: 'idle' | 'validating';
+  /** Time of the latest confirmed command/reachability evidence. */
+  verifiedAt?: number | null;
+  /** Changes only when the semantic projection changes; timestamps alone do
+   * not churn panel/content/storage publications. */
+  semanticRevision?: number;
+  /** Epoch of the currently active confirmed incident, or 0 when healthy. */
+  incidentEpoch?: number;
+  /** Latest incident epoch that subsequently recovered, or 0. */
+  recoveryEpoch?: number;
   /** Active profile + resolved server identity. Writable views retain this
    * token and the service worker rejects saves after an environment switch. */
   environment?: string;

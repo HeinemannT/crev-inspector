@@ -7,7 +7,7 @@ import { getCtx } from '../sw-context';
 import { clearAllContextRids } from '../context-rid';
 import { invalidateColorSets } from '../color-set-cache';
 import { saveSettings, rebuildClient, setManualOverride, snapshotSettings, evictPooledClient, fireProfileSwitch } from '../settings';
-import { computeConnectionState, pushConnectionState, runAuthTest } from '../connection';
+import { computeConnectionState, validateConnection } from '../connection';
 import { reconcileProfileOrigins } from '../site-access';
 import { log } from '../logger';
 
@@ -110,6 +110,7 @@ register('SET_ACTIVE_PROFILE', async (msg, respond) => {
     ctx.blueprintActiveByWindow.clear(); ctx.blueprintTabByWindow.clear(); ctx.persistBlueprintState(); // blueprint is bound to the old env's page — drop it (+ clear the persisted copy)
     invalidateColorSets(); // colours are per-workspace — drop the SW cache so the new profile refetches
     await rebuildClient(true);
+    if (ctx.settings.activeProfileId !== msg.profileId) return;
     respond({ type: 'SETTINGS_DATA', settings: ctx.settings });
     snapshotSettings();
     if (profile) {
@@ -122,10 +123,9 @@ register('SET_ACTIVE_PROFILE', async (msg, respond) => {
 });
 
 register('CONNECTION_TEST', () => {
-  void runAuthTest();
+  void validateConnection('explicit');
 });
 
 register('GET_CONNECTION_STATE', (_msg, respond) => {
   respond({ type: 'CONNECTION_STATE', state: computeConnectionState() });
-  pushConnectionState();
 });

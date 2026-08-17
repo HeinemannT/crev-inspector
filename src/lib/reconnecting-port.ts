@@ -7,7 +7,7 @@
  * flush on reconnect. The two only differ in:
  *   - which message types are worth queuing
  *   - how to merge consecutive enqueues of the same type
- *   - what to do after a delayed reconnect (e.g. fade overlay labels)
+ *   - what to do after a successful reconnect
  *
  * All three are caller hooks. The lifecycle is owned here.
  */
@@ -15,6 +15,7 @@
 import type { InspectorMessage } from './types';
 import { log } from './logger';
 import { RECONNECT_INITIAL_DELAY, RECONNECT_MAX_DELAY } from './constants';
+import { traceConnectionDiagnostic } from './connection-trace';
 
 export interface ReconnectingPortOptions {
   /** chrome.runtime.connect({ name }) */
@@ -55,6 +56,10 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
   let reconnectDelay = RECONNECT_INITIAL_DELAY;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let destroyed = false;
+  let attemptGeneration = 0;
+  let hasConnected = false;
+  let reconnectWasDelayed = false;
+  let bfcachePaused = false;
 
   const isInvalidated = (value: unknown): boolean => {
     const message = value instanceof Error
@@ -65,22 +70,22 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
     return /extension context invalidated/i.test(message);
   };
 
-  function scheduleReconnect(reason: 'initial' | 'disconnect'): void {
-    if (destroyed) return;
-    const wasDelayed = reconnectDelay > RECONNECT_INITIAL_DELAY;
-    if (reconnectTimer) clearTimeout(reconnectTimer);
+  function scheduleReconnect(): void {
+    if (destroyed || bfcachePaused || reconnectTimer) return;
+    reconnectWasDelayed ||= reconnectDelay > RECONNECT_INITIAL_DELAY;
     reconnectTimer = setTimeout(() => {
-      connect();
-      if (reason === 'disconnect') opts.onReconnect?.({ wasDelayed });
+      reconnectTimer = undefined;
+      connect(true);
     }, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_DELAY);
   }
 
-  function connect(): void {
-    if (destroyed) return;
+  function connect(isReconnect = false): void {
+    if (destroyed || bfcachePaused) return;
+    const generation = ++attemptGeneration;
+    let candidate: chrome.runtime.Port;
     try {
-      port = chrome.runtime.connect({ name: opts.name });
-      reconnectDelay = RECONNECT_INITIAL_DELAY;
+      candidate = chrome.runtime.connect({ name: opts.name });
     } catch (e) {
       // chrome.runtime.connect can throw synchronously during SW restart or
       // extension reload. Without rescheduling, portInstance stays non-null
@@ -89,39 +94,56 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
       // An old content-script world can never reconnect after an extension reload. The newly injected
       // world owns the replacement port, so stop this instance instead of retrying forever.
       if (isInvalidated(e)) { destroy(); return; }
-      scheduleReconnect('initial');
+      scheduleReconnect();
       return;
     }
 
-    port.onMessage.addListener((msg: InspectorMessage) => opts.onMessage(msg));
+    port = candidate;
+    candidate.onMessage.addListener((msg: InspectorMessage) => {
+      if (!destroyed && generation === attemptGeneration && port === candidate) opts.onMessage(msg);
+    });
 
-    // Flush queued messages
-    while (queue.length > 0 && port) {
-      const msg = queue.shift()!;
-      try { port.postMessage(msg); }
-      catch (e) { log.swallow(`${ctx}:flush`, e); port = null; break; }
-    }
-
-    // The catch above can null `port` mid-flush; bail if so.
-    if (!port) return;
-    port.onDisconnect.addListener(() => {
-      // Chrome surfaces an unchecked `runtime.lastError` to the console
-      // when a port closes due to: extension reload, SW restart, OR the
-      // page entering bfcache. Touching the property clears it without
-      // logging anything — we don't actually care which of the three
-      // happened; the reconnect path covers all of them. Without this
-      // read, users see
-      //   "Unchecked runtime.lastError: The page keeping the extension
-      //    port is moved into back/forward cache, so the message
-      //    channel is closed"
-      // whenever the browser caches the BMP tab via back/forward.
+    candidate.onDisconnect.addListener(() => {
+      // Every callback is bound to its concrete Port + attempt. A late
+      // disconnect from a superseded attempt must not null or reconnect the
+      // current one.
+      if (destroyed || generation !== attemptGeneration || port !== candidate) return;
       let disconnectError: unknown;
       try { disconnectError = chrome.runtime.lastError; }
       catch (e) { if (isInvalidated(e)) { destroy(); return; } }
       if (isInvalidated(disconnectError)) { destroy(); return; }
       port = null;
-      scheduleReconnect('disconnect');
+      traceConnectionDiagnostic({ source: 'port', portName: opts.name, attempt: generation, decision: 'disconnect:retry' });
+      scheduleReconnect();
     });
+
+    // Flush queued messages
+    while (queue.length > 0 && port === candidate) {
+      const msg = queue.shift()!;
+      try { candidate.postMessage(msg); }
+      catch (e) {
+        log.swallow(`${ctx}:flush`, e);
+        queue.unshift(msg);
+        if (port === candidate) port = null;
+        if (isInvalidated(e)) { destroy(); return; }
+        scheduleReconnect();
+        return;
+      }
+    }
+
+    // Readiness for this primitive means listeners are attached and the
+    // declared idempotent queue flushed successfully. Reset backoff only here,
+    // never merely because runtime.connect() returned a Port object.
+    if (destroyed || generation !== attemptGeneration || port !== candidate) return;
+    reconnectDelay = RECONNECT_INITIAL_DELAY;
+    traceConnectionDiagnostic({ source: 'port', portName: opts.name, attempt: generation, decision: 'ready' });
+    const notifyReconnect = hasConnected || isReconnect;
+    hasConnected = true;
+    if (notifyReconnect) {
+      const wasDelayed = reconnectWasDelayed;
+      reconnectWasDelayed = false;
+      opts.onReconnect?.({ wasDelayed });
+    }
   }
 
   function send(msg: InspectorMessage): boolean {
@@ -130,8 +152,12 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
       try { port.postMessage(msg); return true; }
       catch (e) {
         log.swallow(`${ctx}:send`, e);
+        const failedPort = port;
         port = null;
+        attemptGeneration++;
         if (isInvalidated(e)) { destroy(); return false; }
+        try { failedPort.disconnect(); } catch { /* already gone */ }
+        scheduleReconnect();
       }
     }
     // Port is down — let the caller decide whether to queue
@@ -144,22 +170,17 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
 
   // ── bfcache lifecycle (proactive close + restore) ──────────────
   //
-  // An open chrome.runtime port disqualifies the page from bfcache, so
-  // Chrome force-closes the port AND logs an unchecked-lastError to the
-  // user's console when it moves the page into the cache. The
-  // `void chrome.runtime.lastError` above silences the message AFTER
-  // the fact; the listeners below preempt the close ourselves so the
-  // bfcache transition is graceful from both Chrome's and our side.
-  //
-  // `pagehide` with `persisted === true` is Chrome's "I'm about to
-  // bfcache this page" signal. Tear down the port voluntarily —
-  // saves Chrome the forced-close + warning. We still get
-  // onDisconnect → scheduleReconnect, but the reconnect timer
-  // is paused with the rest of the page until pageshow.
+  // Chrome 123+ closes extension channels when a page enters BFCache. Pause
+  // retries on pagehide and make persisted pageshow the single reconnect
+  // owner, so a resumed timer and the lifecycle event cannot double-connect.
   const onPageHide = (e: PageTransitionEvent) => {
     if (!e.persisted) return;
-    try { port?.disconnect(); } catch { /* port already gone */ }
+    bfcachePaused = true;
+    attemptGeneration++;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = undefined; }
+    const hiddenPort = port;
     port = null;
+    try { hiddenPort?.disconnect(); } catch { /* port already gone */ }
   };
   // `pageshow` with `persisted === true` fires when the page comes
   // BACK from bfcache. Frozen timers resume, but we kick the
@@ -167,11 +188,12 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
   // "disconnected" state for the leftover delay.
   const onPageShow = (e: PageTransitionEvent) => {
     if (!e.persisted) return;
-    if (port) return; // already reconnected somehow
-    if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (!bfcachePaused || port) return;
+    bfcachePaused = false;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = undefined; }
     reconnectDelay = RECONNECT_INITIAL_DELAY;
-    connect();
-    opts.onReconnect?.({ wasDelayed: false });
+    reconnectWasDelayed = false;
+    connect(true);
   };
   // Wrapped in a `typeof addEventListener === 'function'` check so this
   // file stays usable in worker contexts (the SW imports the same
@@ -184,6 +206,7 @@ export function createReconnectingPort(opts: ReconnectingPortOptions): Reconnect
 
   function destroy(): void {
     destroyed = true;
+    attemptGeneration++;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = undefined; }
     try { port?.disconnect(); } catch { /* already gone */ }
     port = null;

@@ -21,14 +21,17 @@ function cookieInfo(opts: { cause: string; removed: boolean; name?: string }): c
   } as unknown as chrome.cookies.CookieChangeInfo;
 }
 
-async function setup(opts: { authMode: CommandAuthMode; cookieStillPresent: boolean }) {
+async function setup(opts: { authMode: CommandAuthMode; cookieStillPresent: boolean; cookieLookupRejects?: boolean }) {
   vi.resetModules();
   vi.clearAllMocks();
   mockChromeStorage();
   if (!('navigator' in globalThis)) (globalThis as any).navigator = { onLine: true };
   else (globalThis as any).navigator.onLine = true;
   (globalThis.chrome as any).cookies = {
-    get: vi.fn(async () => (opts.cookieStillPresent ? { name: 'JSESSIONID', value: 'x' } : null)),
+    get: vi.fn(async () => {
+      if (opts.cookieLookupRejects) throw new Error('cookies API unavailable');
+      return opts.cookieStillPresent ? { name: 'JSESSIONID', value: 'x' } : null;
+    }),
   };
 
   const profile: ServerProfile = {
@@ -79,6 +82,12 @@ describe('handleSessionCookieRemoved', () => {
     const { settingsMod, removeSpy } = await setup({ authMode: 'portal', cookieStillPresent: true });
     await settingsMod.handleSessionCookieRemoved(cookieInfo({ removed: true, cause: 'explicit' }));
     expect(removeSpy).not.toHaveBeenCalledWith(KEY);
+  });
+
+  it('does NOT tear down when cookie observation rejects', async () => {
+    const { settingsMod, removeSpy } = await setup({ authMode: 'portal', cookieStillPresent: false, cookieLookupRejects: true });
+    await settingsMod.handleSessionCookieRemoved(cookieInfo({ removed: true, cause: 'explicit' }));
+    expect(removeSpy).not.toHaveBeenCalled();
   });
 
   it('ignores non-JSESSIONID cookies and add events', async () => {

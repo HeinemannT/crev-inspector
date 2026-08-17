@@ -31,6 +31,11 @@ function readManifest(): Record<string, unknown> {
 }
 
 describe('manifest CSP frame-ancestors', () => {
+  it('declares the Chromium floor required by AbortSignal.any', () => {
+    const manifest = readManifest();
+    expect(manifest.minimum_chrome_version).toBe('116');
+  });
+
   it('extension_pages CSP permits http(s) ancestors so overlays embed in the BMP host page', () => {
     const manifest = readManifest();
     const csp = manifest.content_security_policy as { extension_pages: string; sandbox: string };

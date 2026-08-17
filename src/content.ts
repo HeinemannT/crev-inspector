@@ -6,6 +6,8 @@
 import type { InspectorMessage, ConnectionState, WidgetInfo, PaintPhase, PageContext, EditPageContext } from './lib/types';
 import { setCurrentIdentities } from './lib/command-actor';
 import { unknownIdentityMap } from './lib/identity-map';
+import { nextConnectionNotification } from './lib/connection-notification';
+import { traceConnectionDiagnostic } from './lib/connection-trace';
 import { extractUrlRids, scanPageWidgets, detectBmpPage, findTabButton, isTabActive } from './lib/dom-scanner';
 import { resolvePageContext } from './lib/page-context';
 import { h } from './lib/dom';
@@ -267,20 +269,24 @@ function injectStyles() {
 
 function handleConnectionState(state: ConnectionState) {
   setCurrentIdentities(state.identities ?? unknownIdentityMap());
-  const prev = s.prevConnDisplay;
   s.prevConnDisplay = state.display;
   s.environment = state.environment ?? null;
 
-  if (prev !== null && prev !== state.display) {
-    if (state.display === 'connected' && prev !== 'connected') {
-      showToast(`Connected to ${state.profileLabel ?? 'server'}`, 'success');
-    } else if (state.display === 'auth-failed' && prev !== 'auth-failed') {
-      showToast('Auth failed', 'error');
-    } else if (state.display === 'unreachable' && prev !== 'unreachable') {
-      showToast('Server unreachable', 'error');
-    } else if (state.display === 'server-down' && prev !== 'server-down') {
-      showToast('Server down', 'error');
-    }
+  const projected = nextConnectionNotification(state, {
+    initialized: s.connectionEpochsSeen,
+    incidentEpoch: s.lastIncidentEpoch,
+    recoveryEpoch: s.lastRecoveryEpoch,
+  });
+  s.connectionEpochsSeen = projected.cursor.initialized;
+  s.lastIncidentEpoch = projected.cursor.incidentEpoch;
+  s.lastRecoveryEpoch = projected.cursor.recoveryEpoch;
+  if (projected.notification) {
+    traceConnectionDiagnostic({
+      source: 'content-notification',
+      semanticRevision: state.semanticRevision,
+      decision: `${projected.notification.kind}:${state.incidentEpoch ?? 0}:${state.recoveryEpoch ?? 0}`,
+    });
+    showToast(projected.notification.text, projected.notification.kind);
   }
 }
 

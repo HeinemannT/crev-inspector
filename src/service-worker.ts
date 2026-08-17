@@ -18,7 +18,8 @@ import { BUILD_ID } from './lib/build-info';
 
 // Modules
 import { loadTabDetection, getTabDetection } from './lib/detection';
-import { computeConnectionState, ensureConnectionMonitoring, stopHealthPolling, pollHealth } from './lib/connection';
+import { computeConnectionState, ensureConnectionMonitoring, stopHealthPolling, pollHealth, validateConnection } from './lib/connection';
+import { shouldAcceptPanelClaim, type PanelClaim } from './lib/panel-ownership';
 import { restoreActivity, logActivity } from './lib/activity';
 import { createSettingsReady, loadSettingsFrom, onProfileSwitch, handleSessionCookieRemoved } from './lib/settings';
 import { registerTabListeners, sendPageInfoToPanel } from './lib/tab-awareness';
@@ -64,6 +65,10 @@ const contentPorts = new Map<number, chrome.runtime.Port>();
 // `panelPort` made the second connect silently steal the first panel's
 // channel, which is the bug this Map fixes.
 const panelPortByWindow = new Map<number, chrome.runtime.Port>();
+// Retained across transient port disconnects so an older document cannot
+// reclaim the window during the newer document's reconnect delay. A genuinely
+// reopened panel has a later creation timestamp; window teardown clears it.
+const panelClaimByWindow = new Map<number, PanelClaim>();
 // Reverse lookup so the disconnect handler can find which windowId a
 // disconnecting port was attached to (Chrome doesn't give us the windowId
 // in the disconnect event).
@@ -278,6 +283,7 @@ chrome.windows.onRemoved.addListener((id) => {
   const hadBp = blueprintActiveByWindow.delete(id);
   const hadTab = blueprintTabByWindow.delete(id);
   if (hadBp || hadTab) persistBlueprintState();
+  panelClaimByWindow.delete(id);
 });
 
 // ── Context menus ──────────────────────────────────────────────
@@ -496,18 +502,24 @@ function initContentPort(port: chrome.runtime.Port, tabId: number | undefined) {
 function initPanelPort(port: chrome.runtime.Port) {
   port.onMessage.addListener((msg: InspectorMessage) => {
     if (msg.type === 'PANEL_HELLO') {
-      const { windowId } = msg;
+      const { windowId, panelIncarnation, panelCreatedAt } = msg;
       // A second document can exist for one window (for example a stale
       // extension page beside Chrome's real side panel). Force-disconnecting
       // the previous port is unsafe: its reconnecting client returns after
       // 200 ms, steals the slot, and disconnects this port in turn. Retire the
       // old client explicitly and let it disconnect itself without retrying.
       const prev = panelPortByWindow.get(windowId);
+      const incomingClaim = { panelIncarnation, panelCreatedAt };
+      if (!shouldAcceptPanelClaim(panelClaimByWindow.get(windowId), incomingClaim)) {
+        safeSend(port, { type: 'PANEL_SUPERSEDED' });
+        return;
+      }
       if (prev && prev !== port) {
         portToWindowId.delete(prev);
         safeSend(prev, { type: 'PANEL_SUPERSEDED' });
       }
       panelPortByWindow.set(windowId, port);
+      panelClaimByWindow.set(windowId, incomingClaim);
       portToWindowId.set(port, windowId);
 
       void settingsReady.then(() => {
@@ -597,7 +609,7 @@ chrome.commands.onCommand.addListener((command) => {
 
 // ── Network state change → immediate re-poll ────────────────────
 
-self.addEventListener('online', () => { void pollHealth(true); });
+self.addEventListener('online', () => { if (ctx.hasPanel) void validateConnection('evidence-change'); else void pollHealth(true); });
 self.addEventListener('offline', () => { void pollHealth(true); });
 
 // ── One-shot message handler ────────────────────────────────────

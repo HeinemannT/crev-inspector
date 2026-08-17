@@ -337,7 +337,7 @@ function buildApp(): void {
 
   // 'needs-login' is recoverable in place (log into BMP, then retry), so it
   // gets the prominent Reconnect button alongside the hard-error states.
-  const isError = ['unreachable', 'server-down', 'auth-failed', 'needs-login', 'no-config-access', 'needs-access'].includes(S.connState.display);
+  const isError = ['unreachable', 'server-down', 'identity-mismatch', 'auth-failed', 'needs-login', 'no-config-access', 'needs-access'].includes(S.connState.display);
   // The connection strip lives ONLY on the Connect tab, and only when NOT cleanly connected — once
   // connected, each server row carries its own inline status, so the strip would just repeat it. It
   // stays for error/checking states because that's where the Reconnect/Test actions matter. (switchTab
@@ -401,8 +401,7 @@ function buildApp(): void {
     },
     test: () => {
       const btn = document.querySelector('#status-strip .status-strip-btn');
-      if (btn) btn.classList.add('spinning');
-      sendMessage({ type: 'CONNECTION_TEST' });
+      if (sendMessage({ type: 'CONNECTION_TEST' }) && btn) btn.classList.add('spinning');
     },
     reconnect: () => sendMessage({ type: 'CONNECTION_TEST' }),
   });
@@ -464,7 +463,7 @@ function statusDotClass(): string {
     case 'reconnecting': return 'warn';
     case 'needs-login': return 'warn';
     case 'unreachable': return S.connState.networkOffline ? 'warn' : 'fail';
-    case 'server-down': case 'command-failed': case 'auth-failed': case 'no-config-access': return 'fail';
+    case 'server-down': case 'identity-mismatch': case 'command-failed': case 'auth-failed': case 'no-config-access': return 'fail';
     case 'needs-access': return 'warn';
     case 'not-configured': case 'checking': return '';
     default: { const _e: never = S.connState.display; void _e; return ''; }
@@ -486,6 +485,7 @@ function statusText(): string {
     case 'reconnecting': return 'Reconnecting\u2026';
     case 'connected': return S.connState.profileLabel ?? 'Connected';
     case 'online': return 'Online';
+    case 'identity-mismatch': return 'User mismatch';
     case 'command-failed': return 'Command connection lost';
     case 'needs-login': return 'Log into BMP';
     case 'no-config-access': return 'No config access';
@@ -514,7 +514,7 @@ function statusStripClass(): string {
     case 'reconnecting': return 'offline';
     case 'needs-login': return 'offline';
     case 'unreachable': return S.connState.networkOffline ? 'offline' : 'fail';
-    case 'server-down': case 'command-failed': case 'auth-failed': case 'no-config-access': return 'fail';
+    case 'server-down': case 'identity-mismatch': case 'command-failed': case 'auth-failed': case 'no-config-access': return 'fail';
     case 'needs-access': return 'warn';
     case 'not-configured': case 'checking': return '';
     default: { const _e: never = S.connState.display; void _e; return ''; }
@@ -542,6 +542,7 @@ function statusStripText(): string {
       return parts.join(' \u00b7 ');
     }
     case 'online': return 'Online (not authenticated)';
+    case 'identity-mismatch': return 'The BMP portal and command channel use different users. Reconnect after switching to the intended portal user.';
     case 'command-failed': return s.authError ?? 'The server is reachable, but BMP commands are not responding.';
     case 'needs-login': return 'Not logged in. Open BMP in a tab, log in, then retry.';
     case 'no-config-access': return 'Logged in, but this user has no Configuration Access role.';
@@ -570,7 +571,7 @@ function refreshStatusStrip() {
     // 'auth-failed' (wrong credentials) and 'no-config-access' (missing role)
     // can't be fixed by re-running the same auth — the button would be false
     // comfort, so the status text points at Edit profile / an admin instead.
-    const canRetest = ['unreachable', 'server-down', 'command-failed', 'needs-login'].includes(S.connState.display);
+    const canRetest = ['unreachable', 'server-down', 'identity-mismatch', 'command-failed', 'needs-login'].includes(S.connState.display);
     reconnect.classList.toggle('hidden', !canRetest);
   }
   const btn = strip.querySelector('.status-strip-btn');
@@ -824,7 +825,8 @@ void initialSessionState.then((result) => {
   // the slot since we can't constrain the union per-key.
   if (result.crev_settings_snapshot) S.settings = result.crev_settings_snapshot as typeof S.settings;
   if (result.crev_conn_snapshot) {
-    S.connState = provisionalConnectionSnapshot(result.crev_conn_snapshot as typeof S.connState);
+    const restored = provisionalConnectionSnapshot(result.crev_conn_snapshot, S.settings);
+    if (restored) S.connState = restored;
   }
   aiEnabled = computeAiEnabled();
   // A stored 'ai' active tab is only valid once configured.

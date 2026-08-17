@@ -84,13 +84,16 @@ describe('BMP type-knowledge message adapter', () => {
 
   it('includes persistent type knowledge in RESET_ALL', async () => {
     const clear = vi.fn();
+    const logActivity = vi.fn();
+    const toast = vi.fn();
     const { setSwContext } = await import('../../sw-context');
     setSwContext({
       settings: { activeProfileId: 'reset-profile' },
       cache: { clear },
       history: { clear: vi.fn() },
       scriptHistory: { clear: vi.fn() },
-      logActivity: vi.fn(),
+      logActivity,
+      toast,
       broadcastToContent: vi.fn(),
       sendToPanel: vi.fn(),
     } as never);
@@ -107,6 +110,8 @@ describe('BMP type-knowledge message adapter', () => {
       'crev_schema_cache_v2',
       'crev_root_category_cache_v1',
     ]);
+    expect(logActivity).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith('Extension state reset', 'success');
     expect(responses).toContainEqual({ type: 'CACHE_STATS', count: 0 });
   });
 });
