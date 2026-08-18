@@ -1,4 +1,9 @@
 import type { WidgetInfo } from './types';
+import {
+  ORGANISATION_NAV_PRESENTATION,
+  PAGE_NAV_PRESENTATION,
+  type OverlayPresentation,
+} from './overlay-presentation';
 
 /**
  * Scan the DOM for BMP elements containing RID information.
@@ -132,9 +137,49 @@ export function isTabActive(el: HTMLElement): boolean {
 }
 
 /** Result from scanning a DOM element for its RID */
-interface RidElement {
+interface RidElement extends OverlayPresentation {
   element: Element;
   rid: string;
+}
+
+function ridFromLink(link: HTMLAnchorElement | null): string | null {
+  if (!link) return null;
+  try {
+    const url = new URL(link.href, window.location.origin);
+    return url.searchParams.get('rid');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * BMP's breadcrumb is two semantic groups with identical link classes:
+ * organizations first, pages second. Compare each group's current link with
+ * the selected top-bar organization instead of treating every dropdown row as
+ * a page. The DOM-order fallback covers builds without the top-bar test hook.
+ */
+function portalNavigationPresentation(link: HTMLAnchorElement): Readonly<OverlayPresentation> | undefined {
+  if (!link.matches('.nav-bar-item-content, .dropdown-sibling-element')) return undefined;
+  const group = link.closest('.page-location-element');
+  // BMP's personal-page menu lives in the top bar rather than either
+  // breadcrumb group, but its entries use the same dropdown link class.
+  if (!group) {
+    return link.closest('.topbar-placeholder-menu') ? PAGE_NAV_PRESENTATION : undefined;
+  }
+
+  const currentOrganisationRid = ridFromLink(
+    document.querySelector<HTMLAnchorElement>('a.topbar-item-link[data-test="topbar-item-link"]'),
+  );
+  const groupRid = ridFromLink(group.querySelector<HTMLAnchorElement>('a.nav-bar-item-content'));
+  if (currentOrganisationRid && groupRid === currentOrganisationRid) {
+    return ORGANISATION_NAV_PRESENTATION;
+  }
+
+  const groups = Array.from(document.querySelectorAll('.page-location-element'));
+  if (!currentOrganisationRid && groups.length > 1 && groups.indexOf(group) === 0) {
+    return ORGANISATION_NAV_PRESENTATION;
+  }
+  return PAGE_NAV_PRESENTATION;
 }
 
 /** Find all elements with any RID data attribute */
@@ -157,10 +202,21 @@ function findDataRidElements(): RidElement[] {
 function findRidLinks(): RidElement[] {
   const results: RidElement[] = [];
   for (const link of document.querySelectorAll<HTMLAnchorElement>('a[href*="rid="]')) {
+    // The organization logo and label are two adjacent links to the same RID
+    // in BMP's global top bar. Badging both turns the brand into a pair of
+    // floating green tiles. The breadcrumb below remains inspectable.
+    if (link.matches('.topbar-item-link')) continue;
     try {
       const url = new URL(link.href, window.location.origin);
       const rid = url.searchParams.get('rid');
-      if (rid) results.push({ element: link, rid });
+      if (rid) {
+        const presentation = portalNavigationPresentation(link);
+        results.push({
+          element: link,
+          rid,
+          ...presentation,
+        });
+      }
     } catch {
       // Invalid URL
     }

@@ -17,6 +17,7 @@ import { mockChromeStorage } from './chrome-mock';
 import { ObjectCache } from '../object-cache';
 import type { InspectorSettings } from '../types';
 import type { AuthErrorCode } from '../bmp-auth';
+import type { BuildNumberProbeResult } from '../bmp-client';
 
 type TestConn = { ok: boolean; message: string; authenticated: boolean; code?: AuthErrorCode };
 
@@ -30,7 +31,7 @@ interface ConnHarness {
 }
 
 let healthResult = { up: false, reachable: false, responseMs: 0 };
-let buildNumber: string | null = null;
+let buildNumberResult: BuildNumberProbeResult = { status: 'unavailable' };
 let testConnResult: TestConn = { ok: true, message: 'Authenticated', authenticated: true };
 
 async function createHarness(opts: { withProfile?: boolean; withClient?: boolean } = {}): Promise<ConnHarness> {
@@ -48,7 +49,7 @@ async function createHarness(opts: { withProfile?: boolean; withClient?: boolean
 
   // Reset call-time state to defaults
   healthResult = { up: false, reachable: false, responseMs: 0 };
-  buildNumber = null;
+  buildNumberResult = { status: 'unavailable' };
   testConnResult = { ok: true, message: 'Authenticated', authenticated: true };
 
   // Set up the (now-fresh) sw-context for this test instance
@@ -60,7 +61,7 @@ async function createHarness(opts: { withProfile?: boolean; withClient?: boolean
     reachable: healthResult.reachable,
     responseMs: healthResult.responseMs ?? 0,
   }));
-  vi.spyOn(bmpModule.BmpClient, 'getBuildNumber').mockImplementation(async () => buildNumber);
+  vi.spyOn(bmpModule.BmpClient, 'getBuildNumber').mockImplementation(async () => buildNumberResult);
 
   const client = withClient ? new bmpModule.BmpClient('https://bmp.test/Workspace/', 'admin', 'pass', 'p1') : null;
   if (client) {
@@ -127,7 +128,9 @@ async function createHarness(opts: { withProfile?: boolean; withClient?: boolean
     ctx,
     conn,
     setHealthResult: (r) => { healthResult = { responseMs: 0, ...r }; },
-    setBuildNumber: (v) => { buildNumber = v; },
+    setBuildNumber: (v) => {
+      buildNumberResult = v ? { status: 'known', version: v } : { status: 'unavailable' };
+    },
     setTestConnection: (r) => { testConnResult = r; },
     setNavigatorOnline: (online) => { (globalThis as any).navigator.onLine = online; },
   };
@@ -446,6 +449,79 @@ describe('Blueprint version capability', () => {
     expect(h.ctx.client.supportsLookup).toBe(false);
     expect(h.conn.computeConnectionState().blueprintSupported).toBe(false);
   });
+
+  it('coalesces version discovery and retries an anonymous miss only after authentication', async () => {
+    const h = await createHarness();
+    h.setHealthResult({ up: true, reachable: true });
+    const getBuildNumber = vi.mocked((await import('../bmp-client')).BmpClient.getBuildNumber);
+    getBuildNumber
+      .mockResolvedValueOnce({ status: 'auth-required' })
+      .mockResolvedValueOnce({ status: 'unavailable' });
+
+    await Promise.all([h.conn.pollHealth(true), h.conn.pollHealth(true)]);
+    await vi.waitFor(() => expect(getBuildNumber).toHaveBeenCalledTimes(1));
+
+    await h.conn.pollHealth(true);
+    expect(getBuildNumber).toHaveBeenCalledTimes(1);
+
+    (h.ctx.client as any).auth.jwt = 'authenticated-jwt';
+    await h.conn.pollHealth(true);
+    await vi.waitFor(() => expect(getBuildNumber).toHaveBeenCalledTimes(2));
+    expect(getBuildNumber).toHaveBeenLastCalledWith(
+      'https://bmp.test/Workspace/',
+      'authenticated-jwt',
+    );
+
+    await h.conn.pollHealth(true);
+    expect(getBuildNumber).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries a transient version failure on a later health cycle', async () => {
+    const h = await createHarness();
+    h.setHealthResult({ up: true, reachable: true });
+    let now = 1_000;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const getBuildNumber = vi.mocked((await import('../bmp-client')).BmpClient.getBuildNumber);
+    getBuildNumber
+      .mockResolvedValueOnce({ status: 'transient' })
+      .mockResolvedValueOnce({ status: 'known', version: '5.6.2.9' });
+
+    await h.conn.pollHealth(true);
+    await vi.waitFor(() => expect(getBuildNumber).toHaveBeenCalledTimes(1));
+    await h.conn.pollHealth(true);
+    expect(getBuildNumber).toHaveBeenCalledTimes(1);
+
+    now += 31_000;
+    await h.conn.pollHealth(true);
+    await vi.waitFor(() => expect(h.ctx.client.supportsLookup).toBe(false));
+    expect(getBuildNumber).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
+  });
+
+  it('cannot let an old generation retry claim the active version probe', async () => {
+    const h = await createHarness();
+    h.setHealthResult({ up: true, reachable: true });
+    const bmp = await import('../bmp-client');
+    const getBuildNumber = vi.mocked(bmp.BmpClient.getBuildNumber);
+    let releaseOld!: (result: BuildNumberProbeResult) => void;
+    getBuildNumber
+      .mockImplementationOnce(() => new Promise(resolve => { releaseOld = resolve; }))
+      .mockResolvedValueOnce({ status: 'known', version: '5.6.2.9' });
+
+    await h.conn.pollHealth(true);
+    await vi.waitFor(() => expect(getBuildNumber).toHaveBeenCalledTimes(1));
+    (h.ctx.client as any).auth.jwt = 'old-jwt';
+    await h.conn.pollHealth(true);
+
+    h.conn.resetConnectionState();
+    h.ctx.client = new bmp.BmpClient('https://bmp.test/Workspace/', 'admin', 'pass', 'p1');
+    await h.conn.pollHealth(true);
+    await vi.waitFor(() => expect(getBuildNumber).toHaveBeenCalledTimes(2));
+
+    releaseOld({ status: 'auth-required' });
+    await vi.waitFor(() => expect(h.ctx.client.supportsLookup).toBe(false));
+    expect(getBuildNumber).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('normalizeUrl', () => {
@@ -472,6 +548,24 @@ describe('computeConnectionState — host-permission gate', () => {
     await h.conn.pollHealth();
     expect(h.conn.computeConnectionState().display).not.toBe('needs-access');
   });
+
+  it('publishes Online before a slow optional build-number lookup finishes', async () => {
+    const h = await createHarness();
+    (globalThis as any).chrome.permissions = { contains: vi.fn(async () => true) };
+    h.setHealthResult({ up: true, reachable: true, responseMs: 7 });
+    let releaseBuild!: (result: BuildNumberProbeResult) => void;
+    vi.mocked((await import('../bmp-client')).BmpClient.getBuildNumber)
+      .mockImplementationOnce(() => new Promise(resolve => { releaseBuild = resolve; }));
+
+    const poll = h.conn.pollHealth(true);
+    await vi.waitFor(() => expect(h.conn.computeConnectionState()).toMatchObject({
+      display: 'online',
+      responseMs: 7,
+    }));
+
+    releaseBuild({ status: 'known', version: '5.6.10.0' });
+    await poll;
+  });
 });
 
 describe('separated reachability and identity lifecycle', () => {
@@ -482,6 +576,29 @@ describe('separated reachability and identity lifecycle', () => {
     url: opts.url ?? 'https://bmp.test/Workspace/cs/authentication',
     json: async () => opts.user ? { userName: opts.user } : {},
   } as unknown as Response);
+
+  it('publishes command readiness before optional version discovery completes', async () => {
+    const h = await createHarness();
+    vi.stubGlobal('fetch', vi.fn(async () => portalResponse({ user: 'portal.a' })));
+    let releaseBuild!: (result: BuildNumberProbeResult) => void;
+    vi.mocked((await import('../bmp-client')).BmpClient.getBuildNumber)
+      .mockImplementationOnce(() => new Promise(resolve => { releaseBuild = resolve; }));
+    try {
+      await h.conn.runAuthTest('background');
+
+      expect(h.conn.computeConnectionState()).toMatchObject({
+        display: 'connected',
+        validation: 'idle',
+        identities: { command: { status: 'connected', user: 'admin' } },
+      });
+      const snapshot = (await chrome.storage.session.get('crev_conn_snapshot')).crev_conn_snapshot as
+        { state: { identities: { command: { user: string | null } } } };
+      expect(snapshot.state.identities.command.user).toBe('admin');
+    } finally {
+      releaseBuild({ status: 'known', version: '5.6.10.0' });
+      vi.unstubAllGlobals();
+    }
+  });
 
   it.each([false, true])('three healthy reachability cycles never re-authenticate or log out (panel=%s)', async (hasPanel) => {
     const h = await createHarness();
@@ -654,7 +771,7 @@ describe('separated reachability and identity lifecycle', () => {
             command: { status: 'connected', user: 'admin', source: 'portal-session' },
             sameUser: true,
           },
-          version: '5.6.3', responseMs: 12, profileLabel: 'P1', workspace: 'Workspace',
+          version: '5.6.2.9', responseMs: 12, profileLabel: 'P1', workspace: 'Workspace',
           authError: null, networkOffline: false, lastUpdate: now,
           validation: 'idle', verifiedAt: now, semanticRevision: 7,
           incidentEpoch: 0, recoveryEpoch: 0,
@@ -667,6 +784,8 @@ describe('separated reachability and identity lifecycle', () => {
 
     await h.conn.restoreConnectionEvidence();
     expect(h.conn.computeConnectionState().validation).toBe('validating');
+    expect(h.ctx.client.supportsLookup).toBe(false);
+    expect(h.conn.computeConnectionState().blueprintSupported).toBe(false);
     h.conn.ensureConnectionMonitoring();
 
     await vi.waitFor(() => expect(h.conn.computeConnectionState().validation).toBe('idle'));

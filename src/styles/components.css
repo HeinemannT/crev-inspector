@@ -580,6 +580,18 @@
 .bdg.xs .tile { padding: 0 4px; }
 .bdg.xs .tile svg { width: 11px; height: 11px; }
 .bdg.xs .lbl { padding: 0 6px; }
+.bdg.icon-only,
+.bdg.bdg-property.icon-only {
+  width: auto;
+  border-radius: var(--radius-sm);
+}
+.bdg.icon-only .tile,
+.bdg.bdg-property.icon-only .tile {
+  width: auto;
+  flex-basis: auto;
+  padding: 0 4px;
+}
+.bdg.icon-only .bdg-history { display: none; }
 
 /* Property objects remain standard `.bdg` identities with the same copy and
    activation behavior. The variant changes presentation only: a split capsule,

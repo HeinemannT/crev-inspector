@@ -19,15 +19,24 @@ import { sendToSW } from './lib/content-port';
 import { sendFireForget } from './lib/messaging';
 import { resolveDisplayIdentity } from './lib/object-identity';
 import type { CascadeTarget, ContentState } from './content-state';
+import {
+  resolvedOverlayType,
+  type OverlayPresentation,
+} from './lib/overlay-presentation';
 
-export interface AdditionalOverlayTarget {
+export interface AdditionalOverlayTarget extends OverlayPresentation {
   element: Element;
   rid: string;
-  labelClassName?: string;
   propertyTarget?: CascadeTarget;
 }
 
 const labelPropertyTargets = new WeakMap<HTMLElement, CascadeTarget>();
+
+function overlayVisualType(label: Element, objectType?: string): string | undefined {
+  return label instanceof HTMLElement && label.dataset.crevVisualType
+    ? label.dataset.crevVisualType
+    : objectType;
+}
 
 /** Is there room above `el` for an upward-overhanging edge pill (~11px), or
  *  would it be clipped? Clipping happens when the host sits flush against the
@@ -94,6 +103,7 @@ function renderLabelContent(
   enrichment?: { type?: string; businessId?: string; templateBusinessId?: string; name?: string; cascade?: { rid: string; businessId?: string; type?: string; name?: string } },
 ): void {
   const type = enrichment?.type;
+  const visualType = overlayVisualType(label, type);
 
   let stub = label.querySelector<HTMLElement>('.crev-stub');
   if (!stub) {
@@ -114,7 +124,7 @@ function renderLabelContent(
     tile.className = 'crev-tile';
     stub.prepend(tile);
   }
-  tile.replaceChildren(svg(typeIcon(type)));
+  tile.replaceChildren(svg(typeIcon(visualType)));
   if (historicalProperty) {
     const history = document.createElement('span');
     history.className = 'crev-history-indicator';
@@ -125,7 +135,7 @@ function renderLabelContent(
 
   const text = stub.querySelector<HTMLElement>('.crev-label-text');
   const display = resolveDisplayIdentity({ rid, ...enrichment });
-  if (text) text.textContent = display.primary || enrichment?.name || getTypeAbbr(type);
+  if (text) text.textContent = display.primary || enrichment?.name || getTypeAbbr(visualType);
 
   // Meta row — rebuilt every call so late enrichment can only ever add the
   // correct squares (never stale ones from a previous unknown-type render).
@@ -194,6 +204,10 @@ function renderLabelContent(
  *  overlaps neighbours or clips against the host's overflow. Degrade to the
  *  tile-only compact form when the stub outgrows its host. */
 function applyCompactMode(label: HTMLElement, host: HTMLElement): void {
+  if (label.dataset.crevCompact === 'true') {
+    label.classList.add('crev-label--compact');
+    return;
+  }
   label.classList.remove('crev-label--compact');
   const hostW = host.clientWidth;
   if (hostW > 0 && label.offsetWidth > hostW - 4) {
@@ -206,10 +220,21 @@ function applyCompactMode(label: HTMLElement, host: HTMLElement): void {
  * header identity share this exact renderer and gesture contract; placement is
  * deliberately left to the caller.
  */
-export function createIdentityLabel(s: ContentState, rid: string, className?: string, propertyTarget?: CascadeTarget): HTMLElement {
+export function createIdentityLabel(
+  s: ContentState,
+  rid: string,
+  presentation: OverlayPresentation = {},
+  propertyTarget?: CascadeTarget,
+): HTMLElement {
   const enrichment = s.enrichments.get(rid);
   const label = document.createElement('span');
-  label.className = ['crev-label', className].filter(Boolean).join(' ');
+  label.className = ['crev-label', presentation.labelClassName].filter(Boolean).join(' ');
+  if (presentation.visualType) label.dataset.crevVisualType = presentation.visualType;
+  if (presentation.compact) {
+    label.dataset.crevCompact = 'true';
+    label.classList.add('crev-label--compact');
+  }
+  if (presentation.placement === 'inline-start') label.classList.add('crev-label--inline-start');
   if (!enrichment) label.classList.add('crev-label-loading');
   label.setAttribute('data-crev-label', rid);
 
@@ -357,25 +382,26 @@ export function syncOverlays(s: ContentState, additionalTargets: readonly Additi
   const newElements = elements.filter(({ element }) => !s.badgedElements.has(element));
 
   // Write pass: apply DOM changes
-  for (const { element, rid, labelClassName, propertyTarget } of newElements) {
+  for (const { element, rid, labelClassName, visualType, placement, compact, propertyTarget } of newElements) {
     const enrichment = s.enrichments.get(rid);
-    const color = getTypeColor(enrichment?.type);
+    const presentation = { labelClassName, visualType, placement, compact } satisfies OverlayPresentation;
+    const color = getTypeColor(resolvedOverlayType(enrichment?.type, presentation));
 
     element.classList.add('crev-outline');
     (element as HTMLElement).style.setProperty('--crev-color', color);
 
-    const label = createIdentityLabel(s, rid, labelClassName, propertyTarget);
+    const label = createIdentityLabel(s, rid, presentation, propertyTarget);
 
     // Short, inline targets (breadcrumbs, nav links) are mostly text, so the
     // top-right corner pill lands on top of that text. Tag those to overhang
     // the top edge instead of covering content (see .crev-label--edge). Tall
     // widgets keep the in-corner placement — it sits in their header padding.
     const elHeight = (element as HTMLElement).offsetHeight;
-    if (
+    if (placement !== 'inline-start' && (
       labelClassName === 'crev-edit-field-label'
       || element.tagName === 'A'
       || (elHeight > 0 && elHeight <= 26)
-    ) {
+    )) {
       // The overhang gets sliced off when the host is flush against a
       // clipping ancestor's top (tab strips, the BMP header, breadcrumb
       // bars) or the viewport top. Detect that and tuck the pill just
@@ -385,7 +411,8 @@ export function syncOverlays(s: ContentState, additionalTargets: readonly Additi
       label.classList.add(hasRoomAbove(element) ? 'crev-label--edge' : 'crev-label--edge-inside');
     }
 
-    element.appendChild(label);
+    if (placement === 'inline-start') element.prepend(label);
+    else element.appendChild(label);
     applyCompactMode(label, element as HTMLElement);
     s.badgedElements.add(element);
 
@@ -459,7 +486,7 @@ export function updateLabels(s: ContentState) {
       label.classList.remove('crev-label-loading');
       const parent = label.parentElement;
       if (parent) {
-        const color = getTypeColor(enrichment.type);
+        const color = getTypeColor(overlayVisualType(label, enrichment.type));
         parent.style.setProperty('--crev-color', color);
         // The identity text just changed width — re-check the tiny-host fit.
         if (!label.classList.contains('crev-page-label')) applyCompactMode(label, parent);

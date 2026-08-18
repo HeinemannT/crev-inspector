@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ContentState } from '../content-state';
 import { removePageHeaderIdentity, syncPageHeaderIdentity } from '../content-page-header';
+import { getTypeColor } from '../lib/types';
 
 const { sendToSW } = vi.hoisted(() => ({ sendToSW: vi.fn() }));
 vi.mock('../lib/content-port', () => ({ sendToSW }));
@@ -62,6 +63,19 @@ describe('page header identity lifecycle', () => {
     expect(title.querySelectorAll('.crev-page-label')).toHaveLength(1);
     expect(title.querySelector('.crev-page-label')?.getAttribute('data-crev-label')).toBe('222');
     expect(state.pageHeaderRid).toBe('222');
+  });
+
+  it('uses the semantic page color instead of the rendered object type', () => {
+    state.enrichments.set('111', {
+      name: 'Process Register',
+      businessId: 'process_table',
+      type: 'ExtendedTable',
+    });
+
+    syncPageHeaderIdentity(state, '111');
+
+    expect(title.style.getPropertyValue('--crev-color')).toBe(getTypeColor('Page'));
+    expect(title.style.getPropertyValue('--crev-color')).not.toBe(getTypeColor('ExtendedTable'));
   });
 
   it('reattaches once when BMP replaces the heading during a render', () => {

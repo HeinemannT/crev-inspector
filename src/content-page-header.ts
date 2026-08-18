@@ -10,9 +10,12 @@ import { createIdentityLabel } from './content-overlays';
 import type { ContentState } from './content-state';
 import { detectPageHeader } from './lib/page-header-detection';
 import { sendToSW } from './lib/content-port';
+import { getTypeColor } from './lib/types';
+import { PAGE_HEADER_PRESENTATION } from './lib/overlay-presentation';
 
 export function removePageHeaderIdentity(s: ContentState): void {
   s.pageHeaderLabel?.remove();
+  s.pageHeaderElement?.style.removeProperty('--crev-color');
   s.pageHeaderElement = null;
   s.pageHeaderLabel = null;
   s.pageHeaderRid = null;
@@ -42,13 +45,14 @@ export function syncPageHeaderIdentity(s: ContentState, rid: string | undefined)
   const match = detectPageHeader({ expectedName: enrichment?.name });
   if (!match) return;
 
-  const label = createIdentityLabel(s, rid, 'crev-page-label');
+  const label = createIdentityLabel(s, rid, PAGE_HEADER_PRESENTATION);
   const stub = label.querySelector<HTMLElement>('.crev-stub');
   stub?.setAttribute(
     'aria-label',
     enrichment?.name ? `Inspect page object ${enrichment.name}` : 'Inspect this page object',
   );
   match.element.appendChild(label);
+  match.element.style.setProperty('--crev-color', getTypeColor('Page'));
 
   s.pageHeaderElement = match.element;
   s.pageHeaderLabel = label;

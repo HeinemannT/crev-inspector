@@ -75,6 +75,10 @@ export class AiTab implements Tab {
   private editorSource: AiContextSource | null = null;
   /** Frozen selection snapshot when the user pins the selection chip. */
   private pinnedSelection: AiContextSource | null = null;
+  /** The viewed page remains the default while a user-selected object acts as
+   * an override. Keep its best-known identity so detaching that override can
+   * reveal the webpage again without a lookup or prompt-layer workaround. */
+  private webpageSelection: AiContextSource | null = null;
   private selectionPinned = false;
   /** RIDs the user detached this session (hidden until the source changes). */
   private detachedSelectionRid: string | null = null;
@@ -161,6 +165,10 @@ export class AiTab implements Tab {
    *  attached, not a half-loaded view of it. */
   contextChanged(): void {
     const c = S.context;
+    if (c && c.rid === S.page?.rid) {
+      this.webpageSelection = this.sourceForObject(c);
+    }
+    if (c && c.rid !== this.detachedSelectionRid) this.detachedSelectionRid = null;
     if (this.pinnedSelection && c?.rid === this.pinnedSelection.object.rid
         && !this.pinnedSelection.object.type && c.type) {
       this.pinnedSelection = {
@@ -215,11 +223,35 @@ export class AiTab implements Tab {
   private selectionSource(): AiContextSource | null {
     if (this.selectionPinned && this.pinnedSelection) return this.pinnedSelection;
     const c = S.context;
-    if (!c?.rid) return null;
-    if (c.rid === this.detachedSelectionRid) return null;
+    if (c?.rid && c.rid !== this.detachedSelectionRid) {
+      const source = this.sourceForObject(c);
+      if (c.rid === S.page?.rid) this.webpageSelection = source;
+      return source;
+    }
+
+    // An explicitly selected object is only an override. Detaching it exposes
+    // the page that was already carried independently in the envelope. A page
+    // can initially be RID-only; later canonical context enrichment upgrades
+    // this cached source through contextChanged().
+    const pageRid = S.page?.rid;
+    if (!pageRid || pageRid === this.detachedSelectionRid) return null;
+    if (this.webpageSelection?.object.rid === pageRid) return this.webpageSelection;
+    this.webpageSelection = {
+      kind: 'selection',
+      object: { rid: pageRid, businessId: '', name: '', type: '' },
+    };
+    return this.webpageSelection;
+  }
+
+  private sourceForObject(object: ObjectReference): AiContextSource {
     return {
       kind: 'selection',
-      object: { rid: c.rid, businessId: c.businessId ?? '', name: c.name ?? '', type: c.type ?? '' },
+      object: {
+        rid: object.rid,
+        businessId: object.businessId ?? '',
+        name: object.name ?? '',
+        type: object.type ?? '',
+      },
     };
   }
 
@@ -263,6 +295,7 @@ export class AiTab implements Tab {
     this.changeTickets.clear();
     this.stream = null;
     this.pinnedSelection = null;
+    this.webpageSelection = null;
     this.selectionPinned = false;
     this.detachedSelectionRid = null;
     this.detachedEditorRid = null;
@@ -1127,9 +1160,15 @@ export class AiTab implements Tab {
   }
 
   private buildChip(src: AiContextSource, isSelection: boolean): HTMLElement {
-    const following = isSelection && !this.selectionPinned;
     const name = src.object.businessId || src.object.name || src.object.rid;
     const editor = src.kind === 'editor';
+    // The identity text already names the object, so repeat only the type
+    // glyph in this constrained composer control. Default webpage context
+    // gets the Page role marker without changing its real BMP type in the
+    // envelope sent to the model.
+    const visualType = isSelection && src.object.rid === S.page?.rid
+      ? 'Page'
+      : src.object.type;
     const editorTitle = `Extended Code editor context · ${name}`;
     const chip = editor
       ? h('span', {
@@ -1137,8 +1176,8 @@ export class AiTab implements Tab {
         title: editorTitle,
         'aria-label': editorTitle,
       }, h('span', { class: 'ai-cchip-editor-icon', 'aria-hidden': 'true' }, svg(ICON_CODE)))
-      : h('span', { class: `ai-cchip${following ? ' ai-cchip--follow' : ''}` },
-        typeBadge(src.object.type, { size: 'xs' }),
+      : h('span', { class: 'ai-cchip' },
+        typeBadge(visualType, { size: 'xs', iconOnly: true }),
         h('span', { class: 'ai-cchip-name' }, name),
       );
 

@@ -43,6 +43,10 @@ const TYPE_COLORS: Record<string, string> = {
   Organisation: '#24a148',
 
   // ── Pages (page-green) ────────────────────────────────────────
+  // `Page` is Companion's semantic badge for portal navigation/page-heading
+  // targets. The underlying BMP object can be an ExtendedTable, Scorecard,
+  // or another renderable type; the page affordance remains a page.
+  Page: '#42be65',
   Scorecard: '#6fdc8c',
   ModelPage: '#6fdc8c',
 
@@ -211,6 +215,7 @@ const TYPE_COLORS: Record<string, string> = {
 // effect that was distracting on dense pages.
 const TYPE_ABBREVIATIONS: Record<string, string> = {
   Organisation:        'ORG',
+  Page:                'PGE',
   Scorecard:           'SCD',
   ExtendedTable:       'TBL',
   FilterTable:         'FTB',

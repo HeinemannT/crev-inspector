@@ -167,7 +167,7 @@ describe('runAuthTest broadcasts RE_ENRICH after confirmed recovery', () => {
 
     setSwContext(ctx);
 
-    vi.spyOn(BmpClient, 'getBuildNumber').mockResolvedValue('5.6.7.2');
+    vi.spyOn(BmpClient, 'getBuildNumber').mockResolvedValue({ status: 'known', version: '5.6.7.2' });
 
     await runAuthTest();
 
@@ -190,7 +190,7 @@ describe('runAuthTest broadcasts RE_ENRICH after confirmed recovery', () => {
       applyVersionFlags: vi.fn(), supportsLookup: true,
     } as any;
     setSwContext(ctx);
-    vi.spyOn(BmpClient, 'getBuildNumber').mockResolvedValue('5.6.7.2');
+    vi.spyOn(BmpClient, 'getBuildNumber').mockResolvedValue({ status: 'known', version: '5.6.7.2' });
 
     await runAuthTest('background');
     await runAuthTest('background');
@@ -318,7 +318,7 @@ describe('no concurrent logins (race condition prevention)', () => {
 
     setSwContext(ctx);
 
-    vi.spyOn(BmpClient, 'getBuildNumber').mockResolvedValue('5.6.7.2');
+    vi.spyOn(BmpClient, 'getBuildNumber').mockResolvedValue({ status: 'known', version: '5.6.7.2' });
 
     await Promise.all([runAuthTest(), runAuthTest()]);
 

@@ -24,7 +24,7 @@ import type {
 } from './types';
 import { log } from './logger';
 import { assertHostAccess } from './site-access';
-import { HEALTH_TIMEOUT, EC_TIMEOUT } from './constants';
+import { HEALTH_TIMEOUT, AUTH_TIMEOUT, EC_TIMEOUT } from './constants';
 import { BmpAuth, AuthError } from './bmp-auth';
 import type { CommandAuthMode, AuthErrorCode } from './bmp-auth';
 import { BmpTransport, type BmpTransportOutcome } from './bmp-transport';
@@ -64,6 +64,12 @@ export interface ConnectionResult {
   /** Machine-readable cause on failure — drives the connection UI state. */
   code?: AuthErrorCode;
 }
+
+export type BuildNumberProbeResult =
+  | { status: 'known'; version: string }
+  | { status: 'auth-required' }
+  | { status: 'unavailable' }
+  | { status: 'transient' };
 
 export interface EcResult {
   ok: boolean;
@@ -299,7 +305,11 @@ export class BmpClient {
     try {
       await this.auth.getLoginTicket();
       authenticated = true;
-      const probe = await this.executeEc('1', undefined, false);
+      // A connection probe is deliberately cheaper and more tightly bounded
+      // than a user EC run. On cold start it owns the serialized command lane;
+      // letting the trivial `1` probe consume the general 30-second EC window
+      // makes the Extended Code surface appear frozen behind it.
+      const probe = await this.executeEc('1', undefined, false, undefined, AUTH_TIMEOUT);
       if (!probe.ok) {
         return { ok: false, message: probe.error ?? probe.log ?? 'BMP command probe failed', authenticated: true };
       }
@@ -936,18 +946,23 @@ export class BmpClient {
     }
   }
 
-  static async getBuildNumber(bmpUrl: string, jwt?: string): Promise<string | null> {
+  static async getBuildNumber(bmpUrl: string, jwt?: string): Promise<BuildNumberProbeResult> {
     try {
       await assertHostAccess(bmpUrl);
       const headers: Record<string, string> = {};
       if (jwt) headers['Authorization'] = `Bearer ${jwt}`;
       const res = await fetch(`${bmpUrl}buildNum`, { headers, signal: AbortSignal.timeout(HEALTH_TIMEOUT) });
-      if (!res.ok) return null;
+      if (res.status === 401 || res.status === 403) return { status: 'auth-required' };
+      if (res.status === 408 || res.status === 425 || res.status === 429 || res.status >= 500) {
+        return { status: 'transient' };
+      }
+      if (!res.ok) return { status: 'unavailable' };
       const data = await res.json().catch(() => null);
-      return data?.version?.trim() || null;
+      const version = typeof data?.version === 'string' ? data.version.trim() : '';
+      return version ? { status: 'known', version } : { status: 'unavailable' };
     } catch (e) {
       log.swallow('bmpClient:getBuildNumber', e);
-      return null;
+      return { status: 'transient' };
     }
   }
 

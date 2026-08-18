@@ -130,6 +130,11 @@ export async function loadSettingsFrom(stored: unknown): Promise<void> {
         bmpPass: p.bmpPass ? await decrypt(p.bmpPass) : '',
       })));
     }
+    // Recreate the sanitized session mirror after a real browser cold start.
+    // It is sufficient to scope the sanitized connection snapshot, so publish
+    // it before the heavier cache/client rebuild instead of making editor
+    // identity recovery wait behind unrelated storage work.
+    snapshotSettings();
     await rebuildClient();
     // Persist a migration once so stored data advances (idempotent re-runs each
     // boot are harmless, but read-only users would otherwise stay at v1 forever).

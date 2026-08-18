@@ -27,6 +27,7 @@ const LOAD_BEARING: Array<{ file: string; selector: string; must: string[] }> = 
   { file: 'src/content-overlay.css',   selector: '.crev-outline',         must: ['position: relative'] },
   { file: 'src/content-overlay.css',   selector: '.crev-label',           must: ['position: absolute', 'z-index'] },
   { file: 'src/content-overlay.css',   selector: '.crev-label.crev-page-label', must: ['position: static !important', 'display: inline-flex'] },
+  { file: 'src/content-overlay.css',   selector: '.crev-label.crev-label--inline-start', must: ['position: static !important', 'display: inline-flex'] },
   { file: 'src/content-overlay.css',   selector: '#crev-paint-banner',    must: ['position: fixed', 'z-index'] },
   { file: 'src/content-overlay.css',   selector: '#crev-tooltip',         must: ['position: fixed', 'z-index', '2147483644'] },
   { file: 'src/content-overlay.css',   selector: '.crev-eo-host',         must: ['position: fixed', 'z-index'] },
