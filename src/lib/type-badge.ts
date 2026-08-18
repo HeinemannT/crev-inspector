@@ -39,6 +39,7 @@ import { isHistoricalPropertyConfigClass, isPropertyConfigClass } from './proper
 const TYPE_ICON: Record<string, string> = {
   // Organisation + pages
   Organisation: ICON_BUILDINGS,
+  Page: ICON_BROWSER,
   Scorecard: ICON_BROWSER,
   ModelPage: ICON_BROWSER,
   // GRC / scorecard-tree objects
@@ -240,6 +241,8 @@ function isMapped(type?: string): boolean {
 export interface BadgeOpts {
   /** Compact 18px variant for dense rows (tree, Browse results, references). */
   size?: 'xs';
+  /** Icon-only role marker for space-constrained compound controls. */
+  iconOnly?: boolean;
   /** Sub-badges stacked under the stub (inspect corner label / detail header). */
   sub?: { code?: boolean; ref?: boolean };
 }
@@ -325,12 +328,13 @@ export function typeBadge(type?: string, opts: BadgeOpts = {}): HTMLElement {
       property ? 'bdg-property' : '',
       historical ? 'bdg-historical' : '',
       opts.size === 'xs' ? 'xs' : '',
+      opts.iconOnly ? 'icon-only' : '',
     ].filter(Boolean).join(' '),
     style: `--c:${getTypeColor(type)}`,
     title: type ?? '',
   },
     tile,
-    h('span', { class: 'lbl' }, mapped ? getTypeAbbr(type) : 'OBJ'),
+    ...(opts.iconOnly ? [] : [h('span', { class: 'lbl' }, mapped ? getTypeAbbr(type) : 'OBJ')]),
   );
 
   const hasSub = opts.sub && (opts.sub.code || opts.sub.ref);

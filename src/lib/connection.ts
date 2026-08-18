@@ -46,6 +46,106 @@ let activeIncidentEpoch = 0;
 let recoveryEpoch = 0;
 let identityMismatch = false;
 const identityReconcileKeys = new Set<string>();
+type VersionProbePhase = 'anonymous' | 'authenticated' | 'done';
+
+interface VersionProbeState {
+  generation: number;
+  client: BmpClient;
+  phase: VersionProbePhase;
+  inFlight: Promise<void> | null;
+  jwt?: string;
+  retryAfter: number;
+}
+
+let versionProbe: VersionProbeState | null = null;
+const VERSION_PROBE_RETRY_DELAY = 30_000;
+
+/**
+ * Discover optional capability metadata without holding connection readiness
+ * open. Health and command probes are authoritative; `/buildNum` only refines
+ * feature flags. One generation-owned record coalesces the parallel health and
+ * auth paths, remembers a JWT that arrives mid-probe, and retries only
+ * transient failures. Endpoint absence is a terminal modern-capability
+ * fallback; an anonymous authorization response may be retried with the JWT.
+ */
+function ensureVersionDetection(
+  bmpUrl: string,
+  client: BmpClient,
+  generationAtStart: number,
+  jwt?: string,
+): void {
+  const ctx = getCtx();
+  if (connectionGeneration !== generationAtStart || ctx.client !== client) return;
+  if (healthVersion) {
+    applyVersionFlags(healthVersion);
+    return;
+  }
+
+  if (!versionProbe
+    || versionProbe.generation !== generationAtStart
+    || versionProbe.client !== client) {
+    versionProbe = {
+      generation: generationAtStart,
+      client,
+      phase: 'anonymous',
+      inFlight: null,
+      retryAfter: 0,
+    };
+  }
+  const probe = versionProbe;
+  if (jwt) {
+    probe.jwt = jwt;
+    if (!probe.inFlight && probe.phase === 'anonymous') probe.phase = 'authenticated';
+  }
+  if (probe.phase === 'done' || probe.inFlight || Date.now() < probe.retryAfter) return;
+  if (probe.phase === 'authenticated' && !probe.jwt) return;
+
+  const attempt = probe.phase;
+  const attemptJwt = attempt === 'authenticated' ? probe.jwt : undefined;
+
+  const task = (async () => {
+    try {
+      const result = await BmpClient.getBuildNumber(bmpUrl, attemptJwt);
+      if (versionProbe !== probe
+        || connectionGeneration !== generationAtStart
+        || getCtx().client !== client) return;
+
+      if (result.status === 'known') {
+        probe.phase = 'done';
+        healthVersion = result.version;
+        applyVersionFlags(result.version);
+      } else if (result.status === 'transient') {
+        probe.retryAfter = Date.now() + VERSION_PROBE_RETRY_DELAY;
+        log.info('connection:versionProbe', 'Version detection failed transiently — retrying later');
+      } else if (result.status === 'auth-required' && attempt === 'anonymous') {
+        probe.phase = 'authenticated';
+      } else {
+        probe.phase = 'done';
+        applyVersionFlags(null, '/buildNum not available');
+      }
+      pushConnectionState();
+    } catch (e) {
+      if (versionProbe === probe
+        && connectionGeneration === generationAtStart
+        && getCtx().client === client) {
+        probe.retryAfter = Date.now() + VERSION_PROBE_RETRY_DELAY;
+      }
+      log.swallow('connection:versionProbe', e);
+    } finally {
+      if (versionProbe === probe) {
+        probe.inFlight = null;
+        if (connectionGeneration === generationAtStart
+          && getCtx().client === client
+          && probe.jwt
+          && probe.phase === 'authenticated'
+          && Date.now() >= probe.retryAfter) {
+          ensureVersionDetection(bmpUrl, client, generationAtStart, probe.jwt);
+        }
+      }
+    }
+  })();
+  probe.inFlight = task;
+}
 
 /** True when the extension holds host permission for this BMP origin. Direct SW fetches to an
  *  un-granted host are CORS-blocked (BMP sends no Access-Control-Allow-Origin), so we gate the health +
@@ -145,6 +245,7 @@ export function resetConnectionState() {
   recoveryEpoch = 0;
   identityMismatch = false;
   identityReconcileKeys.clear();
+  versionProbe = null;
   // Reset version flags — will be re-evaluated when version is detected
   const ctx = getCtx();
   if (ctx.client) {
@@ -495,11 +596,14 @@ async function runAuthTestInternal(
     authErrorCode = result.authenticated ? null : (result.code ?? null);
     commandResult = result.ok ? 'ok' : result.authenticated ? 'failed' : 'unknown';
     commandError = result.ok ? null : result.authenticated ? result.message : null;
-    if (result.ok && !healthVersion) {
-      healthVersion = await BmpClient.getBuildNumber(bmpUrl, clientAtStart.jwt ?? undefined);
-      if (connectionGeneration !== generationAtStart || ctx.client !== clientAtStart) return;
-      applyVersionFlags(healthVersion, healthVersion ? undefined : '/buildNum not available');
-    }
+    // Command readiness and actor identity are definitive now. Optional
+    // version discovery must not keep the editor or panel on Checking.
+    if (result.ok) ensureVersionDetection(
+      bmpUrl,
+      clientAtStart,
+      generationAtStart,
+      clientAtStart.jwt ?? undefined,
+    );
   } catch (e) {
     if (connectionGeneration !== generationAtStart || ctx.client !== clientAtStart) return;
     if (e instanceof HostAccessError) {
@@ -592,13 +696,18 @@ async function pollHealthInternal(generationAtStart: number, clientAtStart: BmpC
     const result = await BmpClient.checkHealth(bmpUrl);
     if (connectionGeneration !== generationAtStart || ctx.client !== clientAtStart) return;
     if (result.up) {
-      if (!healthVersion) {
-        healthVersion = await BmpClient.getBuildNumber(bmpUrl, ctx.client?.jwt ?? undefined) ?? '';
-        if (connectionGeneration !== generationAtStart || ctx.client !== clientAtStart) return;
-        applyVersionFlags(healthVersion || null, healthVersion ? undefined : '/buildNum not available');
-      }
+      // Reachability is useful evidence on its own. Publish Online immediately
+      // instead of holding the UI on Checking while the optional build-number
+      // endpoint spends up to another health timeout responding.
       healthUp = 'up';
       healthResponseMs = result.responseMs;
+      pushConnectionState();
+      if (clientAtStart) ensureVersionDetection(
+        bmpUrl,
+        clientAtStart,
+        generationAtStart,
+        clientAtStart.jwt ?? undefined,
+      );
     } else if (result.reachable) {
       healthUp = 'down';
       healthResponseMs = result.responseMs;
@@ -648,6 +757,7 @@ export async function restoreConnectionEvidence(): Promise<void> {
   identities = state.identities;
   setCurrentIdentities(identities);
   healthVersion = state.version;
+  if (healthVersion) applyVersionFlags(healthVersion);
   healthResponseMs = state.responseMs;
   networkOffline = state.networkOffline;
   needsAccess = state.display === 'needs-access';

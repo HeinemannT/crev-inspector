@@ -43,7 +43,10 @@ async function createHarness(profiles = makeProfiles(), activeId = 'sbx'): Promi
     this.auth._jwt = 'mock-jwt-' + Math.random().toString(36).slice(2, 8);
     return { ok: true, message: 'Authenticated', authenticated: true };
   });
-  vi.spyOn(bmp.BmpClient, 'getBuildNumber').mockImplementation(async () => 'v5.6.10.0');
+  vi.spyOn(bmp.BmpClient, 'getBuildNumber').mockImplementation(async () => ({
+    status: 'known',
+    version: 'v5.6.10.0',
+  }));
   vi.spyOn(bmp.BmpClient, 'checkHealth').mockImplementation(async () => ({ up: true, reachable: true, responseMs: 5 }));
 
   const settings: InspectorSettings = {

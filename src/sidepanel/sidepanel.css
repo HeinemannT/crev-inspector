@@ -5300,18 +5300,16 @@ button.flow-property-ref:hover {
 .ai-cchip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  max-width: 190px;
-  padding: 2px 3px 2px 2px;
-  border: 1px solid var(--surface-4);
-  border-radius: var(--radius-sm);
-  background: var(--surface-0);
+  gap: 3px;
+  max-width: 160px;
+  padding: 0;
+  border: none;
+  background: transparent;
   font-size: var(--text-xs);
   color: var(--text-1);
   min-width: 0;
 }
-.ai-cchip--follow { border-style: dashed; }
-.ai-cchip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+.ai-cchip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; }
 .ai-cchip--editor {
   flex: none;
   gap: 1px;
@@ -5370,7 +5368,7 @@ button.flow-property-ref:hover {
   gap: 4px;
   overflow: hidden;
 }
-.ai-composer-ctx > .ai-cchip:not(.ai-cchip--editor) { flex: 1 1 auto; }
+.ai-composer-ctx > .ai-cchip:not(.ai-cchip--editor) { flex: 0 1 auto; }
 .ai-composer-hint {
   font-size: var(--text-xs);
   color: var(--text-3);

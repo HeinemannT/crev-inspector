@@ -34,7 +34,7 @@ import { showBookPopover } from './book'
 import { anchorPopover } from '../lib/popover-anchor'
 import { sendFireForget, sendRequest, sendRequestBounded } from '../lib/messaging'
 import { confirmCommandModal, confirmModal } from '../lib/modal'
-import { readCommandActor } from '../lib/command-actor'
+import { watchCommandActor, type CommandActorState } from '../lib/command-actor'
 import {
   adoptEditorLaunchContext,
   persistEditorSessionContext,
@@ -81,6 +81,31 @@ import { formatExtendedCode } from './ec/format'
 // ── State ────────────────────────────────────────────────────────
 
 let ctx: EditorContext | null = null
+let commandActorState: CommandActorState = { status: 'checking' }
+
+function commandActorText(): string {
+  if (commandActorState.status === 'checking') return 'Checking command identity…'
+  if (commandActorState.status === 'verified') return commandActorState.actor.text
+  return 'Command identity not verified'
+}
+
+function paintCommandActor(slot?: HTMLElement): void {
+  const slots = slot
+    ? [slot]
+    : Array.from(document.querySelectorAll<HTMLElement>('.editor-command-actor'))
+  for (const actorSlot of slots) {
+    actorSlot.textContent = commandActorText()
+    actorSlot.classList.toggle('is-unverified', commandActorState.status === 'unavailable')
+    actorSlot.title = actorSlot.textContent
+  }
+}
+
+const stopCommandActorWatch = watchCommandActor(state => {
+  commandActorState = state
+  paintCommandActor()
+})
+window.addEventListener('pagehide', stopCommandActorWatch, { once: true })
+
 /** The shared multi-slot editing engine. Owns the live CodeMirror view, the
  *  per-slot loaded baseline / working text / cursor / dirty, swap-vs-rebuild,
  *  and save/discard. Slots are keyed `${target}:${prop}` (or "extended" for the
@@ -579,7 +604,7 @@ function renderShell() {
       )
     : false
 
-  const actorSlot = h('span', { class: 'editor-command-actor' }, 'Checking command identity…')
+  const actorSlot = h('span', { class: 'editor-command-actor' }, commandActorText())
   const header = h('div', { class: 'editor-header' },
     h('div', { class: 'editor-header-id' },
       h('span', { class: 'editor-id-icon', title: 'Extended Code editor' }, svg(ICON_CODE)),
@@ -592,12 +617,7 @@ function renderShell() {
         )
       : h('span'),
   )
-  void readCommandActor().then(actor => {
-    if (!actorSlot.isConnected) return
-    actorSlot.textContent = actor?.text ?? 'Command identity not verified'
-    actorSlot.classList.toggle('is-unverified', !actor)
-    actorSlot.title = actorSlot.textContent
-  })
+  paintCommandActor(actorSlot)
 
   // Property tabs (tablist with underline indicator)
   const propTabs = (!isExtended && propKeys.length > 1)

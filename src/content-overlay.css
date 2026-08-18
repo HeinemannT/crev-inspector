@@ -47,6 +47,22 @@
 }
 .crev-page-label .crev-stub { vertical-align: middle; }
 .crev-page-label .crev-meta { display: none; }
+/* Portal breadcrumbs and dropdown rows use a small leading role marker. It
+   participates in the link's text flow, so it never floats over the page name
+   or expands into the large identity pills shown on widget canvases. */
+.crev-label.crev-label--inline-start {
+  position: static !important;
+  display: inline-flex;
+  width: auto;
+  margin-inline-end: 4px;
+  vertical-align: -2px;
+  transform: none;
+}
+.crev-label--inline-start .crev-stub {
+  box-shadow: none;
+  border-color: rgba(0,0,0,0.18);
+}
+.crev-label--inline-start .crev-stub:hover { transform: none; }
 .crev-stub {
   display: inline-flex;
   align-items: stretch;

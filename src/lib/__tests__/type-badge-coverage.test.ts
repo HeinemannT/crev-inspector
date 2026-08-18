@@ -41,6 +41,13 @@ const EXPECTED: [string, string, string][] = [
 ];
 
 describe('expanded type-badge coverage', () => {
+  it('gives semantic portal pages a dedicated visual identity', () => {
+    expect(getTypeColor('Page')).toBe('#42be65');
+    expect(getTypeAbbr('Page')).toBe('PGE');
+    expect(typeIcon('Page')).toBe(typeIcon('Scorecard'));
+    expect(typeBadge('Page').querySelector('.lbl')?.textContent).toBe('PGE');
+  });
+
   it('keeps ModelPage visually aligned with Scorecard while preserving its label', () => {
     expect(getTypeColor('ModelPage')).toBe(getTypeColor('Scorecard'));
     expect(getTypeAbbr('ModelPage')).toBe('MPG');
