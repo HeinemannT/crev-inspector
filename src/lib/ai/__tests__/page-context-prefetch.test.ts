@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { prefetchSimpleWidgetChange } from '../simple-change-prefetch';
+import { prefetchPageContext } from '../page-context-prefetch';
 import { streamChat } from '../client';
 import type { ToolCall, ToolResult } from '../tools';
 import { toolSuccess } from '../tool-results';
@@ -72,23 +72,10 @@ const SUBMISSION = {
   summary: 'Hide search on Open Actions',
   target: '[[object:818]]',
   operation: 'update',
-  code: 't.qa_open_actions.change(showSearch := FALSE)',
+  code: 'lookup("818").change(showSearch := FALSE)',
 };
 
 function layoutResult(twoMatches = false): ToolResult {
-  const target = {
-    status: 'resolved' as const,
-    target: {
-      rid: '818',
-      businessId: 'qa_open_actions',
-      type: 'ExtendedTable',
-      name: 'Open Actions',
-      ecRef: 't.qa_open_actions',
-    },
-    scope: 'shared-template' as const,
-    impact: 'all-linked-instances' as const,
-    reason: 'inherited-widget-default' as const,
-  };
   const nodes = [{
     rid: '119',
     businessId: 'iv_open_actions',
@@ -99,7 +86,7 @@ function layoutResult(twoMatches = false): ToolResult {
     columns: { large: 6 },
     storage: 'page-child' as const,
     codeSlots: [],
-    changeTarget: target,
+    linkedTemplateRid: '818',
   }, ...(twoMatches ? [{
     rid: '120',
     businessId: 'iv_open_actions_2',
@@ -110,7 +97,6 @@ function layoutResult(twoMatches = false): ToolResult {
     columns: { large: 6 },
     storage: 'page-child' as const,
     codeSlots: [],
-    changeTarget: target,
   }] : [])];
   return {
     content: 'layout',
@@ -119,7 +105,6 @@ function layoutResult(twoMatches = false): ToolResult {
       viewedRid: '726',
       pageOwnerRid: '700',
       focusFound: true,
-      requestedScope: 'default',
       resultOnly: false,
       tabsets: [],
       totalNodes: nodes.length,
@@ -128,7 +113,6 @@ function layoutResult(twoMatches = false): ToolResult {
       sourceTruncated: false,
       orphanCount: 0,
       complete: true,
-      pageTarget: target,
       nodes,
     }),
   };
@@ -230,7 +214,7 @@ describe('simple widget change prefetch', () => {
     const executeTool = vi.fn(async (call: ToolCall) => call.name === 'read_layout'
       ? layoutResult()
       : typeResult());
-    const result = await prefetchSimpleWidgetChange({
+    const result = await prefetchPageContext({
       text: 'Change Open Actions widget to hide search',
       pageRid: '726',
       executeTool,
@@ -240,57 +224,117 @@ describe('simple widget change prefetch', () => {
     expect(executeTool).toHaveBeenCalledTimes(2);
     expect(executeTool.mock.calls[1][0]).toMatchObject({
       name: 'read_type',
-      input: { type: 'InputView', query: 'hide search', exampleRef: 't.qa_open_actions' },
+      input: { type: 'InputView', query: 'hide search', exampleRid: '119' },
     });
     expect(result!.evidence).toMatchObject({
-      status: 'property-candidates',
-      widgets: [{
-        defaultTarget: {
-          token: '[[object:818]]',
-          mutationRef: 't.qa_open_actions',
-          scope: 'shared-template',
-        },
-      }],
-      propertyCandidates: [{ accessor: 'showSearch' }],
+      kind: 'prefetched-widget-property-context',
+      widget: {
+        rid: '119',
+        linkedTemplateRid: '818',
+      },
+      properties: [{ accessor: 'showSearch' }],
+      propertySearchComplete: true,
     });
   });
 
   it('falls through when the widget or property is ambiguous', async () => {
     const duplicateWidget = vi.fn(async () => layoutResult(true));
-    const first = await prefetchSimpleWidgetChange({
+    const first = await prefetchPageContext({
       text: 'Change Open Actions widget to hide search', pageRid: '726', executeTool: duplicateWidget, onEvent: vi.fn(),
     });
-    expect(first?.evidence).toMatchObject({ status: 'widget-ambiguous', complete: false });
+    expect(first?.evidence).toMatchObject({
+      kind: 'prefetched-layout-context',
+      layout: {
+        selection: 'prompt-matched-widgets-and-ancestors',
+        sourceComplete: true,
+        totalPageNodes: 2,
+        roots: [{ rid: '119' }, { rid: '120' }],
+      },
+    });
     expect(duplicateWidget).toHaveBeenCalledTimes(1);
 
     const duplicateProperty = vi.fn(async (call: ToolCall) => call.name === 'read_layout'
       ? layoutResult()
       : typeResult(2));
-    const second = await prefetchSimpleWidgetChange({
+    const second = await prefetchPageContext({
       text: 'Change Open Actions widget to hide search', pageRid: '726', executeTool: duplicateProperty, onEvent: vi.fn(),
     });
-    expect(second?.evidence).toMatchObject({ status: 'property-candidates', complete: false });
+    expect(second?.evidence).toMatchObject({
+      kind: 'prefetched-widget-property-context',
+      properties: [{ accessor: 'showSearch' }, { accessor: 'searchPlaceholder' }],
+      propertySearchComplete: true,
+    });
+    expect(second?.providerPlan).toBeUndefined();
     expect(duplicateProperty).toHaveBeenCalledTimes(2);
   });
 
-  it('does not use keywords to hide context from structural requests', async () => {
+  it('hands successful layout evidence to the provider when the fast property path does not apply', async () => {
     const executeTool = vi.fn(async (call: ToolCall) => call.name === 'read_layout'
       ? layoutResult()
       : typeResult(0));
-    const result = await prefetchSimpleWidgetChange({
+    const create = await prefetchPageContext({
       text: 'Create an Open Actions widget', pageRid: '726', executeTool, onEvent: vi.fn(),
     });
-    expect(result?.executions.map(item => item.call.name)).toEqual(['read_layout']);
-    expect(result?.route).toBeUndefined();
+    expect(create?.evidence).toMatchObject({ kind: 'prefetched-layout-context' });
+    const structural = await prefetchPageContext({
+      text: 'Return Open Actions with its type, container, exact L/M/S columns, storage and code slots',
+      pageRid: '726', executeTool, onEvent: vi.fn(),
+    });
+    expect(structural?.evidence).toMatchObject({ kind: 'prefetched-layout-context' });
+    expect(executeTool).toHaveBeenCalledTimes(2);
 
-    expect(await prefetchSimpleWidgetChange({
+    const unrelated = await prefetchPageContext({
+      text: 'Explain how EC filters work', pageRid: '726', executeTool, onEvent: vi.fn(),
+    });
+    expect(unrelated?.evidence).toBeUndefined();
+    expect(executeTool).toHaveBeenCalledTimes(3);
+
+    expect(await prefetchPageContext({
       text: `Change Open Actions ${'carefully '.repeat(40)}`,
       pageRid: '726', executeTool, onEvent: vi.fn(),
     })).toBeNull();
   });
+
+  it('does not inspect the current page when the user supplies the mutation receiver', async () => {
+    const executeTool = vi.fn(async () => layoutResult());
+    expect(await prefetchPageContext({
+      text: 'Change t.xy to hide search', pageRid: '726', executeTool, onEvent: vi.fn(),
+    })).toBeNull();
+    expect(await prefetchPageContext({
+      text: 'lookup("9007199254740993").change(showSearch := FALSE)',
+      pageRid: '726', executeTool, onEvent: vi.fn(),
+    })).toBeNull();
+    expect(executeTool).not.toHaveBeenCalled();
+  });
 });
 
 describe('simple widget change pipeline', () => {
+  it('passes a non-property prefetch result into the provider turn instead of repeating read_layout', async () => {
+    const bodies: any[] = [];
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return Promise.resolve(openAiStream(textTurn('Open Actions is six columns wide.')));
+    }));
+    const executeTool = vi.fn(async () => layoutResult());
+
+    const metrics = await streamChat({
+      settings: DEEPSEEK,
+      apiKey: 'key',
+      system: 'S',
+      history: [],
+      text: 'Return Open Actions with its exact container, type, columns, storage and code slots',
+      pageRid: '726',
+      onEvent: vi.fn(),
+      executeTool,
+    });
+
+    expect(executeTool).toHaveBeenCalledTimes(1);
+    expect(bodies).toHaveLength(1);
+    expect(JSON.stringify(bodies[0].messages)).toContain('prefetched-layout-context');
+    expect(JSON.stringify(bodies[0].messages)).toContain('linkedTemplateRid');
+    expect(metrics).toMatchObject({ prefetchedToolCalls: 1, providerRequests: 1 });
+  });
+
   it('offers only terminal outcomes after complete Boolean evidence and finishes in one provider call', async () => {
     const bodies: any[] = [];
     vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => {
@@ -323,8 +367,7 @@ describe('simple widget change pipeline', () => {
     expect(bodies[0].messages[0].content).toContain('Choose one useful artifact');
     expect(bodies[0].messages[0].content).toContain('uncommitted suggestion');
     const userText = bodies[0].messages.at(-1)?.content as string;
-    expect(userText).toContain('"token":"[[object:818]]"');
-    expect(userText).toContain('"mutationRef":"t.qa_open_actions"');
+    expect(userText).toContain('"linkedTemplateRid":"818"');
     expect(userText).toContain('"accessor":"showSearch"');
     expect(executeTool.mock.calls.map(([call]) => call.name)).toEqual(['read_layout', 'read_type', 'preview_ec']);
     expect(executeTool.mock.calls.at(-1)?.[0].input).toEqual({ code: SUBMISSION.code });
@@ -543,7 +586,7 @@ describe('simple widget change pipeline', () => {
     vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => {
       bodies.push(JSON.parse(String(init.body)));
       const response = bodies.length === 1
-        ? toolTurn('read_layout', { pageRid: '726', changeScope: 'instance-only' }, 'local-layout')
+        ? toolTurn('read_layout', { pageRid: '726' }, 'local-layout')
         : submitTurn(SUBMISSION);
       return Promise.resolve(openAiStream(response));
     }));

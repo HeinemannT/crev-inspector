@@ -1,4 +1,3 @@
-import type { ChangeTargetResolution } from './change-target';
 import type { ObjectReference } from '../types';
 import { TOOL_NAMES, type AiToolName } from './tool-contracts';
 
@@ -7,14 +6,11 @@ export type { AiToolName } from './tool-contracts';
 /** Versioned, provider-neutral result contract for every production AI tool.
  * The model receives this object as serialized JSON. `ToolResult.content` is a
  * separate compatibility/presentation summary and is never scraped for facts. */
-export const AI_TOOL_RESULT_SCHEMA_VERSION = 1 as const;
+export const AI_TOOL_RESULT_SCHEMA_VERSION = 2 as const;
 
 export interface ModelObjectReference extends ObjectReference {
   /** Exact renderer token the assistant can copy into its answer. */
   token: string;
-  /** Namespace-independent EC expression for using this exact object as a
-   * value. Change-target tools may separately supply a preferred mutationRef. */
-  lookupExpression: string;
 }
 
 export interface InspectedPropertyData {
@@ -123,7 +119,6 @@ export interface ToolDataMap {
     }>;
     purposeComplete?: boolean;
     capped: boolean;
-    hitRids: string[];
     complete: boolean;
   };
   code_search: {
@@ -142,9 +137,9 @@ export interface ToolDataMap {
   read_layout: {
     viewedRid: string;
     pageOwnerRid: string;
+    pageTemplateRid?: string;
     focusRid?: string;
     focusFound: boolean;
-    requestedScope: 'default' | 'shared-template' | 'instance-only';
     resultOnly: boolean;
     tabsets: Array<{ businessId: string; name: string; rid?: string }>;
     totalNodes: number;
@@ -153,7 +148,6 @@ export interface ToolDataMap {
     sourceTruncated: boolean;
     orphanCount: number;
     complete: boolean;
-    pageTarget: ChangeTargetResolution;
     nodes: Array<{
       rid?: string;
       businessId: string;
@@ -167,7 +161,6 @@ export interface ToolDataMap {
       tabsetBusinessId?: string;
       codeSlots: string[];
       linkedTemplateRid?: string;
-      changeTarget?: ChangeTargetResolution;
     }>;
   };
   preview_ec: {
@@ -191,7 +184,7 @@ type ToolSuccess<K extends AiToolName = AiToolName> = K extends AiToolName
       tool: K;
       status: 'ok';
       data: ToolDataMap[K];
-      objects: ModelObjectReference[];
+      objects?: ModelObjectReference[];
     }
   : never;
 
@@ -200,7 +193,6 @@ export interface ToolFailure {
   tool: AiToolName | 'unknown';
   status: 'error';
   error: { message: string };
-  objects: ModelObjectReference[];
 }
 
 export type ToolStructuredContent = ToolSuccess | ToolFailure;
@@ -213,7 +205,6 @@ function modelObjects(objects: readonly ObjectReference[]): ModelObjectReference
     byRid.set(object.rid, {
       rid: object.rid,
       token: `[[object:${object.rid}]]`,
-      lookupExpression: `lookup(${object.rid})`,
       businessId: object.businessId || prior?.businessId,
       type: object.type || prior?.type,
       name: object.name || prior?.name,
@@ -228,12 +219,13 @@ export function toolSuccess<K extends AiToolName>(
   data: ToolDataMap[K],
   objects: readonly ObjectReference[] = [],
 ): Extract<ToolStructuredContent, { tool: K; status: 'ok' }> {
+  const references = modelObjects(objects);
   return {
     schemaVersion: AI_TOOL_RESULT_SCHEMA_VERSION,
     tool,
     status: 'ok',
     data,
-    objects: modelObjects(objects),
+    ...(references.length ? { objects: references } : {}),
   } as Extract<ToolStructuredContent, { tool: K; status: 'ok' }>;
 }
 
@@ -243,7 +235,6 @@ export function toolFailure(tool: string, message: string): ToolFailure {
     tool: TOOL_NAMES.has(tool) ? tool as AiToolName : 'unknown',
     status: 'error',
     error: { message },
-    objects: [],
   };
 }
 

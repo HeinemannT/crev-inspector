@@ -48,7 +48,9 @@ when this reference or the supplied source establishes it.
   assignment.
 - Create with `parent.add(UnquotedType, id := "stable_id", ...)`; delete with
   `object.delete()`. BMP's Default card is `t._defaultCardId`.
-- Responsive width is 1–6. Full width is 6 for each requested breakpoint:
+- Responsive width is 0–6. Zero is class-dependent and should be preserved as
+  a reported value rather than interpreted as hidden or zero-width. Normal
+  authored widths are 1–6. Full width is 6 for each requested breakpoint:
   `columnsLargeScreen`, `columnsMediumScreen`, and `columnsSmallScreen`.
 - `this.object` is the current calculation object (for a child widget it may be
   the owning page), `this.item` is the current item, and `this.user` is the

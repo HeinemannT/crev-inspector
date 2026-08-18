@@ -37,17 +37,18 @@ describe('selectChatPacks', () => {
 });
 
 describe('buildChatSystem workspace primer', () => {
-  it('ships the typed target-resolution contract used by read_layout', () => {
+  it('ships the structural target-selection contract without assigning policy to read_layout', () => {
     const system = buildChatSystem({
       v: 1,
       server: { id: 'test', url: 'https://example.test/' },
       sources: [],
     }).system;
     expect(system).toContain('<change-target-policy>');
-    expect(system).toContain('scope=shared-template');
-    expect(system).toContain('reason=local-widget-only');
-    expect(system).toContain('scope=shared-portal');
-    expect(system).toContain('the attached/viewed pageRid is discovery identity only');
+    expect(system).toContain('exact target or receiver named by the user is authoritative');
+    expect(system).toContain('linkedTemplateRid');
+    expect(system).toContain('pageOwnerRid');
+    expect(system).toContain('Layout output contains structural facts');
+    expect(system).not.toContain('reason=local-widget-only');
   });
 
   const env: AiContextEnvelope = { v: 1, server: { id: 's1', url: 'u' }, sources: [] };
@@ -91,18 +92,18 @@ describe('buildChatSystem workspace primer', () => {
     expect(system).toContain('Use read_code directly for full HTML/EC/JS/CSS source');
   });
 
-  it('defaults vague linked-page changes to the verified template and keeps target metadata minimal', () => {
+  it('defaults vague linked-page changes from structural facts and keeps target metadata minimal', () => {
     const { system } = buildChatSystem(env);
-    expect(system).toMatch(/When read_layout reports a direct Scorecard instance with a linked template/);
-    expect(system).toMatch(/Change the viewed\s+instance only when the user explicitly asks for an instance-only or local\s+override/);
-    expect(system).toMatch(/summary\s+must briefly mention both the template and the viewed\/specific instance/);
+    expect(system).toContain('Use lookup("rid") only when the user explicitly asks for this/local/one copy');
+    expect(system).toContain('Do not volunteer a local override');
+    expect(system).toContain('briefly state that the change affects the shared template');
     expect(system).not.toContain('An instance-only alternative is available on request.');
     expect(system).not.toContain('followed exactly by');
     expect(system).toContain('One verified [[object:RID]] token when available; otherwise one short target name');
     expect(system).toMatch(/Do not put arrows, source\s+and destination narration/);
-    expect(system).toContain('page-owner target is not its ticket target');
-    expect(system).toContain("Follow that widget row's exact `change-target`");
-    expect(system).toContain('Never put the page-owner RID in a widget ticket');
+    expect(system).toContain('Existing widget: if linkedTemplateRid exists');
+    expect(system).toContain('Put [[object:RID]] for that same selected RID in the ticket target');
+    expect(system).toContain('Never expose internal field names or routing labels');
   });
 
   it.skip('legacy verbose prompt assertions: makes attached context authoritative and routes scoped queries to query_context', () => {
@@ -222,7 +223,8 @@ describe('buildChatSystem workspace primer', () => {
     expect(system).toContain('submit a simple verified collection/filter/projection directly');
     expect(system).toContain('never Preview the outer mutation yourself');
     expect(system).not.toContain('extracts and Previews that expression against real rows');
-    expect(system).toContain('BMP responsive width is 1–6');
+    expect(system).toContain('BMP responsive width is 0–6');
+    expect(system).toContain('0 is class-dependent');
     expect(system).toContain('organisation.link(masterScorecard)');
     expect(system).toContain('EnterpriseTemplate lifecycle');
     expect(system).toContain('```crev-change');

@@ -8,6 +8,8 @@ import { mockChromeStorage } from '../../__tests__/chrome-mock';
 import { setSwContext } from '../../sw-context';
 import type { ToolCall } from '../../ai/tools';
 import type { AiContextEnvelope } from '../../ai/types';
+import { toolSuccess } from '../../ai/tool-results';
+import { TOOL_RESULT_CAP } from '../../ai/tools';
 
 // The AI_OPEN_IN_EDITOR handler launches the free-script editor; stub the
 // window launcher so we can assert routing without a real editor frame.
@@ -680,15 +682,17 @@ describe('executeAiTool — defensive', () => {
       ],
     });
     const executeEc = vi.fn(async () => ({ ok: true, log: 'CeRiskAssessment' }));
-    setSwContext(makeCtx({ client: { executeEc } }));
+    const resolveRef = vi.fn(async () => 'lookup(42)');
+    setSwContext(makeCtx({ client: { executeEc, resolveRef } }));
     const { executeAiTool } = await import('../ai-tools');
 
     const res = await executeAiTool(call('read_type', {
-      type: 'CeRiskAssessment', query: 'detail', exampleRef: 't.qa_risk',
+      type: 'CeRiskAssessment', query: 'detail', exampleRid: '42',
     }));
 
     expect(res.isError).toBe(false);
-    expect(schema).toHaveBeenCalledWith({ className: 'CeRiskAssessment', exampleRef: 't.qa_risk' });
+    expect(resolveRef).toHaveBeenCalledWith('42');
+    expect(schema).toHaveBeenCalledWith({ className: 'CeRiskAssessment', exampleRef: 'lookup(42)' });
     expect(res.content).toContain('matching "detail": 1');
     expect(res.content).toContain('card  "Detail Card"');
     expect(res.content).not.toContain('lifecycleState');
@@ -814,13 +818,15 @@ describe('executeAiTool — defensive', () => {
     const model = { pageId: 'ent_process', pageRid: '99', pageName: 'Process template', pageClass: 'EnterpriseTemplate', tabsetId: 'default_tabset', tabs: [tab], target: 'instance', hasTemplate: false } as any;
     const out = formatAiLayout('12', { kind: 'page', ctx: { pageId: 'ent_process', pageRid: '99', tabsetId: 'default_tabset' }, load: { model, baseline: model, orphans: [] } } as any);
 
-    expect(out).toContain('Default page-owner target: target=[[object:99]] mutationRef=t.ent_process scope=enterprise-template');
+    expect(out).toContain('Effective page owner: Process template (EnterpriseTemplate) bid=ent_process rid=99');
     expect(out).toContain('Contributing TabSets: default_tabset [default_tabset]');
-    expect(out).toContain('Tab "Main" change-target: target=[[object:43]] mutationRef=t.tab_main scope=shared-portal');
-    expect(out).toContain('ExtendedTable "Processes" change-target: target=[[object:44]] mutationRef=t.tbl_process scope=instance-only');
+    expect(out).toContain('Tab "Main" bid=tab_main rid=43 columns=L=6 storage=portal-shared');
+    expect(out).toContain('ExtendedTable "Processes" bid=tbl_process rid=44 parentRid=43 columns=L=6 storage=page-child');
+    expect(out).not.toContain('mutationRef');
+    expect(out).not.toContain('change-target');
   });
 
-  it('defaults a linked Scorecard instance change to its shared template without advertising an alternate target', async () => {
+  it('reports linked Scorecard ownership as structural facts without prescribing a target', async () => {
     const { projectAiLayout } = await import('../ai-tools');
     const model = {
       pageId: 'instance_118', pageRid: '99', pageName: 'Landing Page', pageClass: 'Scorecard',
@@ -835,18 +841,20 @@ describe('executeAiTool — defensive', () => {
 
     const projection = projectAiLayout('99', page);
 
-    expect(projection.text).toContain('Default page-owner target: target=[[object:88]] mutationRef=t.landing_template scope=shared-template');
-    expect(projection.text).toContain('briefly note that the change affects the template rather than only the viewed instance');
-    expect(projection.text).not.toContain('instance-only override');
-    expect(projection.text).not.toContain('Explicit instance-only alternative');
-    expect(projection.targets[0]).toMatchObject({ status: 'resolved', reason: 'linked-page-default' });
-    expect(projection.objects).toEqual(expect.arrayContaining([
+    expect(projection.text).not.toContain('target=');
+    expect(projection.text).not.toContain('mutationRef');
+    expect(projection.modelFacts).toMatchObject({
+      viewedRid: '99',
+      pageOwnerRid: '99',
+      pageTemplateRid: '88',
+    });
+    expect(projection.uiObjects).toEqual(expect.arrayContaining([
       expect.objectContaining({ rid: '99', businessId: 'instance_118' }),
       expect.objectContaining({ rid: '88', businessId: 'landing_template' }),
     ]));
   });
 
-  it('marks the linked template widget—not its instance copy—as the normal change target', async () => {
+  it('reports a widget-to-template link without embedding mutation policy', async () => {
     const { projectAiLayout } = await import('../ai-tools');
     const table = {
       id: '119', rid: '919', kind: 'widget', className: 'ExtendedTable', name: 'Navigation',
@@ -863,23 +871,101 @@ describe('executeAiTool — defensive', () => {
       load: { model, orphans: [], truncated: false },
     } as any);
 
-    expect(projection.text).toContain('change-target: target=[[object:818]] mutationRef=t.navigation_table scope=shared-template');
-    expect(projection.text).not.toContain('alternativeScope=instance-only');
-    expect(projection.targets).toEqual(expect.arrayContaining([
-      expect.objectContaining({ status: 'resolved', reason: 'inherited-widget-default' }),
+    expect(projection.text).not.toContain('change-target');
+    expect(projection.text).not.toContain('mutationRef');
+    expect(projection.modelFacts.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rid: '919', kind: 'widget', linkedTemplateRid: '818' }),
     ]));
-    expect(projection.objects).toEqual(expect.arrayContaining([
+    expect(projection.uiObjects).toEqual(expect.arrayContaining([
       expect.objectContaining({ rid: '919', businessId: '119' }),
       expect.objectContaining({ rid: '818', businessId: 'navigation_table' }),
     ]));
 
-    const instanceProjection = projectAiLayout('99', {
-      kind: 'page', ctx: { pageId: 'instance_118', pageRid: '99', tabsetId: 'tabs' },
-      load: { model, orphans: [], truncated: false },
-    } as any, undefined, 'instance-only');
-    expect(instanceProjection.text).toContain('Requested page-owner target: target=[[object:99]] mutationRef=t.instance_118 scope=instance-only');
-    expect(instanceProjection.text).toContain('change-target: target=[[object:919]] mutationRef=t.119 scope=instance-only');
-    expect(instanceProjection.text).not.toContain('change-target: target=[[object:818]]');
+  });
+
+  it('preserves exact RID and column facts for an object without a business ID', async () => {
+    const { projectAiLayout } = await import('../ai-tools');
+    const rid = '5238328459709259777';
+    const widget = {
+      id: rid, rid, kind: 'widget', className: 'TextElement', name: 'Unidentified note',
+      cols: { L: 6, M: 3, S: 0 }, children: [],
+    } as any;
+    const model = {
+      pageId: 'page', pageRid: '99', pageClass: 'Scorecard', tabsetId: 'tabs',
+      tabs: [widget], target: 'instance', hasTemplate: false,
+    } as any;
+
+    const projection = projectAiLayout('99', {
+      kind: 'page', ctx: { pageId: 'page', pageRid: '99', tabsetId: 'tabs' },
+      load: { model, orphans: [] },
+    } as any);
+
+    expect(projection.modelFacts.nodes[0].columns).toEqual({ large: 6, medium: 3, small: 0 });
+    expect(projection.modelFacts.nodes[0]).toMatchObject({ rid, kind: 'widget', storage: 'page-child' });
+  });
+
+  it('keeps a realistic 24-object layout complete, precise, and below the provider cap', async () => {
+    const { projectAiLayout } = await import('../ai-tools');
+    let nextRid = 5238328459709259600n;
+    const rid = (): string => String(nextRid++);
+    const widget = (id: string, name: string, parentRid: string, columns: { L: number; M: number; S: number }) => ({
+      id, rid: rid(), kind: 'widget', className: id.includes('nav') ? 'ExtendedTable' : 'TextElement',
+      name, cols: columns, children: [], containerRid: parentRid,
+    });
+    const primaryTabRid = rid();
+    const overviewContainerRid = rid();
+    const supportContainerRid = rid();
+    const secondaryTabRid = rid();
+    const footerContainerRid = rid();
+    const overviewChildren = [
+      widget('qa_header', 'Header', overviewContainerRid, { L: 6, M: 6, S: 6 }),
+      widget('qa_navigation', 'Navigation', overviewContainerRid, { L: 2, M: 3, S: 6 }),
+    ];
+    const supportChildren = [
+      widget('qa_documentation', 'Documentation & Support', supportContainerRid, { L: 4, M: 6, S: 6 }),
+      widget('qa_bulletin', 'Latest Bulletin', supportContainerRid, { L: 2, M: 0, S: 6 }),
+    ];
+    const footerChildren = [
+      widget('qa_footer', 'Footer', footerContainerRid, { L: 6, M: 6, S: 6 }),
+      ...Array.from({ length: 14 }, (_, index) =>
+        widget(`qa_extra_${index + 1}`, `Extra ${index + 1}`, footerContainerRid, { L: 3, M: 6, S: 6 })),
+    ];
+    const primary = {
+      id: 'qa_primary', rid: primaryTabRid, kind: 'tab', className: 'Tab', name: 'Primary',
+      cols: { L: 6, M: 6, S: 6 }, children: [
+        { id: 'qa_overview', rid: overviewContainerRid, kind: 'container', className: 'Container', name: 'Overview', cols: { L: 6, M: 6, S: 6 }, children: overviewChildren },
+        { id: 'qa_support', rid: supportContainerRid, kind: 'container', className: 'Container', name: 'Support', cols: { L: 6, M: 6, S: 6 }, children: supportChildren },
+      ],
+    };
+    const secondary = {
+      id: 'qa_secondary', rid: secondaryTabRid, kind: 'tab', className: 'Tab', name: 'Secondary',
+      cols: { L: 6, M: 6, S: 6 }, children: [
+        { id: 'qa_footer_zone', rid: footerContainerRid, kind: 'container', className: 'Container', name: 'Footer zone', cols: { L: 6, M: 6, S: 6 }, children: footerChildren },
+      ],
+    };
+    const model = {
+      pageId: 'qa_page', pageRid: '5238328459709259500', pageName: 'Support portal', pageClass: 'Scorecard',
+      tabsetId: 'qa_tabs', tabs: [primary, secondary], target: 'instance', hasTemplate: false,
+    } as any;
+
+    const projection = projectAiLayout(model.pageRid, {
+      kind: 'page', ctx: { pageId: model.pageId, pageRid: model.pageRid, tabsetId: model.tabsetId },
+      load: { model, orphans: [] },
+    } as any);
+    const providerJson = JSON.stringify(toolSuccess('read_layout', projection.modelFacts));
+
+    expect(projection.modelFacts).toMatchObject({ complete: true, totalNodes: 24, returnedNodes: 24, omittedNodes: 0 });
+    expect(providerJson.length).toBeLessThanOrEqual(TOOL_RESULT_CAP);
+    for (const name of ['Header', 'Navigation', 'Documentation & Support', 'Latest Bulletin', 'Footer']) {
+      expect(providerJson).toContain(name);
+    }
+    expect(projection.modelFacts.nodes.find(node => node.name === 'Latest Bulletin')).toMatchObject({
+      parentRid: supportContainerRid,
+      columns: { large: 2, medium: 0, small: 6 },
+      storage: 'page-child',
+    });
+    expect(providerJson).not.toMatch(/changeTarget|pageTarget|mutationRef|lookupExpression|targetRid/);
+    expect(projection.uiObjects).toHaveLength(25);
   });
 
   it('bounds large layouts and supports focused subtree follow-up', async () => {
@@ -909,7 +995,8 @@ describe('executeAiTool — defensive', () => {
 
     const projection = projectAiLayout('99', page);
     expect(projection.text).toBe(outline);
-    expect(projection.objects.map(object => object.rid)).toContain('44');
+    expect(projection.uiObjects.map(object => object.rid)).toContain('44');
+    expect(JSON.stringify(toolSuccess('read_layout', projection.modelFacts)).length).toBeLessThanOrEqual(TOOL_RESULT_CAP);
 
     const focused = formatAiLayout('99', page, '1005');
     expect(focused).toContain('focused subtree rid=1005 has 1');
@@ -933,7 +1020,7 @@ describe('executeAiTool — defensive', () => {
       load: { model, orphans: [], truncated: true },
     } as any;
 
-    expect(formatAiLayout('99', page)).toContain('Safety limit reached');
+    expect(formatAiLayout('99', page)).toContain('source read reached its safety limit');
   });
 
   it('shares one short-lived layout load across repeated AI calls', async () => {

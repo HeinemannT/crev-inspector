@@ -57,7 +57,7 @@ describe('model-visible prompt contracts', () => {
       },
     };
     const prompt = buildEditorPrompt(payload);
-    expect(digestPrompt(prompt.system, prompt.user)).toBe('e81081bfa093a12c4a64f17458ec409ae69b091c41436abaeb32f91599fb95eb');
+    expect(digestPrompt(prompt.system, prompt.user)).toBe('113545a2d2f8b46254cf748ee44718d569400fb31f3a070d5d1a21016c53f87e');
   });
 
   it('keeps the selected JavaScript editor prompt stable during architectural refactors', () => {
@@ -86,7 +86,7 @@ describe('model-visible prompt contracts', () => {
       sources: [],
     };
     const prompt = buildChatSystem(envelope);
-    expect(digestPrompt(prompt.system)).toBe('f2e670187e2c92b2146aa1c9a74200e20fac89f87cec1be3bc92d6ddf5b4b1bb');
+    expect(digestPrompt(prompt.system)).toBe('ad6b85554d0e53a348c7a87cb048b461087459b06db55288d607c1bbdfe8bac5');
   });
 
   it('keeps the contextual sidebar prompt stable during architectural refactors', () => {
@@ -104,6 +104,6 @@ describe('model-visible prompt contracts', () => {
       }],
     };
     const prompt = buildChatSystem(envelope, 'objects=12\nclasses: Scorecard=2, Risk=10');
-    expect(digestPrompt(prompt.system)).toBe('afc3e7f384412c05af8fd0812f6103a04927c9d5fee65f1247a8f0ac4a80ecae');
+    expect(digestPrompt(prompt.system)).toBe('ed892c563f21a7a166db8c3d9677a24b7bc291712e274bac02d26f79815404f0');
   });
 });

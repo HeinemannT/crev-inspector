@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   truncateToolResult, TOOL_RESULT_CAP, TRUNCATION_MARKER, MAX_TOOL_CALLS, MAX_TOOL_ROUNDS,
   mergeObjectReferences, objectReferencePattern, objectReferenceToken, toolResultWithObjects,
-  boundedToolResult, toolResultForModel,
+  boundedToolResult, toolResultEvidenceKey, toolResultForModel,
 } from '../tools';
 import {
   TOOL_CONTRACTS, TOOL_DEFS, TOOL_NAMES, summarizeToolCall,
@@ -21,7 +21,7 @@ describe('tool schemas', () => {
     expect([...TOOL_CONTRACTS.keys()].sort()).toEqual([...TOOL_NAMES].sort());
     for (const contract of TOOL_CONTRACTS.values()) {
       expect(contract.name).toBeTruthy();
-      expect(contract.resultDescription).toContain('Returns JSON data');
+      expect(contract.resultDescription).toContain('Returns');
       expect(contract.summarize({})).toContain(contract.name);
     }
     expect(summarizeToolCall({ name: 'preview_ec', input: { code: 'a\nb' } }))
@@ -44,16 +44,18 @@ describe('tool schemas', () => {
     expect(readObject?.description).toContain('overview is deliberately incomplete');
     const readType = TOOL_DEFS.find(tool => tool.name === 'read_type');
     expect(readType?.parameters.properties.query?.type).toBe('string');
-    expect(readType?.parameters.properties.exampleRef?.type).toBe('string');
+    expect(readType?.parameters.properties.exampleRid?.type).toBe('string');
     expect(readType?.description).toContain('described a property concept');
-    expect(readType?.description).toContain('mutationRef');
+    expect(readType?.description).not.toContain('mutationRef');
     const searchObjects = TOOL_DEFS.find(tool => tool.name === 'search_objects');
     expect(searchObjects?.parameters.properties.purpose?.enum).toEqual(['objects', 'row-type']);
     expect(searchObjects?.description).toContain('ranked live typeCandidates');
     const readLayout = TOOL_DEFS.find(tool => tool.name === 'read_layout');
     expect(readLayout?.description).toContain('do not call query_context first');
-    expect(readLayout?.description).toContain('typed change-target record');
-    expect(readLayout?.parameters.properties.changeScope?.enum).toEqual(['default', 'instance-only']);
+    expect(readLayout?.description).toContain('parent RIDs');
+    expect(readLayout?.description).toContain('BMP 0–6');
+    expect(readLayout?.description).not.toContain('change-target');
+    expect(readLayout?.parameters.properties.changeScope).toBeUndefined();
   });
 
   it('limits preview_ec to read-only investigation and uncertain deferred expressions', () => {
@@ -114,7 +116,8 @@ describe('tool schemas', () => {
     expect(validateToolInput('read_object', {})).toContain('requires "ref"');
     expect(validateToolInput('read_object', { ref: '1', properties: ['card'] })).toBeNull();
     expect(validateToolInput('read_object', { ref: '1', properties: 'card' })).toContain('array of strings');
-    expect(validateToolInput('read_layout', { pageRid: '1', changeScope: 'local' })).toContain('must be one of');
+    expect(validateToolInput('read_layout', { pageRid: '1', changeScope: 'instance-only' })).toContain('does not accept');
+    expect(validateToolInput('read_type', { type: 'InputView', exampleRid: '42' })).toBeNull();
     expect(validateToolInput('preview_ec', { code: 'output(1)', extra: true })).toContain('does not accept');
   });
 });
@@ -145,23 +148,37 @@ describe('structured object references', () => {
         returned: 1,
         typeCounts: { Scorecard: 1 },
         capped: false,
-        hitRids: ['9007199254740993'],
         complete: true,
       }, [{ rid: '9007199254740993', businessId: 'sc_risk', type: 'Scorecard', name: 'Risk' }]),
     });
     const parsed = JSON.parse(wire);
     expect(parsed).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       tool: 'search_objects',
       status: 'ok',
-      data: { hitRids: ['9007199254740993'], complete: true },
+      data: { complete: true },
       objects: [{
         rid: '9007199254740993',
         token: '[[object:9007199254740993]]',
-        lookupExpression: 'lookup(9007199254740993)',
       }],
     });
     expect(wire).not.toContain('formatted prose');
+  });
+
+  it('keeps UI-only objects out of provider JSON and fingerprints', () => {
+    const structuredContent = toolSuccess('read_layout', {
+      viewedRid: '1', pageOwnerRid: '1', focusFound: true, resultOnly: false,
+      tabsets: [], totalNodes: 0, returnedNodes: 0, omittedNodes: 0,
+      sourceTruncated: false, orphanCount: 0, complete: true, nodes: [],
+    });
+    const base = { content: 'layout', isError: false, structuredContent };
+    const result = {
+      ...base,
+      objects: [{ rid: '1', businessId: 'page', type: 'Scorecard' }],
+    };
+    const wire = toolResultForModel(result);
+    expect(JSON.parse(wire)).not.toHaveProperty('objects');
+    expect(toolResultEvidenceKey(result)).toBe(toolResultEvidenceKey(base));
   });
 
   it('turns unsupported oversized structures into a typed narrowing error', () => {

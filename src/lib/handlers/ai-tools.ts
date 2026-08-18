@@ -26,20 +26,12 @@ import { codeFieldsFor, referencesFor, contextFieldsFor, typeAffordances } from 
 import { errorMessage, log } from '../logger';
 import { formatEcLiteral, validateEcIdentifier, validateRid } from '../ec-guards';
 import { loadPageStructure, type LoadPageStructureResult } from '../layout-service';
-import type { LNode } from '../layout/types';
+import { projectLayoutEvidence } from '../ai/layout-evidence';
 import {
   inspectObjectProperties,
   MAX_AI_SELECTED_PROPERTIES,
   searchTypeProperties,
 } from '../ai/property-inspection';
-import {
-  formatChangeTarget,
-  resolveChangeTarget,
-  type ChangeTargetIdentity,
-  type ChangeTargetPageFacts,
-  type ChangeTargetResolution,
-  type RequestedChangeScope,
-} from '../ai/change-target';
 
 /** Inline a code slot body only when it's this small; otherwise report size. */
 const SLOT_INLINE_LIMIT = 1200;
@@ -53,11 +45,6 @@ const CONTEXT_FIELD_CAP = 5;
 const CONTEXT_IDENTITY_FIELDS = new Set(['name', 'type', 'className', 'businessId', 'id', 'rid']);
 const AI_LAYOUT_CACHE_MS = 15_000;
 const AI_LAYOUT_CACHE_MAX = 20;
-// Typed target records make each node wider than the old identity-only line.
-// Fifty preserves a balanced first-pass outline across tabs within 7.5k chars;
-// callers can focus one returned subtree for depth.
-const AI_LAYOUT_NODE_CAP = 50;
-const AI_LAYOUT_CHAR_BUDGET = 7_500;
 const layoutCache = new WeakMap<BmpClient, Map<string, {
   expiresAt: number;
   promise: Promise<LoadPageStructureResult>;
@@ -529,7 +516,7 @@ async function readCode(client: BmpClient, input: Record<string, unknown>): Prom
       code: modelCode,
       charCount: code.length,
       complete: modelCode.length === code.length,
-    }, objects),
+    }),
     objects,
   );
 }
@@ -540,8 +527,11 @@ async function readType(client: BmpClient, input: Record<string, unknown>, signa
   const type = typeof input.type === 'string' ? input.type.trim() : '';
   if (!type) return err('read_type needs a "type" (PascalCase class name).');
   const query = typeof input.query === 'string' ? input.query.trim() : '';
-  const exampleRef = typeof input.exampleRef === 'string' ? input.exampleRef.trim() : '';
+  const exampleRid = typeof input.exampleRid === 'string' ? input.exampleRid.trim() : '';
   const propertyOnly = input.propertyOnly === true;
+  if (exampleRid && !/^-?\d+$/.test(exampleRid)) {
+    return err('read_type "exampleRid" must be a numeric rid.');
+  }
   if (input.propertyOnly !== undefined && typeof input.propertyOnly !== 'boolean') {
     return err('read_type "propertyOnly" must be true or false.');
   }
@@ -559,6 +549,7 @@ async function readType(client: BmpClient, input: Record<string, unknown>, signa
   if (ctxF.length) lines.push(`Context fields (metadata): ${ctxF.map(c => `${c.prop} (${c.kind})`).join(', ')}`);
 
   // Live schema probe — the exact path the Vars panel uses.
+  const exampleRef = exampleRid ? await client.resolveRef(exampleRid) : '';
   const schema = await bmpTypeKnowledge.properties({
     className: type,
     ...(exampleRef ? { exampleRef } : {}),
@@ -700,7 +691,6 @@ async function searchObjects(client: BmpClient, input: Record<string, unknown>, 
       typeCounts: {},
       ...(purpose === 'row-type' ? { typeCandidates: [], purposeComplete: true } : {}),
       capped: totalHits > objects.length,
-      hitRids: [],
       complete: totalHits <= objects.length,
     }),
   );
@@ -749,7 +739,6 @@ async function searchObjects(client: BmpClient, input: Record<string, unknown>, 
       purposeComplete: typeCandidates.length > 0,
     } : {}),
     capped,
-    hitRids: shown.map(object => object.rid),
     complete: !capped,
   }, resultObjects), resultObjects);
 }
@@ -807,17 +796,13 @@ async function readLayout(client: BmpClient, input: Record<string, unknown>): Pr
   if (!/^-?\d+$/.test(pageRid)) return err('read_layout needs a numeric "pageRid".');
   const focusRid = typeof input.focusRid === 'string' ? input.focusRid.trim() : '';
   if (focusRid && !/^-?\d+$/.test(focusRid)) return err('read_layout "focusRid" must be a numeric rid.');
-  const changeScope = input.changeScope === 'instance-only' ? 'instance-only' : 'default';
-  if (input.changeScope !== undefined && input.changeScope !== 'default' && input.changeScope !== 'instance-only') {
-    return err('read_layout "changeScope" must be "default" or "instance-only".');
-  }
   const page = await loadAiLayout(client, pageRid);
   if (!page) return err(`No web layout for viewed object ${pageRid} (not a supported page host?).`);
-  const projection = projectAiLayout(pageRid, page, focusRid || undefined, changeScope);
+  const projection = projectLayoutEvidence(pageRid, page, focusRid || undefined);
   return ok(
     projection.text,
-    toolSuccess('read_layout', projection.data, projection.objects),
-    projection.objects,
+    toolSuccess('read_layout', projection.modelFacts),
+    projection.uiObjects,
   );
 }
 
@@ -844,242 +829,15 @@ function loadAiLayout(client: BmpClient, pageRid: string): Promise<LoadPageStruc
   return promise;
 }
 
-/** Compact, bounded AI projection of the dual-model page structure. Portal
- * Tabs/Containers and page-owned widgets remain visibly distinct. */
-export interface AiLayoutProjection {
-  text: string;
-  /** Exact identities represented in `text`, plus the effective page owner. */
-  objects: ObjectReference[];
-  /** Typed routing decisions used to produce the text. */
-  targets: ChangeTargetResolution[];
-  /** Provider-facing facts; the orchestrator also consumes completeness and
-   * targets directly instead of scraping the formatted outline. */
-  data: ToolDataMap['read_layout'];
-}
+/** Compatibility exports used by focused formatting and integration tests. */
+export const projectAiLayout = projectLayoutEvidence;
 
-function aiTargetIdentity(
-  rid: string,
-  businessId: string,
-  type: string,
-  name?: string,
-): ChangeTargetIdentity {
-  return { rid, businessId, type, ...(name ? { name } : {}), ecRef: `t.${businessId}` };
-}
-
-function findLayoutNode(nodes: LNode[], rid: string): LNode | undefined {
-  for (const node of nodes) {
-    if (node.rid === rid) return node;
-    const nested = findLayoutNode(node.children, rid);
-    if (nested) return nested;
-  }
-  return undefined;
-}
-
-export function projectAiLayout(
-  viewedRid: string,
-  page: NonNullable<LoadPageStructureResult>,
-  focusRid?: string,
-  requestedScope: RequestedChangeScope = 'default',
-): AiLayoutProjection {
-  const { ctx, load } = page;
-  const model = load.model;
-  const count = (nodes: LNode[]): number => nodes.reduce((n, node) => n + 1 + count(node.children), 0);
-  const objects: ObjectReference[] = [{
-    rid: ctx.pageRid,
-    businessId: model.pageId,
-    type: model.pageClass,
-    name: model.pageName,
-  }];
-  const owner = aiTargetIdentity(ctx.pageRid, model.pageId, model.pageClass, model.pageName);
-  const viewed = ctx.pageRid === viewedRid
-    ? owner
-    : aiTargetIdentity(viewedRid, viewedRid, 'EnterpriseInstance', undefined);
-  const linkedTemplate = model.templateRid && model.templateId
-    ? aiTargetIdentity(model.templateRid, model.templateId, model.pageClass)
-    : undefined;
-  const pageFacts: ChangeTargetPageFacts = {
-    viewed,
-    owner,
-    ...(linkedTemplate ? { linkedTemplate } : {}),
-  };
-  const pageTarget = resolveChangeTarget({ kind: 'page', page: pageFacts }, requestedScope);
-  const targets: ChangeTargetResolution[] = [pageTarget];
-  const tabsets = (model.tabsets?.length
-    ? model.tabsets
-    : [{ id: model.tabsetId, name: model.tabsetId }])
-    .map(tabset => ({
-      businessId: tabset.id,
-      name: tabset.name,
-      ...(tabset.rid ? { rid: tabset.rid } : {}),
-    }));
-  if (model.templateRid) {
-    objects.push({
-      rid: model.templateRid,
-      businessId: model.templateId,
-      type: model.pageClass,
-    });
-  }
-  const focus = focusRid ? findLayoutNode(model.tabs, focusRid) : undefined;
-  if (focusRid && !focus) {
-    return {
-      text: `Layout focus rid=${focusRid} was not found on viewed page rid=${viewedRid}.`,
-      objects,
-      targets,
-      data: {
-        viewedRid,
-        pageOwnerRid: ctx.pageRid,
-        focusRid,
-        focusFound: false,
-        requestedScope,
-        resultOnly: !!model.resultOnly,
-        tabsets,
-        totalNodes: count(model.tabs),
-        returnedNodes: 0,
-        omittedNodes: count(model.tabs),
-        sourceTruncated: !!load.truncated,
-        orphanCount: load.orphans.length,
-        complete: false,
-        pageTarget,
-        nodes: [],
-      },
-    };
-  }
-  const roots = focus ? [focus] : model.tabs;
-  const total = count(roots);
-  const lines = [
-    `Viewed rid=${viewedRid}`,
-    `Effective page owner: ${model.pageName || model.pageId} (${model.pageClass}) bid=${model.pageId} rid=${ctx.pageRid}`,
-    `Contributing TabSets: ${tabsets.map(tabset => `${tabset.name} [${tabset.businessId}]`).join(', ')}`,
-    `Layout: ${count(model.tabs)} total nodes${model.resultOnly ? ' (shared Result tab)' : ''}${focus ? `; focused subtree rid=${focus.rid} has ${total}` : ''}`,
-  ];
-  lines.push(formatChangeTarget(pageTarget, requestedScope === 'instance-only' ? 'Requested page-owner target' : 'Default page-owner target'));
-  if (pageTarget.status === 'resolved' && pageTarget.scope === 'shared-template') {
-    lines.push('Required ticket summary: briefly note that the change affects the template rather than only the viewed instance; do not offer an override unless asked.');
-  }
-  let emitted = 0;
-  let chars = lines.join('\n').length;
-  const projectedNodes: ToolDataMap['read_layout']['nodes'] = [];
-  const walk = (node: LNode, depth: number, quota: number, parentRid?: string): number => {
-    if (quota <= 0 || emitted >= AI_LAYOUT_NODE_CAP) return 0;
-    const storage = node.kind === 'widget' ? 'page-child' : 'portal-shared';
-    const slots = node.kind === 'widget' ? codeFieldsFor(node.className).map(field => field.prop) : [];
-    const provenance = node.kind === 'tab' ? ` tabset=${node.tabsetId ?? model.tabsetId}` : '';
-    let routing = ` bid=${node.id}${node.rid ? ` rid=${node.rid}` : ''}`;
-    let changeTarget: ChangeTargetResolution | undefined;
-    if (node.rid) {
-      const instance = aiTargetIdentity(node.rid, node.id, node.className, node.name);
-      changeTarget = node.kind === 'widget'
-        ? resolveChangeTarget({
-            kind: 'widget',
-            page: pageFacts,
-            instance,
-            ...(node.linkedTemplate ? {
-              linkedTemplate: aiTargetIdentity(
-                node.linkedTemplate.rid,
-                node.linkedTemplate.id,
-                node.linkedTemplate.className,
-                node.linkedTemplate.name,
-              ),
-            } : {}),
-          }, requestedScope)
-        : resolveChangeTarget({ kind: 'portal-structure', page: pageFacts, object: instance }, requestedScope);
-      targets.push(changeTarget);
-      routing = ` ${formatChangeTarget(changeTarget, 'change-target')}`;
-    }
-    const line = `${'  '.repeat(depth + 1)}${node.className} "${node.name}"${routing} span=${node.cols.L} model=${storage}${provenance}${slots.length ? ` code=${slots.join(',')}` : ''}`;
-    if (chars + line.length + 1 > AI_LAYOUT_CHAR_BUDGET) return 0;
-    lines.push(line);
-    chars += line.length + 1;
-    emitted++;
-    projectedNodes.push({
-      ...(node.rid ? { rid: node.rid } : {}),
-      businessId: node.id,
-      ...(parentRid ? { parentRid } : {}),
-      depth,
-      kind: node.kind,
-      type: node.className,
-      name: node.name,
-      columns: {
-        large: node.cols.L,
-        ...(node.cols.M !== undefined ? { medium: node.cols.M } : {}),
-        ...(node.cols.S !== undefined ? { small: node.cols.S } : {}),
-      },
-      storage,
-      ...(node.tabsetId ? { tabsetBusinessId: node.tabsetId } : {}),
-      codeSlots: slots,
-      ...(node.linkedTemplate ? { linkedTemplateRid: node.linkedTemplate.rid } : {}),
-      ...(changeTarget ? { changeTarget } : {}),
-    });
-    if (node.rid) {
-      objects.push({
-        rid: node.rid,
-        businessId: node.id,
-        type: node.className,
-        name: node.name,
-      });
-    }
-    if (node.linkedTemplate) {
-      objects.push({
-        rid: node.linkedTemplate.rid,
-        businessId: node.linkedTemplate.id,
-        type: node.linkedTemplate.className,
-        name: node.linkedTemplate.name,
-      });
-    }
-    let used = 1;
-    for (const child of node.children) {
-      if (used >= quota) break;
-      used += walk(child, depth + 1, quota - used, node.rid ?? parentRid);
-    }
-    return used;
-  };
-  // Divide the initial outline budget across top-level tabs so one enormous
-  // first tab cannot hide every later tab (and their focus rids). A focused
-  // subtree has one root and therefore receives the full budget.
-  roots.forEach((tab, index) => {
-    const remainingRoots = roots.length - index;
-    const quota = Math.max(1, Math.floor((AI_LAYOUT_NODE_CAP - emitted) / remainingRoots));
-    walk(tab, 0, quota);
-  });
-  if (emitted < total) {
-    lines.push(`Showing ${emitted} of ${total} node(s) in this scope; ${total - emitted} omitted. Call read_layout again with pageRid="${viewedRid}" and focusRid="<returned rid>" to inspect one subtree.`);
-  }
-  if (load.truncated) {
-    lines.push('Safety limit reached while reading the page: the source projection is partial. No widget-owned rows or further page nodes were loaded.');
-  }
-  if (load.orphans.length) lines.push(`Orphan widgets without a container: ${load.orphans.length}`);
-  lines.push('Scope resolution is complete. Use the returned change-target; do not call read_layout again unless an omitted subtree is required.');
-  return {
-    text: lines.join('\n'),
-    objects,
-    targets,
-    data: {
-      viewedRid,
-      pageOwnerRid: ctx.pageRid,
-      ...(focusRid ? { focusRid } : {}),
-      focusFound: true,
-      requestedScope,
-      resultOnly: !!model.resultOnly,
-      tabsets,
-      totalNodes: total,
-      returnedNodes: emitted,
-      omittedNodes: Math.max(0, total - emitted),
-      sourceTruncated: !!load.truncated,
-      orphanCount: load.orphans.length,
-      complete: emitted >= total && !load.truncated,
-      pageTarget,
-      nodes: projectedNodes,
-    },
-  };
-}
-
-/** Text-only compatibility surface used by focused formatting tests. */
 export function formatAiLayout(
   viewedRid: string,
   page: NonNullable<LoadPageStructureResult>,
   focusRid?: string,
 ): string {
-  return projectAiLayout(viewedRid, page, focusRid).text;
+  return projectLayoutEvidence(viewedRid, page, focusRid).text;
 }
 
 // ── preview_ec ───────────────────────────────────────────────────

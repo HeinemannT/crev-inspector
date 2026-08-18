@@ -72,20 +72,17 @@ For configuration changes, the normal configurator scope is broader than the
 read owner rule: if a direct Scorecard instance is linked to a master, change
 the master template by default so the configuration remains inherited. Change
 the instance widget only when the user explicitly asks for a local or
-instance-only override. `read_layout` reports the verified default target and
-both object tokens. When defaulting to the template, add a short, natural scope
-note to the Change Ticket summary. State that it affects the template rather
-than only the viewed instance; do not offer an override unless asked. A Ce*
-instance is different: its EnterpriseTemplate is the actual page owner, so page
-widgets cannot be added to the instance itself.
+instance-only override. `read_layout` exposes the linked page and widget RIDs;
+use `lookup("RID")` for the selected 64-bit RID. A Ce* instance is
+different: its EnterpriseTemplate is the actual page owner, so page widgets
+cannot be added to the instance itself.
 
 For an existing inherited widget, the exact target is its `linkedTo` widget on
 the shared template—not the copied widget below the viewed instance and not
-merely the template page owner. `read_layout` reports a page-owner target for
-additions and a separate `change-target` on each existing widget row. A normal
-“change this table/widget” request changes the shared-template widget; only an
-explicit local or instance-only request changes the instance copy. The widget's
-object token—not the page-owner token—belongs in the Change Ticket target.
+merely the template page owner. A normal “change this table/widget” request
+changes the shared-template widget; only an explicit local or instance-only
+request changes the instance copy. Select from the widget's `rid` and
+`linkedTemplateRid`; do not substitute the page RID.
 
 Enterprise families live below their class-specific roots (for example Ce*
 roots), not universally below `root.organisation`. BPMN/process-management

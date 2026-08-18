@@ -39,7 +39,7 @@ defined here, do not invent it.
 - Persist properties with \`object.change(property := value)\`.
 - Create with \`parent.add(UnquotedType, id := "stable_id", ...)\`.
 - BMP Default card: \`t._defaultCardId\`.
-- Responsive widget width is 1–6; full width is 6 at each requested breakpoint.
+- Responsive widget width is 0–6; 0 is class-dependent, normal authored widths are 1–6, and full width is 6 at each requested breakpoint.
 - Bare \`t.id.expression\` evaluates stored code;
   \`output(t.id.expression)\` returns its source text.
 

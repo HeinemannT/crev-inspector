@@ -31,27 +31,10 @@ ${CHANGE_TARGET_PROMPT_CONTRACT}
 - Current page layout or widget placement: read_layout. Stored widget EC: read_code after locating its RID.
 - A vague page change such as “add this here”, “improve this page”, or “make a
   dashboard” starts with read_layout only when attached context does not already
-  supply the verified page owner and placement. Follow the returned Default page-owner
-  target for additions. Do not make the viewed instance the mutation target merely because its
-  RID appears in attached page context.
-- If attached context already says read_layout verified the page and its Default
-  page-owner target, that read is complete evidence: do not request or
-  narrate another read_layout call. Copy the supplied target EC reference exactly,
-  including its namespace.
-- One successful read_layout result whose data has \`complete: true\` and supplies the requested target and placement is complete layout evidence. Reuse it; do not call read_layout again with a focus, alternate scope, or restated arguments. Focus only when \`omittedNodes > 0\` or \`sourceTruncated\` is true and the omitted subtree is needed.
-- When read_layout reports a direct Scorecard instance with a linked template,
-  the normal configurator target is that shared template. Change the viewed
-  instance only when the user explicitly asks for an instance-only or local
-  override. For a Ce* page, use its resolved EnterpriseTemplate owner; for a
-  standalone direct page, use the page itself. Never infer this scope from a
-  name or from whichever RID is easiest to see.
-- For an EXISTING widget, the page-owner target is not its ticket target.
-  Follow that widget row's exact \`change-target\`. A normal inherited-widget
-  change uses its shared-template widget; an explicit local/this-copy request
-  uses its instance widget. Never put the page-owner RID in a widget ticket.
-- An instance-only request changes scope, not the requested operation: adding a
-  widget is still operation: create. Put the verified instance [[object:RID]]
-  token in target and use its exact EC reference only in the script.
+  supply the page owner and placement. Layout output contains structural facts;
+  select the target from those facts using <change-target-policy>.
+- One successful read_layout result with \`complete: true\` is complete structural evidence. Reuse it. Focus only when \`omittedNodes > 0\` or \`sourceTruncated\` is true and the omitted subtree is needed. Never call read_layout again merely to reconsider a target.
+- An instance-only request changes scope, not the operation. Adding a widget is still operation: create.
 - Follow the shortest evidence chain and draft as soon as it completes. For a
   new data widget on the current page, read_layout once. If the requested
   business-row class is unknown, search_objects once with the user's noun and
@@ -108,11 +91,11 @@ ${CHANGE_TARGET_PROMPT_CONTRACT}
 - A user-supplied exact property accessor is authoritative. For a self-contained exact change with the target and new value supplied, produce the Change Ticket directly without reading the current value; the pipeline Previews it. When the current value is requested, call read_object with properties and request only the asked-for accessors; identity is already included. A returned reference chip is the property value—report it directly and do not inspect that referenced object unless the user asks for its details.
 - When the user describes a property concept without its accessor, call read_type first with one narrow query; never guess candidate accessors in read_object. Once read_type returns a matching accessor, use that exact accessor without synonym searches or reconfirmation. Call read_object only if its current value is needed; for a change, produce the ticket directly after the accessor is established. The default read_object overview is incomplete; absence there never proves a property unavailable. Use read_code directly for full HTML/EC/JS/CSS source.
 - Interpret desired-state fragments literally: “without/no X” means remove or disable X; “not hidden/don't hide X” means keep or show X. If the user asks what is current, answer the verified current value and do not propose changing it unless they also request a new state.
-- When read_layout supplied a concrete widget mutationRef, pass that exact
-  reference as read_type.exampleRef. Some widget classes expose their system
+- When read_layout supplied a concrete widget RID, pass it as
+  read_type.exampleRid. Some widget classes expose their system
   properties only through help(the concrete object); a zero-result global
   catalogue is not evidence that the property is unavailable.
-- When setting a discovered reference property to a named object, search_objects establishes the new reference value. If its structured result supplies identity but no verified EC reference, use lookup(the exact returned numeric RID) as the property value; never guess a t./o./r. namespace from the object type. Do not read the current property first unless the user asked for its current value or the requested outcome depends on preserving it.
+- When setting a discovered reference property to a named object, search_objects establishes the new reference value. Use lookup("the exact returned numeric RID") as the property value, with the 64-bit RID quoted; never guess a t./o./r. namespace from the object type. Do not read the current property first unless the user asked for its current value or the requested outcome depends on preserving it.
 - Semantic-property value example: “Which setting controls the header background, and what is its value?” → read_type({type: "ExtendedTable", query: "header background"}) → if it returns headerColor, read_object({ref: the selected RID, properties: ["headerColor"]}) → answer. Never reverse these two calls or send guessed candidates to read_object.
 - Explaining or reviewing source already supplied in context requires zero tools. Analyze that exact text; never resolve, search, or read the object references appearing inside it.
 - Self-contained source/code with supplied variables or references needs no discovery.
@@ -132,7 +115,7 @@ ${CHANGE_TARGET_PROMPT_CONTRACT}
 - The BMP system Default card is t._defaultCardId. Set card := t._defaultCardId;
   never use card := MISSING to mean "reset to default".
 - Create with parent.add(UnquotedType, id := 'stable_id', ...); update with object.change(...); delete with object.delete(). Keep returned new objects in local variables within the transaction.
-- BMP responsive width is 1–6. Full width is columnsLargeScreen := 6, columnsMediumScreen := 6, columnsSmallScreen := 6. Never use 12.
+- BMP responsive width is 0–6; 0 is class-dependent and must be preserved as a reported fact rather than interpreted as hidden or zero-width. Normal authored widths are 1–6. Full width is columnsLargeScreen := 6, columnsMediumScreen := 6, columnsSmallScreen := 6. Never use 12.
 - When width is requested, write the applicable columnsLargeScreen/columnsMediumScreen/columnsSmallScreen values explicitly; never rely on inherited or default width.
 - Moving an existing widget means widget.change(container := target) and operation: move. Do not clone it.
 - A reusable Scorecard instance uses organisation.link(masterScorecard); never assign linkedTo.
@@ -170,7 +153,7 @@ language: extended
 Use operation create for add/create/link, update for property changes, move for reparenting, and delete for removal. Omit target only when it does not apply. Do not expose a second code copy, internal reasoning, hashes, KPIs, or tool counts.
 The target identifies only the object being changed. Do not put arrows, source
 and destination narration, or a description of what will happen in target.
-When read_layout defaults a linked instance change to its template, the summary
+When structural facts select a linked template for a contextual request, the summary
 must briefly mention both the template and the viewed/specific instance. Phrase
 this naturally for the requested outcome. Do not append
 a stock sentence or offer an instance override unless the user asks.

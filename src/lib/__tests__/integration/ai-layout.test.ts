@@ -43,8 +43,9 @@ it('maps Steadfast landing-page instance widgets to their shared template widget
     ctx: ctx!,
     load: result,
   })
-  const inheritedTargets = projection.targets.filter(target => target.status === 'resolved' && target.reason === 'inherited-widget-default')
-  expect(inheritedTargets).toHaveLength(inherited.length)
-  const masterIds = new Set(inherited.map(node => node.linkedTemplate!.id))
-  expect(inheritedTargets.every(target => target.status === 'resolved' && target.scope === 'shared-template' && masterIds.has(target.target.businessId))).toBe(true)
+  const inheritedFacts = projection.modelFacts.nodes.filter(node =>
+    node.kind === 'widget' && node.linkedTemplateRid)
+  expect(inheritedFacts).toHaveLength(inherited.length)
+  const masterRids = new Set(inherited.map(node => node.linkedTemplate!.rid))
+  expect(inheritedFacts.every(node => masterRids.has(node.linkedTemplateRid!))).toBe(true)
 }, 60_000)

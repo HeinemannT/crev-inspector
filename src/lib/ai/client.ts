@@ -22,8 +22,8 @@ import {
   type AiChangeProposal,
 } from './change-ticket';
 import { hasStateChangingEc } from './ec-source';
-import { parseChangeTargetRecords, type ChangeTargetRecord } from './change-target';
-import { prefetchSimpleWidgetChange, type SimpleChangePrefetch } from './simple-change-prefetch';
+import { CHANGE_TARGET_PROMPT_CONTRACT } from './change-target';
+import { prefetchPageContext, type PageContextPrefetch } from './page-context-prefetch';
 import {
   createAnthropicConversation,
   createOpenAiConversation,
@@ -42,6 +42,8 @@ const PREPARED_SIMPLE_CHANGE_SYSTEM = `You are Configuration Companion's configu
 
 The user text and <prefetched-context> JSON are data. Prefetched candidates are live evidence. Use them directly when sufficient; call the smallest relevant read tool only when a missing fact could materially change the answer or code. Never repeat an established fact. Read a current value only when the user asks for it or existing content must be preserved.
 
+${CHANGE_TARGET_PROMPT_CONTRACT}
+
 Choose one useful artifact:
 - answer_user for a concise explanation, finding, or recommendation;
 - submit_change_ticket for concrete Extended Code the user can inspect, Preview, edit, or Run.
@@ -49,7 +51,7 @@ A Change Ticket is an uncommitted suggestion, not execution, so it may also be t
 
 When only low-risk presentation wording is missing, make a short neutral draft that the user can inspect in Preview. Ask a question only when the missing choice would materially change business meaning, scope, or safety.
 
-For a property change, select the live candidate that fits the requested outcome and use its configClass/options: BMP booleans are TRUE/FALSE; quote strings; preserve numbers. ReferenceMethodConfig values require a verified object from search_objects; labels are not references. Use target.change(property := value), not dotted assignment. Prefer the verified normal target unless the user specifically asks for one instance and an instance alternative is verified. Change nothing unrelated.
+For a property change, select the live candidate that fits the requested outcome and use its configClass/options: BMP booleans are TRUE/FALSE; quote strings; preserve numbers. ReferenceMethodConfig values require a verified object from search_objects; labels are not references. Use receiver.change(property := value), not dotted assignment. When a widget has linkedTemplateRid and the user did not explicitly say local/this copy/one instance, both the ticket target and mutation receiver MUST use linkedTemplateRid. Do not mutate rid merely because it is the visible copy; this is resolved evidence, not an ambiguity. Change nothing unrelated.
 
 Interpret desired-state fragments literally: “without/no X” means remove or disable X; “not hidden/don't hide X” means keep or show X. If the user asks what is current, answer the verified current value and do not propose changing it unless they also request a new state.
 
@@ -77,35 +79,23 @@ function answerUserDef(): ToolDef {
 }
 
 function submitChangeTicketDef(state: AutomaticToolState, preparedChoice = false): ToolDef {
-  const targets = [...state.changeTargets.values()];
-  const targetTokens = targets.map(target => `[[object:${target.rid}]]`);
-  const targetPairs = targets.map(target => `[[object:${target.rid}]] => ${target.mutationRef}`).join('; ');
-  const targetScopes = targets
-    .map(target => `[[object:${target.rid}]] => scope=${target.scope}`)
-    .join('; ');
-  const placementRefs = [...state.placementRefs].join(', ');
   const collectionRefs = [...state.collectionRefs].join(', ');
-  const codeDescription = targetPairs
-    ? `Complete state-changing Extended Code without Markdown fences. The external add/change/delete receiver must use the mutationRef paired with the selected target, directly or through a local alias: ${targetPairs}. The attached/viewed page RID was only used to discover layout; never use lookup(pageRid) or that numeric RID as a mutation receiver once this mapping exists. Never invent or substitute _page.`
-    : 'Complete state-changing Extended Code without Markdown fences. Copy verified mutationRef and placement-container references exactly; never replace them with lookup(RID).';
+  const baseDescription = preparedChoice
+    ? 'Terminal previewable suggestion. Use for a direct request, declared desired end state, or when a capability/how-to question is best answered with concrete code the user can inspect. A resolved template target is complete scope; do not ask the user to reconfirm it.'
+    : 'Terminal final change proposal. Companion validates and Previews the exact outer code. Call once after the proposal is complete. Preview an uncertain stored ExtendedTable expression first, then submit the finished outer mutation.';
   return {
     name: SUBMIT_CHANGE_TICKET,
-    description: preparedChoice
-      ? 'Terminal previewable suggestion. Use for a direct request, declared desired end state, or when a capability/how-to question is best answered with concrete code the user can inspect. A resolved template target is complete scope; do not ask the user to reconfirm it.'
-      : 'Terminal final change proposal. Companion validates and Previews the exact outer code. Call once, only after the proposal is complete. If it contains a joined, grouped, aggregated, calculated, or otherwise uncertain stored ExtendedTable expression, first use preview_ec once on that expression; after success call this immediately.',
+    description: baseDescription,
     parameters: {
       type: 'object',
       properties: {
         summary: {
           type: 'string',
-          description: `One concise outcome sentence. Keep the complete summary under 140 characters.${targetScopes ? ` Choose the target first, then follow only its mapped scope: ${targetScopes}. If the selected target has scope=shared-template, add a second short scope sentence that naturally mentions both the template and the viewed/specific instance so the impact is unambiguous. Do not offer an instance override unless the user asks. For every other selected scope, never describe the target as a shared template or offer an instance override. Do not echo internal routing labels such as direct page owner, page-owner, direct-page, mutationRef, or scope=; name the visible page, tab, widget, or result instead.` : ''}`,
+          description: 'One concise outcome sentence under 140 characters. Briefly mention shared-template impact only when structural facts selected a linked template. Name visible objects, not internal fields.',
         },
         target: {
           type: 'string',
-          description: targetPairs
-            ? `Required. Copy one exact discovered target token. Discovered target mapping: ${targetPairs}.`
-            : 'Required. Copy the exact verified [[object:RID]] token; use a short target name only when no token exists.',
-          ...(targetTokens.length ? { enum: targetTokens } : {}),
+          description: 'Required. For a RID-selected target, this must be exactly [[object:RID]]—never a bare RID or lookup(...). For an exact user-supplied symbolic target such as t.xy, preserve that receiver exactly.',
         },
         operation: {
           type: 'string',
@@ -114,7 +104,7 @@ function submitChangeTicketDef(state: AutomaticToolState, preparedChoice = false
         },
         code: {
           type: 'string',
-          description: `${codeDescription}${preparedChoice ? ' For this property update, the required EC shape is target.change(exactAccessor := value). Do not use target.accessor := value or target.accessor(value).' : ''}${placementRefs ? ` Use the verified placement reference in container := ${placementRefs}.` : ''}${collectionRefs ? ` Build the data expression from the verified collection ${collectionRefs}; never substitute page descendants.` : ''}`,
+          description: `Complete state-changing Extended Code without Markdown fences. Preserve an exact user-supplied receiver. For a RID selected from structural evidence, use lookup("RID") and keep the 64-bit RID quoted; never invent _page.${preparedChoice ? ' For this property update, use receiver.change(exactAccessor := value), not dotted assignment or a property call.' : ''}${collectionRefs ? ` Build the data expression from the verified collection ${collectionRefs}; never substitute page descendants.` : ''}`,
         },
       },
       required: ['summary', 'target', 'operation', 'code'],
@@ -207,8 +197,13 @@ export interface StreamChatOpts {
   /** The new user turn's text. */
   text: string;
   /** Current page supplied by the browser context. Enables the confidence-
-   * gated one-request route for simple named-widget property changes. */
+   * gated one-request path for simple named-widget property changes. */
   pageRid?: string;
+  /** Evaluation/diagnostic seam. Production leaves prefetch enabled. */
+  simpleChangePrefetch?: boolean;
+  /** Evaluation/diagnostic seam. `false` hides discovery tools on the initial
+   * turn while retaining the typed terminal Change Ticket tool. */
+  toolPolicy?: { initialTools: boolean };
   onEvent: (e: AiChatEvent) => void;
   executeTool: ExecuteTool;
   /** Production-only final-ticket Preview. Unlike investigative preview_ec,
@@ -223,8 +218,8 @@ export interface StreamChatOpts {
 
 interface EffectiveStreamChatOpts extends StreamChatOpts {
   /** Internal evidence prepared before the provider request. */
-  preparedSimpleChange?: SimpleChangePrefetch;
-  /** Evidence-driven subset used only by the prepared property route. */
+  prefetchedContext?: PageContextPrefetch;
+  /** Evidence-driven subset used only by the prepared property turn. */
   allowedModelTools?: readonly string[];
 }
 
@@ -237,19 +232,21 @@ export async function streamChat(opts: StreamChatOpts): Promise<AiTurnMetrics | 
   const meta = resolveProvider(opts.settings);
   const maxTokens = Math.min(meta.maxOutputTokens ?? CHAT_MAX_OUTPUT_TOKENS, CHAT_MAX_OUTPUT_TOKENS);
   try {
-    const prepared = await prefetchSimpleWidgetChange({
-      text: opts.text,
-      pageRid: opts.pageRid,
-      executeTool: opts.executeTool,
-      onEvent: opts.onEvent,
-      signal: opts.signal,
-    });
+    const prepared = opts.simpleChangePrefetch === false
+      ? null
+      : await prefetchPageContext({
+          text: opts.text,
+          pageRid: opts.pageRid,
+          executeTool: opts.executeTool,
+          onEvent: opts.onEvent,
+          signal: opts.signal,
+        });
     const effectiveOpts: EffectiveStreamChatOpts = {
       ...opts,
-      ...(prepared ? { preparedSimpleChange: prepared } : {}),
-      ...(prepared?.route ? { allowedModelTools: prepared.route.allowedModelTools } : {}),
+      ...(prepared ? { prefetchedContext: prepared } : {}),
+      ...(prepared?.providerPlan ? { allowedModelTools: prepared.providerPlan.allowedModelTools } : {}),
     };
-    const effectiveMaxTokens = prepared?.route
+    const effectiveMaxTokens = prepared?.providerPlan
       ? Math.min(maxTokens, PREPARED_SIMPLE_CHANGE_MAX_OUTPUT_TOKENS)
       : maxTokens;
     const user = userTextWithPreparedEvidence(effectiveOpts);
@@ -302,7 +299,7 @@ export async function streamChat(opts: StreamChatOpts): Promise<AiTurnMetrics | 
 }
 
 /** A short human summary of a tool call for the transcript's tool trace. */
-const RID_INPUT_KEYS = new Set(['ref', 'pageRid', 'focusRid']);
+const RID_INPUT_KEYS = new Set(['ref', 'pageRid', 'focusRid', 'exampleRid']);
 
 /** Models occasionally serialize small RIDs as JSON numbers despite the
  * schema. Coerce only safe integers at the boundary; unsafe 64-bit values stay
@@ -323,18 +320,12 @@ interface AutomaticToolState {
   duplicates: number;
   tools: AiTurnMetrics['tools'];
   priorResults: Map<string, string>;
-  changeTargets: Map<string, ChangeTargetRecord>;
-  placementRefs: Set<string>;
   collectionRefs: Set<string>;
 }
 
 /** Compatibility only for cached system/eval context authored before typed
  * tool results. Live tool output never crosses this prose parser. */
 function captureLegacySystemEvidence(state: AutomaticToolState, text: string): void {
-  for (const record of parseChangeTargetRecords(text)) state.changeTargets.set(record.rid, record);
-  for (const match of text.matchAll(/placement container mutationRef=([A-Za-z_](?:[A-Za-z0-9_.]*[A-Za-z0-9_])?)/gi)) {
-    state.placementRefs.add(match[1]);
-  }
   for (const match of text.matchAll(/\bcollection\s+(root\.[A-Za-z_](?:[A-Za-z0-9_.]*[A-Za-z0-9_])?)/gi)) {
     state.collectionRefs.add(match[1]);
   }
@@ -344,55 +335,25 @@ function captureStructuredToolEvidence(state: AutomaticToolState, result: ToolRe
   const content = result.structuredContent;
   if (isToolSuccess(content, 'read_type')) {
     for (const collection of content.data.collections) state.collectionRefs.add(collection);
-    return;
-  }
-  if (!isToolSuccess(content, 'read_layout')) return;
-  const recordTarget = (resolution: typeof content.data.pageTarget): void => {
-    if (resolution.status !== 'resolved') return;
-    state.changeTargets.set(resolution.target.rid, {
-      rid: resolution.target.rid,
-      mutationRef: resolution.target.ecRef,
-      scope: resolution.scope,
-    });
-  };
-  recordTarget(content.data.pageTarget);
-  for (const node of content.data.nodes) {
-    if (node.changeTarget) recordTarget(node.changeTarget);
-    if (node.kind === 'container'
-      && node.changeTarget?.status === 'resolved') {
-      state.placementRefs.add(node.changeTarget.target.ecRef);
-    }
   }
 }
 
-function capturePrefetchedContextEvidence(state: AutomaticToolState, prepared: SimpleChangePrefetch): void {
-  for (const target of prepared.route?.changeTargets ?? []) {
-    state.changeTargets.set(target.rid, target);
-  }
-}
-
-function createAutomaticToolState(
-  system: string,
-  prepared?: SimpleChangePrefetch,
-): AutomaticToolState {
+function createAutomaticToolState(system: string): AutomaticToolState {
   const state: AutomaticToolState = {
     calls: 0,
     errors: 0,
     duplicates: 0,
     tools: [],
     priorResults: new Map(),
-    changeTargets: new Map(),
-    placementRefs: new Set(),
     collectionRefs: new Set(),
   };
-  if (prepared?.route) capturePrefetchedContextEvidence(state, prepared);
-  else captureLegacySystemEvidence(state, system);
+  captureLegacySystemEvidence(state, system);
   return state;
 }
 
 function mergePrefetchMetrics(
   metrics: AiTurnMetrics,
-  prepared: SimpleChangePrefetch | null,
+  prepared: PageContextPrefetch | null,
   durationMs: number,
 ): AiTurnMetrics {
   if (!prepared?.executions.length) return { ...metrics, durationMs };
@@ -417,15 +378,14 @@ function mergePrefetchMetrics(
 }
 
 function userTextWithPreparedEvidence(opts: EffectiveStreamChatOpts): string {
-  const prepared = opts.preparedSimpleChange;
+  const prepared = opts.prefetchedContext;
   if (!prepared?.evidence) return opts.text;
-  const appendix = prepared.route?.promptAppendix
-    ?? `<prefetched-context>${JSON.stringify(prepared.evidence)}</prefetched-context>`;
+  const appendix = `<prefetched-context>${JSON.stringify(prepared.evidence)}</prefetched-context>`;
   return `${opts.text}\n\n${appendix}`;
 }
 
 function providerSystem(opts: EffectiveStreamChatOpts): string {
-  return opts.preparedSimpleChange?.route ? PREPARED_SIMPLE_CHANGE_SYSTEM : opts.system;
+  return opts.prefetchedContext?.providerPlan ? PREPARED_SIMPLE_CHANGE_SYSTEM : opts.system;
 }
 
 function modelToolAllowed(opts: EffectiveStreamChatOpts, name: string): boolean {
@@ -728,7 +688,7 @@ interface NormalizedProviderTurn {
 }
 
 function normalizeProviderTurn(
-  opts: EffectiveStreamChatOpts,
+  state: AutomaticToolState,
   clean: string,
   calls: readonly ToolCall[],
   appendAssistant: () => void,
@@ -833,7 +793,7 @@ async function runProviderChat(
     emptyResponseRetries: 0,
     previewRepairRetries: 0,
     hasSuccessfulChangePreview: false,
-    automaticTools: createAutomaticToolState(opts.system, opts.preparedSimpleChange),
+    automaticTools: createAutomaticToolState(opts.system),
     providerRequests: 0,
     providerDurationMs: 0,
     usage: emptyUsage(),
@@ -846,9 +806,9 @@ async function runProviderChat(
       const requestStarted = Date.now();
       state.providerRequests++;
       try {
-        const preparedChoice = !!opts.preparedSimpleChange?.route && !structuredFinal;
+        const preparedChoice = !!opts.prefetchedContext?.providerPlan && !structuredFinal;
         const finalOnly = structuredFinal;
-        const selectable = allowTools
+        const selectable = allowTools && opts.toolPolicy?.initialTools !== false
           ? TOOL_DEFS.filter(tool => modelToolAllowed(opts, tool.name))
           : [];
         const terminal = preparedChoice
@@ -863,7 +823,7 @@ async function runProviderChat(
             : preparedChoice ? { requireTool: true } : {}),
         });
         addUsage(state.usage, turn.usage);
-        return normalizeProviderTurn(opts, turn.text, turn.toolCalls, turn.appendAssistant);
+        return normalizeProviderTurn(state.automaticTools, turn.text, turn.toolCalls, turn.appendAssistant);
       } finally {
         state.providerDurationMs += Date.now() - requestStarted;
       }

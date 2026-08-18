@@ -15,41 +15,18 @@ function layoutToolResult(options: {
 } = {}): ToolResult {
   const targetRid = options.targetRid ?? '111';
   const targetRef = options.targetRef ?? 't.landing_template';
-  const pageTarget = {
-    status: 'resolved' as const,
-    target: { rid: targetRid, businessId: targetRef.split('.').at(-1)!, type: 'Scorecard', ecRef: targetRef },
-    scope: options.scope ?? 'shared-template',
-    impact: options.scope === 'direct-page' ? 'one-page' as const : 'all-linked-instances' as const,
-    reason: options.scope === 'direct-page' ? 'direct-page-owner' as const : 'linked-page-default' as const,
-  };
-  const placementTarget = options.placementRef ? {
-    status: 'resolved' as const,
-    target: {
-      rid: options.placementRid ?? '112',
-      businessId: options.placementRef.split('.').at(-1)!,
-      type: 'Container',
-      ecRef: options.placementRef,
-    },
-    scope: 'shared-portal' as const,
-    impact: 'all-portal-consumers' as const,
-    reason: 'portal-structure-is-shared' as const,
-  } : undefined;
+  const targetBusinessId = targetRef.split('.').at(-1)!;
+  const placementRid = options.placementRid ?? '112';
+  const placementBusinessId = options.placementRef?.split('.').at(-1);
   const objects = [
-    { rid: targetRid, businessId: pageTarget.target.businessId, type: 'Scorecard' },
-    ...(placementTarget ? [{ rid: placementTarget.target.rid, businessId: placementTarget.target.businessId, type: 'Container' }] : []),
+    { rid: targetRid, businessId: targetBusinessId, type: 'Scorecard' },
+    ...(options.placementRef ? [{ rid: placementRid, businessId: placementBusinessId, type: 'Container' }] : []),
     ...(options.includeSharedWidget ? [{ rid: '818', businessId: 'qa_shared_widget', type: 'ExtendedTable' }] : []),
   ];
-  const sharedWidgetTarget = options.includeSharedWidget ? {
-    status: 'resolved' as const,
-    target: { rid: '818', businessId: 'qa_shared_widget', type: 'ExtendedTable', ecRef: 't.qa_shared_widget' },
-    scope: 'shared-template' as const,
-    impact: 'all-linked-instances' as const,
-    reason: 'inherited-widget-default' as const,
-  } : undefined;
   const nodes = [
-    ...(placementTarget ? [{
-      rid: placementTarget.target.rid,
-      businessId: placementTarget.target.businessId,
+    ...(options.placementRef ? [{
+      rid: placementRid,
+      businessId: placementBusinessId!,
       depth: 0,
       kind: 'container' as const,
       type: 'Container',
@@ -57,11 +34,10 @@ function layoutToolResult(options: {
       columns: { large: 6 },
       storage: 'portal-shared' as const,
       codeSlots: [],
-      changeTarget: placementTarget,
     }] : []),
-    ...(sharedWidgetTarget ? [{
-      rid: sharedWidgetTarget.target.rid,
-      businessId: sharedWidgetTarget.target.businessId,
+    ...(options.includeSharedWidget ? [{
+      rid: '818',
+      businessId: 'qa_shared_widget',
       depth: 1,
       kind: 'widget' as const,
       type: 'ExtendedTable',
@@ -69,14 +45,13 @@ function layoutToolResult(options: {
       columns: { large: 6 },
       storage: 'page-child' as const,
       codeSlots: ['expression'],
-      changeTarget: sharedWidgetTarget,
     }] : []),
   ];
   const structuredContent = toolSuccess('read_layout', {
     viewedRid: '222',
     pageOwnerRid: targetRid,
+    ...(options.scope !== 'direct-page' ? { pageTemplateRid: targetRid } : {}),
     focusFound: true,
-    requestedScope: 'default',
     resultOnly: false,
     tabsets: [],
     totalNodes: nodes.length,
@@ -85,10 +60,14 @@ function layoutToolResult(options: {
     sourceTruncated: false,
     orphanCount: 0,
     complete: true,
-    pageTarget,
     nodes,
-  }, objects);
-  return { content: 'Layout resolved.', isError: false, structuredContent, objects };
+  });
+  return {
+    content: 'Layout resolved.',
+    isError: false,
+    structuredContent,
+    objects,
+  };
 }
 
 function referenceTypeResult(): ToolResult {
@@ -410,6 +389,33 @@ describe('streamChat tool loop', () => {
     expect(events.filter(event => event.kind === 'text-delta')).toEqual([{ kind: 'text-delta', delta: CHANGE_TICKET }]);
   });
 
+  it('lets resolved evaluator cases disable prefetch and hide discovery tools without hiding the terminal tool', async () => {
+    const bodies: any[] = [];
+    vi.stubGlobal('fetch', vi.fn((_u: string, init: any) => {
+      bodies.push(JSON.parse(init.body));
+      return Promise.resolve(okStream(openAiTextTurn('The supplied context is sufficient.')));
+    }));
+    const executeTool = vi.fn();
+
+    await streamChat({
+      settings: { provider: 'deepseek', model: 'deepseek-v4-flash', apiKeyEnc: '' },
+      apiKey: 'k',
+      system: 'S',
+      history: [],
+      text: 'Explain the supplied configuration.',
+      pageRid: '222',
+      simpleChangePrefetch: false,
+      toolPolicy: { initialTools: false },
+      onEvent: () => {},
+      executeTool,
+    });
+
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].tools.map((tool: { function: { name: string } }) => tool.function.name))
+      .toEqual(['submit_change_ticket']);
+    expect(executeTool).not.toHaveBeenCalled();
+  });
+
   it('recognizes and Previews a Change Ticket from a vague prompt without keyword classification', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(okStream(openAiTextTurn(CHANGE_TICKET)))));
     const events: AiChatEvent[] = [];
@@ -618,7 +624,7 @@ describe('streamChat tool loop', () => {
     expect(executeTool).toHaveBeenCalledTimes(1);
   });
 
-  it('binds the final ticket to read_layout target evidence before Preview', async () => {
+  it('gives the model structural ownership and placement facts without a private route map', async () => {
     const wrong = CHANGE_TICKET
       .replace('Rename the selected object', 'Add a reviewer note. This affects the shared template, not the viewed instance.')
       .replace('operation: update', 'operation: create')
@@ -659,11 +665,47 @@ describe('streamChat tool loop', () => {
     });
 
     expect(bodies).toHaveLength(3);
-    expect(JSON.stringify(bodies[2].tools)).toContain('[[object:111]] => t.landing_template');
-    expect(JSON.stringify(bodies[2].tools)).toContain('container := t.landing_content');
-    expect(JSON.stringify(bodies[2].tools)).not.toContain('t.landing_content..');
+    const evidenceTurn = JSON.stringify(bodies[1].messages);
+    expect(evidenceTurn).toContain('\\"pageTemplateRid\\":\\"111\\"');
+    expect(evidenceTurn).toContain('\\"kind\\":\\"container\\"');
+    const terminalSchema = JSON.stringify(bodies[2].tools);
+    expect(terminalSchema).not.toMatch(/route map|mutationRef|scope=shared-template/);
     expect(executeTool.mock.calls.filter(([call]) => call.name === 'preview_ec')).toHaveLength(2);
     expect(executeTool.mock.calls.at(-1)?.[0].input.code).toContain('t.landing_template.add');
+  });
+
+  it('does not constrain an explicit off-page target after unrelated layout discovery', async () => {
+    const outsideRoute = {
+      summary: 'Add a reviewer note.',
+      target: '[[object:999]]',
+      operation: 'create',
+      code: 't.unrelated.add(TextElement, id := "qa_note", text := "<p>Review.</p>")',
+    };
+    const bodies: any[] = [];
+    vi.stubGlobal('fetch', vi.fn((_u: string, init: any) => {
+      bodies.push(JSON.parse(init.body));
+      const response = bodies.length === 1
+        ? openAiToolTurn('read_layout', { pageRid: '222' }, 'layout')
+        : openAiSubmitTurn(outsideRoute);
+      return Promise.resolve(okStream(response));
+    }));
+    const executeTool = vi.fn(async (call: ToolCall): Promise<ToolResult> => call.name === 'read_layout'
+      ? layoutToolResult({ placementRef: 't.landing_content' })
+      : { content: 'Preview succeeded', isError: false });
+
+    await streamChat({
+      settings: { provider: 'deepseek', model: 'deepseek-v4-flash', apiKeyEnc: '' },
+      apiKey: 'k',
+      system: 'S',
+      history: [],
+      text: 'Add a reviewer note here.',
+      onEvent: () => {},
+      executeTool,
+    });
+
+    expect(bodies).toHaveLength(2);
+    expect(executeTool.mock.calls.filter(([call]) => call.name === 'preview_ec')).toHaveLength(1);
+    expect(executeTool.mock.calls.at(-1)?.[0].input.code).toContain('t.unrelated.add');
   });
 
   it('replaces an unsolicited instance-override offer with a concise scope fact', async () => {
@@ -695,7 +737,7 @@ describe('streamChat tool loop', () => {
       executeTool,
     });
 
-    expect(JSON.stringify(bodies.at(-1)?.tools)).toContain('offer an instance override unless the user asks');
+    expect(JSON.stringify(bodies.at(-1)?.tools)).not.toMatch(/instance-only|local override/i);
     expect(executeTool.mock.calls.filter(([call]) => call.name === 'preview_ec')).toHaveLength(1);
   });
 
@@ -735,12 +777,12 @@ describe('streamChat tool loop', () => {
     });
 
     const submitBody = bodies.at(-1);
+    const submitMessages = JSON.stringify(submitBody?.messages);
+    expect(submitMessages).toContain('\\"pageOwnerRid\\":\\"777\\"');
+    expect(submitMessages).toContain('\\"rid\\":\\"818\\"');
     const submitSchema = JSON.stringify(submitBody?.tools);
-    expect(submitSchema).toContain('[[object:777]] => scope=direct-page');
-    expect(submitSchema).toContain('[[object:818]] => scope=shared-template');
-    expect(submitSchema).toContain('If the selected target has scope=shared-template');
-    expect(submitSchema).toContain('naturally mentions both the template and the viewed/specific instance');
-    expect(submitSchema).toContain('Do not echo internal routing labels such as direct page owner, page-owner');
+    expect(submitSchema).not.toMatch(/direct-page|shared-template target|route map/);
+    expect(submitSchema).toContain('Name visible objects, not internal fields');
     expect(executeTool.mock.calls.filter(([call]) => call.name === 'preview_ec')).toHaveLength(1);
   });
 

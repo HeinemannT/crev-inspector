@@ -69,9 +69,9 @@ locals; do not substitute card assignment or a guessed global reference:
 _default.change(template := _template)
 ```
 
-When changing an existing inherited widget, use the verified template-widget
-reference returned by layout inspection unless the user explicitly requests an
-instance-only override.
+When changing an existing inherited widget, use `lookup("linkedTemplateRid")`
+from verified layout facts unless the user explicitly requests an instance-only
+override; then use `lookup("rid")` for the viewed widget copy.
 
 </configuration_changes>
 

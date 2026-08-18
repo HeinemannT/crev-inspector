@@ -153,6 +153,7 @@ function parseReferenceHelp(log: string): TypeSchemaProp[] {
 
 function safeConcreteObjectRef(ref: string | undefined): string | null {
   if (!ref) return null;
+  if (/^lookup\(-?\d+\)$/.test(ref)) return ref;
   const match = /^([a-z]{1,6})\.([A-Za-z0-9_]+)$/.exec(ref);
   if (!match || match[1] === 'o' || !ID_SPACE_PREFIXES.has(match[1])) return null;
   return ref;

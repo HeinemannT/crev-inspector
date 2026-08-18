@@ -38,6 +38,7 @@ export interface ToolResult {
   /** Typed facts returned by production tools. Optional only so stored legacy
    * fixtures can fail soft; production execution always supplies it. */
   structuredContent?: ToolStructuredContent;
+  /** Rich object identities used only by the Companion UI. */
   objects?: ObjectReference[];
 }
 

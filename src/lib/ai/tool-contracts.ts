@@ -132,7 +132,7 @@ const TOOL_CONTRACT_LIST = [
   defineTool({
     name: 'read_type',
     description:
-      'Introspect a BMP object type / class. Returns the type\'s properties ' +
+      'Introspect a BMP object type / class. Do not call this for a self-contained change that already supplies an exact receiver, property accessor, and value. The type argument must be a BMP class such as InputView, never a receiver such as t.xy. Returns the type\'s properties ' +
       '(EC accessor + label + config-class) from a live schema probe, plus its ' +
       'known code slots, reference edges and context fields. Pass query to search ' +
       'accessors, labels and descriptions instead of downloading a broad schema. Use this when the user described a property concept but did not supply its exact accessor. ' +
@@ -140,7 +140,7 @@ const TOOL_CONTRACT_LIST = [
       'For semantic words such as open, active, closed or retired, query "lifecycle" once; do not try status synonyms or inspect exemplars after optionSets returns configured values. ' +
       'For a question about objects connected/linked/related to the attached object, inspect the attached type for the relationship accessor, inspect the related type for requested fields, then use one read-only preview_ec traversal for the rows or aggregate. Do not substitute read_object or query_context for that relationship traversal. ' +
       'The same result also probes and returns a verified data collection in collections. When that array is non-empty, use it directly and do not call read_type again for a root or collection. ' +
-      'When read_layout supplied a concrete widget mutationRef, pass it as exampleRef so BMP help can recover system properties for classes whose global schema catalogue is empty.',
+      'When read_layout supplied a concrete widget RID, pass it as exampleRid so BMP help can recover system properties for classes whose global schema catalogue is empty.',
     parameters: {
       type: 'object',
       properties: {
@@ -152,9 +152,9 @@ const TOOL_CONTRACT_LIST = [
           type: 'string',
           description: 'Optional case-insensitive accessor, label or description substring, e.g. "card" or "lifecycle".',
         },
-        exampleRef: {
+        exampleRid: {
           type: 'string',
-          description: 'Optional exact verified EC reference for a concrete object of this type, normally the mutationRef returned by read_layout (for example t.4903). Do not invent it.',
+          description: 'Optional exact decimal-string RID for a concrete object of this type, normally a widget RID returned by read_layout. Companion resolves the safe EC reference internally.',
         },
         propertyOnly: {
           type: 'boolean',
@@ -174,7 +174,7 @@ const TOOL_CONTRACT_LIST = [
     name: 'search_objects',
     description:
       'Search the workspace for objects by name/text (BMP quick search). ' +
-      'Returns up to ~25 hits with businessId, name, type, rid, and a verified lookupExpression for using the exact hit as an EC value without guessing a namespace. Use to ' +
+      'Returns up to ~25 hits with businessId, name, type, rid, and an exact [[object:RID]] token. Use lookup("RID") when the exact hit must be an EC value; keep the 64-bit RID quoted. Use to ' +
       'locate an object when you only know part of its name. For a new data widget whose row class is unknown, set purpose="row-type" and call this once with the user\'s business noun. That compact result returns ranked live typeCandidates; choose the matching data class and continue to read_type. Do not also query_context or repeat the search with casing or fragments.',
     parameters: {
       type: 'object',
@@ -190,7 +190,7 @@ const TOOL_CONTRACT_LIST = [
       required: ['query'],
       additionalProperties: false,
     },
-    resultDescription: 'Returns JSON data with hit counts, typeCounts, optional ranked typeCandidates for row-type discovery, hitRids, capped/complete, and verified objects.',
+    resultDescription: 'Returns JSON data with hit counts, typeCounts, optional ranked typeCandidates for row-type discovery, capped/complete, and verified objects.',
     summarize: input => `search_objects "${stringArgument(input, 'query')}"`,
   }),
   defineTool({
@@ -215,11 +215,9 @@ const TOOL_CONTRACT_LIST = [
   defineTool({
     name: 'read_layout',
     description:
-      'Read a page\'s layout tree by page rid — a trimmed structure of tabs, ' +
-      'containers and widgets (types, names, column spans), NOT their styling. ' +
-      'Every page, widget, Tab, and Container is annotated with one typed change-target record: target is the exact Change Ticket badge; mutationRef is the exact EC add/change/delete receiver; scope, impact, and reason explain the decision. Never convert mutationRef to lookup(target RID). ' +
-      'Widget-owned data rows are excluded. Large pages return a balanced outline across tabs; use focusRid from a returned node to inspect one subtree. A source safety cutoff is reported explicitly if reached. ' +
-      'This is the FIRST tool for questions about a page, tab, container, widget, table, or rows displayed by a table. For an ExtendedTable, follow it with read_code on the returned table rid and expression slot; do not call query_context first.',
+      'Read a BMP page layout. Returns the page owner, contributing TabSets, and a flat tab/container/widget hierarchy with exact string RIDs, parent RIDs, object types, names, responsive column spans (BMP 0–6; 0 is class-dependent), storage, linked-template RIDs, code slots, counts, omissions, and completeness. ' +
+      'It does not return styling, widget-owned rows, or Change Ticket routing. Large pages return a balanced outline across tabs; use focusRid only to inspect an omitted subtree from a partial result. ' +
+      'Use this first for questions about a page, tab, container, widget, table, or rows displayed by a table. For an ExtendedTable, follow it with read_code on the returned table RID and expression slot; do not call query_context first.',
     parameters: {
       type: 'object',
       properties: {
@@ -228,16 +226,11 @@ const TOOL_CONTRACT_LIST = [
           type: 'string',
           description: 'Optional rid of a returned tab/container/widget. Limits the answer to that subtree when the page outline was capped.',
         },
-        changeScope: {
-          type: 'string',
-          enum: ['default', 'instance-only'],
-          description: 'Use instance-only only when the user explicitly asks for a local/this-copy override; otherwise omit or use default.',
-        },
       },
       required: ['pageRid'],
       additionalProperties: false,
     },
-    resultDescription: 'Returns JSON data with page target, flat layout nodes, per-node changeTarget, tabsets, omissions, sourceTruncated, and complete.',
+    resultDescription: 'Returns structural JSON data with page ownership, flat layout nodes, exact parentage and widths, tabsets, omissions, sourceTruncated, and complete.',
     summarize: input => `read_layout ${stringArgument(input, 'pageRid')}`.trim(),
   }),
   defineTool({

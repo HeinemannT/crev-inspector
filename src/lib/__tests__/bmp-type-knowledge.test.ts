@@ -111,6 +111,19 @@ describe('BMP type knowledge', () => {
     expect(execute).toHaveBeenNthCalledWith(2, 'help(t.5611)');
   });
 
+  it('accepts an exact numeric lookup reference for a business-ID-less exemplar', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce({ ok: true, log: '__canon__|||EditField\n' })
+      .mockResolvedValueOnce({ ok: true, log: '|.available|Available|Is visible|' });
+
+    await expect(knowledge(execute).properties({
+      className: 'EditField',
+      exampleRef: 'lookup(5238328459709259777)',
+    })).resolves.toMatchObject({ ok: true, props: [{ accessor: 'available' }] });
+
+    expect(execute).toHaveBeenNthCalledWith(2, 'help(lookup(5238328459709259777))');
+  });
+
   it('rejects unsafe input before it reaches BMP', async () => {
     const execute = vi.fn(async () => ({ ok: true, log: '' }));
     const module = knowledge(execute);
@@ -119,11 +132,16 @@ describe('BMP type knowledge', () => {
       className: 'EditField',
       exampleRef: 't.5611); output("owned")',
     })).resolves.toMatchObject({ ok: false });
+    await expect(module.properties({
+      className: 'EditField',
+      exampleRef: 'lookup(5611); output("owned")',
+      refresh: true,
+    })).resolves.toMatchObject({ ok: false });
     await expect(module.options('Risk; output("owned")')).resolves.toEqual({
       ok: false,
       error: 'Invalid class name: Risk; output("owned")',
     });
-    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledTimes(2);
     expect(execute).not.toHaveBeenCalledWith(expect.stringContaining('owned'));
   });
 
