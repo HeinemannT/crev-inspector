@@ -93,7 +93,7 @@ export interface PanelOrchestratorServices {
     panel: HTMLElement,
   ): void;
   showToast(text: string, kind: Extract<InspectorMessage, { type: 'TOAST' }>['kind']): void;
-  onColorSetsData(sets: Extract<InspectorMessage, { type: 'COLOR_SETS_DATA' }>['sets']): void;
+  onColorSetsData(message: Extract<InspectorMessage, { type: 'COLOR_SETS_DATA' }>): void;
   resetColorSets(): void;
   dispatchBroadcast(msg: InspectorMessage): number;
 }
@@ -256,7 +256,7 @@ export function createPanelOrchestrator(
         }
         break;
       case 'COLOR_SETS_DATA':
-        services.onColorSetsData(msg.sets);
+        services.onColorSetsData(msg);
         break;
       case 'EC_RESULT':
         if ('durationMs' in msg && typeof msg.durationMs === 'number') {
@@ -352,7 +352,9 @@ export function createPanelOrchestrator(
 
     if (claimMessage(msg)) return;
 
-    if (msg.type === 'OBJECT_PANE_DATA' || msg.type === 'PROPERTY_APPLICATIONS_RESULT') {
+    if (msg.type === 'OBJECT_PANE_DATA'
+      || msg.type === 'PROPERTY_APPLICATIONS_RESULT'
+      || msg.type === 'COLOR_SETS_DATA') {
       const separator = msg.environment.indexOf('@');
       const profileId = separator >= 0 ? msg.environment.slice(0, separator) : '';
       if (profileId && S.settings.activeProfileId && profileId !== S.settings.activeProfileId) return;

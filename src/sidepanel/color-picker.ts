@@ -3,8 +3,8 @@
  * are LINKS to CorpoColor objects, not hex — so they're picked from
  * the workspace's colourset list, never typed. The set list is fetched via
  * FETCH_COLOR_SETS and served from a persistent per-profile cache
- * (color-set-cache.ts) — only the first open in a browser session pays the
- * BMP round-trip; the ↻ button forces a reload when colours changed.
+ * (color-set-cache.ts) — a successful fetch remains available across browser
+ * sessions until its TTL expires; the ↻ button forces a reload when colours changed.
  */
 import { h, render, svg } from '../lib/dom';
 import { ICON_REFRESH } from '../lib/icons';
@@ -14,17 +14,29 @@ import type { ColorSetData, InspectorMessage } from '../lib/types';
 let cache: ColorSetData[] | null = null;   // raw sets — drives the popover's folder rendering
 const index = new ColorSetIndex();          // bid → {name, rgb} for swatch resolution
 let onData: (() => void) | null = null;
+type ColorSetsMessage = Extract<InspectorMessage, { type: 'COLOR_SETS_DATA' }>;
+let loadState: 'idle' | 'loading' | 'ready' | 'stale' | 'error' = 'idle';
+let loadError: string | null = null;
 
 /** Receive the fetched colour sets (routed from the SW by sidepanel.ts). */
-export function onColorSetsData(sets: ColorSetData[]): void {
-  cache = sets;
-  index.load(sets);
+export function onColorSetsData(message: ColorSetsMessage): void {
+  loadError = message.error ?? null;
+  if (message.error && message.sets.length === 0 && cache === null) {
+    loadState = 'error';
+    onData?.();
+    return;
+  }
+  cache = message.sets;
+  index.load(message.sets);
+  loadState = message.stale ? 'stale' : 'ready';
   onData?.();
 }
 
 /** Drop the panel's cached colours — call on a profile switch so profile B never shows A's swatches. */
 export function resetColorSets(): void {
   cache = null;
+  loadState = 'idle';
+  loadError = null;
   index.clear();
 }
 
@@ -60,7 +72,8 @@ export function openColorPicker(opts: PickerOpts): void {
   const refreshBtn = h('button', {
     class: 'cp-refresh', type: 'button', title: 'Reload colours from BMP',
     onClick: () => {
-      cache = null;
+      loadState = 'loading';
+      loadError = null;
       drawBody();
       opts.sendMessage({ type: 'FETCH_COLOR_SETS', force: true });
     },
@@ -77,9 +90,30 @@ export function openColorPicker(opts: PickerOpts): void {
   function drawBody(): void {
     const q = filter.trim().toLowerCase();
     const items: HTMLElement[] = [];
+    const retry = () => {
+      loadState = 'loading';
+      loadError = null;
+      drawBody();
+      opts.sendMessage({ type: 'FETCH_COLOR_SETS', force: true });
+    };
     if (cache === null) {
-      items.push(h('div', { class: 'cp-loading' }, 'Loading colours…'));
+      if (loadState === 'error') {
+        items.push(h('div', { class: 'cp-error', role: 'alert' },
+          h('div', {}, loadError || 'Couldn’t load colours.'),
+          h('button', { class: 'btn btn-small', type: 'button', onClick: retry }, 'Retry'),
+        ));
+      } else {
+        items.push(h('div', { class: 'cp-loading', role: 'status' }, 'Loading colours…'));
+      }
     } else {
+      if (loadState === 'loading') {
+        items.push(h('div', { class: 'cp-notice', role: 'status' }, 'Refreshing colours…'));
+      } else if (loadState === 'stale') {
+        items.push(h('div', { class: 'cp-notice cp-notice--warn', role: 'status' },
+          h('span', {}, loadError ? `Showing saved colours · ${loadError}` : 'Showing saved colours.'),
+          h('button', { class: 'btn-link', type: 'button', onClick: retry }, 'Retry'),
+        ));
+      }
       let shown = 0;
       for (const set of cache) {
         const cols = set.colors.filter(c => !q || c.name.toLowerCase().includes(q) || c.bid.toLowerCase().includes(q));
@@ -127,5 +161,8 @@ export function openColorPicker(opts: PickerOpts): void {
 
   drawBody();
   filterInput.focus();
-  if (cache === null) opts.sendMessage({ type: 'FETCH_COLOR_SETS' });
+  if (cache === null && loadState !== 'error') {
+    loadState = 'loading';
+    opts.sendMessage({ type: 'FETCH_COLOR_SETS' });
+  }
 }

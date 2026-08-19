@@ -1,44 +1,59 @@
 /**
- * Per-profile cache of the workspace colour sets (CorpoColor links).
+ * Versioned, environment-isolated last-known-good cache for workspace colors.
  *
- * `fetchColorSets()` costs a full BMP round-trip (EC query + deserialise);
- * colour sets change rarely, so we cache the parsed result. Two tiers:
- *   - in-memory Map (instant within a live service worker)
- *   - chrome.storage.session (survives side-panel reloads AND MV3 service-worker
- *     idle-resets within a browser session)
- *
- * Keyed by serverId (activeProfileId) so two BMP profiles never share colours.
- * A full browser restart clears session storage → exactly one fresh fetch per
- * browser session. A manual refresh (FETCH_COLOR_SETS `force`) busts it when a
- * colour was added/changed mid-session.
- *
- * Mirrors the two-tier approach in type-schema-cache.ts (that one uses
- * storage.local + a 7-day TTL because type schemas are larger and even more
- * static; colours we keep session-scoped so new colours surface on the next
- * browser launch without a TTL to reason about).
+ * Colors are configuration metadata and change infrequently. Persisting them
+ * in storage.local avoids repeating a multi-second EC query after every browser
+ * restart. Expired data is retained only as an explicit stale fallback when a
+ * refresh fails; errors and partial query results never replace a good entry.
  */
 import type { ColorSetData } from './types';
 import { log } from './logger';
 
-const STORAGE_KEY = 'crev_color_sets_v1';
+const STORAGE_KEY = 'crev_color_sets_v2';
+const CACHE_VERSION = 2;
+export const COLOR_SET_TTL_MS = 24 * 60 * 60_000;
 
-type Store = Record<string, ColorSetData[]>;
+interface CacheEntry {
+  version: typeof CACHE_VERSION;
+  fetchedAt: number;
+  sets: ColorSetData[];
+}
 
-const mem = new Map<string, ColorSetData[]>();
-const pending = new Map<string, Promise<ColorSetData[]>>();
+type Store = Record<string, CacheEntry>;
+
+export interface ColorSetCacheHit {
+  sets: ColorSetData[];
+  fetchedAt: number;
+  stale: boolean;
+}
+
+export interface ColorSetLoadResult extends ColorSetCacheHit {
+  source: 'cache' | 'network' | 'stale-fallback';
+  error?: string;
+}
+
+const mem = new Map<string, CacheEntry>();
+const pending = new Map<string, Promise<ColorSetLoadResult>>();
 let loadPromise: Promise<void> | null = null;
+let generation = 0;
 
-/** Hydrate the in-memory map from session storage. Idempotent + concurrency
- *  safe — parallel callers share one in-flight read. */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function load(): Promise<void> {
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
     try {
-      const raw = await chrome.storage.session.get(STORAGE_KEY);
+      const raw = await chrome.storage.local.get(STORAGE_KEY);
       const store = raw[STORAGE_KEY] as Store | undefined;
-      if (store) for (const [k, v] of Object.entries(store)) mem.set(k, v);
-    } catch (e) {
-      log.swallow('colorCache:load', e);
+      if (!store) return;
+      for (const [environment, entry] of Object.entries(store)) {
+        if (entry?.version !== CACHE_VERSION || !Array.isArray(entry.sets) || !Number.isFinite(entry.fetchedAt)) continue;
+        mem.set(environment, entry);
+      }
+    } catch (error) {
+      log.swallow('colorCache:load', error);
     }
   })();
   return loadPromise;
@@ -46,56 +61,89 @@ function load(): Promise<void> {
 
 async function persist(): Promise<void> {
   const store: Store = {};
-  for (const [k, v] of mem) store[k] = v;
+  for (const [environment, entry] of mem) store[environment] = entry;
   try {
-    await chrome.storage.session.set({ [STORAGE_KEY]: store });
-  } catch (e) {
-    log.swallow('colorCache:persist', e);
+    await chrome.storage.local.set({ [STORAGE_KEY]: store });
+  } catch (error) {
+    log.swallow('colorCache:persist', error);
   }
 }
 
-/** Cached colour sets for a profile, or null on a miss. */
-export async function getColorSets(serverId: string): Promise<ColorSetData[] | null> {
+export async function getColorSets(environment: string, now = Date.now()): Promise<ColorSetCacheHit | null> {
   await load();
-  return mem.get(serverId) ?? null;
+  const entry = mem.get(environment);
+  if (!entry) return null;
+  return {
+    sets: entry.sets,
+    fetchedAt: entry.fetchedAt,
+    stale: now - entry.fetchedAt > COLOR_SET_TTL_MS,
+  };
 }
 
-export async function setColorSets(serverId: string, sets: ColorSetData[]): Promise<void> {
+export async function setColorSets(
+  environment: string,
+  sets: ColorSetData[],
+  fetchedAt = Date.now(),
+): Promise<void> {
   await load();
-  mem.set(serverId, sets);
+  mem.set(environment, { version: CACHE_VERSION, fetchedAt, sets });
   await persist();
 }
 
-/** Cache-through loader shared by every colour consumer. Concurrent panel and
- * Blueprint requests for one profile join the same BMP round-trip. `force`
- * bypasses stored data but still joins an already-running refresh. Empty
- * arrays are valid cache entries; rejected fetches are never cached. */
+/**
+ * Load fresh colors or refresh an expired/forced entry. Concurrent callers for
+ * one environment share the same query. When a refresh fails, a previous good
+ * entry is returned as explicitly stale; a first-load failure still rejects.
+ */
 export async function loadColorSets(
-  serverId: string,
+  environment: string,
   fetcher: () => Promise<ColorSetData[]>,
   force = false,
-): Promise<ColorSetData[]> {
-  if (!force) {
-    const cached = await getColorSets(serverId);
-    if (cached !== null) return cached;
-  }
-  const existing = pending.get(serverId);
+  now = Date.now(),
+): Promise<ColorSetLoadResult> {
+  const cached = await getColorSets(environment, now);
+  if (!force && cached && !cached.stale) return { ...cached, source: 'cache' };
+
+  const existing = pending.get(environment);
   if (existing) return existing;
-  const request = (async () => {
-    const sets = await fetcher();
-    await setColorSets(serverId, sets);
-    return sets;
+  const requestGeneration = generation;
+  const request = (async (): Promise<ColorSetLoadResult> => {
+    try {
+      const sets = await fetcher();
+      if (generation !== requestGeneration) throw new Error('Color request invalidated during environment change');
+      const fetchedAt = Date.now();
+      await setColorSets(environment, sets, fetchedAt);
+      return { sets, fetchedAt, stale: false, source: 'network' };
+    } catch (error) {
+      if (cached) {
+        return {
+          ...cached,
+          stale: true,
+          source: 'stale-fallback',
+          error: errorMessage(error),
+        };
+      }
+      throw error;
+    }
   })();
-  pending.set(serverId, request);
+  pending.set(environment, request);
   try {
     return await request;
   } finally {
-    if (pending.get(serverId) === request) pending.delete(serverId);
+    if (pending.get(environment) === request) pending.delete(environment);
   }
 }
 
-/** Drop one profile's colours (or all). Used by the manual refresh. */
-export function invalidateColorSets(serverId?: string): void {
-  if (serverId) mem.delete(serverId); else mem.clear();
-  persist().catch(() => { /* best-effort */ });
+/** Drop one environment or all environments and invalidate late responses. */
+export function invalidateColorSets(environment?: string): void {
+  generation += 1;
+  if (environment) mem.delete(environment); else mem.clear();
+  // A cold MV3 worker may still be hydrating storage.local. Remove the entry
+  // both before and after that load so an old persisted value cannot be
+  // reintroduced between the synchronous invalidation and the write-back.
+  void (async () => {
+    await load();
+    if (environment) mem.delete(environment); else mem.clear();
+    await persist();
+  })();
 }

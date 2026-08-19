@@ -752,7 +752,12 @@ try { runDetection(); } catch (e) { log.swallow('content:init:detection', e); }
 if (wasInspecting()) {
   try { setInspectMode(true); } catch (e) { log.swallow('content:init:restoreInspect', e); }
 }
-try { startObserver(s, runDetection, syncInspectSurface); } catch (e) { log.swallow('content:init:observer', e); }
+try {
+  startObserver(s, runDetection, syncInspectSurface, () => {
+    removePageHeaderIdentity(s);
+    removeOverlays(s);
+  });
+} catch (e) { log.swallow('content:init:observer', e); }
 
 // Post-apply blueprint resume. applyPage turns blueprint off + reloads the page (the live grid only
 // reflows on a real load) and leaves a short-lived sessionStorage flag; consume it and ask the SW to

@@ -115,4 +115,22 @@ describe('content observer BMP render refresh', () => {
     expect(sendToSW).toHaveBeenCalledWith({ type: 'BMP_URL_CHANGED' });
     expect(state.fiberPageContext).toBeNull();
   });
+
+  it('tears down the inspect surface before repainting after navigation', async () => {
+    history.replaceState({}, '', '/?rid=111111');
+    state.lastUrl = window.location.href;
+    state.inspectActive = true;
+    const resetInspect = vi.fn();
+    const syncInspect = vi.fn();
+    startObserver(state, vi.fn(), syncInspect, resetInspect);
+
+    history.replaceState({}, '', '/?rid=222222');
+    document.body.appendChild(document.createElement('div'));
+    await Promise.resolve();
+
+    expect(resetInspect).toHaveBeenCalledOnce();
+    expect(syncInspect).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(syncInspect).toHaveBeenCalledOnce();
+  });
 });

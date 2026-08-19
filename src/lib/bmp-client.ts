@@ -262,8 +262,8 @@ export class BmpClient {
     // `client.executeEc` / `client.resolveRef` on the instance after
     // construction still intercept calls made through the service.
     this.ecQuery = new EcQueryService(
-      (code, objectRid, transactional, signal, timeoutMs) =>
-        this.executeEc(code, objectRid, transactional, signal, timeoutMs),
+      (code, objectRid, transactional, signal, timeoutMs, feature) =>
+        this.executeEc(code, objectRid, transactional, signal, timeoutMs, feature),
       (rid) => this.resolveRef(rid),
       PANE_PROPS,
     );
@@ -514,7 +514,14 @@ export class BmpClient {
     }
   }
 
-  async executeEc(code: string, objectRid?: string, transactional = false, signal?: AbortSignal, timeoutMs?: number): Promise<EcResult> {
+  async executeEc(
+    code: string,
+    objectRid?: string,
+    transactional = false,
+    signal?: AbortSignal,
+    timeoutMs?: number,
+    feature?: import('./bmp-transport').BmpTransportMetrics['feature'],
+  ): Promise<EcResult> {
     try {
       const cmd = makeExtendedExecuteCommand(code, {
         objectRid: objectRid ? BigInt(objectRid) : undefined,
@@ -526,6 +533,7 @@ export class BmpClient {
         transactional ? 'write' : 'read',
         signal,
         timeoutMs,
+        feature,
       );
       return parseEcResults(objects);
     } catch (e) {

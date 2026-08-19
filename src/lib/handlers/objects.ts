@@ -345,12 +345,18 @@ register('FETCH_COLOR_SETS', async (msg, respond) => {
   const serverId = environmentToken(ctx);
   // Serve from the persistent cache unless a manual refresh forced a reload.
   // This is the speed win: a panel reopen or SW idle-reset no longer re-runs
-  // the BMP round-trip — the colours come straight from storage.session.
+  // the BMP round-trip — the colours come straight from versioned storage.local.
   let sets: import('../types').ColorSetData[] = [];
+  let fetchedAt: number | undefined;
+  let stale = false;
   let fetchError: string | undefined;
   if (ctx.client) {
     try {
-      sets = await loadColorSets(serverId, () => ctx.client!.fetchColorSets(), msg.force);
+      const loaded = await loadColorSets(serverId, () => ctx.client!.fetchColorSets(), msg.force);
+      sets = loaded.sets;
+      fetchedAt = loaded.fetchedAt;
+      stale = loaded.stale;
+      fetchError = loaded.error;
     } catch (e) {
       log.swallow('handler:fetchColorSets', e);
       fetchError = errorMessage(e);
@@ -360,7 +366,20 @@ register('FETCH_COLOR_SETS', async (msg, respond) => {
   }
   // Broadcast to the panel (its colour picker listens for the broadcast) AND respond to the sender, so
   // the blueprint overlay can `sendRequest` the same data over the one-shot channel (style-mode tinting).
-  const result = { type: 'COLOR_SETS_DATA' as const, sets, ...(fetchError ? { error: fetchError } : {}) };
+  const result = {
+    type: 'COLOR_SETS_DATA' as const,
+    environment: serverId,
+    sets,
+    ...(fetchedAt ? { fetchedAt } : {}),
+    ...(stale ? { stale: true } : {}),
+    ...(fetchError ? { error: fetchError } : {}),
+  };
+  // A profile switch can complete while the serialized BMP request is in
+  // flight. Never broadcast old-environment colors into the new panel.
+  if (environmentToken(ctx) !== serverId) {
+    respond({ type: 'COLOR_SETS_DATA', environment: serverId, sets: [], error: 'Color request superseded by environment change' });
+    return;
+  }
   ctx.sendToPanel(result);
   respond(result);
 });

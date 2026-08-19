@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import type { EcResult } from '../bmp-client';
 import {
   buildColorSetsEc,
+  COLOR_FIELD,
+  COLOR_ROW,
   EcQueryService,
   parseColorSetsLog,
 } from '../ec-query-service';
 
-const SEP = '<<<CREV_COL>>>';
 const row = (
   setId: string,
   setName: string,
@@ -14,15 +15,19 @@ const row = (
   bid: string,
   name: string,
   rgb: string,
-): string => `${SEP}R${SEP}${setId}${SEP}${setName}${SEP}${folder}${SEP}${bid}${SEP}${name}${SEP}java.awt.Color[r=${rgb}]`;
+): string => ['R', setId, setName, folder, bid, name, `java.awt.Color[r=${rgb}]`].join(COLOR_FIELD) + COLOR_ROW;
+const done = (count: number): string => ['D', String(count)].join(COLOR_FIELD) + COLOR_ROW;
 
 describe('workspace colour query', () => {
-  it('selects colours directly and chunks output instead of walking every set child', () => {
+  it('selects colours directly with the compact control-character wire and completion marker', () => {
     const ec = buildColorSetsEc();
     expect(ec).toContain('SELECT CorpoColor FROM root.portal');
     expect(ec).not.toContain('SELECT CorpoColorSet');
     expect(ec).not.toContain('_set.children()');
-    expect(ec).toContain('IF _i > 31 THEN');
+    expect(ec).toContain(COLOR_FIELD);
+    expect(ec).toContain(COLOR_ROW);
+    expect(ec).toContain(`"D${COLOR_FIELD}" + _count`);
+    expect(ec).not.toContain('<<<CREV_COL>>>');
   });
 
   it('groups flat rows into sets, preserves swatch order, and leads with custom sets', () => {
@@ -30,7 +35,8 @@ describe('workspace colour query', () => {
       row('stock', 'Theme 1', 'ColorRoot', 'blue', 'Blue', '1,g=2,b=3'),
       row('custom', 'Brand', 'customer_palette', 'red', 'Red', '4,g=5,b=6'),
       row('custom', 'Brand', 'customer_palette', 'green', 'Green', '7,g=8,b=9'),
-    ].join('\n'));
+      done(3),
+    ].join(''));
 
     expect(sets.map(set => set.id)).toEqual(['custom', 'stock']);
     expect(sets[0].colors).toEqual([
@@ -53,15 +59,23 @@ describe('workspace colour query', () => {
       false,
       undefined,
       10_000,
+      'color-sets',
     );
   });
 
   it('accepts a genuinely empty successful workspace', async () => {
     const service = new EcQueryService(
-      async () => ({ ok: true, log: '' }) as EcResult,
+      async () => ({ ok: true, log: done(0) }) as EcResult,
       async rid => `lookup(${rid})`,
       [],
     );
     await expect(service.fetchColorSets()).resolves.toEqual([]);
+  });
+
+  it('rejects missing or inconsistent completion markers', () => {
+    expect(() => parseColorSetsLog(row('s', 'Set', '', 'c', 'Color', '1,g=2,b=3')))
+      .toThrow('completion marker missing');
+    expect(() => parseColorSetsLog(row('s', 'Set', '', 'c', 'Color', '1,g=2,b=3') + done(2)))
+      .toThrow('expected 2 rows, parsed 1');
   });
 });

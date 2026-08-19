@@ -329,7 +329,7 @@ export function bindConnectionClient(client: BmpClient, profileId: string): void
       const result = outcome.ok ? 'completed' : `failed (${outcome.error.kind})`;
       ctx.logActivity(
         outcome.ok ? 'warn' : 'error',
-        `BMP ${outcome.operation} ${result} under load`,
+        `BMP ${outcome.feature ? `${outcome.feature} · ` : ''}${outcome.operation} ${result} under load`,
         [
           `run ${outcome.durationMs}ms`,
           `queue ${outcome.queueWaitMs}ms (depth ${outcome.queueDepth})`,

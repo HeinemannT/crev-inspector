@@ -68,13 +68,29 @@ describe('Blueprint auxiliary-data states', () => {
   });
 
   it('accepts an explicitly empty successful colour response', async () => {
-    sendRequest.mockResolvedValueOnce({ type: 'COLOR_SETS_DATA', sets: [] });
+    sendRequest.mockResolvedValueOnce({ type: 'COLOR_SETS_DATA', environment: 'test', sets: [] });
     const { colorSets, colorSetsStatus, ensureColorSets } = await import('../colors');
 
     await ensureColorSets();
 
     expect(colorSets()).toEqual([]);
     expect(colorSetsStatus()).toBe('ready');
+  });
+
+  it('keeps a stale saved colour result usable and exposes its state', async () => {
+    sendRequest.mockResolvedValueOnce({
+      type: 'COLOR_SETS_DATA',
+      environment: 'test',
+      sets: [{ id: 's1', name: 'Saved', colors: [{ bid: 'red', name: 'Red', rgb: 'rgb(255,0,0)' }] }],
+      stale: true,
+      error: 'BMP timed out',
+    });
+    const { colorSets, colorSetsStatus, ensureColorSets } = await import('../colors');
+
+    await ensureColorSets();
+
+    expect(colorSets()?.[0]?.name).toBe('Saved');
+    expect(colorSetsStatus()).toBe('stale');
   });
 
   it('surfaces a failed saved-style request without replacing the existing library', async () => {

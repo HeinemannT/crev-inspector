@@ -1,21 +1,21 @@
 /** Live, read-only contract for the flat workspace-colour query. */
 import { expect, it } from 'vitest'
-import type { EcResult } from '../../bmp-client'
-import { EcQueryService } from '../../ec-query-service'
-import { bridgePreview, integrationTarget } from './config'
+import { BmpClient } from '../../bmp-client'
+import { mockChromeStorage } from '../chrome-mock'
+import { integrationTarget } from './config'
 
-it('loads real workspace colour sets through the flat projection', async () => {
+it('loads complete real workspace colour sets through the production binary transport', async () => {
   const target = integrationTarget()
-  const service = new EcQueryService(
-    async code => ({
-      ok: true,
-      log: await bridgePreview(target, code),
-    }) as EcResult,
-    async rid => `lookup(${rid})`,
-    [],
+  mockChromeStorage()
+  const client = new BmpClient(
+    target.bmpUrl,
+    target.bmpUser,
+    target.bmpPass,
+    'integration-colors',
+    'stored',
   )
 
-  const sets = await service.fetchColorSets()
+  const sets = await client.fetchColorSets()
   expect(sets.length).toBeGreaterThan(0)
   expect(sets.flatMap(set => set.colors).length).toBeGreaterThan(0)
   expect(sets.every(set => set.id && set.name && set.colors.every(color =>

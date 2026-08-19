@@ -25,6 +25,8 @@ import { h, svg, render as renderDom } from '../lib/dom'
 import { captureTypingFocus } from '../lib/focus-keep'
 import { ICON_PLAY, ICON_X, ICON_WRAP, ICON_VARIABLE, ICON_CLOCK, ICON_CHECK, ICON_LIGHTNING, ICON_TABLE, ICON_COPY, ICON_REFRESH, ICON_BOOK, ICON_ARROWS_OUT_SIMPLE, ICON_ARROWS_IN_SIMPLE, ICON_CODE, ICON_CHEVRON, ICON_WARNING, ICON_SPARKLE, ICON_BRACKETS } from '../lib/icons'
 import { fetchAiConfig } from '../editor-core/ai-config'
+import { createEditorStatus, paintEditorStatus } from './editor-status'
+import { editorLaunchPhases } from './editor-launch-timing'
 import type { AiAssist } from '../editor-core/ai-assist'
 import type { AiLang, AiObjectContext, AiContextSource } from '../lib/ai/types'
 import { renderEcOutput, ecOutputToText, parseBmpDurationMs, formatRunTiming } from './ec-output'
@@ -188,6 +190,7 @@ let lastSavedAt: number | null = null
 let contextRetryGeneration = 0
 let saveLabelTimer: ReturnType<typeof setTimeout> | null = null
 let editorStatusTimer: ReturnType<typeof setTimeout> | null = null
+let editorStatusMessage: string | null = null
 /** CodeSurface slot key for a (target, prop) pair. The scratch window is the
  *  single "extended" slot. (Per-slot cursor/scroll/dirty + the loaded baseline
  *  for Discard now live inside CodeSurface, keyed by these strings.) */
@@ -217,6 +220,7 @@ async function storeCurrentEditorContext(context: EditorContext, rid: string): P
 
 async function init() {
   renderDom(root, h('div', { class: 'editor-loading' }, 'Loading\u2026'))
+  let contextAdoptedAt = Date.now()
 
   // Load context from per-RID key (hash = RID)
   try {
@@ -238,6 +242,7 @@ async function init() {
       ? await launchContext
       : restoredContext ? await restoredContext
       : perRidKey ? (result[perRidKey] as EditorContext | null) : null
+    contextAdoptedAt = Date.now()
     if (launchSessionId) {
       activeEditorSessionId = launchSessionId
       history.replaceState(null, '', `?session=${encodeURIComponent(launchSessionId)}#${encodeURIComponent(rid)}`)
@@ -281,6 +286,13 @@ async function init() {
   updateWindowTitle()
   renderShell()
   ensureSurface()
+  const editorReadyAt = Date.now()
+  if (ctx.launchTiming) {
+    sendFireForget({
+      type: 'EDITOR_LAUNCH_READY',
+      phases: editorLaunchPhases(ctx.launchTiming, contextAdoptedAt, editorReadyAt),
+    })
+  }
   window.parent.postMessage({ type: 'CREV_FRAME_READY' }, '*')
   // AI is optional and may require a service-worker wake-up plus a lazy
   // CodeMirror merge import. It must not hold the editor's first paint.
@@ -899,15 +911,16 @@ function updateStatusBar(): void {
   const line = view.state.doc.lineAt(pos)
   const col = pos - line.from + 1
   const bar = document.getElementById('status-bar')
-  if (bar) bar.textContent = `Ln ${line.number}, Col ${col}`
+  if (bar) paintEditorStatus(bar, line.number, col, editorStatusMessage)
 }
 
 function flashEditorStatus(message: string): void {
   if (editorStatusTimer) clearTimeout(editorStatusTimer)
-  const bar = document.getElementById('status-bar')
-  if (bar) bar.textContent = message
+  editorStatusMessage = message
+  updateStatusBar()
   editorStatusTimer = setTimeout(() => {
     editorStatusTimer = null
+    editorStatusMessage = null
     updateStatusBar()
   }, 1800)
 }
@@ -1197,7 +1210,7 @@ function buildActionRow(): HTMLElement {
       onClick: doDiscard,
     }, ' Discard'),
     h('div', { class: 'editor-actions-spacer' }),
-    h('span', { class: 'editor-status', id: 'status-bar' }, 'Ln 1, Col 1'),
+    createEditorStatus(),
     // Editor-meta utilities — AI, wrap, EC reference, help — far right,
     // separated from the action verbs. The AI button only exists when a
     // provider key is configured (zero-footprint rule).

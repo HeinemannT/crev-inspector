@@ -279,4 +279,20 @@ describe('PanelOrchestrator', () => {
     expect(h.host.tabs.workshop.handleMessage).not.toHaveBeenCalled();
     expect(h.services.dispatchBroadcast).not.toHaveBeenCalled();
   });
+
+  it('rejects late colour data from the previous profile before it reaches the picker', () => {
+    const h = harness();
+    const panel = createPanelOrchestrator(h.host, h.services);
+    panel.accept({ type: 'PROFILE_SWITCHED', profileId: 'next', label: 'Next' });
+    vi.clearAllMocks();
+
+    panel.accept({
+      type: 'COLOR_SETS_DATA',
+      environment: 'current@https://old.example',
+      sets: [{ id: 'old', name: 'Old', colors: [] }],
+    });
+
+    expect(h.services.onColorSetsData).not.toHaveBeenCalled();
+    expect(h.services.dispatchBroadcast).not.toHaveBeenCalled();
+  });
 });

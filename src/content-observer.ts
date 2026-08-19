@@ -42,6 +42,7 @@ export function startObserver(
   s: ContentState,
   refreshDetection: () => void,
   syncInspect: () => void = () => syncOverlays(s),
+  resetInspect: () => void = () => s.resetOverlays(),
 ) {
   if (s.observer) return;
 
@@ -82,7 +83,10 @@ export function startObserver(
     if (window.location.href !== s.lastUrl) {
       const ownerChanged = pageOwnerRid(window.location.href) !== pageOwnerRid(s.lastUrl);
       s.lastUrl = window.location.href;
-      s.resetOverlays();
+      // DOM ownership and tracking state must reset together. BMP keeps some
+      // navigation anchors alive across SPA routes; clearing only the WeakSet
+      // makes the next sync append a second badge to those surviving hosts.
+      resetInspect();
       s.resetDiscovery();
       // Form definition can change even when BMP keeps the same parent `rid`
       // and only rewrites create/edit parameters.

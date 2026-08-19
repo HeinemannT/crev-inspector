@@ -367,11 +367,13 @@ body {
   background: var(--surface-1);
   border-top: 1px solid var(--surface-4);
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .editor-actions .btn {
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-sm);
+  white-space: nowrap;
 }
 
 /* kbd chip + btn-saved pulse now live in components.css (.btn kbd /
@@ -421,9 +423,39 @@ body {
  * after a successful commit, then renderShell re-paints it back to
  * the dim "Save" baseline. */
 .editor-status {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
   font-size: var(--text-sm);
   color: var(--text-3);
   font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.editor-status-compact,
+.editor-status-message { display: none; }
+.editor-status--message .editor-status-cursor { display: none; }
+.editor-status--message .editor-status-message { display: inline; }
+
+/* The editor runs in its own iframe, so viewport width is the action row's
+ * available width. Metadata yields space in two deliberate stages: readable
+ * shorthand first, then hidden. Primary actions never inherit that collapse. */
+@media (max-width: 760px) {
+  .editor-actions { gap: var(--space-1); padding-inline: var(--space-2); }
+  .editor-status-full { display: none; }
+  .editor-status-compact { display: inline; }
+  .editor-ai-btn {
+    width: 28px;
+    min-width: 28px;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+  }
+  .editor-ai-btn .ai-button-label { display: none; }
+}
+
+@media (max-width: 680px) {
+  .editor-status:not(.editor-status--message),
+  .editor-ai-btn { display: none; }
 }
 
 /* ── Drag handle ─────────────────────────────── */

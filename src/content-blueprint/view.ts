@@ -584,6 +584,12 @@ function swatchPopup(byRid: Map<string, Element>): HTMLElement {
       retry.addEventListener('click', () => { void ensureColorSets(true); });
       error.appendChild(retry); host.appendChild(error); return;
     }
+    if (colorSetsStatus() === 'stale') {
+      const warning = document.createElement('div');
+      warning.className = 'sw-empty';
+      warning.textContent = 'Showing saved colours; refresh failed.';
+      host.appendChild(warning);
+    }
     host.appendChild(renderSwatchGrid({
       sets: colorSets(), q, currentBid: curBid, includeBasics: true,
       expanded: bp.swatchExpanded,

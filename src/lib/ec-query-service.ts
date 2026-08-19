@@ -522,39 +522,33 @@ export function parseAwtColor(s: string): string {
   return m ? `rgb(${m[1]},${m[2]},${m[3]})` : '';
 }
 
-const COLOR_SEP = '<<<CREV_COL>>>';
+// Compact control-character wire. PRO Demo has 633 colors: repeating the old
+// 14-byte marker between every field made EC string accumulation cross the
+// 10-second timeout. U+0001/U+0002 are already established in this repo as
+// collision-free delimiters for arbitrary BMP text.
+export const COLOR_FIELD = '\u0001';
+export const COLOR_ROW = '\u0002';
 
-/** Flat colour projection. Selecting CorpoColor directly is materially faster
- * than selecting every set and then walking each set's children, especially
- * in workspaces with many custom palette folders. The parent carries the set
- * and the grandparent carries its category/folder. Chunking keeps `_r`
- * appends linear enough for large palettes. */
+/** Flat color projection. The parent carries the set and the grandparent its
+ * category/folder. A final count marker makes a partial response distinct
+ * from an authoritative empty workspace. */
 export function buildColorSetsEc(): string {
   return [
     '_colors := SELECT CorpoColor FROM root.portal',
     '_r := ""',
-    '_chunk := ""',
-    '_i := 0',
+    '_count := 0',
     '_colors.forEach(_col:',
     '     _cv := _col.color',
     '     IF _cv != MISSING THEN',
     '          _set := _col.parent',
     '          _folder := _set.parent',
-    `          _line := "${COLOR_SEP}R${COLOR_SEP}" + _set.id.whenMissing("") + "${COLOR_SEP}" + _set.name.whenMissing("") + "${COLOR_SEP}" + _folder.id.whenMissing("") + "${COLOR_SEP}" + _col.id.whenMissing("") + "${COLOR_SEP}" + _col.name.whenMissing("") + "${COLOR_SEP}" + _cv + "\\n"`,
-    '          _chunk := _chunk + _line',
-    '          _i := _i + 1',
-    '          IF _i > 31 THEN',
-    '               _r := _r + _chunk',
-    '               _chunk := ""',
-    '               _i := 0',
-    '          ELSE',
-    '               _r := _r',
-    '          ENDIF',
+    `          _r := _r + "R${COLOR_FIELD}" + _set.id.whenMissing("") + "${COLOR_FIELD}" + _set.name.whenMissing("") + "${COLOR_FIELD}" + _folder.id.whenMissing("") + "${COLOR_FIELD}" + _col.id.whenMissing("") + "${COLOR_FIELD}" + _col.name.whenMissing("") + "${COLOR_FIELD}" + _cv + "${COLOR_ROW}"`,
+    '          _count := _count + 1',
     '     ELSE',
     '          _r := _r',
     '     ENDIF',
     ')',
-    '_r := _r + _chunk',
+    `_r := _r + "D${COLOR_FIELD}" + _count + "${COLOR_ROW}"`,
     '_r',
   ].join('\n');
 }
@@ -564,16 +558,25 @@ export function buildColorSetsEc(): string {
 export function parseColorSetsLog(log: string): ColorSetData[] {
   const sets: ColorSetData[] = [];
   const byId = new Map<string, ColorSetData>();
-  for (const line of log.split('\n')) {
-    const parts = line.split(COLOR_SEP);
-    if (parts[1] !== 'R') continue;
-    const setId = (parts[2] ?? '').trim();
-    const setName = (parts[3] ?? '').trim();
-    const folder = (parts[4] ?? '').trim();
-    const bid = (parts[5] ?? '').trim();
-    const name = (parts[6] ?? '').trim();
-    const rgb = parseAwtColor(parts[7] ?? '');
+  let expectedCount: number | null = null;
+  let parsedCount = 0;
+  for (const wireRow of log.split(COLOR_ROW)) {
+    const parts = wireRow.split(COLOR_FIELD);
+    const marker = (parts[0] ?? '').trim();
+    if (marker === 'D') {
+      const count = Number((parts[1] ?? '').trim());
+      if (Number.isInteger(count) && count >= 0) expectedCount = count;
+      continue;
+    }
+    if (marker !== 'R') continue;
+    const setId = (parts[1] ?? '').trim();
+    const setName = (parts[2] ?? '').trim();
+    const folder = (parts[3] ?? '').trim();
+    const bid = (parts[4] ?? '').trim();
+    const name = (parts[5] ?? '').trim();
+    const rgb = parseAwtColor(parts[6] ?? '');
     if (!setId || !bid || !rgb) continue;
+    parsedCount += 1;
     let set = byId.get(setId);
     if (!set) {
       set = { id: setId, name: setName, colors: [], ...(folder ? { folder } : {}) };
@@ -581,6 +584,10 @@ export function parseColorSetsLog(log: string): ColorSetData[] {
       sets.push(set);
     }
     set.colors.push({ bid, name, rgb });
+  }
+  if (expectedCount === null) throw new Error('Incomplete color response: completion marker missing');
+  if (parsedCount !== expectedCount) {
+    throw new Error(`Incomplete color response: expected ${expectedCount} rows, parsed ${parsedCount}`);
   }
   const custom = (set: ColorSetData): number => (set.folder && set.folder !== 'ColorRoot' ? 0 : 1);
   return sets.sort((a, b) => custom(a) - custom(b));
@@ -597,6 +604,7 @@ export class EcQueryService {
       transactional?: boolean,
       signal?: AbortSignal,
       timeoutMs?: number,
+      feature?: import('./bmp-transport').BmpTransportMetrics['feature'],
     ) => Promise<EcResult>,
     /** BmpClient.resolveRef, same dynamic-dispatch rationale. */
     private readonly resolveRef: (rid: string) => Promise<string>,
@@ -973,7 +981,7 @@ export class EcQueryService {
     lines.push(`_r := _r + _sep + "DONE"`);
     lines.push('_r');
 
-    const result = await this.executeEc(lines.join('\n'));
+    const result = await this.executeEc(lines.join('\n'), undefined, false, undefined, undefined, 'editor-context');
     if (!result.ok || !result.log) return null;
 
     const data = parseSepBlocks(result.log, sep);
@@ -1452,6 +1460,7 @@ export class EcQueryService {
       false,
       undefined,
       COLOR_SETS_EC_TIMEOUT,
+      'color-sets',
     );
     if (!result.ok) {
       throw new Error(result.error || result.log || 'Colour query failed');

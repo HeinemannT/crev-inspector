@@ -33,6 +33,8 @@ export class BmpTransportError extends Error {
 export interface BmpTransportMetrics {
   /** Java command class (or compact batch summary), never EC source text. */
   operation: string;
+  /** Low-cardinality product feature, never EC source or object identity. */
+  feature?: 'editor-context' | 'color-sets';
   commandCount: number;
   /** Requests already active/queued when this request entered the transport. */
   queueDepth: number;
@@ -55,6 +57,7 @@ interface RequestResult {
 interface RequestMeta {
   operation?: string;
   commandCount?: number;
+  feature?: BmpTransportMetrics['feature'];
 }
 
 const TRANSIENT_HTTP = new Set([502, 503, 504]);
@@ -100,6 +103,7 @@ export class BmpTransport {
       const startedAt = Date.now();
       const common = {
         operation: meta.operation ?? 'SerializedCommand',
+        ...(meta.feature ? { feature: meta.feature } : {}),
         commandCount: meta.commandCount ?? 1,
         queueDepth,
         queueWaitMs: Math.max(0, startedAt - queuedAt),
@@ -285,13 +289,14 @@ export class BmpTransport {
     intent: CommandIntent,
     signal?: AbortSignal,
     timeoutMs?: number,
+    feature?: BmpTransportMetrics['feature'],
   ): Promise<any[]> {
     const buffer = await this.sendRequest(
       serializeCommands([command]),
       timeoutMs ?? EC_TIMEOUT,
       intent,
       signal,
-      { operation: commandOperation([command]), commandCount: 1 },
+      { operation: commandOperation([command]), commandCount: 1, feature },
     );
     try {
       return deserializeStream(buffer);

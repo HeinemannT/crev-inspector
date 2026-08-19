@@ -214,6 +214,19 @@ export type EcMessage =
   | { type: 'OPEN_EDITOR'; rid: string; property?: string; scrollToLine?: number; scrollToText?: string }
   | { type: 'FETCH_EDITOR_CONTEXT'; rid: string; property?: string }
   | { type: 'EDITOR_CONTEXT_DATA'; rid: string; context: import('../editor/editor-types').EditorContext }
+  | {
+      type: 'EDITOR_LAUNCH_READY';
+      phases: {
+        totalMs: number;
+        settingsMs: number;
+        targetMs: number;
+        placeholderMs: number;
+        frameMountMs: number;
+        contextMs: number;
+        publishToAdoptMs: number;
+        editorBootMs: number;
+      };
+    }
   | { type: 'JSON_SHAPE_READ'; source: string; objectRid?: string }
   | { type: 'JSON_SHAPE_RESULT'; ok: boolean; shape?: JsonShape; error?: string }
   | { type: 'OPEN_EXTENDED' };
@@ -400,7 +413,14 @@ export type ScriptHistoryMessage =
 export type ColorMessage =
   // `force` bypasses the persistent colour cache (manual refresh in the picker).
   | { type: 'FETCH_COLOR_SETS'; force?: boolean }
-  | { type: 'COLOR_SETS_DATA'; sets: ColorSetData[]; error?: string };
+  | {
+      type: 'COLOR_SETS_DATA';
+      environment: string;
+      sets: ColorSetData[];
+      fetchedAt?: number;
+      stale?: boolean;
+      error?: string;
+    };
 
 // ── Notifications (ephemeral panel toasts) ───────────────────────
 // SW fires `TOAST` to surface user-action failures that are otherwise

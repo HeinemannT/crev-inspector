@@ -8,6 +8,17 @@ export type { ObjectIdentity } from '../lib/types'
 
 export type SlotLang = 'ec' | 'html' | 'javascript' | 'css' | 'plain'
 
+export interface EditorLaunchTiming {
+  requestedAt: number
+  settingsReadyAt: number
+  targetResolvedAt: number
+  placeholderStoredAt: number
+  frameMountedAt: number
+  contextStartedAt: number
+  contextFinishedAt: number
+  publishStartedAt: number
+}
+
 /** Language family follows the property's semantics, not only its exact name. */
 export function languageForProperty(prop: string, extended: boolean): SlotLang {
   if (extended || prop === 'expression' || prop.endsWith('Expression')) return 'ec'
@@ -32,6 +43,9 @@ export interface EditorContext {
   overrides: Record<string, boolean>
   saveTarget: SaveTarget
   property: string | null
+  /** Redacted wall-clock milestones for one cold Editor Launch Session. No
+   * object identity or source text is carried into the timing report. */
+  launchTiming?: EditorLaunchTiming
   /** Transient launch placeholder. The frame can paint while the service
    *  worker prepares the authoritative BMP context, then hydrates from the
    *  same storage key without issuing a duplicate server request. */

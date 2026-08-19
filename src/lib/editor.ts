@@ -69,9 +69,12 @@ export async function openEditorWindow(
   target?: { tabId?: number; windowId?: number },
   opts?: { scrollToLine?: number; scrollToText?: string },
 ) {
+  const requestedAt = Date.now();
   const swCtx = getCtx();
   await swCtx.settingsReady;
+  const settingsReadyAt = Date.now();
   const targetTabId = await resolveFrameTargetTabId(target);
+  const targetResolvedAt = Date.now();
   if (targetTabId == null) {
     log.warn('editor:noTargetTab', 'No active tab is available for the editor launch');
     return;
@@ -98,6 +101,7 @@ export async function openEditorWindow(
   };
 
   const launchSession = await beginEditorLaunchSession(rid, loadingContext);
+  const placeholderStoredAt = Date.now();
 
   const label = cached?.name
     ? `${cached.type || 'Object'} · ${cached.name}`
@@ -120,6 +124,7 @@ export async function openEditorWindow(
     },
     tabId: targetTabId,
   });
+  const frameMountedAt = Date.now();
 
   if (disposition === 'activated' || disposition === 'superseded' || disposition === 'dropped' || disposition === 'failed') {
     await releaseEditorLaunchContext(launchSession);
@@ -127,7 +132,20 @@ export async function openEditorWindow(
   }
 
   try {
+    const contextStartedAt = Date.now();
     const ctx = await buildEditorContext(rid, preferredProperty, frozenTarget, opts);
+    const contextFinishedAt = Date.now();
+    const publishStartedAt = Date.now();
+    ctx.launchTiming = {
+      requestedAt,
+      settingsReadyAt,
+      targetResolvedAt,
+      placeholderStoredAt,
+      frameMountedAt,
+      contextStartedAt,
+      contextFinishedAt,
+      publishStartedAt,
+    };
     await publishEditorLaunchContext(launchSession, ctx);
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to load code from BMP';

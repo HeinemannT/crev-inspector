@@ -233,6 +233,28 @@ register('FETCH_EDITOR_CONTEXT', (msg, respond, meta) => {
   );
 });
 
+register('EDITOR_LAUNCH_READY', (msg) => {
+  const phases = Object.fromEntries(Object.entries(msg.phases).map(([key, value]) => [
+    key,
+    Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0,
+  ])) as typeof msg.phases;
+  const ctx = getCtx();
+  ctx.logActivity(
+    phases.totalMs >= 1_000 ? 'warn' : 'info',
+    `Editor ready (${phases.totalMs}ms)`,
+    [
+      `settings ${phases.settingsMs}ms`,
+      `target ${phases.targetMs}ms`,
+      `placeholder ${phases.placeholderMs}ms`,
+      `frame ${phases.frameMountMs}ms`,
+      `context ${phases.contextMs}ms`,
+      `publish/adopt ${phases.publishToAdoptMs}ms`,
+      `editor boot ${phases.editorBootMs}ms`,
+    ].join(' · '),
+    { category: 'system', action: 'editor-launch', durationMs: phases.totalMs },
+  );
+});
+
 register('OPEN_EXTENDED', (_msg, _respond, meta) => {
   // Standalone Extended Code window — same path as the Ctrl+Shift+E command,
   // exposed in the sidepanel header so users without a shortcut can still open it.

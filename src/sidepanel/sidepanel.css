@@ -2553,6 +2553,28 @@ body.crev-divider-dragging * { user-select: none; }
 .cp-swatch-dot { width: 16px; height: 16px; border-radius: var(--radius-md); flex-shrink: 0; border: 1px solid rgba(255,255,255,0.12); }
 .cp-swatch-name { font-size: var(--text-sm); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cp-loading, .cp-empty { padding: 16px 8px; text-align: center; color: var(--text-3); font-size: var(--text-sm); }
+.cp-error {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 14px 8px;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+.cp-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 2px 0 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+.cp-notice--warn { color: var(--warning); }
 .prop-input--invalid { border-color: var(--danger); }
 
 .prop-number-input {

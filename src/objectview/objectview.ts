@@ -47,12 +47,13 @@ import { renderFlowSection } from '../sidepanel/sections/flow-walker';
 import { hasFlow } from '../lib/widget-metadata';
 import { hasStudio, modeForType } from '../studio/studio-mode';
 import { openAccessTrace, routeAccessMessage, initAccessTrace } from '../sidepanel/access-trace';
-import { openColorPicker } from '../sidepanel/color-picker';
+import { onColorSetsData, openColorPicker } from '../sidepanel/color-picker';
 import { confirmCommandModal, confirmModal } from '../lib/modal';
 import { clearCommittedResets, reconcileInstanceOverrides } from './saved-state';
 import { replacePropertyElement, syncOptionalElement } from './local-update';
 import { syncObjectViewInteractionLock } from './interaction-lock';
 import { editFieldPropertyRelation } from '../lib/edit-field-property';
+import { requestObjectViewColorSets } from './color-picker-request';
 
 // The Access Trace overlay is shared with the side panel. The SW replies to the
 // sender (respond()), so here we bridge its fire-and-forget sends through
@@ -1249,7 +1250,16 @@ function makeGroupsCtx(): PaneGroupsCtx {
     openColorPicker: (def, anchor, currentBid) => openColorPicker({
       anchor,
       currentBid,
-      sendMessage: sendFireForget,
+      // Object View does not own the side-panel port, so the panel broadcast
+      // cannot update this document's picker. Consume the one-shot response.
+      sendMessage: (message) => {
+        if (message.type !== 'FETCH_COLOR_SETS') return;
+        void requestObjectViewColorSets(
+          message,
+          request => sendRequest<Extract<import('../lib/types').InspectorMessage, { type: 'COLOR_SETS_DATA' }>>(request),
+          onColorSetsData,
+        );
+      },
       onPick: (val) => setDraft(def.prop, val),
     }),
   };

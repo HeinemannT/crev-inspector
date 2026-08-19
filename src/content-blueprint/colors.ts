@@ -15,7 +15,7 @@ type ColorSetsResult = Extract<InspectorMessage, { type: 'COLOR_SETS_DATA' }>;
 
 let sets: ColorSetData[] | null = null;
 let loading = false;
-let status: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
+let status: 'idle' | 'loading' | 'ready' | 'stale' | 'error' = 'idle';
 let requestSeq = 0;
 const index = new ColorSetIndex();
 
@@ -55,9 +55,9 @@ export async function ensureColorSets(force = false): Promise<void> {
     const res = await sendRequest<ColorSetsResult>({ type: 'FETCH_COLOR_SETS', force });
     if (seq !== requestSeq) return;
     if (!res) throw new Error('No response from the extension');
-    if (res.error) throw new Error(res.error);
+    if (res.error && res.sets.length === 0) throw new Error(res.error);
     sets = res.sets;
-    status = 'ready';
+    status = res.stale ? 'stale' : 'ready';
     index.load(sets);
   } catch {
     if (seq !== requestSeq) return;

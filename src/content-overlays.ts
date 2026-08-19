@@ -378,8 +378,28 @@ export function syncOverlays(s: ContentState, additionalTargets: readonly Additi
   log.debug('sync', `syncOverlays: ${elements.length} elements (${linkCount} links), enrichMode=${s.enrichMode}`);
   const ridsToEnrich: string[] = [];
 
-  // Filter to new elements only
-  const newElements = elements.filter(({ element }) => !s.badgedElements.has(element));
+  // Filter to new elements only. The WeakSet is the fast path, while the
+  // direct-child check is the recovery path when state was reset but BMP kept
+  // a navigation host alive. Identity is per host (the same RID may appear in
+  // several places), so never dedupe document-wide by RID.
+  const newElements = elements.filter(({ element, rid }) => {
+    if (s.badgedElements.has(element)) return false;
+    const owned = Array.from(element.children).filter(
+      (child): child is HTMLElement => child instanceof HTMLElement && child.classList.contains('crev-label'),
+    );
+    const matching = owned.find(label => label.dataset.crevLabel === rid);
+    if (matching) {
+      for (const duplicate of owned) {
+        if (duplicate !== matching) duplicate.remove();
+      }
+      s.badgedElements.add(element);
+      return false;
+    }
+    // A reused BMP host can change identity in place. Remove its stale
+    // Companion label before mounting the new identity and handlers.
+    for (const stale of owned) stale.remove();
+    return true;
+  });
 
   // Write pass: apply DOM changes
   for (const { element, rid, labelClassName, visualType, placement, compact, propertyTarget } of newElements) {
@@ -469,9 +489,7 @@ export function removeOverlays(s: ContentState) {
   }
   const tooltip = document.getElementById('crev-tooltip');
   if (tooltip) tooltip.style.display = 'none';
-  s.hoveredLabelEl = null;
-  s.badgedElements = new WeakSet();
-  s.overlayProps.clear();
+  s.resetOverlays();
 }
 
 /** Update badge labels from enrichment data */
