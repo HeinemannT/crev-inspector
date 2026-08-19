@@ -27,6 +27,23 @@ describe('AI context chip', () => {
     expect(container.textContent?.toLowerCase()).not.toContain('selection');
   });
 
+  it('keeps the viewed page as a non-detachable, non-pinnable fallback', () => {
+    S.page = { rid: '100' };
+    S.context = {
+      rid: '100',
+      businessId: 'webpage',
+      name: 'Current webpage',
+      type: 'Scorecard',
+    };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    new AiTab(() => {}).render(container);
+
+    expect(container.querySelector('.ai-cchip-name')?.textContent).toBe('webpage');
+    expect(container.querySelector('.ai-cchip-pin')).toBeNull();
+    expect(container.querySelector('.ai-cchip-x')).toBeNull();
+  });
+
   it('keeps editor + object context on one compact line without a count badge', () => {
     S.context = {
       rid: '118',
@@ -97,6 +114,8 @@ describe('AI context chip', () => {
 
     expect(container.querySelector('.ai-cchip-name')?.textContent).toBe('webpage');
     expect(container.querySelector<HTMLElement>('.ai-cchip .bdg')?.title).toBe('Page');
+    expect(container.querySelector('.ai-cchip-pin')).toBeNull();
+    expect(container.querySelector('.ai-cchip-x')).toBeNull();
   });
 
   it('can restore a RID-only webpage even when the panel opened on an explicit object', () => {
@@ -115,5 +134,7 @@ describe('AI context chip', () => {
 
     expect(container.querySelector('.ai-cchip-name')?.textContent).toBe('100');
     expect(container.querySelector<HTMLElement>('.ai-cchip .bdg')?.title).toBe('Page');
+    expect(container.querySelector('.ai-cchip-pin')).toBeNull();
+    expect(container.querySelector('.ai-cchip-x')).toBeNull();
   });
 });

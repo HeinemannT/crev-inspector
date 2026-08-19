@@ -80,7 +80,9 @@ export class AiTab implements Tab {
    * reveal the webpage again without a lookup or prompt-layer workaround. */
   private webpageSelection: AiContextSource | null = null;
   private selectionPinned = false;
-  /** RIDs the user detached this session (hidden until the source changes). */
+  /** RIDs the user detached this session (hidden until the source changes).
+   *  Selection detaches apply only to explicit object overrides: the viewed
+   *  page is the invariant fallback and cannot itself be detached. */
   private detachedSelectionRid: string | null = null;
   private detachedEditorRid: string | null = null;
 
@@ -234,7 +236,7 @@ export class AiTab implements Tab {
     // can initially be RID-only; later canonical context enrichment upgrades
     // this cached source through contextChanged().
     const pageRid = S.page?.rid;
-    if (!pageRid || pageRid === this.detachedSelectionRid) return null;
+    if (!pageRid) return null;
     if (this.webpageSelection?.object.rid === pageRid) return this.webpageSelection;
     this.webpageSelection = {
       kind: 'selection',
@@ -1181,7 +1183,9 @@ export class AiTab implements Tab {
         h('span', { class: 'ai-cchip-name' }, name),
       );
 
-    if (isSelection) {
+    const isPageFallback = isSelection && src.object.rid === S.page?.rid;
+
+    if (isSelection && !isPageFallback) {
       const pin = h('button', {
         class: `ai-cchip-pin${this.selectionPinned ? ' on' : ''}`,
         title: this.selectionPinned ? 'Unpin to follow the selection again' : 'Pin to freeze this context',
@@ -1195,13 +1199,15 @@ export class AiTab implements Tab {
       chip.appendChild(pin);
     }
 
-    const x = h('button', { class: 'ai-cchip-x', title: 'Detach', 'aria-label': 'Detach context' }, svg(ICON_X));
-    x.addEventListener('click', () => {
-      if (isSelection) { this.detachedSelectionRid = src.object.rid; this.selectionPinned = false; this.pinnedSelection = null; }
-      else this.detachedEditorRid = src.object.rid;
-      this.refreshChips();
-    });
-    chip.appendChild(x);
+    if (!isPageFallback) {
+      const x = h('button', { class: 'ai-cchip-x', title: 'Detach', 'aria-label': 'Detach context' }, svg(ICON_X));
+      x.addEventListener('click', () => {
+        if (isSelection) { this.detachedSelectionRid = src.object.rid; this.selectionPinned = false; this.pinnedSelection = null; }
+        else this.detachedEditorRid = src.object.rid;
+        this.refreshChips();
+      });
+      chip.appendChild(x);
+    }
     return chip;
   }
 }
