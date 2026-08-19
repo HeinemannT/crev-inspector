@@ -73,6 +73,8 @@ export interface ToolDataMap {
   read_type: {
     requestedType: string;
     canonicalType?: string;
+    /** Ranked live classes recovered from a misspelled/unknown requestedType. */
+    typeSuggestions?: string[];
     query?: string;
     affordances: { code: boolean; references: boolean; flow: boolean };
     codeSlots: Array<{ property: string; enabledBy?: string }>;
@@ -107,6 +109,8 @@ export interface ToolDataMap {
   };
   search_objects: {
     query: string;
+    /** Bounded spelling-recovery query that produced the live rows. */
+    resolvedQuery?: string;
     type?: string;
     purpose?: 'objects' | 'row-type';
     sourceTotalHits: number;

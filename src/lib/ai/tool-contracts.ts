@@ -36,135 +36,111 @@ const TOOL_CONTRACT_LIST = [
   defineTool({
     name: 'query_context',
     description:
-      'Count, filter and list descendants of the effective page behind the object already attached as chat context. Enterprise instances are resolved through .template automatically. ' +
-      'Use this for questions containing “here”, “this”, “on this page” or “selected”; the tool binds the scope itself, so NEVER search for the context object by name, business id or rid first. ' +
-      'It queries structural descendants only; it does not follow arbitrary reference/reverse-reference edges such as the risks connected to a control. ' +
-      'EXCEPTION: do not use this to find or inspect tabs, containers, widgets, tables, or rows displayed by a table; those questions start with read_layout. ' +
-      'Do not use this to discover the workspace data class for a new table or chart; search_objects once with the user\'s business noun instead. ' +
-      'Use type only when a prior live result or the user supplied the real BMP class. For any semantic noun whose class is unknown, use templateQuery instead; the result includes the discovered class distribution. ' +
-      'For a question asking what object/class the semantic matches are, that first successful class distribution is the complete answer: do not query again or inspect an exemplar. ' +
-      'It returns the total match count plus up to 25 rows with stable name, class, template, businessId and rid, and can include a few requested properties. ' +
-      'For “which X are Y?” include a filter in the first call only when the live schema or user established the filter property; never invent a status field or encoding. ' +
-      'When read_type has established the exact fields/filter for descendants of the attached context, call query_context next; do not switch to preview_ec for an ordinary descendant list. ' +
-      'Examples after the class/property is known: {"type":"ExtendedTable"}; {"type":"CustomVisualization","filterField":"name","filterValue":"Summary"}.',
+      'Count or list structural descendants of the attached context; enterprise instances resolve through .template. The scope is already bound, so do not search for it first. Use a live-confirmed type, or templateQuery when the business noun\'s class is unknown. Returns total, class distribution, and up to 25 identified rows with optional confirmed fields/filter. Not for tabs/widgets/table rows (read_layout), new-widget row-type discovery (search_objects purpose=row-type), or relationship edges (read_type then preview_ec). After read_type establishes descendant fields/filter, call this once.',
     parameters: {
       type: 'object',
       properties: {
         type: {
           type: 'string',
-          description: 'Optional known PascalCase BMP descendant class, e.g. "ExtendedTable" or "CustomVisualization". Supply it only after live output or the user established the class.',
+          description: 'Optional live-confirmed PascalCase BMP descendant class.',
         },
         templateQuery: {
           type: 'string',
-          description: 'Optional user-supplied semantic/template-name substring. Use when the real descendant class is unknown. At least one of type or templateQuery is required.',
+          description: 'Optional semantic/template-name substring when the class is unknown. One of type or templateQuery is required.',
         },
         fields: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Optional additional property accessors confirmed by the user, live schema, or a prior tool result. Maximum 5. Never request name, type, businessId, id or rid because every row already includes them.',
+          description: 'Up to 5 confirmed extra accessors. Identity fields are already returned.',
         },
         filterField: {
           type: 'string',
-          description: 'Optional live-confirmed property accessor to filter. Must be paired with filterValue; never infer a semantic status property.',
+          description: 'Optional confirmed filter accessor; pair with filterValue.',
         },
         filterValue: {
           type: 'string',
-          description: 'Optional case-insensitive substring required in filterField. Must be paired with filterField.',
+          description: 'Optional case-insensitive value substring; pair with filterField.',
         },
       },
       required: [],
       additionalProperties: false,
     },
-    resultDescription: 'Returns JSON data with query, total, classCounts, rows, capped/complete, warnings, and verified objects.',
+    resultDescription: 'Returns query, total, classCounts, rows, capped/complete, warnings, and verified objects.',
     summarize: input => `query_context ${stringArgument(input, 'type') || stringArgument(input, 'templateQuery')}`.trim(),
   }),
   defineTool({
     name: 'read_object',
     description:
-      'Read one BMP object by business id or rid. Returns its identity ' +
-      '(name, type, businessId, rid, template) plus a compact overview with selected common values and names + sizes of code slots. ' +
-      'The overview is deliberately incomplete. Pass properties to read up to 8 exact accessors with effective value and instance/template source; large values are summarized and reference values return verified object identity. ' +
-      'This is a one-object property read, not a relationship query: do not use it to enumerate a multi-reference collection or calculate across connected objects. ' +
-      'When prior tool output contains both bid= and rid=, prefer the rid= value. A verified EC reference from attached context such as t.widget, o.team or r.asset is also accepted. Numeric business ids are not rids. Prefer this over guessing what an object contains.',
+      'Read one BMP object by RID, business ID, or verified EC reference. Without properties it returns an intentionally incomplete overview and code-slot sizes; with properties it returns up to 8 exact effective values with instance/template source and verified referenced objects. Use for identity or requested current values, not relationship enumeration or aggregation. Prefer a returned rid= over bid=; numeric business IDs are not automatically RIDs.',
     parameters: {
       type: 'object',
       properties: {
         ref: {
           type: 'string',
-          description: 'Object reference. Prefer an exact rid= value; verified attached-context references such as t.widget, o.team or r.asset are also accepted.',
+          description: 'Exact RID, business ID, or verified t.*/o.*/r.* reference; prefer a returned rid=.',
         },
         refType: {
           type: 'string',
           enum: ['rid', 'businessId'],
-          description: 'Optional explicit reference kind. Set businessId when ref came from bid=, especially when it contains only digits.',
+          description: 'Optional kind; set businessId for a bid= value, especially numeric text.',
         },
         properties: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Optional exact EC property accessors to read, maximum 8. Use for a current value such as ["card"]. Do not use merely to reconfirm a self-contained change whose exact accessor and new value the user supplied.',
+          description: 'Up to 8 exact accessors for requested current values. Do not reconfirm a supplied accessor/value change.',
         },
       },
       required: ['ref'],
       additionalProperties: false,
     },
-    resultDescription: 'Returns JSON data with identity links and either overview fields/code slots or exact selectedProperties with source and truncation state.',
+    resultDescription: 'Returns identity plus overview/code slots or selectedProperties with source and truncation state.',
     summarize: input => `read_object ${stringArgument(input, 'ref')}`.trim(),
   }),
   defineTool({
     name: 'read_code',
     description:
-      'Read one raw code-bearing property from an object with output(), so BMP does not evaluate it. ' +
-      'Use after read_layout exposes a widget and its code slots. ExtendedTable rows come from its expression property: call read_code with that table rid and property="expression" instead of inspecting descendants. ' +
-      'If the returned expression directly names its SELECT class or table(...) properties, answer from the source; do not preview/re-run the stored code merely to verify it.',
+      'Read one raw code-bearing property without evaluating it. Use a widget RID/code slot from read_layout. ExtendedTable rows come from property="expression"; answer directly from complete source when it names the collection and table fields, without re-running it.',
     parameters: {
       type: 'object',
       properties: {
-        ref: { type: 'string', description: 'Object reference. Prefer an exact rid= value; verified attached-context references such as t.widget, o.team or r.asset are also accepted.' },
-        refType: { type: 'string', enum: ['rid', 'businessId'], description: 'Optional explicit reference kind. Set businessId for a numeric business id.' },
+        ref: { type: 'string', description: 'Exact RID, business ID, or verified t.*/o.*/r.* reference; prefer a returned rid=.' },
+        refType: { type: 'string', enum: ['rid', 'businessId'], description: 'Optional kind; set businessId for a numeric business ID.' },
         property: { type: 'string', description: 'Raw code property, e.g. "expression", "html", "javascript", "css", "text" or "longText".' },
       },
       required: ['ref', 'property'],
       additionalProperties: false,
     },
-    resultDescription: 'Returns JSON data with objectRid, property, language, exact character count, code, and complete.',
+    resultDescription: 'Returns objectRid, property, language, character count, code, and complete.',
     summarize: input => `read_code ${stringArgument(input, 'ref')}.${stringArgument(input, 'property')}`.trim(),
   }),
   defineTool({
     name: 'read_type',
     description:
-      'Introspect a BMP object type / class. Do not call this for a self-contained change that already supplies an exact receiver, property accessor, and value. The type argument must be a BMP class such as InputView, never a receiver such as t.xy. Returns the type\'s properties ' +
-      '(EC accessor + label + config-class) from a live schema probe, plus its ' +
-      'known code slots, reference edges and context fields. Pass query to search ' +
-      'accessors, labels and descriptions instead of downloading a broad schema. Use this when the user described a property concept but did not supply its exact accessor. ' +
-      'For a matching list or tag property, the same result includes its exact configured option names and t.* value references; use those values instead of reading exemplars or probing status synonyms. ' +
-      'For semantic words such as open, active, closed or retired, query "lifecycle" once; do not try status synonyms or inspect exemplars after optionSets returns configured values. ' +
-      'For a question about objects connected/linked/related to the attached object, inspect the attached type for the relationship accessor, inspect the related type for requested fields, then use one read-only preview_ec traversal for the rows or aggregate. Do not substitute read_object or query_context for that relationship traversal. ' +
-      'The same result also probes and returns a verified data collection in collections. When that array is non-empty, use it directly and do not call read_type again for a root or collection. ' +
-      'When read_layout supplied a concrete widget RID, pass it as exampleRid so BMP help can recover system properties for classes whose global schema catalogue is empty.',
+      'Introspect a BMP class (for example InputView, never t.widget). Use one narrow query when the user gives a property concept but not its exact accessor. Returns matching accessors/config classes, code slots, relationship edges, configured list/tag options, and verified data collections. Reuse returned t.* options and collections exactly; do not inspect exemplars or retry synonyms. For open/active rows, a returned terminal Retired/Closed option is excluded with !=; do not select one non-terminal option as the whole set. For connected data, inspect the relationship and requested fields, then traverse once with preview_ec. Pass a read_layout widget RID as exampleRid when global schema is sparse. Skip for a self-contained exact receiver/accessor/value change.',
     parameters: {
       type: 'object',
       properties: {
         type: {
           type: 'string',
-          description: 'PascalCase BMP class name, e.g. "CustomVisualization", "ButtonInput".',
+          description: 'PascalCase BMP class, e.g. "CustomVisualization" or "ButtonInput".',
         },
         query: {
           type: 'string',
-          description: 'Optional case-insensitive accessor, label or description substring, e.g. "card" or "lifecycle".',
+          description: 'Optional narrow accessor/label/description substring, e.g. "card" or "lifecycle".',
         },
         exampleRid: {
           type: 'string',
-          description: 'Optional exact decimal-string RID for a concrete object of this type, normally a widget RID returned by read_layout. Companion resolves the safe EC reference internally.',
+          description: 'Optional exact widget RID from read_layout for instance-backed schema help.',
         },
         propertyOnly: {
           type: 'boolean',
-          description: 'Set true when only property/schema evidence is needed. This skips the extra data-collection probe while retaining matching properties and configured option values.',
+          description: 'True skips data-collection probing while retaining property and option evidence.',
         },
       },
       required: ['type'],
       additionalProperties: false,
     },
-    resultDescription: 'Returns JSON data with affordances, metadata slots/edges, live schema matches, exact list/tag option sets, verified collections, counts, and complete.',
+    resultDescription: 'Returns schema matches, edges, optionSets, collections, counts, complete, and possible typeSuggestions.',
     summarize: input => {
       const query = stringArgument(input, 'query');
       return `read_type ${stringArgument(input, 'type')}${query ? ` "${query}"` : ''}`.trim();
@@ -173,33 +149,28 @@ const TOOL_CONTRACT_LIST = [
   defineTool({
     name: 'search_objects',
     description:
-      'Search the workspace for objects by name/text (BMP quick search). ' +
-      'Returns up to ~25 hits with businessId, name, type, rid, and an exact [[object:RID]] token. Use lookup("RID") when the exact hit must be an EC value; keep the 64-bit RID quoted. Use to ' +
-      'locate an object when you only know part of its name. For a new data widget whose row class is unknown, set purpose="row-type" and call this once with the user\'s business noun. That compact result returns ranked live typeCandidates; choose the matching data class and continue to read_type. Do not also query_context or repeat the search with casing or fragments.',
+      'Search workspace objects by name/text. Default results identify up to ~25 hits; use lookup("RID") with the returned 64-bit RID quoted when a hit becomes an EC value. For a new table/chart with unknown row class, call once with purpose="row-type" and the user\'s likely business term despite shorthand or spelling errors; choose the ranked live canonicalType, then use read_type if fields are needed. Do not repeat with casing/fragments or also use query_context.',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Free-text search string.' },
+        query: { type: 'string', description: 'Likely name or business term.' },
         type: { type: 'string', description: 'Optional BMP type name to filter the hits.' },
         purpose: {
           type: 'string',
           enum: ['objects', 'row-type'],
-          description: 'Use row-type only to discover the live data class for a new table/chart. It returns ranked type candidates instead of a long object list.',
+          description: 'row-type returns ranked live data-class candidates for a new table/chart.',
         },
       },
       required: ['query'],
       additionalProperties: false,
     },
-    resultDescription: 'Returns JSON data with hit counts, typeCounts, optional ranked typeCandidates for row-type discovery, capped/complete, and verified objects.',
+    resultDescription: 'Returns counts, optional ranked typeCandidates, capped/complete, and verified objects.',
     summarize: input => `search_objects "${stringArgument(input, 'query')}"`,
   }),
   defineTool({
     name: 'code_search',
     description:
-      'Search across all code-bearing objects (Extended Code, HTML, JS) for a ' +
-      'literal substring. Returns up to ~30 matches with object businessId, ' +
-      'type, the matching property, and the line. Use to find where a token, ' +
-      'businessId or helper is referenced.',
+      'Search code-bearing objects for a literal substring. Use to find where a token, business ID, or helper is referenced.',
     parameters: {
       type: 'object',
       properties: {
@@ -209,47 +180,41 @@ const TOOL_CONTRACT_LIST = [
       required: ['pattern'],
       additionalProperties: false,
     },
-    resultDescription: 'Returns JSON data with matches grouped by object/property, matching lines, capped/complete, and verified objects.',
+    resultDescription: 'Returns object/property matches, lines, capped/complete, and verified objects.',
     summarize: input => `code_search "${stringArgument(input, 'pattern')}"`,
   }),
   defineTool({
     name: 'read_layout',
     description:
-      'Read a BMP page layout. Returns the page owner, contributing TabSets, and a flat tab/container/widget hierarchy with exact string RIDs, parent RIDs, object types, names, responsive column spans (BMP 0–6; 0 is class-dependent), storage, linked-template RIDs, code slots, counts, omissions, and completeness. ' +
-      'It does not return styling, widget-owned rows, or Change Ticket routing. Large pages return a balanced outline across tabs; use focusRid only to inspect an omitted subtree from a partial result. ' +
-      'Use this first for questions about a page, tab, container, widget, table, or rows displayed by a table. For an ExtendedTable, follow it with read_code on the returned table RID and expression slot; do not call query_context first.',
+      'Read page ownership and a flat tab/container/widget hierarchy with exact RIDs, parents, types, names, BMP widths (0–6), storage, linked-template RIDs, code slots, omissions, and completeness. Use first for page structure, placement, widgets, tables, or displayed table rows. Do not call when verified-prefetched-evidence already completed read_layout. It does not return styling or widget-owned rows; follow an ExtendedTable with read_code(expression). Use focusRid only when a partial result omitted the needed subtree.',
     parameters: {
       type: 'object',
       properties: {
-        pageRid: { type: 'string', description: 'Numeric rid of the page whose layout to read.' },
+        pageRid: { type: 'string', description: 'Exact numeric RID of the page.' },
         focusRid: {
           type: 'string',
-          description: 'Optional rid of a returned tab/container/widget. Limits the answer to that subtree when the page outline was capped.',
+          description: 'Optional returned node RID when a capped outline omitted its subtree.',
         },
       },
       required: ['pageRid'],
       additionalProperties: false,
     },
-    resultDescription: 'Returns structural JSON data with page ownership, flat layout nodes, exact parentage and widths, tabsets, omissions, sourceTruncated, and complete.',
+    resultDescription: 'Returns page ownership, flat nodes, parentage/widths, tabsets, omissions, sourceTruncated, and complete.',
     summarize: input => `read_layout ${stringArgument(input, 'pageRid')}`.trim(),
   }),
   defineTool({
     name: 'preview_ec',
     description:
-      'Run read-only Extended Code against the live workspace and return its result ' +
-      'or error verbatim. This NEVER commits and must never call external resources. In sidebar chat, use it for either a genuinely investigative ' +
-      'read-only EC question whose answer is not already available from another tool, or one check of a joined/grouped/aggregated/calculated stored ExtendedTable expression against representative rows. ' +
-      'Do not use it for an ordinary structural-descendant list after read_type; query_context performs that live data read. Do not Preview a proposed outer change: submit_change_ticket triggers that exact Preview automatically. ' +
-      'After one complete result, answer or submit immediately; never repeat the Preview or do ordinary arithmetic in EC.',
+      'Run read-only Extended Code and return the live result/error. It never commits and must not call external resources. Use only when structured tools cannot answer an investigative query, or to check one uncertain joined/grouped/aggregated/calculated deferred expression. Do not preview an outer mutation (submit_change_ticket does that) or an ordinary descendant list (query_context). After one complete result, answer or submit immediately.',
     parameters: {
       type: 'object',
       properties: {
-        code: { type: 'string', description: 'Extended Code to preview (not committed).' },
+        code: { type: 'string', description: 'Read-only Extended Code; never committed.' },
       },
       required: ['code'],
       additionalProperties: false,
     },
-    resultDescription: 'Returns JSON data with the Preview log, warning flag, and complete.',
+    resultDescription: 'Returns Preview log, warning flag, and complete.',
     summarize: input => {
       const code = stringArgument(input, 'code');
       const lines = code ? code.split('\n').length : 0;

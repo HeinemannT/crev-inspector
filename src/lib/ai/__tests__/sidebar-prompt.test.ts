@@ -44,10 +44,19 @@ describe('buildChatSystem workspace primer', () => {
       sources: [],
     }).system;
     expect(system).toContain('<change-target-policy>');
-    expect(system).toContain('exact target or receiver named by the user is authoritative');
+    expect(system).toContain('exact target or receiver supplied by the user or verified context is authoritative');
     expect(system).toContain('linkedTemplateRid');
     expect(system).toContain('pageOwnerRid');
-    expect(system).toContain('Layout output contains structural facts');
+    expect(system).toContain('call `add(...)` on the resolved page/template');
+    expect(system).toContain('Pass `container := ...` only when placement was requested or verified');
+    expect(system).toContain('a Container is never the `add` receiver');
+    expect(system).toContain('Call `moveBefore`/`moveAfter` on the new widget');
+    expect(system).toContain('[[object:RID]] is display syntax');
+    expect(system).toContain('executable EC uses the supplied symbolic reference or lookup("RID")');
+    expect(system).not.toContain('as target and receiver');
+    expect(system).not.toContain('a container is only the `container :=` value');
+    expect(system).not.toContain('destination container node\'s rid as the placement receiver');
+    expect(system).toContain('read_layout supplies page ownership and tab/container/widget structure');
     expect(system).not.toContain('reason=local-widget-only');
   });
 
@@ -72,24 +81,25 @@ describe('buildChatSystem workspace primer', () => {
     expect(buildChatSystem(env, primer).system).toBe(buildChatSystem(env, primer).system);
   });
 
-  it('places the workspace block BEFORE the volatile context region', () => {
+  it('keeps the workspace in the stable system layer and context separate', () => {
     const withCtx: AiContextEnvelope = {
       v: 1, server: { id: 's1', url: 'u' },
       sources: [{ kind: 'selection', object: { rid: '9', businessId: 'sc_x', name: 'X', type: 'Scorecard' } }],
     };
-    const { system } = buildChatSystem(withCtx, primer);
-    expect(system.indexOf('</workspace>')).toBeLessThan(system.indexOf('<context server='));
+    const { system, context } = buildChatSystem(withCtx, primer);
+    expect(system).toContain('</workspace>');
+    expect(system).not.toContain('<context server=');
+    expect(context).toContain('<context server=');
   });
 
   it('uses progressive property discovery without reconfirming self-contained exact changes', () => {
     const { system } = buildChatSystem(env);
-    expect(system).toContain('A user-supplied exact property accessor is authoritative');
-    expect(system).toContain('call read_object with properties');
-    expect(system).toContain('call read_type first with one narrow query');
-    expect(system).toContain('use that exact accessor without synonym searches or reconfirmation');
-    expect(system).toContain('never guess candidate accessors in read_object');
-    expect(system).toContain('absence there never proves a property unavailable');
-    expect(system).toContain('Use read_code directly for full HTML/EC/JS/CSS source');
+    expect(system).toContain('Preserve exact supplied targets, receivers, property IDs');
+    expect(system).toContain('Call read_object only when the current value was requested');
+    expect(system).toContain('use one narrow read_type query');
+    expect(system).toContain('A self-contained change with exact target, accessor, value');
+    expect(system).toContain('needs no discovery');
+    expect(system).toContain('Use read_code for a located object\'s full stored EC/HTML/JS/CSS');
   });
 
   it('defaults vague linked-page changes from structural facts and keeps target metadata minimal', () => {
@@ -99,10 +109,10 @@ describe('buildChatSystem workspace primer', () => {
     expect(system).toContain('briefly state that the change affects the shared template');
     expect(system).not.toContain('An instance-only alternative is available on request.');
     expect(system).not.toContain('followed exactly by');
-    expect(system).toContain('One verified [[object:RID]] token when available; otherwise one short target name');
-    expect(system).toMatch(/Do not put arrows, source\s+and destination narration/);
+    expect(system).toContain('target: one exact [[object:RID]] or exact supplied symbolic target');
+    expect(system).toContain('with no arrows or narration');
     expect(system).toContain('Existing widget: if linkedTemplateRid exists');
-    expect(system).toContain('Put [[object:RID]] for that same selected RID in the ticket target');
+    expect(system).toContain('[[object:RID]] is display syntax for ticket targets and prose');
     expect(system).toContain('Never expose internal field names or routing labels');
   });
 
@@ -212,24 +222,28 @@ describe('buildChatSystem workspace primer', () => {
     const { system } = buildChatSystem(env);
     expect(system).toContain('<decision-policy>');
     expect(system).toContain('Attached context is authoritative');
-    expect(system).toContain('Self-contained source/code with supplied variables or references needs no discovery');
-    expect(system).toContain('never resolve, search, or read the object references appearing inside it');
-    expect(system).toContain('Preview is a tool action, never ticket content');
-    expect(system).toContain('Do not call preview_ec merely to validate a change');
-    expect(system).toContain('Use submit_change_ticket when concrete EC');
-    expect(system).toContain('summary: One concise outcome sentence, under 140 characters');
-    expect(system).toContain('BMP does not execute a quoted ExtendedTable expression');
-    expect(system).toContain('Preview a joined, grouped, aggregated, calculated, or otherwise uncertain proposed expression once');
-    expect(system).toContain('submit a simple verified collection/filter/projection directly');
-    expect(system).toContain('never Preview the outer mutation yourself');
+    expect(system).toContain('Supplied code is the complete subject of an explain/review request');
+    expect(system).toContain('references inside it are data dependencies, not reasons to inspect other objects');
+    expect(system).toContain('Never Preview an outer mutation');
+    expect(system).toContain('After the final successful read for a change, the next action must be the actual submit_change_ticket function call through the API');
+    expect(system).toContain('stop reading when the mutation owner');
+    expect(system).toContain('Current values are required only when asked');
+    expect(system).toContain('a Container is never the `add` receiver');
+    expect(system).toContain('Call `moveBefore`/`moveAfter` on the new widget only when sibling ordering was requested');
+    expect(system).toContain('no comments, diagnostics, state reads');
+    expect(system).toContain('check requested object count');
+    expect(system).toContain('summary: one visible outcome under 140 characters');
+    expect(system).toContain('The outer Preview proves only that the source can be stored');
+    expect(system).toContain('Preview the inner expression separately when an uncertain join/group/aggregate');
+    expect(system).toContain('An `ExtendedTable` gets rows and columns from its stored `expression`');
     expect(system).not.toContain('extracts and Previews that expression against real rows');
-    expect(system).toContain('BMP responsive width is 0–6');
-    expect(system).toContain('0 is class-dependent');
+    expect(system).toContain('BMP responsive widths use 0–6');
+    expect(system).toContain('Zero is class-dependent');
     expect(system).toContain('organisation.link(masterScorecard)');
-    expect(system).toContain('EnterpriseTemplate lifecycle');
-    expect(system).toContain('```crev-change');
+    expect(system).toContain('**EnterpriseTemplate:** use two committed phases');
+    expect(system).toContain('invoke it once with summary, target, operation, and complete code');
     expect(system).toContain('One ticket is one commit phase');
-    expect(system).toContain('normally below 30 lines');
+    expect(system).toContain('normally under 30 lines');
   });
 
   it('ignores an empty / whitespace primer', () => {

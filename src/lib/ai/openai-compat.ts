@@ -12,7 +12,7 @@
 import { readSse } from './sse';
 import type { ToolCall } from './tools';
 import { toOpenAiTools, TOOL_DEFS } from './tool-contracts';
-import type { AiMaxTokensParam, AiTokenUsage } from './types';
+import type { AiMaxTokensParam, AiProviderTiming, AiTokenUsage } from './types';
 
 export interface OpenAiStreamOpts {
   baseUrl: string;
@@ -42,6 +42,8 @@ interface OpenAiChunk {
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
+    prompt_cache_hit_tokens?: number;
+    prompt_cache_miss_tokens?: number;
     prompt_tokens_details?: { cached_tokens?: number };
     completion_tokens_details?: { reasoning_tokens?: number };
   };
@@ -67,8 +69,11 @@ function requestsStreamingUsage(baseUrl: string): boolean {
 function captureUsage(target: AiTokenUsage, parsed: OpenAiChunk): void {
   const usage = parsed.usage;
   if (!usage) return;
-  target.inputTokens = usage.prompt_tokens ?? target.inputTokens;
-  target.cachedInputTokens = usage.prompt_tokens_details?.cached_tokens ?? target.cachedInputTokens;
+  const providerInput = (usage.prompt_cache_hit_tokens ?? 0) + (usage.prompt_cache_miss_tokens ?? 0);
+  target.inputTokens = usage.prompt_tokens ?? (providerInput || target.inputTokens);
+  target.cachedInputTokens = usage.prompt_tokens_details?.cached_tokens
+    ?? usage.prompt_cache_hit_tokens
+    ?? target.cachedInputTokens;
   target.outputTokens = usage.completion_tokens ?? target.outputTokens;
   target.reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? target.reasoningTokens;
 }
@@ -145,6 +150,7 @@ export interface OpenAiTurnResult {
   /** The assistant message to append for the next turn. */
   assistantMessage: OpenAiMessage;
   usage: AiTokenUsage;
+  timing: AiProviderTiming;
 }
 
 interface ToolCallAcc { id: string; name: string; args: string; }
@@ -159,6 +165,7 @@ function outputLimit(maxTokens?: number, param: AiMaxTokensParam = 'max_completi
 export async function streamOpenAiTurn(opts: OpenAiTurnOpts): Promise<OpenAiTurnResult> {
   const url = `${opts.baseUrl}/chat/completions`;
   const useTools = opts.tools && opts.tools.length > 0;
+  const requestStarted = Date.now();
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -184,6 +191,8 @@ export async function streamOpenAiTurn(opts: OpenAiTurnOpts): Promise<OpenAiTurn
 
   if (!response.ok) throw new Error(await errorFromResponse(response));
 
+  const timing: AiProviderTiming = { firstByteMs: Date.now() - requestStarted };
+
   let text = '';
   let finishReason: string | null = null;
   const calls = new Map<number, ToolCallAcc>();
@@ -197,6 +206,10 @@ export async function streamOpenAiTurn(opts: OpenAiTurnOpts): Promise<OpenAiTurn
     captureUsage(usage, parsed);
     const choice = parsed.choices?.[0];
     if (!choice) return;
+    if (timing.firstOutputMs === undefined
+        && (choice.delta?.content || (choice.delta?.tool_calls?.length ?? 0) > 0)) {
+      timing.firstOutputMs = Date.now() - requestStarted;
+    }
     if (choice.delta?.content) { text += choice.delta.content; opts.onText(choice.delta.content); }
     for (const tc of choice.delta?.tool_calls ?? []) {
       const idx = tc.index ?? 0;
@@ -222,7 +235,7 @@ export async function streamOpenAiTurn(opts: OpenAiTurnOpts): Promise<OpenAiTurn
     ? { role: 'assistant', content: text || null, tool_calls: rawCalls }
     : { role: 'assistant', content: text };
 
-  return { text, toolCalls, finishReason, assistantMessage, usage };
+  return { text, toolCalls, finishReason, assistantMessage, usage, timing };
 }
 
 function parseToolArgs(args: string): Record<string, unknown> {

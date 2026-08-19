@@ -38,6 +38,7 @@ dist/
 /scripts/run-ai-editor-eval.ts
 /scripts/rescore-ai-draft-eval.ts
 /scripts/regrade-ai-model-eval.ts
+/scripts/bench-ai-tool-payloads.ts
 /tsconfig.ai-eval.json
 /src/lib/ai/eval*.ts
 /src/lib/ai/editor-eval*.ts

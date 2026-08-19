@@ -27,6 +27,7 @@ import { errorMessage, log } from '../logger';
 import { formatEcLiteral, validateEcIdentifier, validateRid } from '../ec-guards';
 import { loadPageStructure, type LoadPageStructureResult } from '../layout-service';
 import { projectLayoutEvidence } from '../ai/layout-evidence';
+import { rowTypeSearchQueries } from '../ai/type-search';
 import {
   inspectObjectProperties,
   MAX_AI_SELECTED_PROPERTIES,
@@ -523,6 +524,27 @@ async function readCode(client: BmpClient, input: Record<string, unknown>): Prom
 
 // ── read_type ────────────────────────────────────────────────────
 
+async function discoverTypeSuggestions(
+  client: BmpClient,
+  requestedType: string,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  for (const query of rowTypeSearchQueries(requestedType).slice(0, 2)) {
+    const result = await client.quickSearch(query, { pageSize: 40, signal });
+    const counts = result.objects.reduce<Record<string, number>>((all, object) => {
+      const type = object.type?.trim();
+      if (type) all[type] = (all[type] ?? 0) + 1;
+      return all;
+    }, {});
+    const suggestions = Object.entries(counts)
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .map(([type]) => type)
+      .slice(0, 5);
+    if (suggestions.length) return suggestions;
+  }
+  return [];
+}
+
 async function readType(client: BmpClient, input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
   const type = typeof input.type === 'string' ? input.type.trim() : '';
   if (!type) return err('read_type needs a "type" (PascalCase class name).');
@@ -557,6 +579,7 @@ async function readType(client: BmpClient, input: Record<string, unknown>, signa
   let canonicalType: string | undefined;
   let structuredSchema: ToolDataMap['read_type']['schema'];
   let optionSets: ToolDataMap['read_type']['optionSets'] = [];
+  let typeSuggestions: string[] = [];
   const collections: string[] = [];
   if (schema.ok) {
     // BMP's config-class id may be all-caps (for example
@@ -613,6 +636,10 @@ async function readType(client: BmpClient, input: Record<string, unknown>, signa
     }
   } else {
     lines.push(`Live schema unavailable: ${schema.error}`);
+    typeSuggestions = await discoverTypeSuggestions(client, type, signal);
+    if (typeSuggestions.length) {
+      lines.push(`Likely live type${typeSuggestions.length === 1 ? '' : 's'}: ${typeSuggestions.join(', ')}. Retry read_type once with the matching exact type.`);
+    }
     structuredSchema = {
       available: false,
       total: 0,
@@ -637,6 +664,7 @@ async function readType(client: BmpClient, input: Record<string, unknown>, signa
   return ok(lines.join('\n'), toolSuccess('read_type', {
     requestedType: type,
     ...(canonicalType ? { canonicalType } : {}),
+    ...(typeSuggestions.length ? { typeSuggestions } : {}),
     ...(query ? { query } : {}),
     affordances: aff,
     codeSlots: codeF.map(field => ({
@@ -662,7 +690,19 @@ async function searchObjects(client: BmpClient, input: Record<string, unknown>, 
   if (input.purpose !== undefined && input.purpose !== 'objects' && input.purpose !== 'row-type') {
     return err('search_objects "purpose" must be "objects" or "row-type".');
   }
-  const { totalHits, objects } = await client.quickSearch(query, { pageSize: 40, signal });
+  let resolvedQuery = query;
+  let searchResult = await client.quickSearch(query, { pageSize: 40, signal });
+  if (purpose === 'row-type' && searchResult.objects.length === 0) {
+    for (const candidate of rowTypeSearchQueries(query).slice(1)) {
+      const recovered = await client.quickSearch(candidate, { pageSize: 40, signal });
+      if (recovered.objects.length > 0) {
+        resolvedQuery = candidate;
+        searchResult = recovered;
+        break;
+      }
+    }
+  }
+  const { totalHits, objects } = searchResult;
   let hits = objects;
   if (typeFilter) hits = hits.filter(o => (o.type ?? '') === typeFilter);
   const allTypeCounts = hits.reduce<Record<string, number>>((counts, object) => {
@@ -684,6 +724,7 @@ async function searchObjects(client: BmpClient, input: Record<string, unknown>, 
     `No matches for "${query}"${typeFilter ? ` of type ${typeFilter}` : ''}.`,
     toolSuccess('search_objects', {
       query,
+      ...(resolvedQuery !== query ? { resolvedQuery } : {}),
       ...(typeFilter ? { type: typeFilter } : {}),
       purpose,
       sourceTotalHits: totalHits,
@@ -708,7 +749,7 @@ async function searchObjects(client: BmpClient, input: Record<string, unknown>, 
     log.swallow('ai-tool:search:enrich', e);
   }
   const lines = purpose === 'row-type'
-    ? [`Live row-type candidates for "${query}": ${typeCandidates.map(candidate => `${candidate.type} (${candidate.count})`).join(', ')}`, 'Choose the matching live data class and continue to read_type. Do not search again by casing, class fragments, or synonyms.']
+    ? [`Live row-type candidates for "${query}"${resolvedQuery !== query ? ` (recovered as "${resolvedQuery}")` : ''}: ${typeCandidates.map(candidate => `${candidate.type} (${candidate.count})`).join(', ')}`, 'Choose the matching live data class and continue to read_type. Do not search again by casing, class fragments, or synonyms.']
     : [`${shown.length} of ${totalHits} hit(s) for "${query}"${typeFilter ? ` (type=${typeFilter})` : ''}:`];
   for (const o of shown) {
     const e = enrich[o.rid];
@@ -729,6 +770,7 @@ async function searchObjects(client: BmpClient, input: Record<string, unknown>, 
   const capped = shown.length < hits.length || totalHits > objects.length;
   return ok(lines.join('\n'), toolSuccess('search_objects', {
     query,
+    ...(resolvedQuery !== query ? { resolvedQuery } : {}),
     ...(typeFilter ? { type: typeFilter } : {}),
     purpose,
     sourceTotalHits: totalHits,

@@ -316,8 +316,7 @@ register('AI_CHAT_SEND', async (msg) => {
       ctx.client?.serverUrl ?? msg.envelope.server.url,
       ctx.client?.username ?? '',
     ].join('\u0000');
-    const primer = await workspacePrimerFor(primerEnvironment, controller.signal);
-    const { system } = buildChatSystem(msg.envelope, primer);
+    const basePrompt = buildChatSystem(msg.envelope);
     const knownObjects = new Map<string, ObjectReference>(
       msg.envelope.sources.map(source => [source.object.rid, source.object]),
     );
@@ -325,7 +324,13 @@ register('AI_CHAT_SEND', async (msg) => {
     const metrics = await streamChat({
       settings: ai,
       apiKey: key,
-      system,
+      system: basePrompt.system,
+      context: basePrompt.context,
+      loadFullPrompt: async () => {
+        const primer = await workspacePrimerFor(primerEnvironment, controller.signal);
+        const prompt = buildChatSystem(msg.envelope, primer);
+        return { system: prompt.system, context: prompt.context };
+      },
       history: msg.history,
       text: msg.text,
       pageRid: msg.envelope.page?.rid,

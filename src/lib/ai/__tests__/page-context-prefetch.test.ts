@@ -316,6 +316,7 @@ describe('simple widget change pipeline', () => {
       return Promise.resolve(openAiStream(textTurn('Open Actions is six columns wide.')));
     }));
     const executeTool = vi.fn(async () => layoutResult());
+    const loadFullPrompt = vi.fn(async () => ({ system: 'FULL', context: '<context>volatile</context>' }));
 
     const metrics = await streamChat({
       settings: DEEPSEEK,
@@ -326,12 +327,17 @@ describe('simple widget change pipeline', () => {
       pageRid: '726',
       onEvent: vi.fn(),
       executeTool,
+      loadFullPrompt,
     });
 
     expect(executeTool).toHaveBeenCalledTimes(1);
     expect(bodies).toHaveLength(1);
-    expect(JSON.stringify(bodies[0].messages)).toContain('prefetched-layout-context');
-    expect(JSON.stringify(bodies[0].messages)).toContain('linkedTemplateRid');
+    const providerMessages = JSON.stringify(bodies[0].messages);
+    expect(providerMessages).toContain('<verified-prefetched-evidence completedReads=\\"read_layout\\">');
+    expect(providerMessages).toContain('prefetched-layout-context');
+    expect(providerMessages).toContain('linkedTemplateRid');
+    expect(providerMessages).toContain('volatile');
+    expect(loadFullPrompt).toHaveBeenCalledTimes(1);
     expect(metrics).toMatchObject({ prefetchedToolCalls: 1, providerRequests: 1 });
   });
 
@@ -342,6 +348,7 @@ describe('simple widget change pipeline', () => {
       return Promise.resolve(openAiStream(submitTurn(SUBMISSION)));
     }));
     const events: AiChatEvent[] = [];
+    const loadFullPrompt = vi.fn(async () => ({ system: 'FULL' }));
     const executeTool = vi.fn(async (call: ToolCall): Promise<ToolResult> => {
       if (call.name === 'read_layout') return layoutResult();
       if (call.name === 'read_type') return typeResult();
@@ -357,6 +364,7 @@ describe('simple widget change pipeline', () => {
       pageRid: '726',
       onEvent: event => events.push(event),
       executeTool,
+      loadFullPrompt,
     });
 
     expect(bodies).toHaveLength(1);
@@ -366,6 +374,7 @@ describe('simple widget change pipeline', () => {
     expect(bodies[0].tool_choice).toBe('required');
     expect(bodies[0].messages[0].content).toContain('Choose one useful artifact');
     expect(bodies[0].messages[0].content).toContain('uncommitted suggestion');
+    expect(loadFullPrompt).not.toHaveBeenCalled();
     const userText = bodies[0].messages.at(-1)?.content as string;
     expect(userText).toContain('"linkedTemplateRid":"818"');
     expect(userText).toContain('"accessor":"showSearch"');
@@ -626,7 +635,7 @@ describe('simple widget change pipeline', () => {
     });
 
     const userText = bodies[0].messages.at(-1)?.content as string;
-    expect(userText).toContain('<prefetched-context>');
+    expect(userText).toContain('<verified-prefetched-evidence completedReads="read_layout,read_type">');
     expect(userText).toContain('"accessor":"showSearch"');
     expect(userText).toContain('"accessor":"searchPlaceholder"');
   });

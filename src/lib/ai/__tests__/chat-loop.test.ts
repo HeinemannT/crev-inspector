@@ -566,6 +566,25 @@ describe('streamChat tool loop', () => {
     });
     expect(metrics?.durationMs).toBeGreaterThanOrEqual(0);
     expect(metrics?.providerDurationMs).toBeGreaterThanOrEqual(0);
+    expect(metrics?.providerFirstByteMs).toBeGreaterThanOrEqual(0);
+    expect(metrics?.providerFirstOutputMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('records DeepSeek cache-hit counters when it omits OpenAI token details', async () => {
+    const turn = [
+      ...openAiTextTurn('Final').slice(0, 1),
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_cache_hit_tokens":80,"prompt_cache_miss_tokens":20,"completion_tokens":5}}\n\n',
+      'data: [DONE]\n\n',
+    ];
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(okStream(turn))));
+
+    const metrics = await streamChat({
+      settings: { provider: 'deepseek', model: 'deepseek-v4-flash', apiKeyEnc: '' },
+      apiKey: 'k', system: 'S', history: [], text: 'Explain this setting.',
+      onEvent: () => {}, executeTool: vi.fn(),
+    });
+
+    expect(metrics).toMatchObject({ inputTokens: 100, cachedInputTokens: 80, outputTokens: 5 });
   });
 
   it('leaves table implementation quality to Preview and evaluation instead of a keyword gate', async () => {

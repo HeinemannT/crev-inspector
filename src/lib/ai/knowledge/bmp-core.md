@@ -1,190 +1,89 @@
-# Corporater BMP (platform basics)
+# Corporater BMP platform facts
 
-Corporater BMP is a GRC (governance, risk, compliance) platform. Configurators
-build dashboards and apps out of objects.
+Corporater BMP configurators build pages from configured objects. Workspace-specific classes, templates, properties, IDs, roots, and references must come from attached context or live tools.
 
-- **Templates** define a type of object (its properties, layout, and code).
-  **Instances** are concrete objects created from a template. Editing a template
-  changes every instance; editing an instance changes only that one object.
-- Every object has a **businessId** (a short, stable id) and a **RID** (a
-  64-bit numeric id). Persistent EC references use the appropriate business-ID
-  namespace (`t.*`, `o.*`, or `r.*`); inspection tools may use a live numeric
-  RID with `lookup(rid)`.
-- **Widgets** (charts, tables, InputViews, CustomVisualizations, TextElements)
-  render inside BMP's web portal. Their behaviour and content come from code
-  properties: Extended Code expressions, or HTML/JavaScript for custom widgets.
-- Code you write here runs server-side in BMP (Extended Code) or in the portal
-  browser (a CustomVisualization's HTML + JavaScript).
-- BMP's built-in Default card has the stable system reference
-  `t._defaultCardId`. Assign it explicitly (`card := t._defaultCardId`).
-  `card := MISSING` does not mean "reset to default" and may complete as a
-  no-op, so it must not be used for that request.
+## Identity and object models
 
-## Object CLASS vs TEMPLATE (do not confuse these)
+- A **class** is a built-in Java type such as `Organisation`, `Scorecard`, `ExtendedTable`, `InputView`, `TextElement`, or a registered `Ce*` class. A **template** is configured workspace data reached through `linkedTo` (Scorecard/widget model) or `template` (enterprise model). Never infer either from a business noun; “process” does not imply `Task`.
+- Every object has a stable business ID and a 64-bit numeric RID. Preserve verified `t.*`, `o.*`, `r.*`, and `root.*` references. For a RID-selected executable reference use `lookup("RID")` with quotes; `[[object:RID]]` is display syntax only.
+- Enterprise roots are class-specific, not universally `root.organisation`. Preserve a verified collection such as `root.CeRiskAssessment.children`. BPMN/process objects live under `root.Processmanagement`.
+- The built-in Default card is `t._defaultCardId`. Assign it explicitly; `card := MISSING` is a no-op, not “reset to default”.
 
-Every object has two orthogonal "type" notions:
+## Page ownership and placement
 
-- Its **class** — the built-in Java class: `Organisation`, `Scorecard`, `Task`,
-  `CustomVisualization`, `ExtendedTable`, `InputView`, `TextElement`, … This is
-  what `.className` returns and what a `descendants(Class)` filter matches.
-- Its **template** — the configured object it was built from, reached via
-  `linkedTo` (the Scorecard / widget link model) or `.template` (the enterprise
-  object model). A template often carries the configurator-defined semantic
-  meaning, but its name and class are workspace data and must be discovered.
+A rendered page combines two models:
 
-**Do not infer the class from a semantic noun.** A workspace can model risks,
-controls, processes, issues, and similar concepts as ordinary built-in objects
-under a named template, or as a dedicated `Ce*` enterprise family. In
-particular, “process” does not imply `Task`. Discover the class/template from
-the effective page or query results first. Consequences:
+- `TabSet`, `Tab`, and portal `Container` are shared portal structure.
+- Widgets are children of the effective page host. Their `container` property places them in portal structure.
+- A direct Scorecard owns its widgets. For a linked Scorecard, normal configuration changes target the shared master/page widget; only an explicit local/this-copy request targets the instance copy.
+- A `Ce*` enterprise instance renders widgets owned by its `EnterpriseTemplate`. The viewed instance is context, not the add receiver.
+- For an existing inherited widget, use its verified linked-template widget, not the page RID. For a local override, use the verified instance widget.
 
-- `descendants(SomeSemanticNoun)` fails unless `SomeSemanticNoun` is a real
-  registered BMP class. A familiar business term is not evidence that it is.
-- Template relationships are not uniform. Scorecard/widget models commonly use
-  `linkedTo`; enterprise models use `template`. When semantic discovery must
-  cover both, resolve per object: `_t := _o.linkedTo` then
-  `IF _t = MISSING THEN _t := _o.template ENDIF`.
-- Missing-value warnings are expected when probing either relationship across
-  a mixed collection. They do not establish that the other relationship or a
-  particular object family is absent.
+## Configuration API and layout
 
-Before assuming a class name exists, use live tool output: inspect the effective
-page, read an exemplar, query by a user-supplied template term, or probe the
-appropriate discovered root with `preview_ec`. The `<workspace>` map is only a
-partial organisation-tree inventory.
+Create with `parent.add(UnquotedType, named arguments)`, update with `object.change(...)`, delete with `object.delete()`. Never invent constructors, `new`, `createChild`, or a generic create helper. Keep an `add(...)` result in a local only when later statements reuse it; new IDs may not resolve through `t.*`/`o.*` until commit.
 
-## Web page ownership (the model behind what the user sees)
-
-A rendered BMP page combines two object models:
-
-- `TabSet`, `Tab`, and portal `Container` are shared portal/SharedWebItems
-  structure.
-- Widgets are organisation/page-model children of the effective page owner.
-  Their `container` reference binds them into a portal Tab or Container.
-- A direct page host such as a Scorecard owns its widgets. A linked Scorecard
-  instance also owns its linked widget copies; do not redirect it to
-  `.linkedTo` merely to read its visible page.
-- A `Ce*` enterprise instance exposes `.template`; that EnterpriseTemplate is
-  the effective owner of the rendered widgets. The viewed RID remains the
-  instance, while page/layout inspection must resolve to its template.
-
-For configuration changes, the normal configurator scope is broader than the
-read owner rule: if a direct Scorecard instance is linked to a master, change
-the master template by default so the configuration remains inherited. Change
-the instance widget only when the user explicitly asks for a local or
-instance-only override. `read_layout` exposes the linked page and widget RIDs;
-use `lookup("RID")` for the selected 64-bit RID. A Ce* instance is
-different: its EnterpriseTemplate is the actual page owner, so page widgets
-cannot be added to the instance itself.
-
-For an existing inherited widget, the exact target is its `linkedTo` widget on
-the shared template—not the copied widget below the viewed instance and not
-merely the template page owner. A normal “change this table/widget” request
-changes the shared-template widget; only an explicit local or instance-only
-request changes the instance copy. Select from the widget's `rid` and
-`linkedTemplateRid`; do not substitute the page RID.
-
-Enterprise families live below their class-specific roots (for example Ce*
-roots), not universally below `root.organisation`. BPMN/process-management
-objects live below `root.Processmanagement`. Use live discovery rather than
-inventing a root or forcing everything through the organisation tree.
-
-## Creating configuration objects (exact EC API)
-
-Use the live tools to establish the parent, class, and property names first.
-Then create with the built-in `add` method:
+Widgets are added to the verified Scorecard/EnterpriseTemplate. A Container is only placement, and an existing sibling is only an ordering anchor:
 
 ```extended
-_page := o.verified_parent_bid.add(Scorecard,
-  id := 'sc_example', name := 'Example')
-_page.add(TextElement,
-  id := 'txt_intro', name := 'Introduction',
-  text := '<p>Short, sanitized HTML.</p>',
-  columnsLargeScreen := 6, columnsMediumScreen := 6,
+_table := _page.add(ExtendedTable,
+  id := "risk_scores", name := "Risk scores",
+  container := _content,
+  expression := 'root.CeRiskAssessment.children.table(name, calculatedRiskScore)',
+  columnsLargeScreen := 6,
+  columnsMediumScreen := 6,
   columnsSmallScreen := 6)
-_page.add(ExtendedTable,
-  id := 'tbl_example', name := 'Data',
-  expression := 'root.VerifiedClass.children.table(name, verifiedProperty)',
-  columnsLargeScreen := 6, columnsMediumScreen := 6,
-  columnsSmallScreen := 6)
+_table.moveBefore(_reports)
 ```
 
-- The API is `parent.add(Type, named arguments)`. Never invent
-  `createChild`, `new`, constructors, or a generic create helper.
-- A Scorecard is added below a verified Organisation. Its widgets are added
-  directly below the returned Scorecard variable; a Container is only a visual
-  reference assigned through `container`.
-- The portal's CSS grid has 12 tracks, but BMP configuration uses a 0–6 scale.
-  `columnsLargeScreen := 6` is full width (12 CSS tracks). Values 7–12 are
-  invalid; never copy Bootstrap's 12 into any `columns*Screen` property.
-- Keep a returned `add` object in a variable only when a later statement uses
-  it, as `_page` is used above. Newly created IDs are not guaranteed to resolve
-  through `t.*`/`o.*` until after commit.
-- `TextElement.text` is the inline, visible HTML body. `longText` is collapsed
-  behind “SHOW MORE”.
-- An ExtendedTable's `expression` is source text and is evaluated later by the
-  portal. Use only classes and table properties established by live schema or
-  data. An empty scoped organisation query does not prove that a `Ce*` root is
-  absent.
-- Put a proposed table expression in the complete ticket as a static quoted
-  string or quoted-string + chain. BMP executes that quoted expression later,
-  when the table renders. Previewing only `add(..., expression := '...')`
-  proves that the source can be stored; it does not execute the expression or
-  prove that its rows and columns render correctly. For a Ce family, prefer the
-  verified collection returned by `read_type`, then project only the columns
-  the user requested. For an unspecified table, start with `table(name,
-  verifiedProperty)` and omit `id`;
-  never attach `.table(...)` to `root.organisation` in a `SELECT` expression.
-- Read stored table source with `output(t.tbl_example.expression)`; a bare
-  `.expression` executes it.
+If no placement or ordering was requested, add directly to the verified page host without inventing a Container or sibling.
 
-## Creating and linking templates (two different models)
+Reusable portal tabs are created under the verified shared Tabs category, then nested structurally. A page does not own this scaffold:
 
-First identify which template model the user means; they are not interchangeable.
+```extended
+_tabSet := t.swi_default_tabs.add(TabSet, id := "page_tabs", name := "Page tabs")
+_tab := _tabSet.add(Tab, id := "overview", name := "Overview")
+_container := _tab.add(Container, id := "overview_content", name := "Overview content")
+```
 
-**Linked Scorecard template:** create a master Scorecard with widgets below a
-template-category Category, commit it, then create an organisation instance with
-`_instance := o.verified_org_bid.link(t.master_scorecard_id)`. Never assign
-`linkedTo` directly—it is read-only. Verify the persisted instance's
-`linkedTo.rid` equals the master RID and each copied widget's `linkedTo` points
-to its corresponding master widget. Browser-check one instance; editing the
-master should propagate unless that field is overridden on the instance.
+Use only `TabSet`, `Tab`, and `Container`, never `DashboardTabSet`/`DashboardTab`. If page widgets will reference newly created Containers, commit the scaffold first and add widgets in a later ticket.
 
-**Ce* EnterpriseTemplate lifecycle:** property definitions must be linked to the
-Ce class first. In the first committed transaction, create the
-`EnterpriseTemplate` under a category in `root.templatecategory`, create its
-child view with `viewTypes := LIST(CeRiskAssessment)`, and create the Default as
-the Ce class under a category in `root.defaults`:
+BMP responsive widths use 0–6, not 12. Zero is class-dependent and must be reported as-is. Authored full width is all three explicit values: `columnsLargeScreen := 6`, `columnsMediumScreen := 6`, `columnsSmallScreen := 6`.
+
+Moving an existing widget is `widget.change(container := target)` with operation `move`; do not clone it. Moving a newly created widget relative to a sibling uses the returned widget's `moveBefore(sibling)` or `moveAfter(sibling)`.
+
+`TextElement.text` is visible inline HTML; write finished structural markup, normally at least a `<p>`. `longText` is collapsed behind “SHOW MORE”. TextElement/InputSet HTML is sanitized: use `div`, `p`, headings, `strong`, `em`, `span`, `br`, and lists, with no script, style, event attributes, active URLs, forms, or iframes.
+When wording is not business-critical, write short neutral finished copy; never leave bracketed placeholders or “insert text” instructions.
+
+`EditPage.sortVisibility` is an ordered list of string property IDs, for example `LIST("code", "lifecycleState", "ownership")`.
+When the request/context supplies that complete desired list, assign it directly without reading the old value. Read the current list only when unspecified entries must be preserved.
+
+## Tables
+
+An `ExtendedTable` gets rows and columns from its stored `expression`; it has no substitute `headers` or `fields` configuration. Use real verified collections, never sample rows.
+
+- A BMP-object list uses bare accessors: `collection.table(name, ownership, calculatedRiskScore)`. BMP supplies configured labels. Do not quote headings or alternate headings and accessors.
+- Exact custom headings require `createtable("Risk", "Owner", ...)` followed by `addRow(...)` values in the same order.
+- Add only requested columns. If unspecified, prefer `name` plus the verified property needed for the requested filter/meaning; do not invent code, owner, score, KPI, or detail-card columns.
+- Add filters only when requested and verified. EC filters are `.filter(property = value)`, never callbacks or display-string guesses.
+- A stored expression owns its row variables. Keep its collection, filter, and final table operation inside the quoted expression; do not evaluate those rows in the outer configuration action.
+
+Reading `table.expression` executes it. To inspect source use `output(table.expression)` or Inspector's `read_code`. Previewing an outer `add/change(... expression := '...')` proves only that the source can be stored; Preview an uncertain deferred join/group/aggregate separately when runtime row shape matters.
+
+## Template creation
+
+**Linked Scorecard:** create the master Scorecard and widgets below a verified template category, commit, then create an organisation instance with `organisation.link(masterScorecard)`. `linkedTo` is read-only. Each copied widget should link to its corresponding master widget.
+
+**EnterpriseTemplate:** use two committed phases. First create the `EnterpriseTemplate`, compatible view, and Ce-class Default:
 
 ```extended
 _template := _templateCategory.add(EnterpriseTemplate,
-  id := 'tpl_risk', name := 'Risk template')
+  id := "risk_template", name := "Risk template")
 _view := _template.add(DescriptionView,
-  id := 'view_risk', name := 'Risk details',
+  id := "risk_view", name := "Risk details",
   viewTypes := LIST(CeRiskAssessment))
 _default := _defaultCategory.add(CeRiskAssessment,
-  id := 'default_risk', name := 'Default risk')
+  id := "risk_default", name := "Default risk")
 ```
 
-The template object is `EnterpriseTemplate`; never substitute the enterprise
-instance class there. The Default is the Ce class. Commit that foundation, then
-re-resolve and bind them in a second transaction:
-
-```extended
-_default := root.defaults.descendants().filter(id = 'default_risk').first()
-_default.change(template := t.tpl_risk)
-```
-
-Commit this binding before creating an instance or a CreateObjectView. Verify
-all four edges independently: view `viewTypes` → class, Default `template` →
-EnterpriseTemplate, CreateObjectView `objectType` → Default (when present), and
-sample instance `template` → EnterpriseTemplate. “The template exists” alone
-is never sufficient—it can still produce blank instance pages.
-
-## Tables are code-driven
-
-Layout inspection tells you that an `ExtendedTable` widget exists and where it
-is placed; it does not reveal the table's runtime rows. Those come from the
-widget's `expression`. Read the raw source with
-`output(table.expression)`—a bare `.expression` evaluates it. In Inspector,
-use `read_code` with the table's numeric RID and `property="expression"`.
+After commit, re-resolve and bind `_default.change(template := _template)`. When verified Default and EnterpriseTemplate references already exist, bind only those objects; do not create replacements. A complete model has the view `viewTypes`, Default `template`, optional CreateObjectView `objectType`, and sample instance `template` edges.

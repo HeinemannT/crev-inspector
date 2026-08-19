@@ -35,37 +35,37 @@ describe('tool schemas', () => {
     expect(schema).not.toContain('Resolved');
     expect(schema).not.toContain('Task');
     expect(schema).toContain('templateQuery');
-    expect(context?.description).toContain('do not query again or inspect an exemplar');
-    expect(context?.description).toContain('those questions start with read_layout');
+    expect(context?.description).toContain('call this once');
+    expect(context?.description).toContain('tabs/widgets/table rows (read_layout)');
     const readCode = TOOL_DEFS.find(tool => tool.name === 'read_code');
-    expect(readCode?.description).toContain('do not preview/re-run the stored code');
+    expect(readCode?.description).toContain('without re-running it');
     const readObject = TOOL_DEFS.find(tool => tool.name === 'read_object');
     expect(readObject?.parameters.properties.properties?.type).toBe('array');
-    expect(readObject?.description).toContain('overview is deliberately incomplete');
+    expect(readObject?.description).toContain('intentionally incomplete overview');
     const readType = TOOL_DEFS.find(tool => tool.name === 'read_type');
     expect(readType?.parameters.properties.query?.type).toBe('string');
     expect(readType?.parameters.properties.exampleRid?.type).toBe('string');
-    expect(readType?.description).toContain('described a property concept');
+    expect(readType?.description).toContain('property concept');
     expect(readType?.description).not.toContain('mutationRef');
     const searchObjects = TOOL_DEFS.find(tool => tool.name === 'search_objects');
     expect(searchObjects?.parameters.properties.purpose?.enum).toEqual(['objects', 'row-type']);
-    expect(searchObjects?.description).toContain('ranked live typeCandidates');
+    expect(searchObjects?.description).toContain('ranked live canonicalType');
     const readLayout = TOOL_DEFS.find(tool => tool.name === 'read_layout');
-    expect(readLayout?.description).toContain('do not call query_context first');
-    expect(readLayout?.description).toContain('parent RIDs');
-    expect(readLayout?.description).toContain('BMP 0–6');
+    expect(readLayout?.description).toContain('Use first for page structure');
+    expect(readLayout?.description).toContain('parents');
+    expect(readLayout?.description).toContain('BMP widths (0–6)');
     expect(readLayout?.description).not.toContain('change-target');
     expect(readLayout?.parameters.properties.changeScope).toBeUndefined();
   });
 
   it('limits preview_ec to read-only investigation and uncertain deferred expressions', () => {
     const preview = TOOL_DEFS.find(tool => tool.name === 'preview_ec');
-    expect(preview?.description).toContain('This NEVER commits');
-    expect(preview?.description).toContain('never call external resources');
-    expect(preview?.description).toContain('joined/grouped/aggregated/calculated stored ExtendedTable expression');
-    expect(preview?.description).toContain('Do not Preview a proposed outer change');
-    expect(preview?.description).toContain('submit_change_ticket triggers that exact Preview automatically');
-    expect(preview?.description).toContain('never repeat the Preview');
+    expect(preview?.description).toContain('never commits');
+    expect(preview?.description).toContain('must not call external resources');
+    expect(preview?.description).toContain('joined/grouped/aggregated/calculated deferred expression');
+    expect(preview?.description).toContain('Do not preview an outer mutation');
+    expect(preview?.description).toContain('submit_change_ticket does that');
+    expect(preview?.description).toContain('After one complete result, answer or submit immediately');
   });
 
   it('every tool has a valid object schema with required ⊆ properties', () => {

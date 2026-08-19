@@ -168,6 +168,14 @@ export interface AiTokenUsage {
   reasoningTokens: number;
 }
 
+/** Network timing for one provider request. `firstByteMs` ends when fetch
+ * resolves with response headers; `firstOutputMs` ends at the first streamed
+ * text or tool-use delta. */
+export interface AiProviderTiming {
+  firstByteMs: number;
+  firstOutputMs?: number;
+}
+
 /** Machine-readable turn telemetry for prompt/tool evaluation. It contains no
  * prompts, tool arguments, results, code, or workspace values. */
 export interface AiTurnMetrics {
@@ -175,6 +183,10 @@ export interface AiTurnMetrics {
   /** Provider requests include discovery, final submission, and repair turns. */
   providerRequests: number;
   providerDurationMs: number;
+  /** Initial provider request only, so retries and tool loops do not blur
+   * perceived time-to-first-response. */
+  providerFirstByteMs?: number;
+  providerFirstOutputMs?: number;
   inputTokens: number;
   cachedInputTokens: number;
   cacheWriteTokens: number;

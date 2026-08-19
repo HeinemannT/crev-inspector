@@ -10,7 +10,7 @@ import { streamOpenAiTurn, type OpenAiMessage } from './openai-compat';
 import { scrubModelReasoning, ToolMarkupScrubber } from './scrub';
 import { toAnthropicTools, toOpenAiTools, type ToolDef } from './tool-contracts';
 import { toolResultForModel, type ToolCall, type ToolResult } from './tools';
-import type { AiChatTurn, AiTokenUsage } from './types';
+import type { AiChatTurn, AiProviderTiming, AiTokenUsage } from './types';
 
 export interface ProviderToolSelection {
   tools: ToolDef[];
@@ -22,6 +22,7 @@ export interface ProviderConversationTurn {
   text: string;
   toolCalls: ToolCall[];
   usage: AiTokenUsage;
+  timing: AiProviderTiming;
   appendAssistant: () => void;
 }
 
@@ -69,6 +70,7 @@ export function createAnthropicConversation(options: ConversationBaseOptions): P
         text: scrubModelReasoning(text),
         toolCalls: turn.toolCalls,
         usage: turn.usage,
+        timing: turn.timing,
         appendAssistant: () => {
           if (turn.content.length) messages.push({ role: 'assistant', content: turn.content });
         },
@@ -127,6 +129,7 @@ export function createOpenAiConversation(options: OpenAiConversationOptions): Pr
         text: scrubModelReasoning(text),
         toolCalls: turn.toolCalls,
         usage: turn.usage,
+        timing: turn.timing,
         appendAssistant: () => { messages.push(turn.assistantMessage); },
       };
     },

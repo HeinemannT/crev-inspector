@@ -86,7 +86,7 @@ describe('model-visible prompt contracts', () => {
       sources: [],
     };
     const prompt = buildChatSystem(envelope);
-    expect(digestPrompt(prompt.system)).toBe('ad6b85554d0e53a348c7a87cb048b461087459b06db55288d607c1bbdfe8bac5');
+    expect(digestPrompt(prompt.system, prompt.context)).toBe('bf9a548fc3748a22e00a7f156796b37f9883cf9d0993345497225c8867488e9e');
   });
 
   it('keeps the contextual sidebar prompt stable during architectural refactors', () => {
@@ -104,6 +104,6 @@ describe('model-visible prompt contracts', () => {
       }],
     };
     const prompt = buildChatSystem(envelope, 'objects=12\nclasses: Scorecard=2, Risk=10');
-    expect(digestPrompt(prompt.system)).toBe('ed892c563f21a7a166db8c3d9677a24b7bc291712e274bac02d26f79815404f0');
+    expect(digestPrompt(prompt.system, prompt.context)).toBe('be2ecae7fd69532b3a0091e45dee3435a22bb5b66f00c3b25f5933d7afe0a0d6');
   });
 });

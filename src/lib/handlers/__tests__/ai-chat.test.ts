@@ -532,6 +532,39 @@ describe('executeAiTool — defensive', () => {
     });
   });
 
+  it('search_objects recovers an obvious misspelled row class as a business query', async () => {
+    mockChromeStorage();
+    const quickSearch = vi.fn(async (query: string) => query === 'risk assessment'
+      ? {
+          totalHits: 2,
+          objects: [
+            { rid: '1', name: 'Risk A', type: 'CeRiskAssessment' },
+            { rid: '2', name: 'Risk B', type: 'CeRiskAssessment' },
+          ],
+        }
+      : { totalHits: 0, objects: [] });
+    const batchEnrich = vi.fn(async () => ({ results: {} }));
+    setSwContext(makeCtx({ client: { quickSearch, batchEnrich } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('search_objects', {
+      query: 'ceRskiassessments', purpose: 'row-type',
+    }));
+
+    expect(quickSearch.mock.calls.map(call => call[0])).toEqual([
+      'ceRskiassessments',
+      'risk assessment',
+    ]);
+    expect(res.content).toContain('recovered as "risk assessment"');
+    expect(res.structuredContent).toMatchObject({
+      tool: 'search_objects', status: 'ok', data: {
+        query: 'ceRskiassessments',
+        resolvedQuery: 'risk assessment',
+        typeCandidates: [{ type: 'CeRiskAssessment', count: 2 }],
+      },
+    });
+  });
+
   it('search_objects enriches hits with businessId + template bid (one batched call)', async () => {
     mockChromeStorage();
     const quickSearch = vi.fn(async () => ({ totalHits: 2, objects: [
@@ -698,6 +731,36 @@ describe('executeAiTool — defensive', () => {
     expect(res.content).not.toContain('lifecycleState');
     expect(res.structuredContent).toMatchObject({
       tool: 'read_type', status: 'ok', data: { collections: ['root.CeRiskAssessment.descendants()'] },
+    });
+    schema.mockRestore();
+  });
+
+  it('read_type suggests a live class when the requested class is misspelled', async () => {
+    mockChromeStorage();
+    const knowledge = await import('../../bmp-type-knowledge');
+    const schema = vi.spyOn(knowledge.bmpTypeKnowledge, 'properties').mockResolvedValue({
+      ok: false,
+      error: 'Unknown class',
+    });
+    const quickSearch = vi.fn(async (query: string) => query === 'risk assessment'
+      ? { totalHits: 1, objects: [{ rid: '1', name: 'Risk A', type: 'CeRiskAssessment' }] }
+      : { totalHits: 0, objects: [] });
+    const executeEc = vi.fn(async () => ({ ok: false, hasError: true, log: '' }));
+    setSwContext(makeCtx({ client: { quickSearch, executeEc } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('read_type', {
+      type: 'ceRskiassessments', query: 'calculated risk score',
+    }));
+
+    expect(res.isError).toBe(false);
+    expect(res.content).toContain('Likely live type: CeRiskAssessment');
+    expect(res.structuredContent).toMatchObject({
+      tool: 'read_type', status: 'ok', data: {
+        requestedType: 'ceRskiassessments',
+        typeSuggestions: ['CeRiskAssessment'],
+        schema: { available: false },
+      },
     });
     schema.mockRestore();
   });

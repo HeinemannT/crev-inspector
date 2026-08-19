@@ -16,7 +16,7 @@ import { PROVIDERS } from './providers';
 import { readSse } from './sse';
 import type { ToolCall } from './tools';
 import { toAnthropicTools, TOOL_DEFS } from './tool-contracts';
-import type { AiTokenUsage } from './types';
+import type { AiProviderTiming, AiTokenUsage } from './types';
 
 const ANTHROPIC_VERSION = '2023-06-01';
 const MAX_TOKENS = 8192;
@@ -191,6 +191,7 @@ export interface AnthropicTurnResult {
    *  turn — echoed verbatim so the tool_result user turn is well-formed. */
   content: AnthropicContentBlock[];
   usage: AiTokenUsage;
+  timing: AiProviderTiming;
 }
 
 /** Accumulator for one streamed content block (text or tool_use). */
@@ -240,6 +241,7 @@ export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<Anth
     messages,
   };
 
+  const requestStarted = Date.now();
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -253,6 +255,8 @@ export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<Anth
   });
 
   if (!response.ok) throw new Error(await errorFromResponse(response));
+
+  const timing: AiProviderTiming = { firstByteMs: Date.now() - requestStarted };
 
   const blocks = new Map<number, BlockAcc>();
   let stopReason: string | null = null;
@@ -272,6 +276,7 @@ export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<Anth
         const idx = parsed.index ?? 0;
         const cb = parsed.content_block;
         if (cb?.type === 'tool_use') {
+          timing.firstOutputMs ??= Date.now() - requestStarted;
           blocks.set(idx, { type: 'tool_use', text: '', id: cb.id, name: cb.name, json: '' });
         } else {
           blocks.set(idx, { type: 'text', text: '', json: '' });
@@ -282,6 +287,7 @@ export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<Anth
         const idx = parsed.index ?? 0;
         const acc = blocks.get(idx) ?? { type: 'text', text: '', json: '' };
         if (parsed.delta?.type === 'text_delta' && parsed.delta.text) {
+          timing.firstOutputMs ??= Date.now() - requestStarted;
           acc.text += parsed.delta.text;
           opts.onText(parsed.delta.text);
         } else if (parsed.delta?.type === 'input_json_delta' && parsed.delta.partial_json != null) {
@@ -314,7 +320,7 @@ export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<Anth
     }
   }
 
-  return { text, toolCalls, stopReason, content, usage };
+  return { text, toolCalls, stopReason, content, usage, timing };
 }
 
 /** Parse an accumulated tool-input JSON blob. Empty / malformed → `{}` so a
