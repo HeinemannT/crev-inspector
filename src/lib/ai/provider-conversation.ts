@@ -23,6 +23,9 @@ export interface ProviderConversationTurn {
   toolCalls: ToolCall[];
   usage: AiTokenUsage;
   timing: AiProviderTiming;
+  /** Concrete provider response model. Important when the requested model is
+   * a router rather than a fixed model id. */
+  resolvedModel?: string;
   appendAssistant: () => void;
 }
 
@@ -71,6 +74,7 @@ export function createAnthropicConversation(options: ConversationBaseOptions): P
         toolCalls: turn.toolCalls,
         usage: turn.usage,
         timing: turn.timing,
+        ...(turn.resolvedModel ? { resolvedModel: turn.resolvedModel } : {}),
         appendAssistant: () => {
           if (turn.content.length) messages.push({ role: 'assistant', content: turn.content });
         },
@@ -80,7 +84,7 @@ export function createAnthropicConversation(options: ConversationBaseOptions): P
       const content: AnthropicContentBlock[] = results.map(({ call, result }) => ({
         type: 'tool_result',
         tool_use_id: call.id,
-        content: toolResultForModel(result),
+        content: toolResultForModel(result, call.name),
         ...(result.isError ? { is_error: true } : {}),
       }));
       messages.push({ role: 'user', content });
@@ -130,12 +134,13 @@ export function createOpenAiConversation(options: OpenAiConversationOptions): Pr
         toolCalls: turn.toolCalls,
         usage: turn.usage,
         timing: turn.timing,
+        ...(turn.resolvedModel ? { resolvedModel: turn.resolvedModel } : {}),
         appendAssistant: () => { messages.push(turn.assistantMessage); },
       };
     },
     appendToolResults: results => {
       for (const { call, result } of results) {
-        messages.push({ role: 'tool', tool_call_id: call.id, content: toolResultForModel(result) });
+        messages.push({ role: 'tool', tool_call_id: call.id, content: toolResultForModel(result, call.name) });
       }
     },
     appendUserNote: note => { messages.push({ role: 'user', content: note }); },

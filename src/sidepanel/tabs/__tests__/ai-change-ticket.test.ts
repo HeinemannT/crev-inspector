@@ -128,8 +128,8 @@ describe('AI Change Ticket rerender state', () => {
         role: 'assistant',
         text: 'Done.',
         toolTrace: [
-          { name: 'read_object', summary: 'read_object t.missing', ok: false },
-          { name: 'read_object', summary: 'read_object 123', ok: true },
+          { name: 'read_object', summary: 'read_object t.missing', ok: false, durationMs: 17 },
+          { name: 'read_object', summary: 'read_object 123', ok: true, durationMs: 21, duplicate: true },
         ],
       },
     }];
@@ -141,6 +141,9 @@ describe('AI Change Ticket rerender state', () => {
     summary.click();
     expect(container.querySelectorAll('.ai-tl--err')).toHaveLength(1);
     expect(container.querySelectorAll('.ai-tl--ok')).toHaveLength(1);
+    expect(container.querySelector('.ai-tg-detail')?.textContent).toContain('17 ms');
+    expect(container.querySelector('.ai-tg-detail')?.textContent).toContain('21 ms');
+    expect(container.querySelector('.ai-tg-detail')?.textContent).toContain('duplicate');
   });
 
   it('renders a verified target token as an object identity instead of model syntax', () => {

@@ -138,6 +138,11 @@ describe('truncateToolResult', () => {
 });
 
 describe('structured object references', () => {
+  it('uses the known call name for a legacy unstructured result', () => {
+    expect(JSON.parse(toolResultForModel({ content: 'failed', isError: true }, 'preview_ec')))
+      .toMatchObject({ tool: 'preview_ec', status: 'error', error: { message: 'failed' } });
+  });
+
   it('serializes typed tool data—not the presentation summary—to providers', () => {
     const wire = toolResultForModel({
       content: 'formatted prose that providers must not parse',

@@ -196,7 +196,13 @@ export interface ToolFailure {
   schemaVersion: typeof AI_TOOL_RESULT_SCHEMA_VERSION;
   tool: AiToolName | 'unknown';
   status: 'error';
-  error: { message: string };
+  error: {
+    message: string;
+    /** Preview failures retain the attempted EC and parsed line when BMP
+     * provides one, giving the repair turn structured evidence. */
+    attemptedCode?: string;
+    line?: number;
+  };
 }
 
 export type ToolStructuredContent = ToolSuccess | ToolFailure;
@@ -233,12 +239,16 @@ export function toolSuccess<K extends AiToolName>(
   } as Extract<ToolStructuredContent, { tool: K; status: 'ok' }>;
 }
 
-export function toolFailure(tool: string, message: string): ToolFailure {
+export function toolFailure(
+  tool: string,
+  message: string,
+  details: Pick<ToolFailure['error'], 'attemptedCode' | 'line'> = {},
+): ToolFailure {
   return {
     schemaVersion: AI_TOOL_RESULT_SCHEMA_VERSION,
     tool: TOOL_NAMES.has(tool) ? tool as AiToolName : 'unknown',
     status: 'error',
-    error: { message },
+    error: { message, ...details },
   };
 }
 

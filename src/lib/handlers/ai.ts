@@ -28,6 +28,7 @@ import { errorMessage, log } from '../logger';
 import { reconcileProfileOrigins } from '../site-access';
 import { ChangeTicketLifecycle, type ChangePreviewScope, type ChangeTicketTargetContext } from '../ai/change-ticket';
 import type { ToolResult } from '../ai/tools';
+import { toolFailure, toolSuccess } from '../ai/tool-results';
 import type { BmpClient } from '../bmp-client';
 import {
   editorContextForTab,
@@ -58,6 +59,32 @@ function ecResultText(result: { log?: string; error?: string }, fallback: string
   return result.error ?? result.log ?? fallback;
 }
 
+function previewFailure(code: string, message: string): ToolResult {
+  const line = message.match(/\bline\s+(\d+)\b/i)?.[1];
+  return {
+    content: message,
+    isError: true,
+    structuredContent: toolFailure('preview_ec', message, {
+      ...(code ? { attemptedCode: code } : {}),
+      ...(line ? { line: Number(line) } : {}),
+    }),
+  };
+}
+
+function previewSuccess(content: string): ToolResult {
+  const log = content.slice(0, 7_000);
+  return {
+    content,
+    isError: false,
+    structuredContent: toolSuccess('preview_ec', {
+      ok: true,
+      log,
+      hasWarning: false,
+      complete: log.length === content.length,
+    }),
+  };
+}
+
 /** One implementation for both generation-time validation and the card's
  * explicit Preview action. Successful final-change Preview issues the same
  * exact-code, environment-bound capability consumed by Run. */
@@ -68,41 +95,37 @@ async function previewChangeCode(
 ): Promise<ToolResult & { previewId?: string }> {
   const ctx = getCtx();
   const clientAtStart = ctx.client;
-  if (!clientAtStart) return { content: 'Not connected to BMP', isError: true };
+  if (!clientAtStart) return previewFailure(code, 'Not connected to BMP');
   const profileAtStart = ctx.settings.activeProfileId;
   const serverAtStart = clientAtStart.serverUrl;
   const trimmed = code.trim();
-  if (!trimmed) return { content: 'The proposal contains no Extended Code.', isError: true };
+  if (!trimmed) return previewFailure('', 'The proposal contains no Extended Code.');
   try {
     const result = signal
       ? await clientAtStart.executeEc(trimmed, undefined, false, signal)
       : await clientAtStart.executeEc(trimmed, undefined, false);
     if (!result.ok || result.hasWarning) {
-      return {
-        content: result.hasWarning
-          ? `Preview returned a warning: ${ecResultText(result, 'Review the code before running.')}`
-          : ecResultText(result, 'Preview failed.'),
-        isError: true,
-      };
+      return previewFailure(trimmed, result.hasWarning
+        ? `Preview returned a warning: ${ecResultText(result, 'Review the code before running.')}`
+        : ecResultText(result, 'Preview failed.'));
     }
     const current = getCtx();
     if (current.client !== clientAtStart
       || current.settings.activeProfileId !== profileAtStart
       || clientAtStart.serverUrl !== serverAtStart) {
-      return { content: 'The BMP connection changed during Preview. Preview again.', isError: true };
+      return previewFailure(trimmed, 'The BMP connection changed during Preview. Preview again.');
     }
     const scope = changePreviewScope(clientAtStart);
     if (!scope) {
-      return { content: 'The command identity could not be verified. Reconnect and Preview again.', isError: true };
+      return previewFailure(trimmed, 'The command identity could not be verified. Reconnect and Preview again.');
     }
     const content = ecResultText(result, 'Preview successful');
     return {
-      content,
-      isError: false,
+      ...previewSuccess(content),
       previewId: changePreviews.issue(trimmed, scope, content, expectedTarget),
     };
   } catch (error) {
-    return { content: errorMessage(error), isError: true };
+    return previewFailure(trimmed, errorMessage(error));
   }
 }
 
@@ -349,14 +372,13 @@ register('AI_CHAT_SEND', async (msg) => {
       },
       signal: controller.signal,
     });
-    if (metrics) {
-      ctx.logActivity(
-        metrics.toolErrors ? 'warn' : 'info',
-        `AI chat (${ai.model})`,
-        JSON.stringify(metrics),
-        { category: 'system', action: 'ai-eval-trace', durationMs: metrics.durationMs },
-      );
-    }
+    const failed = metrics.terminalOutcome === 'timeout' || metrics.terminalOutcome === 'error';
+    ctx.logActivity(
+      failed || metrics.toolErrors ? 'warn' : 'info',
+      `AI chat (${ai.model})`,
+      JSON.stringify(metrics),
+      { category: 'system', action: 'ai-eval-trace', durationMs: metrics.durationMs },
+    );
   } catch (e) {
     // streamChat handles its own done/error events; this guards decrypt /
     // prompt-build failures before the stream starts.

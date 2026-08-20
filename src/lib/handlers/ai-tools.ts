@@ -28,6 +28,7 @@ import { formatEcLiteral, validateEcIdentifier, validateRid } from '../ec-guards
 import { loadPageStructure, type LoadPageStructureResult } from '../layout-service';
 import { projectLayoutEvidence } from '../ai/layout-evidence';
 import { rowTypeSearchQueries } from '../ai/type-search';
+import { STYLE_PROPS } from '../style-props';
 import {
   inspectObjectProperties,
   MAX_AI_SELECTED_PROPERTIES,
@@ -614,6 +615,21 @@ async function readType(client: BmpClient, input: Record<string, unknown>, signa
         system: property.systemobject,
       })),
     };
+    if (query) {
+      optionSets = filtered.shown.flatMap(property => {
+        const style = STYLE_PROPS.find(definition =>
+          definition.prop === property.accessor && definition.options?.length,
+        );
+        return style?.options ? [{
+          accessor: property.accessor,
+          multi: false,
+          items: style.options.map(option => ({ ref: option.value, name: option.label })),
+        }] : [];
+      });
+      for (const option of optionSets) {
+        lines.push(`Known values for ${option.accessor}: ${option.items.map(item => `${item.name} (${item.ref})`).join(', ')}`);
+      }
+    }
     const matchingOptionAccessors = new Set(filtered.shown
       .filter(property => /(?:Historical)?ListMethodConfig|TagMethodConfig/i.test(
         property.propertyConfigClass || property.configClass,
@@ -622,14 +638,18 @@ async function readType(client: BmpClient, input: Record<string, unknown>, signa
     if (query && matchingOptionAccessors.size > 0) {
       const options = await bmpTypeKnowledge.options(schema.canonical || type);
       if (options.ok) {
-        optionSets = options.options
+        const configuredOptionSets = options.options
           .filter(option => matchingOptionAccessors.has(option.accessor))
           .map(option => ({
             accessor: option.accessor,
             multi: option.multi,
             items: option.items.map(item => ({ ref: item.ref, name: item.name })),
           }));
-        for (const option of optionSets) {
+        optionSets = [
+          ...optionSets.filter(option => !configuredOptionSets.some(configured => configured.accessor === option.accessor)),
+          ...configuredOptionSets,
+        ];
+        for (const option of configuredOptionSets) {
           lines.push(`Configured values for ${option.accessor}: ${option.items.map(item => `${item.name} (${item.ref})`).join(', ')}`);
         }
       }
@@ -888,7 +908,18 @@ async function previewEc(client: BmpClient, input: Record<string, unknown>, sign
   const code = typeof input.code === 'string' ? input.code : '';
   if (!code.trim()) return err('preview_ec needs "code".');
   const res = await client.executeEc(code, undefined, false, signal);
-  if (!res.ok) return err(`EC error:\n${res.error ?? res.log ?? 'unknown error'}`);
+  if (!res.ok) {
+    const message = res.error ?? res.log ?? 'unknown error';
+    const lineMatch = message.match(/\bline\s+(\d+)\b/i);
+    return {
+      content: `EC error:\n${message}`,
+      isError: true,
+      structuredContent: toolFailure('preview_ec', message, {
+        attemptedCode: code,
+        ...(lineMatch ? { line: Number(lineMatch[1]) } : {}),
+      }),
+    };
+  }
   const body = res.log ?? '(no output)';
   const warn = res.hasWarning ? '\n(warnings present)' : '';
   const modelLog = body.slice(0, 7_000);

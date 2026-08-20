@@ -182,7 +182,7 @@ function openAiTextTurn(text: string): string[] {
 }
 function openAiTextTurnWithUsage(text: string): string[] {
   return [
-    `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`,
+    `data: ${JSON.stringify({ model: 'gpt-5.2-2026-08-01', choices: [{ delta: { content: text } }] })}\n\n`,
     'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":123,"completion_tokens":45,"prompt_tokens_details":{"cached_tokens":20},"completion_tokens_details":{"reasoning_tokens":7}}}\n\n',
     'data: [DONE]\n\n',
   ];
@@ -353,7 +353,13 @@ describe('streamChat tool loop', () => {
       onEvent: event => events.push(event), executeTool: vi.fn(),
     });
 
-    expect(metrics).toBeNull();
+    expect(metrics).toMatchObject({
+      terminalOutcome: 'error',
+      terminalPhase: 'provider',
+      terminalError: `The model returned no usable answer ${MAX_EMPTY_RESPONSE_RETRIES + 1} times. Try the request again.`,
+      providerRequests: MAX_EMPTY_RESPONSE_RETRIES + 1,
+      modelRetries: MAX_EMPTY_RESPONSE_RETRIES,
+    });
     expect(events.at(-1)).toEqual({
       kind: 'error',
       message: `The model returned no usable answer ${MAX_EMPTY_RESPONSE_RETRIES + 1} times. Try the request again.`,
@@ -513,16 +519,146 @@ describe('streamChat tool loop', () => {
       previewRepairRetries: 1,
       automaticToolCalls: 2,
       toolErrors: 2,
+      previewAttempts: [
+        {
+          code: 't.qa.change(name := "Open")',
+          resultText: 'line 1: unknown property name',
+          ok: false,
+          operation: 'update',
+          target: '[[object:1]]',
+          line: 1,
+        },
+        {
+          code: repaired.code,
+          resultText: 'line 1: unknown property name',
+          ok: false,
+          operation: 'update',
+          target: '[[object:1]]',
+          line: 1,
+        },
+      ],
     });
     expect(bodies).toHaveLength(MAX_MISSING_PREVIEW_RETRIES + 1);
     expect(executeTool).toHaveBeenCalledTimes(MAX_MISSING_PREVIEW_RETRIES + 1);
     expect(JSON.stringify(bodies[1].messages)).toContain('unknown property name');
+    expect(JSON.stringify(bodies[1].messages)).toContain('<preview-failure>');
+    expect(JSON.stringify(bodies[1].messages)).toContain('attemptedCode');
     expect(events).toContainEqual({
       kind: 'change-preview-failed',
       code: repaired.code,
       resultText: 'line 1: unknown property name',
     });
     expect(events).toContainEqual({ kind: 'text-delta', delta: expect.stringContaining(repaired.code) });
+    expect(events.at(-1)).toEqual({ kind: 'done' });
+  });
+
+  it('retains partial provider, Preview, code, and error evidence when repair times out', async () => {
+    const controller = new AbortController();
+    const timeout = new DOMException('deadline reached', 'TimeoutError');
+    const bodies: any[] = [];
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: any) => {
+      bodies.push(JSON.parse(init.body));
+      if (bodies.length === 1) {
+        return Promise.resolve(okStream(openAiSubmitTurn({
+          summary: 'Hide Latest Bulletin',
+          target: '[[object:9041180456064325212]]',
+          operation: 'update',
+          code: 'lookup("9041180456064325212").change(visible := FALSE)',
+        })));
+      }
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(timeout), { once: true });
+        queueMicrotask(() => controller.abort(timeout));
+      });
+    }));
+    const events: AiChatEvent[] = [];
+    const executeTool = vi.fn(async (): Promise<ToolResult> => ({
+      content: 'line 1: unknown property visible',
+      isError: true,
+    }));
+
+    const metrics = await streamChat({
+      settings: { provider: 'deepseek', model: 'deepseek-v4-flash', apiKeyEnc: '' },
+      apiKey: 'k', system: 'S', history: [], text: 'Hide Latest Bulletin.',
+      onEvent: event => events.push(event), executeTool, signal: controller.signal,
+    });
+
+    expect(metrics).toMatchObject({
+      terminalOutcome: 'timeout',
+      terminalPhase: 'provider',
+      terminalError: 'deadline reached',
+      providerRequests: 2,
+      modelRetries: 1,
+      previewRepairRetries: 1,
+      automaticToolCalls: 1,
+      toolErrors: 1,
+      previewAttempts: [{
+        code: 'lookup("9041180456064325212").change(visible := FALSE)',
+        resultText: 'line 1: unknown property visible',
+        ok: false,
+        operation: 'update',
+        target: '[[object:9041180456064325212]]',
+        line: 1,
+      }],
+    });
+    expect(metrics.tools).toEqual([
+      expect.objectContaining({
+        name: 'preview_ec',
+        origin: 'pipeline',
+        summary: 'preview_ec (1 line)',
+        input: { code: 'lookup("9041180456064325212").change(visible := FALSE)' },
+        result: expect.stringContaining('unknown property visible'),
+        error: 'line 1: unknown property visible',
+      }),
+    ]);
+    expect(JSON.parse(metrics.tools[0]!.result)).toMatchObject({
+      tool: 'preview_ec', status: 'error', error: { message: 'line 1: unknown property visible' },
+    });
+    expect(JSON.stringify(bodies[1].messages)).toContain('attemptedCode');
+    expect(events.at(-1)).toEqual({ kind: 'error', message: 'deadline reached' });
+    expect(events.some(event => event.kind === 'done')).toBe(false);
+  });
+
+  it('preserves the failed ticket when the single repair response is empty', async () => {
+    const bodies: any[] = [];
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: any) => {
+      bodies.push(JSON.parse(init.body));
+      return Promise.resolve(okStream(bodies.length === 1
+        ? openAiSubmitTurn({
+          summary: 'Hide Latest Bulletin',
+          target: '[[object:9041180456064325212]]',
+          operation: 'update',
+          code: 'visibility := NOVISIBLE',
+        })
+        : openAiTextTurn('')));
+    }));
+    const events: AiChatEvent[] = [];
+    const executeTool = vi.fn(async (): Promise<ToolResult> => ({
+      content: 'line 1: Missing value for NOVISIBLE',
+      isError: true,
+    }));
+
+    const metrics = await streamChat({
+      settings: { provider: 'deepseek', model: 'deepseek-v4-flash', apiKeyEnc: '' },
+      apiKey: 'k', system: 'S', history: [], text: 'Hide Latest Bulletin.',
+      onEvent: event => events.push(event), executeTool,
+    });
+
+    expect(metrics).toMatchObject({
+      providerRequests: 2,
+      modelRetries: 1,
+      emptyResponseRetries: 1,
+      previewRepairRetries: 1,
+      automaticToolCalls: 1,
+      terminalOutcome: 'change',
+    });
+    expect(bodies).toHaveLength(2);
+    expect(events).toContainEqual({
+      kind: 'change-preview-failed',
+      code: 'visibility := NOVISIBLE',
+      resultText: 'line 1: Missing value for NOVISIBLE',
+    });
+    expect(events).toContainEqual({ kind: 'text-delta', delta: expect.stringContaining('visibility := NOVISIBLE') });
     expect(events.at(-1)).toEqual({ kind: 'done' });
   });
 
@@ -558,6 +694,8 @@ describe('streamChat tool loop', () => {
     });
 
     expect(metrics).toMatchObject({
+      requestedModel: 'gpt-5.2',
+      resolvedModels: ['gpt-5.2-2026-08-01'],
       providerRequests: 1,
       inputTokens: 123,
       cachedInputTokens: 20,

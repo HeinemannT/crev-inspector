@@ -10,7 +10,7 @@ import { buildEditorPrompt } from './editor-prompt';
 import { streamAnthropic } from './anthropic';
 import { streamOpenAiCompat, listModels as listOpenAiModels } from './openai-compat';
 import type { ExecuteTool, ToolCall, ToolResult } from './tools';
-import { boundedToolResult, CHANGE_PREVIEW_SATISFIED_NOTE, MAX_TOOL_CALLS, MAX_TOOL_LOOP_MS, MAX_TOOL_ROUNDS, MAX_UNPRODUCTIVE_TOOL_ROUNDS, TOOL_BUDGET_EXHAUSTED_NOTE, toolResultEvidenceKey } from './tools';
+import { boundedToolResult, CHANGE_PREVIEW_SATISFIED_NOTE, MAX_TOOL_CALLS, MAX_TOOL_LOOP_MS, MAX_TOOL_ROUNDS, MAX_UNPRODUCTIVE_TOOL_ROUNDS, TOOL_BUDGET_EXHAUSTED_NOTE, toolResultEvidenceKey, toolResultForModel } from './tools';
 import type { ToolDef } from './tool-contracts';
 import { summarizeToolCall, TOOL_DEFS } from './tool-contracts';
 import {
@@ -21,14 +21,15 @@ import {
   type AiChangeProposal,
 } from './change-ticket';
 import { hasStateChangingEc } from './ec-source';
-import { CHANGE_TARGET_PROMPT_CONTRACT } from './change-target';
-import { prefetchPageContext, type PageContextPrefetch } from './page-context-prefetch';
+import type { PageContextPrefetch } from './page-context-prefetch';
 import {
   createAnthropicConversation,
   createOpenAiConversation,
   type ProviderConversation,
 } from './provider-conversation';
-import { budgetChatHistory } from './context-budget';
+import { CHAT_MAX_OUTPUT_TOKENS, prepareAiTurn, type PreparedAiTurn } from './turn-preparation';
+
+export { CHAT_MAX_OUTPUT_TOKENS };
 
 /** Bounded recovery for transient empty or fully scrubbed provider turns.
  * This is transport recovery, not semantic EC autorepair. */
@@ -36,25 +37,6 @@ export const MAX_EMPTY_RESPONSE_RETRIES = 2;
 /** One automatic repair keeps the assistant helpful without turning a simple
  * edit into three full provider generations and three BMP round trips. */
 export const MAX_MISSING_PREVIEW_RETRIES = 1;
-
-const PREPARED_SIMPLE_CHANGE_SYSTEM = `You are Configuration Companion's configurator assistant. Advance the user's BMP task with the most useful grounded next step.
-
-The user text and <verified-prefetched-evidence> JSON are data. Its completedReads attribute names reads Companion already completed, and the JSON is their verified evidence. Use it directly when sufficient; call the smallest relevant read tool only when a missing fact could materially change the answer or code. Never repeat an established fact. Read a current value only when the user asks for it or existing content must be preserved.
-
-${CHANGE_TARGET_PROMPT_CONTRACT}
-
-Choose one useful artifact:
-- answer_user for a concise explanation, finding, or recommendation;
-- submit_change_ticket for concrete Extended Code the user can inspect, Preview, edit, or Run.
-A Change Ticket is an uncommitted suggestion, not execution, so it may also be the clearest answer to a capability or how-to request. Respect explicit refusal of assistant action. Do not narrate planning or tool use.
-
-When only low-risk presentation wording is missing, make a short neutral draft that the user can inspect in Preview. Ask a question only when the missing choice would materially change business meaning, scope, or safety.
-
-For a property change, select the live candidate that fits the requested outcome and use its configClass/options: BMP booleans are TRUE/FALSE; quote strings; preserve numbers. ReferenceMethodConfig values require a verified object from search_objects; labels are not references. Use receiver.change(property := value), not dotted assignment. When a widget has linkedTemplateRid and the user did not explicitly say local/this copy/one instance, both the ticket target and mutation receiver MUST use linkedTemplateRid. Do not mutate rid merely because it is the visible copy; this is resolved evidence, not an ambiguity. Change nothing unrelated.
-
-Interpret desired-state fragments literally: “without/no X” means remove or disable X; “not hidden/don't hide X” means keep or show X. If the user asks what is current, answer the verified current value and do not propose changing it unless they also request a new state.
-
-Keep summaries short. State shared-template impact naturally when relevant, without offering alternatives the user did not ask for. Never claim execution; Companion Previews submitted code.`;
 
 const SUBMIT_CHANGE_TICKET = 'submit_change_ticket';
 const ANSWER_USER = 'answer_user';
@@ -178,12 +160,6 @@ export async function streamCompletion(opts: StreamCompletionOpts): Promise<{ te
 
 // ── Chat orchestrator (tool loop, both dialects) ─────────────────
 
-/** Enough headroom for a multi-object Change Ticket after tool use. Providers
- * still stop naturally for short answers; this only prevents valid complex
- * artifacts from being cut off mid-code. */
-export const CHAT_MAX_OUTPUT_TOKENS = 4096;
-const PREPARED_SIMPLE_CHANGE_MAX_OUTPUT_TOKENS = 512;
-
 export interface StreamChatOpts {
   settings: AiSettings;
   /** Decrypted API key. */
@@ -220,88 +196,141 @@ export interface StreamChatOpts {
 }
 
 interface EffectiveStreamChatOpts extends StreamChatOpts {
-  /** Internal evidence prepared before the provider request. */
-  prefetchedContext?: PageContextPrefetch;
-  /** Evidence-driven subset used only by the prepared property turn. */
-  allowedModelTools?: readonly string[];
+  turn: PreparedAiTurn;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function emptyTurnMetrics(durationMs = 0): AiTurnMetrics {
+  return {
+    durationMs,
+    providerRequests: 0,
+    providerDurationMs: 0,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    modelRetries: 0,
+    emptyResponseRetries: 0,
+    previewRepairRetries: 0,
+    toolRounds: 0,
+    toolCallsRequested: 0,
+    toolCallsExecuted: 0,
+    automaticToolCalls: 0,
+    previewDurationMs: 0,
+    modelToolDurationMs: 0,
+    duplicateCalls: 0,
+    toolErrors: 0,
+    budgetExhausted: false,
+    tools: [],
+  };
+}
+
+class InterruptedTurnError extends Error {
+  constructor(
+    error: unknown,
+    readonly metrics: AiTurnMetrics,
+    readonly phase: NonNullable<AiTurnMetrics['terminalPhase']>,
+  ) {
+    super(errorText(error));
+    this.name = 'InterruptedTurnError';
+  }
+}
+
+function parsedErrorLine(message: string): number | undefined {
+  const match = message.match(/\bline\s+(\d+)\b/i);
+  return match ? Number(match[1]) : undefined;
+}
+
+function toolEventSummary(summary: string, result: ToolResult): string {
+  if (!result.isError) return summary;
+  const detail = result.content.replace(/\s+/g, ' ').trim();
+  return detail ? `${summary} · ${detail.slice(0, 240)}` : summary;
 }
 
 /** Run one user turn as an agentic loop: stream text, run any requested
  *  read-only tools (capped at MAX_TOOL_CALLS), feed results back, repeat until
- *  the model answers. Emits the AiChatEvent stream via onEvent. On cancellation
- *  it returns quietly (no done/error); on a real failure it emits `error`. */
-export async function streamChat(opts: StreamChatOpts): Promise<AiTurnMetrics | null> {
+ *  the model answers. Emits the AiChatEvent stream via onEvent. Every terminal
+ *  path returns metrics; cancellation remains quiet in the UI while timeout and
+ *  failure emit `error`. */
+export async function streamChat(opts: StreamChatOpts): Promise<AiTurnMetrics> {
   const started = Date.now();
   const meta = resolveProvider(opts.settings);
-  const maxTokens = Math.min(meta.maxOutputTokens ?? CHAT_MAX_OUTPUT_TOKENS, CHAT_MAX_OUTPUT_TOKENS);
+  let turn: PreparedAiTurn | undefined;
   try {
-    const prepared = opts.simpleChangePrefetch === false
-      ? null
-      : await prefetchPageContext({
-          text: opts.text,
-          pageRid: opts.pageRid,
-          executeTool: opts.executeTool,
-          onEvent: opts.onEvent,
-          signal: opts.signal,
-        });
-    const fullPrompt = !prepared?.providerPlan && opts.loadFullPrompt
-      ? await opts.loadFullPrompt()
-      : null;
+    turn = await prepareAiTurn({
+      system: opts.system,
+      context: opts.context,
+      loadFullPrompt: opts.loadFullPrompt,
+      history: opts.history,
+      text: opts.text,
+      pageRid: opts.pageRid,
+      prefetchEnabled: opts.simpleChangePrefetch !== false,
+      maxInputTokens: meta.maxInputTokens,
+      maxOutputTokens: meta.maxOutputTokens,
+      onEvent: opts.onEvent,
+      executeTool: opts.executeTool,
+      signal: opts.signal,
+    });
     const effectiveOpts: EffectiveStreamChatOpts = {
       ...opts,
-      ...(fullPrompt ?? {}),
-      ...(prepared ? { prefetchedContext: prepared } : {}),
-      ...(prepared?.providerPlan ? { allowedModelTools: prepared.providerPlan.allowedModelTools } : {}),
+      turn,
     };
-    const effectiveMaxTokens = prepared?.providerPlan
-      ? Math.min(maxTokens, PREPARED_SIMPLE_CHANGE_MAX_OUTPUT_TOKENS)
-      : maxTokens;
-    const user = userTextWithPreparedEvidence(effectiveOpts);
-    const system = providerSystem(effectiveOpts);
-    const contextBudget = budgetChatHistory({
-      system,
-      user,
-      history: effectiveOpts.history,
-      maxInputTokens: meta.maxInputTokens,
-      maxOutputTokens: effectiveMaxTokens,
-    });
-    if (contextBudget.fixedInputOverBudgetCharacters > 0) {
-      throw new Error(
-        'The current request and attached context exceed this model\'s configured input limit. ' +
-        'Remove a large attachment or choose a model with a larger context window.',
-      );
-    }
     const conversationBase = {
       baseUrl: meta.baseUrl,
       model: effectiveOpts.settings.model,
-      maxTokens: effectiveMaxTokens,
+      maxTokens: turn.maxOutputTokens,
       apiKey: effectiveOpts.apiKey,
-      system,
-      history: contextBudget.history,
-      user,
+      system: turn.system,
+      history: turn.history,
+      user: turn.user,
       signal: effectiveOpts.signal,
     };
     const conversation = meta.openAiCompat
       ? createOpenAiConversation({ ...conversationBase, maxTokensParam: meta.maxTokensParam })
       : createAnthropicConversation(conversationBase);
     const metrics = await runProviderChat(effectiveOpts, conversation);
-    const withPrefetch = mergePrefetchMetrics(metrics, prepared, Date.now() - started);
+    const withPrefetch = mergePrefetchMetrics(metrics, turn.prefetch, Date.now() - started);
     opts.onEvent({ kind: 'done' });
     return {
       ...withPrefetch,
-      estimatedInputCharacters: contextBudget.estimatedInputCharacters,
-      historyTurnsDropped: contextBudget.historyTurnsDropped,
+      estimatedInputCharacters: turn.estimatedInputCharacters,
+      historyTurnsDropped: turn.historyTurnsDropped,
+      terminalPhase: 'complete',
     };
-  } catch (e) {
+  } catch (error) {
+    const interrupted = error instanceof InterruptedTurnError ? error : null;
+    const reason = opts.signal?.aborted ? opts.signal.reason : error;
+    const timeout = reason instanceof DOMException && reason.name === 'TimeoutError';
+    const cancelled = !!opts.signal?.aborted && !timeout;
+    const message = timeout
+      ? reason.message
+      : cancelled
+        ? errorText(reason ?? 'Cancelled')
+        : errorText(error);
     if (opts.signal?.aborted) {
-      const reason = opts.signal.reason;
-      if (reason instanceof DOMException && reason.name === 'TimeoutError') {
-        opts.onEvent({ kind: 'error', message: reason.message });
-      }
-      return null; // caller cancelled, or timeout already reported above
+      if (timeout) opts.onEvent({ kind: 'error', message });
+    } else {
+      opts.onEvent({ kind: 'error', message });
     }
-    opts.onEvent({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
-    return null;
+    const partial = mergePrefetchMetrics(
+      interrupted?.metrics ?? emptyTurnMetrics(),
+      turn?.prefetch ?? null,
+      Date.now() - started,
+    );
+    return {
+      ...partial,
+      ...(turn ? {
+        estimatedInputCharacters: turn.estimatedInputCharacters,
+        historyTurnsDropped: turn.historyTurnsDropped,
+      } : {}),
+      terminalOutcome: timeout ? 'timeout' : cancelled ? 'cancelled' : 'error',
+      terminalPhase: interrupted?.phase ?? (turn ? 'provider' : 'preparation'),
+      terminalError: message,
+    };
   }
 }
 
@@ -326,6 +355,7 @@ interface AutomaticToolState {
   errors: number;
   duplicates: number;
   tools: AiTurnMetrics['tools'];
+  previewAttempts: NonNullable<AiTurnMetrics['previewAttempts']>;
   priorResults: Map<string, string>;
 }
 
@@ -335,6 +365,7 @@ function createAutomaticToolState(): AutomaticToolState {
     errors: 0,
     duplicates: 0,
     tools: [],
+    previewAttempts: [],
     priorResults: new Map(),
   };
 }
@@ -347,11 +378,15 @@ function mergePrefetchMetrics(
   if (!prepared?.executions.length) return { ...metrics, durationMs };
   const tools: AiTurnMetrics['tools'] = prepared.executions.map(execution => ({
     name: execution.call.name,
+    summary: summarizeToolCall(execution.call),
+    input: execution.call.input,
+    result: toolResultForModel(execution.result, execution.call.name),
     origin: 'prefetch',
     ok: !execution.result.isError,
     duplicate: false,
     durationMs: execution.durationMs,
     outcome: execution.result.isError ? 'error' : 'success',
+    ...(execution.result.isError ? { error: execution.result.content } : {}),
   }));
   return {
     ...metrics,
@@ -365,25 +400,8 @@ function mergePrefetchMetrics(
   };
 }
 
-function userTextWithPreparedEvidence(opts: EffectiveStreamChatOpts): string {
-  const prepared = opts.prefetchedContext;
-  if (!prepared?.evidence) return opts.context
-    ? `${opts.text}\n\n${opts.context}`
-    : opts.text;
-  const completedReads = prepared.evidence.kind === 'prefetched-layout-context'
-    ? 'read_layout'
-    : 'read_layout,read_type';
-  const appendix = `<verified-prefetched-evidence completedReads="${completedReads}">${JSON.stringify(prepared.evidence)}</verified-prefetched-evidence>`;
-  const context = !prepared.providerPlan && opts.context ? `\n\n${opts.context}` : '';
-  return `${opts.text}${context}\n\n${appendix}`;
-}
-
-function providerSystem(opts: EffectiveStreamChatOpts): string {
-  return opts.prefetchedContext?.providerPlan ? PREPARED_SIMPLE_CHANGE_SYSTEM : opts.system;
-}
-
 function modelToolAllowed(opts: EffectiveStreamChatOpts, name: string): boolean {
-  const allowed = opts.allowedModelTools;
+  const allowed = opts.turn.allowedModelTools;
   return !allowed || allowed.includes(name);
 }
 
@@ -399,6 +417,7 @@ async function executeAutomaticPreview(
   opts: EffectiveStreamChatOpts,
   state: AutomaticToolState,
   execute: ExecuteTool = opts.executeTool,
+  audit?: Pick<AiChangeProposal, 'operation' | 'target'>,
 ): Promise<ToolResult & { previewId?: string }> {
   const call: ToolCall = {
     id: `crev-auto-preview-${state.calls + 1}`,
@@ -410,6 +429,7 @@ async function executeAutomaticPreview(
   const started = Date.now();
   const result = await execute(call, opts.signal);
   const durationMs = Date.now() - started;
+  const line = result.isError ? parsedErrorLine(result.content) : undefined;
   state.calls++;
   if (result.isError) state.errors++;
   const fingerprint = toolCallFingerprint(call);
@@ -419,16 +439,29 @@ async function executeAutomaticPreview(
   state.priorResults.set(fingerprint, evidenceKey);
   state.tools.push({
     name: call.name,
+    summary,
+    input: call.input,
+    result: toolResultForModel(result, call.name),
     origin: 'pipeline',
     ok: !result.isError,
     duplicate,
     durationMs,
     outcome: result.isError ? 'error' : duplicate ? 'duplicate' : 'success',
+    ...(result.isError ? { error: result.content } : {}),
+  });
+  state.previewAttempts.push({
+    code,
+    resultText: result.content,
+    ok: !result.isError,
+    durationMs,
+    ...(audit?.operation ? { operation: audit.operation } : {}),
+    ...(audit?.target ? { target: audit.target } : {}),
+    ...(line !== undefined ? { line } : {}),
   });
   opts.onEvent({
     kind: 'tool-end',
     name: call.name,
-    summary,
+    summary: toolEventSummary(summary, result),
     ok: !result.isError,
     durationMs,
     duplicate,
@@ -458,6 +491,7 @@ async function previewFinalTicket(
     opts.executeChangePreview
       ? (_call, signal) => opts.executeChangePreview!({ code, ...(targetRid ? { targetRid } : {}) }, signal)
       : opts.executeTool,
+    proposal,
   );
   if (!outerResult.isError && outerResult.previewId) {
     opts.onEvent({
@@ -481,6 +515,7 @@ function withAutomaticTools(metrics: AiTurnMetrics, state: AutomaticToolState): 
     duplicateCalls: metrics.duplicateCalls + state.duplicates,
     toolErrors: metrics.toolErrors + state.errors,
     tools: [...metrics.tools, ...state.tools],
+    ...(state.previewAttempts.length ? { previewAttempts: [...state.previewAttempts] } : {}),
   };
 }
 
@@ -495,6 +530,8 @@ async function runToolLoop(
   appendResults: (results: Array<{ call: ToolCall; result: ToolResult }>) => void,
   appendFinalNote: (note: string) => void,
   opts: EffectiveStreamChatOpts,
+  onProgress: (metrics: AiTurnMetrics) => void,
+  onPhase: (phase: NonNullable<AiTurnMetrics['terminalPhase']>) => void,
 ): Promise<AiTurnMetrics> {
   const started = Date.now();
   let used = 0;
@@ -510,6 +547,21 @@ async function runToolLoop(
   const tools: AiTurnMetrics['tools'] = [];
   const priorResults = new Map<string, string>();
   const successfulEvidence = new Set<string>();
+  const snapshot = (): AiTurnMetrics => ({
+    ...emptyTurnMetrics(Date.now() - started),
+    toolRounds,
+    toolCallsRequested: requested,
+    toolCallsExecuted: used,
+    modelToolDurationMs: tools
+      .filter(tool => tool.origin === 'model')
+      .reduce((sum, tool) => sum + tool.durationMs, 0),
+    duplicateCalls: duplicates,
+    toolErrors,
+    budgetExhausted,
+    tools: [...tools],
+    ...(limitReason ? { limitReason } : {}),
+  });
+  onProgress(snapshot());
   // Final change validation belongs to the terminal submission path below.
   // preview_ec remains available for genuinely independent read-only probes,
   // such as evaluating a deferred table expression against live rows.
@@ -528,35 +580,13 @@ async function runToolLoop(
       notedFinal = true;
       if (!goalSatisfied) budgetExhausted = true;
     }
+    onPhase('provider');
     const toolCalls = await runTurn(allowTools);
     // A tools-off turn (or a turn that asked for nothing) is the final answer.
     if (!allowTools || toolCalls.length === 0) {
-      return {
-        durationMs: Date.now() - started,
-        providerRequests: 0,
-        providerDurationMs: 0,
-        inputTokens: 0,
-        cachedInputTokens: 0,
-        cacheWriteTokens: 0,
-        outputTokens: 0,
-        reasoningTokens: 0,
-        modelRetries: 0,
-        emptyResponseRetries: 0,
-        previewRepairRetries: 0,
-        toolRounds,
-        toolCallsRequested: requested,
-        toolCallsExecuted: used,
-        automaticToolCalls: 0,
-        previewDurationMs: 0,
-        modelToolDurationMs: tools
-          .filter(tool => tool.origin === 'model')
-          .reduce((sum, tool) => sum + tool.durationMs, 0),
-        duplicateCalls: duplicates,
-        toolErrors,
-        budgetExhausted,
-        tools,
-        ...(limitReason ? { limitReason } : {}),
-      };
+      const metrics = snapshot();
+      onProgress(metrics);
+      return metrics;
     }
     toolRounds++;
     requested += toolCalls.length;
@@ -577,6 +607,7 @@ async function runToolLoop(
       } else {
         used++;
         const callStarted = Date.now();
+        onPhase('model-tool');
         result = boundedToolResult(await opts.executeTool(call, opts.signal));
         durationMs = Date.now() - callStarted;
       }
@@ -595,11 +626,23 @@ async function runToolLoop(
           : repeatedEvidence
             ? 'repeated-evidence'
             : 'success';
-      tools.push({ name: call.name, origin: 'model', ok: !result.isError, duplicate, durationMs, outcome });
+      tools.push({
+        name: call.name,
+        summary,
+        input: call.input,
+        result: toolResultForModel(result, call.name),
+        origin: 'model',
+        ok: !result.isError,
+        duplicate,
+        durationMs,
+        outcome,
+        ...(result.isError ? { error: result.content } : {}),
+      });
+      onProgress(snapshot());
       opts.onEvent({
         kind: 'tool-end',
         name: call.name,
-        summary,
+        summary: toolEventSummary(summary, result),
         ok: !result.isError,
         durationMs,
         duplicate,
@@ -640,12 +683,15 @@ interface ProviderPolicyState {
   previewRepairRetries: number;
   hasSuccessfulChangePreview: boolean;
   automaticTools: AutomaticToolState;
+  requestedModel: string;
+  resolvedModels: string[];
   providerRequests: number;
   providerDurationMs: number;
   providerFirstByteMs?: number;
   providerFirstOutputMs?: number;
   usage: AiTokenUsage;
   terminalOutcome?: AiTurnMetrics['terminalOutcome'];
+  phase: NonNullable<AiTurnMetrics['terminalPhase']>;
 }
 
 function emptyUsage(): AiTokenUsage {
@@ -663,6 +709,8 @@ function addUsage(target: AiTokenUsage, usage: AiTokenUsage): void {
 function withProviderMetrics(metrics: AiTurnMetrics, state: ProviderPolicyState): AiTurnMetrics {
   return {
     ...metrics,
+    requestedModel: state.requestedModel,
+    ...(state.resolvedModels.length > 0 ? { resolvedModels: state.resolvedModels } : {}),
     providerRequests: state.providerRequests,
     providerDurationMs: state.providerDurationMs,
     ...(state.providerFirstByteMs !== undefined ? { providerFirstByteMs: state.providerFirstByteMs } : {}),
@@ -740,6 +788,7 @@ async function finalizeProviderTurn(
     && current.toolCalls.length === 0
     && !state.hasSuccessfulChangePreview) {
     const ticket = extractValidChangeTicket(current.visible);
+    state.phase = 'preview';
     const preview = ticket
       ? await previewFinalTicket(ticket, opts, state.automaticTools)
       : { content: 'The Change Ticket is malformed.', isError: true };
@@ -759,11 +808,35 @@ async function finalizeProviderTurn(
       }
       break;
     }
-    appendUserNote(`Automatic Preview of the exact Change Ticket failed:\n${preview.content}\nRepair the ticket from this error and return exactly one corrected crev-change ticket. Do not restart discovery.`);
+    const failed = ticket ? proposalFromTicket(ticket) : null;
+    const repairEvidence = {
+      operation: failed?.operation,
+      target: failed?.target,
+      attemptedCode: failed?.code,
+      error: preview.content,
+      ...(parsedErrorLine(preview.content) !== undefined
+        ? { line: parsedErrorLine(preview.content) }
+        : {}),
+    };
+    appendUserNote(`Automatic Preview failed. Repair only this ticket from the structured evidence below, then return exactly one corrected crev-change ticket. Do not restart discovery.\n<preview-failure>${JSON.stringify(repairEvidence)}</preview-failure>`);
     structuredFinal = true;
     state.previewRepairRetries++;
     state.modelRetries++;
-    current = await request(structuredFinal);
+    const failedTurn = current;
+    const repaired = await request(structuredFinal);
+    if (!repaired.changeTicket) {
+      if (repaired.outcome === 'none') state.emptyResponseRetries++;
+      current = failedTurn;
+      if (failed?.code) {
+        opts.onEvent({
+          kind: 'change-preview-failed',
+          code: failed.code,
+          resultText: preview.content,
+        });
+      }
+      break;
+    }
+    current = repaired;
   }
   if (current.toolCalls.length === 0 && current.visible) {
     opts.onEvent({ kind: 'text-delta', delta: current.changeTicket ? isolateValidChangeTicket(current.visible) : current.visible });
@@ -783,10 +856,20 @@ async function runProviderChat(
     previewRepairRetries: 0,
     hasSuccessfulChangePreview: false,
     automaticTools: createAutomaticToolState(),
+    requestedModel: opts.settings.model,
+    resolvedModels: [],
     providerRequests: 0,
     providerDurationMs: 0,
     usage: emptyUsage(),
+    phase: 'provider',
   };
+  let partialMetrics = emptyTurnMetrics();
+  const completeMetrics = (metrics: AiTurnMetrics): AiTurnMetrics => ({
+    ...withProviderMetrics(withAutomaticTools(metrics, state.automaticTools), state),
+    modelRetries: state.modelRetries,
+    emptyResponseRetries: state.emptyResponseRetries,
+    previewRepairRetries: state.previewRepairRetries,
+  });
 
   const runTurn = async (
     allowTools: boolean,
@@ -794,8 +877,9 @@ async function runProviderChat(
     return finalizeProviderTurn(opts, state, async structuredFinal => {
       const requestStarted = Date.now();
       state.providerRequests++;
+      state.phase = 'provider';
       try {
-        const preparedChoice = !!opts.prefetchedContext?.providerPlan && !structuredFinal;
+        const preparedChoice = !!opts.turn.prefetch?.providerPlan && !structuredFinal;
         const finalOnly = structuredFinal;
         const selectable = allowTools && opts.toolPolicy?.initialTools !== false
           ? TOOL_DEFS.filter(tool => modelToolAllowed(opts, tool.name))
@@ -815,6 +899,7 @@ async function runProviderChat(
         if (turn.timing.firstOutputMs !== undefined) {
           state.providerFirstOutputMs ??= turn.timing.firstOutputMs;
         }
+        if (turn.resolvedModel) state.resolvedModels.push(turn.resolvedModel);
         addUsage(state.usage, turn.usage);
         return normalizeProviderTurn(state.automaticTools, turn.text, turn.toolCalls, turn.appendAssistant);
       } finally {
@@ -827,13 +912,19 @@ async function runProviderChat(
     conversation.appendToolResults(results);
   };
 
-  const metrics = await runToolLoop(runTurn, appendResults, conversation.appendFinalNote, opts);
-  return {
-    ...withProviderMetrics(withAutomaticTools(metrics, state.automaticTools), state),
-    modelRetries: state.modelRetries,
-    emptyResponseRetries: state.emptyResponseRetries,
-    previewRepairRetries: state.previewRepairRetries,
-  };
+  try {
+    const metrics = await runToolLoop(
+      runTurn,
+      appendResults,
+      conversation.appendFinalNote,
+      opts,
+      metrics => { partialMetrics = metrics; },
+      phase => { state.phase = phase; },
+    );
+    return completeMetrics(metrics);
+  } catch (error) {
+    throw new InterruptedTurnError(error, completeMetrics(partialMetrics), state.phase);
+  }
 }
 
 /** One-shot "does this key work" probe. Sends a tiny request and reports

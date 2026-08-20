@@ -24,6 +24,7 @@ afterEach(() => { vi.restoreAllMocks(); });
 describe('streamAnthropicTurn — tool_use accumulation', () => {
   it('accumulates input_json_delta chunks into one parsed tool call', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(okStream([
+      'event: message_start\ndata: {"type":"message_start","message":{"model":"claude-opus-4-8-20260801","usage":{"input_tokens":12}}}\n\n',
       'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_type"}}\n\n',
       'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"type\\":"}}\n\n',
       'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\\"ButtonInput\\"}"}}\n\n',
@@ -39,6 +40,7 @@ describe('streamAnthropicTurn — tool_use accumulation', () => {
     });
 
     expect(turn.stopReason).toBe('tool_use');
+    expect(turn.resolvedModel).toBe('claude-opus-4-8-20260801');
     expect(turn.toolCalls).toEqual([{ id: 'toolu_1', name: 'read_type', input: { type: 'ButtonInput' } }]);
     // The assistant content echoes the tool_use block for the reply turn.
     expect(turn.content).toEqual([{ type: 'tool_use', id: 'toolu_1', name: 'read_type', input: { type: 'ButtonInput' } }]);
@@ -124,7 +126,7 @@ describe('streamAnthropicTurn — tool_use accumulation', () => {
 describe('streamOpenAiTurn — delta.tool_calls accumulation', () => {
   it('accumulates streamed tool_calls by index into a parsed call', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(okStream([
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_type","arguments":"{\\"ty"}}]}}]}\n\n',
+      'data: {"model":"z-ai/glm-5.2","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_type","arguments":"{\\"ty"}}]}}]}\n\n',
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"pe\\":\\"ButtonInput\\"}"}}]}}]}\n\n',
       'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
       'data: [DONE]\n\n',
@@ -138,6 +140,7 @@ describe('streamOpenAiTurn — delta.tool_calls accumulation', () => {
     });
 
     expect(turn.finishReason).toBe('tool_calls');
+    expect(turn.resolvedModel).toBe('z-ai/glm-5.2');
     expect(turn.toolCalls).toEqual([{ id: 'call_1', name: 'read_type', input: { type: 'ButtonInput' } }]);
     expect(turn.assistantMessage).toEqual({
       role: 'assistant', content: null,

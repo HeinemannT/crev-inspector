@@ -41,7 +41,7 @@ interface AnthropicDelta {
   content_block?: { type?: string; id?: string; name?: string };
   delta?: { type?: string; text?: string; partial_json?: string; stop_reason?: string };
   error?: { type?: string; message?: string };
-  message?: { usage?: AnthropicUsage };
+  message?: { usage?: AnthropicUsage; model?: string };
   usage?: AnthropicUsage;
 }
 
@@ -192,6 +192,8 @@ export interface AnthropicTurnResult {
   content: AnthropicContentBlock[];
   usage: AiTokenUsage;
   timing: AiProviderTiming;
+  /** Concrete provider response model, when the wire protocol reports it. */
+  resolvedModel?: string;
 }
 
 /** Accumulator for one streamed content block (text or tool_use). */
@@ -260,6 +262,7 @@ export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<Anth
 
   const blocks = new Map<number, BlockAcc>();
   let stopReason: string | null = null;
+  let resolvedModel: string | undefined;
   const usage = EMPTY_USAGE();
 
   await readSse(response, (frame) => {
@@ -270,6 +273,7 @@ export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<Anth
     if (!frame.data || frame.data === '[DONE]') return;
     const parsed = safeParse(frame.data);
     if (!parsed) return;
+    resolvedModel ??= parsed.message?.model;
     captureUsage(usage, parsed.message?.usage ?? parsed.usage);
     switch (parsed.type) {
       case 'content_block_start': {
@@ -320,7 +324,15 @@ export async function streamAnthropicTurn(opts: AnthropicTurnOpts): Promise<Anth
     }
   }
 
-  return { text, toolCalls, stopReason, content, usage, timing };
+  return {
+    text,
+    toolCalls,
+    stopReason,
+    content,
+    usage,
+    timing,
+    ...(resolvedModel ? { resolvedModel } : {}),
+  };
 }
 
 /** Parse an accumulated tool-input JSON blob. Empty / malformed → `{}` so a

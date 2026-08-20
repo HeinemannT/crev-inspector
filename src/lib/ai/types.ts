@@ -176,10 +176,17 @@ export interface AiProviderTiming {
   firstOutputMs?: number;
 }
 
-/** Machine-readable turn telemetry for prompt/tool evaluation. It contains no
- * prompts, tool arguments, results, code, or workspace values. */
+/** Machine-readable turn telemetry for prompt/tool evaluation. Tool inputs and
+ * provider-facing results are retained under the same bounds used for model
+ * context, so failed and inefficient turns can be reconstructed exactly. */
 export interface AiTurnMetrics {
   durationMs: number;
+  /** Configured model id sent on each provider request. */
+  requestedModel?: string;
+  /** Concrete response model ids in provider-request order. Routers can
+   * resolve successive requests to different models. Missing entries mean the
+   * provider did not report an id before interruption. */
+  resolvedModels?: string[];
   /** Provider requests include discovery, final submission, and repair turns. */
   providerRequests: number;
   providerDurationMs: number;
@@ -198,7 +205,12 @@ export interface AiTurnMetrics {
   historyTurnsDropped?: number;
   /** Final provider-selected semantic outcome. Structured outcomes are
    * preferred; text remains for ordinary non-prefetched answers. */
-  terminalOutcome?: 'answer' | 'change' | 'text';
+  terminalOutcome?: 'answer' | 'change' | 'text' | 'timeout' | 'cancelled' | 'error';
+  /** Last active pipeline phase. Failed turns use this to distinguish prompt
+   * preparation, provider latency, model tools, and final-ticket Preview. */
+  terminalPhase?: 'preparation' | 'provider' | 'model-tool' | 'preview' | 'complete';
+  /** Exact terminal error retained locally for failed evaluation traces. */
+  terminalError?: string;
   /** Provider turns retried because they returned neither text nor tools. */
   modelRetries: number;
   /** Subset of modelRetries caused by empty, fully scrubbed, or structurally
@@ -219,6 +231,17 @@ export interface AiTurnMetrics {
   prefetchDurationMs?: number;
   /** Sum of deterministic final/expression Preview wall time. */
   previewDurationMs: number;
+  /** Exact deterministic final-ticket Preview attempts. Bounded by the repair
+   * policy, so this cannot grow with the general tool loop. */
+  previewAttempts?: Array<{
+    code: string;
+    resultText: string;
+    ok: boolean;
+    durationMs: number;
+    operation?: string;
+    target?: string;
+    line?: number;
+  }>;
   /** Sum of model-selected BMP tool execution time. */
   modelToolDurationMs: number;
   /** Repeated identical requests that returned unchanged evidence. They are
@@ -231,11 +254,17 @@ export interface AiTurnMetrics {
    * and distinct calls that returned evidence already seen earlier in the turn. */
   tools: Array<{
     name: string;
+    summary: string;
+    input: Record<string, unknown>;
+    /** Exact bounded provider-facing result JSON. */
+    result: string;
     origin: 'model' | 'pipeline' | 'prefetch';
     ok: boolean;
     duplicate: boolean;
     durationMs: number;
     outcome: 'success' | 'error' | 'duplicate' | 'repeated-evidence';
+    /** Convenient direct failure text; `result` remains the canonical trace. */
+    error?: string;
   }>;
   limitReason?: 'calls' | 'rounds' | 'time' | 'stagnation';
 }

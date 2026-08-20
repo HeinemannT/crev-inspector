@@ -9,6 +9,7 @@
 import type { TypePropertiesResult } from '../bmp-type-knowledge';
 import type { SelectedPropertyRequest, SelectedPropertyValue } from '../ec-query-service';
 import type { ObjectReference, TypeSchemaProp } from '../types';
+import { STYLE_PROPS } from '../style-props';
 import type { InspectedPropertyData } from './tool-results';
 
 export const MAX_AI_SELECTED_PROPERTIES = 8;
@@ -52,11 +53,19 @@ function propertySearchTokens(value: string): string[] {
     .match(/[a-z0-9]+/g) ?? [];
   return [...new Set(words
     .filter(word => word.length > 1 && !PROPERTY_QUERY_STOP_WORDS.has(word))
-    .map(word => word.length > 3 && word.endsWith('s') ? word.slice(0, -1) : word))];
+    .map(word => word === 'hidden'
+      ? 'hide'
+      : word.length > 3 && word.endsWith('s') ? word.slice(0, -1) : word))];
 }
 
 function propertyQueryScore(property: TypeSchemaProp, needle: string, queryTokens: readonly string[]): number {
-  const values = [property.accessor, property.label, property.description ?? ''];
+  const style = STYLE_PROPS.find(definition => definition.prop === property.accessor);
+  const values = [
+    property.accessor,
+    property.label,
+    property.description ?? '',
+    ...(style?.options?.flatMap(option => [option.value, option.label]) ?? []),
+  ];
   if (values.some(value => value.toLocaleLowerCase().includes(needle))) return 100 + queryTokens.length;
   const propertyTokens = new Set(values.flatMap(propertySearchTokens));
   return queryTokens.reduce((score, token) => score + ([...propertyTokens].some(candidate =>

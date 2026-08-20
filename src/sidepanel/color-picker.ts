@@ -8,41 +8,25 @@
  */
 import { h, render, svg } from '../lib/dom';
 import { ICON_REFRESH } from '../lib/icons';
-import { ColorSetIndex } from '../lib/color-index';
-import type { ColorSetData, InspectorMessage } from '../lib/types';
+import type { InspectorMessage } from '../lib/types';
+import { WorkspaceColorCatalogue, type ColorSetsMessage } from '../lib/workspace-color-catalogue';
 
-let cache: ColorSetData[] | null = null;   // raw sets — drives the popover's folder rendering
-const index = new ColorSetIndex();          // bid → {name, rgb} for swatch resolution
-let onData: (() => void) | null = null;
-type ColorSetsMessage = Extract<InspectorMessage, { type: 'COLOR_SETS_DATA' }>;
-let loadState: 'idle' | 'loading' | 'ready' | 'stale' | 'error' = 'idle';
-let loadError: string | null = null;
+const panelCatalogue = new WorkspaceColorCatalogue();
 
 /** Receive the fetched colour sets (routed from the SW by sidepanel.ts). */
 export function onColorSetsData(message: ColorSetsMessage): void {
-  loadError = message.error ?? null;
-  if (message.error && message.sets.length === 0 && cache === null) {
-    loadState = 'error';
-    onData?.();
-    return;
-  }
-  cache = message.sets;
-  index.load(message.sets);
-  loadState = message.stale ? 'stale' : 'ready';
-  onData?.();
+  panelCatalogue.receive(message);
 }
 
 /** Drop the panel's cached colours — call on a profile switch so profile B never shows A's swatches. */
 export function resetColorSets(): void {
-  cache = null;
-  loadState = 'idle';
-  loadError = null;
-  index.clear();
+  closeCurrent?.();
+  panelCatalogue.reset();
 }
 
 /** Resolve a colour bid → {name, rgb} from the cache (for the current swatch). */
 export function lookupColor(bid: string): { name: string; rgb: string } | null {
-  return index.lookup(bid);
+  return panelCatalogue.lookup(bid);
 }
 
 interface PickerOpts {
@@ -50,6 +34,9 @@ interface PickerOpts {
   /** The currently-linked colour bid (highlights it), or null. */
   currentBid: string | null;
   sendMessage: (m: InspectorMessage) => void;
+  /** Object View supplies its own realm-local catalogue because it does not
+   * receive the side panel's worker broadcasts. */
+  catalogue?: WorkspaceColorCatalogue;
   /** Receives "<bid> <name>" on pick, or "" when cleared. */
   onPick: (value: string) => void;
 }
@@ -58,7 +45,9 @@ let closeCurrent: (() => void) | null = null;
 
 export function openColorPicker(opts: PickerOpts): void {
   closeCurrent?.(); // one picker at a time
+  const catalogue = opts.catalogue ?? panelCatalogue;
   let filter = '';
+  let unsubscribe = () => {};
 
   const root = h('div', { class: 'cp-popover', role: 'dialog', 'aria-label': 'Pick a colour' });
   const backdrop = h('div', { class: 'cp-backdrop' });
@@ -72,9 +61,7 @@ export function openColorPicker(opts: PickerOpts): void {
   const refreshBtn = h('button', {
     class: 'cp-refresh', type: 'button', title: 'Reload colours from BMP',
     onClick: () => {
-      loadState = 'loading';
-      loadError = null;
-      drawBody();
+      catalogue.beginLoad();
       opts.sendMessage({ type: 'FETCH_COLOR_SETS', force: true });
     },
   }, svg(ICON_REFRESH));
@@ -82,18 +69,17 @@ export function openColorPicker(opts: PickerOpts): void {
   const close = () => {
     document.removeEventListener('keydown', onKey, true);
     backdrop.remove(); root.remove();
-    if (onData === drawBody) onData = null;
+    unsubscribe();
     if (closeCurrent === close) closeCurrent = null;
   };
   const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
 
   function drawBody(): void {
+    const { sets: cache, status: loadState, error: loadError } = catalogue.snapshot();
     const q = filter.trim().toLowerCase();
     const items: HTMLElement[] = [];
     const retry = () => {
-      loadState = 'loading';
-      loadError = null;
-      drawBody();
+      catalogue.beginLoad();
       opts.sendMessage({ type: 'FETCH_COLOR_SETS', force: true });
     };
     if (cache === null) {
@@ -157,12 +143,16 @@ export function openColorPicker(opts: PickerOpts): void {
   document.addEventListener('keydown', onKey, true);
   backdrop.addEventListener('click', close);
   closeCurrent = close;
-  onData = drawBody;
+  const drawAndEnsureLoaded = () => {
+    drawBody();
+    const state = catalogue.snapshot();
+    if (state.sets === null && state.status === 'idle') {
+      catalogue.beginLoad();
+      opts.sendMessage({ type: 'FETCH_COLOR_SETS' });
+    }
+  };
+  unsubscribe = catalogue.subscribe(drawAndEnsureLoaded);
 
-  drawBody();
+  drawAndEnsureLoaded();
   filterInput.focus();
-  if (cache === null && loadState !== 'error') {
-    loadState = 'loading';
-    opts.sendMessage({ type: 'FETCH_COLOR_SETS' });
-  }
 }

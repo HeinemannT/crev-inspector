@@ -34,6 +34,9 @@ interface OpenAiToolCallDelta {
 }
 
 interface OpenAiChunk {
+  /** The concrete model that served the request. Routers such as OpenRouter
+   * may return a different id from the model requested by the client. */
+  model?: string;
   choices?: Array<{
     delta?: { content?: string; tool_calls?: OpenAiToolCallDelta[] };
     finish_reason?: string | null;
@@ -78,7 +81,7 @@ function captureUsage(target: AiTokenUsage, parsed: OpenAiChunk): void {
   target.reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? target.reasoningTokens;
 }
 
-export async function streamOpenAiCompat(opts: OpenAiStreamOpts): Promise<{ text: string; usage: AiTokenUsage }> {
+export async function streamOpenAiCompat(opts: OpenAiStreamOpts): Promise<{ text: string; usage: AiTokenUsage; resolvedModel?: string }> {
   const url = `${opts.baseUrl}/chat/completions`;
   const messages: Array<{ role: string; content: string }> = [];
   if (opts.system) messages.push({ role: 'system', content: opts.system });
@@ -103,17 +106,19 @@ export async function streamOpenAiCompat(opts: OpenAiStreamOpts): Promise<{ text
   if (!response.ok) throw new Error(await errorFromResponse(response));
 
   let text = '';
+  let resolvedModel: string | undefined;
   const usage = EMPTY_USAGE();
   await readSse(response, (frame) => {
     if (!frame.data || frame.data === '[DONE]') return;
     const parsed = safeParse(frame.data);
     if (!parsed) return;
+    resolvedModel ??= parsed.model;
     if (parsed.error?.message) throw new Error(parsed.error.message);
     captureUsage(usage, parsed);
     const delta = parsed.choices?.[0]?.delta?.content;
     if (delta) { text += delta; opts.onChunk(delta); }
   });
-  return { text, usage };
+  return { text, usage, ...(resolvedModel ? { resolvedModel } : {}) };
 }
 
 // ── Tool-aware turn (chat orchestrator) ──────────────────────────
@@ -151,6 +156,8 @@ export interface OpenAiTurnResult {
   assistantMessage: OpenAiMessage;
   usage: AiTokenUsage;
   timing: AiProviderTiming;
+  /** Concrete provider response model, when the wire protocol reports it. */
+  resolvedModel?: string;
 }
 
 interface ToolCallAcc { id: string; name: string; args: string; }
@@ -195,6 +202,7 @@ export async function streamOpenAiTurn(opts: OpenAiTurnOpts): Promise<OpenAiTurn
 
   let text = '';
   let finishReason: string | null = null;
+  let resolvedModel: string | undefined;
   const calls = new Map<number, ToolCallAcc>();
   const usage = EMPTY_USAGE();
 
@@ -202,6 +210,7 @@ export async function streamOpenAiTurn(opts: OpenAiTurnOpts): Promise<OpenAiTurn
     if (!frame.data || frame.data === '[DONE]') return;
     const parsed = safeParse(frame.data);
     if (!parsed) return;
+    resolvedModel ??= parsed.model;
     if (parsed.error?.message) throw new Error(parsed.error.message);
     captureUsage(usage, parsed);
     const choice = parsed.choices?.[0];
@@ -235,7 +244,15 @@ export async function streamOpenAiTurn(opts: OpenAiTurnOpts): Promise<OpenAiTurn
     ? { role: 'assistant', content: text || null, tool_calls: rawCalls }
     : { role: 'assistant', content: text };
 
-  return { text, toolCalls, finishReason, assistantMessage, usage, timing };
+  return {
+    text,
+    toolCalls,
+    finishReason,
+    assistantMessage,
+    usage,
+    timing,
+    ...(resolvedModel ? { resolvedModel } : {}),
+  };
 }
 
 function parseToolArgs(args: string): Record<string, unknown> {

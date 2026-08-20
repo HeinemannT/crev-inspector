@@ -28,6 +28,14 @@ _Avoid_: EC success, identity update
 The conversational, tool-using AI surface that can inspect the current BMP context, answer questions, and produce a Previewed Change Ticket for an explicit configuration request.
 _Avoid_: EC Editor AI, chatbot
 
+**AI Context Session**:
+The session-lived set of editor, selected-object, and viewed-page sources attached to the AI Sidebar, including the user's pin and detach choices.
+_Avoid_: Context chips, prompt context, selected object
+
+**AI Sidebar Turn**:
+One submitted AI Sidebar request grounded in its attached context and verified evidence, ending in an answer, Change Ticket, cancellation, or error.
+_Avoid_: Provider request, chat message, completion
+
 **EC Editor AI**:
 The one-shot editing assistant inside an Extended Code editor. It transforms the supplied document or selection and returns an edit; it does not discover BMP state, Preview, or execute.
 _Avoid_: AI Sidebar, coding bot
@@ -35,3 +43,7 @@ _Avoid_: AI Sidebar, coding bot
 **Change Ticket**:
 The structured AI Sidebar artifact containing a short summary, exact target token, operation metadata, and complete Extended Code. A successful BMP Preview creates a short-lived receipt bound to the exact code, target context, server, profile, and actor; Run consumes that receipt once.
 _Avoid_: code suggestion, preview script, verification ticket
+
+**Workspace Colour Catalogue**:
+One browser surface's current view of the active BMP workspace's linked colour sets, including indexed colours and whether the view is fresh, stale, loading, or unavailable.
+_Avoid_: Colour picker cache, global colour singleton, hex palette

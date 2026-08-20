@@ -372,7 +372,7 @@ describe('simple widget change pipeline', () => {
       'answer_user', 'submit_change_ticket',
     ]);
     expect(bodies[0].tool_choice).toBe('required');
-    expect(bodies[0].messages[0].content).toContain('Choose one useful artifact');
+    expect(bodies[0].messages[0].content).toContain('Choose exactly one API artifact');
     expect(bodies[0].messages[0].content).toContain('uncommitted suggestion');
     expect(loadFullPrompt).not.toHaveBeenCalled();
     const userText = bodies[0].messages.at(-1)?.content as string;
@@ -416,7 +416,7 @@ describe('simple widget change pipeline', () => {
     expect(bodies[0].tools.map((tool: any) => tool.function.name)).toEqual([
       'search_objects', 'answer_user', 'submit_change_ticket',
     ]);
-    expect(bodies[0].messages[0].content).toContain('labels are not references');
+    expect(bodies[0].messages[0].content).toContain('Reference values require a verified object');
   });
 
   it('passes one non-Boolean property as typed candidate metadata without forcing a TRUE/FALSE update form', async () => {
@@ -445,7 +445,7 @@ describe('simple widget change pipeline', () => {
     const userText = bodies[0].messages.at(-1)?.content as string;
     expect(userText).toContain('"accessor":"headerText"');
     expect(userText).toContain('"configClass":"StringMethodConfig"');
-    expect(bodies[0].messages[0].content).toMatch(/quote strings/i);
+    expect(bodies[0].messages[0].content).toContain('strings are quoted');
   });
 
   it('answers a how-to question in one terminal turn without Previewing a change', async () => {

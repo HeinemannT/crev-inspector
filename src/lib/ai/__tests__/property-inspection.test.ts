@@ -32,6 +32,15 @@ describe('progressive property inspection', () => {
       .toEqual(['showToolMenu', 'toolbarColor']);
   });
 
+  it('uses known enum labels to resolve natural property concepts', () => {
+    const widgetProperties: TypeSchemaProp[] = [
+      { accessor: 'visible', label: 'visible', configClass: 'SystemMethodConfig', systemobject: true },
+      { accessor: 'visibility', label: 'visibility', configClass: 'SystemMethodConfig', systemobject: true },
+    ];
+    expect(searchTypeProperties(widgetProperties, 'hide').shown.map(property => property.accessor))
+      .toEqual(['visibility']);
+  });
+
   it('formats scalar, reference, inherited, long and unknown values compactly', async () => {
     const values = vi.fn(async () => [
       { accessor: 'card', state: 'value' as const, value: 'Risk card', reference: { rid: '99', businessId: 'risk_card', name: 'Risk card', type: 'Card' } },

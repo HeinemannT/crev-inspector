@@ -72,4 +72,14 @@ describe('linked colour picker states', () => {
     expect(document.querySelector('.cp-error')).toBeNull();
     expect(document.querySelector('.cp-empty')?.textContent).toBe('No colours found.');
   });
+
+  it('closes an open picker when a profile switch resets its catalogue', () => {
+    const { sendMessage } = open();
+    onColorSetsData({ type: 'COLOR_SETS_DATA', environment: 'first', sets: savedSets });
+
+    resetColorSets();
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(document.querySelector('.cp-popover')).toBeNull();
+  });
 });

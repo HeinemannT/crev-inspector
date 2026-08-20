@@ -355,12 +355,21 @@ describe('executeAiTool — defensive', () => {
 
   it('preview_ec surfaces an EC error as isError', async () => {
     mockChromeStorage();
-    const executeEc = vi.fn(async () => ({ ok: false, error: 'parse error' }));
+    const executeEc = vi.fn(async () => ({ ok: false, error: 'line 3: parse error' }));
     setSwContext(makeCtx({ client: { executeEc } }));
     const { executeAiTool } = await import('../ai-tools');
     const res = await executeAiTool(call('preview_ec', { code: 'bad(' }));
     expect(res.isError).toBe(true);
     expect(res.content).toContain('parse error');
+    expect(res.structuredContent).toMatchObject({
+      tool: 'preview_ec',
+      status: 'error',
+      error: {
+        message: 'line 3: parse error',
+        line: 3,
+        attemptedCode: 'bad(',
+      },
+    });
   });
 
   it('query_context binds to the attached RID and returns one filtered descendant probe', async () => {
@@ -808,6 +817,43 @@ describe('executeAiTool — defensive', () => {
       },
     });
     options.mockRestore();
+    schema.mockRestore();
+  });
+
+  it('read_type exposes known values for a system visibility enum', async () => {
+    mockChromeStorage();
+    const knowledge = await import('../../bmp-type-knowledge');
+    const schema = vi.spyOn(knowledge.bmpTypeKnowledge, 'properties').mockResolvedValue({
+      ok: true,
+      canonical: 'CustomVisualization',
+      props: [
+        { accessor: 'visible', label: 'visible', configClass: 'SystemMethodConfig', systemobject: true },
+        { accessor: 'visibility', label: 'visibility', configClass: 'SystemMethodConfig', systemobject: true },
+      ],
+    });
+    const executeEc = vi.fn();
+    setSwContext(makeCtx({ client: { executeEc } }));
+    const { executeAiTool } = await import('../ai-tools');
+
+    const res = await executeAiTool(call('read_type', {
+      type: 'CustomVisualization', query: 'hide', propertyOnly: true,
+    }));
+
+    expect(res.isError).toBe(false);
+    expect(executeEc).not.toHaveBeenCalled();
+    expect(res.content).toContain('Known values for visibility: Visible (VISIBLE), Hidden (NOVISIBLE)');
+    expect(res.structuredContent).toMatchObject({
+      tool: 'read_type', status: 'ok', data: {
+        schema: { properties: [{ accessor: 'visibility', configClass: 'SystemMethodConfig' }] },
+        optionSets: [{
+          accessor: 'visibility',
+          items: expect.arrayContaining([
+            { ref: 'VISIBLE', name: 'Visible' },
+            { ref: 'NOVISIBLE', name: 'Hidden' },
+          ]),
+        }],
+      },
+    });
     schema.mockRestore();
   });
 

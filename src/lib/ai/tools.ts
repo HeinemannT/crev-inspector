@@ -42,10 +42,10 @@ export interface ToolResult {
   objects?: ObjectReference[];
 }
 
-export function toolResultForModel(result: ToolResult): string {
+export function toolResultForModel(result: ToolResult, fallbackTool = 'unknown'): string {
   const bounded = boundedToolResult(result);
   const structured = bounded.structuredContent
-    ?? toolFailure('unknown', result.content || (result.isError ? 'Tool failed.' : 'Legacy tool result.'));
+    ?? toolFailure(fallbackTool, result.content || (result.isError ? 'Tool failed.' : 'Legacy tool result.'));
   return JSON.stringify(structured);
 }
 

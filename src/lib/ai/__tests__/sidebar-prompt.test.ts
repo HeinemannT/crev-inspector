@@ -56,7 +56,7 @@ describe('buildChatSystem workspace primer', () => {
     expect(system).not.toContain('as target and receiver');
     expect(system).not.toContain('a container is only the `container :=` value');
     expect(system).not.toContain('destination container node\'s rid as the placement receiver');
-    expect(system).toContain('read_layout supplies page ownership and tab/container/widget structure');
+    expect(system).toContain('When the user identifies the subject contextually and read_layout supplies structural facts');
     expect(system).not.toContain('reason=local-widget-only');
   });
 
@@ -95,11 +95,11 @@ describe('buildChatSystem workspace primer', () => {
   it('uses progressive property discovery without reconfirming self-contained exact changes', () => {
     const { system } = buildChatSystem(env);
     expect(system).toContain('Preserve exact supplied targets, receivers, property IDs');
-    expect(system).toContain('Call read_object only when the current value was requested');
+    expect(system).toContain('read_object only for a requested current value');
     expect(system).toContain('use one narrow read_type query');
-    expect(system).toContain('A self-contained change with exact target, accessor, value');
-    expect(system).toContain('needs no discovery');
-    expect(system).toContain('Use read_code for a located object\'s full stored EC/HTML/JS/CSS');
+    expect(system).toContain('self-contained exact changes');
+    expect(system).toContain('need no rediscovery');
+    expect(system).toContain('use read_code for a located object\'s complete stored source');
   });
 
   it('defaults vague linked-page changes from structural facts and keeps target metadata minimal', () => {
@@ -109,8 +109,8 @@ describe('buildChatSystem workspace primer', () => {
     expect(system).toContain('briefly state that the change affects the shared template');
     expect(system).not.toContain('An instance-only alternative is available on request.');
     expect(system).not.toContain('followed exactly by');
-    expect(system).toContain('target: one exact [[object:RID]] or exact supplied symbolic target');
-    expect(system).toContain('with no arrows or narration');
+    expect(system).not.toContain('target: one exact [[object:RID]] or exact supplied symbolic target');
+    expect(system).toContain('its schema owns the exact fields');
     expect(system).toContain('Existing widget: if linkedTemplateRid exists');
     expect(system).toContain('[[object:RID]] is display syntax for ticket targets and prose');
     expect(system).toContain('Never expose internal field names or routing labels');
@@ -220,6 +220,7 @@ describe('buildChatSystem workspace primer', () => {
 
   it('ships the measured lean orchestration contract', () => {
     const { system } = buildChatSystem(env);
+    expect(system.length).toBeLessThanOrEqual(30_800);
     expect(system).toContain('<decision-policy>');
     expect(system).toContain('Attached context is authoritative');
     expect(system).toContain('Supplied code is the complete subject of an explain/review request');
@@ -232,7 +233,7 @@ describe('buildChatSystem workspace primer', () => {
     expect(system).toContain('Call `moveBefore`/`moveAfter` on the new widget only when sibling ordering was requested');
     expect(system).toContain('no comments, diagnostics, state reads');
     expect(system).toContain('check requested object count');
-    expect(system).toContain('summary: one visible outcome under 140 characters');
+    expect(system).not.toContain('summary: one visible outcome under 140 characters');
     expect(system).toContain('The outer Preview proves only that the source can be stored');
     expect(system).toContain('Preview the inner expression separately when an uncertain join/group/aggregate');
     expect(system).toContain('An `ExtendedTable` gets rows and columns from its stored `expression`');
@@ -241,7 +242,7 @@ describe('buildChatSystem workspace primer', () => {
     expect(system).toContain('Zero is class-dependent');
     expect(system).toContain('organisation.link(masterScorecard)');
     expect(system).toContain('**EnterpriseTemplate:** use two committed phases');
-    expect(system).toContain('invoke it once with summary, target, operation, and complete code');
+    expect(system).toContain('invoke it once; its schema owns the exact fields');
     expect(system).toContain('One ticket is one commit phase');
     expect(system).toContain('normally under 30 lines');
   });

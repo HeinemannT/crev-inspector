@@ -43,6 +43,7 @@ import {
   type StreamState, initStream, reduceStream, cancelStream, isTerminal,
   toAssistantTurn, prepareRetry, prepareEdit,
 } from './ai-chat-state';
+import { AiContextSession } from './ai-context-session';
 
 /** One committed transcript turn plus display-only meta the canonical
  *  AiChatTurn doesn't carry (the divergence tag). */
@@ -71,20 +72,7 @@ export class AiTab implements Tab {
   private pendingTag: string | undefined;
 
   // ── Context (chips = envelope.sources) ──────────────────────────
-  /** Editor/studio context for this window's active BMP tab, or null. */
-  private editorSource: AiContextSource | null = null;
-  /** Frozen selection snapshot when the user pins the selection chip. */
-  private pinnedSelection: AiContextSource | null = null;
-  /** The viewed page remains the default while a user-selected object acts as
-   * an override. Keep its best-known identity so detaching that override can
-   * reveal the webpage again without a lookup or prompt-layer workaround. */
-  private webpageSelection: AiContextSource | null = null;
-  private selectionPinned = false;
-  /** RIDs the user detached this session (hidden until the source changes).
-   *  Selection detaches apply only to explicit object overrides: the viewed
-   *  page is the invariant fallback and cannot itself be detached. */
-  private detachedSelectionRid: string | null = null;
-  private detachedEditorRid: string | null = null;
+  private readonly contextSession = new AiContextSession();
 
   // ── Persistent composer nodes (reused across renders) ───────────
   private textarea: HTMLTextAreaElement | null = null;
@@ -166,26 +154,13 @@ export class AiTab implements Tab {
    *  when its snapshot was taken sparse — pinning freezes WHICH object is
    *  attached, not a half-loaded view of it. */
   contextChanged(): void {
-    const c = S.context;
-    if (c && c.rid === S.page?.rid) {
-      this.webpageSelection = this.sourceForObject(c);
-    }
-    if (c && c.rid !== this.detachedSelectionRid) this.detachedSelectionRid = null;
-    if (this.pinnedSelection && c?.rid === this.pinnedSelection.object.rid
-        && !this.pinnedSelection.object.type && c.type) {
-      this.pinnedSelection = {
-        ...this.pinnedSelection,
-        object: { rid: c.rid, businessId: c.businessId ?? '', name: c.name ?? '', type: c.type },
-      };
-    }
+    this.contextSession.syncSelection(this.contextView());
     if (this.container) this.refreshChips();
   }
 
   /** Live editor/studio context broadcast. Null when no editor is open. */
   setEditorSource(source: AiContextSource | null): void {
-    this.editorSource = source;
-    // A different object clears a stale detach.
-    if (source && source.object.rid !== this.detachedEditorRid) this.detachedEditorRid = null;
+    this.contextSession.setEditor(source);
     if (this.container) this.refreshChips();
   }
 
@@ -216,51 +191,22 @@ export class AiTab implements Tab {
    *  selection chip (chips = envelope, 1:1). */
   submitHandoff(text: string, quote: AiChatQuote | undefined, envelope: AiContextEnvelope): void {
     const ed = envelope.sources.find(s => s.kind === 'editor');
-    if (ed) { this.editorSource = ed; this.detachedEditorRid = null; }
+    if (ed) this.contextSession.adoptEditor(ed);
     this.submit(text, { via: 'strip', quote });
   }
 
   // ── Context resolution ──────────────────────────────────────────
 
   private selectionSource(): AiContextSource | null {
-    if (this.selectionPinned && this.pinnedSelection) return this.pinnedSelection;
-    const c = S.context;
-    if (c?.rid && c.rid !== this.detachedSelectionRid) {
-      const source = this.sourceForObject(c);
-      if (c.rid === S.page?.rid) this.webpageSelection = source;
-      return source;
-    }
-
-    // An explicitly selected object is only an override. Detaching it exposes
-    // the page that was already carried independently in the envelope. A page
-    // can initially be RID-only; later canonical context enrichment upgrades
-    // this cached source through contextChanged().
-    const pageRid = S.page?.rid;
-    if (!pageRid) return null;
-    if (this.webpageSelection?.object.rid === pageRid) return this.webpageSelection;
-    this.webpageSelection = {
-      kind: 'selection',
-      object: { rid: pageRid, businessId: '', name: '', type: '' },
-    };
-    return this.webpageSelection;
+    return this.contextSession.selection(this.contextView());
   }
 
-  private sourceForObject(object: ObjectReference): AiContextSource {
-    return {
-      kind: 'selection',
-      object: {
-        rid: object.rid,
-        businessId: object.businessId ?? '',
-        name: object.name ?? '',
-        type: object.type ?? '',
-      },
-    };
+  private contextView() {
+    return { selection: S.context, page: S.page };
   }
 
   private activeEditorSource(): AiContextSource | null {
-    if (!this.editorSource) return null;
-    if (this.editorSource.object.rid === this.detachedEditorRid) return null;
-    return this.editorSource;
+    return this.contextSession.editor();
   }
 
   private activeServer(): { id: string; url: string } {
@@ -270,12 +216,10 @@ export class AiTab implements Tab {
 
   /** Assemble the envelope from the currently attached chips (editor first). */
   private buildEnvelope(): AiContextEnvelope {
-    const sources: AiContextSource[] = [];
-    const ed = this.activeEditorSource();
-    const sel = this.selectionSource();
-    if (ed) sources.push(ed);
-    if (sel) sources.push(sel);
-    return { v: 1, server: this.activeServer(), ...(S.page ? { page: { ...S.page } } : {}), sources };
+    return this.contextSession.envelope({
+      ...this.contextView(),
+      server: this.activeServer(),
+    });
   }
 
   /** Divergence tag naming the source a reply used. Only meaningful with 2
@@ -296,11 +240,7 @@ export class AiTab implements Tab {
     this.transcript = [];
     this.changeTickets.clear();
     this.stream = null;
-    this.pinnedSelection = null;
-    this.webpageSelection = null;
-    this.selectionPinned = false;
-    this.detachedSelectionRid = null;
-    this.detachedEditorRid = null;
+    this.contextSession.reset();
   }
 
   // ── Send / stream ───────────────────────────────────────────────
@@ -594,7 +534,13 @@ export class AiTab implements Tab {
     const n = trace.length;
     const tick = svg(anyFailed ? ICON_X_CIRCLE : ICON_CHECK_CIRCLE);
     const detail = this.buildToolTrace(
-      trace.map(t => ({ name: t.name, summary: t.summary, status: t.ok === false ? 'err' as const : 'ok' as const })),
+      trace.map(t => ({
+        name: t.name,
+        summary: t.summary,
+        status: t.ok === false ? 'err' as const : 'ok' as const,
+        durationMs: t.durationMs,
+        duplicate: t.duplicate,
+      })),
     );
     detail.classList.add('ai-tg-detail');
 
@@ -617,14 +563,25 @@ export class AiTab implements Tab {
     return group;
   }
 
-  private buildToolTrace(tools: { name: string; summary: string; status: 'pending' | 'ok' | 'err' }[]): HTMLElement {
+  private buildToolTrace(tools: {
+    name: string;
+    summary: string;
+    status: 'pending' | 'ok' | 'err';
+    durationMs?: number;
+    duplicate?: boolean;
+  }[]): HTMLElement {
     const wrap = h('div', { class: 'ai-tools' });
     for (const t of tools) {
       const tick = t.status === 'pending' ? '·' : svg(t.status === 'ok' ? ICON_CHECK_CIRCLE : ICON_X_CIRCLE);
+      const detail = [
+        t.summary,
+        ...(t.durationMs === undefined ? [] : [`${t.durationMs} ms`]),
+        ...(t.duplicate ? ['duplicate'] : []),
+      ].join(' · ');
       wrap.appendChild(h('div', { class: `ai-tl ai-tl--${t.status}` },
         h('span', { class: 'ai-tl-tick' }, tick),
         h('span', { class: 'ai-tl-name' }, t.name),
-        h('span', { class: 'ai-tl-sum' }, t.summary),
+        h('span', { class: 'ai-tl-sum' }, detail),
       ));
     }
     return wrap;
@@ -1183,17 +1140,16 @@ export class AiTab implements Tab {
         h('span', { class: 'ai-cchip-name' }, name),
       );
 
-    const isPageFallback = isSelection && src.object.rid === S.page?.rid;
+    const isPageFallback = this.contextSession.isPageFallback(src, this.contextView());
 
     if (isSelection && !isPageFallback) {
       const pin = h('button', {
-        class: `ai-cchip-pin${this.selectionPinned ? ' on' : ''}`,
-        title: this.selectionPinned ? 'Unpin to follow the selection again' : 'Pin to freeze this context',
+        class: `ai-cchip-pin${this.contextSession.selectionPinned ? ' on' : ''}`,
+        title: this.contextSession.selectionPinned ? 'Unpin to follow the selection again' : 'Pin to freeze this context',
         'aria-label': 'Pin context',
       }, svg(ICON_PIN));
       pin.addEventListener('click', () => {
-        if (this.selectionPinned) { this.selectionPinned = false; this.pinnedSelection = null; }
-        else { this.selectionPinned = true; this.pinnedSelection = this.selectionSource(); }
+        this.contextSession.toggleSelectionPin(this.contextView());
         this.refreshChips();
       });
       chip.appendChild(pin);
@@ -1202,8 +1158,7 @@ export class AiTab implements Tab {
     if (!isPageFallback) {
       const x = h('button', { class: 'ai-cchip-x', title: 'Detach', 'aria-label': 'Detach context' }, svg(ICON_X));
       x.addEventListener('click', () => {
-        if (isSelection) { this.detachedSelectionRid = src.object.rid; this.selectionPinned = false; this.pinnedSelection = null; }
-        else this.detachedEditorRid = src.object.rid;
+        this.contextSession.detach(src);
         this.refreshChips();
       });
       chip.appendChild(x);
