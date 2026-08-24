@@ -54,6 +54,18 @@ describe('migrateStoredSettings', () => {
     expect(settings.ai.provider).toBe('anthropic');
   });
 
+  it('removes the obsolete standalone paint mask', () => {
+    const settings: any = {
+      schemaVersion: 4,
+      profiles: [],
+      activeProfileId: '',
+      paintProps: ['headerColor'],
+    };
+    expect(migrateStoredSettings(settings)).toBe(true);
+    expect(settings.paintProps).toBeUndefined();
+    expect(migrateStoredSettings(settings)).toBe(false);
+  });
+
   it('does not throw on malformed profiles data', () => {
     const settings: any = { schemaVersion: 1, profiles: 'corrupt' };
     expect(() => migrateStoredSettings(settings)).not.toThrow();

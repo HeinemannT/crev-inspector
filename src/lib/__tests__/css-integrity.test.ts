@@ -21,14 +21,13 @@ const FILES = ['src/content-overlay.css', 'src/content-blueprint.css'];
  *  (`position:absolute`) — the tokens below match each file's actual style. */
 const LOAD_BEARING: Array<{ file: string; selector: string; must: string[] }> = [
   // content-overlay.css — every element injected into the host page and positioned
-  // by this sheet: outline context, badges, paint banner, hover card, editor host,
+  // by this sheet: outline context, badges, hover card, editor host,
   // drag snap-ghost, toast container. Losing any one's position drops it
   // into document flow (the lower-left leak).
   { file: 'src/content-overlay.css',   selector: '.crev-outline',         must: ['position: relative'] },
   { file: 'src/content-overlay.css',   selector: '.crev-label',           must: ['position: absolute', 'z-index'] },
   { file: 'src/content-overlay.css',   selector: '.crev-label.crev-page-label', must: ['position: static !important', 'display: inline-flex'] },
   { file: 'src/content-overlay.css',   selector: '.crev-label.crev-label--inline-start', must: ['position: static !important', 'display: inline-flex'] },
-  { file: 'src/content-overlay.css',   selector: '#crev-paint-banner',    must: ['position: fixed', 'z-index'] },
   { file: 'src/content-overlay.css',   selector: '#crev-tooltip',         must: ['position: fixed', 'z-index', '2147483644'] },
   { file: 'src/content-overlay.css',   selector: '.crev-eo-host',         must: ['position: fixed', 'z-index'] },
   { file: 'src/content-overlay.css',   selector: '.crev-eo-snap-ghost',   must: ['position: fixed', 'z-index'] },

@@ -22,7 +22,7 @@ Add the workspace URL under **Connect**, approve Chrome's site-access prompt, an
 - **Use browser login** runs commands as the user signed into the BMP page and supports SSO.
 - **Use stored configuration login** obtains an independent BMP command ticket. The website stays signed in as the portal user, while configuration reads and writes run as the stored account.
 
-Connect shows the verified **Portal** and **Commands** identities separately. Workspace search, live CVO data, downloads, page navigation, and visible portal content retain the portal identity. Configuration lookup, Extended Code, property saves, Paint, and Blueprint use the command identity. A stored command account does not broaden what portal search or live data can see.
+Connect shows the verified **Portal** and **Commands** identities separately. Workspace search, live CVO data, downloads, page navigation, and visible portal content retain the portal identity. Configuration lookup, Extended Code, property saves, and Blueprint use the command identity. A stored command account does not broaden what portal search or live data can see.
 
 ## Inspect the objects behind the page
 
@@ -43,9 +43,9 @@ Turn on **Inspect** from the header or press `Ctrl+Shift+X`. Companion outlines 
 
 The object view groups what you can do:
 
-- **Code** lists direct and referenced code properties. Click **Edit** to open the correct editor.
-- **Structure** shows parents, children, linked objects, siblings, and supported action or input flows.
-- **Info** shows the template ID first when known, while retaining the instance ID, RID, web link, access test, and favourite action.
+- **Info** is the first view. It shows type, template ID, instance ID, and RID above direct and referenced code properties.
+- **Flow** appears for supported flow-bearing objects and shows their action or input chain.
+- **Structure** shows parents, children, linked objects, and siblings. Non-flow relationships remain in Info.
 - **Template / This instance** chooses where a supported property or name change is saved. The instance remains available as an explicit target.
 
 Use the pencil beside a supported object name to rename it. Companion asks for confirmation before saving.

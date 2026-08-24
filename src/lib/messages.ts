@@ -25,7 +25,6 @@ import type {
   ObjectPanePayload,
   PropertyApplication,
   PageContextSource,
-  PaintPhase,
   ScriptHistoryEntry,
   ServerProfile,
   StudioChild,
@@ -296,14 +295,6 @@ export type EnrichMessage =
   | { type: 'RE_ENRICH' }
   | { type: 'RESET_OVERLAY_CACHES' } // SW → content on a manual Reset: drop the blueprint overlay's per-workspace caches
   | { type: 'REFRESH_ENRICHMENT' };
-
-// ── Paint Format ─────────────────────────────────────────────────
-export type PaintMessage =
-  | { type: 'TOGGLE_PAINT' }
-  | { type: 'PAINT_STATE'; phase: PaintPhase; sourceRid?: string; sourceName?: string }
-  | { type: 'PAINT_PICK'; rid: string; environment?: string }
-  | { type: 'PAINT_APPLY'; rid: string; environment?: string }
-  | { type: 'PAINT_APPLY_RESULT'; rid: string; ok: boolean; error?: string };
 
 // ── Detection ────────────────────────────────────────────────────
 export type DetectionMessage =
@@ -584,7 +575,7 @@ export type AiMessage =
 export type InspectorMessage =
   | PageMessage | InspectMessage | CacheMessage | ServerLookupMessage
   | ConnectionMessage | ProfileMessage | EcMessage | StudioMessage | FrameOverlayMessage | EnrichMessage
-  | PaintMessage | DetectionMessage | ActivityMessage
+  | DetectionMessage | ActivityMessage
   | HistoryMessage | FavoritesMessage | ContextMenuMessage
   | OverlayModeMessage | ObjectViewMessage | ObjectPaneMessage
   | DiffMessage | CodeSearchMessage | ScriptHistoryMessage

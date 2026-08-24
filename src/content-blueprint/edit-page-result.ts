@@ -1,5 +1,5 @@
 import type { TypeSchemaProp } from '../lib/types';
-import type { FlowNode, FlowProjection, LModel } from '../lib/layout/types';
+import type { FlowNode, LModel } from '../lib/layout/types';
 import { effectiveFlowChildren } from '../lib/layout/flow';
 import { intersectTypeSchemas } from '../lib/type-schema-utils';
 import { propertyPicker } from '../lib/property-picker';
@@ -439,14 +439,19 @@ function editPageSurface(m: LModel, options: EditPageSurfaceOptions): HTMLElemen
   return frame;
 }
 
-/** Local EditPage editor used by a CreateObjectView inside the normal page Blueprint. It is a view
- * projection only: property/reorder/add mutations still target the root LModel's shared flowEdits. */
-export function embeddedEditPage(m: LModel, projection: FlowProjection): HTMLElement | null {
-  if (!projection.refId || projection.refClass !== 'EditPage') return null;
+interface EmbeddedEditPageOptions {
+  pageId: string;
+  pageName?: string;
+  objectTypeClass?: string;
+}
+
+/** Local EditPage editor used by a CreateObjectView inside the normal page Blueprint. It accepts
+ * both persisted projections and staged-new pages; mutations still target the root model's flowEdits. */
+export function embeddedEditPage(m: LModel, options: EmbeddedEditPageOptions): HTMLElement | null {
   return editPageSurface(m, {
-    pageId: projection.refId,
-    pageName: projection.refName,
-    types: projection.objectTypeClass ? [projection.objectTypeClass] : [],
+    pageId: options.pageId,
+    pageName: options.pageName,
+    types: options.objectTypeClass ? [options.objectTypeClass] : [],
     embedded: true,
     drivesNativeForm: false,
   });

@@ -5,16 +5,7 @@
 
 import { log } from './logger';
 import { HISTORY_MAX, HISTORY_SAVE_DELAY } from './constants';
-
-export interface HistoryEntry {
-  rid: string;
-  name?: string;
-  type?: string;
-  businessId?: string;
-  templateBusinessId?: string;
-  action: 'viewed' | 'edited' | 'painted' | 'ec-executed';
-  timestamp: number;
-}
+import type { HistoryEntry } from './types';
 
 export class HistoryManager {
   private entries: HistoryEntry[] = [];

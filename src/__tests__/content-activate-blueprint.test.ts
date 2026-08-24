@@ -52,10 +52,6 @@ vi.mock('../content-overlays', () => ({
   removeOverlays: vi.fn(),
   updateLabels: vi.fn(),
 }));
-vi.mock('../content-paint', () => ({
-  updatePaintCursors: vi.fn(),
-  flashApplyResult: vi.fn(),
-}));
 vi.mock('../content-tooltip', () => ({
   scheduleTooltipForElement: vi.fn(),
   hideTooltip: vi.fn(),

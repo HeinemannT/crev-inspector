@@ -4,7 +4,7 @@
  * Can be reset atomically on page unload or re-injection.
  */
 
-import type { EditPageContext, EnrichMode, PaintPhase } from './lib/types';
+import type { EditPageContext, EnrichMode } from './lib/types';
 import type { DetectionResult } from './lib/dom-scanner';
 
 /** Cascade target on the badge — for flow-bearing widgets we surface the
@@ -33,8 +33,6 @@ export type EditPageInspectField = {
 export class ContentState {
   inspectActive = false;
   enrichMode: EnrichMode = 'widgets';
-  paintPhase: PaintPhase = 'off';
-  paintSourceName: string | null = null;
   styleInjected = false;
   technicalOverlay = false;
   fromSync = false;
@@ -112,7 +110,7 @@ export class ContentState {
   pageHeaderRid: string | null = null;
 
   /** AbortController whose signal is passed to every page-lifetime
-   *  event listener (document.body mouseover, paint banner clicks, etc.).
+   *  event listener (document.body mouseover, context actions, etc.).
    *  Aborted by resetAll() so a re-injection or double-load doesn't
    *  pile up duplicate listeners. */
   listenerLifetime: AbortController = new AbortController();
@@ -145,8 +143,6 @@ export class ContentState {
   resetAll() {
     this.inspectActive = false;
     this.enrichMode = 'widgets';
-    this.paintPhase = 'off';
-    this.paintSourceName = null;
     this.styleInjected = false;
     this.technicalOverlay = false;
     this.fromSync = false;

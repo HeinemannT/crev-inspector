@@ -36,8 +36,6 @@ describe('editor action-row status', () => {
     expect(compactAt).toBeGreaterThan(-1);
     expect(tightAt).toBeGreaterThan(compactAt);
     expect(css.slice(compactAt, tightAt)).toContain('.editor-status-compact { display: inline; }');
-    expect(css.slice(compactAt, tightAt)).toContain('.editor-ai-btn .ai-button-label { display: none; }');
     expect(css.slice(tightAt)).toContain('.editor-status:not(.editor-status--message)');
-    expect(css.slice(tightAt)).toContain('.editor-ai-btn { display: none; }');
   });
 });

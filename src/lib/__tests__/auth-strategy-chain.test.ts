@@ -111,6 +111,34 @@ describe('BmpAuth explicit strategies', () => {
     expect(fetchSpy.mock.calls.some(([url]) => url.toString().includes('cs/login'))).toBe(false);
   });
 
+  it('does not let a token redirect collapse dev.rico into rico authentication', async () => {
+    const fetchSpy = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith('graphql')) {
+        return { ok: true, status: 200, redirected: false, url,
+          json: async () => ({ data: { authorizationCode: { code: 'dev-code' } } }) } as Response;
+      }
+      expect(init).toMatchObject({ redirect: 'manual', credentials: 'omit', cache: 'no-store' });
+      return {
+        ok: true,
+        status: 200,
+        redirected: true,
+        url: 'https://rico.dlh.de/rico/cstoken',
+        json: async () => ({ accessToken: 'wrong-workspace-jwt' }),
+      } as Response;
+    });
+    globalThis.fetch = fetchSpy;
+    const { BmpAuth } = await import('../bmp-auth');
+    const auth = new BmpAuth('https://dev.rico.dlh.de/rico/', '', '', 'dev-rico', 'portal');
+
+    await expect(auth.getLoginTicket()).rejects.toMatchObject({
+      code: 'exchange-failed',
+      message: expect.stringContaining('configured workspace'),
+    });
+    expect(auth.jwt).toBeNull();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
   it('persists the portal actor binding separately from the command principal', async () => {
     const fetchSpy = vi.fn(async (input: string | URL | Request) => {
       const url = input.toString();

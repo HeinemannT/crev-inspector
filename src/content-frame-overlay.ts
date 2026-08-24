@@ -80,7 +80,6 @@ let moduleTorn = false;
 //
 //   .crev-label          pills (one per inspected widget, BMP's DOM)
 //   #crev-tooltip        hover info popup
-//   #crev-paint-banner   top banner while paint-format is armed
 //
 // Earlier releases used a blanket rule: when ANY frame overlay was
 // open we made every pill click-through, hid the tooltip and quick
@@ -94,8 +93,7 @@ let moduleTorn = false;
 // element geometric check: each candidate's bounding rect is tested
 // against each open frame's host rect, and we toggle
 // `crev-overlay-blocked` accordingly. CSS scopes the response per
-// element (pill → click-through; tooltip / quick inspector → hide;
-// paint banner → click-through).
+// element (pill → click-through; tooltip → hide).
 //
 // We re-run on every overlay mount / unmount / drag tick / resize tick /
 // snap / viewport resize, AND on body subtree mutations (BMP re-paints
@@ -112,7 +110,6 @@ interface GateTarget {
 const GATE_TARGETS: ReadonlyArray<GateTarget> = [
   { selector: '.crev-label' },
   { selector: '#crev-tooltip' },
-  { selector: '#crev-paint-banner' },
 ];
 
 let overlapGateRafScheduled = false;

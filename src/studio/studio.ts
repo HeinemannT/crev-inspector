@@ -32,7 +32,7 @@ import { objectChip } from '../lib/object-chip'
 import { sendRequest, sendFireForget } from '../lib/messaging'
 import { confirmCommandModal, confirmModal } from '../lib/modal'
 import { type StudioChild, type StudioChildType, type InspectorMessage } from '../lib/types'
-import { ICON_PLAY, ICON_REFRESH, ICON_CHECK, ICON_X, ICON_WARNING, ICON_WRAP, ICON_BRACKETS, ICON_SPARKLE } from '../lib/icons'
+import { ICON_PLAY, ICON_REFRESH, ICON_CHECK, ICON_X, ICON_WARNING, ICON_WRAP, ICON_BRACKETS, ICON_SPARKLE, ICON_REVERT, ICON_TRAY_ARROW_DOWN } from '../lib/icons'
 import { fetchAiConfig } from '../editor-core/ai-config'
 import type { AiAssist } from '../editor-core/ai-assist'
 import type { AiLang, AiObjectContext, AiContextSource } from '../lib/ai/types'
@@ -377,7 +377,7 @@ function renderShell() {
         h('span', { class: 'studio-id-name' }, id.name || '(unnamed)'),
         h('span', { class: 'studio-id-bid' }, id.businessId || id.rid),
       ),
-      h('div', { class: 'studio-actions', id: 'studio-actions' }),
+      h('div', { class: 'studio-actions code-action-row', id: 'studio-actions' }),
     ),
     h('div', { class: `studio-split studio-split--${layout}`, id: 'studio-split' },
       // The editor pane carries its own header — the HTML / JavaScript file
@@ -487,20 +487,22 @@ function refreshActions() {
   const saveClass = `btn ${isDirty || saving ? 'btn-success' : justSaved ? 'btn-success btn-saved' : 'btn-ghost'}`
   renderDom(el,
     h('button', { class: 'btn btn-accent', id: 'studio-run', title: 'Re-render preview (retries failed dependencies)', onClick: () => void runPreview({ retryDeps: true }) },
-      svg(ICON_PLAY), ' Re-render', h('kbd', null, `${KBD_MOD}↵`)),
+      svg(ICON_PLAY), h('span', { class: 'code-action-compact-label' }, 'Re-render'), h('kbd', null, `${KBD_MOD}↵`)),
     h('button', { class: saveClass, id: 'studio-save', disabled: saving || !isDirty, title: `Save every changed field (${mode.files.map(f => f.prop).join(' + ')}) (${KBD_MOD}+S)`, onClick: doSave },
-      saving ? 'Saving…' : justSaved ? svg(ICON_CHECK) : null,
-      saving ? null : justSaved ? ' Saved' : n > 1 ? `Save ${n}` : 'Save',
+      justSaved ? svg(ICON_CHECK) : null,
+      h('span', null, saving ? 'Saving…' : justSaved ? 'Saved' : n > 1 ? `Save ${n}` : 'Save'),
       isDirty ? h('kbd', null, `${KBD_MOD}S`) : null),
-    h('button', { class: 'btn btn-ghost', id: 'studio-discard', disabled: !surface?.isDirty(activeProp), title: 'Revert this field to the saved BMP value', onClick: doDiscard }, 'Discard'),
-    h('button', { class: 'btn btn-ghost', id: 'studio-download', title: `Download the source (${mode.files.map(f => f.prop).join(' + ')}) as a .${mode.key}.json bundle`, onClick: doDownload }, 'Download'),
-    h('div', { class: 'studio-actions-spacer' }),
+    h('button', { class: 'btn btn-ghost code-action-tertiary', id: 'studio-discard', disabled: !surface?.isDirty(activeProp), title: 'Revert this field to the saved BMP value', 'aria-label': 'Discard changes', onClick: doDiscard },
+      svg(ICON_REVERT), h('span', { class: 'code-action-label' }, 'Discard')),
+    h('button', { class: 'btn btn-ghost code-action-secondary', id: 'studio-download', title: `Download the source (${mode.files.map(f => f.prop).join(' + ')}) as a .${mode.key}.json bundle`, 'aria-label': 'Download source', onClick: doDownload },
+      svg(ICON_TRAY_ARROW_DOWN), h('span', { class: 'code-action-label' }, 'Download')),
+    h('div', { class: 'studio-actions-spacer code-action-spacer' }),
     h('div', { class: 'seg', role: 'group', 'aria-label': 'Layout' },
       h('button', { class: `seg-btn${layout === 'code' ? ' active' : ''}`, title: 'Editor only', onClick: () => setLayout('code') }, 'Code'),
       h('button', { class: `seg-btn${layout === 'split' ? ' active' : ''}`, title: 'Editor and preview', onClick: () => setLayout('split') }, 'Split'),
       h('button', { class: `seg-btn${layout === 'preview' ? ' active' : ''}`, title: 'Preview only', onClick: () => setLayout('preview') }, 'Preview'),
     ),
-    aiConfigured ? h('button', { class: 'btn-micro studio-ai-btn', id: 'studio-ai', title: `Ask or edit with AI (${KBD_MOD}+K)`, 'aria-label': 'AI assistant', onClick: openAiAssist }, svg(ICON_SPARKLE), h('span', { class: 'ai-button-label' }, 'AI')) : null,
+    aiConfigured ? h('button', { class: 'btn-micro studio-ai-btn code-action-ai', id: 'studio-ai', title: `Ask or edit with AI (${KBD_MOD}+K)`, 'aria-label': 'AI assistant', onClick: openAiAssist }, svg(ICON_SPARKLE), h('span', { class: 'ai-button-label' }, 'AI')) : null,
     h('button', { class: 'btn-micro help-btn', title: 'Quick reference', 'aria-label': 'Quick reference', onClick: (e: Event) => showStudioHelp(e.currentTarget as HTMLElement, KBD_MOD, mode) }, '?'),
   )
 }

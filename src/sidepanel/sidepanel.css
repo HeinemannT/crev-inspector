@@ -106,28 +106,6 @@ body {
   margin-top: 4px;
 }
 
-/* Paint Format style-selection menu (right-click on the paint button). */
-.paint-style-menu { min-width: 170px; }
-.paint-style-title {
-  padding: 4px 10px 6px;
-  font-size: var(--text-xs);
-  color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.paint-style-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
-  font-size: var(--text-sm);
-  color: var(--text-1);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-.paint-style-row:hover { background: var(--surface-3); }
-.paint-style-cb { accent-color: var(--accent); cursor: pointer; margin: 0; }
-
 .header-brand-mark {
   display: inline-flex;
   align-items: center;
@@ -247,8 +225,7 @@ body {
 .status-dot.fail { background: var(--danger); }
 
 /* ── Header toggle buttons (Inspect / Blueprint) ─────── */
-/* Icon buttons in the header row (layout from .header-icon-btn); accent fill
- * when armed, so an active overlay reads at a glance like Paint's tint. */
+/* Icon buttons in the header row; accent fill makes an active overlay clear. */
 
 .inspect-toggle.active,
 .blueprint-toggle.active {
@@ -261,10 +238,6 @@ body {
   color: var(--text-on-color);
 }
 
-/* ── Paint Format button ───────────────────────── */
-/* Borderless micro-action style; accent-bg tint when armed */
-
-.paint-btn,
 .header-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -281,15 +254,9 @@ body {
               color var(--duration-fast) var(--ease-default);
 }
 
-.paint-btn:hover,
 .header-icon-btn:hover {
   color: var(--text-1);
   background: var(--surface-3);
-}
-
-.paint-btn.active {
-  background: rgba(255, 131, 43, 0.18);
-  color: var(--latency-slow);
 }
 
 .header-icon-btn:hover {
@@ -1905,32 +1872,6 @@ body.crev-divider-dragging * { user-select: none; }
   padding: 6px 0;
   color: var(--text-2);
   font-size: var(--text-xs);
-}
-
-/* ── Detail star & full view ──────────────────── */
-
-.detail-star {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: none;
-  color: var(--text-2);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-}
-
-.detail-star svg { width: 14px; height: 14px; }
-.detail-star:hover {
-  color: var(--warning);
-  background: rgba(139, 92, 246, 0.05);
-}
-
-.detail-star.active {
-  color: var(--warning);
 }
 
 /* Current versions stay in the Companion menu. This slot is empty unless the
@@ -4373,32 +4314,6 @@ button.flow-property-ref:hover {
   color: var(--text-on-color);
 }
 .pane-target-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-
-/* Info action rows — the mock's 40px list rows. */
-.dv-irows { border-top: 1px solid var(--surface-3); }
-.dv-irow {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  min-height: 40px;
-  padding: 6px 16px;
-  border: none;
-  border-bottom: 1px solid var(--surface-3);
-  background: none;
-  font-size: var(--text-base);
-  font-family: var(--font-body);
-  color: var(--text-1);
-  cursor: pointer;
-  text-align: left;
-}
-.dv-irow:hover { background: var(--surface-1); }
-.dv-irow:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.dv-irow-ic { display: inline-flex; color: var(--text-3); }
-.dv-irow-ic svg { width: 13px; height: 13px; }
-.dv-irow:hover .dv-irow-ic { color: var(--accent); }
-.dv-irow-l { flex: 1; min-width: 0; }
-.dv-irow-r { font-size: var(--text-xs); color: var(--text-3); }
 
 /* Info meta + context share the 16px gutter grammar. */
 .context-section { padding: 2px 16px 12px; }

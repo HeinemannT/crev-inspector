@@ -252,23 +252,10 @@ export function createIdentityLabel(
   stubEl.setAttribute('aria-label', 'Inspect this BMP object');
 
   // The stub is the affordance for "open this in the sidebar". Modifiers keep
-  // the secondary copy paths (Shift = instance, Alt = RID, Ctrl = instance ref); paint mode owns
-  // clicks first.
+  // the secondary copy paths (Shift = instance, Alt = RID, Ctrl = instance ref).
   stubEl.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-
-    if (s.paintPhase === 'picking') {
-      sendToSW({ type: 'PAINT_PICK', rid, environment: s.environment ?? undefined });
-      label.classList.add('crev-label-flash-pick');
-      setTimeout(() => { label.classList.remove('crev-label-flash-pick'); }, 400);
-      return;
-    }
-
-    if (s.paintPhase === 'applying') {
-      sendToSW({ type: 'PAINT_APPLY', rid, environment: s.environment ?? undefined });
-      return;
-    }
 
     const mod = getModifier(e as MouseEvent);
 

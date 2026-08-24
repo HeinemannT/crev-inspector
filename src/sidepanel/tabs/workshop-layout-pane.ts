@@ -484,7 +484,7 @@ export class WorkshopLayoutPane implements Tab {
               }, svg(ICON_REFRESH)),
           // This tree is a read-only VIEW of the page structure. Editing (drag, resize, add/remove
           // widgets) happens in the in-page blueprint overlay — this launcher opens it. The same toggle
-          // also lives in the global header button row (Search / Paint / Inspect / Blueprint).
+          // also lives in the global header button row (Search / Inspect / Blueprint).
           h('button', {
             class: `refresh-enrich-btn${this.blueprintActive ? ' active' : ''}`,
             'data-action': 'edit-in-blueprint',

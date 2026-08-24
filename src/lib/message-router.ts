@@ -24,7 +24,6 @@ import './handlers/json-shape';
 import './handlers/studio';
 import './handlers/access';
 import './handlers/enrichment';
-import './handlers/paint';
 import './handlers/detection';
 import './handlers/history';
 import './handlers/windows';

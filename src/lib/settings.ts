@@ -58,6 +58,12 @@ export function createSettingsReady(): { settingsReady: Promise<void>; resolveSe
  *  - v3 → v4: explicit portal-vs-stored command identity. */
 export function migrateStoredSettings(s: Record<string, unknown>): boolean {
   let migrated = false;
+  // The standalone Paint Format feature was removed in favor of Blueprint's
+  // staged paintbrush. Drop its obsolete per-user copy mask on first load.
+  if ('paintProps' in s) {
+    delete s.paintProps;
+    migrated = true;
+  }
   if (!s.profiles && (s.bmpUrl || s.bmpUser)) {
     const id = crypto.randomUUID();
     s.profiles = [{ id, label: 'Default', bmpUrl: s.bmpUrl || '', bmpUser: s.bmpUser || '', bmpPass: s.bmpPass || '' }];

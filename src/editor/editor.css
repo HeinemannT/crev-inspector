@@ -440,22 +440,13 @@ body {
  * available width. Metadata yields space in two deliberate stages: readable
  * shorthand first, then hidden. Primary actions never inherit that collapse. */
 @media (max-width: 760px) {
-  .editor-actions { gap: var(--space-1); padding-inline: var(--space-2); }
+  .editor-actions { padding-inline: var(--space-2); }
   .editor-status-full { display: none; }
   .editor-status-compact { display: inline; }
-  .editor-ai-btn {
-    width: 28px;
-    min-width: 28px;
-    padding: 0;
-    gap: 0;
-    justify-content: center;
-  }
-  .editor-ai-btn .ai-button-label { display: none; }
 }
 
 @media (max-width: 680px) {
-  .editor-status:not(.editor-status--message),
-  .editor-ai-btn { display: none; }
+  .editor-status:not(.editor-status--message) { display: none; }
 }
 
 /* ── Drag handle ─────────────────────────────── */

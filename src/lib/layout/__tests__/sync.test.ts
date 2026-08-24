@@ -417,9 +417,17 @@ describe('sync.buildContextEc (org redirect)', () => {
   it('redirects an Organisation rid to its first Scorecard/ModelPage child', () => {
     const ec = buildContextEc('645827105214156857');
     expect(ec).toContain('= "Organisation"'); // detects an org rid
+    expect(ec).toContain('_orgTmplExpression := _probe.templateExpression');
     expect(ec).toContain('"Scorecard"');       // and hunts for a page child
     expect(ec).toContain('"ModelPage"');
     expect(ec).toContain('_probe := _c');       // reassigning the probe to that landing page
+  });
+  it('resolves advanced enterprise templates through their ExtendedExpression', () => {
+    const ec = buildContextEc('6901745225181782227');
+    expect(ec).toContain('IF _probe.advancedMode.whenMissing(false) = true THEN');
+    expect(ec).toContain('_tmplExpression := _probe.templateExpression');
+    expect(ec).toContain('_tmpl := _tmplExpression.expression');
+    expect(ec).toContain('_tmpl.className.whenMissing("") = "EnterpriseTemplate"');
   });
   it('discovers an enterprise template tabset from its placed widgets before falling back', () => {
     const ec = buildContextEc('645827105214156857');

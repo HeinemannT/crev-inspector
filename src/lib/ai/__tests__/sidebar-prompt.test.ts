@@ -189,15 +189,18 @@ describe('buildChatSystem workspace primer', () => {
     expect(system).toContain('One Change Ticket represents one commit phase');
   });
 
-  it.skip('legacy verbose prompt assertions: instructs the model to embed object chips as natural prose', () => {
+  it('requires verified object tokens in place of plain identity text', () => {
     const { system } = buildChatSystem(env);
     const prose = system.replace(/\s+/g, ' ');
-    expect(prose).toContain('The search returned [[object:RID]].');
-    expect(prose).toContain('Do NOT announce a "verified UI object');
-    expect(prose).toContain('The rendered chip already communicates identity');
-    expect(prose).toContain('OBJECT CHIP OUTPUT IS A HARD FINAL-ANSWER FORMAT RULE');
-    expect(prose).toContain('For a simple find/locate request, answer "Found [[object:RID]]." and stop.');
-    expect(prose).toContain('Do not offer follow-up actions after a simple find/locate answer.');
+    expect(prose).toContain('<verified-object-output>');
+    expect(prose).toContain('rendered name, not an optional citation');
+    expect(prose).toContain('use the exact token in place of its plain name');
+    expect(prose).toContain('Do not show the token and plain name together');
+    expect(prose).not.toContain('BID or RID');
+    expect(prose).toContain('You need not mention every supplied object');
+    expect(prose).toContain('For one locate result, answer exactly: Found [[object:RID]].');
+    expect(prose).toContain('Wrong: Owner: Process Register ([[object:RID]]).');
+    expect(prose).toContain('</verified-object-output>');
   });
 
   it.skip('legacy verbose prompt assertions: sets a measurable concise-answer default', () => {
@@ -220,7 +223,7 @@ describe('buildChatSystem workspace primer', () => {
 
   it('ships the measured lean orchestration contract', () => {
     const { system } = buildChatSystem(env);
-    expect(system.length).toBeLessThanOrEqual(30_800);
+    expect(system.length).toBeLessThanOrEqual(31_300);
     expect(system).toContain('<decision-policy>');
     expect(system).toContain('Attached context is authoritative');
     expect(system).toContain('Supplied code is the complete subject of an explain/review request');

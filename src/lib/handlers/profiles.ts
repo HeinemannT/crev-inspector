@@ -26,7 +26,6 @@ register('GET_SETTINGS', (msg, respond) => {
 // the (re-auth) client rebuild.
 const CLIENT_IRRELEVANT_SETTINGS = new Set([
   'enrichMode',
-  'paintProps',
   'commandAuthMigrationNotices',
 ]);
 

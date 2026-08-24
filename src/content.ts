@@ -1,16 +1,15 @@
 /**
  * ISOLATED world content script — thin boot + message dispatch layer.
- * State lives in ContentState, logic in content-overlays/paint/tooltip/observer.
+ * State lives in ContentState, logic in content-overlays/tooltip/observer.
  */
 
-import type { InspectorMessage, ConnectionState, WidgetInfo, PaintPhase, PageContext, EditPageContext } from './lib/types';
+import type { InspectorMessage, ConnectionState, WidgetInfo, PageContext, EditPageContext } from './lib/types';
 import { setCurrentIdentities } from './lib/command-actor';
 import { unknownIdentityMap } from './lib/identity-map';
 import { nextConnectionNotification } from './lib/connection-notification';
 import { traceConnectionDiagnostic } from './lib/connection-trace';
 import { extractUrlRids, scanPageWidgets, detectBmpPage, findTabButton, isTabActive } from './lib/dom-scanner';
 import { resolvePageContext } from './lib/page-context';
-import { h } from './lib/dom';
 import { log } from './lib/logger';
 import { connectPort, disconnectPort, sendToSW, onPortMessage, onReconnect } from './lib/content-port';
 import { dispatchBroadcast } from './lib/handler-registry';
@@ -24,7 +23,6 @@ import { syncOverlays, removeOverlays, updateLabels } from './content-overlays';
 import { removePageHeaderIdentity, syncPageHeaderIdentity } from './content-page-header';
 import { editPageOverlayTargets, ensureEditPageInspection } from './content-edit-page-inspect';
 import { hasStandaloneEditPage, renderedEditPageHosts } from './lib/edit-page-dom';
-import { updatePaintCursors, flashApplyResult } from './content-paint';
 import { scheduleTooltipForElement, hideTooltip, wireObjectPopover, applyTechnicalOverlay, renderOverlayCards } from './content-tooltip';
 import { startObserver } from './content-observer';
 import { mountFrameOverlay, teardownFrameOverlayModule } from './content-frame-overlay';
@@ -249,19 +247,6 @@ function injectStyles() {
   // No document-level body click handler — clicks on widget body fall
   // through to BMP's own click handling, which is what users expect.
 
-  // Paint mode banner
-  const banner = h('div', { id: 'crev-paint-banner' },
-    h('span', { id: 'crev-paint-text' }, 'Paint Format'),
-    h('button', {
-      class: 'crev-paint-close',
-      id: 'crev-paint-close',
-      'aria-label': 'Close paint mode',
-      onClick: () => sendToSW({ type: 'TOGGLE_PAINT' } as InspectorMessage),
-    }, '\u2715'),
-  );
-  banner.style.position = 'fixed'; // leak floor \u2014 never fall into page flow if the stylesheet is absent
-  document.body.appendChild(banner);
-
   s.styleInjected = true;
 }
 
@@ -414,18 +399,6 @@ onPortMessage((msg: InspectorMessage) => {
         syncPageHeaderIdentity(s, getPageHeaderRid());
       }
       break;
-    case 'PAINT_STATE':
-      s.paintPhase = msg.phase;
-      s.paintSourceName = msg.sourceName ?? null;
-      updatePaintCursors(s);
-      if (!s.fromSync) broadcast('crev_sync_paint', { phase: msg.phase, sourceName: msg.sourceName });
-      break;
-    case 'PAINT_APPLY_RESULT':
-      flashApplyResult(msg.rid, msg.ok, msg.error);
-      // Paint stays armed (phase still 'applying' in the SW) so the user can
-      // immediately click the next target — instant-apply sticky painting.
-      if (s.paintPhase === 'applying') updatePaintCursors(s);
-      break;
     case 'ENRICH_MODE':
       if (msg.mode !== s.enrichMode) {
         s.enrichMode = msg.mode;
@@ -490,16 +463,6 @@ onSync('crev_sync_inspect', (data) => {
   }
 });
 
-onSync('crev_sync_paint', (data) => {
-  const d = data as { phase: PaintPhase; sourceName?: string };
-  s.fromSync = true;
-  try {
-    s.paintPhase = d.phase;
-    s.paintSourceName = d.sourceName ?? null;
-    updatePaintCursors(s);
-  } finally { s.fromSync = false; }
-});
-
 onSync('crev_sync_overlay', (data) => {
   const d = data as { active: boolean };
   if (d.active !== s.technicalOverlay) {
@@ -540,16 +503,6 @@ document.body.addEventListener('contextmenu', (e) => {
     }
   }
 }, { capture: true, signal: s.listenerLifetime.signal });
-
-// ── Escape stops paint mode ──────────────────────────────────────
-
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape') return;
-  // Esc stops an active paint session (matches the in-page banner hint).
-  if (s.paintPhase !== 'off') {
-    sendToSW({ type: 'TOGGLE_PAINT' } as InspectorMessage);
-  }
-}, { signal: s.listenerLifetime.signal });
 
 // ── Messages from MAIN world interceptor (via CustomEvent) ───────
 
@@ -705,11 +658,9 @@ function resetContentState() {
   sendBlueprintCmd({ cmd: 'disable' });
   document.getElementById(OVERLAY_STYLE_ID)?.remove();
   document.getElementById('crev-tooltip')?.remove();
-  document.getElementById('crev-paint-banner')?.remove();
   document.getElementById('crev-toast-container')?.remove();
-  // resetAll() aborts the listener lifetime (detaches mouseover + paint
-  // banner click + everything attached with that signal) and arms a
-  // fresh controller for the next injection.
+  // resetAll() aborts the listener lifetime and arms a fresh controller for
+  // the next injection.
   s.resetAll();
 }
 

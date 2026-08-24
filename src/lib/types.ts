@@ -2,8 +2,8 @@ import type { CommandAuthMode, IdentityMap } from './identity-map';
 export type { CommandAuthMode, CommandAuthSource, EffectiveActor, IdentityMap } from './identity-map';
 import type { AiSettings } from './ai/types';
 export type { AiSettings };
-// Style-prop catalog is single-sourced in style-props.ts; imported for DEFAULT_SETTINGS below and
-// re-exported for back-compat with the many `from './types'` import sites.
+// Style-prop catalog is single-sourced in style-props.ts and re-exported for
+// back-compat with the many `from './types'` import sites.
 import { PAINT_STYLE_PROPS, COLOR_LINK_PROPS, PAINT_PROP_RESET, STYLE_PROPS, styleResetLiteral } from './style-props';
 export { PAINT_STYLE_PROPS, COLOR_LINK_PROPS, PAINT_PROP_RESET, STYLE_PROPS, styleResetLiteral };
 // The message union and the type-color/abbreviation registry are single-sourced in
@@ -250,7 +250,7 @@ export interface HistoryEntry {
   type?: string;
   businessId?: string;
   templateBusinessId?: string;
-  action: 'viewed' | 'edited' | 'painted' | 'ec-executed';
+  action: 'viewed' | 'edited' | 'ec-executed';
   timestamp: number;
 }
 
@@ -484,10 +484,6 @@ export interface InspectorSettings {
   autoDetect: boolean;
   saveTarget: SaveTarget;
   enrichMode: EnrichMode;
-  /** Which visual-style properties Paint Format copies. Subset of
-   *  PAINT_STYLE_PROPS, toggled via the paint button's right-click menu.
-   *  Optional/undefined ⇒ copy all (see DEFAULT_SETTINGS + activePaintProps). */
-  paintProps?: string[];
   /** AI coding-assistant config. Absent until the user configures a provider
    *  + key in the Connect tab. The API key inside is stored AES-GCM encrypted;
    *  it is stripped from the session snapshot (see snapshotSettings). */
@@ -501,12 +497,10 @@ export const DEFAULT_SETTINGS: InspectorSettings = {
   autoDetect: true,
   saveTarget: 'template',
   enrichMode: 'widgets',
-  // Default: copy every paintable style prop (single-sourced — see style-props.ts).
-  paintProps: [...PAINT_STYLE_PROPS],
 };
 
 /** Activity feed entry */
-export type ActivityCategory = 'execution' | 'change' | 'blueprint' | 'paint' | 'studio' | 'system';
+export type ActivityCategory = 'execution' | 'change' | 'blueprint' | 'studio' | 'system';
 
 export interface ActivityMeta {
   category: ActivityCategory;
@@ -539,9 +533,6 @@ export interface ActivityEntry {
 
 /** Detection state machine phases */
 export type DetectionPhase = 'unknown' | 'checking' | 'detected' | 'not-detected';
-
-/** Paint format phases */
-export type PaintPhase = 'off' | 'picking' | 'applying';
 
 /** Property names that contain code/scripts (ordered: primary first) */
 export const SCRIPT_PROPS = [

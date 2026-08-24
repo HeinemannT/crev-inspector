@@ -1,12 +1,12 @@
 /**
- * Access Trace overlay — the admin permission test, in-panel.
+ * Access Trace overlay — the admin permission test in Object View.
  *
- * Launched from the detail-view ("Test access"). A focused, dismissible card:
+ * Launched from Object View. A focused, dismissible card:
  * object (auto) → subject (user/role) + action → verdict + PBAC decision tree.
  * Kept deliberately small: auto-runs when subject+action are set, no clutter.
  *
- * Self-contained: sends FETCH_ACCESS_SUBJECTS / REQUEST_ACCESS_TRACE; the
- * sidepanel routes ACCESS_SUBJECTS_DATA / ACCESS_TRACE_RESULT back via
+ * Self-contained: sends FETCH_ACCESS_SUBJECTS / REQUEST_ACCESS_TRACE and the
+ * host routes ACCESS_SUBJECTS_DATA / ACCESS_TRACE_RESULT back through
  * `routeAccessMessage`.
  */
 import { h, render, svg } from '../lib/dom';
@@ -14,9 +14,8 @@ import { ICON_X_CIRCLE, ICON_CHECK_CIRCLE, ICON_MINUS_CIRCLE, ICON_CHECK, ICON_C
 import { typeBadge, wireBadgeCopy } from '../lib/type-badge';
 import type { AccessSubject, AccessTraceAction, AccessTraceNode, InspectorMessage } from '../lib/types';
 
-/** How this overlay reaches the SW. Injected by the host surface (the side panel
- *  routes responses through its port; the popout bridges via sendRequest) so the
- *  same overlay works on both. Set via {@link initAccessTrace}. */
+/** How this overlay reaches the SW. Object View bridges requests through
+ *  sendRequest and routes each response back into this module. */
 let sendMessage: (m: InspectorMessage) => void = () => { /* set by initAccessTrace */ };
 export function initAccessTrace(send: (m: InspectorMessage) => void): void {
   sendMessage = send;
@@ -108,7 +107,7 @@ export function closeAccessTrace(): void {
   if (rootEl) { rootEl.remove(); rootEl = null; }
 }
 
-/** Route the two access-trace responses from the sidepanel message loop. */
+/** Route the two access-trace responses from the host surface. */
 export function routeAccessMessage(msg: InspectorMessage): boolean {
   if (msg.type === 'ACCESS_SUBJECTS_DATA') {
     state.subjectsLoading = false;

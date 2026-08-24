@@ -75,8 +75,6 @@ function harness(): Harness {
     updateObjectsBadge: () => { trace.push(`chrome:badge:${S.cacheCount}`); },
     updateContextPill: () => { trace.push('chrome:context'); },
     updateLatencyPill: () => { trace.push('chrome:latency'); },
-    updatePaintButton: () => { trace.push('chrome:paint'); },
-    showPaintError: error => { trace.push(`paint-error:${error}`); },
     updateHeaderStatus: () => { trace.push('chrome:header'); },
     refreshStatusStrip: () => { trace.push('chrome:strip'); },
     updateStatusBar: () => { trace.push('chrome:status'); },
@@ -84,7 +82,6 @@ function harness(): Harness {
   };
 
   const services: PanelOrchestratorServices = {
-    routeAccessMessage: vi.fn(() => false),
     isReferenceActive: vi.fn(() => false),
     handleReferenceMessage: vi.fn(() => false),
     showReferenceView: vi.fn(),
@@ -136,21 +133,6 @@ describe('PanelOrchestrator', () => {
     expect(h.trace).toEqual(['reference-claim']);
     expect(h.services.showToast).not.toHaveBeenCalled();
     expect(h.services.dispatchBroadcast).not.toHaveBeenCalled();
-  });
-
-  it('gives Access Trace first claim precedence', () => {
-    const h = harness();
-    vi.mocked(h.services.routeAccessMessage).mockImplementation(() => {
-      h.trace.push('access-claim');
-      return true;
-    });
-    vi.mocked(h.services.isReferenceActive).mockReturnValue(true);
-    const panel = createPanelOrchestrator(h.host, h.services);
-
-    panel.accept({ type: 'ACCESS_SUBJECTS_DATA', subjects: [], canTrace: true });
-
-    expect(h.trace).toEqual(['work-status', 'access-claim']);
-    expect(h.services.handleReferenceMessage).not.toHaveBeenCalled();
   });
 
   it('observes work before a message is claimed', () => {

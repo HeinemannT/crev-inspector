@@ -15,8 +15,6 @@ describe('ContentState', () => {
   it('initializes with correct defaults', () => {
     expect(s.inspectActive).toBe(false);
     expect(s.enrichMode).toBe('widgets');
-    expect(s.paintPhase).toBe('off');
-    expect(s.paintSourceName).toBeNull();
     expect(s.styleInjected).toBe(false);
     expect(s.technicalOverlay).toBe(false);
     expect(s.fromSync).toBe(false);
@@ -94,8 +92,6 @@ describe('ContentState', () => {
       // Populate everything
       s.inspectActive = true;
       s.enrichMode = 'widgets';
-      s.paintPhase = 'picking';
-      s.paintSourceName = 'source';
       s.styleInjected = true;
       s.technicalOverlay = true;
       s.fromSync = true;
@@ -113,8 +109,6 @@ describe('ContentState', () => {
 
       expect(s.inspectActive).toBe(false);
       expect(s.enrichMode).toBe('widgets');
-      expect(s.paintPhase).toBe('off');
-      expect(s.paintSourceName).toBeNull();
       expect(s.styleInjected).toBe(false);
       expect(s.technicalOverlay).toBe(false);
       expect(s.fromSync).toBe(false);

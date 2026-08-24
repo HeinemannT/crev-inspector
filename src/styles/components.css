@@ -112,8 +112,7 @@
 /* Bare icon button — transparent, just the glyph (no box). Shared by the
  * studio strip and the sidepanel object rows. Default hover lifts the text;
  * add .icon-btn--accent for an accent-coloured hover. (The boxed toggle
- * .paint-btn / .header-icon-btn is a separate component with a box + an
- * active state.) */
+ * .header-icon-btn is a separate boxed header component.) */
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
   padding: var(--space-0) var(--space-1);
@@ -376,6 +375,43 @@
 .editor-ai-btn:hover,
 .studio-ai-btn:hover { color: #fff; background: var(--accent-dim); border-color: var(--accent); }
 .ai-button-label { line-height: 1; }
+
+/* Shared editor/studio action-row collapse. Both surfaces keep the same action
+   priorities so narrow overlay windows cannot make controls overlap. */
+.code-action-row { min-width: 0; }
+.code-action-spacer { flex: 1; }
+
+@media (max-width: 760px) {
+  .code-action-row { gap: var(--space-1); }
+  .code-action-row kbd,
+  .code-action-compact-label,
+  .code-action-secondary .code-action-label { display: none; }
+  .code-action-secondary {
+    width: 28px;
+    min-width: 28px;
+    padding-inline: 0;
+    justify-content: center;
+  }
+  .code-action-ai {
+    width: 28px;
+    min-width: 28px;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+  }
+  .code-action-ai .ai-button-label { display: none; }
+}
+
+@media (max-width: 680px) {
+  .code-action-tertiary .code-action-label,
+  .code-action-ai { display: none; }
+  .code-action-tertiary {
+    width: 28px;
+    min-width: 28px;
+    padding-inline: 0;
+    justify-content: center;
+  }
+}
 
 /* Retired selection-local entry point. The editor toolbar button and Mod+K are
    the only invocations. Keep this guard so stale markup can never reappear. */

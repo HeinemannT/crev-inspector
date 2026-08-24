@@ -147,7 +147,7 @@
 #crev-blueprint-layer .bp-vsw-b.style:hover:not(.on){background:rgba(138,63,252,.12)}
 #crev-blueprint-layer .bp-vsw-b.on{background:var(--bp-cyan);color:var(--bp-ground)}
 #crev-blueprint-layer .bp-vsw-b.style.on{background:var(--bp-accent,#8a3ffc);color:#fff}
-#crev-blueprint-layer .bp-chip{display:flex;gap:9px;align-items:center;padding:8px 10px 8px 12px}
+#crev-blueprint-layer .bp-chip{position:relative;display:flex;gap:9px;align-items:center;padding:8px 46px 8px 12px}
 #crev-blueprint-layer .bp-loading{color:var(--bp-muted);font:500 11px var(--bp-mono)}
 #crev-blueprint-layer .bp-page-chip{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;min-width:0;max-width:min(260px,28vw);padding:2px 4px 2px 2px;border:1px solid transparent;border-radius:var(--bp-r);color:var(--bp-text)}
 #crev-blueprint-layer .bp-page-chip:hover{background:rgba(74,144,217,.08);border-color:var(--bp-line-2)}
@@ -168,7 +168,7 @@
 /* Borderless icon nudges stay compact so they do not crowd out Exit. */
 #crev-blueprint-layer .bp-chip button.plain{border-color:transparent;padding:0 6px}
 #crev-blueprint-layer .bp-chip button.plain:hover:not(:disabled){background:rgba(74,144,217,.12)}
-#crev-blueprint-layer .bp-chip button.bp-exit{width:28px;padding:0;justify-content:center}
+#crev-blueprint-layer .bp-chip button.bp-exit{position:absolute;top:50%;right:9px;transform:translateY(-50%);width:28px;padding:0;justify-content:center}
 #crev-blueprint-layer .bp-chip button.apply{background:var(--bp-cyan);color:var(--bp-ground);border-color:var(--bp-cyan)}
 #crev-blueprint-layer .bp-chip button.apply:hover:not(:disabled){background:var(--bp-cyan-hi);color:var(--bp-ground)}
 #crev-blueprint-layer .bp-chip button.bp-danger{background:var(--bp-amber);color:var(--bp-ground);border-color:var(--bp-amber);font-weight:700}
@@ -191,7 +191,8 @@
    instead of competing with Apply/Exit for horizontal space. */
 @media (max-width:900px){
   #crev-blueprint-layer .bp-header{width:calc(100vw - 16px);min-width:0;max-width:none}
-  #crev-blueprint-layer .bp-chip{flex-wrap:wrap;gap:5px;padding:7px 8px}
+  #crev-blueprint-layer .bp-chip{flex-wrap:wrap;gap:5px;padding:7px 44px 7px 8px}
+  #crev-blueprint-layer .bp-chip button.bp-exit{top:7px;right:8px;transform:none}
   #crev-blueprint-layer .bp-chip .sp{display:none}
   #crev-blueprint-layer .bp-page-chip{flex:1 1 140px;max-width:none}
   #crev-blueprint-layer .bp-header.style{display:grid;grid-template-columns:46px minmax(0,1fr)}

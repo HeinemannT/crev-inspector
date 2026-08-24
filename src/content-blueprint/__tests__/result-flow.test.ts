@@ -109,6 +109,38 @@ describe('template flow references', () => {
     expect(bp.viewTabId).toBe('tab1');
     expect(bp.editPageViewKeys.get('risk_edit_page')).toBe('review');
   });
+
+  it('renders a staged-new EditPage in the same dedicated editor', () => {
+    const createObject: LNode = {
+      id: 'cov1', rid: 'r_cov1', kind: 'widget', className: 'CreateObjectView', name: 'Create risk',
+      cols: { L: 6 }, children: [],
+    };
+    const page: LModel = {
+      pageId: 'risk_workshop', pageClass: 'ModelPage', tabsetId: 'risk_tabs',
+      tabs: [{ ...tab, children: [createObject] }], target: 'instance', hasTemplate: false,
+      flowEdits: {
+        cov1: {
+          wireRef: {
+            prop: 'editPage', targetId: 'new:edit-page', targetClass: 'EditPage',
+            targetName: 'Create risk statement', setCreateMode: true,
+          },
+        },
+        'new:edit-page': {
+          newContainer: {
+            className: 'EditPage', name: 'Create risk statement', editPageType: 'CeRiskAssessment',
+          },
+          adds: [{ id: 'new:risk-subtype', className: 'EditField', name: 'New EditField', prop: 'risk_subtype' }],
+        },
+      },
+    };
+
+    const panel = flowPanel(page, createObject)!;
+
+    expect(panel.querySelector('.bp-editpage.is-embedded')).not.toBeNull();
+    expect(panel.querySelector('[data-flowid="new:risk-subtype"] .bp-ep-field-property')?.textContent)
+      .toBe('risk_subtype');
+    expect(panel.querySelector('.bp-frow')).toBeNull();
+  });
 });
 
 describe('ButtonGroup add affordance', () => {

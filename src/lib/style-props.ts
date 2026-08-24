@@ -1,6 +1,6 @@
 /**
- * The single catalog of WIDGET STYLE PROPERTIES — the paintable appearance props the side panel, the
- * paintbrush, and the blueprint Style mode all operate on. One source of truth, so adding a style prop
+ * The single catalog of WIDGET STYLE PROPERTIES — the appearance props Blueprint's
+ * Style mode and paintbrush operate on. One source of truth, so adding a style prop
  * is ONE edit here instead of the old hand-maintained fan-out (PAINT_STYLE_PROPS / COLOR_LINK_PROPS /
  * PAINT_PROP_RESET are now DERIVED from this).
  *

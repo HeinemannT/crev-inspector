@@ -28,6 +28,7 @@ import {
   type ProviderConversation,
 } from './provider-conversation';
 import { CHAT_MAX_OUTPUT_TOKENS, prepareAiTurn, type PreparedAiTurn } from './turn-preparation';
+import { VERIFIED_OBJECT_ANSWER_HINT } from './object-output-contract';
 
 export { CHAT_MAX_OUTPUT_TOKENS };
 
@@ -50,7 +51,7 @@ function answerUserDef(): ToolDef {
       properties: {
         answer: {
           type: 'string',
-          description: 'Complete concise Markdown answer. An illustrative EC snippet is allowed. No execution claims or tool narration.',
+          description: `Complete concise Markdown answer. ${VERIFIED_OBJECT_ANSWER_HINT} An illustrative EC snippet is allowed. No execution claims or tool narration.`,
         },
       },
       required: ['answer'],

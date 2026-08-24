@@ -33,6 +33,7 @@ import { LAYOUT_SEP, PAGE_MARKER, CTX_MARKER, OVER_MARKER, LINK_MARKER, STYLE_MA
   FLOW_LIST_MARKER, markerLines, parseLayoutNodes, safeWireTextEc } from '../layout-wire';
 import { enumMember } from '../color-util';
 import { normalizeBmpEnum, FLOW_DOT_SLOTS, FLOW_DOT_PROPS } from '../widget-metadata';
+import { ecResolveEnterpriseTemplate } from '../template-link';
 import type { LayoutNode as WireNode } from '../types';
 import { OVERRIDABLE_PROPS } from './types';
 import type { LModel, LNode, PlanNote, PlanStep, NodeStyle, FlowProjection, FlowNode, FlowKind } from './types';
@@ -837,12 +838,13 @@ function findOrphans(nodes: readonly WireNode[], model: LModel): WireNode[] {
 
 /**
  * Build the context probe. Classifies a viewed object into the blueprint root + tabset:
- *  - ENTERPRISE: the object carries a `.template` ref to an EnterpriseTemplate. The instance owns
- *    no widgets (layout is `resolveTemplate().getCard()`), so the page root is the TEMPLATE. Its
+ *  - ENTERPRISE: the object resolves an EnterpriseTemplate through `.template` (simple mode) or
+ *    `.templateExpression` (advanced mode). The instance owns no widgets (layout is
+ *    `resolveTemplate().getCard()`), so the page root is the TEMPLATE. Its
  *    tabset is discovered from a placed template widget, with `default_tabset` as a fallback. We key
- *    on `.template` ONLY — a Scorecard *instance* has
- *    a `.linkedTo` template too (SharedWebItems reuse) but still owns its own widgets, so `.linkedTo`
- *    must NOT trigger the enterprise path.
+ *    on the effective enterprise template ONLY — a Scorecard *instance* has a `.linkedTo` template
+ *    too (SharedWebItems reuse) but still owns its own widgets, so `.linkedTo` must NOT trigger the
+ *    enterprise path.
  *  - DIRECT: a WebParent that owns its widgets (Scorecard/ModelPage/GRC object). The page root is the
  *    object itself; its tabset is DISCOVERED by walking a widget's cell up to the first TabSet
  *    ancestor (the page exposes no direct `.tabSet`).
@@ -867,11 +869,13 @@ export function buildContextEc(rid: string): string {
   return [
     `_probe := lookup(${ecRid(rid)})`,
     // Org redirect: on an Organisation rid, BMP renders its linked enterprise template (caught by the
-    // `.template` line below, via the enterprise branch) or, failing that, its first Scorecard/ModelPage
+    // effective-template resolver below, via the enterprise branch) or, failing that, its first
+    // Scorecard/ModelPage
     // child. Resolve that landing page here so Blueprint targets what's actually on screen, not the org
     // container (loading which would walk the whole subtree). First-match pattern mirrors `_cellFound`.
     `IF _probe.className.whenMissing("") = "Organisation" THEN`,
-    `     IF _probe.template.rid.whenMissing("") = "" THEN`,
+    ...ecResolveEnterpriseTemplate('_probe', '_orgTmpl', '     '),
+    `     IF _orgTmpl.rid.whenMissing("") = "" THEN`,
     `          _found := "no"`,
     `          _probe.children().forEach(_c:`,
     `               IF _found = "no" THEN`,
@@ -893,7 +897,7 @@ export function buildContextEc(rid: string): string {
     `          _probe := _probe`,
     `     ENDIF`,
     `ENDIF`,
-    `_tmpl := _probe.template`,
+    ...ecResolveEnterpriseTemplate('_probe', '_tmpl'),
     `_tr := _tmpl.rid.whenMissing("")`,
     `_out := "${CTX}"`,
     `IF _tr <> "" THEN`,

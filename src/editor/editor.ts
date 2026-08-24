@@ -1169,7 +1169,7 @@ function buildActionRow(): HTMLElement {
   const saveLabel = !isDirty && lastSavedAt && Date.now() - lastSavedAt < 4000 ? 'Saved' : 'Save'
   const saveJustHappened = !isDirty && saveLabel === 'Saved'
   const saveClass = `btn ${isDirty ? 'btn-success' : saveJustHappened ? 'btn-success btn-saved' : 'btn-ghost'}`
-  return h('div', { class: 'editor-actions' },
+  return h('div', { class: 'editor-actions code-action-row' },
     // Preview | Execute — one segmented control. Execute stays disabled until a
     // successful, non-stale preview arms it (editing resets previewDone).
     h('div', { class: 'editor-run-group' },
@@ -1209,13 +1209,13 @@ function buildActionRow(): HTMLElement {
       title: isDirty ? 'Revert to the saved BMP value (discards your edits)' : 'Nothing to discard',
       onClick: doDiscard,
     }, ' Discard'),
-    h('div', { class: 'editor-actions-spacer' }),
+    h('div', { class: 'editor-actions-spacer code-action-spacer' }),
     createEditorStatus(),
     // Editor-meta utilities — AI, wrap, EC reference, help — far right,
     // separated from the action verbs. The AI button only exists when a
     // provider key is configured (zero-footprint rule).
     aiConfigured && h('button', {
-      class: 'btn-micro editor-ai-btn',
+      class: 'btn-micro editor-ai-btn code-action-ai',
       id: 'btn-ai',
       title: `Ask or edit with AI (${KBD_MOD}+K)`,
       'aria-label': 'AI assistant',

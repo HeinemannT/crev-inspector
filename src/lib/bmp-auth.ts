@@ -182,11 +182,19 @@ export class BmpAuth {
 
     const tokenResp = await fetch(`${this.bmpUrl}cstoken`, {
       method: 'POST',
+      credentials: 'omit',
+      redirect: 'manual',
+      cache: 'no-store',
+      referrerPolicy: 'no-referrer',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: `grantType=authorizationCode&authorizationCode=${encodeURIComponent(authCode)}`,
       signal: AbortSignal.timeout(AUTH_TIMEOUT),
     });
     this.assertAuthEpoch(epoch);
+    if (tokenResp.type === 'opaqueredirect' || tokenResp.redirected
+      || (tokenResp.url && !this.isBmpOrigin(tokenResp.url))) {
+      throw new AuthError('The BMP token exchange was redirected away from the configured workspace.', 'exchange-failed');
+    }
     if (!tokenResp.ok) throw new AuthError(`Token exchange failed (HTTP ${tokenResp.status}).`, 'exchange-failed');
     const tokenBody = await tokenResp.json().catch(() => null);
     this.assertAuthEpoch(epoch);
@@ -214,11 +222,24 @@ export class BmpAuth {
       this.assertAuthEpoch(epoch);
       const resp = await fetch(`${this.bmpUrl}cstoken`, {
         method: 'POST',
+        credentials: 'omit',
+        redirect: 'manual',
+        cache: 'no-store',
+        referrerPolicy: 'no-referrer',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `grantType=refreshToken&refreshToken=${encodeURIComponent(this._refreshToken!)}`,
         signal: AbortSignal.timeout(AUTH_TIMEOUT),
       });
       this.assertAuthEpoch(epoch);
+      if (resp.type === 'opaqueredirect' || resp.redirected
+        || (resp.url && !this.isBmpOrigin(resp.url))) {
+        this._jwt = null;
+        this._refreshToken = null;
+        this._commandUser = null;
+        this._portalActor = null;
+        this.clearPersistedState();
+        return null;
+      }
       if (resp.status === 401 || resp.status === 403) {
         this._jwt = null;
         this._refreshToken = null;

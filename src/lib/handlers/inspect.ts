@@ -1,12 +1,11 @@
 /**
- * Inspect + paint toggle handlers.
+ * Inspect and technical-overlay toggle handlers.
  */
 
 import { register } from '../handler-registry';
 import { getCtx } from '../sw-context';
 import { incrementGeneration } from '../enrichment';
 import { ensureContentScript } from '../tab-awareness';
-import { togglePaint } from '../paint';
 import { setBlueprintActive } from './layout';
 import { loadPage } from '../layout-service';
 import { bmpTypeKnowledge } from '../bmp-type-knowledge';
@@ -182,10 +181,6 @@ register('INSPECT_EDIT_PAGE_FIELDS', async (msg, respond) => {
       error: errorMessage(error),
     });
   }
-});
-
-register('TOGGLE_PAINT', (_msg, _respond, meta) => {
-  void togglePaint(ensureContentScript, meta.panelWindowId);
 });
 
 register('TOGGLE_TECHNICAL_OVERLAY', () => {

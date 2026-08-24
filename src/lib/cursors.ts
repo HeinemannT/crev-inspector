@@ -1,8 +1,7 @@
 /**
  * Custom tool cursors — an eyedropper for "pick a source" and a paintbrush for "apply the held
- * style". Shared by the inspect-mode paint format (content-paint.ts, set inline on the badge
- * pills) and the blueprint style-mode brush (content-blueprint.css, reached via CSS vars set on
- * the overlay layer).
+ * style". Used by the Blueprint style-mode brush (content-blueprint.css,
+ * reached through CSS variables set on the overlay layer).
  *
  * Each icon is drawn twice — a white halo underlay then the accent stroke — so it stays legible
  * over any widget background. Hotspot sits on the tool's tip.

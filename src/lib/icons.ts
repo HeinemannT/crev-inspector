@@ -97,8 +97,7 @@ export const ICON_BOOK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="
 
 // ── Custom icons (14×14, stroke) ────────────────────────────────
 
-// Phosphor "paint-brush" (bold) — the style/paint glyph everywhere a single-colour mark fits
-// (wordmark, mode switch, sidepanel paint format).
+// Phosphor "paint-brush" (bold) — the Blueprint style/paint glyph.
 export const ICON_PAINT = ph('M236,32a12,12,0,0,0-12-12c-44.78,0-90,48.54-115.9,82a64,64,0,0,0-80,62c0,12-3.1,22.71-9.23,31.76A43,43,0,0,1,9.4,206.05a11.88,11.88,0,0,0-4.91,13.38A12.07,12.07,0,0,0,16.11,228h76A64,64,0,0,0,154,148C187.49,122.05,236,76.8,236,32ZM209.62,46.39c-4,12.92-13.15,27.49-26.92,42.91-3,3.39-6.16,6.7-9.35,9.89a104.31,104.31,0,0,0-16.5-16.51c3.19-3.19,6.49-6.32,9.88-9.35C182.15,59.55,196.71,50.43,209.62,46.39ZM92.07,204H42a80.17,80.17,0,0,0,10.14-40,40,40,0,1,1,40,40Zm38.18-91.32c3.12-3.93,6.55-8.09,10.23-12.35a80.52,80.52,0,0,1,15.23,15.24c-4.26,3.68-8.42,7.11-12.35,10.23A64.43,64.43,0,0,0,130.25,112.68Z', 14);
 // Crosshair — picker affordance for the Page-tab context selector. Reads more
 // "pick a target" than the paintbrush (which implies "apply a style").
@@ -194,9 +193,6 @@ export const ICON_CHART_LINE_UP = ph('M236,208a12,12,0,0,1-12,12H32a12,12,0,0,1-
 // Terminal-window — the Extended Code editor surface (replaces the lightning
 // in the header; lightning stays the per-slot 'expression' glyph).
 export const ICON_TERMINAL_WINDOW = ph('M72.5,150.63,100.79,128,72.5,105.37a12,12,0,1,1,15-18.74l40,32a12,12,0,0,1,0,18.74l-40,32a12,12,0,0,1-15-18.74ZM144,172h32a12,12,0,0,0,0-24H144a12,12,0,0,0,0,24ZM236,56V200a20,20,0,0,1-20,20H40a20,20,0,0,1-20-20V56A20,20,0,0,1,40,36H216A20,20,0,0,1,236,56Zm-24,4H44V196H212Z', 14);
-// Paint-brush-broad — the Paint Format mode glyph (broad brush reads better
-// at 14px than the slim artist brush).
-export const ICON_PAINT_BROAD = ph('M216,20H72A44.05,44.05,0,0,0,28,64v72a28,28,0,0,0,28,28H95.64L92,207c0,.33,0,.67,0,1a36,36,0,0,0,72,0c0-.33,0-.67,0-1l-3.6-43H200a28,28,0,0,0,28-28V32A12,12,0,0,0,216,20ZM72,44h88V68a12,12,0,0,0,24,0V44h20V96H52V64A20,20,0,0,1,72,44Zm128,96H156a20,20,0,0,0-19.85,22.4l3.84,46a12,12,0,0,1-24,0l3.84-46A20,20,0,0,0,100,140H56a4,4,0,0,1-4-4V120H204v16A4,4,0,0,1,200,140Z', 14);
 // Arrow-fat-line-right — the FLOW sub-badge on inspect labels: "this widget
 // has a chain to walk" (InputView→InputSet, ActionButton→action, …).
 export const ICON_ARROW_FAT_LINE = ph('M240.49,119.51l-96-96A12,12,0,0,0,124,32V68H80A12,12,0,0,0,68,80v96a12,12,0,0,0,12,12h44v36a12,12,0,0,0,20.49,8.49l96-96A12,12,0,0,0,240.49,119.51ZM148,195V176a12,12,0,0,0-12-12H92V92h44a12,12,0,0,0,12-12V61l67,67ZM52,80v96a12,12,0,0,1-24,0V80a12,12,0,0,1,24,0Z');

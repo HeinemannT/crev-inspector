@@ -3,7 +3,7 @@
  * Tab-specific state lives inside each Tab class.
  */
 
-import type { InspectorMessage, InspectorSettings, ConnectionState, FavoriteEntry, PaintPhase } from '../lib/types';
+import type { InspectorMessage, InspectorSettings, ConnectionState, FavoriteEntry } from '../lib/types';
 import { DEFAULT_SETTINGS } from '../lib/types';
 import { unknownIdentityMap } from '../lib/identity-map';
 import { log } from '../lib/logger';
@@ -28,8 +28,6 @@ export const S = {
   bmpDetected: null as boolean | null,
   inspectActive: false,
   blueprintActive: false,
-  paintPhase: 'off' as PaintPhase,
-  paintSourceName: null as string | null,
   cacheCount: 0,
   favoriteEntries: [] as FavoriteEntry[],
   // Latest BMP-tab context — populated by CONTEXT_RID_DATA broadcasts (from

@@ -8,7 +8,6 @@ import { getCtx } from './sw-context';
 import { getTabDetection, setTabDetection, deleteTabDetection, updateBadge } from './detection';
 import { autoDetectProfile } from './settings';
 import { log } from './logger';
-import { cancelPaintForTab } from './paint';
 import { checkBmpCookie } from './cookie-gate';
 import { deleteContextRid } from './context-rid';
 import { sendPageInfoToPanel } from './content-script-injection';
@@ -21,7 +20,7 @@ export { ensureContentScript, ensureBlueprintScript, sendPageInfoToPanel, handle
 /** Per-window active-tab tracking. The previous singleton broke when
  *  the user had BMP open in two windows — onActivated in one window
  *  would overwrite the other's "active tab", causing tab-aware logic
- *  (paint cancel on navigation, BMP_URL_CHANGED gating) to fire on
+ *  (BMP_URL_CHANGED gating, editor-context resets) to fire on
  *  the wrong window. */
 const activeTabIdByWindow = new Map<number, number>();
 const lastUrlByTab = new Map<number, string>();
@@ -45,15 +44,6 @@ export function registerTabListeners() {
   chrome.tabs.onActivated.addListener((activeInfo) => {
     const ctx = getCtx();
     activeTabIdByWindow.set(activeInfo.windowId, activeInfo.tabId);
-    // NOTE: paint is intentionally NOT cancelled on a plain tab switch — a
-    // source widget picked on one page can be painted onto a widget on
-    // another page (same workspace), which is a valid cross-page paint.
-    // Paint is cancelled only when the WORKSPACE actually changes (via the
-    // onProfileSwitch hook in the SW — covers both the manual switch and the
-    // autoDetectProfile below) or when the armed tab navigates/refreshes
-    // (cancelPaintForTab in onUpdated). RIDs/colour-bids are workspace-scoped,
-    // so a source from another workspace can't resolve in the new one.
-
     chrome.tabs.get(activeInfo.tabId, (tab) => {
       if (chrome.runtime.lastError) return;
       if (tab?.url && !lastUrlByTab.has(activeInfo.tabId)) lastUrlByTab.set(activeInfo.tabId, tab.url);
@@ -105,11 +95,7 @@ export function registerTabListeners() {
     const isActiveTab = windowId != null && isActiveInItsWindow(tabId, windowId);
     let profileReady: Promise<void> = Promise.resolve();
 
-    // Cancel paint when the PAINTED tab navigates or refreshes. Keyed on the
-    // tab paint is armed for (not the active-tab map, which is empty until the
-    // first tab switch — that gap left the brush stuck-armed after a refresh).
     if (changeInfo.url || changeInfo.status === 'loading') {
-      cancelPaintForTab(tabId);
       if (changeInfo.status === 'loading') {
         clearEditorContext(tabId);
         if (isActiveTab) {

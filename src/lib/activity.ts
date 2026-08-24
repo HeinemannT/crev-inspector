@@ -23,7 +23,6 @@ function describesCommandWork(meta: ActivityMeta | undefined): boolean {
   if (!meta) return false;
   if (meta.category === 'execution'
     || meta.category === 'blueprint'
-    || meta.category === 'paint'
     || meta.category === 'studio') return true;
   return meta.category === 'change' && Boolean(meta.action && COMMAND_CHANGE_ACTIONS.has(meta.action));
 }

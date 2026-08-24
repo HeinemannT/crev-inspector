@@ -374,9 +374,16 @@ describe('simple widget change pipeline', () => {
     expect(bodies[0].tool_choice).toBe('required');
     expect(bodies[0].messages[0].content).toContain('Choose exactly one API artifact');
     expect(bodies[0].messages[0].content).toContain('uncommitted suggestion');
+    expect(bodies[0].messages[0].content).toContain('<verified-object-output>');
+    expect(bodies[0].messages[0].content).toContain('You need not mention every supplied object');
+    const answerTool = bodies[0].tools.find((tool: any) => tool.function.name === 'answer_user');
+    expect(answerTool.function.parameters.properties.answer.description)
+      .toContain('use an exact supplied [[object:RID]] token in place of a mentioned object\'s name');
     expect(loadFullPrompt).not.toHaveBeenCalled();
     const userText = bodies[0].messages.at(-1)?.content as string;
     expect(userText).toContain('"linkedTemplateRid":"818"');
+    expect(userText).toContain('"token":"[[object:119]]"');
+    expect(userText).toContain('"linkedTemplateToken":"[[object:818]]"');
     expect(userText).toContain('"accessor":"showSearch"');
     expect(executeTool.mock.calls.map(([call]) => call.name)).toEqual(['read_layout', 'read_type', 'preview_ec']);
     expect(executeTool.mock.calls.at(-1)?.[0].input).toEqual({ code: SUBMISSION.code });

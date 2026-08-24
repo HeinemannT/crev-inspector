@@ -4,6 +4,7 @@ import type { AiContextEnvelope } from './types';
 import { KNOWLEDGE, type KnowledgePackId } from './knowledge';
 import { renderContext, envelopeTypes } from './context';
 import { CHANGE_TARGET_PROMPT_CONTRACT } from './change-target';
+import { VERIFIED_OBJECT_OUTPUT_CONTRACT } from './object-output-contract';
 
 
 const CHAT_PERSONA = `You are Configuration Companion's configurator assistant for Corporater BMP. Answer grounded workspace questions and produce previewable Corporater Extended Code (EC) changes. EC is not JavaScript, SQL, or Python.
@@ -39,8 +40,10 @@ ${CHANGE_TARGET_PROMPT_CONTRACT}
 - After the final successful read for a change, the next action must be the actual submit_change_ticket function call through the API. Do not narrate the result, claim it was added, print/type its arguments, or imitate submit_change_ticket in prose/code.
 </tool-policy>
 
+${VERIFIED_OBJECT_OUTPUT_CONTRACT}
+
 <answer-format>
-- Ordinary answers lead with the answer, omit tool narration and internal reasoning, and stay under 160 words unless detail is requested. Use a compact list/table for parallel facts. Copy every supplied [[object:RID]] token exactly. For a simple locate request, answer exactly “Found [[object:RID]].”
+- Ordinary answers lead with the answer, omit tool narration and internal reasoning, and stay under 160 words unless detail is requested. Use a compact list/table for parallel facts.
 - When submit_change_ticket is offered, invoke it once; its schema owns the exact fields and that call is the entire final answer. A textual submit_change_ticket(...) is not a tool call.
 - Keep EC minimal and normally under 30 lines: no comments, diagnostics, state reads, duplicate code, placeholders, pseudo-wrappers, or aliases unless later statements reuse them. Before submission, check requested object count, verified identifiers, receiver versus placement, and absence of placeholders.
 </answer-format>`;

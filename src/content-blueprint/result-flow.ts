@@ -307,12 +307,11 @@ export function flowPanel(m: LModel, node: LNode): HTMLElement | null {
           : 'Existing elements are not loaded here; new elements stage below.';
         wrap.appendChild(note);
       }
-      const editPage = p?.ownerClass === 'CreateObjectView' && ref.className === 'EditPage'
+      const editPage = node.className === 'CreateObjectView' && ref.className === 'EditPage'
         ? embeddedEditPage(m, {
-          ...p,
-          refId: ref.id,
-          refClass: ref.className,
-          refName: ref.name,
+          pageId: ref.id,
+          pageName: ref.name,
+          objectTypeClass: p?.objectTypeClass ?? m.flowEdits?.[ref.id]?.newContainer?.editPageType,
         })
         : null;
       if (editPage) {

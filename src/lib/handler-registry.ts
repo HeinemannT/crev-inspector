@@ -7,7 +7,7 @@
  *
  *   - BROADCAST subscribers (`subscribe()`): zero or more listeners per type,
  *     fire-and-forget. Used by content + sidepanel to consume one-way state
- *     pushes (PAINT_STATE, CONNECTION_STATE, ACTIVITY_ENTRY, …). Subscribers
+ *     pushes (CONNECTION_STATE, ACTIVITY_ENTRY, …). Subscribers
  *     for the same type all run; order is registration order.
  *
  * The two halves were previously a single registry plus raw `onPortMessage`

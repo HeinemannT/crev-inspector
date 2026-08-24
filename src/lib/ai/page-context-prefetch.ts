@@ -1,6 +1,6 @@
 import type { AiChatEvent } from './types';
 import type { ExecuteTool, ToolCall, ToolResult } from './tools';
-import { boundedToolResult } from './tools';
+import { boundedToolResult, objectReferenceToken } from './tools';
 import { summarizeToolCall } from './tool-contracts';
 import { isToolSuccess } from './tool-results';
 import type { ToolDataMap } from './tool-results';
@@ -25,6 +25,8 @@ export type PrefetchedContextEvidence = WidgetPropertyContextEvidence | Prefetch
 
 type LayoutNode = ToolDataMap['read_layout']['nodes'][number];
 type PrefetchedLayoutTreeNode = Omit<LayoutNode, 'parentRid' | 'depth'> & {
+  token?: string;
+  linkedTemplateToken?: string;
   children?: PrefetchedLayoutTreeNode[];
 };
 
@@ -33,7 +35,9 @@ export interface PrefetchedLayoutContextEvidence {
   layout: {
     viewedRid: string;
     pageOwnerRid: string;
+    pageOwnerToken: string;
     pageTemplateRid?: string;
+    pageTemplateToken?: string;
     selection: 'prompt-matched-widgets-and-ancestors';
     totalPageNodes: number;
     sourceComplete: boolean;
@@ -47,10 +51,12 @@ export interface PreparedSimpleChangePlan {
 
 interface PrefetchedWidgetContext {
   rid: string;
+  token: string;
   businessId: string;
   type: string;
   name: string;
   linkedTemplateRid?: string;
+  linkedTemplateToken?: string;
 }
 
 export interface WidgetPropertyContextEvidence {
@@ -116,6 +122,7 @@ function layoutResult(
     const children = node.rid ? childrenByParent.get(node.rid)?.map(treeNode) ?? [] : [];
     return {
       ...(node.rid ? { rid: node.rid } : {}),
+      ...(node.rid ? { token: objectReferenceToken(node.rid) } : {}),
       businessId: node.businessId,
       kind: node.kind,
       type: node.type,
@@ -125,6 +132,7 @@ function layoutResult(
       ...(node.tabsetBusinessId ? { tabsetBusinessId: node.tabsetBusinessId } : {}),
       codeSlots: node.codeSlots,
       ...(node.linkedTemplateRid ? { linkedTemplateRid: node.linkedTemplateRid } : {}),
+      ...(node.linkedTemplateRid ? { linkedTemplateToken: objectReferenceToken(node.linkedTemplateRid) } : {}),
       ...(children.length ? { children } : {}),
     };
   };
@@ -138,7 +146,9 @@ function layoutResult(
       layout: {
         viewedRid: layout.viewedRid,
         pageOwnerRid: layout.pageOwnerRid,
+        pageOwnerToken: objectReferenceToken(layout.pageOwnerRid),
         ...(layout.pageTemplateRid ? { pageTemplateRid: layout.pageTemplateRid } : {}),
+        ...(layout.pageTemplateRid ? { pageTemplateToken: objectReferenceToken(layout.pageTemplateRid) } : {}),
         selection: 'prompt-matched-widgets-and-ancestors',
         totalPageNodes: layout.totalNodes,
         sourceComplete: layout.complete && !layout.sourceTruncated && layout.omittedNodes === 0,
@@ -236,10 +246,12 @@ function widgetContext(
   if (!node.rid || node.kind !== 'widget') return undefined;
   return {
     rid: node.rid,
+    token: objectReferenceToken(node.rid),
     businessId: node.businessId,
     type: node.type,
     name: node.name,
     ...(node.linkedTemplateRid ? { linkedTemplateRid: node.linkedTemplateRid } : {}),
+    ...(node.linkedTemplateRid ? { linkedTemplateToken: objectReferenceToken(node.linkedTemplateRid) } : {}),
   };
 }
 

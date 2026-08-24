@@ -9,7 +9,6 @@
 
 import type { InspectorMessage } from '../lib/types';
 import { dispatchBroadcast } from '../lib/handler-registry';
-import { routeAccessMessage } from './access-trace';
 import {
   handleReferenceMessage,
   isReferenceActive,
@@ -76,8 +75,6 @@ export interface PanelOrchestratorHost {
   updateObjectsBadge(): void;
   updateContextPill(): void;
   updateLatencyPill(): void;
-  updatePaintButton(): void;
-  showPaintError(error: string): void;
   updateHeaderStatus(): void;
   refreshStatusStrip(): void;
   updateStatusBar(): void;
@@ -85,7 +82,6 @@ export interface PanelOrchestratorHost {
 }
 
 export interface PanelOrchestratorServices {
-  routeAccessMessage(msg: InspectorMessage): boolean;
   isReferenceActive(): boolean;
   handleReferenceMessage(msg: InspectorMessage, panel: HTMLElement): boolean;
   showReferenceView(
@@ -99,7 +95,6 @@ export interface PanelOrchestratorServices {
 }
 
 const defaultServices: PanelOrchestratorServices = {
-  routeAccessMessage,
   isReferenceActive,
   handleReferenceMessage,
   showReferenceView,
@@ -159,13 +154,6 @@ export function createPanelOrchestrator(
   };
 
   const claimMessage = (msg: InspectorMessage): boolean => {
-    if (
-      (msg.type === 'ACCESS_SUBJECTS_DATA' || msg.type === 'ACCESS_TRACE_RESULT')
-      && services.routeAccessMessage(msg)
-    ) {
-      return true;
-    }
-
     if (services.isReferenceActive()) {
       const panel = host.getActivePanel();
       if (panel && services.handleReferenceMessage(msg, panel)) return true;
@@ -282,15 +270,6 @@ export function createPanelOrchestrator(
           const detailContainer = panel?.querySelector<HTMLElement>('.workshop-detail');
           if (detailContainer) host.detailView.refresh(detailContainer);
         }
-        break;
-      case 'PAINT_STATE':
-        S.paintPhase = msg.phase;
-        S.paintSourceName = msg.sourceName ?? null;
-        host.updatePaintButton();
-        break;
-      case 'PAINT_APPLY_RESULT':
-        host.updatePaintButton();
-        if (!msg.ok && msg.error) host.showPaintError(msg.error);
         break;
       case 'SELECT_OBJECT':
         if ('rid' in msg) {

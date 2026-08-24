@@ -5,16 +5,14 @@
  */
 
 import type { InspectorMessage } from '../lib/types';
-import { PAINT_STYLE_PROPS } from '../lib/types';
 import { h, render, svg } from '../lib/dom';
 import { delegate } from './delegate';
 import { log } from '../lib/logger';
 import { ICON_REFRESH, ICON_SEARCH, ICON_CROSSHAIR, ICON_BLUEPRINT } from './utils';
-import { ICON_TERMINAL_WINDOW, ICON_PAINT_BROAD, ICON_PULSE } from '../lib/icons';
+import { ICON_TERMINAL_WINDOW, ICON_PULSE } from '../lib/icons';
 import { DetailView } from './detail-view';
 import { initReferenceView } from './reference-view';
 import { S, sendMessage, getActivePanel, getTabPanel, tabPanelId, onPortMessage, onReconnect, onWorkStatus, connectPanel } from './state';
-import { initAccessTrace } from './access-trace';
 import { showProfileSwitcher } from './profile-switcher';
 import { renderSiteAccessStrip, refreshSiteAccessStrip } from './site-access-strip';
 import type { Tab } from './tabs/tab-types';
@@ -23,7 +21,6 @@ import { ObjectsTab } from './tabs/objects-tab';
 import { LogTab } from './tabs/log-tab';
 import { WorkshopTab } from './tabs/workshop-tab';
 import { AiTab } from './tabs/ai-tab';
-import { showToast } from '../lib/toast';
 import { provisionalConnectionSnapshot } from '../lib/connection-snapshot';
 import { objectChip } from '../lib/object-chip';
 import { runtimeVersion } from '../lib/build-info';
@@ -125,9 +122,6 @@ initReferenceView(
 
 // ── Message routing ──────────────────────────────────────────────
 
-// The Access Trace overlay reaches the SW through the panel's port send.
-initAccessTrace(sendMessage);
-
 const orchestrator = createPanelOrchestrator({
   app,
   tabs,
@@ -159,8 +153,6 @@ const orchestrator = createPanelOrchestrator({
   updateObjectsBadge,
   updateContextPill,
   updateLatencyPill,
-  updatePaintButton,
-  showPaintError,
   updateHeaderStatus,
   refreshStatusStrip,
   updateStatusBar,
@@ -302,9 +294,8 @@ function buildApp(): void {
       title: 'Open the Extended Code editor',
     }, svg(ICON_TERMINAL_WINDOW)),
     h('span', { class: 'hdr-vsep', 'aria-hidden': 'true' }),
-    // Page MODES — inspect / blueprint / paint are mutually toggleable states
-    // on the live page, so they read as one segmented control, not three
-    // scattered icons (T2 sign-off).
+    // Page modes — Inspect and Blueprint are mutually exclusive live-page
+    // overlays, so they read as one segmented control.
     h('div', { class: 'hdr-modes', role: 'group', 'aria-label': 'Page modes' },
       h('button', {
         class: `hdr-mode inspect-toggle ${S.inspectActive ? 'active' : ''}`,
@@ -323,13 +314,6 @@ function buildApp(): void {
           ? 'Toggle the blueprint layout editor overlay on the live BMP page'
           : 'Blueprint requires BMP 5.6.3 or newer',
       }, svg(ICON_BLUEPRINT)),
-      h('button', {
-        class: `hdr-mode paint-btn ${S.paintPhase !== 'off' ? 'active' : ''}`,
-        id: 'toggle-paint',
-        'aria-label': 'Paint Format',
-        'aria-pressed': S.paintPhase !== 'off' ? 'true' : 'false',
-        title: 'Right-click to choose which styles get painted',
-      }, svg(ICON_PAINT_BROAD)),
     ),
   );
 
@@ -354,9 +338,6 @@ function buildApp(): void {
     h('button', { class: 'status-strip-btn', 'data-action': 'test', title: 'Test connection' }, svg(ICON_REFRESH)),
   );
 
-  // No sidebar paint status bar — during paint the user's focus is the page,
-  // where the in-page banner is the HUD. The header paint button's active
-  // state is the only sidebar signal needed.
   const tabContent = buildTabContent();
 
   // Cache count gets a label so the lone "0" in the corner isn't a mystery.
@@ -406,12 +387,6 @@ function buildApp(): void {
     reconnect: () => sendMessage({ type: 'CONNECTION_TEST' }),
   });
 
-  const paintBtn = app.querySelector('#toggle-paint');
-  paintBtn?.addEventListener('click', () => sendMessage({ type: 'TOGGLE_PAINT' }));
-  paintBtn?.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    showPaintStyleMenu(e.currentTarget as HTMLElement);
-  });
   app.querySelector('#toggle-inspect')?.addEventListener('click', () => sendMessage({ type: 'TOGGLE_INSPECT' }));
   app.querySelector('#toggle-blueprint')?.addEventListener('click', () => sendMessage({ type: 'BLUEPRINT_TOGGLE' }));
   app.querySelector('#open-extended')?.addEventListener('click', () => sendMessage({ type: 'OPEN_EXTENDED' }));
@@ -494,16 +469,6 @@ function statusText(): string {
     case 'unreachable': return S.connState.networkOffline ? 'No network' : 'Unreachable';
     case 'needs-access': return 'Grant access';
   }
-}
-
-function showPaintError(error: string) {
-  // Errors surface as a toast — the dedicated sidebar paint bar is gone.
-  showToast(error, 'error');
-}
-
-function updatePaintButton() {
-  const btn = document.getElementById('toggle-paint');
-  if (btn) btn.className = `hdr-mode paint-btn ${S.paintPhase !== 'off' ? 'active' : ''}`;
 }
 
 function statusStripClass(): string {
@@ -706,65 +671,6 @@ function updateLatencyPill(): void {
 /** Unobtrusive in-sidebar popup anchored under the Companion brand. Stays inside
  *  the panel (no new tab) so the user doesn't lose context — clicking a link
  *  inside opens that destination in a real tab via window.open. */
-/** Human labels for the paintable style props (right-click menu). */
-const PAINT_PROP_LABELS: Record<string, string> = {
-  headerColor: 'Header color',
-  fontColor: 'Font color',
-  transparency: 'Transparency',
-  shadow: 'Shadow',
-  headerStyle: 'Header style',
-  borderStyle: 'Border style',
-  showToolMenu: 'Tool menu',
-  disableSearch: 'Disable search',
-};
-
-/** Right-click menu on the paint button: toggle which style props Paint
- *  Format copies. Persists via SAVE_SETTINGS (paintProps) — the SW reads it in
- *  handlePaintApply. Stays open across toggles; closes on outside-click/Esc. */
-function showPaintStyleMenu(anchor: HTMLElement): void {
-  const existing = document.getElementById('paint-style-menu');
-  if (existing) { existing.remove(); return; }
-
-  const selected = new Set(S.settings.paintProps ?? PAINT_STYLE_PROPS);
-  const rect = anchor.getBoundingClientRect();
-
-  const rows = PAINT_STYLE_PROPS.map((prop) => {
-    const cb = h('input', { type: 'checkbox', class: 'paint-style-cb' }) as HTMLInputElement;
-    cb.checked = selected.has(prop);
-    cb.addEventListener('change', () => {
-      if (cb.checked) selected.add(prop); else selected.delete(prop);
-      const paintProps = PAINT_STYLE_PROPS.filter(p => selected.has(p));
-      S.settings = { ...S.settings, paintProps };
-      sendMessage({ type: 'SAVE_SETTINGS', settings: { paintProps } });
-    });
-    return h('label', { class: 'paint-style-row', role: 'menuitemcheckbox' },
-      cb, h('span', null, PAINT_PROP_LABELS[prop] ?? prop));
-  });
-
-  const menu = h('div', {
-    id: 'paint-style-menu',
-    class: 'brand-menu paint-style-menu',
-    role: 'menu',
-    style: `top:${rect.bottom + 4}px; right:${Math.max(4, window.innerWidth - rect.right)}px;`,
-  },
-    h('div', { class: 'paint-style-title' }, 'Paint these styles'),
-    ...rows,
-  );
-  document.body.appendChild(menu);
-
-  const close = (e?: Event) => {
-    if (e && menu.contains(e.target as Node)) return;
-    menu.remove();
-    document.removeEventListener('mousedown', close);
-    document.removeEventListener('keydown', onKey);
-  };
-  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
-  setTimeout(() => {
-    document.addEventListener('mousedown', close);
-    document.addEventListener('keydown', onKey);
-  }, 0);
-}
-
 function showBrandMenu(anchor: HTMLElement): void {
   const existing = document.getElementById('header-brand-menu');
   if (existing) { existing.remove(); return; }
@@ -776,7 +682,7 @@ function showBrandMenu(anchor: HTMLElement): void {
     role: 'menu',
     style: `top:${rect.bottom + 4}px; left:${rect.left}px;`,
   },
-    // Code search now lives as a header icon (next to Extended Code / Paint).
+    // Code search now lives as a header icon next to Extended Code.
     h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://github.com/HeinemannT/configuration-companion', target: '_blank', rel: 'noopener' }, 'GitHub repo'),
     h('a', { class: 'brand-menu-link', role: 'menuitem', href: 'https://github.com/HeinemannT/configuration-companion/releases', target: '_blank', rel: 'noopener' }, 'Releases'),
     h('div', { class: 'brand-menu-meta' }, runtimeVersion(chrome.runtime.getManifest().version)),

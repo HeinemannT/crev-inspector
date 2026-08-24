@@ -1,7 +1,7 @@
 /**
  * Tests for the object-pane DetailView (Path-Spine layout).
  * Covers: FETCH_OBJECT_PANE flow, the path bar / identity row / sub-row
- * header, the segmented body (Flow|Structure|Info), the draft save pipeline
+ * header, the segmented body (Info|Flow|Structure), the draft save pipeline
  * (property editors moved to Blueprint; the pipeline is seeded directly),
  * target toggle, tree navigation, watchdog.
  *
@@ -19,8 +19,6 @@ vi.mock('../state', () => ({
     settings: { profiles: [], activeProfileId: null },
     connState: { display: 'connected', version: null, responseMs: null, profileLabel: null, user: null, workspace: null, authError: null, networkOffline: false, lastUpdate: 0 },
     inspectActive: false,
-    paintPhase: 'off',
-    paintSourceName: null,
     cacheCount: 0,
     favoriteEntries: [],
   },
@@ -130,7 +128,7 @@ function seedDraft(dv: DetailView, panel: HTMLElement, draft: Record<string, str
   dv.refresh(panel);
 }
 
-/** Click the body segment button by its label (Flow/Code · Structure · Info). */
+/** Click a body segment button by its label. */
 function clickSegment(panel: HTMLElement, label: string) {
   const seg = [...panel.querySelectorAll<HTMLButtonElement>('.dv-seg')]
     .find(b => b.textContent!.startsWith(label));
@@ -172,15 +170,25 @@ describe('DetailView — fetch flow', () => {
     dv.show(makeObj('100'), panel);
     const consumed = dv.handleMessage(paneData('100', {
       instanceProps: emptyProps({ width: '260', headerColor: '#ff5050' }),
+      templateRid: '200',
+      codeFields: { expression: 'output("ready")' },
     }), panel);
     expect(consumed).toBe(true);
     expect(panel.querySelector('.pane-loading')).toBeFalsy();
-    // Segment bar: Code (ExtendedTable is not a flow type) · Structure · Info.
+    // Info consolidates identity + code and is the default/first segment.
     const segs = [...panel.querySelectorAll('.dv-segs .dv-seg')].map(b => b.textContent);
-    expect(segs.length).toBe(3);
-    expect(segs[0]).toContain('Code');
+    expect(segs).toHaveLength(2);
+    expect(segs[0]).toContain('Info');
     expect(segs[1]).toContain('Structure');
-    expect(segs[2]).toContain('Info');
+    expect(panel.querySelector('.dv-seg--on')?.textContent).toContain('Info');
+    expect([...panel.querySelectorAll('.dv-meta-k')].map(el => el.textContent))
+      .toEqual(['Type', 'Template ID', 'Instance ID', 'RID']);
+    expect([...panel.querySelectorAll('.dv-meta-v')].map(el => el.textContent))
+      .toEqual(['ExtendedTable', 'tmpl-200', 'bid-100', '100']);
+    const meta = panel.querySelector('.dv-meta')!;
+    const code = panel.querySelector('.code-section')!;
+    expect(meta.nextElementSibling).toBe(code);
+    expect(code.querySelector('.code-row-preview')?.textContent).toContain('output("ready")');
     // Property editors no longer render in this view (Blueprint's job now).
     expect(panel.querySelector('.prop-number-input')).toBeFalsy();
     expect(panel.querySelector('.prop-group-title-text')).toBeFalsy();
@@ -388,9 +396,7 @@ describe('DetailView — fetch flow', () => {
     const { dv, panel, sent } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100', { cardRid: '777', cardViaTemplate: true }), panel);
-    // The card is a related object, not an ancestor — it lives in Info now.
-    expect(panel.querySelector('.pane-card-crumb')).toBeFalsy();
-    clickSegment(panel, 'Info');
+    // The card is a related object, not an ancestor — it lives in default Info.
     const crumb = panel.querySelector<HTMLElement>('.pane-card-crumb');
     expect(crumb).toBeTruthy();
     expect(crumb!.textContent).toContain('Detail card');
@@ -400,14 +406,14 @@ describe('DetailView — fetch flow', () => {
     expect(sent.find(m => m.type === 'FETCH_OBJECT_PANE' && (m as { rid?: string }).rid === '777')).toBeTruthy();
   });
 
-  it('the sub-row open-in-web icon button opens THIS object in the BMP portal', () => {
-    const { dv, panel, sent } = makeDetailView();
+  it('omits the redundant web, access, and favorite actions', () => {
+    const { dv, panel } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100'), panel);
-    const open = panel.querySelector<HTMLElement>('.dv-subrow .dv-act[aria-label="Open in web"]');
-    expect(open).toBeTruthy();
-    open!.click();
-    expect(sent.find(m => m.type === 'BMP_OPEN_OBJECT' && (m as { rid?: string }).rid === '100')).toBeTruthy();
+    expect(panel.querySelector('[aria-label="Open in web"]')).toBeNull();
+    expect(panel.querySelector('[aria-label="Test access"]')).toBeNull();
+    expect(panel.querySelector('[aria-label="Pin to favorites"]')).toBeNull();
+    expect(panel.querySelector('[aria-label="Unpin from favorites"]')).toBeNull();
   });
 
   it('the identity-row name is inert; the badge is the click-to-copy affordance', () => {
@@ -435,7 +441,6 @@ describe('DetailView — fetch flow', () => {
     const { dv, panel } = makeDetailView();
     dv.show(makeObj('100'), panel);
     dv.handleMessage(paneData('100'), panel); // no cardRid
-    clickSegment(panel, 'Info');
     expect(panel.querySelector('.pane-card-crumb')).toBeFalsy();
   });
 
@@ -528,6 +533,11 @@ describe('DetailView — draft save pipeline (editors live in Blueprint now)', (
     }), panel);
     dv.handleMessage(labelFlowData('4000'), panel);
 
+    expect([...panel.querySelectorAll('.dv-seg')].map(el => el.textContent))
+      .toEqual(['Info', 'Flow1', 'Structure1']);
+    expect(panel.querySelector('.dv-seg--on')?.textContent).toBe('Info');
+    clickSegment(panel, 'Flow');
+
     const body = panel.querySelector('.flow-step-b')!;
     const defaults = body.querySelector<HTMLElement>(':scope > .flow-default-config')!;
     expect(defaults.querySelector<HTMLSelectElement>('select')?.value).toBe('RICH');
@@ -549,6 +559,8 @@ describe('DetailView — draft save pipeline (editors live in Blueprint now)', (
       contextValues: { textInputType: 'TextType.rich', advancedDefault: 'false' },
     }), panel);
     dv.handleMessage(labelFlowData('4000'), panel);
+
+    clickSegment(panel, 'Flow');
 
     expect(panel.querySelector('.flow-cf--off .flow-cf-gate')?.textContent)
       .toContain('Inactive: Advanced default is off');
