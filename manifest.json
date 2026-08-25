@@ -38,11 +38,12 @@
     "default_path": "sidepanel/sidepanel.html"
   },
   "commands": {
-    "_execute_action": {
+    "open-side-panel": {
       "suggested_key": {
         "default": "Ctrl+Shift+Y",
         "mac": "Command+Shift+Y"
-      }
+      },
+      "description": "Open the Configuration Companion side panel"
     },
     "toggle-inspect": {
       "suggested_key": {

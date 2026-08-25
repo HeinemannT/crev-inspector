@@ -1163,7 +1163,7 @@ export class ConnectTab implements Tab {
    *  user's actual Chrome bindings rather than merely the manifest defaults. */
   private renderKeyboardShortcuts(): HTMLElement {
     const rows = [
-      { action: 'Toggle side panel', command: '_execute_action', defaultKey: 'Ctrl+Shift+Y' },
+      { action: 'Open side panel', command: 'open-side-panel', defaultKey: 'Ctrl+Shift+Y' },
       { action: 'Toggle inspect on page', command: 'toggle-inspect', defaultKey: 'Ctrl+Shift+X' },
       { action: 'Toggle blueprint mode', command: 'toggle-blueprint', defaultKey: 'Ctrl+Shift+B' },
       { action: 'Open Extended Code', command: 'open-extended', defaultKey: 'Ctrl+Shift+E' },

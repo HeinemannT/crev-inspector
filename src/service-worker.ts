@@ -29,6 +29,7 @@ import { openEditorWindow, openExtendedWindow } from './lib/editor';
 import { openCodeSearchWindow } from './lib/codesearch-launcher';
 import { initSiteAccess, reconcileProfileOrigins } from './lib/site-access';
 import { openDiffWindow } from './lib/diff-launcher';
+import { openSidePanelFromCommand } from './lib/side-panel-command';
 
 // Deliberately global so the exact loaded build is visible from the service
 // worker DevTools console, even when manifest.version has not changed.
@@ -571,8 +572,15 @@ chrome.runtime.onConnect.addListener((port) => {
 
 // ── Keyboard shortcut ───────────────────────────────────────────
 
-chrome.commands.onCommand.addListener((command) => {
+chrome.commands.onCommand.addListener((command, tab) => {
   log.info('sw:command', command);
+  if (command === 'open-side-panel') {
+    // `_execute_action` does not reliably inherit sidePanel's
+    // openPanelOnActionClick behavior when invoked from a keyboard shortcut.
+    // A normal command is a Chrome-recognised user gesture, so open the panel
+    // explicitly while leaving the toolbar action's native toggle untouched.
+    void openSidePanelFromCommand(tab).catch(e => log.swallow('sw:openSidePanelCommand', e));
+  }
   if (command === 'toggle-inspect') {
     void toggleInspect();
   }
