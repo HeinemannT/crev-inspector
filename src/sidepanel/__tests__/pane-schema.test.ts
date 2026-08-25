@@ -3,11 +3,11 @@
  *
  * The static `availableOn` sets are the FIRST-RENDER fallback before the
  * live type schema lands (pane-schema-runtime overrides them). They were
- * hand-curated from decompiled BeanInfo and had drifted: 57 appearance-
+ * hand-curated from platform type metadata and had drifted: 57 appearance-
  * bearing types were missing, and a phantom `bgColor` prop (no such BMP
  * accessor) was present. These tests pin the fix so it can't regress.
  *
- * Ground truth: every BeanInfo declaring the WebChild `shadow` descriptor
+ * Ground truth for the compatibility fallback: every type declaring the WebChild `shadow` descriptor
  * also declares HasWidgetColors (headerColor/fontColor) — an identical
  * 103-type family (minus the abstract WebChildReference wrapper).
  */

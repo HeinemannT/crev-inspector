@@ -118,7 +118,7 @@ export const PANE_PROPS = [
   // Display-level toggles attached by HasToolsMenu / HasDisableSearch mixins.
   'showToolMenu', 'disableSearch',
   // HasWidgetColors declares only headerColor + fontColor (no bgColor —
-  // verified against every decompiled BeanInfo + the live type schema).
+  // verified against the live type schema).
   'headerColor', 'fontColor',
   'shadow', 'transparency',
   'headerStyle', 'borderStyle',

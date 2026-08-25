@@ -47,7 +47,7 @@ export interface PropDef {
 // into its own set so every mixin set below can spread it in without
 // drifting out of sync.
 //
-// Sourced from decompiled BeanInfo files implementing HasColumnWidths,
+// Compatibility fallback for types exposing HasColumnWidths,
 // minus the scorecard-tree nodes (StrategicObjective, Perspective)
 // which are NOT widgets and live under a different mixin surface.
 export const LIST_WIDGET_TYPES: ReadonlySet<string> = new Set([
@@ -88,7 +88,7 @@ export const HAS_TOOLS_MENU_TYPES: ReadonlySet<string> = new Set([
   ...CHART_WIDGET_TYPES,
 ]);
 // disableSearch (HasDisableSearch) is a STRICT SUBSET of HasToolsMenu — verified against the
-// decompiled 5.6.10 traits (2026-07-06): 33 classes carry the tools menu but NOT disable-search,
+// 5.6.10 live type metadata (2026-07-06): 33 classes carry the tools menu but NOT disable-search,
 // including the chart family (RiskChart/RiskRadarChart), several list widgets, CreateObjectView
 // and DescriptionView. Derived as a difference so a type added to the tools set stays honest here.
 const TOOLS_ONLY_TYPES: ReadonlySet<string> = new Set([
@@ -104,9 +104,9 @@ export const HAS_DISABLE_SEARCH_TYPES: ReadonlySet<string> =
 // Appearance family — every type carrying the WebChild styling props
 // (shadow / headerStyle / borderStyle / transparency) AND the
 // HasWidgetColors colour links (headerColor / fontColor). The two mixins
-// are declared on a BYTE-FOR-BYTE IDENTICAL set of 103 types in the
-// decompiled BeanInfo, so one constant gates both. Sourced from every
-// BeanInfo that declares the WebChild `shadow` descriptor (minus the
+// are reported on the same 103 types in the live type metadata, so one
+// constant gates both. The fallback covers every type that exposes the
+// WebChild `shadow` descriptor (minus the
 // abstract WebChildReference wrapper).
 //
 // The live type schema (pane-schema-runtime) overrides this at render
@@ -192,8 +192,8 @@ export const PROP_GROUPS: Array<{ title: string; props: PropDef[] }> = [
     // Appearance — colour LINKS (CorpoColor references, picked from the
     // colourset list, never typed). HasWidgetColors declares exactly two
     // accessors: `headerColor` and `fontColor`. There is NO `bgColor` on
-    // any BMP widget (confirmed against every decompiled BeanInfo + the
-    // live type schema) — it was a phantom prop and has been removed.
+    // any BMP widget (confirmed against the live type schema) — it was a
+    // phantom prop and has been removed.
     // Gated to APPEARANCE_TYPES so the colour editors don't surface on
     // non-widget nodes (Organisation, plain Kpi/Node, …) in the
     // pre-schema fallback window.

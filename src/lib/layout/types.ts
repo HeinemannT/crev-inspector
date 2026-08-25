@@ -12,9 +12,8 @@ export type Breakpoint = 'L' | 'M' | 'S';
 export type NodeKind = 'tab' | 'container' | 'widget';
 export type SaveTarget = 'instance' | 'template';
 
-/** The BMP "page" classes whose layout this builder edits. A page host is any type implementing
- *  the `WebParent` interface (decompiled: `model/model/webelem/WebParent.java`, which extends
- *  `HasTabChildren`) — they ALL share one containment shape: a portal TabSet of Tabs/Containers
+/** The BMP "page" classes whose layout this builder edits. Live type metadata and behavior show
+ *  that page hosts expose the `WebParent` / `HasTabChildren` containment shape: a portal TabSet of Tabs/Containers
  *  + org-model widgets keyed to a cell via `container`. So the pipeline is page-type-agnostic;
  *  `pageClass` is consumed only by the apply's `SELECT <class>`, and the addable-widget palette
  *  is a function of (model space, host class) — not a per-class branch here.
@@ -23,8 +22,8 @@ export type SaveTarget = 'instance' | 'template';
  *  StrategicObjective, Policy/Asset/Procedure, ControlMeasure, Incident, RiskEvent, Section,
  *  RiskAssessment, Milestone/Task, ActionPlan/Program/Audit/Project, BPMN pages, etc.
  *
- *  NOT a page host: `EnterpriseTemplate` (decompiled: it does NOT implement WebParent — its
- *  children are EnterpriseTemplateElement field-definitions, a different containment family).
+ *  NOT a page host: `EnterpriseTemplate` does not expose the WebParent page-host behavior; its
+ *  children are EnterpriseTemplateElement field definitions, a different containment family.
  *  Editing an enterprise *template definition* is out of scope for this TabSet+widget model. */
 export type PageClass =
   | 'Scorecard' | 'ModelPage' | 'Page' | 'Perspective' | 'Indicator' | 'Kpi'

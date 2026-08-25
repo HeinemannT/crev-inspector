@@ -27,7 +27,7 @@ function vdivEl(): HTMLElement {
 }
 
 /** A portal-flag toggle: quiet grey at the BMP default, amber when deviating.
- *  `current` is the staged boolean; `def` the decompiled trait default. The
+ *  `current` is the staged boolean; `def` the BMP default observed in live type metadata. The
  *  icon may differ per state (eye / eye-slash) or stay constant (dots, gps). */
 function flagBtn(current: boolean, def: boolean, iconDefault: string, iconDeviant: string, title: string, onClick: () => void): HTMLElement {
   const b = document.createElement('button');

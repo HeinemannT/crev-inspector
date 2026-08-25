@@ -47,8 +47,8 @@ export const STYLE_PROPS: readonly StylePropDef[] = [
   { prop: 'borderStyle',  colorLink: false, reset: '"None"', nodeKey: 'borderStyle',    def: '',
     options: [{ value: 'LINE', label: 'Line' }, { value: 'NONE', label: 'None' }] },
   // Widget FLAGS — portal chrome toggles that ride the style channel (fetch / stage / apply). Defaults
-  // cited from the decompiled 5.6.10 traits: HasToolsMenu.isShowToolMenu @DefaultValue(true),
-  // HasDisableSearch.isDisableSearch @DefaultValue(false). Trait presence is detected at fetch time (a
+  // verified through live type metadata and behavior: HasToolsMenu.isShowToolMenu defaults true;
+  // HasDisableSearch.isDisableSearch defaults false. Trait presence is detected at fetch time (a
   // type without the trait reads MISSING → empty wire field → the UI doesn't render the flag). These two
   // ARE paintable — hiding the tools menu / search across sibling widgets is a common bulk edit; the
   // paint apply guards against painting them onto a widget that lacks the trait (see brushWidget). The

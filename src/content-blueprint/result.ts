@@ -123,7 +123,7 @@ function reorderedIds(base: BaselineIndex, m: LModel): Set<string> {
 
 
 /** Per-type fallback heights (px) for a widget with no live DOM (an inactive tab) and no authored
- *  height. Rough but type-aware, informed by the decompiled layout model + live measurement:
+ *  height. Rough but type-aware, informed by live measurement and compatibility testing:
  *   - charts default to a tall box (chartHeight 470 / autoSize cell-grid — live autoSize charts ~466);
  *   - TABLES/LISTS have a fixed MINIMUM (~196px): an ExtendedTable reserves table space and scrolls
  *     internally up to rowPerPage rows, so it renders at that floor whether it holds rows or is empty

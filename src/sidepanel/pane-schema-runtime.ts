@@ -2,8 +2,8 @@
  * Runtime type-availability for the property pane.
  *
  * The static mixin sets in `pane-schema.ts` (RESPONSIVE_WIDTH_TYPES,
- * HAS_TOOLS_MENU_TYPES, …) were reverse-engineered from decompiled
- * BeanInfo and curated by hand. Every missed type produced a user
+ * HAS_TOOLS_MENU_TYPES, …) began as manually curated compatibility
+ * fallbacks. Every missed type produced a user
  * complaint ("bubble chart doesn't show the Display group") and a
  * patch to extend the relevant Set.
  *

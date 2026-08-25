@@ -4,8 +4,8 @@
  * Can't hit live BMP in a unit test, but we CAN prove the command serializes
  * without throwing and that every class descriptor + the action enum constant
  * land in the Java-serialized stream — which catches builder/descriptor typos
- * (wrong field type, unregistered class, bad enum). The serialVersionUID = 0L
- * was confirmed separately via `serialver` against the real 5.6.7.2 bmp-dto.
+ * (wrong field type, unregistered class, bad enum). The test also pins the
+ * serialVersionUID = 0L metadata required for 5.6.7.2 compatibility.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { registerBmpTypes, makeAccessTraceCommand, makeGetObjectCommand } from '../bmp-types';

@@ -1,7 +1,7 @@
 /**
  * BMP type registry for Java serialization.
- * Registers all BMP classes needed by the extension with exact
- * serialVersionUIDs and field descriptors from decompiled sources.
+ * Registers the wire-compatible class metadata needed by the extension's
+ * Configuration Studio command transport.
  */
 
 import {
@@ -360,8 +360,8 @@ const JAVA_UTIL_HASHSET: JavaClassDesc = {
 
 // ── Access Trace (admin permission test) ────────────────────────
 // AccessTraceCommand(AccessTraceRequestDTO, SimpleCalculationContext). All
-// records → serialVersionUID = 0L (confirmed via `serialver` against the real
-// 5.6.7.2 bmp-dto). Fields in Java's canonical stream order (primitives first,
+// records use serialVersionUID = 0L for 5.6.7.2 compatibility. Fields follow
+// Java's canonical stream order (primitives first,
 // then references) — deserialization matches by name, so this is belt-and-
 // suspenders. The enum + List + Map are serialized by the existing writers.
 
