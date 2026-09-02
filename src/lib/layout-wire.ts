@@ -24,6 +24,13 @@ export const PAGE_MARKER = '<<<CREV_PAGE>>>';  // page display name — support-
 export const CTX_MARKER = '<<<CREV_CTX>>>';    // page-context probe line (resolvePageContext)
 export const OVER_MARKER = '<<<CREV_OVER>>>';  // F2 per-widget override flags `bid|prop,…` (parseOverrides)
 export const STYLE_MARKER = '<<<CREV_STY>>>';  // G3 per-widget styling `bid|hcBid|fcBid|shadow|headerStyle|borderStyle|transparency` (parseStyles)
+/** DescriptionView enterprise property source: `widgetBid|[CeIssue, CeTask]`.
+ *  Kept off the shared layout row because Workshop also consumes that stable wire shape. */
+export const DESCRIPTION_VIEW_TYPES_MARKER = '<<<CREV_DVT>>>';
+/** Blueprint-only DescriptionView authoring payload. The marker line carries the widget id and is
+ *  followed by that widget's `genedit()` statement; `sortVisibility` cannot be enumerated directly
+ *  in EC because BMP exposes it as a Java array rather than an EC List. */
+export const DESCRIPTION_VIEW_PROPERTIES_MARKER = '<<<CREV_DVP>>>';
 /** Blueprint-only tab provenance/order channel: `tabRid|tabsetBid|sortIndex`.
  *  Kept separate from LAYOUT_SEP because that shared ten-field wire is also consumed by Workshop. */
 export const TAB_META_MARKER = '<<<CREV_TAB>>>';

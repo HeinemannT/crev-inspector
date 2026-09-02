@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { LayoutNode as WireNode } from '../../types';
 import { maskStyle, type LModel, type LNode, type NodeStyle } from '../types';
 import { reconstruct, findNode, descendantWidgets, editableTabsets, isChart, isResultTab } from '../model';
-import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, restoreNode, isAncestorOf, toggleReset, setStyle } from '../edit';
+import { resize, setHeight, rename, move, swap, insertRelative, moveInto, addWidget, addContainer, addTab, remove, restoreNode, isAncestorOf, toggleReset, setStyle, setDescriptionViewType, setDescriptionViewProperties } from '../edit';
 import { diff, summarizeChanges } from '../diff';
 import { compile } from '../ec';
 import { lint } from '../constraints';
@@ -131,6 +131,51 @@ describe('model.reconstruct', () => {
     expect(box.cols.L).toBe(3);
     expect(box.children.map(c => c.id)).toEqual(['456', '457']); // nested under the container
     expect(result.children.map(c => c.id)).not.toContain('456'); // not also siblings on Result
+  });
+});
+
+describe('DescriptionView enterprise property source', () => {
+  const enterprise = (): LModel => ({
+    ...model(n({ id: 'tab1', kind: 'tab', className: 'Tab', children: [
+      n({ id: 'view', kind: 'widget', className: 'DescriptionView', name: 'Details', viewTypes: [] }),
+    ] })),
+    pageId: 'risk_template', pageClass: 'EnterpriseTemplate', enterpriseObjectType: 'CeRiskAssessment',
+  });
+
+  it('defaults a newly added DescriptionView from the viewed enterprise instance', () => {
+    const added = addWidget(enterprise(), 'tab1', 1, 'DescriptionView', 'Properties');
+    expect(findNode(added.model, added.id)?.node.viewTypes).toEqual(['CeRiskAssessment']);
+    expect(compile(diff(enterprise(), added.model), added.model).script)
+      .toContain('viewTypes := LIST(CeRiskAssessment)');
+  });
+
+  it('stages and compiles the selected Ce* source on an existing view', () => {
+    const base = enterprise();
+    const desired = setDescriptionViewType(base, 'view', 'CeIssue');
+    const { script, notes } = compile(diff(base, desired), desired);
+    expect(script).toContain('t.view.change(viewTypes := LIST(CeIssue))');
+    expect(notes[0]?.detail).toContain('properties from CeIssue');
+  });
+
+  it('stages the exact ordered visible properties and removes duplicates', () => {
+    const base = enterprise();
+    const desired = setDescriptionViewProperties(base, 'view', ['owner_reference', 'name', 'owner_reference']);
+    expect(findNode(desired, 'view')?.node.sortVisibility).toEqual(['owner_reference', 'name']);
+    const { script, notes } = compile(diff(base, desired), desired);
+    expect(script).toContain('sortVisibility := LIST("owner_reference", "name")');
+    expect(notes[0]?.detail).toContain('2 visible properties');
+  });
+
+  it('clears class-specific properties when the enterprise source changes', () => {
+    const base = setDescriptionViewProperties(enterprise(), 'view', ['risk_owner']);
+    const desired = setDescriptionViewType(base, 'view', 'CeIssue');
+    expect(findNode(desired, 'view')?.node.sortVisibility).toEqual([]);
+  });
+
+  it('rejects a non-enterprise class before interpolating an EC type token', () => {
+    const base = enterprise();
+    const desired = setDescriptionViewType(base, 'view', 'Scorecard');
+    expect(() => compile(diff(base, desired), desired)).toThrow(/invalid DescriptionView object type/);
   });
 });
 

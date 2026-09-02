@@ -38,6 +38,7 @@ import { openPicker, toggleResetProp } from './actions';
 import { bp } from './state';
 import { colorRgb } from './colors';
 import { contrastInk } from '../lib/color-util';
+import { descriptionViewBody } from './description-view-result';
 
 /** Widget-type → Phosphor glyph, so each result cell carries a scannable icon instead of only a mono
  *  type string (and the big empty chart/table cells aren't pure void). First match wins. */
@@ -296,14 +297,17 @@ function cell(base: BaselineIndex, m: LModel, node: LNode, parentId: string | nu
   // body — composite-style sizing (size to the rows, no height clamp, no watermark/short-cell logic
   // fighting the panel — pitfall 11).
   const flow = node.kind === 'widget' && hasFlowPanel(m, node);
+  const description = node.className === 'DescriptionView';
+  const editingDescription = description && bp.mode === 'layout' && bp.selectedId === node.id;
   const h = widgetHeight(node, byRid);
-  if (h && !composite && !flow) el.style.height = `${h.px}px`; // composites/flow cells size to their children, not an estimate
+  if (h && !composite && !flow && !editingDescription) el.style.height = `${h.px}px`; // active DescriptionView editors size to their rows
   const state = cellState(base, node, parentId, reordered);
   // Too short to fit the label + the centred type watermark + the caption without overlap → drop the
   // watermark (CSS hides .bp-rwm on .bp-rshort). Short content widgets (TextElement, InputView) hit this.
-  const short = node.kind === 'widget' && !composite && !flow && !!h && h.px < SHORT_CELL_HEIGHT;
+  const short = node.kind === 'widget' && !composite && !flow && !editingDescription && !!h && h.px < SHORT_CELL_HEIGHT;
   el.className = `bp-rcell st-${state}` + (node.kind === 'container' ? ' bp-rcont' : '') + (composite ? ' bp-rcomp-host' : '')
     + (flow ? ' bp-rflow' : '')
+    + (description ? ' bp-rdescription' : '') + (editingDescription ? ' bp-rdescription-editing' : '')
     + (isChart(node.className) ? ' bp-rchart' : '') + (short ? ' bp-rshort' : '')
     + (h && !composite && !flow ? (h.measured ? ' bp-rsized' : ' bp-rest') : '') + (bp.selectedId === node.id ? ' sel' : '');
 
@@ -341,6 +345,8 @@ function cell(base: BaselineIndex, m: LModel, node: LNode, parentId: string | nu
     // Composite placed IN THE GRID (ButtonContainer/ButtonGroup/InputSet/…): its LNode children in the
     // same flow row grammar — adds/reorders ride the EXISTING layout pipeline (ec composite branch).
     el.appendChild(compositeFlowRows(m, node));
+  } else if (description) {
+    el.appendChild(descriptionViewBody(m, node, editingDescription));
   } else {
     // Pure line-art: a faint type glyph fills the cell body with a small mono type caption beneath, so a
     // tall empty box reads as a typed placeholder (the dominant name + this glyph carry recognisability —

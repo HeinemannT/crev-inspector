@@ -42,7 +42,7 @@ function schemaView(types: readonly string[]): EditPageSchemaView {
     return { state: 'unavailable', properties: [], byAccessor: new Map(), typeLabel: '' };
   }
   const schemas = types.flatMap(type => {
-    const schema = bp.editPageSchemas.get(type);
+    const schema = bp.propertySchemas.get(type);
     return schema ? [schema] : [];
   });
   const typeLabel = types.join(' + ');
@@ -57,7 +57,7 @@ function schemaView(types: readonly string[]): EditPageSchemaView {
       typeLabel,
     };
   }
-  if (types.some(type => bp.editPageSchemaErrors.has(type))) {
+  if (types.some(type => bp.propertySchemaErrors.has(type))) {
     return { state: 'error', properties: [], byAccessor: new Map(), typeLabel };
   }
   return { state: 'loading', properties: [], byAccessor: new Map(), typeLabel };

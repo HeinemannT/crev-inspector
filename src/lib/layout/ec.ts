@@ -46,6 +46,18 @@ const COL_PROP: Record<Breakpoint, string> = { L: 'columnsLargeScreen', M: 'colu
 /** F2: the only properties a reset may target — bare EC identifiers in `.reset(<prop>)`, so allowlisted
  *  to keep the emitted EC injection-proof. Single source of truth = OVERRIDABLE_PROPS. */
 const RESETTABLE = new Set<string>(OVERRIDABLE_PROPS);
+/** `viewTypes` is a list of unquoted EC class tokens, so every member must come from the known
+ *  Ce* class family and pass the shared identifier guard before it is interpolated. */
+function viewTypesRhs(types: readonly string[]): string {
+  const safe = types.map(type => {
+    if (!/^Ce[A-Za-z0-9_]+$/.test(type)) throw new Error(`invalid DescriptionView object type "${type}"`);
+    return ecClass(type);
+  });
+  return `LIST(${safe.join(', ')})`;
+}
+
+const sortVisibilityRhs = (accessors: readonly string[]): string =>
+  `LIST(${accessors.map(ecStr).join(', ')})`;
 
 /** Responsive-width suffix for an add() — M/S are only emitted when authored (else BMP defaults). */
 const colsSuffix = (cols: { L: number; M?: number; S?: number }): string =>
@@ -192,9 +204,15 @@ export function compile(
             ec: `${v} := ${ref(s.parentId)}.add(${ecClass(n.className)}${idArg(n.id)}, name := ${ecStr(n.name)}) ${idComment(n.id)}` });
         } else {
           const h = n.height != null ? `, chartHeight := ${n.height}` : '';
+          const vt = n.className === 'DescriptionView' && n.viewTypes?.length
+            ? `, viewTypes := ${viewTypesRhs(n.viewTypes)}`
+            : '';
+          const sv = n.className === 'DescriptionView' && n.sortVisibility?.length
+            ? `, sortVisibility := ${sortVisibilityRhs(n.sortVisibility)}`
+            : '';
           emit({ verb: 'create', id: n.id, text: `Add ${n.className} "${n.name}" (${n.cols.L}/6) to ${where}`,
             action: 'Add', object: n.name, objectType: n.className, where: par?.name, detail: withIdDetail(n.id, `${n.cols.L}/6`),
-            ec: `${v} := _sc.add(${ecClass(n.className)}${idArg(n.id)}, name := ${ecStr(n.name)}, container := ${ref(s.parentId)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}${h}) ${idComment(n.id)}` });
+            ec: `${v} := _sc.add(${ecClass(n.className)}${idArg(n.id)}, name := ${ecStr(n.name)}, container := ${ref(s.parentId)}, columnsLargeScreen := ${n.cols.L}${colsSuffix(n.cols)}${h}${vt}${sv}) ${idComment(n.id)}` });
         }
         // G3: a widget created AND styled in the same batch carries its appearance on `n.style`. The create
         // above has no baseline (diff couldn't pair it for an update), so emit the style as a follow-up
@@ -219,6 +237,14 @@ export function compile(
         });
         if (s.name != null) { parts.push(`name := ${ecStr(s.name)}`); what.push(`→ "${s.name}"`); }
         if (s.height != null) { parts.push(`chartHeight := ${s.height}`); what.push(`${s.height}px`); }
+        if (s.viewTypes !== undefined) {
+          parts.push(`viewTypes := ${viewTypesRhs(s.viewTypes)}`);
+          what.push(`properties from ${s.viewTypes[0] ?? 'no enterprise object'}`);
+        }
+        if (s.sortVisibility !== undefined) {
+          parts.push(`sortVisibility := ${sortVisibilityRhs(s.sortVisibility)}`);
+          what.push(`${s.sortVisibility.length} visible ${s.sortVisibility.length === 1 ? 'property' : 'properties'}`);
+        }
         // G3 appearance edits — same shared compiler as the create path (styleEcParts).
         const styleCount = s.styleAssign?.length ?? 0;
         if (s.styleAssign?.length) {

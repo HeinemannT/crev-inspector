@@ -107,6 +107,8 @@ export interface ReconstructCtx {
    *  is the shared template; `instanceId` = the instance's businessId (for the label). */
   editingTemplate?: boolean;
   instanceId?: string;
+  /** Ce* class of the enterprise instance that resolved this template. */
+  enterpriseObjectType?: string;
   /** True when the page has no dedicated tabset — its widgets sit on the shared Result tab. The page
    *  still loads (showing the Result tab + its widgets, via default_tabset + withContent); the UI then
    *  offers a "+ Create tabset" affordance in the tab bar instead of a blocking modal. */
@@ -134,6 +136,8 @@ export function reconstruct(
   styles?: Map<string, NodeStyle>,
   flows?: Map<string, FlowProjection>,
   tabMetadata?: Map<string, TabMetadata>,
+  descriptionViewTypes?: Map<string, string[]>,
+  descriptionViewProperties?: Map<string, string[]>,
 ): LModel {
   const byRid = new Map<string, WireNode>();
   for (const n of nodes) byRid.set(n.rid, n);
@@ -151,6 +155,8 @@ export function reconstruct(
     const id = wire.businessId ?? wire.rid;
     const ovr = overrides?.get(id);
     const sty = styles?.get(id);
+    const viewTypes = descriptionViewTypes?.get(id);
+    const sortVisibility = descriptionViewProperties?.get(id);
     const meta = tabMetadata?.get(wire.rid);
     const structuralTabset = wire.parentRid ? byRid.get(wire.parentRid) : undefined;
     const tabsetId = wire.type === 'Tab'
@@ -171,6 +177,8 @@ export function reconstruct(
       ...(wire.chartHeight != null ? { height: wire.chartHeight } : {}),
       ...(ovr && ovr.length ? { overrides: ovr } : {}),
       ...(sty ? { style: sty } : {}),
+      ...(wire.type === 'DescriptionView' ? { viewTypes: [...(viewTypes ?? [])] } : {}),
+      ...(wire.type === 'DescriptionView' ? { sortVisibility: [...(sortVisibility ?? [])] } : {}),
       children: orderChildren(kids),
     };
   };
@@ -222,6 +230,7 @@ export function reconstruct(
     tabs,
     target: ctx.target ?? 'template',
     hasTemplate: ctx.hasTemplate ?? false,
+    ...(ctx.enterpriseObjectType ? { enterpriseObjectType: ctx.enterpriseObjectType } : {}),
     ...(ctx.resultOnly ? { resultOnly: true } : {}),
     // Flow projections ride alongside as a read-only map (never diffed). Empty when the fetch found no
     // flow-bearing widgets — the model then behaves exactly as before flow editing existed.
@@ -305,6 +314,8 @@ export function cloneNode(n: LNode): LNode {
     ...(n.overrides ? { overrides: [...n.overrides] } : {}),
     ...(n.resets ? { resets: [...n.resets] } : {}),
     ...(n.style ? { style: { ...n.style } } : {}), // fresh object so style edits don't mutate the baseline
+    ...(n.viewTypes ? { viewTypes: [...n.viewTypes] } : {}),
+    ...(n.sortVisibility ? { sortVisibility: [...n.sortVisibility] } : {}),
     children: n.children.map(cloneNode),
   };
 }
@@ -364,10 +375,16 @@ export function eachInSubtree(node: LNode, fn: (n: LNode) => void): void {
   for (const c of node.children) eachInSubtree(c, fn);
 }
 
-/** Do a node's editable scalar fields (column span, name, height) differ? The shared field-compare
+/** Do a node's editable authoring fields (column span, name, height, DescriptionView setup) differ? The shared field-compare
  *  behind the result canvas's `cellState` and the live view's `nodeState` "changed" classification. */
 export function fieldsChanged(a: LNode, b: LNode): boolean {
-  return a.cols.L !== b.cols.L || a.name !== b.name || a.height !== b.height;
+  const av = a.viewTypes ?? [];
+  const bv = b.viewTypes ?? [];
+  const ap = a.sortVisibility ?? [];
+  const bp = b.sortVisibility ?? [];
+  return a.cols.L !== b.cols.L || a.name !== b.name || a.height !== b.height
+    || av.length !== bv.length || av.some((value, index) => value !== bv[index])
+    || ap.length !== bp.length || ap.some((value, index) => value !== bp[index]);
 }
 
 /** All widget leaves reachable from a node (for container delete re-home). */

@@ -41,8 +41,10 @@ describe('Blueprint command header', () => {
     expect(target).not.toBeNull();
     expect(Array.from(chip.children).indexOf(settings!)).toBeLessThan(Array.from(chip.children).indexOf(target!));
     const exit = chip.querySelector<HTMLButtonElement>('.bp-exit');
+    const commitActions = chip.querySelector('.bp-commit-actions');
     expect(exit?.getAttribute('aria-label')).toBe('Exit blueprint mode');
-    expect(chip.lastElementChild).toBe(exit);
+    expect(chip.lastElementChild).toBe(commitActions);
+    expect(commitActions?.lastElementChild).toBe(exit);
   });
 
   it('opens settings from the header control', () => {

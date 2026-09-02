@@ -22,6 +22,7 @@ import { loadPortableIdConfig } from './content-blueprint/id-config';
 import { releaseNativeEditPage } from './content-blueprint/edit-page-native';
 import { ensureOverlayStyle } from './content-overlay-style';
 import { resetObjectPreview } from './lib/object-chip';
+import { blueprintFontFaceCss } from './content-blueprint/font-face';
 
 export { isBlueprintActive };
 
@@ -52,15 +53,6 @@ export function setBlueprintResumePrefer(p: 'template' | 'instance'): void { res
  *  host page, so a bare `font: … Inter` with no generic fallback dropped <button>s to the UA serif.
  *  We register the bundled woff2s under private family names and the CSS references those (with
  *  sans/mono fallbacks), so the overlay renders identically regardless of the host page's fonts. */
-function fontFaceCss(): string {
-  const inter = (w: number) => chrome.runtime.getURL(`assets/inter-${w}.woff2`);
-  const mono = chrome.runtime.getURL('assets/jetbrains-mono-400.woff2');
-  return [400, 500, 600, 700]
-    .map(w => `@font-face{font-family:'BPInter';font-weight:${w};font-display:swap;src:url('${inter(w)}') format('woff2')}`)
-    .join('') +
-    `@font-face{font-family:'BPMono';font-weight:400;font-display:swap;src:url('${mono}') format('woff2')}`;
-}
-
 function ensureStyle(): void {
   if (document.getElementById(STYLE_ID)) return;
   const s = document.createElement('style');
@@ -68,7 +60,10 @@ function ensureStyle(): void {
   // malformed @font-face block (which the file-based css-integrity test can't see —
   // fontFaceCss is generated here) can never swallow the overlay's positioning rules.
   // @font-face works regardless of declaration position, so ordering is otherwise moot.
-  s.id = STYLE_ID; s.textContent = BLUEPRINT_CSS + fontFaceCss();
+  // An already-open BMP tab keeps its old isolated world for a moment after an unpacked-extension
+  // reload. runtime.getURL throws synchronously there; the helper returns no font declarations and
+  // the stylesheet's normal fallbacks remain usable until the page receives the fresh content script.
+  s.id = STYLE_ID; s.textContent = BLUEPRINT_CSS + blueprintFontFaceCss(path => chrome.runtime.getURL(path));
   document.head.appendChild(s);
 }
 

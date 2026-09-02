@@ -95,6 +95,18 @@ describe('injected CSS integrity', () => {
     expect(responsive).toContain('.bp-header{width:calc(100vw - 16px);min-width:0;max-width:none}');
     expect(responsive).toContain('.bp-chip{flex-wrap:wrap');
     expect(responsive).toContain('.bp-page-chip{flex:1 1 140px');
+    expect(responsive).toContain('.bp-commit-actions{margin-left:auto}');
     expect(responsive).toContain('.bp-header.style .bp-paint{grid-column:2;grid-row:2');
+  });
+
+  it('keeps the DescriptionView source contained and gives it the narrow header row', () => {
+    const css = stripComments(read('src/content-blueprint.css'), 'src/content-blueprint.css');
+    expect(css).toContain('.bp-rdescription-editing{height:auto!important;min-height:180px;overflow:hidden}');
+    expect(css).toContain('.bp-dv-source select{width:128px;min-width:0;max-width:128px');
+    expect(css).toContain('@container bp-description (max-width:460px)');
+    expect(css).toContain('.bp-dv-body:has(.bp-dv-source select) .bp-dv-title');
+    expect(css).toContain('.bp-dv-body:has(.bp-dv-source select) .bp-dv-source select{flex:1;width:100%;max-width:none}');
+    expect(css).toContain('.bp-dv-property-add .crev-property-picker__list{position:static;width:100%;max-width:none;max-height:160px');
+    expect(css).toContain('@container bp-description (max-width:220px)');
   });
 });

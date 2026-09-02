@@ -442,15 +442,17 @@ export function renderChip(ctx: BlueprintCtx, pending: number): HTMLElement {
   discardB.disabled = pending === 0 || applyBusy;
   if (armed) discardB.classList.add('bp-danger');
   discardB.title = armed ? 'Click again to discard all staged changes' : 'Discard all staged changes';
-  c.appendChild(discardB);
   const applyLabel = applyPhase === 'preparing' ? 'Checking IDs…' : applyPhase === 'applying' ? 'Applying…' : `Apply${pending ? ` (${pending})` : ''}`;
   const applyB = mkBtn(applyLabel, openApplyPreview);
-  applyB.className = 'apply'; applyB.disabled = pending === 0 || !!bp.applySession; c.appendChild(applyB);
+  applyB.className = 'apply'; applyB.disabled = pending === 0 || !!bp.applySession;
   const exit = mkIconBtn(ICON_X, exitBlueprint);
   exit.classList.add('bp-exit');
   exit.title = 'Exit blueprint mode';
   exit.setAttribute('aria-label', 'Exit blueprint mode');
-  c.appendChild(exit);
+  const commitActions = document.createElement('div');
+  commitActions.className = 'bp-commit-actions';
+  commitActions.append(discardB, applyB, exit);
+  c.appendChild(commitActions);
   return c;
 }
 

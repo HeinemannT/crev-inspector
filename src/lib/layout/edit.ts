@@ -79,6 +79,30 @@ export function setStyle(m: LModel, id: string, patch: Partial<NodeStyle>): LMod
   });
 }
 
+/** Select the Ce* property source for an EnterpriseTemplate DescriptionView. The UI is singular by
+ *  design even though BMP stores `viewTypes` as a list: one view describes one enterprise object. */
+export function setDescriptionViewType(m: LModel, id: string, className: string): LModel {
+  return edit(m, c => {
+    const f = findNode(c, id);
+    if (!f || f.node.className !== 'DescriptionView') return;
+    const changed = f.node.viewTypes?.[0] !== className;
+    f.node.viewTypes = className ? [className] : [];
+    // Property accessors are class-specific. Carrying the old list to a different Ce* class would
+    // silently hide unresolved rows, so changing source starts from an explicit empty selection.
+    if (changed) f.node.sortVisibility = [];
+  });
+}
+
+/** Set the exact ordered properties rendered by a DescriptionView. Duplicates and blank accessors
+ *  are removed here so every UI path and the EC compiler sees one canonical list. */
+export function setDescriptionViewProperties(m: LModel, id: string, accessors: readonly string[]): LModel {
+  return edit(m, c => {
+    const f = findNode(c, id);
+    if (!f || f.node.className !== 'DescriptionView') return;
+    f.node.sortVisibility = [...new Set(accessors.map(value => value.trim()).filter(Boolean))];
+  });
+}
+
 export function rename(m: LModel, id: string, name: string): LModel {
   return edit(m, c => {
     const f = findNode(c, id);
@@ -158,6 +182,7 @@ export function addWidget(m: LModel, parentId: string, index: number, className:
   const node: LNode = {
     id, kind: 'widget', className, name: name ?? `New ${className}`,
     cols: { L: clampCol(colsL) || 6 }, height: isChart(className) ? 200 : undefined, children: [],
+    ...(className === 'DescriptionView' && m.enterpriseObjectType ? { viewTypes: [m.enterpriseObjectType] } : {}),
   };
   return { model: insertNode(m, parentId, index, node), id };
 }

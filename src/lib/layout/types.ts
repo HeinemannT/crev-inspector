@@ -133,6 +133,12 @@ export interface LNode {
   resets?: string[];
   /** G3 — the widget's current appearance (from the fetch); mutated in style mode to stage style edits. */
   style?: NodeStyle;
+  /** DescriptionView.viewTypes. On an EnterpriseTemplate this selects the Ce* object whose
+   *  property applications the view renders. Empty is invalid/useless there; Classic pages do not
+   *  write this field because BMP derives their object from the current page. */
+  viewTypes?: string[];
+  /** Ordered property accessors rendered by a DescriptionView (`sortVisibility`). */
+  sortVisibility?: string[];
 }
 
 /** One contributing portal TabSet. Tabs remain a flat BMP strip in `LModel.tabs`; this collection
@@ -171,6 +177,9 @@ export interface LModel {
   tabs: LNode[];
   target: SaveTarget;
   hasTemplate: boolean;
+  /** Ce* class of the enterprise instance Blueprint was opened from. Used only to default a
+   *  DescriptionView's explicit `viewTypes`; the template remains the layout/save root. */
+  enterpriseObjectType?: string;
   /** True when the page has no dedicated tabset (its widgets sit on the shared Result tab). The UI
    *  shows a "+ Create tabset" affordance in the tab bar so the configurator can organise the page. */
   resultOnly?: boolean;
@@ -319,7 +328,7 @@ export type PlanStep =
   // `styleAssign` (G3) = changed appearance props (headerColor/shadow/…) folded into the same `.change()`;
   // colour links carry the bid as the value ('' = clear), scalars carry the typed value. ec.ts maps each
   // via `styleAssignRhs`.
-  | { kind: 'update'; id: string; className: string; cols?: Partial<Record<Breakpoint, number | null>>; name?: string; height?: number | null; resetProps?: string[]; styleAssign?: { prop: string; value: string | number | boolean }[] }
+  | { kind: 'update'; id: string; className: string; cols?: Partial<Record<Breakpoint, number | null>>; name?: string; height?: number | null; viewTypes?: string[]; sortVisibility?: string[]; resetProps?: string[]; styleAssign?: { prop: string; value: string | number | boolean }[] }
   | { kind: 'reparent'; id: string; nodeKind: NodeKind; toParentId: string; toParentKind: NodeKind }
   // Minimal reorder (one op per displaced item): `moveAfter(afterId)` for the general case, or
   // `moveBefore(beforeId)` for a drag-to-front. Exactly one of afterId/beforeId is set.

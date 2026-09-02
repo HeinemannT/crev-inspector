@@ -9,7 +9,7 @@
  */
 import { findNode, isResultTab, editableTabsets } from '../lib/layout/model';
 import { bandInsertIndex } from '../lib/layout/placement';
-import { resize, setHeight, rename, remove, restoreNode, addWidget, addContainer, moveInto, swap, insertRelative, addTab, createTabset, toggleReset, setStyle } from '../lib/layout/edit';
+import { resize, setHeight, rename, remove, restoreNode, addWidget, addContainer, moveInto, swap, insertRelative, addTab, createTabset, toggleReset, setStyle, setDescriptionViewType, setDescriptionViewProperties } from '../lib/layout/edit';
 import { diff, summarizeChanges } from '../lib/layout/diff';
 import { addFlowChild, reorderFlowChild, removeFlowAdd, deleteFlowChild, setActionFlag, addActionButton, flowChangeCount, stageNewFlowContainer, wireFlowRef, unwireFlowRef, renameFlowObject, setEditFieldProperty } from '../lib/layout/flow';
 import { History } from '../lib/layout/history';
@@ -19,12 +19,13 @@ import { sendFireForget } from '../lib/messaging';
 import { showToast } from '../lib/toast';
 import { bp, model } from './state';
 import { render } from './view';
-import { applySessionIO, fetchFlowRefs, fetchFlowRefChildren, fetchEditPageSchemas, presentApplyResolution } from './service';
+import { applySessionIO, fetchFlowRefs, fetchFlowRefChildren, fetchPropertySchemas, presentApplyResolution } from './service';
 import { createApplySession, type ApplySession } from './apply-session';
 import { ensureColorSets } from './colors';
 import { loadPresets, savePreset, deletePreset } from './presets';
 import { PAINT_STYLE_PROPS } from '../lib/style-props';
 import type { StylePreset } from '../lib/style-presets';
+import { descriptionViewSourceType } from '../lib/layout/description-view';
 
 /** Push a new model state onto history and re-render. The one write path for staged edits. Flags the
  *  next render to FLIP-animate cells from their old to new positions (so moves/reorders read as motion). */
@@ -33,11 +34,21 @@ export function mutate(next: LModel): void {
   bp.history?.push(next); bp.flipNext = true; render();
 }
 
-export function select(id: string | null): void { bp.selectedId = id; bp.swatch = null; render(); }
+export function select(id: string | null): void {
+  bp.selectedId = id;
+  bp.swatch = null;
+  const current = model();
+  const selected = id && current ? findNode(current, id)?.node : null;
+  if (selected?.className === 'DescriptionView' && current) {
+    const source = descriptionViewSourceType(current, selected);
+    if (source) void fetchPropertySchemas([source]);
+  }
+  render();
+}
 export function selectEditPageField(id: string, types: readonly string[]): void {
   bp.selectedId = id;
   bp.swatch = null;
-  void fetchEditPageSchemas(types);
+  void fetchPropertySchemas(types);
   render();
 }
 export function inspectMappedProperty(rid: string): void {
@@ -104,6 +115,19 @@ export function setH(id: string, px: number): void { const m = model(); if (m) m
 /** G3: stage a style edit on a node (style mode). Patch values are concrete — a colour bid ('' clears
  *  the link), a boolean/number/enum-string. Goes through history like any edit (undo/redo). */
 export function setNodeStyle(id: string, patch: Partial<NodeStyle>): void { const m = model(); if (m) mutate(setStyle(m, id, patch)); }
+/** Stage the explicit Ce* property source of an EnterpriseTemplate DescriptionView. */
+export function setDescriptionSource(id: string, className: string): void {
+  const m = model();
+  if (m && /^Ce[A-Za-z0-9_]+$/.test(className)) {
+    void fetchPropertySchemas([className]);
+    mutate(setDescriptionViewType(m, id, className));
+  }
+}
+export function saveDescriptionProperties(id: string, accessors: readonly string[]): void {
+  const m = model();
+  if (!m) return;
+  mutate(setDescriptionViewProperties(m, id, accessors));
+}
 /** Open the colour swatch popup for a node's headerColor/fontColor slot (style mode). */
 /** G3: switch between LAYOUT editing (cols/move/rename) and STYLE editing (colours/shadow/border). A pure
  *  client-side render switch over the SAME loaded model — no refetch — so it's instant and keeps staged

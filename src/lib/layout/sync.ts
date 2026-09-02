@@ -30,7 +30,8 @@ import { occupiedPortableIdPlan, type PortableIdPlan } from './portable-ids';
 import { validateBusinessId, validateRid } from '../ec-guards';
 import { LAYOUT_SEP, PAGE_MARKER, CTX_MARKER, OVER_MARKER, LINK_MARKER, STYLE_MARKER, TAB_META_MARKER,
   FLOW_REF_MARKER, FLOW_META_MARKER, FLOW_CHILD_MARKER, FLOW_CPROP_MARKER, FLOW_TR_MARKER,
-  FLOW_LIST_MARKER, markerLines, parseLayoutNodes, safeWireTextEc } from '../layout-wire';
+  FLOW_LIST_MARKER, DESCRIPTION_VIEW_TYPES_MARKER, DESCRIPTION_VIEW_PROPERTIES_MARKER,
+  markerLines, parseLayoutNodes, safeWireTextEc } from '../layout-wire';
 import { enumMember } from '../color-util';
 import { normalizeBmpEnum, FLOW_DOT_SLOTS, FLOW_DOT_PROPS } from '../widget-metadata';
 import { ecResolveEnterpriseTemplate } from '../template-link';
@@ -107,6 +108,8 @@ const CTX = CTX_MARKER;   // page-context probe marker
 const OVER = OVER_MARKER; // F2 per-widget override channel marker
 const LINK = LINK_MARKER; // inherited instance widget -> shared template widget identity
 const STYLE = STYLE_MARKER; // G3 per-widget style channel marker
+const DVT = DESCRIPTION_VIEW_TYPES_MARKER; // DescriptionView enterprise property-source classes
+const DVP = DESCRIPTION_VIEW_PROPERTIES_MARKER; // DescriptionView ordered visible property accessors
 const TAB = TAB_META_MARKER; // tab RID → real TabSet + sortIndex
 const STRUCTURE_LIMIT = '<<<CREV_LAYOUT_LIMIT>>>';
 const EDIT_PAGE_TITLE = '<<<CREV_EDIT_PAGE_TITLE>>>';
@@ -380,6 +383,11 @@ export function buildFetchEc(ctx: BlueprintCtx, options: LayoutFetchOptions = {}
     ...(projection === 'full' && ctx.target !== 'template' ? overEmit : []),
     ...(projection === 'structure' && ctx.target !== 'template' ? linkEmit : []),
     ...(projection === 'full' ? styleEmit : []),
+    ...(projection === 'full' ? [
+      // sortVisibility accepts LIST("accessor") on write, but its getter is an opaque Java array.
+      // genedit() is the only authoritative readable representation exposed to EC.
+      `          IF _cn = "DescriptionView" THEN _l := _l + "${DVT}" + _w.id.whenMissing("") + "|" + _w.viewTypes.whenMissing(LIST()) + "\\n" + "${DVP}" + _w.id.whenMissing("") + "|\\n" + _w.genedit() + "\\n" ELSE _l := _l ENDIF`,
+    ] : []),
     `     ELSE`,
     `          _l := _l`,
     `     ENDIF`,
@@ -602,6 +610,96 @@ export function parseStyles(log: string): Map<string, NodeStyle> {
     const m2 = bool(shM); if (m2 !== undefined) s.shownOnMediumDisplay = m2;
     const s3 = bool(shS); if (s3 !== undefined) s.shownOnSmallDisplay = s3;
     if (Object.keys(s).length) map.set(bid, s);
+  }
+  return map;
+}
+
+/** Parse DescriptionView.viewTypes stringification (`[CeIssue, CeTask]`) into widget id → classes.
+ *  The UI intentionally edits one source, but preserving the fetched list here keeps load/diff honest. */
+export function parseDescriptionViewTypes(log: string): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const line of markerLines(log, DVT)) {
+    const split = line.indexOf('|');
+    if (split < 1) continue;
+    const id = line.slice(0, split);
+    const raw = line.slice(split + 1).trim();
+    const inner = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw;
+    const types = inner.split(',').map(value => value.trim()).filter(value => /^Ce[A-Za-z0-9_]+$/.test(value));
+    map.set(id, types);
+  }
+  return map;
+}
+
+function parseQuotedListAssignment(source: string, field: string): string[] {
+  const match = new RegExp(`\\b${field}\\s*:=\\s*list\\s*\\(`, 'i').exec(source);
+  if (!match) return [];
+  const values: string[] = [];
+  let index = match.index + match[0].length;
+  while (index < source.length) {
+    const char = source[index++];
+    if (char === ')') break;
+    if (char !== '"' && char !== "'") continue;
+    const quote = char;
+    let value = '';
+    while (index < source.length) {
+      const next = source[index++];
+      if (next === '\\' && index < source.length) {
+        const escaped = source[index++];
+        value += escaped === 'n' ? '\n' : escaped === 'r' ? '\r' : escaped === 't' ? '\t' : escaped;
+      } else if (next === quote) {
+        break;
+      } else {
+        value += next;
+      }
+    }
+    if (value.trim()) values.push(value.trim());
+  }
+  return values;
+}
+
+function firstGeneditChange(source: string): { statement: string; end: number } | null {
+  const startMatch = /^\s*(?:(?:Message\s*:\s*)?Result\s*:\s*)?t\./.exec(source);
+  if (!startMatch) return null;
+  const callAt = source.indexOf('.change(', startMatch.index + startMatch[0].length);
+  if (callAt < 0) return null;
+  let index = callAt + '.change('.length;
+  let depth = 1;
+  let quote = '';
+  while (index < source.length && depth > 0) {
+    const char = source[index++];
+    if (quote) {
+      if (char === '\\' && index < source.length) index++;
+      else if (char === quote) quote = '';
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === '(') {
+      depth++;
+    } else if (char === ')') {
+      depth--;
+    }
+  }
+  if (depth !== 0) return null;
+  return { statement: source.slice(0, index), end: index };
+}
+
+/** Parse DescriptionView.sortVisibility from the genedit statement following each DVP marker.
+ *  The direct getter is a Java array, not an EC List, so it cannot be enumerated in the fetch script. */
+export function parseDescriptionViewProperties(log: string): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  let cursor = 0;
+  while (cursor < log.length) {
+    const markerAt = log.indexOf(DVP, cursor);
+    if (markerAt < 0) break;
+    const payloadStart = markerAt + DVP.length;
+    const lineEnd = log.indexOf('\n', payloadStart);
+    const headerEnd = lineEnd < 0 ? log.length : lineEnd;
+    const id = log.slice(payloadStart, headerEnd).replace(/\r$/, '').split('|', 1)[0]?.trim();
+    const statementStart = lineEnd < 0 ? headerEnd : lineEnd + 1;
+    const change = firstGeneditChange(log.slice(statementStart));
+    if (id) map.set(id, change ? parseQuotedListAssignment(change.statement, 'sortVisibility') : []);
+    // Skip the entire quote-aware change call. A user-authored name/description containing a reserved
+    // marker can therefore never be mistaken for another wire record.
+    cursor = change ? statementStart + change.end : headerEnd + 1;
   }
   return map;
 }
@@ -897,6 +995,7 @@ export function buildContextEc(rid: string): string {
     `          _probe := _probe`,
     `     ENDIF`,
     `ENDIF`,
+    `_viewedClass := _probe.className.whenMissing("")`,
     ...ecResolveEnterpriseTemplate('_probe', '_tmpl'),
     `_tr := _tmpl.rid.whenMissing("")`,
     `_out := "${CTX}"`,
@@ -927,7 +1026,7 @@ export function buildContextEc(rid: string): string {
     `     _a := _cell`,
     ...buildTabsetWalkEc(),
     `     IF _tsid = "" THEN _tsid := "${DEFAULT_TABSET}" ELSE _tsid := _tsid ENDIF`,
-    `     _out := _out + "enterprise|" + _tmpl.rid + "|" + _tmpl.id.whenMissing("") + "|" + _tmpl.className.whenMissing("") + "|" + _tsid`,
+    `     _out := _out + "enterprise|" + _tmpl.rid + "|" + _tmpl.id.whenMissing("") + "|" + _tmpl.className.whenMissing("") + "|" + _tsid + "|" + _viewedClass`,
     `ELSE`,
     `     _cellFound := "no"`,
     `     _cell := _probe`,
@@ -982,13 +1081,25 @@ interface ContextProbe {
   pageRid: string; pageId: string; pageClass: string; tabsetId: string;
   hasLink: boolean; widgetCount: number; isPageHost: boolean;
   templateRid?: string; templateId?: string; // linked template (SharedWebItems), direct branch only
+  enterpriseObjectType?: string;
 }
 
-/** Decode the single `<CTX>` probe line. Both branches share the leading fields; `direct` carries the
- *  trailing link/template fields (absent → undefined). Returns null when the structural fields are blank. */
+/** Decode the single `<CTX>` probe line. The two variants deliberately decode separately after their
+ * shared identity prefix: field six is an enterprise object class in one variant and a link flag in
+ * the other, so treating them as one positional record makes future additions dangerously ambiguous. */
 function parseContextProbe(line: string): ContextProbe | null {
-  const [kind, pRid, pId, pClass, tabsetId, hasLink, wcount, tplRid, tplId, pageHost] = line.split('|');
+  const fields = line.split('|');
+  const [kind, pRid, pId, pClass, tabsetId] = fields;
   if ((kind !== 'enterprise' && kind !== 'direct') || !pRid || !pId) return null;
+  if (kind === 'enterprise') {
+    const enterpriseObjectType = /^Ce[A-Za-z0-9_]+$/.test(fields[5] ?? '') ? fields[5] : undefined;
+    return {
+      kind, pageRid: pRid, pageId: pId, pageClass: pClass || '', tabsetId: tabsetId || '',
+      hasLink: false, widgetCount: 0, isPageHost: false,
+      ...(enterpriseObjectType ? { enterpriseObjectType } : {}),
+    };
+  }
+  const [, , , , , hasLink, wcount, tplRid, tplId, pageHost] = fields;
   return {
     kind, pageRid: pRid, pageId: pId, pageClass: pClass || '', tabsetId: tabsetId || '',
     hasLink: hasLink === 'y', widgetCount: Number(wcount ?? '0'), isPageHost: pageHost === 'y',
@@ -1019,6 +1130,7 @@ export async function resolvePageContext(io: LayoutIO, rid: string): Promise<Blu
     return {
       pageId: p.pageId, pageRid: p.pageRid, pageClass: (p.pageClass || 'EnterpriseTemplate') as BlueprintCtx['pageClass'],
       tabsetId: p.tabsetId, target: 'template', hasTemplate: true, tabScope: 'all',
+      ...(p.enterpriseObjectType ? { enterpriseObjectType: p.enterpriseObjectType } : {}),
     };
   }
   if (p.pageClass === 'EditPage') {
@@ -1063,10 +1175,21 @@ export async function loadModel(io: LayoutIO, ctx: BlueprintCtx): Promise<LoadRe
   const nodes = stripWidgetContent(parseFetchLog(log)); // drop content nested inside leaf widgets (e.g. list members)
   const overrides = parseOverrides(log); // F2: per-widget overridden props (instance view → reset arrows)
   const styles = parseStyles(log);       // G3: per-widget current appearance (style mode rendering)
+  const descriptionViewTypes = parseDescriptionViewTypes(log);
+  const descriptionViewProperties = parseDescriptionViewProperties(log);
   const flows = parseFlows(log);         // flow projections keyed by flow-widget businessId (read-only)
   const tabMetadata = parseTabMetadata(log);
-  const model = reconstruct(nodes, ctx, overrides, styles, flows, tabMetadata);
-  const baseline = reconstruct(nodes, ctx, overrides, styles, flows, tabMetadata); // independent clone — diff target, never mutated
+  const model = reconstruct(nodes, ctx, overrides, styles, flows, tabMetadata, descriptionViewTypes, descriptionViewProperties);
+  const baseline = reconstruct(nodes, ctx, overrides, styles, flows, tabMetadata, descriptionViewTypes, descriptionViewProperties); // independent clone — diff target, never mutated
+  // A template DescriptionView without viewTypes cannot resolve property applications. When Blueprint
+  // was opened from a concrete Ce* instance, stage that unambiguous source as the default while keeping
+  // the baseline empty so Apply writes the repair explicitly and shows it in review.
+  const inferredEnterpriseType = ctx.enterpriseObjectType;
+  if (inferredEnterpriseType) {
+    walk(model, node => {
+      if (node.className === 'DescriptionView' && !(node.viewTypes?.length)) node.viewTypes = [inferredEnterpriseType];
+    });
+  }
   const pageName = parsePageName(log);   // names the ONE support Category new sets/pages/tabset land in
   if (pageName) { model.pageName = pageName; baseline.pageName = pageName; }
   return { model, baseline, orphans: findOrphans(nodes, model) };
@@ -1165,7 +1288,9 @@ export async function applyModel(
   // exec below isn't caught — BMP gives us no cross-call transaction, so the check is best-effort.
   // Flow drift is checked via the projection signature (flow rows live outside the layout diff).
   const live = await loadBlueprintModel(io, ctx);
-  if (diff(baseline, live.model).length > 0 || flowSignature(live.model) !== flowSignature(baseline)) {
+  // Compare against the fresh RAW baseline, not `live.model`: load may stage deterministic repairs
+  // (currently an inferred DescriptionView.viewTypes on an enterprise instance) in its editable copy.
+  if (diff(baseline, live.baseline).length > 0 || flowSignature(live.baseline) !== flowSignature(baseline)) {
     return { ok: false, noop: false, stale: true, plan, notes, script, model: live.model, baseline: live.baseline,
       error: 'The page changed since you started editing. Review the refreshed layout and reapply.' };
   }

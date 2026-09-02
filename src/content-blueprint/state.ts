@@ -40,11 +40,11 @@ export interface BpState {
   /** Page/step selection is local to each EditPage surface. A normal Blueprint can contain multiple
    * CreateObjectViews, so sharing `viewTabId` with the root page tabs would make those editors fight. */
   editPageViewKeys: Map<string, string>;
-  /** Schemas used by standalone and embedded EditPage fields, fetched once per configured object
-   * class through the shared schema service. */
-  editPageSchemas: Map<string, TypeSchemaProp[]>;
-  editPageSchemaPending: Set<string>;
-  editPageSchemaErrors: Map<string, string>;
+  /** Schemas used by EditPage fields and DescriptionView property selection, fetched once per
+   * configured object class through the shared schema service. */
+  propertySchemas: Map<string, TypeSchemaProp[]>;
+  propertySchemaPending: Set<string>;
+  propertySchemaErrors: Map<string, string>;
   applySession: ApplySession | null; // the frozen review-to-commit attempt
   applyOutcome: ApplyOutcome | null; // non-null → a persistent stale/partial/failed outcome panel is docked (cleared on dismiss / new apply / discard / reset)
   discardArm: boolean;          // Discard button armed ("Sure?"): first click arms, second discards; auto-disarms after a few seconds
@@ -127,7 +127,7 @@ export interface BpState {
 function freshState(): Omit<BpState, 'gen'> {
   return {
     active: false, baseline: null, ctx: null, env: null, history: null,
-    layer: null, selectedId: null, editPageNativeTabId: null, editPageViewKeys: new Map(), editPageSchemas: new Map(), editPageSchemaPending: new Set(), editPageSchemaErrors: new Map(), applySession: null, applyOutcome: null, discardArm: false, discardTimer: 0, actionMenuOpen: false, settingsOpen: false, idConfig: { ...DEFAULT_PORTABLE_ID_CONFIG }, idConfigStatus: 'idle', picker: null, pickerOpts: null,
+    layer: null, selectedId: null, editPageNativeTabId: null, editPageViewKeys: new Map(), propertySchemas: new Map(), propertySchemaPending: new Set(), propertySchemaErrors: new Map(), applySession: null, applyOutcome: null, discardArm: false, discardTimer: 0, actionMenuOpen: false, settingsOpen: false, idConfig: { ...DEFAULT_PORTABLE_ID_CONFIG }, idConfigStatus: 'idle', picker: null, pickerOpts: null,
     flowPicker: null, flowRefList: null, flowRefChildren: new Map(), flowRefChildrenPending: new Set(), flowFolds: new Set(), trayCardsOpen: new Set(),
     movePicker: null, tabMenu: null, tabsetPickerOpen: false, swatch: null, swatchExpanded: new Set(['Basics']),
     brush: { mode: 'off', held: null }, brushMask: new Set(PAINT_STYLE_PROPS), paintPanel: null, presets: [], presetStatus: 'idle', renameId: null,
@@ -157,7 +157,7 @@ export function resetModel(): boolean {
   bp.baseline = null; bp.ctx = null; bp.history = null;
   bp.selectedId = null; bp.viewTabId = null; bp.unusedTabsOpen = false; bp.tabsetPickerOpen = false; bp.ridSig = ''; bp.peek = false;
   bp.editPageViewKeys = new Map(); bp.editPageNativeTabId = null;
-  bp.editPageSchemas = new Map(); bp.editPageSchemaPending = new Set(); bp.editPageSchemaErrors = new Map();
+  bp.propertySchemas = new Map(); bp.propertySchemaPending = new Set(); bp.propertySchemaErrors = new Map();
   bp.resultAnchor = null; bp.actionMenuOpen = false; bp.settingsOpen = false;
   // An Apply Session is page-scoped. Cancelling at this reload chokepoint makes its late preflight,
   // impact, or commit result inert and prevents its review from appearing over the next page.

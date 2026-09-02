@@ -35,6 +35,11 @@ describe('cellState (result-view diff classification)', () => {
     expect(cellState(base, widget('w2', 5), 't1')).toBe('changed');          // 3 -> 5
     expect(cellState(base, widget('w2', 3, { name: 'renamed' }), 't1')).toBe('changed');
   });
+  it('flags a DescriptionView property-source change as changed', () => {
+    const view = widget('view', 6, { className: 'DescriptionView', viewTypes: [] });
+    const index = indexBaseline(mdl([tab('t1', [view])]));
+    expect(cellState(index, { ...view, viewTypes: ['CeIssue'] }, 't1')).toBe('changed');
+  });
   it('flags an unchanged node in place as same', () => {
     expect(cellState(base, widget('w2', 3), 't1')).toBe('same');
   });
@@ -131,6 +136,30 @@ describe('renderResult (CSS-grid mirror)', () => {
     expect(gap.dataset.bpkind).toBe('avail');
     expect(gap.dataset.bpfree).toBe('1');
     expect(gap.dataset.bpafter).toBe('w2'); // the drop path inserts after w2, keeping reading order
+  });
+
+  it('turns the selected DescriptionView body into the individual-property editor', () => {
+    const description = widget('description', 6, {
+      className: 'DescriptionView',
+      sortVisibility: ['name'],
+    });
+    const descriptionModel = mdl([tab('t1', [description])]);
+    bp.mode = 'layout';
+    bp.selectedId = description.id;
+    bp.propertySchemas.set('Scorecard', [
+      { accessor: 'name', label: 'Name', configClass: 'TextMethodConfig', systemobject: true },
+      { accessor: 'description', label: 'Description', configClass: 'TextMethodConfig', systemobject: true },
+    ]);
+    const layer = document.createElement('div');
+
+    renderResult(descriptionModel, descriptionModel, new Map([['r_description', document.createElement('div')]]), layer);
+
+    const cell = layer.querySelector('.bp-rcell[data-bpid="description"]')!;
+    expect(cell.classList.contains('bp-rdescription-editing')).toBe(true);
+    expect(cell.querySelector('.bp-dv-body.is-editing')).not.toBeNull();
+    expect(cell.querySelector('.bp-dv-source code')?.textContent).toBe('Scorecard');
+    expect(cell.querySelector('.bp-dv-property-name')?.textContent).toBe('Name');
+    expect(cell.querySelector('[aria-label="Add visible property"]')).not.toBeNull();
   });
 });
 

@@ -285,6 +285,11 @@ export interface LayoutNode {
   /** Authored chart/URLView height in px — needed so the blueprint edits from the real value
    *  rather than a default (otherwise a height edit overwrites the live height). */
   chartHeight?: number;
+  /** Enterprise object classes whose properties a DescriptionView renders (`viewTypes`).
+   *  Blueprint fetches this on a dedicated marker; absent on every other widget type. */
+  viewTypes?: string[];
+  /** Ordered DescriptionView property accessors (`sortVisibility`). */
+  sortVisibility?: string[];
 }
 
 // ── BMP object identity ─────────────────────────────────────────

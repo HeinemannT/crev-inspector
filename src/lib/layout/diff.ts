@@ -62,6 +62,24 @@ function changedStyle(a: LNode, b: LNode): { prop: string; value: string | numbe
   return out.length ? out : undefined;
 }
 
+function changedViewTypes(a: LNode, b: LNode): string[] | undefined {
+  if (a.className !== 'DescriptionView' || b.className !== 'DescriptionView') return undefined;
+  const before = a.viewTypes ?? [];
+  const after = b.viewTypes ?? [];
+  return before.length === after.length && before.every((value, index) => value === after[index])
+    ? undefined
+    : [...after];
+}
+
+function changedSortVisibility(a: LNode, b: LNode): string[] | undefined {
+  if (a.className !== 'DescriptionView' || b.className !== 'DescriptionView') return undefined;
+  const before = a.sortVisibility ?? [];
+  const after = b.sortVisibility ?? [];
+  return before.length === after.length && before.every((value, index) => value === after[index])
+    ? undefined
+    : [...after];
+}
+
 export function diff(baseline: LModel, desired: LModel): PlanStep[] {
   const A = index(baseline);
   const B = index(desired);
@@ -92,8 +110,10 @@ export function diff(baseline: LModel, desired: LModel): PlanStep[] {
     const baseResets = a.node.resets ?? [];
     const resetProps = (b.node.resets ?? []).filter(p => !baseResets.includes(p));
     const styleAssign = changedStyle(a.node, b.node); // G3 appearance edits
-    if (cols || name !== undefined || height !== undefined || resetProps.length || styleAssign) {
-      steps.push({ kind: 'update', id, className: b.node.className, cols, name, height, ...(resetProps.length ? { resetProps } : {}), ...(styleAssign ? { styleAssign } : {}) });
+    const viewTypes = changedViewTypes(a.node, b.node);
+    const sortVisibility = changedSortVisibility(a.node, b.node);
+    if (cols || name !== undefined || height !== undefined || viewTypes !== undefined || sortVisibility !== undefined || resetProps.length || styleAssign) {
+      steps.push({ kind: 'update', id, className: b.node.className, cols, name, height, ...(viewTypes !== undefined ? { viewTypes } : {}), ...(sortVisibility !== undefined ? { sortVisibility } : {}), ...(resetProps.length ? { resetProps } : {}), ...(styleAssign ? { styleAssign } : {}) });
     }
     if (a.parentId !== b.parentId) {
       steps.push({ kind: 'reparent', id, nodeKind: b.node.kind, toParentId: b.parentId, toParentKind: b.parentKind });

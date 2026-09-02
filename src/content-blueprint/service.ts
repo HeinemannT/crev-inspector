@@ -11,6 +11,8 @@ import { sendToSW } from '../lib/content-port';
 import { showToast } from '../lib/toast';
 import type { InspectorMessage } from '../lib/types';
 import type { LModel } from '../lib/layout/types';
+import { walk } from '../lib/layout/model';
+import { descriptionViewSourceType } from '../lib/layout/description-view';
 import type { FlowRefListItem } from '../lib/layout/sync';
 import { BP_RESUME_KEY } from '../lib/blueprint-resume';
 import { bp } from './state';
@@ -42,17 +44,17 @@ function rebase(m: LModel): void {
  *  overlay was toggled off — or off-then-on (a new session, higher `gen`) — must not mutate state. */
 const sameSession = (g: number): boolean => bp.active && bp.gen === g;
 
-/** Fill EditPage property catalogues from the same authoritative schema path used by Object View
- * and EC autocomplete. Requests are deduplicated across standalone and embedded surfaces. */
-export async function fetchEditPageSchemas(types: readonly string[]): Promise<void> {
+/** Fill Blueprint property catalogues from the same authoritative schema path used by Object View
+ * and EC autocomplete. Requests are shared by EditPages and DescriptionViews and deduplicated. */
+export async function fetchPropertySchemas(types: readonly string[]): Promise<void> {
   const missing = [...new Set(types)].filter(type =>
-    type && !bp.editPageSchemas.has(type) && !bp.editPageSchemaPending.has(type),
+    type && !bp.propertySchemas.has(type) && !bp.propertySchemaPending.has(type),
   );
   if (!missing.length) return;
   const g = bp.gen;
   for (const type of missing) {
-    bp.editPageSchemaPending.add(type);
-    bp.editPageSchemaErrors.delete(type);
+    bp.propertySchemaPending.add(type);
+    bp.propertySchemaErrors.delete(type);
   }
   try {
     const response = await sendRequestBounded<TypeSchemasResult>(
@@ -63,16 +65,16 @@ export async function fetchEditPageSchemas(types: readonly string[]): Promise<vo
     const byType = new Map(response.results.map(result => [result.className, result]));
     for (const type of missing) {
       const result = byType.get(type);
-      if (result?.ok && result.props) bp.editPageSchemas.set(type, result.props);
-      else bp.editPageSchemaErrors.set(type, result?.error || 'Property details unavailable');
+      if (result?.ok && result.props) bp.propertySchemas.set(type, result.props);
+      else bp.propertySchemaErrors.set(type, result?.error || 'Property details unavailable');
     }
   } catch {
     if (sameSession(g)) {
-      for (const type of missing) bp.editPageSchemaErrors.set(type, 'Property details unavailable');
+      for (const type of missing) bp.propertySchemaErrors.set(type, 'Property details unavailable');
     }
   } finally {
     if (sameSession(g)) {
-      for (const type of missing) bp.editPageSchemaPending.delete(type);
+      for (const type of missing) bp.propertySchemaPending.delete(type);
     }
   }
   if (sameSession(g)) render();
@@ -89,18 +91,25 @@ export async function loadPage(rid: string, prefer: 'template' | 'instance' = 't
     showToast(`Blueprint: ${res?.error || 'could not load this page'}`, 'error');
     return false;
   }
-  rebase(res.model);
+  const loadedModel = res.model;
+  rebase(loadedModel);
   bp.ctx = res.ctx;
   if (res.ctx.surface === 'edit-page') bp.mode = 'layout';
   bp.editingTemplate = res.ctx.editingTemplate ?? false;
   bp.env = res.env ?? null;
   const editPageTypes = [
-    ...(res.model.editPageTypes ?? []),
-    ...Object.values(res.model.flows ?? {})
+    ...(loadedModel.editPageTypes ?? []),
+    ...Object.values(loadedModel.flows ?? {})
       .filter(flow => flow.ownerClass === 'CreateObjectView' && flow.refClass === 'EditPage')
       .flatMap(flow => flow.objectTypeClass ? [flow.objectTypeClass] : []),
   ];
-  void fetchEditPageSchemas(editPageTypes);
+  const descriptionViewSources: string[] = [];
+  walk(loadedModel, node => {
+    if (node.className !== 'DescriptionView') return;
+    const source = descriptionViewSourceType(loadedModel, node);
+    if (source) descriptionViewSources.push(source);
+  });
+  void fetchPropertySchemas([...editPageTypes, ...descriptionViewSources]);
   const orphans = res.orphans?.length ?? 0;
   if (orphans) showToast(`Blueprint: ${orphans} widget${orphans === 1 ? ' is' : 's are'} bound to this page but placed on no tab or container, so the editor does not show ${orphans === 1 ? 'it' : 'them'}`, 'info');
   render();

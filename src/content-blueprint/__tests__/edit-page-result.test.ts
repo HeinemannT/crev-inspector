@@ -138,7 +138,7 @@ describe('standalone EditPage Blueprint', () => {
     const current = model();
     bp.baseline = current;
     bp.selectedId = 'field';
-    bp.editPageSchemas.set('CeProcess', [{
+    bp.propertySchemas.set('CeProcess', [{
       accessor: 'name',
       label: 'Name',
       configClass: 'TextPropertyConfig',

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  buildFetchEc, parseFetchLog, parseOverrides, parseLinkedTemplates, parseStyles, loadModel, loadStructureModel, applyModel,
+  buildFetchEc, parseFetchLog, parseOverrides, parseLinkedTemplates, parseStyles, parseDescriptionViewTypes, parseDescriptionViewProperties, loadModel, loadStructureModel, applyModel,
   resolvePageContext, buildContextEc, DEFAULT_TABSET, parsePageName, parseTabMetadata,
   buildFlowRefChildrenEc, parseFlowRefChildren, buildEditPageFetchEc, loadEditPageModel,
   type LayoutIO, type BlueprintCtx,
@@ -8,6 +8,7 @@ import {
 import { addContainer, createTabset, rename } from '../edit';
 import { addFlowChild } from '../flow';
 import { findNode } from '../model';
+import { diff } from '../diff';
 
 const CTX: BlueprintCtx = {
   pageId: '4957', pageRid: '451704949656267090', pageClass: 'Scorecard',
@@ -87,6 +88,9 @@ describe('sync.buildFetchEc', () => {
     expect(ec).toContain('_layoutClass = "ListPropertySet"');
     expect(ec).not.toContain('_sc.descendants()');
     expect(ec).toContain('<<<CREV_TAB>>>');              // provenance + global ordering metadata
+    expect(ec).toContain('<<<CREV_DVT>>>');              // DescriptionView object source
+    expect(ec).toContain('<<<CREV_DVP>>>');              // ordered property marker before genedit
+    expect(ec).toContain('_w.genedit()');
   });
   it('rejects an unsafe rid / business id (no EC injection)', () => {
     expect(() => buildFetchEc({ ...CTX, pageRid: '1); delete()' })).toThrow(/Invalid RID/);
@@ -164,6 +168,9 @@ describe('sync.buildFetchEc', () => {
     expect(ec).not.toContain('<<<CREV_OVER>>>');
     expect(ec).toContain('<<<CREV_LINK>>>');
     expect(ec).not.toContain('<<<CREV_STY>>>');
+    expect(ec).not.toContain('<<<CREV_DVT>>>');
+    expect(ec).not.toContain('<<<CREV_DVP>>>');
+    expect(ec).not.toContain('_w.genedit()');
     expect(ec).not.toContain('<<<CREV_FREF>>>');
     expect(ec.length).toBeLessThan(buildFetchEc({ ...CTX, target: 'instance' }).length * 0.39);
   });
@@ -339,7 +346,7 @@ const ENTERPRISE_LOG = [
 
 describe('sync.resolvePageContext', () => {
   it('enterprise: points the page root at the linked template and retains hidden tabs', async () => {
-    const probe = `${'<<<CREV_CTX>>>'}enterprise|${TMPL_RID}|5923|EnterpriseTemplate|default_tabset`;
+    const probe = `${'<<<CREV_CTX>>>'}enterprise|${TMPL_RID}|5923|EnterpriseTemplate|default_tabset|CeIssue`;
     const r = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '5977812347502735400');
     expect(r).not.toBeNull();
     const ctx = r as BlueprintCtx;
@@ -348,6 +355,7 @@ describe('sync.resolvePageContext', () => {
     expect(ctx.tabsetId).toBe(DEFAULT_TABSET);
     expect(ctx.tabScope).toBe('all');
     expect(ctx.target).toBe('template');
+    expect(ctx.enterpriseObjectType).toBe('CeIssue');
   });
   it('enterprise: preserves a dedicated tabset discovered from template widget placement', async () => {
     const probe = `${'<<<CREV_CTX>>>'}enterprise|${TMPL_RID}|5923|EnterpriseTemplate|org_custom_tabs`;
@@ -854,5 +862,39 @@ describe('sync.resolvePageContext (blast radius)', () => {
     const ctx = await resolvePageContext({ exec: vi.fn(async () => ({ ok: true, log: probe })) }, '1') as BlueprintCtx;
     expect(ctx.target).toBe('instance');
     expect(ctx.hasTemplate).toBe(false);
+  });
+});
+
+describe('sync DescriptionView sources', () => {
+  it('parses the dedicated viewTypes marker without changing the shared layout wire', () => {
+    const map = parseDescriptionViewTypes([
+      '<<<CREV_DVT>>>view|[CeRiskAssessment, CeIssue]',
+      '<<<CREV_DVT>>>empty|[]',
+    ].join('\n'));
+    expect(map.get('view')).toEqual(['CeRiskAssessment', 'CeIssue']);
+    expect(map.get('empty')).toEqual([]);
+  });
+
+  it('parses the ordered property list from the DescriptionView genedit channel', () => {
+    const map = parseDescriptionViewProperties([
+      '<<<CREV_DVP>>>view|',
+      "t.view.change(id := 'view', name := '<<<CREV_DVP>>>fake|', sortVisibility := list('name','owner_reference','risk\\'s_note')) //DescriptionView",
+      '<<<CREV_STY>>>next|',
+      '<<<CREV_DVP>>>empty|',
+      "t.empty.change(id := 'empty', name := 'Default') //DescriptionView",
+    ].join('\n'));
+    expect(map.get('view')).toEqual(['name', 'owner_reference', "risk's_note"]);
+    expect(map.get('empty')).toEqual([]);
+    expect(map.has('fake')).toBe(false);
+  });
+
+  it('stages the current Ce* type for an empty enterprise DescriptionView but preserves the raw baseline', async () => {
+    const io = fakeIo(`${ENTERPRISE_LOG}\n<<<CREV_DVT>>>w2|[]`);
+    const loaded = await loadModel(io, { ...ENTERPRISE_CTX, enterpriseObjectType: 'CeIssue' });
+    expect(findNode(loaded.baseline, 'w2')?.node.viewTypes).toEqual([]);
+    expect(findNode(loaded.model, 'w2')?.node.viewTypes).toEqual(['CeIssue']);
+    expect(diff(loaded.baseline, loaded.model)).toMatchObject([
+      { kind: 'update', id: 'w2', viewTypes: ['CeIssue'] },
+    ]);
   });
 });
